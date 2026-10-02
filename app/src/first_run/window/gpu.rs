@@ -192,14 +192,12 @@ impl Gpu {
     }
 
     /// Presents one frame; a lost or outdated surface is reconfigured and skipped.
-    pub(super) fn draw(&mut self, view: &PanoramaView) {
-        let frame = match self.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                self.surface.configure(&self.device, &self.config);
-                return;
-            }
-            Err(_) => return,
+    pub(super) fn draw(&mut self, view: &PanoramaView) -> Result<()> {
+        let Some(frame) = acquire_frame(self.surface.get_current_texture(), || {
+            self.surface.configure(&self.device, &self.config);
+        })?
+        else {
+            return Ok(());
         };
         let bytes: Vec<u8> = view
             .shader_uniform()
@@ -238,6 +236,7 @@ impl Gpu {
         }
         self.queue.submit([encoder.finish()]);
         frame.present();
+        Ok(())
     }
 }
 
@@ -388,4 +387,35 @@ fn pipeline(
         multiview: None,
         cache: None,
     })
+}
+
+/// Reconfigures recoverable surface losses and classifies acquisition failures.
+fn acquire_frame<T>(
+    result: Result<T, wgpu::SurfaceError>,
+    mut reconfigure: impl FnMut(),
+) -> Result<Option<T>> {
+    match result {
+        Ok(frame) => Ok(Some(frame)),
+        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            reconfigure();
+            Ok(None)
+        }
+        Err(wgpu::SurfaceError::Timeout) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn review_fatal_surface_failure_must_not_be_retried() {
+        let mut reconfigured = false;
+        let result =
+            acquire_frame::<()>(Err(wgpu::SurfaceError::OutOfMemory), || reconfigured = true);
+        // Fatal errors must reach the setup host instead of silently skipping a frame.
+        assert!(result.is_err(), "fatal surface failure was swallowed");
+        assert!(!reconfigured);
+    }
 }

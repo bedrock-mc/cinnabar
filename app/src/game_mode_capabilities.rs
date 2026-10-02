@@ -134,7 +134,7 @@ impl GameModeCapabilities {
 
     /// Whether any block use (placement or interaction) is permitted.
     pub(crate) const fn can_use_blocks(&self) -> bool {
-        self.can_build || self.can_use_switches || self.can_open_containers
+        self.can_use_items || self.can_build || self.can_use_switches || self.can_open_containers
     }
 
     /// Mode defaults with any server-sent ability bits folded in. Only bits an

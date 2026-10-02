@@ -576,3 +576,29 @@ fn play_from_edit_saves_then_opens() {
         vec![Effect::Open("id0".to_owned())]
     );
 }
+
+#[test]
+fn review_preferences_reply_cannot_unlock_a_pending_creation() {
+    let mut menu = loaded(&[]);
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetFlat(true));
+    assert!(matches!(
+        menu.update(Input::SubmitCreate).as_slice(),
+        [Effect::Create(_)]
+    ));
+    menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
+    assert!(menu.busy());
+    assert!(menu.update(Input::SubmitCreate).is_empty());
+}
+
+#[test]
+fn review_cancelled_creation_updates_the_list_without_opening_it() {
+    let mut menu = loaded(&[]);
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetFlat(true));
+    menu.update(Input::SubmitCreate);
+    menu.update(Input::Back);
+    assert!(menu.apply(Event::Created(world("fresh", "new"))).is_empty());
+    assert_eq!(menu.screen(), Screen::List);
+    assert_eq!(menu.worlds()[0].id, "fresh");
+}

@@ -29,7 +29,17 @@ impl WorldsClient {
                     if matches!(effect, Effect::PollStatus) {
                         thread::sleep(POLL_DELAY);
                     }
-                    if let Some(event) = runtime.block_on(execute(&socket_dir, effect))
+                    let preferences = matches!(effect, Effect::LoadPrefs | Effect::SetPrefs { .. });
+                    let event =
+                        runtime
+                            .block_on(execute(&socket_dir, effect))
+                            .map(|event| match event {
+                                Event::Failed(message) if preferences => {
+                                    Event::FailedPrefs(message)
+                                }
+                                event => event,
+                            });
+                    if let Some(event) = event
                         && event_tx.send(event).is_err()
                     {
                         break;

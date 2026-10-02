@@ -307,6 +307,34 @@ impl BlockUseRuntime {
         self.slow_repeat = false;
     }
 
+    /// Latches an eligible use press until a physics tick can attempt it.
+    fn observe_use(&mut self, held: bool, pressed: bool, attacking: bool) -> bool {
+        if attacking || !(held || pressed || self.latched_press) {
+            self.clear();
+            return false;
+        }
+        self.latched_press |= pressed;
+        true
+    }
+
+    /// Commits the use schedule after transport admission, retaining refused presses for retry.
+    fn admit(
+        &mut self,
+        trigger: ItemUseTrigger,
+        due: u64,
+        tick: u64,
+        local_use: LocalUse,
+        clock: RepeatClock,
+        admitted: bool,
+    ) -> bool {
+        if admitted {
+            self.record(trigger, due, tick, local_use, clock);
+        } else if trigger == ItemUseTrigger::PlayerInput {
+            self.latched_press = true;
+        }
+        admitted
+    }
+
     /// A session or position-authority change drops the press and the schedule.
     pub(crate) fn synchronize(&mut self, authority: (u64, u64)) {
         if self
@@ -417,11 +445,13 @@ pub(crate) fn produce_block_use(
         return;
     };
     let use_phase = context.input.phase(Action::Use);
-    if context.input.phase(Action::Attack).held || !(use_phase.held || use_phase.pressed) {
-        runtime.clear();
+    if !runtime.observe_use(
+        use_phase.held,
+        use_phase.pressed,
+        context.input.phase(Action::Attack).held,
+    ) {
         return;
     }
-    runtime.latched_press |= use_phase.pressed;
     // Frames between physics ticks have no unsent tick; a press waits for one.
     let Some(sample) = movement.newest_unsent_sample() else {
         return;
@@ -467,7 +497,6 @@ pub(crate) fn produce_block_use(
         &surroundings,
         &caps,
     );
-    runtime.record(trigger, due, sample.tick, local_use, clock);
     let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
     let predicted = (local_use == LocalUse::Place)
         .then(|| {
@@ -486,21 +515,14 @@ pub(crate) fn produce_block_use(
             .map(|block| (observed.target.position, block))
     });
     let local_runtime_id = stream.local_player_runtime_id();
-    if local_use == LocalUse::Place {
-        let position = destination;
-        context
-            .audio_cues
-            .write(crate::audio::LocalBlockCue::Place {
-                position,
-                block_runtime_id: observed.selection.item.block_runtime_id(),
-            });
-    }
     // Only block items keep using while held.
     if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
     {
+        runtime.record(trigger, due, sample.tick, local_use, clock);
         return;
     }
     let duration = swing_duration(context.effects.mining_effects());
+    let before_swing = swings.clone();
     let packets = use_packets(
         &observed,
         sample.position,
@@ -510,9 +532,19 @@ pub(crate) fn produce_block_use(
         |tick| swings.try_swing(tick, duration),
         sample.tick,
     );
-    let mut sent = !packets.is_empty();
-    for packet in packets {
-        sent &= context.network.send_inventory_packet(packet).is_ok();
+    let sent = !packets.is_empty() && context.network.send_inventory_packets(packets).is_ok();
+    if !runtime.admit(trigger, due, sample.tick, local_use, clock, sent) {
+        *swings = before_swing;
+        return;
+    }
+    if local_use == LocalUse::Place {
+        let position = destination;
+        context
+            .audio_cues
+            .write(crate::audio::LocalBlockCue::Place {
+                position,
+                block_runtime_id: observed.selection.item.block_runtime_id(),
+            });
     }
     // Vanilla places locally as it sends; a correction replaces the prediction.
     if let (true, Some((position, block)), Some(stream)) =

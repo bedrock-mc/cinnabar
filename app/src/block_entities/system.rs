@@ -29,7 +29,7 @@ use crate::{
     ui_runtime::UiRuntime,
 };
 
-const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
+pub(crate) const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
 /// Block entities farther than this from the eye are not drawn.
 const SCAN_RADIUS_BLOCKS: f32 = 64.0;
 const MAX_SUBMISSIONS: usize = 4_096;
@@ -42,7 +42,10 @@ const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntityScene {
     let path = world_asset_path.with_file_name(BLOCK_ENTITY_ASSETS_FILENAME);
     let mut scene = BlockEntityScene::default();
-    let bytes = match std::fs::read(&path) {
+    let bytes = match crate::bounded_file::read(
+        &path,
+        assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64,
+    ) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!(
@@ -98,8 +101,8 @@ pub(crate) struct BlockEntityRuntime {
     missing_maps: Vec<i64>,
     /// When each map id was last requested from the server, in real seconds.
     map_requests: HashMap<i64, f64>,
-    /// World session the runtime-id keyed caches were filled from.
-    session: Option<u64>,
+    /// Session and dimension the runtime-id keyed caches were filled from.
+    session: Option<(u64, i32)>,
 }
 
 impl BlockEntityRuntime {
@@ -119,12 +122,15 @@ impl BlockEntityRuntime {
     }
 
     /// Runtime ids, block states and positions mean nothing across sessions, so a
-    /// session change drops every cache keyed by them.
-    fn bind_session(&mut self, session: Option<u64>) {
+    /// session or dimension change drops every cache keyed by them.
+    fn bind_session(&mut self, session: Option<(u64, i32)>) {
         if self.session == session {
             return;
         }
         self.session = session;
+        self.cracks = CrackClock::default();
+        self.lids = ContainerLids::default();
+        self.missing_maps.clear();
         self.described.clear();
         self.blocks.clear();
         self.shapes.clear();
@@ -261,7 +267,10 @@ pub(crate) fn update_block_entity_scene(
         return;
     };
     let runtime = &mut *runtime;
-    runtime.bind_session(Some(stream.actor_session_id()));
+    runtime.bind_session(Some((
+        stream.actor_session_id(),
+        stream.current_dimension(),
+    )));
     runtime.missing_maps.clear();
     let dimension = stream.current_dimension();
     let store = stream.collision_store();
@@ -389,7 +398,12 @@ pub(crate) fn update_block_entity_scene(
     }
     runtime.lids.finish();
     runtime.described.retain(|key, _| seen.contains(key));
-    prune_bell_rings(&mut runtime.bell_rings, now_seconds);
+    prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
+        stream
+            .block_event_cue(*position)
+            .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
+            .map(|cue| cue.sequence)
+    });
     placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
 }
@@ -534,24 +548,16 @@ fn resolve(
             attachment,
             direction,
         } => {
-            if let Some(cue) = stream
+            let sequence = stream
                 .block_event_cue(position)
                 .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
-            {
-                let entry = runtime
-                    .bell_rings
-                    .entry(position)
-                    .or_insert((cue.sequence, f64::NEG_INFINITY));
-                if entry.0 != cue.sequence {
-                    *entry = (cue.sequence, context.now_seconds);
-                }
-            }
-            let seconds_since_ring = runtime
-                .bell_rings
-                .get(&position)
-                .map_or(f32::INFINITY, |(_, start)| {
-                    (context.now_seconds - start) as f32
-                });
+                .map(|cue| cue.sequence);
+            let seconds_since_ring = bell_elapsed(
+                &mut runtime.bell_rings,
+                position,
+                sequence,
+                context.now_seconds,
+            );
             Some(BlockEntityKind::Bell(BellModel {
                 attachment,
                 direction,
@@ -599,6 +605,9 @@ fn resolve(
         Template::Campfire { yaw_degrees, items } => {
             let base = render::block_matrix(position, [0.5, 0.0, 0.5], yaw_degrees);
             for (item, [x, z]) in items.iter().zip(CAMPFIRE_SLOTS) {
+                let Some(item) = item else {
+                    continue;
+                };
                 // Lie flat on the grill, sprite facing up.
                 let pose = base
                     * Mat4::from_translation(Vec3::new(x, CAMPFIRE_ITEM_HEIGHT, z))
@@ -632,13 +641,37 @@ fn resolve(
 }
 
 /// The `BlockEventPacket` type a bell ring arrives as.
+/// Starts each newly observed ring once and reports its elapsed animation time.
+fn bell_elapsed(
+    rings: &mut HashMap<[i32; 3], (u64, f64)>,
+    position: [i32; 3],
+    sequence: Option<u64>,
+    now: f64,
+) -> f32 {
+    if let Some(sequence) = sequence {
+        let entry = rings.entry(position).or_insert((sequence, now));
+        if entry.0 != sequence {
+            *entry = (sequence, now);
+        }
+    }
+    rings
+        .get(&position)
+        .map_or(f32::INFINITY, |(_, start)| (now - start) as f32)
+}
+
 const BELL_RING_EVENT_TYPE: i32 = 1;
 /// Seconds after a ring when the swing has visibly settled and its state can go.
 const BELL_RING_RETAIN_SECONDS: f64 = 10.0;
 
-/// Drops rings whose swing has settled; a still-latched cue re-enters at rest.
-fn prune_bell_rings(rings: &mut HashMap<[i32; 3], (u64, f64)>, now_seconds: f64) {
-    rings.retain(|_, (_, start)| now_seconds - *start < BELL_RING_RETAIN_SECONDS);
+/// Keeps a latched cue's sequence so an expired swing cannot restart; evicted cues age out.
+fn prune_bell_rings(
+    rings: &mut HashMap<[i32; 3], (u64, f64)>,
+    now_seconds: f64,
+    mut cue: impl FnMut(&[i32; 3]) -> Option<u64>,
+) {
+    rings.retain(|position, (sequence, start)| {
+        cue(position) == Some(*sequence) || now_seconds - *start < BELL_RING_RETAIN_SECONDS
+    });
 }
 /// Highest world Y a beacon beam is drawn to; the beam stops at the build limit.
 const BEAM_TOP: i32 = 320;
@@ -731,6 +764,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn review_first_bell_cue_starts_once() {
+        let mut rings = HashMap::new();
+        assert_eq!(bell_elapsed(&mut rings, [0; 3], Some(7), 100.0), 0.0);
+        prune_bell_rings(&mut rings, 120.0, |_| Some(7));
+        assert_eq!(bell_elapsed(&mut rings, [0; 3], Some(7), 120.0), 20.0);
+        assert_eq!(bell_elapsed(&mut rings, [0; 3], Some(8), 121.0), 0.0);
+    }
+
+    #[test]
+    fn review_session_changes_reset_container_animation() {
+        let mut runtime = BlockEntityRuntime::new();
+        runtime.bind_session(Some((1, 0)));
+        runtime
+            .lids
+            .advance([0; 3], ContainerKind::Chest, true, 1.0);
+        runtime.bind_session(Some((2, 0)));
+        assert_eq!(
+            runtime
+                .lids
+                .advance([0; 3], ContainerKind::Chest, false, 0.05),
+            0.0
+        );
+    }
+
+    #[test]
     fn light_follows_the_terrain_curve_and_night_transfer_floor() {
         assert!((light_factor(15, 0, 0.0) - 1.0).abs() < 1.0e-6);
         assert!((light_factor(0, 15, 1.0) - 1.0).abs() < 1.0e-6);
@@ -777,7 +835,7 @@ mod tests {
             ([1, 0, 0], (2, f64::NEG_INFINITY)),
             ([2, 0, 0], (3, 80.0)),
         ]);
-        prune_bell_rings(&mut rings, 101.0);
+        prune_bell_rings(&mut rings, 101.0, |_| None);
         assert_eq!(rings.keys().copied().collect::<Vec<_>>(), vec![[0, 0, 0]]);
     }
 
@@ -785,13 +843,13 @@ mod tests {
     #[test]
     fn session_change_drops_runtime_id_keyed_caches() {
         let mut runtime = BlockEntityRuntime::new();
-        runtime.bind_session(Some(1));
+        runtime.bind_session(Some((1, 0)));
         runtime.blocks.insert(7, None);
         runtime.shapes.insert(7, CrackShape::Cube);
         runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
-        runtime.bind_session(Some(1));
+        runtime.bind_session(Some((1, 0)));
         assert_eq!(runtime.blocks.len(), 1);
-        runtime.bind_session(Some(2));
+        runtime.bind_session(Some((2, 0)));
         assert!(runtime.blocks.is_empty() && runtime.shapes.is_empty());
         assert!(runtime.bell_rings.is_empty());
     }

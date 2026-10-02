@@ -122,6 +122,18 @@ pub(super) fn publish(staged: &Path, final_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Publishes completed preparation only while the run still has cancellation authority.
+pub(super) fn publish_if_active(
+    staged: &Path,
+    final_dir: &Path,
+    cancel: &AtomicBool,
+) -> Result<()> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err(Cancelled.into());
+    }
+    publish(staged, final_dir)
+}
+
 /// Restores the earlier carrier set when a publish was interrupted between its two renames.
 pub(super) fn recover(final_dir: &Path) {
     let old = previous(final_dir);
@@ -150,7 +162,15 @@ pub(super) struct ProcessExec<'a> {
 
 impl ProcessExec<'_> {
     pub(super) fn run(&self, step: &Step) -> Result<()> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(Cancelled.into());
+        }
         let mut command = self.command(&step.action)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         command
             .current_dir(&self.workspace)
             .stdin(Stdio::null())
@@ -164,12 +184,14 @@ impl ProcessExec<'_> {
                 break status;
             }
             if self.cancel.load(Ordering::Relaxed) {
-                let _ = child.kill();
-                let _ = child.wait();
+                cancel_child(&mut child);
                 return Err(Cancelled.into());
             }
             std::thread::sleep(CANCEL_POLL);
         };
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(Cancelled.into());
+        }
         if !status.success() {
             bail!("{} exited with {status}; see the first-run log", step.label);
         }
@@ -188,12 +210,33 @@ impl ProcessExec<'_> {
     }
 }
 
-const fn assetc_name() -> &'static str {
+/// The bundled compiler executable name for this platform.
+pub(super) const fn assetc_name() -> &'static str {
     if cfg!(windows) {
         "assetc.exe"
     } else {
         "assetc"
     }
+}
+
+/// Stops the isolated setup process tree and reaps its immediate child.
+fn cancel_child(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = i32::try_from(child.id())
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+    {
+        let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+    }
+    #[cfg(windows)]
+    let _ = Command::new("taskkill")
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn script_command(kit: &Path, name: &str) -> Command {
@@ -231,6 +274,68 @@ mod tests {
             action: Action::Script("x"),
             required,
         }
+    }
+
+    #[test]
+    fn review_cancellation_after_the_last_step_prevents_publication() {
+        let dir = Dir::new("late-cancel");
+        let staged = dir.path().join("staged");
+        let prepared = dir.path().join("prepared");
+        fs::create_dir(&staged).unwrap();
+        fs::write(staged.join("carrier"), b"new").unwrap();
+        let result = publish_if_active(&staged, &prepared, &AtomicBool::new(true));
+        assert!(result.is_err());
+        assert!(!prepared.exists());
+        assert!(staged.join("carrier").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn review_cancellation_stops_step_descendants() {
+        let dir = Dir::new("cancel-descendants");
+        fs::create_dir(dir.path().join("scripts")).unwrap();
+        fs::write(
+            dir.path().join("scripts/cancel-test.sh"),
+            b"sleep 30 & echo $! > descendant; wait
+",
+        )
+        .unwrap();
+        let cancel = AtomicBool::new(false);
+        let exec = ProcessExec {
+            workspace: dir.path().into(),
+            kit: dir.path().into(),
+            log: File::create(dir.path().join("log")).unwrap(),
+            cancel: &cancel,
+        };
+        let pid = std::thread::scope(|scope| {
+            let running = scope.spawn(|| {
+                exec.run(&Step {
+                    label: "cancel",
+                    required: true,
+                    action: Action::Script("cancel-test"),
+                })
+            });
+            let path = dir.path().join("descendant");
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !path.exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let raw: i32 = fs::read_to_string(path).unwrap().trim().parse().unwrap();
+            cancel.store(true, Ordering::Relaxed);
+            assert!(running.join().unwrap().unwrap_err().is::<Cancelled>());
+            rustix::process::Pid::from_raw(raw).unwrap()
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while rustix::process::test_kill_process(pid).is_ok()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let alive = rustix::process::test_kill_process(pid).is_ok();
+        if alive {
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        }
+        assert!(!alive, "setup left its descendant running");
     }
 
     #[test]

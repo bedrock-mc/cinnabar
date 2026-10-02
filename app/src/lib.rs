@@ -5,6 +5,7 @@ mod block_cracks;
 mod block_entities;
 mod block_selection;
 mod block_use;
+mod bounded_file;
 pub mod camera;
 mod environment;
 mod first_run;

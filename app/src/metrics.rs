@@ -515,7 +515,7 @@ impl MetricsCollector {
         &self.assets
     }
 
-    pub fn record_frame(&mut self, duration: Duration) {
+    pub fn record_frame(&mut self, mut duration: Duration) {
         if self.finished.is_some() {
             return;
         }
@@ -524,11 +524,8 @@ impl MetricsCollector {
                 self.frame_warmup_remaining = self.frame_warmup_remaining.saturating_sub(duration);
                 return;
             }
-            let steady_duration = duration.saturating_sub(self.frame_warmup_remaining);
+            duration = duration.saturating_sub(self.frame_warmup_remaining);
             self.frame_warmup_remaining = Duration::ZERO;
-            self.frame_histogram
-                .record(steady_duration.as_secs_f64() * 1_000.0);
-            return;
         }
         if self
             .frame_sample_limit

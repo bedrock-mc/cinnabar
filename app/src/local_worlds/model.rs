@@ -100,6 +100,7 @@ pub(crate) enum Event {
     EulaRequired,
     EulaAccepted,
     Failed(String),
+    FailedPrefs(String),
 }
 
 pub(crate) const EULA_URL: &str = "https://www.minecraft.net/eula";
@@ -154,6 +155,8 @@ pub(crate) struct WorldsMenu {
     ready: Option<String>,
     error: Option<String>,
     busy: bool,
+    /// A submitted disk mutation still owns the busy state after navigation.
+    mutation_pending: bool,
     prefs: Prefs,
     setup: Option<Setup>,
     unavailable: Option<UnavailableReason>,
@@ -319,6 +322,7 @@ impl WorldsMenu {
                 Ok(new_world) => {
                     self.form_error = None;
                     self.busy = true;
+                    self.mutation_pending = true;
                     self.screen = Screen::Create;
                     vec![Effect::Create(new_world)]
                 }
@@ -491,6 +495,7 @@ impl WorldsMenu {
                     return Vec::new();
                 };
                 self.busy = true;
+                self.mutation_pending = true;
                 vec![Effect::Delete(id)]
             }
             Input::Play if self.screen == Screen::List && self.selected().is_some() => {
@@ -529,6 +534,7 @@ impl WorldsMenu {
             return self.play_edited();
         }
         self.busy = true;
+        self.mutation_pending = true;
         vec![Effect::Update {
             id: edit.id.clone(),
             update,
@@ -596,7 +602,8 @@ impl WorldsMenu {
                 self.pending = None;
                 self.eula_for = None;
                 self.edit = None;
-                self.busy = false;
+                self.play_after_update = false;
+                self.busy = self.mutation_pending;
                 self.screen = Screen::List;
                 Vec::new()
             }
@@ -613,17 +620,23 @@ impl WorldsMenu {
                     .and_then(|id| self.worlds.iter().position(|w| w.id == id))
                     .or(Some(0));
                 self.select_clamped(index);
-                self.busy = false;
+                self.busy = self.mutation_pending;
                 Vec::new()
             }
             Event::Created(world) => {
-                // Vanilla enters a new world as soon as it is created.
+                let open = self.mutation_pending && self.screen == Screen::Create;
+                self.mutation_pending = false;
                 self.worlds.insert(0, world);
                 self.selected = Some(0);
                 self.busy = false;
-                self.gate(Pending::Play)
+                if open {
+                    self.gate(Pending::Play)
+                } else {
+                    Vec::new()
+                }
             }
             Event::Deleted(id) => {
+                self.mutation_pending = false;
                 self.worlds.retain(|w| w.id != id);
                 let index = self.selected;
                 self.select_clamped(index);
@@ -633,6 +646,7 @@ impl WorldsMenu {
                 Vec::new()
             }
             Event::Updated(world) => {
+                self.mutation_pending = false;
                 if let Some(slot) = self.worlds.iter_mut().find(|w| w.id == world.id) {
                     let size = slot.size_bytes;
                     *slot = World {
@@ -652,7 +666,7 @@ impl WorldsMenu {
             Event::Prefs(prefs, status) => {
                 self.prefs = prefs;
                 self.note_status(&status);
-                self.busy = false;
+                self.busy = self.mutation_pending;
                 if self.screen == Screen::BackendPrompt && self.prompt().is_none() {
                     return match self.pending.take() {
                         Some(pending) => self.proceed(pending),
@@ -680,7 +694,12 @@ impl WorldsMenu {
                     }
                 }
             }
-            Event::Failed(message) => {
+            Event::FailedPrefs(message) if self.mutation_pending => {
+                self.error = Some(message);
+                Vec::new()
+            }
+            Event::Failed(message) | Event::FailedPrefs(message) => {
+                self.mutation_pending = false;
                 self.opening = None;
                 self.fail(message);
                 Vec::new()

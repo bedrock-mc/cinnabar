@@ -75,6 +75,7 @@ pub(super) fn select(steps: &[Step], kit: &Path, prepared: &Path) -> Result<Sele
     let manifest = super::runner::kit_file(kit, VANILLA_MANIFEST)
         .with_context(|| format!("the preparation kit lacks {VANILLA_MANIFEST}"))?;
     let pack = file_sha256(&manifest)?;
+    let compiler = file_sha256(&kit.join("bin").join(super::runner::assetc_name()))?;
     let resolve = |arg: &str| super::runner::kit_file(kit, arg);
     let mut selection = Selection {
         run: vec![false; steps.len()],
@@ -87,7 +88,14 @@ pub(super) fn select(steps: &[Step], kit: &Path, prepared: &Path) -> Result<Sele
         let Action::Assetc(args) = &step.action else {
             continue;
         };
-        let (key, identity) = identity(args, &pack_dir, &pack, &resolve, &selection.identities)?;
+        let (key, identity) = identity(
+            args,
+            &pack_dir,
+            &pack,
+            &compiler,
+            &resolve,
+            &selection.identities,
+        )?;
         let stale = stamp.carriers.get(&key) != Some(&identity);
         if stale {
             selection.needs_pack |= args.iter().any(|arg| arg.starts_with(&pack_dir));
@@ -114,10 +122,13 @@ fn identity(
     args: &[String],
     pack_dir: &str,
     pack: &str,
+    compiler: &str,
     resolve: &dyn Fn(&str) -> Option<PathBuf>,
     earlier: &BTreeMap<String, String>,
 ) -> Result<(String, String)> {
     let mut hasher = Sha256::new();
+    hasher.update(compiler.as_bytes());
+    hasher.update([0]);
     let mut key = None;
     let mut flag: Option<&str> = None;
     for arg in args {
@@ -212,6 +223,12 @@ mod tests {
         for sub in ["assets", "data", "scripts"] {
             fs::create_dir_all(kit.join(sub)).unwrap();
         }
+        fs::create_dir_all(kit.join("bin")).unwrap();
+        fs::write(
+            kit.join("bin").join(super::super::runner::assetc_name()),
+            b"compiler-v1",
+        )
+        .unwrap();
         set_pack(&kit, "v1");
         set_font(&kit, "aa");
         fs::write(kit.join("assets/hud-source-v2193.json"), b"{}").unwrap();
@@ -254,6 +271,21 @@ mod tests {
             .map(|(step, _)| step.label)
             .collect();
         (labels, selection.needs_pack)
+    }
+
+    #[test]
+    fn review_changed_compiler_invalidates_prepared_carriers() {
+        let dir = Dir::new("compiler-change");
+        let (kit, prepared) = (kit(&dir), dir.path().join("compiled"));
+        prepare(&kit, &prepared);
+        fs::write(
+            kit.join("bin").join(super::super::runner::assetc_name()),
+            b"compiler-v2",
+        )
+        .unwrap();
+        let (labels, _) = running(&kit, &prepared);
+        assert!(labels.contains(&"Compiling world assets"));
+        assert!(labels.contains(&"Compiling the UI font"));
     }
 
     #[test]

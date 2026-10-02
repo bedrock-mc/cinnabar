@@ -3,7 +3,7 @@
 use std::{
     backtrace::Backtrace,
     fs,
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -65,8 +65,24 @@ fn write_report(crash_dir: &Path, core_log: &Path, message: &str) {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis());
-    if fs::create_dir_all(crash_dir).is_ok() {
-        let _ = fs::write(crash_dir.join(format!("crash-{millis}.json")), bytes);
+    write_at(crash_dir, millis, &bytes);
+}
+
+/// Writes one report at its timestamp without losing a simultaneous report.
+fn write_at(crash_dir: &Path, millis: u128, bytes: &[u8]) {
+    if fs::create_dir_all(crash_dir).is_err() {
+        return;
+    }
+    for suffix in 0_u64.. {
+        let path = crash_dir.join(format!("crash-{millis}-{suffix:020}.json"));
+        match fs::File::options().write(true).create_new(true).open(path) {
+            Ok(mut file) => {
+                let _ = file.write_all(bytes);
+                return;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return,
+        }
     }
 }
 
@@ -110,6 +126,22 @@ mod tests {
             .iter()
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
             .collect()
+    }
+
+    #[test]
+    fn review_same_timestamp_crashes_are_both_retained() {
+        let dir = scratch("simultaneous");
+        std::thread::scope(|scope| {
+            scope.spawn(|| write_at(&dir, 1234, b"first"));
+            scope.spawn(|| write_at(&dir, 1234, b"second"));
+        });
+        let mut contents = reports(&dir)
+            .into_iter()
+            .map(|p| fs::read(p).unwrap())
+            .collect::<Vec<_>>();
+        contents.sort();
+        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(contents, [b"first".to_vec(), b"second".to_vec()]);
     }
 
     #[test]

@@ -268,7 +268,12 @@ impl StoreState {
             }
             StoreAction::ShowMore { row } => self.show_more(usize::from(row)),
             StoreAction::Buy => {
-                let Some(offer) = self.selected.clone() else {
+                let Some(offer) = self
+                    .detail
+                    .as_ref()
+                    .map(|detail| detail.offer.clone())
+                    .or_else(|| self.selected.clone())
+                else {
                     return Vec::new();
                 };
                 let owned = offer.owned || self.owned.contains(&offer.id.to_ascii_lowercase());
@@ -708,6 +713,38 @@ mod tests {
         assert_eq!(state.flow, PurchaseFlow::Done(PurchaseDialog::Disabled));
         state.act(StoreAction::ModalPrimary);
         assert!(state.flow.is_idle());
+    }
+
+    #[test]
+    fn buy_uses_the_displayed_detail_offer() {
+        let mut state = loaded(true);
+        state.act(StoreAction::OpenOffer { row: 0, index: 0 });
+        let mut detail_offer = offer("a", None, Some(640));
+        detail_offer.title = "Current title".into();
+        detail_offer.store_id = Some("current-store".into());
+        state.apply(StoreEvent::Offer(Ok(Box::new(StoreOfferDetail {
+            offer: detail_offer.clone(),
+            description: None,
+            screenshot_urls: vec![],
+            display_version: None,
+            platforms: vec![],
+        }))));
+        assert_eq!(state.snapshot().detail.unwrap().offer, detail_offer);
+        let sent = state.act(StoreAction::Buy);
+        let [StoreRequest::Purchase(purchase)] = sent.as_slice() else {
+            panic!("expected a purchase, got {sent:?}");
+        };
+        let expected = protocol::store_control::PendingPurchase::for_offer(
+            &detail_offer,
+            &detail_offer.prices[0],
+        )
+        .unwrap()
+        .confirm(purchase.purchase_id().to_owned());
+        assert_eq!(purchase, &expected);
+        assert!(
+            matches!(&state.flow, PurchaseFlow::InProgress { offer_title, .. }
+            if offer_title == "Current title")
+        );
     }
 
     #[test]

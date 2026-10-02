@@ -1,6 +1,9 @@
 #[cfg(test)]
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use client_world::{CommittedControlEvent, ViewCohort, ViewCohortStatus};
 use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
@@ -81,6 +84,41 @@ pub(crate) struct PendingFullViewTeleport {
     pub(crate) last_progress_at: Option<Instant>,
 }
 
+impl PendingFullViewTeleport {
+    /// Folds target-column ingress without retaining packet payloads.
+    fn note_chunks(
+        &mut self,
+        dimension: i32,
+        column: [i32; 2],
+        sub: bool,
+        first: Instant,
+        last: Instant,
+        count: u64,
+    ) {
+        if !self.target.contains_column(dimension, column) {
+            return;
+        }
+        let first = first.saturating_duration_since(self.started);
+        let last = last.saturating_duration_since(self.started);
+        let (first_slot, last_slot, events) = if sub {
+            (
+                &mut self.first_sub_chunk_latency,
+                &mut self.last_sub_chunk_latency,
+                &mut self.sub_chunk_events,
+            )
+        } else {
+            (
+                &mut self.first_level_chunk_latency,
+                &mut self.last_level_chunk_latency,
+                &mut self.level_chunk_events,
+            )
+        };
+        *first_slot = Some(first_slot.map_or(first, |old| old.min(first)));
+        *last_slot = Some(last_slot.map_or(last, |old| old.max(last)));
+        *events = events.saturating_add(count);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FullViewTeleportCompletion {
     pub(crate) settle_latency: Duration,
@@ -118,6 +156,8 @@ pub(crate) struct FullViewTeleportTracker {
     pub(crate) latest_publisher_ingress: Option<(u64, ViewCohort, Instant)>,
     pub(crate) pending_move_ingress: Option<(u64, Instant, u64)>,
     pub(crate) pending: Option<PendingFullViewTeleport>,
+    early_target: Option<(i32, [i32; 2])>,
+    early_chunks: HashMap<(i32, [i32; 2], bool), (Instant, Instant, u64)>,
     pub(crate) completed: Option<Duration>,
     pub(crate) completed_target: Option<ViewCohort>,
     pub(crate) completed_target_mutation: Option<[i32; 3]>,
@@ -128,7 +168,7 @@ pub(crate) struct FullViewTeleportTracker {
 }
 
 impl FullViewTeleportTracker {
-    pub(crate) const fn new(enabled: bool) -> Self {
+    pub(crate) fn new(enabled: bool) -> Self {
         Self {
             enabled,
             origin_chunk: None,
@@ -137,6 +177,8 @@ impl FullViewTeleportTracker {
             latest_publisher_ingress: None,
             pending_move_ingress: None,
             pending: None,
+            early_target: None,
+            early_chunks: HashMap::new(),
             completed: None,
             completed_target: None,
             completed_target_mutation: None,
@@ -213,51 +255,67 @@ impl FullViewTeleportTracker {
                     .is_none_or(|(pending_sequence, _, _)| sequence < pending_sequence)
                 {
                     self.pending_move_ingress = Some((sequence, observed_at, frame_count));
+                    self.early_target = Some((current_dimension, target));
+                    self.early_chunks.clear();
                     return true;
                 }
                 false
             }
             protocol::WorldEvent::LevelChunk(event) => {
-                if let Some(pending) = &mut self.pending
-                    && sequence > pending.move_sequence
-                    && pending
-                        .target
-                        .contains_column(event.dimension, [event.x, event.z])
-                {
-                    let latency = observed_at.saturating_duration_since(pending.started);
-                    pending.first_level_chunk_latency.get_or_insert(latency);
-                    pending.last_level_chunk_latency = Some(latency);
-                    pending.level_chunk_events = pending.level_chunk_events.saturating_add(1);
-                }
+                self.note_chunk_ingress(
+                    sequence,
+                    observed_at,
+                    event.dimension,
+                    [event.x, event.z],
+                    false,
+                );
                 false
             }
             protocol::WorldEvent::SubChunks(batch) => {
-                if let Some(pending) = &mut self.pending
-                    && sequence > pending.move_sequence
-                {
-                    let target_entries = batch
-                        .entries
-                        .iter()
-                        .filter(|entry| {
-                            pending.target.contains_column(
-                                batch.dimension,
-                                [entry.position[0], entry.position[2]],
-                            )
-                        })
-                        .count();
-                    if target_entries == 0 {
-                        return false;
-                    }
-                    let latency = observed_at.saturating_duration_since(pending.started);
-                    pending.first_sub_chunk_latency.get_or_insert(latency);
-                    pending.last_sub_chunk_latency = Some(latency);
-                    pending.sub_chunk_events = pending
-                        .sub_chunk_events
-                        .saturating_add(u64::try_from(target_entries).unwrap_or(u64::MAX));
+                for entry in &batch.entries {
+                    self.note_chunk_ingress(
+                        sequence,
+                        observed_at,
+                        batch.dimension,
+                        [entry.position[0], entry.position[2]],
+                        true,
+                    );
                 }
                 false
             }
             _ => false,
+        }
+    }
+
+    /// Retains bounded per-column timings until the committed move supplies its exact cohort.
+    fn note_chunk_ingress(
+        &mut self,
+        sequence: u64,
+        at: Instant,
+        dimension: i32,
+        column: [i32; 2],
+        sub: bool,
+    ) {
+        if let Some(pending) = &mut self.pending {
+            if sequence > pending.move_sequence {
+                pending.note_chunks(dimension, column, sub, at, at, 1);
+            }
+        } else if let Some((move_sequence, _, _)) = self.pending_move_ingress
+            && sequence > move_sequence
+            && let Some((target_dimension, center)) = self.early_target
+            && dimension == target_dimension
+            && (0..2).all(|axis| {
+                i64::from(column[axis]).abs_diff(i64::from(center[axis]))
+                    <= PHASE0_REQUESTED_RADIUS_CHUNKS as u64 + 1
+            })
+        {
+            let entry = self
+                .early_chunks
+                .entry((dimension, column, sub))
+                .or_insert((at, at, 0));
+            entry.0 = entry.0.min(at);
+            entry.1 = entry.1.max(at);
+            entry.2 = entry.2.saturating_add(1);
         }
     }
 
@@ -365,6 +423,15 @@ impl FullViewTeleportTracker {
             presented_candidate: None,
             last_progress_at: None,
         });
+        self.early_target = None;
+        for ((dimension, column, sub), (first, last, count)) in
+            std::mem::take(&mut self.early_chunks)
+        {
+            self.pending
+                .as_mut()
+                .expect("just committed")
+                .note_chunks(dimension, column, sub, first, last, count);
+        }
         true
     }
 
@@ -716,3 +783,7 @@ pub(crate) fn teleport_global_stage_diagnostic_marker(
 pub(crate) fn latency_after(started: Instant, observed: Option<Instant>) -> Option<Duration> {
     observed.and_then(|observed| observed.checked_duration_since(started))
 }
+
+#[cfg(test)]
+#[path = "teleport_review_tests.rs"]
+mod review_tests;

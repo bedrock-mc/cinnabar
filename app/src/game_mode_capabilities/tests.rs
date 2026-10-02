@@ -145,3 +145,15 @@ fn later_layers_override_earlier_ones() {
     ]);
     assert!(!GameModeCapabilities::resolve(Survival, Some(&layers)).can_fly);
 }
+
+#[test]
+fn review_independent_block_uses_survive_revoked_target_abilities() {
+    let caps = GameModeCapabilities {
+        can_build: false,
+        can_use_switches: false,
+        can_open_containers: false,
+        ..GameModeCapabilities::for_mode(Survival)
+    };
+    assert!(caps.can_use_blocks());
+    assert!(!GameModeCapabilities::for_mode(Spectator).can_use_blocks());
+}

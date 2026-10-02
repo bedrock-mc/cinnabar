@@ -72,6 +72,28 @@ pub(crate) fn load_optional_equipment_assets(
 pub(crate) fn load_optional_block_entity_assets(
     world: &Path,
 ) -> Option<Arc<RuntimeBlockEntityAssets>> {
-    let bytes = std::fs::read(world.with_file_name("vanilla-v1.mcbeben")).ok()?;
-    RuntimeBlockEntityAssets::decode(&bytes).ok().map(Arc::new)
+    let path = world.with_file_name(crate::block_entities::BLOCK_ENTITY_ASSETS_FILENAME);
+    let bytes = match crate::bounded_file::read(
+        &path,
+        assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64,
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!(
+                "worn-head carrier {} unavailable ({error}); rebuild with: make block-entity-assets",
+                path.display()
+            );
+            return None;
+        }
+    };
+    match RuntimeBlockEntityAssets::decode(&bytes) {
+        Ok(assets) => Some(Arc::new(assets)),
+        Err(error) => {
+            eprintln!(
+                "worn-head carrier {} rejected ({error}); rebuild with: make block-entity-assets",
+                path.display()
+            );
+            None
+        }
+    }
 }

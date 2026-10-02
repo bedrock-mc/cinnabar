@@ -324,6 +324,11 @@ jobs:
         run: |
           bash packaging/release-notes.sh release > "$RUNNER_TEMP/notes.md"
           if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            if [[ ! -e dist/update-stable.json ]]; then
+              gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
+                [[ "$name" != update-stable.json ]] || gh release delete-asset "$RELEASE_TAG" "$name" --yes
+              done
+            fi
             gh release upload "$RELEASE_TAG" dist/* --clobber
             gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" \
               --notes-file "$RUNNER_TEMP/notes.md" --draft=false --prerelease=false

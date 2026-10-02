@@ -198,13 +198,24 @@ pub(super) fn load_font_assets(
 /// Quotes a path for copy-paste into the platform shell running `make`.
 #[cfg(windows)]
 pub(crate) fn shell_quote_path(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
+    let path = make_path_value(path).replace('\\', "/");
     format!("'{}'", path.replace('\'', "''"))
 }
 
 #[cfg(not(windows))]
 pub(crate) fn shell_quote_path(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
+    format!("'{}'", make_path_value(path).replace('\'', "'\"'\"'"))
+}
+
+/// Rejects paths that make or the build recipe shell could execute instead of treating literally.
+fn make_path_value(path: &Path) -> std::borrow::Cow<'_, str> {
+    let value = path.to_string_lossy();
+    if value.contains(['$', '`', '"', '\n', '\r']) {
+        "$(error Unsafe carrier path; choose a path without shell/make syntax and run make assets)"
+            .into()
+    } else {
+        value
+    }
 }
 
 pub(super) fn load_atmosphere_assets(
@@ -260,4 +271,41 @@ pub(super) fn load_atmosphere_assets(
         identity,
         selected_path: path,
     })
+}
+
+#[cfg(all(test, not(windows)))]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn review_rebuild_paths_cannot_expand_make_shell_functions() {
+        let directory =
+            std::env::temp_dir().join(format!("cinnabar-make-path-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let sentinel = directory.join("expanded");
+        let path = PathBuf::from(format!("$(shell touch {})", sentinel.display()));
+        let mut child = std::process::Command::new("sh")
+            .args([
+                "-c",
+                &format!("make -f - CARRIER={}", shell_quote_path(&path)),
+            ])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(
+            child.stdin.as_mut().unwrap(),
+            b"all:\n\t@printf '%s\\n' \"$(CARRIER)\"\n",
+        )
+        .unwrap();
+        drop(child.stdin.take());
+        let _ = child.wait().unwrap();
+        let executed = sentinel.exists();
+        std::fs::remove_dir_all(directory).unwrap();
+        assert!(
+            !executed,
+            "recovery guidance executed a make expression from the path"
+        );
+    }
 }

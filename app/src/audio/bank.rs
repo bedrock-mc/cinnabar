@@ -228,8 +228,8 @@ impl SoundBank {
         if let Some(found) = self.cache.get(path) {
             return PcmLookup::Ready(Arc::clone(found));
         }
-        if let Some(found) = self.ready_streams.remove(path) {
-            return PcmLookup::Ready(found);
+        if let Some(found) = self.ready_streams.get(path) {
+            return PcmLookup::Ready(Arc::clone(found));
         }
         if self.failed.contains(path) {
             return PcmLookup::Failed;
@@ -372,6 +372,28 @@ impl SoundBank {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_ready_stream_is_shared_by_all_starts_until_released() {
+        let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
+        let index = SoundBankIndex::decode_prefix(&bytes).unwrap();
+        let mut bank = SoundBank::from_parts(index, SoundEventTables::default(), None);
+        let pcm = Arc::new(Pcm {
+            channels: 1,
+            rate: 48_000,
+            samples: vec![1000; 2].into(),
+        });
+        bank.ready_streams
+            .insert("sounds/stream".into(), pcm.clone());
+        for _ in 0..2 {
+            let PcmLookup::Ready(found) = bank.lookup("sounds/stream", true) else {
+                panic!("concurrent starts must share the completed decode");
+            };
+            assert!(Arc::ptr_eq(&pcm, &found));
+        }
+        bank.release_unclaimed_streams();
+        assert!(bank.ready_streams.is_empty());
+    }
 
     #[test]
     fn absent_bank_is_none_and_music_parses() {

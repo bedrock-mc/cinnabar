@@ -282,11 +282,16 @@ impl ApplicationHandler for SetupApp {
                 let size = window.inner_size();
                 let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
                 let seconds = self.epoch.elapsed().as_secs_f32();
-                gpu.draw(&crate::ui_runtime::presentation::forms::launcher_view(
-                    seconds,
-                    aspect,
-                    PANORAMA_TINT,
-                ));
+                if let Err(error) =
+                    gpu.draw(&crate::ui_runtime::presentation::forms::launcher_view(
+                        seconds,
+                        aspect,
+                        PANORAMA_TINT,
+                    ))
+                {
+                    eprintln!("setup display failed: {error}");
+                    self.finish(EXIT_UNAVAILABLE, event_loop);
+                }
             }
             _ => {}
         }

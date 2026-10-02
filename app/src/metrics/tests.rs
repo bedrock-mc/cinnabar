@@ -765,3 +765,22 @@ fn outbound_movement_telemetry_serializes_discriminating_field_names() {
     assert_eq!(encoded["peak_pending_outbox_depth"], 2);
     assert_eq!(encoded["outbound_halted_by_authority_fault"], true);
 }
+
+#[test]
+fn review_warmup_crossing_time_counts_toward_the_sample_limit() {
+    let mut metrics = MetricsCollector::with_asset_metrics_window(
+        AssetMetrics::default(),
+        Duration::from_millis(90),
+        Duration::from_millis(10),
+    );
+    metrics.record_frame(Duration::from_millis(100));
+    metrics.record_frame(Duration::from_millis(10));
+    assert_eq!(metrics.frame_count(), 1);
+    let mut empty = MetricsCollector::with_asset_metrics_window(
+        AssetMetrics::default(),
+        Duration::from_millis(90),
+        Duration::ZERO,
+    );
+    empty.record_frame(Duration::from_millis(100));
+    assert_eq!(empty.frame_count(), 0);
+}

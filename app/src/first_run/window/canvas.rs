@@ -54,8 +54,10 @@ impl Canvas {
         let index = (y as usize * self.width as usize + x as usize) * 4;
         let pixel = &mut self.pixels[index..index + 4];
         for channel in 0..3 {
-            let source = u32::from(color[channel]) * alpha / 255;
-            pixel[channel] = (source + u32::from(pixel[channel]) * (255 - alpha) / 255) as u8;
+            let opacity = alpha as f32 / 255.0;
+            let source = srgb_to_linear(color[channel]) * opacity;
+            let destination = srgb_to_linear(pixel[channel]) * (1.0 - opacity);
+            pixel[channel] = linear_to_srgb(source + destination);
         }
         pixel[3] = (alpha + u32::from(pixel[3]) * (255 - alpha) / 255) as u8;
     }
@@ -95,6 +97,26 @@ impl Canvas {
             }
         }
     }
+}
+
+/// Decodes one stored sRGB channel for linear-light compositing.
+fn srgb_to_linear(channel: u8) -> f32 {
+    let value = f32::from(channel) / 255.0;
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Encodes a premultiplied linear channel for the GPU's sRGB texture decoder.
+fn linear_to_srgb(value: f32) -> u8 {
+    let encoded = if value <= 0.0031308 {
+        value * 12.92
+    } else {
+        1.055 * value.powf(1.0 / 2.4) - 0.055
+    };
+    (encoded * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
 /// Monocraft rasterized on demand, cached per glyph and size.
@@ -222,6 +244,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn review_overlay_premultiplies_in_linear_light() {
+        let mut canvas = Canvas::new(1, 1);
+        canvas.blend(0, 0, [255, 0, 0, 128], 255);
+        assert_eq!(canvas.pixels, vec![188, 0, 0, 128]);
+    }
+
+    #[test]
     fn fills_composite_premultiplied_source_over() {
         let mut canvas = Canvas::new(2, 1);
         canvas.fill(
@@ -242,8 +271,8 @@ mod tests {
             },
             [0, 0, 255, 128],
         );
-        assert_eq!(&canvas.pixels[..4], &[127, 0, 128, 255]);
-        assert_eq!(&canvas.pixels[4..], &[0, 0, 128, 128]);
+        assert_eq!(&canvas.pixels[..4], &[187, 0, 188, 255]);
+        assert_eq!(&canvas.pixels[4..], &[0, 0, 188, 128]);
     }
 
     #[test]

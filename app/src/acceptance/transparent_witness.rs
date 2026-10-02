@@ -83,7 +83,7 @@ pub fn poll_transparent_witness_request(
     let Some(path) = source.path.as_ref() else {
         return;
     };
-    let bytes = match std::fs::read(path) {
+    let bytes = match crate::bounded_file::read(path, MAX_WITNESS_FILE_BYTES) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             if !source.was_missing || request.revision() != 0 {
@@ -97,6 +97,7 @@ pub fn poll_transparent_witness_request(
         Err(error) => {
             *request = TransparentWitnessRequest::default();
             evidence.reset();
+            source.last_digest = None;
             eprintln!("transparent witness request read failed: {error}");
             return;
         }
@@ -156,6 +157,49 @@ mod tests {
         ] {
             assert!(decode_request(json.as_bytes()).is_err());
         }
+    }
+
+    #[test]
+    fn review_file_poller_retries_same_bytes_after_read_error() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "rust-mcbe-transparent-witness-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("request.json");
+        let valid = br#"{"schema":"rust-mcbe-transparent-witness-v1","revision":7,"dimension":0,"sub_chunks":[{"x":1,"y":4,"z":5}]}"#;
+        std::fs::write(&path, &valid).unwrap();
+
+        let mut app = App::new();
+        app.insert_resource(TransparentWitnessFileSource::new(Some(path.clone())))
+            .init_resource::<TransparentWitnessRequest>()
+            .init_resource::<TransparentWitnessEvidence>()
+            .add_systems(Update, poll_transparent_witness_request);
+        app.update();
+        assert_eq!(app.world().resource::<TransparentWitnessRequest>().revision(), 7);
+
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        app.world_mut()
+            .resource_mut::<TransparentWitnessFileSource>()
+            .next_poll = std::time::Instant::now();
+        app.update();
+        assert_eq!(app.world().resource::<TransparentWitnessRequest>().revision(), 0);
+
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, &valid).unwrap();
+        app.world_mut()
+            .resource_mut::<TransparentWitnessFileSource>()
+            .next_poll = std::time::Instant::now();
+        app.update();
+        assert_eq!(app.world().resource::<TransparentWitnessRequest>().revision(), 7);
+
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

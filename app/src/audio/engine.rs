@@ -300,6 +300,14 @@ impl AudioEngine {
 
     /// Declares (or clears) the looping ambience on `key`; reconciled on the next pump.
     pub(crate) fn set_loop(&mut self, key: &'static str, spec: Option<LoopSpec>) {
+        self.pending.retain(|start| {
+            start.managed.is_none_or(|(pending_key, _)| {
+                pending_key != key
+                    || spec
+                        .as_ref()
+                        .is_some_and(|spec| spec.name == start.request.name)
+            })
+        });
         match spec {
             Some(spec) => {
                 self.loops.insert(key, spec);
@@ -347,6 +355,9 @@ impl AudioEngine {
             }
         }
         self.refresh(listener, dt, settings);
+        if let Some(bank) = self.bank.as_mut() {
+            bank.release_unclaimed_streams();
+        }
         started
     }
 
@@ -364,14 +375,15 @@ impl AudioEngine {
         bank.poll();
         let clock = self.clock;
         for start in std::mem::take(&mut self.pending) {
+            if !start.patient && clock - start.queued_at > MAX_DECODE_WAIT_SECONDS {
+                continue;
+            }
             if self
                 .bank
                 .as_ref()
                 .is_some_and(|bank| bank.is_decoding(&start.path))
             {
-                if start.patient || clock - start.queued_at <= MAX_DECODE_WAIT_SECONDS {
-                    self.pending.push(start);
-                }
+                self.pending.push(start);
                 continue;
             }
             if let Some(source) = self.start_rolled(
@@ -383,9 +395,6 @@ impl AudioEngine {
             ) {
                 started.push(source);
             }
-        }
-        if let Some(bank) = self.bank.as_mut() {
-            bank.release_unclaimed_streams();
         }
     }
 
@@ -964,3 +973,7 @@ pub(super) mod tests {
         assert!(sources[0].next().is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "engine_review_tests.rs"]
+mod review_tests;

@@ -72,11 +72,28 @@ fn run(
     let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     let initial = files.into_iter().map(Command::Import);
     for command in initial.chain(incoming) {
-        if let Command::Action { revision, .. } = &command
+        if let Command::Action { action, revision } = &command
+            && indexed(*action)
             && *revision != snapshot.revision
         {
+            snapshot.message = "Resource pack list changed; select the pack again.".into();
+            let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
             continue;
         }
+        let changes_lists = matches!(
+            &command,
+            Command::Import(_)
+                | Command::Commit(_)
+                | Command::Action {
+                    action: Action::Activate(_)
+                        | Action::Deactivate(_)
+                        | Action::MoveUp(_)
+                        | Action::MoveDown(_)
+                        | Action::Subpack(_)
+                        | Action::Import,
+                    ..
+                }
+        );
         snapshot.busy = true;
         snapshot.message = "Updating resource packs…".into();
         let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
@@ -103,10 +120,24 @@ fn run(
             snapshot.message = error.to_string();
         }
         snapshot.busy = false;
-        snapshot.revision += 1;
+        if changes_lists {
+            snapshot.revision += 1;
+        }
         refresh(&library, &mut snapshot);
         let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     }
+}
+
+/// Only actions that refer to published list indices require that list generation.
+fn indexed(action: Action) -> bool {
+    !matches!(
+        action,
+        Action::ToggleAvailable
+            | Action::ToggleActive
+            | Action::CloseSettings
+            | Action::Import
+            | Action::Apply
+    )
 }
 
 /// Uses the protocol's single game-version constant for compatibility checks.
@@ -217,4 +248,39 @@ fn act(
         Action::Import => unreachable!("file picker handled by worker"),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn review_commands_from_one_snapshot_keep_both_panel_toggles() {
+        let root =
+            std::env::temp_dir().join(format!("cinnabar-pack-worker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (commands, incoming) = crossbeam_channel::unbounded();
+        let (outgoing, events) = crossbeam_channel::unbounded();
+        for action in [Action::ToggleAvailable, Action::ToggleActive] {
+            commands
+                .send(Command::Action {
+                    action,
+                    revision: 0,
+                })
+                .unwrap();
+        }
+        drop(commands);
+        run(root.clone(), Vec::new(), incoming, outgoing);
+        let last = events
+            .try_iter()
+            .filter_map(|event| match event {
+                Event::Snapshot(snapshot) => Some(snapshot),
+                Event::Apply(..) => None,
+            })
+            .last()
+            .unwrap();
+        assert!(!last.available_expanded);
+        assert!(!last.active_expanded);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

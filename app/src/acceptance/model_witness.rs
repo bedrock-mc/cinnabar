@@ -130,25 +130,26 @@ pub fn poll_model_witness_request(
     let Some(path) = source.path.as_ref() else {
         return;
     };
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if !source.was_missing || request.enabled() {
+    let bytes =
+        match crate::bounded_file::read(path, super::transparent_witness::MAX_WITNESS_FILE_BYTES) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if !source.was_missing || request.enabled() {
+                    *request = ModelWitnessRequest::default();
+                    evidence.reset();
+                }
+                source.was_missing = true;
+                source.last_digest = None;
+                return;
+            }
+            Err(error) => {
                 *request = ModelWitnessRequest::default();
                 evidence.reset();
+                source.last_digest = None;
+                eprintln!("model witness request read failed: {error}");
+                return;
             }
-            source.was_missing = true;
-            source.last_digest = None;
-            return;
-        }
-        Err(error) => {
-            *request = ModelWitnessRequest::default();
-            evidence.reset();
-            source.last_digest = None;
-            eprintln!("model witness request read failed: {error}");
-            return;
-        }
-    };
+        };
     source.was_missing = false;
     let digest: [u8; 32] = Sha256::digest(&bytes).into();
     if source.last_digest == Some(digest) {

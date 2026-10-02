@@ -11,4 +11,7 @@ mod sign_text;
 mod state;
 mod system;
 
-pub(crate) use system::{BlockEntityFont, BlockEntityRuntime, configure, load_block_entity_scene};
+pub(crate) use system::{
+    BLOCK_ENTITY_ASSETS_FILENAME, BlockEntityFont, BlockEntityRuntime, configure,
+    load_block_entity_scene,
+};

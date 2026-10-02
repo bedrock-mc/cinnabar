@@ -38,7 +38,7 @@ pub(super) enum Template {
     },
     Campfire {
         yaw_degrees: f32,
-        items: Vec<HeldItem>,
+        items: [Option<HeldItem>; 4],
     },
     Bell {
         attachment: BellAttachment,
@@ -302,9 +302,10 @@ pub(super) fn describe(
             }),
         "Campfire" => Some(Template::Campfire {
             yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
-            items: (1..=4)
-                .filter_map(|slot| nbt.compound(&format!("Item{slot}")).and_then(held_item))
-                .collect(),
+            items: std::array::from_fn(|slot| {
+                nbt.compound(&format!("Item{}", slot + 1))
+                    .and_then(held_item)
+            }),
         }),
         "Conduit" => Some(Template::Conduit {
             active: nbt.boolean("Active").unwrap_or(false),
@@ -373,6 +374,34 @@ mod tests {
 
     fn state(json: &str) -> BlockState {
         BlockState::parse(json)
+    }
+
+    #[test]
+    fn review_campfire_items_keep_their_nbt_slots() {
+        let compound = nbt(|out| {
+            out.extend([10, 5]);
+            out.extend(b"Item4");
+            out.extend([8, 4]);
+            out.extend(b"Name");
+            let name = b"minecraft:apple";
+            out.push(name.len() as u8);
+            out.extend(name);
+            out.push(0);
+        });
+        let Some(Template::Campfire { items, .. }) = describe(
+            "Campfire",
+            "minecraft:campfire",
+            &BlockState::default(),
+            &compound,
+            [0; 3],
+        ) else {
+            panic!("expected campfire");
+        };
+        assert!(items[..3].iter().all(Option::is_none));
+        assert_eq!(
+            items[3].as_ref().unwrap().identifier.as_ref(),
+            "minecraft:apple"
+        );
     }
 
     #[test]

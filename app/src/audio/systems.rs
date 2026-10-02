@@ -651,7 +651,7 @@ pub(super) fn drive_weather_and_particles(
         .map(|inbox| inbox.take_level_audio())
         .unwrap_or_default();
     let lookup = block_lookup(collisions.as_deref(), stream.network_id_mode());
-    let mut requests: Vec<SoundRequest> = Vec::new();
+    let mut requests: Vec<(Option<[f32; 3]>, SoundRequest)> = Vec::new();
     if let Some(bank) = engine.bank() {
         let tables = bank.tables();
         for sound in &sounds {
@@ -661,15 +661,33 @@ pub(super) fn drive_weather_and_particles(
                 }
                 None => SoundRequest::new(&*sound.name),
             };
-            requests.push(request.at(sound.position));
+            requests.push((None, request.at(sound.position)));
         }
         for (id, position, data) in destroyed {
-            requests.extend(route::destroy_block_request(
-                tables, id, position, data, &lookup,
-            ));
+            requests.extend(
+                route::destroy_block_request(tables, id, position, data, &lookup)
+                    .map(|request| (Some(position), request)),
+            );
         }
     }
-    for request in requests {
+    for (destroyed_at, request) in requests {
+        if let Some(position) = destroyed_at {
+            enqueue_destroy_sound(&mut engine, position, request);
+        } else {
+            engine.enqueue(request);
+        }
+    }
+}
+
+/// Enqueues the packet copy of a block-break sound.
+fn enqueue_destroy_sound(engine: &mut AudioEngine, position: [f32; 3], request: SoundRequest) {
+    let cell = position.map(|axis| axis.floor() as i32);
+    if engine.admit_echo(
+        EchoOrigin::Packet,
+        "break",
+        EchoSubject::Cell(cell),
+        BLOCK_ECHO_SECONDS,
+    ) {
         engine.enqueue(request);
     }
 }
@@ -721,6 +739,24 @@ mod tests {
     }
 
     // Record starts that never become (or stop being) voices must not stay tracked.
+    #[test]
+    fn review_destroy_block_packet_suppresses_the_predicted_break_echo() {
+        let mut engine = crate::audio::engine::tests::engine(&[("dig.stone", "block")]);
+        let cell = [1, 64, 2];
+        assert!(engine.admit_echo(
+            EchoOrigin::Client,
+            "break",
+            EchoSubject::Cell(cell),
+            BLOCK_ECHO_SECONDS
+        ));
+        enqueue_destroy_sound(
+            &mut engine,
+            [1.5, 64.5, 2.5],
+            SoundRequest::new("dig.stone"),
+        );
+        assert!(engine.pump(None, 0.0, &AudioSettings::default()).is_empty());
+    }
+
     #[test]
     fn record_bookkeeping_follows_voice_lifetimes() {
         let mut engine = AudioEngine::default();

@@ -42,15 +42,17 @@ impl VoiceShared {
         Arc::new(Self {
             cancel: AtomicBool::new(false),
             done: AtomicBool::new(false),
-            gain: AtomicU32::new(gain.to_bits()),
-            pan: AtomicU32::new(pan.to_bits()),
-            pitch: AtomicU32::new(pitch.to_bits()),
+            gain: AtomicU32::new(finite_or(gain, 0.0).to_bits()),
+            pan: AtomicU32::new(finite_or(pan, 0.0).to_bits()),
+            pitch: AtomicU32::new(finite_or(pitch, 1.0).to_bits()),
         })
     }
 
     pub fn set(&self, gain: f32, pan: f32) {
-        self.gain.store(gain.to_bits(), Ordering::Relaxed);
-        self.pan.store(pan.to_bits(), Ordering::Relaxed);
+        self.gain
+            .store(finite_or(gain, 0.0).to_bits(), Ordering::Relaxed);
+        self.pan
+            .store(finite_or(pan, 0.0).to_bits(), Ordering::Relaxed);
     }
 
     pub fn cancel(&self) {
@@ -60,6 +62,11 @@ impl VoiceShared {
     pub fn finished(&self) -> bool {
         self.done.load(Ordering::Acquire)
     }
+}
+
+/// Keeps malformed controls out of the mixer state.
+fn finite_or(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() { value } else { fallback }
 }
 
 fn load(cell: &AtomicU32) -> f32 {
@@ -214,6 +221,16 @@ mod tests {
             rate,
             samples: samples.into(),
         })
+    }
+
+    #[test]
+    fn review_non_finite_controls_cannot_poison_a_voice() {
+        let shared = VoiceShared::new(1.0, 0.0, f32::INFINITY);
+        let mut source = VoiceSource::new(pcm(vec![1000; 4], 1, OUTPUT_RATE), shared.clone(), true);
+        shared.set(f32::NAN, f32::NAN);
+        assert!(source.by_ref().take(32).all(|sample| sample.is_finite()));
+        shared.set(1.0, 0.0);
+        assert!(source.take(32).all(|sample| sample.is_finite()));
     }
 
     #[test]

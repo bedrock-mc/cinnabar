@@ -74,3 +74,20 @@ fn frozen_local_player_sample() -> LocalPlayerFrameSample {
 include!("camera/correction_and_evidence.rs");
 include!("camera/presentation_and_input.rs");
 include!("camera/crouch.rs");
+
+#[test]
+fn review_overflowing_quaternion_norm_is_rejected_without_publication() {
+    let mut carrier = LocalPlayerFrameCarrier::default();
+    let original = frozen_local_player_sample();
+    carrier.publish(original.clone()).unwrap();
+    let before = carrier.clone();
+    let invalid = Quat::from_xyzw(f32::MAX, f32::MAX, f32::MAX, f32::MAX);
+    let mut sample = original;
+    sample.rotation = invalid;
+    assert!(carrier.publish(sample).is_err());
+    assert_eq!(carrier, before);
+    let mut pose = LocalViewPose::default();
+    let before = pose.clone();
+    pose.set_rotation(invalid);
+    assert_eq!(pose, before);
+}

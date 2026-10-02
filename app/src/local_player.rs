@@ -155,7 +155,8 @@ impl LocalPlayerFrameCarrier {
         if !sample.feet.is_finite() {
             return Err(LocalPlayerFrameError::NonFiniteFeet);
         }
-        if !sample.rotation.is_finite() || sample.rotation.length_squared() <= f32::EPSILON {
+        let norm = sample.rotation.length_squared();
+        if !sample.rotation.is_finite() || !norm.is_finite() || norm <= f32::EPSILON {
             return Err(LocalPlayerFrameError::InvalidRotation);
         }
         let pose_generation = self
@@ -255,7 +256,8 @@ impl LocalViewPose {
     }
 
     pub fn set_rotation(&mut self, rotation: Quat) {
-        if rotation.is_finite() && rotation.length_squared() > f32::EPSILON {
+        let norm = rotation.length_squared();
+        if rotation.is_finite() && norm.is_finite() && norm > f32::EPSILON {
             self.rotation = rotation.normalize();
         }
     }

@@ -32,6 +32,7 @@ pub(crate) enum Action {
 /// Immutable view of the staged selection and worker status.
 #[derive(Clone, Debug)]
 pub(crate) struct Snapshot {
+    /// Generation of the indexed pack lists, independent of presentation updates.
     pub revision: u64,
     pub memory_tier: u32,
     pub icons: std::collections::BTreeMap<(String, u64), String>,

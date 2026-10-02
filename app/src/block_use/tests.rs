@@ -448,3 +448,28 @@ fn a_position_authority_change_drops_the_press_and_schedule() {
     assert_eq!(runtime.due(false, 1, clock(1_000, 0.0)), None);
     assert_eq!(runtime.last_use_millis, None);
 }
+
+#[test]
+fn review_quick_use_press_survives_release_before_the_next_tick() {
+    let mut runtime = BlockUseRuntime::default();
+    assert!(runtime.observe_use(true, true, false));
+    assert!(runtime.observe_use(false, false, false));
+    assert!(runtime.due(false, 1, clock(1000, 0.0)).is_some());
+}
+
+#[test]
+fn review_refused_use_preserves_the_press_and_success_schedule() {
+    let mut runtime = BlockUseRuntime::default();
+    runtime.observe_use(true, true, false);
+    assert!(!runtime.admit(
+        ItemUseTrigger::PlayerInput,
+        1000,
+        1,
+        LocalUse::Interact,
+        clock(1000, 0.0),
+        false
+    ));
+    assert!(runtime.due(false, 2, clock(1001, 0.0)).is_some());
+    assert_eq!(runtime.last_use_millis, None);
+    assert!(!runtime.interacted_at(1));
+}
