@@ -180,7 +180,12 @@ mod tests {
             .init_resource::<TransparentWitnessEvidence>()
             .add_systems(Update, poll_transparent_witness_request);
         app.update();
-        assert_eq!(app.world().resource::<TransparentWitnessRequest>().revision(), 7);
+        assert_eq!(
+            app.world()
+                .resource::<TransparentWitnessRequest>()
+                .revision(),
+            7
+        );
 
         std::fs::remove_file(&path).unwrap();
         std::fs::create_dir(&path).unwrap();
@@ -188,7 +193,12 @@ mod tests {
             .resource_mut::<TransparentWitnessFileSource>()
             .next_poll = std::time::Instant::now();
         app.update();
-        assert_eq!(app.world().resource::<TransparentWitnessRequest>().revision(), 0);
+        assert_eq!(
+            app.world()
+                .resource::<TransparentWitnessRequest>()
+                .revision(),
+            0
+        );
 
         std::fs::remove_dir(&path).unwrap();
         std::fs::write(&path, &valid).unwrap();
@@ -196,7 +206,12 @@ mod tests {
             .resource_mut::<TransparentWitnessFileSource>()
             .next_poll = std::time::Instant::now();
         app.update();
-        assert_eq!(app.world().resource::<TransparentWitnessRequest>().revision(), 7);
+        assert_eq!(
+            app.world()
+                .resource::<TransparentWitnessRequest>()
+                .revision(),
+            7
+        );
 
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_dir_all(directory).unwrap();
