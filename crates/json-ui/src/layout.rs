@@ -259,11 +259,16 @@ struct PlaceCtx<'tree, 'e, 'x> {
 /// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
 /// both, so anonymous array entries keep their own hover and press state.
 pub(crate) fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
-    let mut key = String::with_capacity(parent.len() + control.name.len() + 6);
+    instance_key(parent, &control.name, collection_index(control), repeat)
+}
+
+/// The shared identity of an instance, including patched names and collection indices.
+pub(crate) fn instance_key(parent: &str, name: &str, index: Option<u64>, repeat: usize) -> String {
+    let mut key = String::with_capacity(parent.len() + name.len() + 6);
     key.push_str(parent);
     key.push('/');
-    key.push_str(&control.name);
-    if let Some(index) = collection_index(control) {
+    key.push_str(name);
+    if let Some(index) = index {
         key.push('[');
         key.push_str(&index.to_string());
         key.push(']');

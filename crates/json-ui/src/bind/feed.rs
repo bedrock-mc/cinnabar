@@ -133,7 +133,10 @@ impl<'a> Binder<'a> {
                     .map(|(name, value)| (name.clone(), value.clone())),
             );
             item_scope.values = std::sync::Arc::new(values);
-            let repeat = siblings.of(instance.get());
+            let repeat = siblings.repeat(
+                instance.name(),
+                instance.prop("collection_index").and_then(Value::as_u64),
+            );
             nodes.push(self.build(instance, &item_scope, repeat));
         }
         nodes

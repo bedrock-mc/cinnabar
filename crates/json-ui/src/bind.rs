@@ -264,7 +264,12 @@ impl<'a> Binder<'a> {
         self.attach_item(&src, &mut scope);
         let control = src.get();
         if !self.data.components.is_empty() {
-            scope.layout_key = crate::layout::child_key(&scope.layout_key, control, repeat);
+            scope.layout_key = crate::layout::instance_key(
+                &scope.layout_key,
+                src.name(),
+                src.prop("collection_index").and_then(Value::as_u64),
+                repeat,
+            );
         }
         let for_children = declaration.bags.children(&scope.for_children);
         let retained = self.state.controls.remove(&key);
@@ -411,6 +416,16 @@ impl<'a> Binder<'a> {
     fn children_of(&mut self, node: &Node, scope: &Scope) -> Vec<Node> {
         let src = &node.src;
         let control = src.get();
+        let mut scope = scope.clone();
+        if control.control_type.as_deref() == Some("factory") && src.is_authored_child() {
+            // Factory creations are hoisted beside the factory itself.
+            scope.layout_key = scope
+                .layout_key
+                .rsplit_once('/')
+                .map_or("", |(parent, _)| parent)
+                .to_owned();
+        }
+        let scope = &scope;
         let created = if is_collection_factory(control) {
             Some(self.expand_factory(control, node, scope))
         } else if let Some(reference) = self.screen_factory(control) {

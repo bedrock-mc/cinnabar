@@ -24,6 +24,11 @@ pub(super) struct Patch {
 }
 
 impl Src {
+    /// Whether literal-child expansion will hoist this factory's creations.
+    pub(super) fn is_authored_child(&self) -> bool {
+        !self.path.is_empty()
+    }
+
     /// The immutable tree that owns this control's template.
     pub(super) fn owner(&self) -> &Arc<ResolvedControl> {
         &self.tree
