@@ -87,7 +87,7 @@ fn review_overflowing_quaternion_norm_is_rejected_without_publication() {
     assert!(carrier.publish(sample).is_err());
     assert_eq!(carrier, before);
     let mut pose = LocalViewPose::default();
-    let before = pose.clone();
+    let before = pose;
     pose.set_rotation(invalid);
     assert_eq!(pose, before);
 }

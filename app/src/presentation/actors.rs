@@ -19,7 +19,8 @@ pub(crate) struct ActorRigPresentation {
     pub(crate) submission: ActorRigSubmission,
     pub(crate) skin_rgba8: Option<Arc<[u8]>>,
     pub(crate) artwork: Option<ActorArtworkLocation>,
-    /// Authored model scale times the metadata scale.
+    /// Authored model scale times the metadata scale; placement now reads the world transform.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) model_scale: f32,
     /// Authored model scale alone; the eye-anchored first-person hand ignores the metadata scale.
     pub(crate) authored_scale: f32,

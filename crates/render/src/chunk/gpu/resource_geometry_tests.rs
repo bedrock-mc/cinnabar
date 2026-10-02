@@ -138,7 +138,7 @@ fn review_render_stale_resource_geometry_preserves_active_arena() {
     let instance = water(ChunkBiomeTintIdentity::default());
     let entity = app.world_mut().spawn(instance.clone()).id();
     let mut candidate = PreparedResourceGeometry::build(
-        &[instance.clone()],
+        std::slice::from_ref(&instance),
         ChunkTextureAssets::default(),
         device,
         queue,

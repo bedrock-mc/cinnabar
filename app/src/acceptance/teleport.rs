@@ -147,6 +147,11 @@ pub(crate) struct FullViewTeleportCompletion {
     pub(crate) frame_count: u64,
 }
 
+/// Dimension, chunk column and whether it arrived as a full sub-chunk set.
+type EarlyChunkKey = (i32, [i32; 2], bool);
+/// First seen, last seen and byte count.
+type EarlyChunkTiming = (Instant, Instant, u64);
+
 #[derive(Debug)]
 pub(crate) struct FullViewTeleportTracker {
     pub(crate) enabled: bool,
@@ -157,7 +162,7 @@ pub(crate) struct FullViewTeleportTracker {
     pub(crate) pending_move_ingress: Option<(u64, Instant, u64)>,
     pub(crate) pending: Option<PendingFullViewTeleport>,
     early_target: Option<(i32, [i32; 2])>,
-    early_chunks: HashMap<(i32, [i32; 2], bool), (Instant, Instant, u64)>,
+    early_chunks: HashMap<EarlyChunkKey, EarlyChunkTiming>,
     pub(crate) completed: Option<Duration>,
     pub(crate) completed_target: Option<ViewCohort>,
     pub(crate) completed_target_mutation: Option<[i32; 3]>,

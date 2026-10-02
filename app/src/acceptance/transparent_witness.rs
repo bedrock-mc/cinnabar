@@ -172,7 +172,7 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("request.json");
         let valid = br#"{"schema":"rust-mcbe-transparent-witness-v1","revision":7,"dimension":0,"sub_chunks":[{"x":1,"y":4,"z":5}]}"#;
-        std::fs::write(&path, &valid).unwrap();
+        std::fs::write(&path, valid).unwrap();
 
         let mut app = App::new();
         app.insert_resource(TransparentWitnessFileSource::new(Some(path.clone())))
@@ -201,7 +201,7 @@ mod tests {
         );
 
         std::fs::remove_dir(&path).unwrap();
-        std::fs::write(&path, &valid).unwrap();
+        std::fs::write(&path, valid).unwrap();
         app.world_mut()
             .resource_mut::<TransparentWitnessFileSource>()
             .next_poll = std::time::Instant::now();
