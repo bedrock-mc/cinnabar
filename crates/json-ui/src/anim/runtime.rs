@@ -127,6 +127,9 @@ impl Animator {
         now: f64,
         clocks: Option<&BTreeMap<String, f64>>,
     ) -> Written {
+        if !anims.graph.valid() {
+            return Written::default();
+        }
         let born = anims
             .clock
             .as_ref()

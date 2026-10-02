@@ -200,6 +200,9 @@ pub(super) fn control_anims(
     env: &LayoutEnv,
 ) -> Option<Arc<ControlAnims>> {
     let mut graph: AnimGraph = AnimGraph::deserialize(control.properties.get(GRAPH_KEY)?).ok()?;
+    if !graph.valid() {
+        return None;
+    }
     let size = [rect.w, rect.h];
     let rest_offset = offset(control, parent_rect, size, [0.0; 2], env);
     for node in &mut graph.nodes {

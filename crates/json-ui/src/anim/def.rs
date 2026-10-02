@@ -84,6 +84,17 @@ pub struct AnimGraph {
     pub heads: Vec<usize>,
 }
 
+impl AnimGraph {
+    /// Whether every head and link addresses a node in this graph.
+    pub(crate) fn valid(&self) -> bool {
+        self.heads.iter().all(|&index| index < self.nodes.len())
+            && self
+                .nodes
+                .iter()
+                .all(|node| node.next.is_none_or(|index| index < self.nodes.len()))
+    }
+}
+
 fn number(props: &Map<String, Value>, key: &str, fallback: f32) -> f32 {
     props
         .get(key)

@@ -164,6 +164,7 @@ impl<'a> Resolver<'a> {
         env: &Env,
         owner_ns: &str,
     ) {
+        properties.remove(anim::GRAPH_KEY);
         let catalog = self.catalog;
         let mut load = |target: &ControlRef| {
             let (def, _) = flatten_def(catalog, &target.namespace, &target.name, &mut Vec::new())?;
