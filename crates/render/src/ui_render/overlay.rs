@@ -130,7 +130,7 @@ impl<N: ViewNode, const POST: bool> ViewNode for GradeStage<N, POST> {
         (after_grade, view): QueryItem<'w, '_, Self::ViewQuery>,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
-        if after_grade != POST {
+        if (crate::ENHANCED_RENDERING_ENABLED && after_grade) != POST {
             return Ok(());
         }
         self.0.run(graph, render_context, view, world)

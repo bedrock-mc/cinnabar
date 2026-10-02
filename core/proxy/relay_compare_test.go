@@ -162,7 +162,7 @@ func BenchmarkRelayCompareShutdownWithStalledPeer(b *testing.B) {
 		down, sink := &replaySource{batches: batches}, newDiscardSink(true)
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
-		go func() { _ = relayPackets(ctx, sink, down); close(done) }()
+		go func() { _ = relayWithSessions(ctx, sink, down); close(done) }()
 		<-sink.firstWrite
 		start := time.Now()
 		cancel()

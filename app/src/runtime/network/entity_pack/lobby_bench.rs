@@ -418,29 +418,38 @@ fn frame_digest(frame: &ActorRenderFrame) -> u64 {
 }
 
 #[repr(C)]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 struct Timespec {
     seconds: i64,
     nanoseconds: i64,
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 unsafe extern "C" {
     fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
 }
 
 #[cfg(target_os = "macos")]
 const THREAD_CPU_CLOCK: i32 = 16;
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 const THREAD_CPU_CLOCK: i32 = 3;
 
 /// CPU time this thread has run, which preemption by other processes does not inflate.
-fn thread_cpu_time() -> Duration {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn thread_cpu_time() -> Option<Duration> {
     let mut time = Timespec {
         seconds: 0,
         nanoseconds: 0,
     };
     // SAFETY: `time` is a valid out pointer for the duration of the call.
-    unsafe { clock_gettime(THREAD_CPU_CLOCK, &raw mut time) };
-    Duration::new(time.seconds as u64, time.nanoseconds as u32)
+    let result = unsafe { clock_gettime(THREAD_CPU_CLOCK, &raw mut time) };
+    (result == 0).then(|| Duration::new(time.seconds as u64, time.nanoseconds as u32))
+}
+
+/// Keeps the benchmark's other measurements available without a native thread CPU clock.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn thread_cpu_time() -> Option<Duration> {
+    None
 }
 
 #[derive(Default)]
@@ -521,7 +530,10 @@ fn lobby_frame_bench() {
         let (timer, cpu_timer) = (Instant::now(), thread_cpu_time());
         world.run_system_cached(prepare_actor_render_frame).unwrap();
         world.run_system_cached(publish_actor_render_frame).unwrap();
-        let (elapsed, cpu_elapsed) = (timer.elapsed(), thread_cpu_time() - cpu_timer);
+        let elapsed = timer.elapsed();
+        let cpu_elapsed = thread_cpu_time()
+            .zip(cpu_timer)
+            .map(|(after, before)| after - before);
         let allocated = crate::tests::alloc_count::thread_allocations() - before;
         let snapshot = world
             .resource::<RuntimeStageProfiler>()
@@ -531,7 +543,9 @@ fn lobby_frame_bench() {
         if frame < 60 {
             continue;
         }
-        if cpu_elapsed > Duration::from_millis(4) {
+        if let Some(cpu_elapsed) = cpu_elapsed
+            && cpu_elapsed > Duration::from_millis(4)
+        {
             let stage =
                 |stage: RuntimeStage| snapshot.samples[stage as usize].total.as_secs_f64() * 1e3;
             eprintln!(
@@ -544,7 +558,9 @@ fn lobby_frame_bench() {
             );
         }
         total.0.push(elapsed.as_secs_f64() * 1e3);
-        cpu.0.push(cpu_elapsed.as_secs_f64() * 1e3);
+        if let Some(cpu_elapsed) = cpu_elapsed {
+            cpu.0.push(cpu_elapsed.as_secs_f64() * 1e3);
+        }
         allocations.0.push(allocated as f64);
         for (series, stage) in stages.iter_mut().zip(tracked) {
             series
@@ -583,7 +599,11 @@ fn lobby_frame_bench() {
         eprintln!("LOBBY_BENCH rejected packet {id} x{count}: {error}");
     }
     eprintln!("LOBBY_BENCH system_ms {}", total.summary());
-    eprintln!("LOBBY_BENCH system_cpu_ms {}", cpu.summary());
+    if cpu.0.is_empty() {
+        eprintln!("LOBBY_BENCH system_cpu_ms unavailable");
+    } else {
+        eprintln!("LOBBY_BENCH system_cpu_ms {}", cpu.summary());
+    }
     for (series, stage) in stages.iter_mut().zip(tracked) {
         eprintln!("LOBBY_BENCH {}_ms {}", stage.name(), series.summary());
     }

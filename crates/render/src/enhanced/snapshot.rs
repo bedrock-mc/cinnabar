@@ -32,7 +32,7 @@ impl ViewNode for EnhancedSnapshotNode {
         (entity, settings, target, depth): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        if !settings.water_reflections {
+        if !super::ENHANCED_RENDERING_ENABLED || !settings.water_reflections {
             return Ok(());
         }
         let views = world.resource::<EnhancedViews>();

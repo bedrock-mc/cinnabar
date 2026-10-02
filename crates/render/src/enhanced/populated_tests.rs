@@ -322,6 +322,7 @@ fn ui(app: &mut App) {
 }
 
 #[test]
+#[ignore = "Enhanced disabled after GPU faults and system freezes"]
 fn enhanced_from_startup_renders_populated_world_on_native_gpu() {
     let Some((mut app, camera)) = app() else {
         return;

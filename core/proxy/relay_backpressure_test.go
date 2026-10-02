@@ -97,13 +97,13 @@ func TestRelayCancellationReleasesStalledWriter(t *testing.T) {
 	down.batchReads <- batchResult{packets: stamps(1)[0]}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- relayPackets(ctx, down, sink) }()
+	go func() { done <- relayWithSessions(ctx, down, sink) }()
 	<-sink.entered
 	cancel()
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("relayPackets() error = %v, want cancellation", err)
+			t.Fatalf("relayWithSessions() error = %v, want cancellation", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("relay did not shut down with a stalled writer")
@@ -119,7 +119,7 @@ func TestRelayForwardsPartialBatchBeforeMidBatchDecodeClose(t *testing.T) {
 	up.batchReads <- batchResult{packets: delivered}
 	up.batchReads <- batchResult{err: closeErr}
 
-	err := relayPackets(context.Background(), down, up)
+	err := relayWithSessions(context.Background(), down, up)
 	if !errors.Is(err, closeErr) {
 		t.Fatalf("relay error = %v, want decode close error", err)
 	}
@@ -156,7 +156,7 @@ func TestRelayKeepsBatchBoundaryBeforeUpstreamDisconnect(t *testing.T) {
 	reason := &minecraft.DisconnectPacketError{Message: "server message", FilteredMessage: "filtered"}
 	up.batchReads <- batchResult{packets: before}
 	up.batchReads <- batchResult{err: reason}
-	if err := relayPackets(context.Background(), down, up); !errors.Is(err, reason) {
+	if err := relayWithSessions(context.Background(), down, up); !errors.Is(err, reason) {
 		t.Fatalf("relay error = %v, want disconnect", err)
 	}
 	batches := down.flushedBatches()

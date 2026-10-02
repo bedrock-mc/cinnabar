@@ -734,8 +734,10 @@ impl MenuRuntime {
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::ToggleRenderMode => {
-                self.render_mode = self.render_mode.toggled();
-                self.render_mode_request = Some(self.render_mode);
+                if render::ENHANCED_RENDERING_ENABLED {
+                    self.render_mode = self.render_mode.toggled();
+                    self.render_mode_request = Some(self.render_mode);
+                }
             }
             // The game menu opened from the death screen returns to it.
             MenuAction::PauseResume if self.death_shown => {

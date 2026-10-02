@@ -505,11 +505,21 @@
         Get-BdsSourceWorldIdentity -SourceDirectory $malformedSource -AllowMissingWorld
     } '*worlds*' 'fresh-world allowance accepted a malformed worlds entry'
     Assert-Equal 'CrossCropGallery' $crossCropPlan.Manifest.fixture_kind 'cross/crop plan lost fixture kind'
-    Assert-Equal 411 ([int]$crossCropPlan.Manifest.gallery_state_count) 'cross/crop plan did not enumerate the exact tracked Cross/Crop state set after flowerbeds moved to family 31'
+    Assert-Equal 414 ([int]$crossCropPlan.Manifest.gallery_state_count) 'cross/crop plan did not enumerate the exact tracked Cross/Crop state set'
+    Assert-Equal 250 ([int]$crossCropPlan.Manifest.coverage_evidence.cross_state_count) 'cross/crop plan lost Cross state coverage'
+    Assert-Equal 164 ([int]$crossCropPlan.Manifest.coverage_evidence.crop_state_count) 'cross/crop plan changed Crop state coverage'
+    # The pinned registry adds two poplar sapling states and one red shrub state.
+    $newCrossStates = @(
+        'minecraft:poplar_sapling|{"age_bit":{"type":"byte","value":0}}'
+        'minecraft:poplar_sapling|{"age_bit":{"type":"byte","value":1}}'
+        'minecraft:red_shrub|{}'
+    )
+    $actualNewCrossStates = @($crossCropPlan.Manifest.gallery_states | Where-Object { $_ -match '^minecraft:(poplar_sapling|red_shrub)\|' } | Sort-Object)
+    Assert-Equal ($newCrossStates -join "`n") ($actualNewCrossStates -join "`n") 'cross/crop plan lost the pinned poplar sapling or red shrub states'
     Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.cross) 'cross family diagnostic contract changed'
     Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.crop) 'crop family diagnostic contract changed'
     Assert-Equal $assetIdentity ([string]$crossCropPlan.Manifest.artifact_identity.assets_sha256) 'cross/crop plan lost asset identity'
-    Assert-Equal 413 $crossCropPlan.GalleryCommands.Count 'cross/crop gallery command coverage is not one command per tracked state plus bounded setup'
+    Assert-Equal 416 $crossCropPlan.GalleryCommands.Count 'cross/crop gallery command coverage is not one command per tracked state plus bounded setup'
     Assert-True (-not (($crossCropPlan.GalleryCommands -join "`n") -match 'seagrass|kelp')) 'Task 9 gallery included Task 10 aquatic plants'
     $firstPlan = $crossCropPlan.Manifest | ConvertTo-Json -Compress -Depth 12
     $secondPlan = (New-CrossCropGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose CrossCropGalleryFront -RegistryPath $BlockRegistry -AssetsPath $CrossCropAssets).Manifest | ConvertTo-Json -Compress -Depth 12

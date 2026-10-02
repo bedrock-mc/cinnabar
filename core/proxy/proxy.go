@@ -165,7 +165,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 			go func() {
 				defer sessions.Done()
 				err := serveAcceptedConnection(serveCtx, downstream, upstream, cfg.SocketDir, logger)
-				if err != nil && !isOrdinaryClose(err) {
+				if err != nil && !streamnet.IsClosed(err) {
 					select {
 					case sessionErr <- err:
 					default:
@@ -205,17 +205,13 @@ func serveAcceptedConnection(
 	socketDir string,
 	logger *slog.Logger,
 ) (err error) {
-	serveStarted := false
+	prepared.downstream = downstream
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = errors.Join(err, panicTypeError("starting prepared downstream session", recovered))
-		}
-		if !serveStarted {
-			err = errors.Join(err, shutdownSession(downstream), prepared.close())
+			err = errors.Join(err, panicTypeError("starting prepared downstream session", recovered), prepared.close())
 		}
 	}()
 	reportLocalClientAccepted(logger, socketDir, downstream.ClientCacheEnabled())
-	serveStarted = true
 	return servePreparedConnection(ctx, downstream, prepared)
 }
 
@@ -298,18 +294,9 @@ func cleanupHandoffConnection(conn net.Conn) error {
 	}
 	var abortErr error
 	if abortable, ok := conn.(interface{ Abort() error }); ok {
-		abortErr = callConnectionLifecycle("aborting", abortable.Abort)
+		abortErr = callSafely("aborting accepted connection", abortable.Abort)
 	}
-	return errors.Join(abortErr, callConnectionLifecycle("closing", conn.Close))
-}
-
-func callConnectionLifecycle(operation string, call func() error) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic while %s accepted connection: %v", operation, recovered)
-		}
-	}()
-	return call()
+	return errors.Join(abortErr, callSafely("closing accepted connection", conn.Close))
 }
 
 func reportLocalClientAccepted(logger *slog.Logger, socketDir string, clientCacheEnabled bool) {
@@ -349,14 +336,14 @@ func connectUpstream(
 			result = nil
 		}
 		if result == nil && owned != nil {
-			err = errors.Join(err, finishPreparedResources(true, owned, nil, nil, nil))
+			err = errors.Join(err, finishPreparedResources(owned, nil))
 		}
 	}()
 	logger.Info("upstream connection starting", "target", address, "authentication", authentication)
 	upstream, err := dialFollowingTransfers(ctx, address, func(ctx context.Context, address string) (upstreamSession, error) {
 		upstream, dialErr := dial(ctx, address)
 		if dialErr != nil && upstream != nil {
-			dialErr = errors.Join(dialErr, finishPreparedResources(true, upstream, nil, nil, nil))
+			dialErr = errors.Join(dialErr, finishPreparedResources(upstream, nil))
 			upstream = nil
 		}
 		return upstream, dialErr
@@ -427,22 +414,9 @@ type dialerDownstream interface {
 	Proto() minecraft.Protocol
 }
 
-func newUpstreamDialer(downstream dialerDownstream, tokenSource oauth2.TokenSource) minecraft.Dialer {
-	return newUpstreamDialerWithCacheTelemetry(downstream, tokenSource, nil)
-}
-
-func newUpstreamDialerWithCacheTelemetry(
-	downstream dialerDownstream,
-	tokenSource oauth2.TokenSource,
-	cacheTelemetry *cacheBoundaryTelemetry,
-) minecraft.Dialer {
-	return newUpstreamDialerForAdmission(downstream, tokenSource, cacheTelemetry, nil, nil, false)
-}
-
 func newUpstreamDialerForAdmission(
 	downstream dialerDownstream,
 	tokenSource oauth2.TokenSource,
-	cacheTelemetry *cacheBoundaryTelemetry,
 	resourcePackCache minecraft.ResourcePackCache,
 	packAdmission *resourcePackAdmissionTelemetry,
 	enableUpstreamClientCache bool,
@@ -462,16 +436,11 @@ func newUpstreamDialerForAdmission(
 		TokenSource:       tokenSource,
 		ResourcePackCache: resourcePackCache,
 	}
-	formProbe := processFormSchemaProbe()
-	if cacheTelemetry != nil || packAdmission != nil || formProbe != nil {
-		dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
-			if cacheTelemetry != nil {
-				cacheTelemetry.observeUpstreamPacket(header, payload, source, destination)
-			}
-			if packAdmission != nil && header.PacketID == packet.IDResourcePacksInfo {
+	if packAdmission != nil {
+		dialer.PacketFunc = func(header packet.Header, _ []byte, _, _ net.Addr) {
+			if header.PacketID == packet.IDResourcePacksInfo {
 				packAdmission.observeNegotiation()
 			}
-			formProbe.observe(header, payload, source, destination)
 		}
 	}
 	if tokenSource == nil {
@@ -495,49 +464,6 @@ func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {
 	}
 }
 
-func dialAndServe(ctx context.Context, downstream downstreamSession, dial func(context.Context) (upstreamSession, error)) error {
-	return dialAndServeWithCacheTelemetry(ctx, downstream, dial, nil)
-}
-
-func dialAndServeWithCacheTelemetry(
-	ctx context.Context,
-	downstream downstreamSession,
-	dial func(context.Context) (upstreamSession, error),
-	cacheTelemetry *cacheBoundaryTelemetry,
-) error {
-	type result struct {
-		upstream upstreamSession
-		err      error
-	}
-	results := make(chan result, 1)
-	go func() {
-		var upstream upstreamSession
-		err := callWithoutPanic(func() (err error) {
-			upstream, err = dial(ctx)
-			return err
-		})
-		if ctx.Err() != nil && upstream != nil {
-			err = errors.Join(err, shutdownSession(upstream))
-			upstream = nil
-		}
-		results <- result{upstream: upstream, err: err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return errors.Join(ctx.Err(), shutdownSession(downstream))
-	case result := <-results:
-		if result.err != nil {
-			return finishDialFailure(downstream, result.err)
-		}
-		return serveConnectionsWithCacheTelemetry(ctx, downstream, result.upstream, cacheTelemetry)
-	}
-}
-
-func finishDialFailure(downstream packetSession, dialErr error) error {
-	return errors.Join(fmt.Errorf("proxy: dial upstream: %w", dialErr), shutdownSession(downstream))
-}
-
 type packetSession interface {
 	ReadBatch() ([]packet.Packet, error)
 	WritePacket(packet.Packet) error
@@ -558,31 +484,11 @@ type upstreamSession interface {
 	TexturePacksRequired() bool
 }
 
-func serveConnections(ctx context.Context, downstream downstreamSession, upstream upstreamSession) (err error) {
-	return serveConnectionsWithCacheTelemetry(ctx, downstream, upstream, nil)
-}
-
-func serveConnectionsWithCacheTelemetry(
-	ctx context.Context,
-	downstream downstreamSession,
-	upstream upstreamSession,
-	cacheTelemetry *cacheBoundaryTelemetry,
-) (err error) {
-	defer func() {
-		err = errors.Join(err, shutdownSession(downstream), shutdownSession(upstream))
-	}()
-
-	return relayPacketsWithCacheTelemetry(ctx, downstream, upstream, cacheTelemetry)
-}
-
-func relayPackets(ctx context.Context, downstream, upstream packetSession) error {
-	return relayPacketsWithCacheTelemetry(ctx, downstream, upstream, nil)
-}
-
-func relayPacketsWithCacheTelemetry(
+// relayPackets preserves batches and drains terminal delivery before asking the owner to close.
+func relayPackets(
 	ctx context.Context,
 	downstream, upstream packetSession,
-	cacheTelemetry *cacheBoundaryTelemetry,
+	stop func(),
 ) error {
 	type result struct {
 		direction string
@@ -590,10 +496,10 @@ func relayPacketsWithCacheTelemetry(
 	}
 	results := make(chan result, 2)
 	go func() {
-		results <- result{"downstream to upstream", pumpPacketsWithCacheTelemetry(downstream, upstream, true, cacheTelemetry)}
+		results <- result{"downstream to upstream", pumpPackets(downstream, upstream, true)}
 	}()
 	go func() {
-		results <- result{"upstream to downstream", pumpPacketsWithCacheTelemetry(upstream, downstream, false, cacheTelemetry)}
+		results <- result{"upstream to downstream", pumpPackets(upstream, downstream, false)}
 	}()
 
 	var first result
@@ -621,7 +527,7 @@ func relayPacketsWithCacheTelemetry(
 		completed := make(chan error, 1)
 		delivery = completed
 		go func() {
-			completed <- callWithoutPanic(func() error {
+			completed <- callSafely("delivering disconnect", func() error {
 				return downstream.WritePacketImmediate(&disconnect.value)
 			})
 		}()
@@ -632,7 +538,8 @@ func relayPacketsWithCacheTelemetry(
 			deliveryErr = ctx.Err()
 		}
 	}
-	closeErr := errors.Join(deliveryErr, shutdownSession(downstream), shutdownSession(upstream))
+	stop()
+	closeErr := deliveryErr
 	if delivery != nil {
 		closeErr = errors.Join(closeErr, <-delivery)
 	}
@@ -650,47 +557,28 @@ func relayPacketsWithCacheTelemetry(
 	}
 	var relayErr error
 	for _, result := range []result{first, second} {
-		if result.err != nil && !isOrdinaryClose(result.err) {
+		if result.err != nil && !streamnet.IsClosed(result.err) {
 			relayErr = errors.Join(relayErr, fmt.Errorf("proxy: relay %s: %w", result.direction, result.err))
 		}
 	}
 	return errors.Join(relayErr, closeErr)
 }
 
-func closeSession(session packetSession) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic while closing session: %v", recovered)
-		}
-	}()
-	return session.Close()
-}
-
-func abortSession(session packetSession) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic while aborting session: %v", recovered)
-		}
-	}()
-	return session.Abort()
-}
-
+// shutdownSession unblocks I/O before Close can flush or wait.
 func shutdownSession(session packetSession) error {
-	return errors.Join(abortSession(session), closeSession(session))
+	if session == nil {
+		return nil
+	}
+	return errors.Join(callSafely("aborting session", session.Abort), callSafely("closing session", session.Close))
 }
 
-func pumpPackets(source, destination packetSession, fromDownstream bool) (err error) {
-	return pumpPacketsWithCacheTelemetry(source, destination, fromDownstream, nil)
-}
-
-func pumpPacketsWithCacheTelemetry(
+func pumpPackets(
 	source, destination packetSession,
 	fromDownstream bool,
-	cacheTelemetry *cacheBoundaryTelemetry,
 ) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic while relaying packets: %v", recovered)
+			err = panicTypeError("relaying packets", recovered)
 		}
 	}()
 	var upstreamIdentity login.IdentityData
@@ -721,9 +609,6 @@ func pumpPacketsWithCacheTelemetry(
 			if fromDownstream {
 				value = normalizeUpstreamChatIdentity(value, upstreamIdentity)
 			}
-			if !fromDownstream && cacheTelemetry != nil {
-				cacheTelemetry.observeRelayPacket(value)
-			}
 			if err := destination.WritePacket(value); err != nil {
 				return attributeRelayError(err, fromDownstream)
 			}
@@ -746,12 +631,11 @@ type batchReadResult struct {
 // packetReader returns source's network batches one at a time and owns every flush of
 // destination, so a batch is never cut by a timer or a write inside packet handling.
 type packetReader struct {
-	destination   packetSession
-	upstream      bool // the source is upstream, which attributes its errors
-	results       <-chan batchReadResult
-	flushRequests chan struct{}
-	idle          *time.Ticker
-	done          chan struct{}
+	destination packetSession
+	upstream    bool // the source is upstream, which attributes its errors
+	results     <-chan batchReadResult
+	idle        *time.Ticker
+	done        chan struct{}
 }
 
 func newPacketReader(source, destination packetSession, upstream bool, idle time.Duration) *packetReader {
@@ -771,19 +655,19 @@ func newPacketReader(source, destination packetSession, upstream bool, idle time
 			}
 		}
 	}()
-	return &packetReader{destination: destination, upstream: upstream, results: results, flushRequests: make(chan struct{}, 1), idle: time.NewTicker(idle), done: done}
+	return &packetReader{destination: destination, upstream: upstream, results: results, idle: time.NewTicker(idle), done: done}
 }
 
 func callBatchRead(source packetSession) (packets []packet.Packet, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic while reading packets: %v", recovered)
+			err = panicTypeError("reading packets", recovered)
 		}
 	}()
 	return source.ReadBatch()
 }
 
-// Read returns the next source batch, serving flush requests and the idle flush while it waits.
+// Read returns the next source batch, serving the idle flush while it waits.
 func (reader *packetReader) Read() ([]packet.Packet, error) {
 	for {
 		select {
@@ -799,29 +683,13 @@ func (reader *packetReader) Read() ([]packet.Packet, error) {
 			if err := reader.flushDestination(); err != nil {
 				return nil, err
 			}
-		case <-reader.flushRequests:
-			if err := reader.flushDestination(); err != nil {
-				return nil, err
-			}
 		}
 	}
 }
 
-// Flush ends the forwarded batch, satisfying any pending flush request.
+// Flush ends the forwarded batch.
 func (reader *packetReader) Flush() error {
-	select {
-	case <-reader.flushRequests:
-	default:
-	}
 	return reader.flushDestination()
-}
-
-// RequestFlush asks for a flush at the next boundary; requests coalesce.
-func (reader *packetReader) RequestFlush() {
-	select {
-	case reader.flushRequests <- struct{}{}:
-	default:
-	}
 }
 
 func (reader *packetReader) Close() {
@@ -845,38 +713,12 @@ func normalizeUpstreamChatIdentity(value packet.Packet, identity login.IdentityD
 	return &rewritten
 }
 
-func callWithoutPanic(call func() error) (err error) {
+// callSafely contains boundary callback panics without formatting potentially sensitive values.
+func callSafely(operation string, call func() error) (err error) {
 	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic: %v", recovered)
+		if value := recover(); value != nil {
+			err = panicTypeError(operation, value)
 		}
 	}()
 	return call()
-}
-
-func isOrdinaryClose(err error) bool {
-	if err == nil {
-		return false
-	}
-	if terminal, ok := err.(interface{ TerminalClose() bool }); ok && terminal.TerminalClose() {
-		return true
-	}
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		children := joined.Unwrap()
-		if len(children) == 0 {
-			return false
-		}
-		for _, child := range children {
-			if !isOrdinaryClose(child) {
-				return false
-			}
-		}
-		return true
-	}
-	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		if child := wrapped.Unwrap(); child != nil {
-			return isOrdinaryClose(child)
-		}
-	}
-	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, context.Canceled)
 }

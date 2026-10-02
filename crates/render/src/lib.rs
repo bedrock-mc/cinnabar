@@ -16,7 +16,9 @@ mod cloud_render;
 pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
-pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
+pub use enhanced::{
+    ENHANCED_RENDERING_ENABLED, EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES,
+};
 mod dropped_item_render;
 mod hand_rig_render;
 mod item_geometry;

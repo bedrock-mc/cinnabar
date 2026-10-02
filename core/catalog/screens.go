@@ -4,11 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/google/uuid"
@@ -21,16 +17,17 @@ import (
 // server info panel shows. Image fields are HTTPS URLs; paths are filled in by
 // a caller that caches the artwork.
 type FeaturedServer struct {
-	Name        string   `json:"name"`
-	Address     string   `json:"address"`
-	Caption     string   `json:"caption"`
-	Description string   `json:"description,omitempty"`
-	NewsTitle   string   `json:"news_title,omitempty"`
-	News        string   `json:"news,omitempty"`
-	Logo        Image    `json:"logo"`
-	Screenshots []Image  `json:"screenshots"`
-	Games       []Game   `json:"games"`
-	Tags        []string `json:"tags,omitempty"`
+	Name         string   `json:"name"`
+	Address      string   `json:"address"`
+	Caption      string   `json:"caption"`
+	Description  string   `json:"description,omitempty"`
+	NewsTitle    string   `json:"news_title,omitempty"`
+	News         string   `json:"news,omitempty"`
+	Logo         Image    `json:"logo"`
+	Screenshots  []Image  `json:"screenshots"`
+	Games        []Game   `json:"games"`
+	Tags         []string `json:"tags,omitempty"`
+	thumbnailURL string   // compact catalog artwork may use a game image instead of the logo
 }
 
 // Game is one activity a featured server or gathering advertises.
@@ -122,7 +119,7 @@ func JoinGathering(ctx context.Context, account *authcache.Account, id uuid.UUID
 // AccountProfile returns the signed-in gamertag, XUID and gamerpic; a missing
 // gamerpic is not an error.
 func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, error) {
-	xbl, err := newXSAPIClient(ctx, account)
+	xbl, err := XboxClient(ctx, account)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -194,16 +191,17 @@ func featuredServers(values []*gatherings.FeaturedServer) []FeaturedServer {
 			continue
 		}
 		result = append(result, FeaturedServer{
-			Name:        displayName(server.Item.Title.Neutral(), server.CreatorName, "Featured server"),
-			Address:     server.Address(),
-			Caption:     firstGameCaption(server.AvailableGames, "Featured server"),
-			Description: strings.TrimSpace(server.Item.Description.Neutral()),
-			NewsTitle:   strings.TrimSpace(server.NewsTitle),
-			News:        strings.TrimSpace(server.News),
-			Logo:        Image{URL: artworkURL(server.Item, nil)},
-			Screenshots: screenshots(server.Item),
-			Games:       games(server.Item, server.AvailableGames),
-			Tags:        server.Item.Tags,
+			Name:         displayName(server.Item.Title.Neutral(), server.CreatorName, "Featured server"),
+			Address:      server.Address(),
+			Caption:      firstGameCaption(server.AvailableGames, "Featured server"),
+			Description:  strings.TrimSpace(server.Item.Description.Neutral()),
+			NewsTitle:    strings.TrimSpace(server.NewsTitle),
+			News:         strings.TrimSpace(server.News),
+			Logo:         Image{URL: artworkURL(server.Item, nil)},
+			Screenshots:  screenshots(server.Item),
+			Games:        games(server.Item, server.AvailableGames),
+			Tags:         server.Item.Tags,
+			thumbnailURL: artworkURL(server.Item, server.AvailableGames),
 		})
 	}
 	return result
@@ -264,18 +262,19 @@ const maxCachedArtwork = 256
 // CacheImages downloads each image into directory and fills its path; a
 // failed download leaves the path empty.
 func CacheImages(ctx context.Context, directory string, images []*Image) {
-	if len(images) == 0 || os.MkdirAll(directory, 0o700) != nil {
+	if len(images) == 0 {
 		return
 	}
+	cache := artworkCache(directory)
 	for _, image := range images {
 		if image == nil || image.URL == "" {
 			continue
 		}
-		if path, err := cacheArtworkFile(ctx, directory, image.URL); err == nil {
-			image.Path = path
+		if cached, err := cache.Fetch(ctx, image.URL); err == nil {
+			image.Path = cached.Path
 		}
 	}
-	pruneArtwork(directory, maxCachedArtwork)
+	cache.Prune()
 }
 
 // FeaturedImages lists the artwork of servers for CacheImages.
@@ -301,26 +300,4 @@ func GatheringImages(gatherings []Gathering) []*Image {
 		images = append(images, &gatherings[index].Image)
 	}
 	return images
-}
-
-func pruneArtwork(directory string, keep int) {
-	entries, err := os.ReadDir(directory)
-	if err != nil || len(entries) <= keep {
-		return
-	}
-	type aged struct {
-		path     string
-		modified time.Time
-	}
-	files := make([]aged, 0, len(entries))
-	for _, entry := range entries {
-		if info, err := entry.Info(); err == nil && info.Mode().IsRegular() {
-			files = append(files, aged{filepath.Join(directory, entry.Name()), info.ModTime()})
-		}
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].modified.Before(files[j].modified) })
-	for len(files) > keep {
-		_ = os.Remove(files[0].path)
-		files = files[1:]
-	}
 }

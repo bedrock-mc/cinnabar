@@ -96,7 +96,7 @@ impl ViewNode for EnhancedShadowNode {
         (entity, settings, view_offset): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        if !settings.shadows {
+        if !super::ENHANCED_RENDERING_ENABLED || !settings.shadows {
             return Ok(());
         }
         let views = world.resource::<EnhancedViews>();

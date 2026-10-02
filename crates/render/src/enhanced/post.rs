@@ -168,6 +168,9 @@ impl ViewNode for EnhancedPostNode {
         (target, depth, _settings): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
+        if !super::ENHANCED_RENDERING_ENABLED {
+            return Ok(());
+        }
         let (Some(pipelines), Some(gpu), Some(views), Some(cache)) = (
             world.get_resource::<EnhancedPostPipelines>(),
             world.get_resource::<EnhancedGpu>(),

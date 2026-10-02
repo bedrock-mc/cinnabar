@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 
+mod admission;
 mod crossbow;
 mod crossbow_presentation;
 

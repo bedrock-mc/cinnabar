@@ -12,6 +12,7 @@ import (
 	"time"
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 )
@@ -89,7 +90,9 @@ func TestArtworkPruningKeepsTheNewestFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	pruneArtwork(directory, 2)
+	cfg := artworkPolicy
+	cfg.MaxFiles = 2
+	imagecache.New(directory, cfg).Prune()
 	if _, err := os.Stat(filepath.Join(directory, "a.img")); !os.IsNotExist(err) {
 		t.Fatalf("the oldest file survived: %v", err)
 	}

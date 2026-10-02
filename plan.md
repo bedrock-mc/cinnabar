@@ -1,5 +1,17 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
+WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
+Enhanced shader specialization and effect passes. The toggle is hidden, and saved
+settings, environment and CLI requests resolve to Vanilla. The GPU fault remains
+unresolved; Enhanced visual and performance gates remain incomplete.
+The disable was inspected on macOS 26.5.1/Metal at 2560x1440 content pixels
+(Retina 2x, automatic GUI scale), using the rebuilt client and a saved Enhanced
+preference. Home and Video settings remained legible with normal geometry,
+clipping, layering and colours; the Enhanced control was absent. Settings clicks,
+scrolling, hover focus and Escape navigation worked. This checks the disable,
+not gameplay performance or the unresolved GPU fault.
+
 2026-10-02 Enhanced startup crash: incomplete. Offline native Metal validation
 passes a populated graph and 120-frame lobby actor replay, but the reported
 post-join crash is not reproduced. See `docs/reference/enhanced-startup-validation.md`.
@@ -4217,3 +4229,21 @@ The captured Spirit Bundle witness exercises late pack installation and texture
 residency, but the black rectangle, floating labels and live FPS loss remain
 unproven. No live visual/performance gate is closed; see
 `docs/reference/jsonui-review-fixes.md`.
+## Go core simplification (2026-10-02)
+
+The core's packet-decoding diagnostic observers for cache boundaries, loading order,
+and form schemas are removed. The proxy still forwards packet batches and retains
+resource-pack progress and admission status used by the client. Historical cache
+boundary logs remain readable by the acceptance scripts. Current diagnostic runs
+record missing boundary instrumentation as unavailable, with an explicit finding;
+they do not satisfy an independent cache-route proof or a completed Lunar prerequisite.
+Replacement live evidence is still needed before closing the cache-streaming parity gate.
+
+Authentication and pack caches now trust the user's configuration directory, while
+retaining atomic publication, file leases, credential binding and quota eviction.
+New credentials remain private on Unix and Windows. Account methods reject calls
+after close, and sign-out takes the same leases as token refreshes. The active
+sign-in keeps a stable cache generation across refreshes; a replacement sign-in
+ends the old account runtime before it can adopt the new credentials. The active
+catalog exporter and native Windows/Linux BDS installer remain supported. Resource
+packs still pass through the Go cache and retain their client progress reporting.
