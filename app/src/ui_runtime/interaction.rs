@@ -744,6 +744,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 key if binding_key(menu.as_deref(), "key.drop", key) => {
                     runtime.inventory_keys.press(KeyCode::KeyQ)
                 }
+                KeyCode::KeyQ => {}
                 key => runtime.inventory_keys.press(key),
             }
             continue;

@@ -767,3 +767,64 @@ fn drop_keys_and_outside_clicks_drop_items() {
     assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(4));
     assert_eq!(ledger.pending_request_count(), 1);
 }
+
+#[test]
+fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
+    use crate::menu::{
+        MenuAction,
+        settings_options::{EXTRA_KEYS, KEY_BINDINGS},
+    };
+    let index = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == "key.drop")
+            .unwrap();
+    for control in [false, true] {
+        let mut app = pointer_app(
+            personal_runtime(Some(stack(9, 92)), None),
+            InventoryCellHit::Player(0),
+            true,
+            true,
+        );
+        let mut layout = crate::install_layout::InstallLayout::discover().unwrap();
+        layout.user_config_root =
+            std::env::temp_dir().join(format!("review-drop-{}-{control}", std::process::id()));
+        app.insert_resource(MenuRuntime::new_with_layout(
+            true,
+            Some(2),
+            "Tester".into(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Tester"),
+        ));
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .activate(MenuAction::SettingsKey(index as u16));
+        press_key(&mut app, KeyCode::KeyR);
+        app.update();
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        assert_eq!(
+            menu.view().settings_options.named_key_control("key.drop"),
+            Some(semantic_input::PhysicalControl::KeyboardUsage(
+                crate::semantic_controls::keyboard_usage(KeyCode::KeyR).unwrap()
+            ))
+        );
+        menu.set_visible(false);
+        app.insert_resource(personal_runtime(Some(stack(9, 92)), None));
+        if control {
+            press_key(&mut app, KeyCode::ControlLeft);
+        }
+        press_key(&mut app, KeyCode::KeyQ);
+        app.update();
+        let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
+        assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(9));
+        assert_eq!(ledger.pending_request_count(), 0);
+        press_key(&mut app, KeyCode::KeyR);
+        app.update();
+        let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
+        assert_eq!(
+            ledger.displayed_stack(0).map(|stack| stack.count),
+            if control { None } else { Some(8) }
+        );
+        assert_eq!(ledger.pending_request_count(), 1);
+    }
+}
