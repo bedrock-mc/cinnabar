@@ -3,6 +3,8 @@
 //! Tab and layout toggles press the existing screen widgets.
 
 mod cache;
+#[cfg(test)]
+mod tests;
 pub(super) use cache::BookCache;
 
 use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
@@ -160,7 +162,8 @@ pub(super) fn book_data(
         .iter()
         .enumerate()
         .map(|(index, entry)| {
-            let mut item = CollectionItem::default();
+            let mut item =
+                CollectionItem::default().with("#item_renderer_data", Scalar::Json(Value::Null));
             if let Some(icon) = frame
                 .window_icons
                 .book_entries
