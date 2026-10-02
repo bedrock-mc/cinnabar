@@ -72,6 +72,7 @@ struct LaidForm {
     root: [f64; 2],
     px: f32,
     text: [usize; 3],
+    font: assets::FontCatalogIdentity,
     render: FormRender,
 }
 
@@ -258,6 +259,7 @@ impl FormEngine {
         }
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
+        let font = inputs.font.identity();
         let art = Art {
             assets: &self.assets,
             set: &self.textures,
@@ -284,6 +286,7 @@ impl FormEngine {
                 let fresh = cache.laid.as_ref().is_some_and(|laid| {
                     laid.view.same_layout(view)
                         && (laid.root, laid.px, laid.text) == (root, px, text)
+                        && laid.font == font
                 });
                 if !fresh {
                     *passes += 1;
@@ -294,6 +297,7 @@ impl FormEngine {
                         root,
                         px,
                         text,
+                        font,
                         render,
                     });
                 }

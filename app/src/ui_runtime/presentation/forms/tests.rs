@@ -96,6 +96,57 @@ fn static_form_resolves_once_and_hover_only_repaints() {
 }
 
 #[test]
+fn review_open_form_remeasures_after_a_late_font_swap() {
+    let mut presentation = mini_engine_presentation();
+    let mut runtime = super::pack_harness::action_form("Menu", &["AAAA"]);
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    let before = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    super::snapshot::write(&before, "late-font-before");
+    runtime.set_session_glyphs(Some(Arc::new(super::super::SessionGlyphSheets {
+        cells: vec![assets::CellGlyph {
+            codepoint: 'A',
+            size: [16, 16],
+            rgba8: vec![255; 16 * 16 * 4].into_boxed_slice(),
+            bearing: [0, 0],
+            advance_64: 16 * 64,
+            draw_size_64: [16 * 64, 16 * 64],
+        }],
+        ..Default::default()
+    })));
+    let after = presentation.build(&runtime, 1, [1280, 720], dpi).unwrap();
+    super::snapshot::write(&after, "late-font-after");
+    let engine = presentation.form_presentation.engine.as_ref().unwrap();
+    assert_eq!(
+        engine.passes,
+        [1, 2],
+        "new glyph metrics must remeasure an open form"
+    );
+    for now in 2..7 {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    assert_eq!(
+        presentation
+            .form_presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .passes,
+        [1, 2]
+    );
+    runtime.set_session_glyphs(None);
+    presentation.build(&runtime, 7, [1280, 720], dpi).unwrap();
+    assert_eq!(
+        presentation
+            .form_presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .passes,
+        [1, 3]
+    );
+}
+
+#[test]
 fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
     let mut runtime = UiRuntime::new(1);
     let session = runtime.session_id();
