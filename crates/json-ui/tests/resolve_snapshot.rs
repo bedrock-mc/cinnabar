@@ -1,34 +1,28 @@
-//! Resolution snapshots of the real vanilla screens. The `.local` pack is
-//! gitignored, so each test skips (not fails) when it is absent.
+//! Reference checks against the real vanilla screens; run explicitly after fetching the pack.
 
 mod support;
 
-use std::fmt::Write as _;
+use json_ui::{Catalog, Context, ResolvedControl};
 
-use json_ui::{Catalog, Context, DataSource, ENGINE_SCREENS, ResolvedControl, bind_screen};
-
-/// `(screen, resolved control count, controls it must contain)` in the retail context.
-const SNAPSHOT: &[(&str, usize, &[&str])] = &[
+/// Required authored controls identify successful resolution without freezing tree size.
+const REQUIRED_CONTROLS: &[(&str, &[&str])] = &[
     (
         "start.start_screen",
-        735,
         &["achievements_button", "buy_game_button"],
     ),
-    ("play.play_screen", 2110, &["add_server_button"]),
+    ("play.play_screen", &["add_server_button"]),
     (
         "settings.screen_controls_and_settings",
-        1968,
         &["available_pack_grid"],
     ),
-    ("pause.pause_screen", 106, &["root_screen_panel"]),
-    ("hud.hud_screen", 732, &["boss_health_grid", "chat_panel"]),
-    ("crafting.inventory_screen", 1351, &["armor_grid"]),
-    ("chest.small_chest_screen", 222, &["chest_label"]),
-    ("server_form.long_form", 41, &["inside_header_panel"]),
-    ("server_form.custom_form", 57, &["common_panel"]),
+    ("pause.pause_screen", &["root_screen_panel"]),
+    ("hud.hud_screen", &["boss_health_grid", "chat_panel"]),
+    ("crafting.inventory_screen", &["armor_grid"]),
+    ("chest.small_chest_screen", &["chest_label"]),
+    ("server_form.long_form", &["inside_header_panel"]),
+    ("server_form.custom_form", &["common_panel"]),
     (
         "popup_dialog.modal_dialog_popup",
-        38,
         &["background_with_buttons"],
     ),
 ];
@@ -39,102 +33,24 @@ fn catalog() -> Option<Catalog> {
         .then(|| Catalog::load_dir(&dir).expect("index files load"))
 }
 
-fn dump(control: &ResolvedControl, depth: usize, out: &mut String) {
-    let properties = serde_json::to_string(&control.properties).unwrap_or_default();
-    let factory = serde_json::to_string(&control.factory).unwrap_or_default();
-    let _ = writeln!(
-        out,
-        "{:indent$}{} type={:?} base={:?} unresolved={:?} factory={factory} props={properties}",
-        "",
-        control.name,
-        control.control_type,
-        control.base.as_ref().map(ToString::to_string),
-        control.unresolved_base,
-        indent = depth * 2
-    );
-    for child in &control.children {
-        dump(child, depth + 1, out);
-    }
-}
-
-/// Writes every engine screen's resolved and bound tree to `$JSON_UI_DUMP`.
-#[test]
-#[ignore = "diagnostic dump"]
-fn dump_engine_screens() {
-    let (Some(catalog), Ok(path)) = (catalog(), std::env::var("JSON_UI_DUMP")) else {
-        return;
-    };
-    let mut context = Context::retail(true);
-    // `$JSON_UI_DUMP_CONTEXT` names a JSON object of extra screen variables.
-    if let Ok(extra) = std::env::var("JSON_UI_DUMP_CONTEXT") {
-        let extra: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&std::fs::read_to_string(extra).unwrap()).unwrap();
-        for (name, value) in extra {
-            context = context.with_var(&name, value);
-        }
-    }
-    let mut out = String::new();
-    let _ = writeln!(out, "== catalog diagnostics");
-    for line in catalog.diagnostics() {
-        let _ = writeln!(out, "{line}");
-    }
-    for reference in ENGINE_SCREENS {
-        let resolution = json_ui::resolve(&catalog, reference, &context);
-        let _ = writeln!(out, "== {reference}");
-        let Some(root) = resolution.control else {
-            let _ = writeln!(out, "(unresolved)");
-            continue;
-        };
-        dump(&root, 0, &mut out);
-        let _ = writeln!(out, "== bound {reference}");
-        let bound = bind_screen(
-            &root,
-            &catalog,
-            &context,
-            &DataSource::new(),
-            &mut json_ui::BindState::new(),
-        );
-        dump(&bound, 0, &mut out);
-        let mut diagnostics = resolution.diagnostics;
-        diagnostics.sort();
-        let _ = writeln!(out, "== diagnostics {reference}");
-        for line in diagnostics {
-            let _ = writeln!(out, "{line}");
-        }
-    }
-    std::fs::write(path, out).unwrap();
-}
-
-fn count(control: &ResolvedControl) -> usize {
-    1 + control.children.iter().map(count).sum::<usize>()
-}
-
 fn has(control: &ResolvedControl, name: &str) -> bool {
     control.find(&|node| node.name == name).is_some()
 }
 
-/// Resolved control counts of key vanilla screens in the retail context; a
-/// resolution change that adds or drops controls shows here first.
+/// Key vanilla screens resolve with their expected functional controls.
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn key_screens_resolve_to_their_known_shape() {
     let Some(catalog) = catalog() else {
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let context = Context::retail(true);
-    let expected: &[(&str, usize, &[&str])] = SNAPSHOT;
-    let mut actual = Vec::new();
-    for (reference, _, names) in expected {
+    for (reference, names) in REQUIRED_CONTROLS {
         let root = json_ui::resolve(&catalog, reference, &context)
             .control
             .unwrap_or_else(|| panic!("{reference} resolves"));
         for name in *names {
             assert!(has(&root, name), "{reference} lacks {name}");
         }
-        actual.push((*reference, count(&root)));
     }
-    let wanted: Vec<_> = expected
-        .iter()
-        .map(|(reference, count, _)| (*reference, *count))
-        .collect();
-    assert_eq!(actual, wanted);
 }

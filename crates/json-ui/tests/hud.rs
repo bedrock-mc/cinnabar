@@ -1,5 +1,5 @@
 //! The gameplay HUD against the real vanilla templates. The `.local` pack is
-//! gitignored, so each test skips (not fails) when it is absent.
+//! gitignored, so reference tests are explicitly ignored until the pack is fetched.
 
 #[path = "support/java_pack.rs"]
 mod java_pack;
@@ -172,10 +172,11 @@ fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
 
 // The HUD never takes a gameplay click: a press at the crosshair reaches no control.
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn hud_leaves_gameplay_clicks_alone() {
     for java in [false, true] {
         let Some(render) = render_full(&model(), java) else {
-            return;
+            panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
         };
         let mut view = ViewState::default();
         let mut dispatcher = json_ui::Dispatcher::default();
@@ -244,9 +245,10 @@ fn dump(nodes: &[DrawNode]) {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn vanilla_hud_draws_its_bound_surfaces() {
     let Some(nodes) = render(&model()) else {
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     dump(&nodes);
     // Item-lock overlays bind flags the controller never raises for the hotbar.
@@ -334,6 +336,7 @@ fn descendant<'a>(
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     let mut item = model();
     item.item_name = Some(Timed {
@@ -344,7 +347,7 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     for survival in [false, true] {
         item.survival_ui = survival;
         let Some(render) = render_full(&item, true) else {
-            return;
+            panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
         };
         let name = text_node(&render.nodes, "Dirt");
         let slots = custom(&render.nodes, "hotbar_renderer");
@@ -396,9 +399,10 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
 
 // Java Gui geometry on a 480x270 GUI-px screen (centre 240, bottom 270).
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn java_pack_places_the_hud_where_java_does() {
     let Some(nodes) = render_with(&model(), true) else {
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     dump(&nodes);
     // Status rows: hearts from (c-91, H-39); hunger's right end at c+90.
@@ -469,92 +473,6 @@ fn java_pack_places_the_hud_where_java_does() {
     );
 }
 
-// Phase costs of one HUD frame, printed for profiling (HUD_TIMING=1).
-#[test]
-fn hud_phase_timing() {
-    if std::env::var_os("HUD_TIMING").is_none() {
-        return;
-    }
-    let Some(dir) = pack() else {
-        return;
-    };
-    let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
-    let files = java_pack::files();
-    catalog.apply_pack(
-        files
-            .iter()
-            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
-    );
-    let textures = PackTextures::new(dir);
-    let env = LayoutEnv {
-        text: &FixedText,
-        textures: &textures,
-    };
-    let context = hud_context(&Context::desktop());
-    let model = model();
-    let data = hud_data_source(&model);
-    let cache = json_ui::ResolveCache::default();
-    for round in 0..3 {
-        let started = std::time::Instant::now();
-        let root = json_ui::resolve(&catalog, HUD_SCREEN, &context)
-            .control
-            .unwrap();
-        let resolved = started.elapsed();
-        fn count(control: &json_ui::ResolvedControl) -> (usize, usize, usize) {
-            let scope = control
-                .properties
-                .get("factory_scope")
-                .map_or(0, |scope| scope.to_string().len());
-            control.children.iter().map(count).fold(
-                (
-                    1,
-                    serde_json::to_string(&control.properties).map_or(0, |text| text.len()),
-                    scope,
-                ),
-                |acc, (nodes, bytes, scope)| (acc.0 + nodes, acc.1 + bytes, acc.2 + scope),
-            )
-        }
-        if round == 0 {
-            eprintln!(
-                "resolved tree: {:?} (nodes, property bytes, scope bytes)",
-                count(&root)
-            );
-        }
-        let library = json_ui::CachedLibrary {
-            library: json_ui::CatalogLibrary {
-                catalog: &catalog,
-                context: &context,
-            },
-            cache: &cache,
-        };
-        let started = std::time::Instant::now();
-        let loops: usize = std::env::var("HUD_LOOP")
-            .ok()
-            .and_then(|n| n.parse().ok())
-            .unwrap_or(1);
-        let root = std::sync::Arc::new(root);
-        let mut bound = json_ui::bind_shared(&root, &data, &library);
-        for _ in 1..loops {
-            bound = json_ui::bind_shared(&root, &data, &library);
-        }
-        let bound_in = started.elapsed() / loops as u32;
-        let started = std::time::Instant::now();
-        let mut render =
-            json_ui::render_bound(bound.clone(), [480.0, 270.0], &env, &ViewState::default());
-        for _ in 1..loops {
-            render =
-                json_ui::render_bound(bound.clone(), [480.0, 270.0], &env, &ViewState::default());
-        }
-        let laid = started.elapsed() / loops as u32;
-        eprintln!(
-            "round {round}: resolve {resolved:?} bind {bound_in:?} layout+emit {laid:?} ({} nodes)",
-            render.nodes.len()
-        );
-    }
-}
-
-// A factory creates nothing from an ignored definition, and a collection flag
-// the screen does not answer hides its control.
 #[test]
 fn ignored_instances_and_unanswered_collection_flags_draw_nothing() {
     let globals = br#"{}"#;
@@ -619,13 +537,14 @@ fn ignored_instances_and_unanswered_collection_flags_draw_nothing() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn java_pack_keeps_the_position_and_days_lines_top_left() {
     let mut model = model();
     model.player_position = Some("Position: 1, 64, -3".into());
     model.days_played = Some("Days played: 2".into());
     model.text_background_alpha = 0.5;
     let Some(nodes) = render_with(&model, true) else {
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     dump(&nodes);
     let position = named(&nodes, "player_position_text");
@@ -640,7 +559,7 @@ fn java_pack_keeps_the_position_and_days_lines_top_left() {
     assert!(backing.iter().all(|node| (node.alpha - 0.5).abs() < 1e-6));
     // Off by default: neither line draws.
     let Some(nodes) = render_with(&self::model(), true) else {
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     assert!(named(&nodes, "player_position_text").is_empty());
     assert!(named(&nodes, "number_of_days_played_text").is_empty());

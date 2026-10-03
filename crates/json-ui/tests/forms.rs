@@ -77,10 +77,10 @@ fn sprite_textures(nodes: &[DrawNode], name: &str) -> Vec<String> {
 const ROOT: [f64; 2] = [512.0, 384.0];
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn action_form_renders_a_button_per_entry_with_present_images_only() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let button = |text: &str, image: Option<&str>| {
         ActionElement::Button(FormButton {
@@ -133,10 +133,10 @@ fn action_form_renders_a_button_per_entry_with_present_images_only() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn modal_form_renders_through_the_two_button_popup() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let model = FormModel::Modal(ModalForm {
         title: "Confirm".into(),
@@ -167,10 +167,10 @@ fn modal_form_renders_through_the_two_button_popup() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn action_form_buttons_report_their_collection_index() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let model = FormModel::Action(ActionForm {
         title: "Menu".into(),
@@ -205,10 +205,10 @@ fn action_form_buttons_report_their_collection_index() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn hovering_a_button_swaps_its_state_child() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let model = FormModel::Action(ActionForm {
         title: "Menu".into(),
@@ -250,10 +250,10 @@ fn hovering_a_button_swaps_its_state_child() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn custom_form_renders_elements_in_order_with_a_submit_button() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let model = FormModel::Custom(CustomForm {
         title: "Options".into(),
@@ -323,10 +323,10 @@ fn custom_form_renders_elements_in_order_with_a_submit_button() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn custom_form_hides_the_submit_button_when_not_visible() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let model = FormModel::Custom(CustomForm {
         title: "Options".into(),
@@ -345,10 +345,10 @@ fn custom_form_hides_the_submit_button_when_not_visible() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn scroll_content_height_grows_with_the_button_collection() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let height = |count: usize| {
         let elements = (0..count)
@@ -378,10 +378,10 @@ fn scroll_content_height_grows_with_the_button_collection() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn long_forms_report_a_scrollable_viewport() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let elements = (0..20)
         .map(|i| {
@@ -415,10 +415,10 @@ fn long_forms_report_a_scrollable_viewport() {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn custom_toggle_reports_its_name_and_index() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let model = FormModel::Custom(CustomForm {
         title: "Options".into(),

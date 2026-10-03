@@ -1,6 +1,6 @@
 //! Local-only: renders server forms through the vanilla catalog overlaid with the
 //! unpacked resource packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest
-//! first). Skips when either is absent; packs are never committed.
+//! first). Run explicitly after provisioning both; packs are never committed.
 
 mod support;
 
@@ -99,10 +99,12 @@ fn trace<'a>(
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first and CINNABAR_FORM_PACK_DIR"]
 fn pack_overlay_routes_a_marked_title_to_the_pack_layout() {
     let Some(catalog) = overlaid() else {
-        eprintln!("skipping: vanilla ui or CINNABAR_FORM_PACK_DIR absent");
-        return;
+        panic!(
+            "requires the pinned local vanilla UI pack; fetch vanilla-assets first and CINNABAR_FORM_PACK_DIR"
+        );
     };
     let title = std::env::var("CINNABAR_FORM_TITLE")
         .unwrap_or_else(|_| "@mineville/boxes:Spirit Bundle".to_owned());

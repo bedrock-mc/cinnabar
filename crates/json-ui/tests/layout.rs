@@ -683,10 +683,10 @@ fn pack_root() -> Option<PathBuf> {
 }
 
 #[test]
+#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn main_panel_no_buttons_lays_out_with_nine_slice_background() {
     let Some(root) = pack_root() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
+        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
     };
     let catalog = json_ui::Catalog::load_dir(&root.join("ui")).expect("index files load");
     let control = resolve(
