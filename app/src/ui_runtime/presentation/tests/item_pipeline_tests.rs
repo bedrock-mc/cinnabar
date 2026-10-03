@@ -100,14 +100,12 @@ fn registry_with_custom_item() -> ItemRegistryEvent {
 // Every hotbar stack with a resolvable icon reaches an item renderer; the
 // report names the stage where each other stack stops.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
-    let Some(Harness {
+    let Harness {
         mut presentation,
         mut stream,
-    }) = harness()
-    else {
-        return;
-    };
+    } = harness().expect("make assets: UI, entity and icon carriers");
     assert!(stream.seed_item_registry(registry_with_custom_item()));
     let hotbar = [
         ("minecraft:diamond", 0, 3),
@@ -207,14 +205,12 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
 // it fills the inventory's armor cells, the HUD armor points and icons, and the
 // local rig's worn items.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
-    let Some(Harness {
+    let Harness {
         mut presentation,
         mut stream,
-    }) = harness()
-    else {
-        return;
-    };
+    } = harness().expect("make assets: UI, entity and icon carriers");
     assert!(stream.seed_item_registry(registry_with_custom_item()));
     let mut runtime = UiRuntime::new(1);
     runtime.publish_local_runtime_id(1, 1).unwrap();

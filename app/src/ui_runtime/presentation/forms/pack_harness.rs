@@ -1,6 +1,6 @@
 //! Local-only harness: renders server forms through the real UI carrier and, when
 //! `CINNABAR_FORM_PACK_DIR` names an unpacked server resource pack, its ui overlay.
-//! Skips when the gitignored carrier is absent; the pack is never committed.
+//! Select these offline checks with `--ignored`; the carrier and pack stay outside git.
 
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
@@ -276,11 +276,10 @@ pub(crate) fn dump(nodes: &[UiNode]) {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn server_pack_form_renders_its_text_through_the_engine() {
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let pack = env_pack();
     if let Some(pack) = &pack {
         presentation.set_server_ui_pack(pack);
@@ -366,11 +365,10 @@ fn visible_text_rects(nodes: &[UiNode]) -> Vec<[f32; 4]> {
 // Multi-line labels stack one line apart and end in `...` at the label's height
 // instead of spilling over the next button.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn multi_line_button_labels_never_overlap() {
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let buttons = [
         "Free For All\n§7Playing - 12",
         "Updates In - 2m 24s\nKills - 7\nKillstreak - 1",
@@ -395,53 +393,13 @@ fn multi_line_button_labels_never_overlap() {
     );
 }
 
-// Per-frame form cost with the render cache versus re-resolving every frame.
-#[test]
-fn form_frame_cost_with_and_without_the_render_cache() {
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
-    if let Some(pack) = env_pack() {
-        presentation.set_server_ui_pack(&pack);
-    }
-    let buttons: Vec<String> = (0..20)
-        .map(|index| format!("Button {index}\n§7Line two"))
-        .collect();
-    let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
-    let runtime = action_form("@mineville/boxes:Spirit Bundle", &labels);
-    let frame = |presentation: &mut UiPresentationRuntime, cold: bool| {
-        if cold {
-            presentation
-                .form_presentation
-                .engine
-                .as_mut()
-                .unwrap()
-                .cache = None;
-        }
-        let started = std::time::Instant::now();
-        render(presentation, &runtime, [2560, 1600], 2.0);
-        started.elapsed()
-    };
-    frame(&mut presentation, true);
-    let average = |presentation: &mut UiPresentationRuntime, cold: bool| {
-        let total: std::time::Duration = (0..20).map(|_| frame(presentation, cold)).sum();
-        total / 20
-    };
-    let uncached = average(&mut presentation, true);
-    let cached = average(&mut presentation, false);
-    eprintln!("form frame: re-resolving {uncached:?}, cached {cached:?}");
-    assert!(cached < uncached);
-}
-
 // The vanilla template draws path and URL button images once they resolve.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn vanilla_form_button_images_resolve() {
     use protocol::FormButtonImage::{Path as ImagePath, Url};
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -481,11 +439,10 @@ fn vanilla_form_button_images_resolve() {
 // A server-pack image bigger than a server page (Zeqa's 1992x669 title) draws
 // from its full-resolution art copy, point-sampled, not the 256px downscale.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn large_server_pack_images_draw_at_full_resolution() {
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(1992, 669, image::Rgba([200, 30, 40, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -524,15 +481,11 @@ fn entry(name: &str) -> String {
 
 /// The snapshot's Zeqa training fixture keeps the full second-line word before dots.
 #[test]
+#[ignore = "requires installed UI carrier (make assets) and CINNABAR_FORM_PACK_DIR"]
 fn training_labels_keep_practice_before_the_ellipsis() {
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
-    let Some(pack) = env_pack() else {
-        eprintln!("skipping: server pack absent");
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
+    let pack = env_pack().expect("required offline fixture; see the ignore reason");
     presentation.set_server_ui_pack(&pack);
     let button = entry("BRIDGING");
     let runtime = action_form("Training", &[&button]);
@@ -550,11 +503,10 @@ fn training_labels_keep_practice_before_the_ellipsis() {
 
 // Writes PNG snapshots of pack forms for visual inspection (local only).
 #[test]
+#[ignore = "requires installed local carriers (make assets) and CINNABAR_NAV_TITLE"]
 fn snapshot_pack_forms() {
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     if let Some(pack) = env_pack() {
         presentation.set_server_ui_pack(&pack);
     }
@@ -635,14 +587,11 @@ fn snapshot_pack_forms() {
 
 // Writes a snapshot of a pack's 2x2 image grid with a featured card (local only).
 #[test]
+#[ignore = "requires installed UI carrier (make assets) and CINNABAR_FORM_PACK_DIR"]
 fn snapshot_pack_image_grid() {
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
-    let Some(pack) = env_pack() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
+    let pack = env_pack().expect("required offline fixture; see the ignore reason");
     presentation.set_server_ui_pack(&pack);
     let modes = ["mace", "skywars", "crystalpvp", "sumo", "build", "mace"];
     let labels: Vec<String> = modes

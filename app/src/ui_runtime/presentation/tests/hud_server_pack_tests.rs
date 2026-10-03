@@ -1,7 +1,6 @@
 //! Local-only: the engine HUD under real server resource packs, unpacked into
 //! the `:`-separated directories `CINNABAR_HUD_PACK_DIRS` names (each is its
-//! own session). Skips when unset or the UI carrier is absent; packs are never
-//! committed.
+//! own session). Select these offline checks with `--ignored`; packs stay outside git.
 
 use json_ui::{Draw, DrawNode};
 use protocol::{PlayerGameMode, ScoreIdentity as ProtocolScoreIdentity};
@@ -111,14 +110,12 @@ fn texts(nodes: &[DrawNode]) -> Vec<&str> {
 }
 
 #[test]
+#[ignore = "requires installed UI carrier (make assets) and CINNABAR_HUD_PACK_DIRS"]
 fn server_packs_restyle_the_engine_hud() {
-    let Ok(dirs) = std::env::var(PACK_ENV) else {
-        return;
-    };
+    let dirs = std::env::var(PACK_ENV).expect("required offline fixture; see the ignore reason");
     for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
-        let Some(mut presentation) = engine_presentation() else {
-            return;
-        };
+        let mut presentation =
+            engine_presentation().expect("required offline fixture; see the ignore reason");
         presentation.set_server_ui_pack(&dir_pack(dir));
         let name = std::path::Path::new(dir)
             .file_name()
@@ -183,13 +180,12 @@ fn server_packs_restyle_the_engine_hud() {
 /// Local diagnosis: every painted node of the HUD under the pack stack
 /// `CINNABAR_HUD_PACK_STACK` names (`:`-separated layers, lowest first).
 #[test]
+#[ignore = "requires installed local carriers (make assets) and CINNABAR_HUD_PACK_STACK"]
 fn server_pack_stack_hud_dump() {
-    let Ok(stack) = std::env::var("CINNABAR_HUD_PACK_STACK") else {
-        return;
-    };
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let stack = std::env::var("CINNABAR_HUD_PACK_STACK")
+        .expect("required offline fixture; see the ignore reason");
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     presentation.set_server_ui_pack(&dir_pack(&stack));
     let runtime = session("Objective");
     for now in [500, 516] {
@@ -230,13 +226,12 @@ fn server_pack_stack_hud_dump() {
 /// Local diagnosis: Zeqa's glyph-built sidebar entries under `CINNABAR_HUD_PACK_STACK`
 /// with that pack's `font/glyph_XX.png` sheets, painted to `zeqa_top_bar.png`.
 #[test]
+#[ignore = "requires installed local carriers (make assets) and CINNABAR_HUD_PACK_STACK"]
 fn zeqa_top_bar_snapshot() {
-    let Ok(stack) = std::env::var("CINNABAR_HUD_PACK_STACK") else {
-        return;
-    };
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let stack = std::env::var("CINNABAR_HUD_PACK_STACK")
+        .expect("required offline fixture; see the ignore reason");
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     presentation.set_server_ui_pack(&dir_pack(&stack));
     let mut cells = Vec::new();
     for high_byte in 0..=u8::MAX {

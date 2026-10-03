@@ -25,10 +25,10 @@ fn has_sprite(presentation: &UiPresentationRuntime, wanted: &str) -> bool {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let runtime = UiRuntime::new(1);
     presentation.set_loading_stage(Some(LoadingStage::Connecting));
     presentation
@@ -60,12 +60,10 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
 /// Local-only: writes `loading_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is
 /// set, over `CINNABAR_FORM_PACK_DIR`'s server pack when that is set too.
 #[test]
+#[ignore = "requires installed local carriers (make assets) and CINNABAR_FORM_PACK_DIR"]
 fn loading_screen_snapshot() {
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     // Vanilla art the carrier lacks (the dirt backdrop, the title) reads from
     // the local pack, as an install does.
     if let Ok(layout) = crate::install_layout::InstallLayout::discover() {
@@ -99,10 +97,10 @@ fn loading_screen_snapshot() {
 
 // The overworld backdrop carries vanilla's darkening gradient and its colours.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn overworld_backdrop_draws_its_gradient() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     presentation
         .build(
@@ -122,15 +120,12 @@ fn overworld_backdrop_draws_its_gradient() {
 
 /// Local-only: `loading_screen_pack.png` under the pack `CINNABAR_FORM_PACK_DIR` names.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn loading_screen_pack_snapshot() {
-    let Some(pack) = super::super::forms::pack_harness::env_pack() else {
-        return;
-    };
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let pack = super::super::forms::pack_harness::env_pack()
+        .expect("required offline fixture; see the ignore reason");
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     if let Ok(layout) = crate::install_layout::InstallLayout::discover() {
         presentation.set_vanilla_texture_root(layout.vanilla_pack_dir());
     }

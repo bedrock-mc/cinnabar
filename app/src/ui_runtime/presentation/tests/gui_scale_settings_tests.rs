@@ -93,10 +93,10 @@ fn native_fullscreen_toggle_height(app: &App, dpi: DpiScale) -> f32 {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn gui_scale_minimum_on_high_dpi_resizes_native_menu_text_controls_and_pointer() {
-    let Some(presentation) = engine_presentation() else {
-        return;
-    };
+    let presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut app = settings_app(true, None);
     app.insert_resource(presentation);
     app.world_mut()
@@ -253,10 +253,10 @@ fn gui_scale_keeps_auto_responsive_and_clamps_saved_native_offset_after_resize()
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
-    let Some(mut presentation) = engine_presentation() else {
-        return; // The real JSON-UI carrier is local and never committed.
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     *presentation.hud_frame_mut() = super::super::HudFrame {
         first_person: true,
         ..Default::default()
@@ -316,10 +316,10 @@ fn assert_crosshair_size(input: &render::UiRenderInput, physical: [u32; 2], scal
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn gui_scale_minimum_on_high_dpi_relayouts_cached_native_hud() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     *presentation.hud_frame_mut() = super::super::HudFrame {
         first_person: true,
         ..Default::default()

@@ -47,10 +47,10 @@ fn add_server(app: &mut App) {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn the_focused_box_draws_the_caret_where_typing_goes_and_blinks() {
-    let Some(presentation) = engine_presentation() else {
-        return;
-    };
+    let presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let (mut app, window) = menu_input_app_with(MenuClipboard::default(), presentation);
     add_server(&mut app);
     press_key(&mut app, window, KeyCode::KeyA, Some("abc"));
@@ -154,10 +154,10 @@ fn click(app: &mut App, window: bevy::prelude::Entity, at: [f32; 2]) {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn a_press_inside_a_box_places_the_caret_at_the_nearest_character() {
-    let Some(presentation) = engine_presentation() else {
-        return;
-    };
+    let presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let (mut app, window) = menu_input_app_with(MenuClipboard::default(), presentation);
     add_server(&mut app);
     press_key(&mut app, window, KeyCode::KeyA, Some("hello world"));
@@ -206,10 +206,10 @@ fn a_press_inside_a_box_places_the_caret_at_the_nearest_character() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn a_press_in_the_oreui_world_name_field_places_its_caret() {
-    let Some(presentation) = engine_presentation() else {
-        return;
-    };
+    let presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let (mut app, window) = menu_input_app_with(MenuClipboard::default(), presentation);
     let mut worlds = crate::local_worlds::LocalWorlds::default();
     {

@@ -27,10 +27,9 @@ fn selector(tree: &json_ui::LaidOut<'_>, name: &str) -> Option<json_ui::Rect> {
 }
 
 #[test]
+#[ignore = "requires installed UI carrier (make assets)"]
 fn settings_category_button_pitch_matches_vanilla_toggle_height() {
-    let Some(carrier) = super::pack_harness::carrier() else {
-        return;
-    };
+    let carrier = super::pack_harness::carrier().expect("make assets: UI carrier");
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
@@ -62,6 +61,7 @@ fn section(variable: &str) {
 
 /// Render a section after adjusting the menu view, such as opening a dropdown.
 fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu::MenuView)) {
+    super::pack_harness::carrier().expect("make assets: UI carrier for settings gallery");
     let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
     if variable == "storage_management_forced_index" {
         menu.activate(crate::menu::MenuAction::SettingsSection(
@@ -82,36 +82,27 @@ fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu
 }
 
 #[test]
-fn settings_accessibility() {
-    section("accessibility_forced_index");
+#[ignore = "offline settings gallery; requires installed UI carrier (make assets)"]
+fn settings_sections_gallery() {
+    for section_name in [
+        "accessibility_forced_index",
+        "keyboard_and_mouse_forced_index",
+        "controller_and_switch_forced_index",
+        "general_forced_index",
+        "account_forced_index",
+        "video_forced_index",
+        "sound_forced_index",
+        "creator_forced_index",
+        "global_texture_pack_forced_index",
+        "storage_management_forced_index",
+        "language_forced_index",
+    ] {
+        section(section_name);
+    }
 }
 
 #[test]
-fn settings_keyboard_mouse() {
-    section("keyboard_and_mouse_forced_index");
-}
-
-#[test]
-fn settings_controller() {
-    section("controller_and_switch_forced_index");
-}
-
-#[test]
-fn settings_general() {
-    section("general_forced_index");
-}
-
-#[test]
-fn settings_profile() {
-    section("account_forced_index");
-}
-
-#[test]
-fn settings_video() {
-    section("video_forced_index");
-}
-
-#[test]
+#[ignore = "requires installed UI carrier (make assets)"]
 fn settings_video_graphics_mode_open() {
     let index = crate::menu::settings_options::SETTINGS_OPTIONS
         .iter()
@@ -124,37 +115,12 @@ fn settings_video_graphics_mode_open() {
     );
 }
 
-#[test]
-fn settings_audio() {
-    section("sound_forced_index");
-}
-
-#[test]
-fn settings_creator() {
-    section("creator_forced_index");
-}
-
-#[test]
-fn settings_global_resources() {
-    section("global_texture_pack_forced_index");
-}
-
-#[test]
-fn settings_storage() {
-    section("storage_management_forced_index");
-}
-
-#[test]
-fn settings_language() {
-    section("language_forced_index");
-}
-
 // Every row of an open settings dropdown is its own click target for its own choice.
 #[test]
+#[ignore = "requires installed UI carrier (make assets)"]
 fn open_graphics_mode_rows_select_their_own_choice() {
-    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        super::pack_harness::engine_presentation().expect("make assets: UI carrier");
     let index = crate::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "graphics_mode")
@@ -190,7 +156,9 @@ fn open_graphics_mode_rows_select_their_own_choice() {
 }
 
 #[test]
+#[ignore = "requires installed UI carrier (make assets)"]
 fn settings_video_graphics_options_pack_before() {
+    super::pack_harness::carrier().expect("make assets: UI carrier for settings gallery");
     let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
     view.screen = MenuScreen::Settings;
     view.settings_section = super::menu_screens::SETTINGS_SECTIONS
@@ -203,6 +171,7 @@ fn settings_video_graphics_options_pack_before() {
 }
 
 #[test]
+#[ignore = "requires installed UI carrier (make assets)"]
 fn settings_video_graphics_options_expanded() {
     section_with("video_forced_index", "settings-video-expanded", |view| {
         simple_graphics(view);
@@ -221,10 +190,9 @@ fn simple_graphics(view: &mut crate::menu::MenuView) {
 
 // A complete section-button hit target expands and collapses the original option grid.
 #[test]
+#[ignore = "requires installed UI carrier (make assets)"]
 fn graphics_options_expander_uses_full_settings_button_height() {
-    let Some(carrier) = super::pack_harness::carrier() else {
-        return;
-    };
+    let carrier = super::pack_harness::carrier().expect("make assets: UI carrier");
     let files = carrier.ui_files();
     let mut catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();

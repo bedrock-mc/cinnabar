@@ -591,6 +591,7 @@ fn item_icons_survive_session_glyphs_ui_pack_and_server_icons() {
 
 // Local-only: the production carriers plus session glyphs and a UI pack still upload every page.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn real_carriers_keep_icons_drawable_with_session_pages() {
     use super::forms::pack_harness;
     let local = |name: &str| {
@@ -601,13 +602,9 @@ fn real_carriers_keep_icons_drawable_with_session_pages() {
         )
         .ok()
     };
-    let (Some(hud), Some(icons), Some(carrier)) = (
-        local("vanilla-v1.mcbehud"),
-        local("vanilla-v1.mcbeico"),
-        pack_harness::carrier(),
-    ) else {
-        return;
-    };
+    let hud = local("vanilla-v1.mcbehud").expect("make assets: HUD carrier");
+    let icons = local("vanilla-v1.mcbeico").expect("make assets: icon carrier");
+    let carrier = pack_harness::carrier().expect("make assets: UI carrier");
     let icons = Arc::new(RuntimeIconCatalog::decode(&icons).unwrap());
     let sample = icons.entries()[icons.entries().len() / 2]
         .identifier

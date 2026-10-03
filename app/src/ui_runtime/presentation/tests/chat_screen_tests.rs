@@ -112,10 +112,10 @@ fn gameplay_runtime() -> UiRuntime {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn open_chat_draws_the_java_line_with_history_and_the_hud() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = gameplay_runtime();
     chat(&mut runtime, 1, "hello from the server");
     build(&mut presentation, &runtime, 0);
@@ -156,10 +156,10 @@ fn open_chat_draws_the_java_line_with_history_and_the_hud() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     chat(&mut runtime, 1, "history with suggestions");
     runtime.open_chat();
@@ -190,10 +190,10 @@ fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn history_opens_on_the_newest_line_and_the_wheel_reveals_older_ones() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     for sequence in 1..=80 {
         chat(&mut runtime, sequence, &format!("line {sequence}"));
@@ -223,13 +223,13 @@ fn history_opens_on_the_newest_line_and_the_wheel_reveals_older_ones() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn wheel_input_system_scrolls_the_open_chat() {
     use bevy::{
         input::mouse::AccumulatedMouseScroll, prelude::*, time::Real, window::PrimaryWindow,
     };
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     for sequence in 1..=80 {
         chat(&mut runtime, sequence, &format!("line {sequence}"));
@@ -272,10 +272,10 @@ fn wheel_input_system_scrolls_the_open_chat() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn closed_chat_draws_no_screen_and_hits_nothing() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat();
     build(&mut presentation, &runtime, 0);
@@ -290,12 +290,10 @@ fn closed_chat_draws_no_screen_and_hits_nothing() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat();
     presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
@@ -325,12 +323,10 @@ fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
 
 /// Local-only: writes `chat_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn chat_screen_snapshot() {
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     let mut runtime = gameplay_runtime();
     for sequence in 1..=12 {
         chat(
@@ -368,14 +364,14 @@ fn chat_screen_snapshot() {
 
 /// The real carrier supplies the gear, popup and persisted controls without a network session.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
     use crate::menu::{
         MenuAction,
         settings_options::{SETTINGS_OPTIONS, SettingsOptions},
     };
-    let Some(mut presentation) = native_chat_presentation() else {
-        return;
-    };
+    let mut presentation =
+        native_chat_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     let lang = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../.local/assets/compiled/vanilla-v1.mcbelang");
@@ -430,11 +426,11 @@ fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
     use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
-    let Some(mut presentation) = native_chat_presentation() else {
-        return;
-    };
+    let mut presentation =
+        native_chat_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat();
     runtime.insert_chat_text("draft").unwrap();

@@ -156,6 +156,7 @@ fn live_pose_changes_only_geometry_and_original_skin_keeps_its_density() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn installed_carriers_admit_geometry_and_keep_diagnostic_world_fallback() {
     use crate::asset_startup::equipment_carrier::equipment_asset_path;
     use crate::asset_startup::{DEFAULT_ASSET_PATH, ENTITY_ASSETS_FILENAME, icon_asset_path};
@@ -163,14 +164,10 @@ fn installed_carriers_admit_geometry_and_keep_diagnostic_world_fallback() {
     let world_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(DEFAULT_ASSET_PATH);
-    let (Ok(world), Ok(entities), Ok(icons)) = (
-        std::fs::read(&world_path),
-        std::fs::read(world_path.with_file_name(ENTITY_ASSETS_FILENAME)),
-        std::fs::read(icon_asset_path(&world_path)),
-    ) else {
-        eprintln!("local GUI carrier regression skipped: runtime carriers absent");
-        return;
-    };
+    let world = std::fs::read(&world_path).expect("make assets: world carrier");
+    let entities = std::fs::read(world_path.with_file_name(ENTITY_ASSETS_FILENAME))
+        .expect("make assets: entity carrier");
+    let icons = std::fs::read(icon_asset_path(&world_path)).expect("make assets: icon carrier");
     let world = RuntimeAssets::decode(&world).unwrap();
     let entities = RuntimeEntityAssets::decode(&entities).unwrap();
     let icons = Arc::new(RuntimeIconCatalog::decode(&icons).unwrap());

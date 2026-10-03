@@ -30,10 +30,10 @@ fn frame(presentation: &mut UiPresentationRuntime) -> render::UiRenderInput {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
-        return;
-    };
+    let mut presentation = pack_harness::engine_presentation()
+        .expect("required offline fixture; see the ignore reason");
     let title = menu_artwork::TITLE_KEY;
     presentation.set_server_ui_pack(&super::ServerUiPack {
         textures: vec![(format!("{title}.png"), png([900, 300], [220, 20, 30, 255]))],
@@ -112,10 +112,9 @@ fn vanilla_image(path: &str) -> image::RgbaImage {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
-    let Some(pack) = pack_harness::env_pack() else {
-        return;
-    };
+    let pack = pack_harness::env_pack().expect("required offline fixture; see the ignore reason");
     let mut presentation = pack_harness::engine_presentation().expect("real UI carrier required");
     assert!(
         pack.textures
@@ -202,10 +201,10 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden() {
-    let Some(mut pack) = pack_harness::env_pack() else {
-        return;
-    };
+    let mut pack =
+        pack_harness::env_pack().expect("required offline fixture; see the ignore reason");
     // This offline variant removes only Zeqa's intentionally transparent image.
     pack.textures
         .retain(|(key, _)| key != "textures/ui/loading_bar.png");

@@ -4,11 +4,11 @@ use super::pack_harness;
 use ui::DpiScale;
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn populated_hotbar_snapshot() {
     use super::super::{IconRef, tests::engine_hud_tests};
-    let Some(mut presentation) = engine_hud_tests::engine_presentation() else {
-        return;
-    };
+    let mut presentation = engine_hud_tests::engine_presentation()
+        .expect("required offline fixture; see the ignore reason");
     if let Some(pack) = pack_harness::env_pack() {
         presentation.set_server_ui_pack(&pack);
     }
@@ -37,10 +37,9 @@ fn populated_hotbar_snapshot() {
 }
 
 #[test]
+#[ignore = "requires installed UI carrier, CINNABAR_LOBBY_CAPTURE and CINNABAR_FORM_PACK_DIR"]
 fn spirit_bundle_snapshot() {
-    let Some(runtime) = captured_form() else {
-        return;
-    };
+    let runtime = captured_form().expect("required offline fixture; see the ignore reason");
     let mut presentation = pack_harness::engine_presentation().expect("installed UI carrier");
     let pack = pack_harness::env_pack().expect("captured server UI pack");
     presentation.set_server_ui_pack(&pack);
@@ -107,10 +106,9 @@ fn spirit_bundle_snapshot() {
 }
 
 #[test]
+#[ignore = "requires installed UI carrier, CINNABAR_LOBBY_CAPTURE and CINNABAR_FORM_PACK_DIR"]
 fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
-    let Some(runtime) = captured_form() else {
-        return;
-    };
+    let runtime = captured_form().expect("required offline fixture; see the ignore reason");
     let mut presentation = pack_harness::engine_presentation().expect("installed UI carrier");
     let dpi = DpiScale::new(1.0).unwrap();
     let cold = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();

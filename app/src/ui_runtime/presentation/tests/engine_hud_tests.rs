@@ -179,6 +179,7 @@ fn select_slot(runtime: &mut UiRuntime) {
 
 // The crosshair spans 15 GUI px and centres exactly on the (safe) viewport.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
     for (physical, dpi, preference, k, safe) in [
         ([1280u32, 720u32], 1.0f32, None, 2.0f32, SafeArea::ZERO),
@@ -201,9 +202,8 @@ fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
             SafeArea::new(30.0, 20.0, 10.0, 0.0).unwrap(),
         ),
     ] {
-        let Some(mut presentation) = engine_presentation() else {
-            return;
-        };
+        let mut presentation =
+            engine_presentation().expect("required offline fixture; see the ignore reason");
         presentation.set_gui_scale_preference(preference);
         presentation.set_safe_area(safe);
         *presentation.hud_frame_mut() = first_person();
@@ -230,10 +230,10 @@ fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
 
 // First person only, kept while chatting, and gone in spectator.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn crosshair_is_first_person_only_and_mode_gated() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Survival);
     let paint = |presentation: &UiPresentationRuntime, runtime: &UiRuntime| {
@@ -261,6 +261,7 @@ fn crosshair_is_first_person_only_and_mode_gated() {
 
 // Hotbar, status rows, and effects follow the authoritative game mode.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn game_mode_matrix_gates_each_surface_exactly() {
     for (mode, hotbar, stats) in [
         (PlayerGameMode::Survival, true, true),
@@ -268,9 +269,8 @@ fn game_mode_matrix_gates_each_surface_exactly() {
         (PlayerGameMode::Creative, true, false),
         (PlayerGameMode::Spectator, false, false),
     ] {
-        let Some(mut presentation) = engine_presentation() else {
-            return;
-        };
+        let mut presentation =
+            engine_presentation().expect("required offline fixture; see the ignore reason");
         let mut runtime = UiRuntime::new(1);
         runtime.publish_player_game_mode(mode);
         runtime.set_local_selected_slot(2);
@@ -304,10 +304,10 @@ fn game_mode_matrix_gates_each_surface_exactly() {
 
 // A retained slot prediction never keeps the hotbar once the mode is spectator.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Survival);
     runtime.set_local_selected_slot(2);
@@ -335,10 +335,10 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
 // Java Gui geometry: hotbar flush at the bottom centre, selection 1 px out,
 // status rows from H-39, the XP bar at H-29 with its green level at H-35.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn java_pack_geometry_on_a_real_viewport() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Survival);
     select_slot(&mut runtime);
@@ -387,11 +387,11 @@ fn java_pack_geometry_on_a_real_viewport() {
 
 // The hotbar keeps 182 GUI px at every auto scale, centred.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn hotbar_stays_bottom_centred_and_tracks_the_auto_scale() {
     for (physical, scale) in [([1280u32, 720u32], 2.0f64), ([2560, 1344], 5.0)] {
-        let Some(mut presentation) = engine_presentation() else {
-            return;
-        };
+        let mut presentation =
+            engine_presentation().expect("required offline fixture; see the ignore reason");
         let mut runtime = UiRuntime::new(1);
         select_slot(&mut runtime);
         build_at(&mut presentation, &runtime, 0, physical, 1.5);
@@ -491,10 +491,10 @@ fn nonstandard_health_maximum_renders_stacked_rows_like_the_reference() {
 // The selected-item name, stack counts, and durability draw; the name leaves
 // after its two-second window.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn selected_item_label_counts_and_durability_render_and_fade() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Survival);
     let mut slots = vec![NetworkItemStack::empty(); 36];
@@ -545,10 +545,10 @@ fn selected_item_label_counts_and_durability_render_and_fade() {
 
 // Boss bars and chat stay visible in spectator.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn spectator_still_presents_boss_bars_and_chat() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Spectator);
     runtime
@@ -576,10 +576,10 @@ fn spectator_still_presents_boss_bars_and_chat() {
 
 // Riding hides the XP bar for the jump bar, drawn from the HUD sheet.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn mount_jump_bar_replaces_the_experience_row_while_riding() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Survival);
     full_stats(&mut runtime, 1);
@@ -605,10 +605,10 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
 
 // Boss bars stack, tinted by their colour; an emptied bar draws no fill.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn boss_bars_render_titled_tinted_tracks_and_updates() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     let show = |sequence, id, title, progress, color| SequencedUiEvent {
         session_id: 1,
@@ -677,10 +677,10 @@ fn boss_bars_render_titled_tinted_tracks_and_updates() {
 
 // Sidebar rows resolve player, entity, and fake owners, with red Java scores.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn sidebar_resolves_owned_actor_names_and_draws_java_scores() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     super::retained_hud_tests::install_mixed_scoreboard_slot(
         &mut runtime,
@@ -716,10 +716,10 @@ fn sidebar_resolves_owned_actor_names_and_draws_java_scores() {
 
 // Titles fade in, hold, and out on the server's timing; chat fades after 10 s.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn titles_and_chat_carry_their_fades() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime
         .hud
@@ -748,10 +748,10 @@ fn titles_and_chat_carry_their_fades() {
 
 // A steady HUD repaints from cache; a changed binding re-binds once.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn unchanged_hud_reuses_its_layout_across_frames() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Survival);
     select_slot(&mut runtime);
@@ -773,10 +773,10 @@ fn unchanged_hud_reuses_its_layout_across_frames() {
 
 // The position line follows the world rule or a held map; days follow theirs.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn world_rules_raise_the_position_and_days_lines() {
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     presentation.hud_frame_mut().player_block = Some([12, 64, -7]);
     presentation.hud_frame_mut().world_time = Some(24_000.0 * 3.0 + 5.0);
@@ -869,15 +869,12 @@ fn busy_session() -> UiRuntime {
     runtime
 }
 
-// Steady and changing-data frame costs, printed for profiling (HUD_TIMING=1).
+// Steady and changing-data frame costs, printed when the ignored benchmark is selected.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn hud_frame_timing() {
-    if std::env::var_os("HUD_TIMING").is_none() {
-        return;
-    }
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     *presentation.hud_frame_mut() = first_person();
     let mut runtime = busy_session();
     let frames: u32 = std::env::var("HUD_FRAMES")
@@ -913,6 +910,7 @@ fn hud_frame_timing() {
 
 // An N-notch overlay adds exactly N-1 dividers over the bar.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn notched_boss_overlays_draw_their_dividers() {
     let quads = |overlay| {
         let mut presentation = engine_presentation()?;
@@ -935,20 +933,19 @@ fn notched_boss_overlays_draw_their_dividers() {
             .unwrap();
         Some(build(&mut presentation, &runtime, 0).vertices.len() / 4)
     };
-    let Some(plain) = quads(ProtocolBossOverlay::Progress) else {
-        return;
-    };
+    let plain = quads(ProtocolBossOverlay::Progress)
+        .expect("required offline fixture; see the ignore reason");
     assert_eq!(quads(ProtocolBossOverlay::Notched6), Some(plain + 5));
     assert_eq!(quads(ProtocolBossOverlay::Notched20), Some(plain + 19));
 }
 
 /// A saved visibility edit changes the emitted HUD and restores it without a reload.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn settings_hide_hud_suppresses_the_rendered_overlay() {
     use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     let mut runtime = UiRuntime::new(1);
     runtime.publish_player_game_mode(PlayerGameMode::Survival);
     runtime.set_local_selected_slot(0);

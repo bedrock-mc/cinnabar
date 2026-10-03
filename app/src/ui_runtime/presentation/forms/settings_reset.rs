@@ -45,10 +45,10 @@ mod tests {
     use crate::menu::{MenuRuntime, MenuScreen};
 
     #[test]
+    #[ignore = "requires installed local carriers (make assets)"]
     fn authored_section_reset_buttons_route_to_their_own_group() {
-        let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
-            return;
-        };
+        let mut presentation = super::super::pack_harness::engine_presentation()
+            .expect("required offline fixture; see the ignore reason");
         for (section, group) in [
             ("video_forced_index", SettingsGroup::Video),
             ("accessibility_forced_index", SettingsGroup::Accessibility),

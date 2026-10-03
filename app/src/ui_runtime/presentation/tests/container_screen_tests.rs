@@ -370,17 +370,15 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
 // Every container screen draws through the engine, and a click on each of its
 // window cells and player slots reaches that ledger cell.
 #[test]
+#[ignore = "requires installed local carriers (make assets) and CINNABAR_CONTAINER_SCREEN"]
 fn every_container_screen_draws_through_the_engine() {
     let only = std::env::var("CINNABAR_CONTAINER_SCREEN").ok();
     for (name, runtime, expected) in screens() {
         if only.as_deref().is_some_and(|only| only != name) {
             continue;
         }
-        let Some(mut presentation) =
-            engine_presentation_with(super::super::forms::pack_harness::font())
-        else {
-            return;
-        };
+        let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+            .expect("required offline fixture; see the ignore reason");
         assert!(runtime.inventory_open(), "{name}");
         // Textures publish during the first builds.
         let dpi = DpiScale::new(1.0).unwrap();
@@ -417,14 +415,12 @@ fn every_container_screen_draws_through_the_engine() {
 // A disabled crafter slot shows its button over the cell; pressing it asks
 // the server to re-enable the slot, and clicking an empty slot disables it.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn crafter_slots_toggle_through_their_buttons() {
     use crate::ui_runtime::inventory_drag::PointerAction;
     use crate::ui_runtime::presentation::screens::Widget as W;
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     let mut runtime = opened(protocol::WINDOW_TYPE_CRAFTER, 9);
     runtime.screen_state_mut().crafter.observe(0b101, true, 0);
     let dpi = DpiScale::new(1.0).unwrap();
@@ -466,12 +462,10 @@ fn crafter_slots_toggle_through_their_buttons() {
 
 // A llama's single equip cell is its carpet slot, never the saddle's.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn llama_equip_cell_addresses_the_carpet_slot() {
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     let mut runtime = opened(protocol::WINDOW_TYPE_HORSE, 17);
     runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
     let dpi = DpiScale::new(1.0).unwrap();
@@ -497,13 +491,11 @@ fn llama_equip_cell_addresses_the_carpet_slot() {
 // Creative's wide list drops the player inventory for the catalog and keeps
 // the hotbar beneath it; its toggles pick each layout.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
     use crate::ui_runtime::presentation::screens::Widget as W;
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     let mut runtime = creative();
     runtime.screen_state_mut().creative_wide = true;
     let dpi = DpiScale::new(1.0).unwrap();
@@ -540,12 +532,10 @@ fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
 // Moving the pointer across slots only changes which hover states show: the
 // screen never lays out again, however long the creative catalog.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn hovering_slots_never_lays_the_screen_out_again() {
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     let mut runtime = creative_with(1500);
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
@@ -582,12 +572,10 @@ fn hovering_slots_never_lays_the_screen_out_again() {
 
 // Scrolling the creative catalog lays out only what the viewport shows.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn scrolling_the_creative_catalog_stays_interactive() {
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
-        return;
-    };
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
+        .expect("required offline fixture; see the ignore reason");
     let mut runtime = creative_with(1500);
     let dpi = DpiScale::new(1.0).unwrap();
     presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
