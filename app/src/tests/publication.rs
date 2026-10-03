@@ -82,7 +82,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     let medium = system_node(graph, update_camera_medium, "update_camera_medium");
     let atmosphere = system_node(
         graph,
-        crate::environment::atmosphere::update_atmosphere_frame,
+        crate::environment::update_atmosphere_frame,
         "update_atmosphere_frame",
     );
     assert!(schedule_precedes(graph, fly_camera, medium));
