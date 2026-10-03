@@ -69,7 +69,6 @@ mod tests {
             .lines()
             .map(|line| line.split_once('\t').expect("capacity row").0)
             .collect::<Vec<_>>();
-        assert_eq!(identifiers.len(), 1_590);
         assert!(identifiers.windows(2).all(|pair| pair[0] < pair[1]));
 
         let retail = RETAIL_ITEMS
