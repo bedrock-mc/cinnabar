@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use bevy::{
-    ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet},
+    ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet, graph::DiGraph},
     input::{
         ButtonState,
         keyboard::{Key, KeyboardInput, NativeKey},
@@ -42,7 +42,8 @@ fn production_committed_stream_poll_precedes_form_input_authority_without_moving
             .unwrap(),
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_reaches(
+            graph.dependency().graph(),
             production_system_node(graph, reconcile_world_stream_before_physics),
             authority,
         ),
@@ -59,14 +60,16 @@ fn production_committed_stream_poll_precedes_form_input_authority_without_moving
             .unwrap(),
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_reaches(
+            graph.dependency().graph(),
             production_system_node(graph, reconcile_world_stream_before_physics),
             drain,
         ),
         "the sole UI drain follows real committed stream reconciliation"
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_reaches(
+            graph.dependency().graph(),
             production_system_node(graph, drain_committed_ui_before_authority),
             authority,
         ),
@@ -79,12 +82,29 @@ fn production_committed_stream_poll_precedes_form_input_authority_without_moving
             .unwrap(),
     );
     assert!(
-        graph.hierarchy().graph().contains_edge(
+        schedule_reaches(
+            graph.hierarchy().graph(),
             publication,
             production_system_node(graph, drive_world_stream)
         ),
         "render/world publication remains in its existing later phase"
     );
+}
+
+/// Checks schedule ordering or set membership through any number of intermediate nodes.
+fn schedule_reaches(graph: &DiGraph<NodeId>, from: NodeId, target: NodeId) -> bool {
+    let mut pending = vec![from];
+    let mut visited = Vec::new();
+    while let Some(node) = pending.pop() {
+        if node == target {
+            return true;
+        }
+        if !visited.contains(&node) {
+            visited.push(node);
+            pending.extend(graph.neighbors(node));
+        }
+    }
+    false
 }
 
 fn production_system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>) -> NodeId {
