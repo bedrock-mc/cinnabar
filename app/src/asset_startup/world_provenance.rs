@@ -178,6 +178,9 @@ pub(crate) fn verify_atmosphere_carrier(
 }
 
 #[cfg(test)]
+mod offline_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
         active_content_registry_protocol, pinned_world_provenance, verify_pinned_registries_bind,

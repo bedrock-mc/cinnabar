@@ -350,7 +350,7 @@ fn review_render_atlas_snapshot_does_not_block_mob_installation() {
         std::fs::create_dir_all(temporary.path().join(family)).unwrap();
     }
     std::fs::write(temporary.path().join("models/entity/test.geo.json"), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":16,"texture_height":16},"bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#).unwrap();
-    let compiled = asset_compiler::compile_entity_assets(
+    let compiled = pack_compiler::compile_entity_assets(
         temporary.path(),
         include_bytes!("../../../../../assets/vanilla-source.json"),
     )

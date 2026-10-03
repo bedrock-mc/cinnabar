@@ -1,12 +1,12 @@
 use std::path::Path;
 
-use asset_compiler::{
-    compile_entity_assets_with_report, compile_equipment_textures_for_assets,
-    compile_item_use_durations,
-};
 use assets::{
     AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentTransform,
     encode_entity_blob, encode_equipment_catalog_full,
+};
+use pack_compiler::{
+    compile_entity_assets_with_report, compile_equipment_textures_for_assets,
+    compile_item_use_durations,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};

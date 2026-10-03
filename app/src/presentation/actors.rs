@@ -46,11 +46,17 @@ pub(crate) struct SkinLayerPack {
 
 impl SkinLayerPack {
     pub(crate) fn pack(&mut self, layers: Vec<Arc<[u8]>>) -> Arc<[u8]> {
-        if layers != self.layers {
+        // Arc equality on unsized byte slices scans the pixels even for the same allocation.
+        let unchanged = layers.len() == self.layers.len()
+            && layers
+                .iter()
+                .zip(&self.layers)
+                .all(|(layer, previous)| Arc::ptr_eq(layer, previous) || layer == previous);
+        if !unchanged {
             self.packed = layers.concat().into();
-            self.layers = layers;
             self.rebuilds += 1;
         }
+        self.layers = layers;
         Arc::clone(&self.packed)
     }
 
@@ -475,7 +481,7 @@ pub(crate) fn select_actor_presentations_for_view(
         };
         let layer = skin_families
             .iter()
-            .position(|existing| *existing == skin)
+            .position(|existing| Arc::ptr_eq(existing, &skin) || *existing == skin)
             .unwrap_or_else(|| {
                 skin_families.push(skin);
                 skin_families.len() - 1

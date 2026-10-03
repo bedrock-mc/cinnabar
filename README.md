@@ -83,7 +83,8 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/asset-compiler` | `assetc`, which compiles the vanilla pack into the runtime carriers. |
 | `crates/assets` | Readers for pack sources and compiled carriers. |
 | `crates/bridge` | The local stream between the client and the Go core. |
-| `crates/client-world` | Client game state: actors, items, block entities and the packet stream. |
+| `crates/client-world` | Authoritative world state, actors, items, decoding and ordered commits. |
+| `crates/chunk-pipeline` | Terrain residency, mesh scheduling and bounded publication. |
 | `crates/experience-runtime`, `crates/experience-sdk` | Runs a server Experience out of process; the guest SDK generated from `wit/server.wit`. |
 | `crates/input` | Device-independent input actions. |
 | `crates/inventory` | Engine-independent inventory authority, prediction, crafting and commands. |
@@ -91,6 +92,7 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/meshing` | CPU geometry for chunks, liquids, biomes and clouds. |
 | `crates/mod-api` | Experimental guest SDK generated from the extension WIT contract. |
 | `crates/mod-host` | Opt-in WASM component spike with bounded HUD and input imports. |
+| `crates/pack-compiler` | Reusable pack compilation for runtime loading and `assetc`. |
 | `crates/protocol` | Bedrock packet definitions and codec. |
 | `crates/render` | Chunk and entity rendering on Bevy/wgpu. |
 | `crates/render-api` | Engine-independent contracts between world publication and rendering. |

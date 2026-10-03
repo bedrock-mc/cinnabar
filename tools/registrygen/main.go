@@ -377,7 +377,7 @@ func main() {
 			*blockV2193Allowlist != "" || *blockV2193Manifest != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
 			fmt.Fprintln(os.Stderr, "registrygen: fallback rekey mode requires only -fallback-rekey-in, -legacy-breg, -new-breg, and -fallback-rekey-out")
-			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -fallback-rekey-in crates/asset-compiler/data/vanilla-fallback-v1001.bin -legacy-breg crates/assets/data/block-registry-v1001.bin -new-breg crates/assets/data/block-registry-v2193.bin -fallback-rekey-out crates/assets/data/vanilla-fallback-v2193.bin [-fallback-rekey-manifest assets/vanilla-fallback-source-v2193.json]\n")
+			fmt.Fprintf(os.Stderr, "example: go run ./tools/registrygen -fallback-rekey-in crates/pack-compiler/data/vanilla-fallback-v1001.bin -legacy-breg crates/assets/data/block-registry-v1001.bin -new-breg crates/assets/data/block-registry-v2193.bin -fallback-rekey-out crates/assets/data/vanilla-fallback-v2193.bin [-fallback-rekey-manifest assets/vanilla-fallback-source-v2193.json]\n")
 			os.Exit(2)
 		}
 		stats, err := writeRekeyedFallback(*fallbackRekeyIn, *rekeyLegacyBREG, *rekeyNewBREG, *fallbackRekeyOut, *fallbackRekeyManifest)

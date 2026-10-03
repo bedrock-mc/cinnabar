@@ -3,8 +3,8 @@
 
 use std::{fs, path::Path};
 
-use asset_compiler::{compile_lang_assets, compile_language, vanilla_language_codes};
 use assets::AssetError;
+use pack_compiler::{compile_lang_assets, compile_language, vanilla_language_codes};
 use serde::Serialize;
 
 use super::{

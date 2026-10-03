@@ -364,17 +364,14 @@ name = "asset-compiler"
 version = "0.1.0"
 dependencies = [
  "assets",
- "cap-fs-ext",
- "cap-std",
  "clap",
- "fontdue",
  "image",
+ "pack-compiler",
  "same-file",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -539,11 +536,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
- "asset-compiler",
  "assets",
  "bevy",
  "bytes",
- "client-world",
+ "chunk-pipeline",
  "crossbeam-channel",
  "crossbeam-queue",
  "ctrlc",
@@ -553,6 +549,7 @@ dependencies = [
  "json-ui",
  "meshing",
  "mod-host",
+ "pack-compiler",
  "protocol",
  "rayon",
  "render",
@@ -1649,6 +1646,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "chunk-pipeline"
+version = "0.1.0"
+dependencies = [
+ "assets",
+ "bytes",
+ "client-world",
+ "crossbeam-channel",
+ "hashbrown 0.16.1",
+ "libc",
+ "meshing",
+ "protocol",
+ "rayon",
+ "render-api",
+ "sha2",
+ "thiserror 2.0.18",
+ "windows-sys 0.61.2",
+ "world",
+]
+
+[[package]]
 name = "cinnabar-cxb"
 version = "0.1.0"
 dependencies = [
@@ -1730,16 +1747,10 @@ version = "0.1.0"
 dependencies = [
  "assets",
  "bytes",
- "crossbeam-channel",
  "hashbrown 0.16.1",
- "libc",
- "meshing",
  "protocol",
- "rayon",
- "render-api",
  "sha2",
  "thiserror 2.0.18",
- "windows-sys 0.61.2",
  "world",
 ]
 
@@ -3814,10 +3825,10 @@ dependencies = [
 name = "meshing"
 version = "0.1.0"
 dependencies = [
- "asset-compiler",
  "assets",
  "bytemuck",
  "image",
+ "pack-compiler",
  "tempfile",
  "world",
 ]
@@ -4525,6 +4536,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pack-compiler"
+version = "0.1.0"
+dependencies = [
+ "assets",
+ "cap-fs-ext",
+ "cap-std",
+ "fontdue",
+ "image",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5160,7 +5187,6 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "render"
 version = "0.1.0"
 dependencies = [
- "asset-compiler",
  "assets",
  "bevy",
  "bytemuck",
@@ -5169,6 +5195,7 @@ dependencies = [
  "mod-api",
  "naga",
  "naga_oil",
+ "pack-compiler",
  "rayon",
  "render-api",
  "serde_json",

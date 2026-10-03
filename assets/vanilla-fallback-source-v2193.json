@@ -13,7 +13,7 @@
     "sha256": "6f8af2cfe1b984c3c57b8ed7bb8d12032184ba02b469f168d86dbc18237f4a74"
   },
   "input_inventory": {
-    "path": "crates/asset-compiler/data/vanilla-fallback-v1001.bin",
+    "path": "crates/pack-compiler/data/vanilla-fallback-v1001.bin",
     "sha256": "31cfbf7b51dd1f37a904f73092212f209029570abead458db10ace05a16064b2"
   },
   "registry": {

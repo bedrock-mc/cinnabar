@@ -235,7 +235,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 		"app/src/install_layout.rs":                   {"block-physics-v2193.bin", "vanilla-v2193.mcbea"},
 		"tools/dist/src/layout.rs":                    {"block-physics-v2193.bin", "vanilla-v2193.mcbea"},
 		"app/src/metrics/diagnostics.rs":              {"block-registry-v2193.bin"},
-		"crates/asset-compiler/src/entity/item.rs":    {"block-registry-v2193.bin", "block-item-routes-v2193.json"},
+		"crates/pack-compiler/src/entity/item.rs":     {"block-registry-v2193.bin", "block-item-routes-v2193.json"},
 		"crates/asset-compiler/src/bin/assetc/cli.rs": {"vanilla-v2193.mcbea"},
 		"crates/protocol/Cargo.toml":                  {target.CodecFeature},
 		"app/src/local_worlds/launch.rs":              {"bedrock-target.json", "server_version", "bds_container_image"},

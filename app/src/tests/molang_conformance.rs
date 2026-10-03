@@ -145,7 +145,7 @@ fn pack() -> Pack {
 
 fn spawned(entity: &str, pack: &Pack) -> (WorldStream, Arc<RuntimeEntityAssets>) {
     let manifest = include_bytes!("../../../assets/vanilla-source.json");
-    let compiled = asset_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
+    let compiled = pack_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
     let entities =
         Arc::new(RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap());
     let mut world = WorldStream::new_with_asset_sets(

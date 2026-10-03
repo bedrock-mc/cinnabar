@@ -727,6 +727,23 @@ mod tests {
     }
 
     #[test]
+    fn gameplay_profiler_is_shared_without_enabling_aggregate_snapshots() {
+        let mut app = app_with_noop_render_sub_app();
+        app.insert_resource(RuntimeStageProfiler::for_gameplay(false, None));
+        app.add_plugins(ChunkRenderPlugin::new(1));
+        let profiler = app
+            .sub_app(RenderApp)
+            .world()
+            .resource::<RuntimeStageProfiler>();
+        assert!(!profiler.enabled());
+        assert!(
+            profiler
+                .take_snapshot_if_due(std::time::Duration::ZERO)
+                .is_none()
+        );
+    }
+
+    #[test]
     fn gpu_preparation_uploads_once_per_stable_asset_identity() {
         let mut app = app_with_noop_render_sub_app();
         app.add_plugins(ChunkRenderPlugin::new(1));

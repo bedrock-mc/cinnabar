@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
-use asset_compiler::compile_hud_assets;
 use assets::AssetError;
+use pack_compiler::compile_hud_assets;
 use serde::Serialize;
 
 use super::{

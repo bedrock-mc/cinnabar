@@ -15,6 +15,7 @@ pub enum RuntimeStage {
     PackReload,
     WorldPoll,
     SurfacePreparation,
+    RenderSubmission,
     ActorGeometrySetup,
     ActorArtworkSetup,
     ActorEquipmentSetup,
@@ -42,17 +43,19 @@ pub enum RuntimeStage {
     /// Bone matrices and instance arena build, inside `ActorPublication`.
     ActorRigBuild,
     UiPublication,
+    UiPreparation,
     Particles,
     Audio,
     BlockEntities,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 32] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
         Self::SurfacePreparation,
+        Self::RenderSubmission,
         Self::ActorGeometrySetup,
         Self::ActorArtworkSetup,
         Self::ActorEquipmentSetup,
@@ -76,6 +79,7 @@ impl RuntimeStage {
         Self::ActorPreparation,
         Self::ActorRigBuild,
         Self::UiPublication,
+        Self::UiPreparation,
         Self::Particles,
         Self::Audio,
         Self::BlockEntities,
@@ -88,6 +92,7 @@ impl RuntimeStage {
             Self::PackReload => "pack_reload",
             Self::WorldPoll => "world_poll",
             Self::SurfacePreparation => "surface_preparation",
+            Self::RenderSubmission => "render_submission",
             Self::ActorGeometrySetup => "actor_geometry_setup",
             Self::ActorArtworkSetup => "actor_artwork_setup",
             Self::ActorEquipmentSetup => "actor_equipment_setup",
@@ -111,6 +116,7 @@ impl RuntimeStage {
             Self::ActorPreparation => "actor_preparation",
             Self::ActorRigBuild => "actor_rig_build",
             Self::UiPublication => "ui_publication",
+            Self::UiPreparation => "ui_preparation",
             Self::Particles => "particles",
             Self::Audio => "audio",
             Self::BlockEntities => "block_entities",
@@ -159,6 +165,7 @@ impl StageSampleAccumulator {
 #[derive(Debug)]
 struct RuntimeStageProfileState {
     enabled: bool,
+    slow: Option<crate::runtime_profile_slow::SlowFrameRecorder>,
     trace: Option<crate::runtime_profile_trace::FrameTrace>,
     started: Instant,
     last_snapshot_nanos: AtomicU64,
@@ -184,10 +191,21 @@ impl RuntimeStageProfiler {
 
     /// Enables bounded frame spans saved at shutdown when a trace path is supplied.
     pub fn with_trace(enabled: bool, path: Option<std::path::PathBuf>) -> Self {
+        Self::build(enabled, path, false)
+    }
+
+    /// Keeps cheap slow-frame attribution on during normal play; full traces remain opt-in.
+    pub fn for_gameplay(enabled: bool, path: Option<std::path::PathBuf>) -> Self {
+        Self::build(enabled, path, true)
+    }
+
+    /// Constructs aggregate profiling and the independent slow-frame recorder.
+    fn build(enabled: bool, path: Option<std::path::PathBuf>, slow: bool) -> Self {
         let started = Instant::now();
         Self {
             state: Arc::new(RuntimeStageProfileState {
                 enabled,
+                slow: slow.then(crate::runtime_profile_slow::SlowFrameRecorder::default),
                 trace: path
                     .filter(|_| enabled)
                     .map(|path| crate::runtime_profile_trace::FrameTrace::new(path, started)),
@@ -203,12 +221,25 @@ impl RuntimeStageProfiler {
         self.state.enabled
     }
 
+    /// Times a stage without allocation; normal play records only atomic nanosecond totals.
     pub fn time(&self, stage: RuntimeStage) -> RuntimeStageTimer<'_> {
         RuntimeStageTimer {
-            state: self.state.enabled.then_some(&*self.state),
+            state: self.active().then_some(&*self.state),
             stage,
-            started: self.state.enabled.then(Instant::now),
+            started: self.active().then(Instant::now),
         }
+    }
+
+    /// Reports the preceding slow frame and starts a new attribution window.
+    pub fn begin_frame(&self, focused: bool, occluded: bool) {
+        if let Some(slow) = &self.state.slow {
+            slow.begin_frame(Instant::now(), focused, occluded);
+        }
+    }
+
+    /// Whether either aggregate profiling or gameplay attribution needs stage spans.
+    fn active(&self) -> bool {
+        self.state.enabled || self.state.slow.is_some()
     }
 
     /// Marks the main update boundary and its current window focus.
@@ -269,7 +300,7 @@ pub fn end_stage_span<const S: usize>(
 ) {
     if let (Some(profiler), Some(started)) =
         (profiler, spans.and_then(|mut spans| spans.0[S].take()))
-        && profiler.enabled()
+        && profiler.active()
     {
         record_stage(&profiler.state, RuntimeStage::ALL[S], started);
     }
@@ -293,7 +324,12 @@ impl Drop for RuntimeStageTimer<'_> {
 /// Records aggregate timing and an optional timestamped span together.
 fn record_stage(state: &RuntimeStageProfileState, stage: RuntimeStage, started: Instant) {
     let elapsed = started.elapsed();
-    state.stages[stage as usize].record(elapsed);
+    if state.enabled {
+        state.stages[stage as usize].record(elapsed);
+    }
+    if let Some(slow) = &state.slow {
+        slow.record(stage, elapsed);
+    }
     if let Some(trace) = &state.trace {
         trace.record(stage, started, elapsed);
     }

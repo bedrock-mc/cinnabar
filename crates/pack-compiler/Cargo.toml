@@ -1,0 +1,20 @@
+[package]
+name = "pack-compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+assets = { path = "../assets" }
+cap-fs-ext = "3.4.5"
+cap-std = "3.4.5"
+fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
+image = { version = "0.25", default-features = false, features = ["png", "tga"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

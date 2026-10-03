@@ -528,7 +528,7 @@ fn pack_runtime(
     files: Vec<(Box<str>, Vec<u8>)>,
 ) -> (super::runtime::EquipmentRuntime, ActorArtworkPages) {
     use super::runtime::EquipmentRuntime;
-    let compiled = asset_compiler::compile_actor_pack(files)
+    let compiled = pack_compiler::compile_actor_pack(files)
         .unwrap()
         .expect("pack compiles");
     let catalog = Arc::new(

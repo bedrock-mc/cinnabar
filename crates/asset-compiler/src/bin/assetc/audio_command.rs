@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use asset_compiler::{AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, compile_audio_assets};
+use pack_compiler::{AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, compile_audio_assets};
 use serde::Serialize;
 
 use super::{

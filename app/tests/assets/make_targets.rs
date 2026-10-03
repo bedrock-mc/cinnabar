@@ -13,10 +13,14 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
         "LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2193.bin",
         concat!(
             "ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock $(BEDROCK_TARGET_MANIFEST) crates/assets/Cargo.toml ",
-            "crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) ",
+            "crates/asset-compiler/Cargo.toml crates/pack-compiler/Cargo.toml Makefile ",
+            "$(wildcard crates/assets/src/*.rs) ",
             "$(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) ",
             "$(wildcard crates/asset-compiler/src/*/*.rs) ",
-            "$(wildcard crates/asset-compiler/src/*/*/*.rs)"
+            "$(wildcard crates/asset-compiler/src/*/*/*.rs) ",
+            "$(wildcard crates/pack-compiler/src/*.rs) ",
+            "$(wildcard crates/pack-compiler/src/*/*.rs) ",
+            "$(wildcard crates/pack-compiler/src/*/*/*.rs)"
         ),
         concat!(
             "$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) ",

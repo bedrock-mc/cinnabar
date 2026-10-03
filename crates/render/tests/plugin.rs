@@ -9,7 +9,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use asset_compiler::compile_pack as compile_pack_with_lights;
 use assets::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BlockFlags, BlockVisual, CompiledAssets,
     CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_CUTOUT,
@@ -17,6 +16,7 @@ use assets::{
     NetworkIdMode, RegistryRecord, RuntimeAssets, TextureArray, TextureMip, TexturePage,
     TextureRef, VisualKind, encode_blob, read_registry,
 };
+use pack_compiler::compile_pack as compile_pack_with_lights;
 
 fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
     let lights = vec![

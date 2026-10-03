@@ -1,7 +1,7 @@
 use std::{fs, path::Path, process::Command};
 
-use asset_compiler::compile_entity_assets;
 use assets::{EntityAssetKind, EntityDependencyKind, EntityDependencyResolution};
+use pack_compiler::compile_entity_assets;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 

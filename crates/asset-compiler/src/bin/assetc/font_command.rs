@@ -1,5 +1,5 @@
 use super::*;
-use asset_compiler::{
+use pack_compiler::{
     GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
 };
 

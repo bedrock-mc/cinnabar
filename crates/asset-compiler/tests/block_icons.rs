@@ -1,8 +1,8 @@
 #[path = "support/fixture_input.rs"]
 mod fixture_input;
 
-use asset_compiler::{compile_entity_assets, compile_icon_assets, compile_icon_assets_with_blocks};
 use assets::*;
+use pack_compiler::{compile_entity_assets, compile_icon_assets, compile_icon_assets_with_blocks};
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 

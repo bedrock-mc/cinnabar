@@ -75,6 +75,28 @@ worker and main-thread stages as attribution rather than additive wall time, and
 run the final performance gate again without the variable because profiling
 changes the measured workload.
 
+Normal play also emits `RUST_MCBE_SLOW_FRAME` without any environment setting.
+It reports an update-start interval or main update over 20 ms, at most once per
+second, with the number of suppressed slow frames. `main_ms` covers `First` to
+`Last`; `between_updates_ms` covers the rest of the preceding start-to-start
+interval. `main_stages` lists spans completed during that update, and
+`window_stages` includes the intervening render work, both in descending
+milliseconds. These are overlapping wall-time spans, not additive CPU or GPU
+time. A worker span can begin in an earlier frame; its full duration appears in
+the window where it completes. `surface_preparation` includes drawable
+acquisition and schedule overhead; `render_submission` includes CPU render
+graph execution, queue submission and presentation. A large interval with
+small main work warrants checking the render stages and OS scheduling before
+changing gameplay. Fast frames use fixed-size counters without formatting or
+file I/O; aggregate snapshots and full traces remain opt-in.
+
+After the startup visibility probe stops, ordinary world-publication logs keep
+current stream and upload counters but mark the inactive visibility witness as
+`visibility_snapshot_valid=false`, with null frame, pose, view and draw-mode
+identities. Frozen startup visibility markers are no longer printed as current
+gameplay evidence. Explicit acceptance and metrics probes retain their existing
+snapshot schema.
+
 For frame-level attribution, also set `RUST_MCBE_STAGE_PROFILE_FRAMES` to a
 scratch JSON path. The profiler keeps a bounded, preallocated trace in memory
 and writes Chrome trace events on the exit frame. It includes window focus and

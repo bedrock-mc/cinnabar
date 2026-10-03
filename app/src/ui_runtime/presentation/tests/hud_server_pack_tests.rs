@@ -364,3 +364,5 @@ fn zeqa_top_bar_snapshot() {
         }
     }
 }
+
+mod frame_cost;

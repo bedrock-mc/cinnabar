@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, process::Command};
 
-use asset_compiler::compile_hud_assets;
 use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTextureRole, RuntimeHudCatalog};
+use pack_compiler::compile_hud_assets;
 use sha2::{Digest, Sha256};
 
 const SOURCE_MANIFEST: &[u8] = include_bytes!("../../../assets/hud-source-v2193.json");

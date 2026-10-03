@@ -25,9 +25,19 @@ use crate::runtime::network::{
 mod gpu_replay;
 mod join_setup;
 mod player_report;
+mod synthetic_players;
 
 const FRAME: Duration = Duration::from_nanos(16_666_667);
 const COMPILED: &str = "../.local/assets/compiled";
+
+/// Resolves the pinned world carrier name from the startup path rather than duplicating it.
+fn world_carrier(compiled: &Path) -> PathBuf {
+    compiled.join(
+        Path::new(crate::asset_startup::DEFAULT_ASSET_PATH)
+            .file_name()
+            .unwrap(),
+    )
+}
 
 /// Packets that only build terrain; the actor path never reads them.
 const TERRAIN_PACKETS: [u32; 2] = [58, 174];
@@ -244,7 +254,7 @@ fn build_world(
         std::env::var_os("CINNABAR_RENDER_CARRIERS").unwrap_or_else(|| COMPILED.into()),
     );
     let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
-        path: compiled.join("vanilla-v2193.mcbea"),
+        path: world_carrier(&compiled),
         source: crate::asset_startup::AssetPathSource::CommandLine,
     })
     .unwrap();

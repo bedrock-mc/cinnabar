@@ -1,6 +1,6 @@
 use std::{fs, path::Path, process::Command};
 
-use asset_compiler::{FontCompileError, GlyphAdvances, OutlineFontConfig, compile_outline_font};
+use pack_compiler::{FontCompileError, GlyphAdvances, OutlineFontConfig, compile_outline_font};
 use sha2::{Digest, Sha256};
 
 #[test]

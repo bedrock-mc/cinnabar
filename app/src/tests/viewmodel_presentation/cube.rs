@@ -87,7 +87,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let (pack, _geometry, _) = hand_fixture();
     // Match the decoded carrier's unsupported player-controller route: retain
     // the player symbol, authored geometry and item routes, but no resolved rig.
-    let mut compiled = asset_compiler::compile_entity_assets(
+    let mut compiled = pack_compiler::compile_entity_assets(
         &pack.0,
         include_bytes!("../../../../assets/vanilla-source.json"),
     )

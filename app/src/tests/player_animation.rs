@@ -99,7 +99,7 @@ impl Drop for Pack {
 fn entities() -> Arc<RuntimeEntityAssets> {
     let pack = Pack::new();
     let manifest = include_bytes!("../../../assets/vanilla-source.json");
-    let compiled = asset_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
+    let compiled = pack_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
     Arc::new(RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap())
 }
 
@@ -632,7 +632,7 @@ fn vanilla_entities() -> Option<Arc<RuntimeEntityAssets>> {
         return None;
     }
     let manifest = include_bytes!("../../../assets/vanilla-source.json");
-    let compiled = asset_compiler::compile_entity_assets(&root, manifest).unwrap();
+    let compiled = pack_compiler::compile_entity_assets(&root, manifest).unwrap();
     Some(Arc::new(
         RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap(),
     ))

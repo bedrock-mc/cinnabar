@@ -5,24 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
-[features]
-publication-test-support = []
-
 [dependencies]
-render-api = { path = "../render-api" }
 assets = { path = "../assets" }
-crossbeam-channel = "0.5"
 bytes.workspace = true
 hashbrown = "0.16"
-meshing = { path = "../meshing" }
 protocol = { path = "../protocol" }
-rayon.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 world = { path = "../world" }
-
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
-libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

@@ -82,7 +82,7 @@ pub(crate) fn prepare_ui_runtime(
 ) {
     let _timer = profiler
         .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
+        .map(|profiler| profiler.time(render::RuntimeStage::UiPreparation));
     prepared.0 = None;
     runtime.toast_display_millis = menu_runtime.settings_snapshot().0.toast_lifetime_millis();
     if let Some(mut glint_settings) = glint_settings {

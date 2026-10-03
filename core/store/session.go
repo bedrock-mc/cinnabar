@@ -33,7 +33,11 @@ func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 	if err := discovery.Environment(storeEnv); err != nil {
 		return nil, fmt.Errorf("store: resolve store service: %w", err)
 	}
-	market, err := storeEnv.New(account)
+	entitlementsEnv := new(marketplace.EntitlementsEnvironment)
+	if err := discovery.Environment(entitlementsEnv); err != nil {
+		return nil, fmt.Errorf("store: resolve entitlements service: %w", err)
+	}
+	market, err := storeEnv.New(account, entitlementsEnv)
 	if err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}

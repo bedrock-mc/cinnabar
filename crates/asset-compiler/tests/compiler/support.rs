@@ -6,9 +6,6 @@ pub(super) use std::{
     process::Command,
 };
 
-pub(super) use asset_compiler::{
-    BlockFace, compile_pack as compile_pack_with_lights, read_pack, resolve_texture_key,
-};
 pub(super) use assets::{
     AssetError, BlobProvenance, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed,
     CompiledAssets, ContributorRole, DIAGNOSTIC_MATERIAL, LightProperties,
@@ -25,6 +22,9 @@ pub(super) use assets::{
     canonical_source_manifest_sha256, encode_blob, read_registry,
 };
 pub(super) use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
+pub(super) use pack_compiler::{
+    BlockFace, compile_pack as compile_pack_with_lights, read_pack, resolve_texture_key,
+};
 pub(super) use sha2::{Digest, Sha256};
 pub(super) use tempfile::TempDir;
 

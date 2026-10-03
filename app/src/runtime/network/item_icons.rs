@@ -188,7 +188,7 @@ pub(super) fn custom_block_icons(
         if let Some(sheet) = visual.and_then(|visual| overlay_sheet(overlay, visual)) {
             result.block_sheets.push(session_icon(identifier, sheet));
         }
-        match visual.and_then(|visual| asset_compiler::overlay_block_icon(overlay, visual)) {
+        match visual.and_then(|visual| pack_compiler::overlay_block_icon(overlay, visual)) {
             Some(sprite) => result.icons.push(session_icon(identifier, sprite)),
             None => result.misses.push((
                 Arc::clone(identifier),

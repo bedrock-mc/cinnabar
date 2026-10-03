@@ -34,7 +34,7 @@ fn report_local_pack_entities() {
         }
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         diagnose_references(&name, &files);
-        match asset_compiler::compile_actor_pack(files) {
+        match pack_compiler::compile_actor_pack(files) {
             Ok(Some(c)) => {
                 let mut reasons = std::collections::BTreeMap::<String, Vec<String>>::new();
                 for fallback in &c.fallbacks {

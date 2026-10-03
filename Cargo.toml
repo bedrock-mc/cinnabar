@@ -5,6 +5,8 @@ members = [
     "crates/assets",
     "crates/bridge",
     "crates/client-world",
+    "crates/chunk-pipeline",
+    "crates/pack-compiler",
     "crates/experience-sdk",
     "crates/experience-runtime",
     "examples/experiences/probe",

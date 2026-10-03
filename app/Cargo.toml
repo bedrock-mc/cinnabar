@@ -10,7 +10,7 @@ inventory = { path = "../crates/inventory" }
 bytes.workspace = true
 anyhow.workspace = true
 arboard = { version = "3", default-features = false }
-asset-compiler = { path = "../crates/asset-compiler" }
+pack-compiler = { path = "../crates/pack-compiler" }
 assets = { path = "../crates/assets" }
 bevy = { workspace = true, default-features = false, features = [
     "bevy_anti_alias",
@@ -27,7 +27,7 @@ crossbeam-channel = "0.5"
 crossbeam-queue = "=0.3.13"
 ctrlc = { version = "3.4", features = ["termination"] }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
-client-world = { path = "../crates/client-world" }
+client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
@@ -60,6 +60,6 @@ bevy = { workspace = true, default-features = false, features = ["wayland", "x11
 
 [dev-dependencies]
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-asset-compiler = { path = "../crates/asset-compiler" }
-client-world = { path = "../crates/client-world", features = ["publication-test-support"] }
+pack-compiler = { path = "../crates/pack-compiler" }
+client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }

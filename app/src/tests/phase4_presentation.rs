@@ -394,6 +394,21 @@ fn skin_layer_packing_keeps_equal_copies_and_detects_changed_pixels() {
     assert_eq!(pack.rebuilds(), 4);
 }
 
+/// Equal replacement pixels retain the packed output and release the obsolete source raster.
+#[test]
+fn skin_layer_packing_releases_replaced_equal_source_pixels() {
+    let mut pack = SkinLayerPack::default();
+    let source: Arc<[u8]> = vec![11; STANDARD_SKIN_BYTES].into();
+    let obsolete = Arc::downgrade(&source);
+    let replacement: Arc<[u8]> = source.to_vec().into();
+    let first = pack.pack(vec![source]);
+    assert!(obsolete.upgrade().is_some());
+    let second = pack.pack(vec![replacement]);
+    assert!(Arc::ptr_eq(&first, &second));
+    assert_eq!(pack.rebuilds(), 1);
+    assert!(obsolete.upgrade().is_none());
+}
+
 #[test]
 fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
     let mut local = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)

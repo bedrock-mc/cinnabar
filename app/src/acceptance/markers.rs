@@ -193,45 +193,47 @@ pub(crate) fn world_publication_snapshot_marker(
     graphics: &render::GraphicsAdapterMetadata,
 ) -> String {
     let milliseconds = |duration: Duration| duration.as_secs_f64() * 1_000.0;
-    format!(
-        "{WORLD_PUBLICATION_SNAPSHOT}={}",
-        serde_json::json!({
-            "accepted_light_jobs": stats.accepted_light_jobs,
-            "noop_light_jobs": stats.noop_light_jobs,
-            "value_changed_light_jobs": stats.value_changed_light_jobs,
-            "provenance_only_light_jobs": stats.provenance_only_light_jobs,
-            "light_mesh_invalidations": stats.light_mesh_invalidations,
-            "stale_light_jobs": stats.stale_light_jobs,
-            "stale_mesh_jobs": stats.stale_mesh_jobs,
-            "queued_decode_jobs": stats.queued_decode_jobs,
-            "in_flight_decode_jobs": stats.in_flight_decode_jobs,
-            "pending_light_jobs": stats.pending_light_jobs,
-            "in_flight_light_jobs": stats.in_flight_light_jobs,
-            "pending_mesh_jobs": stats.pending_mesh_jobs,
-            "in_flight_mesh_jobs": stats.in_flight_mesh_jobs,
-            "max_decode_queue_wait_ms": milliseconds(stats.max_decode_queue_wait),
-            "max_light_queue_wait_ms": milliseconds(stats.max_light_queue_wait),
-            "max_mesh_queue_wait_ms": milliseconds(stats.max_mesh_queue_wait),
-            "max_decode_worker_ms": milliseconds(stats.max_decode_duration),
-            "max_light_worker_ms": milliseconds(stats.max_light_duration),
-            "max_mesh_worker_ms": milliseconds(stats.max_mesh_duration),
-            "upload_queue_items": upload_queue_items,
-            "upload_queue_bytes": upload_queue_bytes,
-            "gpu_upload_bytes": gpu_upload_bytes,
-            "frame_generation": visibility.frame_generation,
-            "pose_generation": visibility.pose_generation,
-            "view_generation": visibility.view_generation,
-            "draw_mode": format!("{:?}", visibility.draw_mode),
-            "build_profile": config.build_profile,
-            "requested_present_mode": graphics.requested_present_mode,
-            "effective_present_mode": graphics.effective_present_mode,
-            "present_mode_proven": graphics.present_mode_proven,
-            "backend": graphics.backend,
-            "adapter": graphics.adapter,
-            "driver": graphics.driver,
-            "driver_info": graphics.driver_info,
-        })
-    )
+    let visibility_valid = visibility.frame_generation != 0;
+    let mut snapshot = serde_json::json!({
+        "accepted_light_jobs": stats.accepted_light_jobs,
+        "noop_light_jobs": stats.noop_light_jobs,
+        "value_changed_light_jobs": stats.value_changed_light_jobs,
+        "provenance_only_light_jobs": stats.provenance_only_light_jobs,
+        "light_mesh_invalidations": stats.light_mesh_invalidations,
+        "stale_light_jobs": stats.stale_light_jobs,
+        "stale_mesh_jobs": stats.stale_mesh_jobs,
+        "queued_decode_jobs": stats.queued_decode_jobs,
+        "in_flight_decode_jobs": stats.in_flight_decode_jobs,
+        "pending_light_jobs": stats.pending_light_jobs,
+        "in_flight_light_jobs": stats.in_flight_light_jobs,
+        "pending_mesh_jobs": stats.pending_mesh_jobs,
+        "in_flight_mesh_jobs": stats.in_flight_mesh_jobs,
+        "max_decode_queue_wait_ms": milliseconds(stats.max_decode_queue_wait),
+        "max_light_queue_wait_ms": milliseconds(stats.max_light_queue_wait),
+        "max_mesh_queue_wait_ms": milliseconds(stats.max_mesh_queue_wait),
+        "max_decode_worker_ms": milliseconds(stats.max_decode_duration),
+        "max_light_worker_ms": milliseconds(stats.max_light_duration),
+        "max_mesh_worker_ms": milliseconds(stats.max_mesh_duration),
+        "upload_queue_items": upload_queue_items,
+        "upload_queue_bytes": upload_queue_bytes,
+        "gpu_upload_bytes": gpu_upload_bytes,
+        "frame_generation": visibility_valid.then_some(visibility.frame_generation),
+        "pose_generation": visibility_valid.then_some(visibility.pose_generation),
+        "view_generation": visibility_valid.then_some(visibility.view_generation),
+        "draw_mode": visibility_valid.then(|| format!("{:?}", visibility.draw_mode)),
+        "build_profile": config.build_profile,
+        "requested_present_mode": graphics.requested_present_mode,
+        "effective_present_mode": graphics.effective_present_mode,
+        "present_mode_proven": graphics.present_mode_proven,
+        "backend": graphics.backend,
+        "adapter": graphics.adapter,
+        "driver": graphics.driver,
+        "driver_info": graphics.driver_info,
+    });
+    if !visibility_valid {
+        snapshot["visibility_snapshot_valid"] = serde_json::json!(false);
+    }
+    format!("{WORLD_PUBLICATION_SNAPSHOT}={snapshot}")
 }
 
 pub(crate) fn visibility_delta_marker_fields(

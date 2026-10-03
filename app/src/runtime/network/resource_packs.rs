@@ -90,6 +90,14 @@ pub(super) fn prepare_session_packs(
     let icon_keys = protocol::item_icon_keys(game_data);
     let block_items = custom_block_items(game_data, &custom_blocks);
     let hashed = game_data.start_game.block_network_ids_are_hashes;
+    bevy::log::info!(
+        block_network_ids_are_hashes = hashed,
+        block_property_count = game_data.start_game.block_properties.len(),
+        custom_block_count = custom_blocks.blocks.len(),
+        custom_state_count = custom_blocks.total_states(),
+        skipped_block_definitions = custom_blocks.skipped,
+        "START_GAME_BLOCK_IDS"
+    );
     let required = handoff.required();
     let mut packs =
         prepare_pack_application(handoff, &custom_blocks, &icon_keys, &block_items, hashed);

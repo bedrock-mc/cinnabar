@@ -39,7 +39,7 @@ sha2 = { workspace = true, features = ["asm"] }
 
 [dev-dependencies]
 bevy = { workspace = true, features = ["bevy_window", "bevy_post_process"] }
-asset-compiler = { path = "../asset-compiler" }
+pack-compiler = { path = "../pack-compiler" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 naga = { version = "27.0.3", features = ["wgsl-in", "wgsl-out"] }
 naga_oil = "0.20"

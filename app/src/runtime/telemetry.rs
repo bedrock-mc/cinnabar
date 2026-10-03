@@ -1,3 +1,7 @@
+mod attribution;
+use attribution::DiagnosticAttributionLogState;
+pub(crate) use attribution::refresh_diagnostic_attribution;
+
 use meshing::biome_lattice::{BIOME_BLEND_RADIUS, BLEND_SAMPLE_COUNT};
 use std::{
     collections::VecDeque,
@@ -27,6 +31,8 @@ use render::{
 use sha2::{Digest, Sha256};
 use world::SubChunkKey;
 
+mod visibility_snapshot;
+
 use crate::{
     acceptance::{
         AcceptanceRun, PHASE0_REQUESTED_RADIUS_CHUNKS,
@@ -42,8 +48,8 @@ use crate::{
     camera::{self, FlyCamera, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
     local_player::LocalPlayerFrameCarrier,
     metrics::{
-        DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
-        PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
+        GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
+        TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
     },
     movement::{
         MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
@@ -83,6 +89,7 @@ pub(crate) struct TelemetryRenderMetrics<'w> {
     local_player: Res<'w, LocalPlayerFrameCarrier>,
     frame_poll: Res<'w, WorldStreamFramePoll>,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    visibility_input: Res<'w, VisibilityDiagnosticsInput>,
 }
 
 pub(crate) fn camera_sub_chunk_key(dimension: i32, position: Vec3) -> SubChunkKey {
@@ -133,24 +140,9 @@ pub(crate) struct MetricsSamplingState {
     pub(crate) visibility_elapsed: Duration,
     pub(crate) runtime_metadata_emitted: bool,
     pub(crate) diagnostic_attribution_revision: u64,
+    diagnostic_attribution_log: DiagnosticAttributionLogState,
     pub(crate) last_biome_blend_identity: Option<CommittedBiomeBlendIdentity>,
     pub(crate) last_phase2_snapshot: Option<CombinedPhase2Snapshot>,
-}
-
-pub(crate) fn refresh_diagnostic_attribution(
-    last_revision: &mut u64,
-    tracker: &DiagnosticQuadTracker,
-    metrics: &mut MetricsCollector,
-) -> Option<String> {
-    let revision = tracker.revision();
-    if *last_revision == revision {
-        return None;
-    }
-    let snapshot = tracker.snapshot();
-    let marker = format!("DIAGNOSTIC_GEOMETRY {}", snapshot.marker_fields());
-    metrics.record_diagnostic_attribution(snapshot);
-    *last_revision = revision;
-    Some(marker)
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -500,14 +492,18 @@ pub(crate) fn record_metrics_and_title(
         client_world.missing_asset_count(),
         diagnostic_quads.0.total(),
     );
-    if let Some(marker) = refresh_diagnostic_attribution(
+    let fresh_marker = refresh_diagnostic_attribution(
         &mut sampling.diagnostic_attribution_revision,
         &diagnostic_quads.0,
         &mut metrics.0,
-    ) {
+    );
+    if let Some(marker) = sampling.diagnostic_attribution_log.take(now, fresh_marker) {
         info!("{marker}");
     }
-    let visibility_snapshot = visibility_diagnostics.snapshot();
+    let visibility_snapshot = visibility_snapshot::active_snapshot(
+        &render_metrics.visibility_input,
+        visibility_diagnostics.snapshot(),
+    );
     // Full-cohort manifests and their JSON/timing markers are acceptance
     // evidence, not gameplay work. Gate the collection as well as the output.
     if publication_diagnostics_enabled(&acceptance)
@@ -651,7 +647,7 @@ pub(crate) fn record_metrics_and_title(
             );
         }
     }
-    if client_world.stream.is_some() {
+    if client_world.stream.is_some() && visibility_snapshot.frame_generation != 0 {
         let cohort = render_metrics.frame_poll.cohort;
         let count = |digest: Option<render::VisibilityKeyDigest>| {
             digest
@@ -741,21 +737,22 @@ pub(crate) fn record_metrics_and_title(
                 &mut stdout,
                 &adaptive_publication_diagnostic_line(render_metrics.publication.diagnostics()),
             );
-            if let (Some(stream), Some(graphics)) = (
-                client_world.stream.as_ref(),
-                visibility_diagnostics.graphics_adapter(),
-            ) {
-                let marker = world_publication_snapshot_marker(
-                    stream.stats(),
-                    render_queue.retained_len(),
-                    render_queue.pending_bytes(),
-                    render_queue.gpu_upload_bytes(),
-                    snapshot,
-                    *runtime_config,
-                    &graphics,
-                );
-                write_stdout_marker(&mut stdout, &marker);
-            }
+        }
+        if let (Some(stream), Some(graphics)) = (
+            client_world.stream.as_ref(),
+            visibility_diagnostics.graphics_adapter(),
+        ) {
+            let marker = world_publication_snapshot_marker(
+                stream.stats(),
+                render_queue.retained_len(),
+                render_queue.pending_bytes(),
+                render_queue.gpu_upload_bytes(),
+                snapshot,
+                *runtime_config,
+                &graphics,
+            );
+            let mut stdout = std::io::stdout().lock();
+            write_stdout_marker(&mut stdout, &marker);
         }
     }
     let transparent_sort_snapshot =

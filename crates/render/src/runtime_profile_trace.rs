@@ -131,16 +131,28 @@ impl Drop for FrameTrace {
 /// Brackets surface preparation to distinguish drawable waits from game work.
 pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
     use bevy::prelude::*;
-    use bevy::render::{Render, RenderSystems, view::window::prepare_windows};
+    use bevy::render::{
+        Render, RenderSystems, renderer::render_system, view::window::prepare_windows,
+    };
+    const SUBMISSION: usize = RuntimeStage::RenderSubmission as usize;
     const SURFACE: usize = RuntimeStage::SurfacePreparation as usize;
-    app.init_resource::<crate::RuntimeStageSpans>().add_systems(
-        Render,
-        (
-            crate::begin_stage_span::<SURFACE>.before(prepare_windows),
-            crate::end_stage_span::<SURFACE>.after(prepare_windows),
+    app.init_resource::<crate::RuntimeStageSpans>()
+        .add_systems(
+            Render,
+            (
+                crate::begin_stage_span::<SURFACE>.before(prepare_windows),
+                crate::end_stage_span::<SURFACE>.after(prepare_windows),
+            )
+                .in_set(RenderSystems::ManageViews),
         )
-            .in_set(RenderSystems::ManageViews),
-    );
+        .add_systems(
+            Render,
+            (
+                crate::begin_stage_span::<SUBMISSION>.before(render_system),
+                crate::end_stage_span::<SUBMISSION>.after(render_system),
+            )
+                .in_set(RenderSystems::Render),
+        );
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ use std::{
     sync::OnceLock,
 };
 
-use asset_compiler::compile_pack as compile_pack_with_lights;
+use pack_compiler::compile_pack as compile_pack_with_lights;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
     DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,

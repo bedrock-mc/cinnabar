@@ -8,7 +8,7 @@ fn player_catalog(size: u32) -> Arc<assets::RuntimeEntityAssets> {
     let geometry = format!(
         r#"{{"format_version":"1.12.0","minecraft:geometry":[{{"description":{{"identifier":"geometry.test_player","texture_width":64,"texture_height":64}},"bones":[{{"name":"body","pivot":[0,0,0],"cubes":[{{"origin":[0,0,0],"size":[{size},8,4],"uv":[0,0]}}]}}]}}]}}"#
     );
-    let compiled = asset_compiler::compile_entity_pack(vec![
+    let compiled = pack_compiler::compile_entity_pack(vec![
         ("entity/player.json".into(), entity.to_vec()),
         (
             "models/entity/player.geo.json".into(),

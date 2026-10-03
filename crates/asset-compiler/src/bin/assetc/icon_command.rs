@@ -3,8 +3,8 @@
 
 use std::{fs, path::Path};
 
-use asset_compiler::{compile_icon_assets, compile_icon_assets_with_blocks};
 use assets::AssetError;
+use pack_compiler::{compile_icon_assets, compile_icon_assets_with_blocks};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 

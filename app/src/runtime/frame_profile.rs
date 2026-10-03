@@ -12,9 +12,9 @@ pub(crate) fn trace_frame_focus(
     for event in events.read() {
         *occluded = event.occluded;
     }
-    if let Ok(window) = windows.single() {
-        profiler.trace_frame(window.focused, *occluded);
-    }
+    let focused = windows.single().is_ok_and(|window| window.focused);
+    profiler.begin_frame(focused, *occluded);
+    profiler.trace_frame(focused, *occluded);
 }
 
 /// Saves recorded spans on the exit frame, before runner teardown can retain resources.

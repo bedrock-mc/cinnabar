@@ -73,7 +73,7 @@ pub(super) fn compile_session_entities(
 
 fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
     let files = collect_files(view, VANILLA_REFS.get());
-    let compiled = match asset_compiler::compile_actor_pack(files) {
+    let compiled = match pack_compiler::compile_actor_pack(files) {
         Ok(Some(compiled)) => compiled,
         Ok(None) => return None,
         Err(error) => {
@@ -82,7 +82,7 @@ fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
         }
     };
     let skipped = compiled.skipped;
-    if skipped != asset_compiler::EntityPackSkips::default() || !compiled.fallbacks.is_empty() {
+    if skipped != pack_compiler::EntityPackSkips::default() || !compiled.fallbacks.is_empty() {
         bevy::log::warn!(
             oversized = skipped.oversized,
             unparsable = skipped.unparsable,

@@ -213,9 +213,9 @@ fn serialized_phase2_path_reads_the_frozen_local_subject_column() {
         .split("pub(crate) fn record_metrics_and_title")
         .nth(1)
         .expect("record_metrics_and_title source")
-        .split("\n    if client_world.stream.is_some() {")
-        .next()
-        .expect("record_metrics_and_title body");
+        .split_once("\n    if client_world.stream.is_some()")
+        .expect("phase-2 evidence ends before gameplay visibility counters")
+        .0;
 
     assert!(record.contains("render_metrics.local_player.snapshot()"));
     assert!(record.contains("local_subject_column(stream.current_dimension(), local_frame.eye())"));

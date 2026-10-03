@@ -65,7 +65,7 @@ fn diagnostics(root: &Path) -> Vec<String> {
 fn permits_shared_contract_without_game_state_in_render() {
     let temp = fixture();
     let root = temp.path();
-    for name in ["render", "client-world", "protocol"] {
+    for name in ["render", "chunk-pipeline", "protocol"] {
         set_dependencies(
             root,
             name,

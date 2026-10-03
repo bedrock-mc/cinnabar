@@ -11,6 +11,6 @@ bytemuck = { version = "1", features = ["derive"] }
 world = { path = "../world" }
 
 [dev-dependencies]
-asset-compiler = { path = "../asset-compiler" }
+pack-compiler = { path = "../pack-compiler" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3"

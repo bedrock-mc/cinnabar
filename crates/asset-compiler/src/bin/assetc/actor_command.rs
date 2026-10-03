@@ -1,8 +1,8 @@
 use super::{
     MAX_SOURCE_MANIFEST_BYTES, read_bounded_with_limit, validate_output_bundle, write_output_bundle,
 };
-use asset_compiler::compile_actor_assets;
 use assets::AssetError;
+use pack_compiler::compile_actor_assets;
 use std::{fs, path::Path};
 
 pub(super) fn compile_actor_assets_command(

@@ -8,14 +8,14 @@ use std::{
     process::Command,
 };
 
-use asset_compiler::{
-    AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
-};
 use assets::{
     AssetError, AtmosphereRole, AtmosphereTexture, CelestialTile, CompiledAtmosphereAssets,
     RuntimeAtmosphereAssets, composite_celestial, encode_atmosphere_blob,
 };
 use image::{Rgba, RgbaImage};
+use pack_compiler::{
+    AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
+};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 

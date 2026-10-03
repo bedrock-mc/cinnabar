@@ -51,17 +51,39 @@ func (f *fakeCatalog) ItemByID(_ context.Context, id string, _ ...playfab.Reques
 	return nil, errors.New("missing")
 }
 
-// newTestClient serves handler as the store service over TLS and returns a Client pointed at it.
+// newTestClient serves distinct store and entitlements origins and returns the entitlements server.
 func newTestClient(t *testing.T, handler http.HandlerFunc, cat Catalog) (*Client, *httptest.Server) {
 	t.Helper()
-	server := httptest.NewTLSServer(handler)
-	t.Cleanup(server.Close)
+	// serve rejects requests routed to the wrong service before invoking the test's handler.
+	serve := func(entitlements bool) *httptest.Server {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var needsEntitlements bool
+			switch r.URL.Path {
+			case "/api/v1.0/player/inventory", "/api/v1.0/currencies/virtual/balances", "/api/v1.0/transaction/virtual":
+				needsEntitlements = true
+			}
+			if entitlements != needsEntitlements {
+				t.Errorf("%s routed to wrong service: entitlements=%t", r.URL.Path, entitlements)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			handler.ServeHTTP(w, r)
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+	storeServer, entitlementsServer := serve(false), serve(true)
 	env := new(marketplace.Environment)
-	if err := json.Unmarshal([]byte(`{"serviceUri":"`+server.URL+`"}`), env); err != nil {
+	if err := json.Unmarshal([]byte(`{"serviceUri":"`+storeServer.URL+`"}`), env); err != nil {
 		t.Fatal(err)
 	}
-	env.HTTPClient = server.Client()
-	market, err := env.New(fakeTokens{})
+	env.HTTPClient = storeServer.Client()
+	entitlementsEnv := new(marketplace.EntitlementsEnvironment)
+	if err := json.Unmarshal([]byte(`{"serviceUri":"`+entitlementsServer.URL+`"}`), entitlementsEnv); err != nil {
+		t.Fatal(err)
+	}
+	entitlementsEnv.HTTPClient = entitlementsServer.Client()
+	market, err := env.New(fakeTokens{}, entitlementsEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +94,7 @@ func newTestClient(t *testing.T, handler http.HandlerFunc, cat Catalog) (*Client
 	if err != nil {
 		t.Fatal(err)
 	}
-	return client, server
+	return client, entitlementsServer
 }
 
 // Authored to the reference client's inventory parser; not a captured payload.

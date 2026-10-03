@@ -79,7 +79,7 @@ pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
         .ok()
         .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes));
     let compiled =
-        asset_compiler::compile_actor_pack(super::collect::collect_files(&view, refs.as_ref()))
+        pack_compiler::compile_actor_pack(super::collect::collect_files(&view, refs.as_ref()))
             .unwrap()
             .unwrap();
     let artwork =

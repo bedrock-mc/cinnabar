@@ -1,0 +1,195 @@
+{
+  "before_commit": "7251e86ed4b52f9b2921b91ed12e13521309043d",
+  "after_commit": "37bfc75776eb978670b3b50240a0827f3cba9dc4",
+  "machine": {
+    "cpu": "Apple M3 Pro",
+    "logical_cpus": 12,
+    "memory_bytes": 38654705664,
+    "macos": "26.5.1",
+    "target": "aarch64-apple-darwin",
+    "rustc": "1.93.1 (01f6ddf75 2026-02-11)"
+  },
+  "profile": {
+    "name": "dev",
+    "workspace_opt_level": 1,
+    "dependency_opt_level": 3,
+    "debug": 0,
+    "jobs": 3,
+    "incremental": false,
+    "compiler_cache": false
+  },
+  "command": [
+    "/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot",
+    "env",
+    "RUSTC_WRAPPER=",
+    "CARGO_INCREMENTAL=0",
+    "CARGO_TARGET_DIR=/Users/hashim/Coding/cinnabar-wt/chunk-pipeline/target",
+    "cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "-p",
+    "bedrock-client",
+    "--timings"
+  ],
+  "probe": "// Timing probe: behavior-neutral source edit.",
+  "stream_source_before": "crates/client-world/src/stream.rs",
+  "stream_source_after": "crates/chunk-pipeline/src/stream.rs",
+  "render_source_both": "crates/render/src/chunk/mod.rs",
+  "additional_world_source_after": "crates/client-world/src/ingestion/ordered.rs",
+  "report_labels": {
+    "before-stream-edit": "original stream module",
+    "after-pipeline-edit": "moved stream module",
+    "after-stream-edit": "additional lower world-ordering probe",
+    "before-render-edit": "original render module",
+    "after-render-edit": "render module after extraction"
+  },
+  "reports": {
+    "before-stream-edit": {
+      "cargo_seconds": 174.4,
+      "fresh_units": 678,
+      "wall_including_slot_seconds": 174.63537458299834,
+      "exit_code": 0,
+      "report_sha256": "135c20404b93cc638e82c8828f2109ac2cd07740fc4ae401a1b3c37cbef14bd5",
+      "compiled_units": [
+        {
+          "name": "client-world",
+          "target": "",
+          "start_seconds": 0.97,
+          "duration_seconds": 49.94
+        },
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 6.59,
+          "duration_seconds": 164.51
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 171.11,
+          "duration_seconds": 3.32
+        }
+      ]
+    },
+    "before-render-edit": {
+      "cargo_seconds": 87.2,
+      "fresh_units": 678,
+      "wall_including_slot_seconds": 87.60912216600263,
+      "exit_code": 0,
+      "report_sha256": "3868ba99f3da2f090dcb4c230943558a3e8e03a50544eb523ef204a30d2a4591",
+      "compiled_units": [
+        {
+          "name": "render",
+          "target": "",
+          "start_seconds": 0.52,
+          "duration_seconds": 43.95
+        },
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 21.3,
+          "duration_seconds": 62.06
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 83.36,
+          "duration_seconds": 3.89
+        }
+      ]
+    },
+    "after-stream-edit": {
+      "cargo_seconds": 97.4,
+      "fresh_units": 664,
+      "wall_including_slot_seconds": 97.54825804200664,
+      "exit_code": 0,
+      "report_sha256": "157141568b77978387af9efdb7c10ef4921a049538f9b2a6544095f0d203ac41",
+      "compiled_units": [
+        {
+          "name": "client-world",
+          "target": "",
+          "start_seconds": 0.56,
+          "duration_seconds": 10.21
+        },
+        {
+          "name": "chunk-pipeline",
+          "target": "",
+          "start_seconds": 1.48,
+          "duration_seconds": 12.8
+        },
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 2.55,
+          "duration_seconds": 92.75
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 95.3,
+          "duration_seconds": 2.12
+        }
+      ]
+    },
+    "after-render-edit": {
+      "cargo_seconds": 102.4,
+      "fresh_units": 665,
+      "wall_including_slot_seconds": 102.51722937500745,
+      "exit_code": 0,
+      "report_sha256": "c5842c9da3a257fdccaec12aa37e663d95c3dda045aa6de46322ccc1d3579507",
+      "compiled_units": [
+        {
+          "name": "render",
+          "target": "",
+          "start_seconds": 0.35,
+          "duration_seconds": 58.63
+        },
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 29.98,
+          "duration_seconds": 71.02
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 101.0,
+          "duration_seconds": 1.45
+        }
+      ]
+    },
+    "after-pipeline-edit": {
+      "cargo_seconds": 52.8,
+      "fresh_units": 665,
+      "wall_including_slot_seconds": 52.900067124995985,
+      "exit_code": 0,
+      "report_sha256": "960223e1e8b8e15a5767f6fe35cb11476e90d9f012bfbbea0069916917b9493f",
+      "compiled_units": [
+        {
+          "name": "chunk-pipeline",
+          "target": "",
+          "start_seconds": 0.33,
+          "duration_seconds": 6.41
+        },
+        {
+          "name": "bedrock-client",
+          "target": "",
+          "start_seconds": 1.07,
+          "duration_seconds": 49.86
+        },
+        {
+          "name": "bedrock-client",
+          "target": " bin \"bedrock-client\"",
+          "start_seconds": 50.93,
+          "duration_seconds": 1.9
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "One sample per edit; other agents may compile on the same local machine.",
+    "Cargo elapsed times exclude build-slot waiting; invocation wall times include it.",
+    "These are executable rebuilds after comment-only source edits, not runtime or clean-build measurements."
+  ]
+}

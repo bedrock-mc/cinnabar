@@ -71,7 +71,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu"]
 [[crates]]
 name = "asset-compiler"
 path = "crates/asset-compiler"
-allowed_dependencies = ["assets"]
+allowed_dependencies = ["pack-compiler", "assets"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
@@ -89,9 +89,24 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "client-world"
 path = "crates/client-world"
-allowed_dependencies = ["assets", "meshing", "protocol", "render-api", "world"]
-forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
+allowed_dependencies = ["assets", "protocol", "world"]
+forbidden_dependencies = ["asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "render-api", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
+
+[[crates]]
+name = "pack-compiler"
+path = "crates/pack-compiler"
+allowed_dependencies = ["assets"]
+forbidden_dependencies = ["asset-compiler", "clap", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
+
+[[crates]]
+name = "chunk-pipeline"
+path = "crates/chunk-pipeline"
+allowed_dependencies = ["client-world", "meshing", "assets", "world", "render-api"]
+# Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
+forbidden_dependencies = ["asset-compiler", "pack-compiler", "protocol", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "inventory"
@@ -119,14 +134,15 @@ path = "crates/render"
 allowed_dependencies = ["assets", "meshing", "mod-api", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
-forbidden_transitive_dependencies = ["client-world", "protocol"]
+forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
 
 [[crates]]
 name = "app"
 path = "app"
-# asset-compiler is allowed only for the session-time in-memory server-pack entity compile.
-allowed_dependencies = ["asset-compiler", "assets", "client-world", "inventory", "json-ui", "meshing", "mod-host", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
-forbidden_dependencies = []
+# The client-world dependency key temporarily names the chunk-pipeline compatibility facade.
+allowed_dependencies = ["assets", "chunk-pipeline", "inventory", "json-ui", "meshing", "mod-host", "pack-compiler", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+forbidden_dependencies = ["asset-compiler"]
+forbidden_transitive_dependencies = ["asset-compiler"]
 
 [[crates]]
 name = "sim"
@@ -537,3 +553,14 @@ forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlay
 path = "app/src/ui_runtime/presentation_snapshot.rs"
 owner = "PresentationInventory"
 owned_type = "PlayerInventoryLedger"
+
+# Authoritative world state cannot regain mesh scheduling or publication ownership.
+[[module_boundaries]]
+path = "crates/client-world/src"
+forbidden_modules = ["chunk_pipeline", "meshing", "render_api"]
+forbidden_owned_types = ["ChunkMesh", "PublicationPermit", "PublicationAllowance", "MeshMemoryPermit"]
+
+# The coordinator composes the authority owner, never a second mutable world store.
+[[module_boundaries]]
+path = "crates/chunk-pipeline/src"
+forbidden_owned_types = ["ChunkStore", "ActorStore"]

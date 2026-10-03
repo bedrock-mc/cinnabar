@@ -10,7 +10,7 @@ pub(super) fn compile_audio_bank_command(
     report: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     validate_output_bundle(out, report)?;
-    let compiled = asset_compiler::compile_audio_bank(pack)?;
+    let compiled = pack_compiler::compile_audio_bank(pack)?;
     let mut report_bytes = serde_json::to_vec_pretty(&compiled.report)?;
     report_bytes.push(b'\n');
     write_output_bundle(&[(out, &compiled.bytes), (report, &report_bytes)])?;

@@ -22,10 +22,10 @@ fn render_projectile_states() {
         return;
     };
     let manifest = include_bytes!("../../../../../assets/vanilla-source.json");
-    let compiled = asset_compiler::compile_entity_assets(Path::new(&pack), manifest).unwrap();
+    let compiled = pack_compiler::compile_entity_assets(Path::new(&pack), manifest).unwrap();
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let entities = Arc::new(assets::RuntimeEntityAssets::decode(&bytes).unwrap());
-    let artwork = asset_compiler::compile_actor_assets(Path::new(&pack), manifest).unwrap();
+    let artwork = pack_compiler::compile_actor_assets(Path::new(&pack), manifest).unwrap();
     let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &bytes).unwrap();
     let candidates = catalog
         .bindings()

@@ -2,18 +2,13 @@ mod action;
 mod actor_animation;
 mod actor_store;
 mod block_entity_visuals;
-mod culling;
 pub mod game_mode_capabilities;
+pub mod ingestion;
 mod item;
 mod local_player_facts;
-mod server_position;
-mod stream;
+pub mod server_position;
 
-pub use culling::CaveVisibilityScratch;
 pub use local_player_facts::{LocalPlayerFacts, LocalPlayerStat};
-pub use render_api::{
-    CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE, expand_legacy_skin_rgba8,
-};
 
 pub use action::{
     ActorEventIdentity, ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, MAX_ACTIONS_PER_ACTOR,
@@ -36,7 +31,8 @@ pub use actor_store::{
     tnt_presentation,
 };
 pub use block_entity_visuals::{
-    BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
+    BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,
+    adjudicate_block_entity_visual,
 };
 pub use item::{
     ActorArmorPiece, ActorArmorSnapshot, ActorEquipmentSnapshot, CanonicalItemRegistryRecord,
@@ -44,25 +40,12 @@ pub use item::{
     MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS,
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
-pub use stream::{
-    ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, BlockEventCue, BuildProfileIdentity,
-    COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,
-    CohortManifestIdentity, CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent,
-    CommittedParticleEvent, CommittedUiEvent, DECODE_DISPATCH_BUDGET_PER_POLL,
-    DEFERRED_RETRY_CAPACITY, ForcedRemeshManifest, ForcedRemeshManifestState,
-    LIGHT_DISPATCH_BUDGET_PER_POLL, MAX_ACTIVE_BLOCK_CRACKS, MAX_ADMITTED_HEAVY_EVENTS,
-    MAX_ADMITTED_WORLD_EVENTS, MAX_IN_FLIGHT_DECODE_JOBS, MAX_IN_FLIGHT_LIGHT_JOBS,
-    MAX_LOCAL_RESET_DISPATCH_EVIDENCE, MAX_PENDING_MESH_CHANGES, MAX_SUB_CHUNK_RETRIES, MapImage,
-    OUTBOUND_REQUEST_CAPACITY, PHASE0_MAX_VIEW_RADIUS_CHUNKS, PendingSubChunkRequest,
-    Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
-    PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
-    PublicationStageCounters, PublisherViewGeometry, RequestClass, RequestClassDepth,
-    RequestQueueEvidence, SUB_CHUNK_RESPONSE_TIMEOUT, SignEditRequest, StageDurations,
-    SubChunkOutcomeCounters, ViewCohort, ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange,
-    WorldStream, WorldStreamError, WorldStreamFatalError, WorldStreamNormalizationStats,
-    WorldStreamPoll, WorldStreamStats,
-};
-#[cfg(feature = "publication-test-support")]
-pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
 
-pub use stream::ResourceMeshSnapshot;
+mod authority;
+pub use authority::BiomeCommitReport;
+pub use authority::{
+    BlockEventCue, COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,
+    COMMITTED_PARTICLE_CAPACITY, COMMITTED_UI_CAPACITY, CommittedAudioEvent, CommittedCameraEvent,
+    CommittedControlEvent, CommittedParticleEvent, CommittedUiEvent, MapImage,
+    PublisherViewGeometry, SignEditRequest, ViewCohort, WorldAuthority,
+};

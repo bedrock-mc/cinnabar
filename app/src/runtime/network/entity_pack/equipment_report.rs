@@ -89,7 +89,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             continue;
         };
         let files = super::collect::collect_files(&view, refs.as_ref());
-        let Ok(Some(compiled)) = asset_compiler::compile_actor_pack(files) else {
+        let Ok(Some(compiled)) = pack_compiler::compile_actor_pack(files) else {
             continue;
         };
         let custom_armor = compiled

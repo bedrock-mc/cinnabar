@@ -4,17 +4,17 @@ use std::{
     path::Path,
 };
 
-use asset_compiler::{
-    AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
-    compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
-    compile_pack_with_material_keys, compile_vanilla_entity_refs, inspect_animation_inventory,
-};
 use assets::{
     AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
     ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob,
     encode_entity_blob, read_biome_registry, write_blob_atomic,
 };
 use clap::Parser;
+use pack_compiler::{
+    AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
+    compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
+    compile_pack_with_material_keys, compile_vanilla_entity_refs, inspect_animation_inventory,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -232,11 +232,11 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::HudExtrasAssets { pack, out } => {
-            asset_compiler::compile_hud_extras_to_file(&pack, &out)?;
+            pack_compiler::compile_hud_extras_to_file(&pack, &out)?;
             println!("compiled HUD extras to {}", out.display());
         }
         Command::WeatherAssets { pack, out } => {
-            asset_compiler::compile_weather_textures_to_file(&pack, &out)?;
+            pack_compiler::compile_weather_textures_to_file(&pack, &out)?;
             println!("compiled weather textures to {}", out.display());
         }
         Command::ActorAssets {
@@ -527,7 +527,7 @@ fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn s
 fn write_compiled_font_assets(
     source: serde_json::Value,
     source_manifest_sha256: [u8; 32],
-    compiled: asset_compiler::CompiledFontCarrier,
+    compiled: pack_compiler::CompiledFontCarrier,
     out: &Path,
     report: &Path,
     sidecars: &[(&Path, &[u8])],
