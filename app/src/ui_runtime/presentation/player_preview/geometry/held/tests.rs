@@ -207,6 +207,7 @@ fn expression_binding_corrects_root_origin_without_changing_mesh_pivot() {
 }
 
 #[test]
+#[ignore = "requires installed entity and equipment carriers (make assets)"]
 fn installed_shield_bound_root_stays_at_each_hand_not_above_head() {
     use crate::asset_startup::{
         DEFAULT_ASSET_PATH, ENTITY_ASSETS_FILENAME, equipment_carrier::equipment_asset_path,
@@ -216,13 +217,10 @@ fn installed_shield_bound_root_stays_at_each_hand_not_above_head() {
     let world_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(DEFAULT_ASSET_PATH);
-    let (Ok(entities), Ok(equipment)) = (
-        std::fs::read(world_path.with_file_name(ENTITY_ASSETS_FILENAME)),
-        std::fs::read(equipment_asset_path(&world_path)),
-    ) else {
-        eprintln!("local shield grip regression skipped: runtime carriers absent");
-        return;
-    };
+    let entities = std::fs::read(world_path.with_file_name(ENTITY_ASSETS_FILENAME))
+        .expect("offline shield check requires the installed entity carrier (make assets)");
+    let equipment = std::fs::read(equipment_asset_path(&world_path))
+        .expect("offline shield check requires the installed equipment carrier (make assets)");
     let entities = RuntimeEntityAssets::decode(&entities).unwrap();
     let equipment = RuntimeEquipmentCatalog::decode(&equipment).unwrap();
     let shield = equipment.binding("minecraft:shield").unwrap();
