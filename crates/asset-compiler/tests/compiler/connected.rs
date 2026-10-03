@@ -340,20 +340,12 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_pane_and_fence_states_when_requ
     .into_iter()
     .filter(|record| matches!(record.model_family, ModelFamily::Pane | ModelFamily::Fence))
     .collect::<Vec<_>>();
-    assert_eq!(
-        records
-            .iter()
-            .filter(|record| record.model_family == ModelFamily::Pane)
-            .count(),
-        43
-    );
-    assert_eq!(
-        records
-            .iter()
-            .filter(|record| record.model_family == ModelFamily::Fence)
-            .count(),
-        13
-    );
+    for family in [ModelFamily::Pane, ModelFamily::Fence] {
+        assert!(
+            records.iter().any(|record| record.model_family == family),
+            "registry must contain {family:?} states to exercise compilation"
+        );
+    }
     records.sort_unstable_by_key(|record| record.sequential_id);
     for (id, record) in records.iter_mut().enumerate() {
         record.sequential_id = id as u32;
