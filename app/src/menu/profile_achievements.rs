@@ -1,12 +1,19 @@
 //! The bounded Overview achievement lists shared by drawing and artwork loading.
 
 use protocol::launcher_control::ProfileAchievement;
-const VISIBLE_PER_SECTION: usize = 3;
+/// Reads the same embedded card limit used by the core's artwork selection.
+fn visible_per_section() -> usize {
+    include_str!("../../../core/catalog/profile_overview_limit.txt")
+        .trim()
+        .parse()
+        .expect("invalid embedded Profile Overview achievement limit")
+}
 
 /// Selects vanilla's first three suggestions and most recent completions in display order.
 pub(crate) fn visible_achievements(
     entries: &[ProfileAchievement],
 ) -> [Vec<&ProfileAchievement>; 2] {
+    let limit = visible_per_section();
     let mut sections: [Vec<&ProfileAchievement>; 2] = [Vec::new(), Vec::new()];
     for entry in entries {
         let section = if entry.locked && entry.suggested_order.is_some() {
@@ -24,9 +31,9 @@ pub(crate) fn visible_achievements(
                 existing.date_unlocked >= entry.date_unlocked
             }
         });
-        if index < VISIBLE_PER_SECTION {
+        if index < limit {
             list.insert(index, entry);
-            list.truncate(VISIBLE_PER_SECTION);
+            list.truncate(limit);
         }
     }
     sections
@@ -55,8 +62,8 @@ mod tests {
             })
             .collect();
         let [suggested, completed] = visible_achievements(&entries);
-        assert_eq!(suggested.len(), VISIBLE_PER_SECTION);
-        assert_eq!(completed.len(), VISIBLE_PER_SECTION);
+        assert_eq!(suggested.len(), visible_per_section());
+        assert_eq!(completed.len(), visible_per_section());
         assert_eq!(suggested[0].suggested_order, Some(0));
         assert!(
             suggested

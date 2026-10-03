@@ -195,8 +195,8 @@ func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
 	}
 	images := []*catalog.Image{&profile.Gamerpic, &profile.FeaturedScreenshot}
 	if profile.Achievements != nil {
-		for index := range profile.Achievements.Entries {
-			images = append(images, &profile.Achievements.Entries[index].Image)
+		for _, entry := range catalog.ProfileOverviewAchievements(profile.Achievements.Entries) {
+			images = append(images, &entry.Image)
 		}
 	}
 	s.cacheArt(ctx, images)
