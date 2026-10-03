@@ -494,11 +494,11 @@ fn custom_block_items_draw_their_default_state() {
 // Real cached packs (`CINNABAR_PACKCACHE_DIR`): each unencrypted pack's namespaced scalar-textured
 // blocks, as full-block custom blocks, draw item thumbnails.
 #[test]
+#[ignore = "requires CINNABAR_PACKCACHE_DIR containing offline cached packs"]
 fn packcache_custom_block_items_draw_when_requested() {
     use super::super::item_icons::custom_block_icons;
-    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
-        return;
-    };
+    let dir = std::env::var_os("CINNABAR_PACKCACHE_DIR")
+        .expect("required offline fixture; see the ignore reason");
     let mut checked = 0usize;
     for entry in std::fs::read_dir(dir).expect("packcache dir").flatten() {
         let path = entry.path();

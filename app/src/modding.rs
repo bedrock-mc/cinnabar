@@ -113,10 +113,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires CINNABAR_MOD_COMPONENT and installed UI carrier (make assets)"]
     fn configured_sample_drives_the_app_adapter_offline() {
-        if std::env::var_os(COMPONENT_ENV).is_none() {
-            return;
-        }
+        std::env::var_os(COMPONENT_ENV)
+            .expect("CINNABAR_MOD_COMPONENT must name a compiled sample");
         let presentation =
             crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
                 .expect("real UI carrier required for the selected sample");

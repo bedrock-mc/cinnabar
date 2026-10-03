@@ -71,14 +71,12 @@ fn grass_and_dirt_break_events_resolve_the_pack_sound_and_dynamics() {
 }
 
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn local_pinned_bank_has_audible_grass_and_dirt_break_alternatives_when_present() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let world = root.join(crate::asset_startup::DEFAULT_ASSET_PATH);
     let catalog_path = crate::asset_startup::audio_asset_path(&world);
     let bank_path = sound_bank_path(&world);
-    if !catalog_path.is_file() || !bank_path.is_file() {
-        return; // Optional developer carriers; the synthetic regression always runs.
-    }
     let catalog = RuntimeAudioCatalog::decode(&fs::read(catalog_path).unwrap()).unwrap();
     let mut bank = SoundBank::open(&bank_path, Some(Arc::new(catalog)))
         .unwrap()

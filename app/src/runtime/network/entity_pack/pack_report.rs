@@ -3,10 +3,10 @@
 /// Env-gated: `CINNABAR_PACKCACHE_DIR` names a directory of cached `<uuid>_<version>.zip`
 /// packs; prints which pack entities compile to artwork and why the rest fall back.
 #[test]
+#[ignore = "requires CINNABAR_PACKCACHE_DIR containing offline cached packs"]
 fn report_local_pack_entities() {
-    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
-        return;
-    };
+    let dir = std::env::var_os("CINNABAR_PACKCACHE_DIR")
+        .expect("required offline fixture; see the ignore reason");
     let mut zips = std::fs::read_dir(dir)
         .unwrap()
         .filter_map(|entry| Some(entry.ok()?.path()))

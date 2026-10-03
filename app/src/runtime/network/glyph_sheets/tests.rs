@@ -95,15 +95,12 @@ fn the_last_applied_pack_wins_per_sheet() {
 
 // Local-only: set CINNABAR_SERVER_PACK to a cached server `.mcpack` to check its sheets decode and pack.
 #[test]
+#[ignore = "requires CINNABAR_SERVER_PACK naming an offline pack with glyph sheets"]
 fn a_real_server_pack_decodes_and_packs() {
-    let Some(view) = crate::runtime::network::local_pack::local_pack_view("CINNABAR_SERVER_PACK")
-    else {
-        return;
-    };
-    let Some(sheets) = compile_session_glyphs(&view) else {
-        eprintln!("no glyph sheets");
-        return;
-    };
+    let view = crate::runtime::network::local_pack::local_pack_view("CINNABAR_SERVER_PACK")
+        .expect("required offline fixture; see the ignore reason");
+    let sheets =
+        compile_session_glyphs(&view).expect("required offline fixture; see the ignore reason");
     let atlas = assets::pack_cells(&sheets.cells, 0, 256, 8);
     assert!(!atlas.glyphs.is_empty());
     eprintln!(

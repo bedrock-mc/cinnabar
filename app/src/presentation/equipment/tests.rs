@@ -348,23 +348,15 @@ fn local_carrier(name: &str) -> Option<Vec<u8>> {
 
 // Local-only: which held items and armor pieces the real carriers can draw on a player body.
 #[test]
+#[ignore = "requires installed local carriers (make assets)"]
 fn real_carriers_draw_armor_and_report_each_held_item() {
     use super::runtime::{ActorEquipmentInput, EquipmentRuntime, HeldKind, WornItem};
-    let (Some(entities), Some(icons), Some(equipment)) = (
-        local_carrier("vanilla-v1.mcbeent"),
-        local_carrier("vanilla-v1.mcbeico"),
-        local_carrier("vanilla-v1.mcbeeqp"),
-    ) else {
-        return;
-    };
-    // Carriers built by an older compiler are skipped like absent ones until `make assets`.
-    let (Ok(entities), Ok(icons), Ok(catalog)) = (
-        assets::RuntimeEntityAssets::decode(&entities),
-        assets::RuntimeIconCatalog::decode(&icons),
-        assets::RuntimeEquipmentCatalog::decode(&equipment),
-    ) else {
-        return;
-    };
+    let entities = local_carrier("vanilla-v1.mcbeent").expect("make assets: entity carrier");
+    let icons = local_carrier("vanilla-v1.mcbeico").expect("make assets: icon carrier");
+    let equipment = local_carrier("vanilla-v1.mcbeeqp").expect("make assets: equipment carrier");
+    let entities = assets::RuntimeEntityAssets::decode(&entities).unwrap();
+    let icons = assets::RuntimeIconCatalog::decode(&icons).unwrap();
+    let catalog = assets::RuntimeEquipmentCatalog::decode(&equipment).unwrap();
     let (entities, icons, catalog) = (Arc::new(entities), Arc::new(icons), Arc::new(catalog));
     let (mut runtime, _, _) = EquipmentRuntime::build(
         entities,
