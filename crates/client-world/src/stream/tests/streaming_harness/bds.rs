@@ -26,10 +26,10 @@ fn bds_local_startup_completes_with_distant_replies_withheld() {
 
 /// Replays local terrain occupancy encoded as `(x,y,z,length,payload)` records.
 #[test]
+#[ignore = "offline terrain replay; requires CINNABAR_BDS_TERRAIN occupancy records"]
 fn bds_saved_terrain_drains_without_camera_motion() {
-    let Some(path) = std::env::var_os("CINNABAR_BDS_TERRAIN") else {
-        return;
-    };
+    let path = std::env::var_os("CINNABAR_BDS_TERRAIN")
+        .expect("set CINNABAR_BDS_TERRAIN to local (x,y,z,length,payload) occupancy records");
     let bytes = std::fs::read(path).unwrap();
     let mut remaining = bytes.as_slice();
     let mut harness = Harness::for_tests();

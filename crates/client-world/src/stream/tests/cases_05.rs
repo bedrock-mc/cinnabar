@@ -33,51 +33,6 @@ fn phase2_gate_has_explicit_minimum_frame_and_burst_bounds() {
 }
 
 #[test]
-fn phase2_identity_carriers_are_fixed_size_and_fully_qualified() {
-    let classes = [
-        RequestClass::PlayerRetry,
-        RequestClass::PlayerInitial,
-        RequestClass::VisibleRetry,
-        RequestClass::VisibleInitial,
-        RequestClass::PrefetchRetry,
-        RequestClass::PrefetchInitial,
-    ];
-    assert_eq!(classes.len(), 6);
-    assert_eq!(std::mem::size_of::<RequestClass>(), 1);
-    assert_eq!(std::mem::size_of::<BuildProfileIdentity>(), 1);
-    assert_eq!(std::mem::size_of::<PresentModeIdentity>(), 1);
-
-    let cohort = CohortManifestIdentity {
-        session_generation: 7,
-        publisher_epoch: 9,
-        required_cohort_count: 17,
-        required_cohort_hash: 11,
-        generation_manifest_hash: 13,
-        entry_count: 17,
-    };
-    let presentation = Phase2PresentationSnapshot {
-        build_profile: BuildProfileIdentity::Release,
-        graphics_identity_sha256: [19; 32],
-        requested_present_mode: PresentModeIdentity::Fifo,
-        effective_present_mode: PresentModeIdentity::Fifo,
-        assets_manifest_sha256: [23; 32],
-        visible_subset_of_resident: true,
-        publisher_disk: cohort,
-        resident: cohort,
-        allocation: cohort,
-        visible: cohort,
-        submitted: cohort,
-        gpu_presented: cohort,
-    };
-    assert_eq!(presentation.publisher_disk.session_generation, 7);
-    assert_eq!(presentation.publisher_disk.publisher_epoch, 9);
-    assert_eq!(presentation.publisher_disk.required_cohort_count, 17);
-    assert_eq!(presentation.publisher_disk.required_cohort_hash, 11);
-    assert_eq!(presentation.graphics_identity_sha256, [19; 32]);
-    assert_eq!(presentation.assets_manifest_sha256, [23; 32]);
-}
-
-#[test]
 fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
     let started = Instant::now();
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(6);

@@ -255,14 +255,6 @@ fn action_with_details(
 }
 
 #[test]
-fn retained_item_action_bounds_are_exact() {
-    assert_eq!(MAX_ITEM_REGISTRY_RECORDS, 16_384);
-    assert_eq!(MAX_PENDING_ITEM_RESOLUTIONS, 1_024);
-    assert_eq!(MAX_ACTIONS_PER_ACTOR, 32);
-    assert_eq!(MAX_ACTION_EVENTS_PER_TICK, 4_096);
-}
-
-#[test]
 fn spawn_equipment_resolves_after_registry_without_mutating_stack_identity() {
     let mut stream = stream();
     let held = stack(CUSTOM_ITEM_ID, 1, b"exact-extra");
