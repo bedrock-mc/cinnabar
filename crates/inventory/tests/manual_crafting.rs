@@ -1,13 +1,13 @@
+use ::protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData;
 use ::protocol::*;
 use bytes::Bytes;
 use inventory::{ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_51::McpePacketData;
 
 fn admitted(fixture: &'static [u8]) -> RecipeUpdate {
     let mut batch = Bytes::from_static(fixture);
-    let raw = jolyne::batch::decode_batch_raw(&mut batch, false, Some(4096))
+    let raw = ::protocol::wire::jolyne::batch::decode_batch_raw(&mut batch, false, Some(4096))
         .unwrap()
         .remove(0);
     decode_recipe_update(raw.body()).unwrap()
@@ -66,7 +66,7 @@ fn each_atomic_request_uses_current_registry_and_ingredient_authority() {
     let McpePacketData::ItemStackRequestPacket(packet) = packet.data else {
         panic!("request")
     };
-    use valentine::bedrock::version::v1_26_51::{
+    use ::protocol::wire::valentine::bedrock::version::v1_26_51::{
         ItemStackRequestCerealNetworkItemInstanceDescriptorDataItemDescriptor as Descriptor,
         ItemStackRequestPacketDataRequestDataActionsItem as Action,
     };
@@ -103,7 +103,7 @@ fn each_atomic_request_uses_current_registry_and_ingredient_authority() {
 
 #[test]
 fn current_ingredient_count_must_cover_the_advertised_consumption() {
-    use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
+    use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
     let mut bytes = bytes::BytesMut::new();
     CraftingDataPacket {
         shaped_recipes: vec![ShapedRecipePayload {
@@ -224,7 +224,7 @@ fn candidate_compound_order_and_current_request_reference_match_pinned_codec() {
     };
     let actions = &request.requests[0].actions;
     assert_eq!(actions.len(), 4);
-    use valentine::bedrock::version::v1_26_51::ItemStackRequestPacketDataRequestDataActionsItem as Action;
+    use ::protocol::wire::valentine::bedrock::version::v1_26_51::ItemStackRequestPacketDataRequestDataActionsItem as Action;
     assert!(matches!(actions[0], Action::CraftRecipeActionData(_)));
     assert!(matches!(actions[1], Action::CraftResultsActionData(_)));
     assert!(matches!(actions[2], Action::ConsumeActionData(_)));

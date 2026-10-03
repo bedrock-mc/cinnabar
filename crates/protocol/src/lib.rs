@@ -146,6 +146,13 @@ pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
+
+/// The vendored wire crates, so no other manifest declares their pinned paths.
+#[cfg(feature = "wire-test-support")]
+pub mod wire {
+    pub use jolyne;
+    pub use valentine;
+}
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession, network_stack_latency_reply};
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,

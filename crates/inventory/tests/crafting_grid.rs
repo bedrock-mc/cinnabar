@@ -2,10 +2,10 @@
 //! MIT `crafting_data.nbt`): metadata 32767 wildcards, tag ingredients and
 //! priorities that split generic tag recipes from per-variant ones.
 
+use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 use ::protocol::*;
 use bytes::BytesMut;
 use inventory::{CraftGridItem, CraftGridMatch, match_crafting_grid};
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 
 const ANY: i32 = ::protocol::RECIPE_ANY_AUX as i32;
 

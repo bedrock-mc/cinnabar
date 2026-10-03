@@ -1,6 +1,6 @@
 use super::*;
+use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 use bytes::BytesMut;
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 
 /// Encode an ingredient through the same descriptor grammar used on the wire.
 fn named(name: Option<&str>) -> CerealizerRecipeIngredientSerializedData {

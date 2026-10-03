@@ -15,5 +15,4 @@ tracing = "0.1"
 
 [dev-dependencies]
 bytes.workspace = true
-valentine = { path = "../protocol/vendor/valentine", default-features = false }
-jolyne = { path = "../protocol/vendor/jolyne", default-features = false }
+protocol = { path = "../protocol", features = ["wire-test-support"] }

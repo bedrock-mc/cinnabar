@@ -2,10 +2,10 @@
 //! is present. The oak-log -> four-planks shape follows the pinned vanilla
 //! `behavior_pack/recipes/oak_planks.json`; numeric bindings are fixture-owned.
 
+use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 use ::protocol::{RecipeCatalog, decode_recipe_update};
 use bytes::BytesMut;
 use inventory::{CraftGridItem, CraftGridMatch, match_crafting_grid};
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 
 const BLOCK_IDENTITY: u32 = 0xf234_5678;
 

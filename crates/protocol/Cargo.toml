@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# Re-exports the vendored wire crates to downstream tests that encode real packets.
+wire-test-support = []
+
 [dependencies]
 render-api = { path = "../render-api" }
 anyhow.workspace = true

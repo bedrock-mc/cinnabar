@@ -1,3 +1,4 @@
+use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 use ::protocol::*;
 use bytes::{Bytes, BytesMut};
 use inventory::ManualCraftCell::{Empty, Present, Unknown};
@@ -6,7 +7,6 @@ use inventory::{
 };
 use sha2::{Digest, Sha256};
 use std::{num::NonZeroU64, sync::Arc};
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 
 fn entries() -> Arc<[ItemRegistryEntry]> {
     [(6, "minecraft:oak_log"), (7, "minecraft:oak_planks")]
@@ -226,7 +226,7 @@ fn existing_pinned_recipe_fixture_is_matchable_without_materializing_a_request()
     let mut bytes = Bytes::from_static(include_bytes!(
         "../../protocol/fixtures/crafting_data_manual_named_1x1.bin"
     ));
-    let raw = jolyne::batch::decode_batch_raw(&mut bytes, false, Some(4096))
+    let raw = ::protocol::wire::jolyne::batch::decode_batch_raw(&mut bytes, false, Some(4096))
         .unwrap()
         .remove(0);
     let mut catalog = RecipeCatalog::default();
