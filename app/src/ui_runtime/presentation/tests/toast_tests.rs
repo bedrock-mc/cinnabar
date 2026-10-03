@@ -74,8 +74,7 @@ fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
 fn toast_screen_snapshot() {
     let Some(mut presentation) = super::engine_hud_tests::engine_presentation_with(
         super::super::forms::pack_harness::font(),
-    ))
- else {
+    ) else {
         eprintln!(
             "skipping toast_screen_snapshot: fixture unavailable; requires installed local carriers (make assets)"
         );
