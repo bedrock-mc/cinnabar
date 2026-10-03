@@ -1,13 +1,16 @@
 use std::time::Duration;
 
 use bevy::{
-    ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet},
+    ecs::schedule::{
+        IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet,
+        graph::{DiGraph, Direction},
+    },
     prelude::{App, Update},
 };
 
 use crate::app::{
     ClientFrameSet, configure_acceptance_finish_system, configure_client_frame_schedule,
-    configure_client_production_frame_systems,
+    configure_client_production_frame_systems, configure_client_runtime_frame_systems,
 };
 use crate::block_use::produce_block_use;
 use crate::item_use::produce_item_use;
@@ -23,11 +26,13 @@ use crate::runtime::network::{
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
 use crate::runtime::publication::{
     PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
+    begin_publication_frame,
 };
 use crate::runtime::shutdown::finish_acceptance_run;
 use crate::runtime::telemetry::send_player_auth_inputs;
 use crate::runtime::world::{
     drive_world_stream, mesh_change_has_publication_permit, reconcile_world_stream_before_physics,
+    update_camera_medium,
 };
 use crate::semantic_controls::{
     collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
@@ -42,12 +47,48 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     configure_client_production_frame_systems(&mut app);
+    configure_client_runtime_frame_systems(&mut app);
 
     let schedules = app.world().resource::<Schedules>();
     let graph = schedules
         .get(Update)
         .expect("production Update schedule")
         .graph();
+    let publication = system_node(graph, begin_publication_frame, "begin_publication_frame");
+    let render_apply = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(render::ChunkRenderApplySet.intern())
+            .unwrap(),
+    );
+    assert!(schedule_precedes(
+        graph,
+        system_node(graph, drive_world_stream, "drive_world_stream"),
+        render_apply,
+    ));
+    for consumer in [
+        system_node(graph, receive_network_events, "receive_network_events"),
+        system_node(graph, drive_world_stream, "drive_world_stream"),
+        render_apply,
+    ] {
+        assert!(schedule_precedes(graph, publication, consumer));
+    }
+    let fly_camera = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(crate::camera::FlyCameraUpdateSet.intern())
+            .unwrap(),
+    );
+    let medium = system_node(graph, update_camera_medium, "update_camera_medium");
+    let atmosphere = system_node(
+        graph,
+        crate::environment::atmosphere::update_atmosphere_frame,
+        "update_atmosphere_frame",
+    );
+    assert!(schedule_precedes(graph, fly_camera, medium));
+    assert!(schedule_precedes(graph, medium, atmosphere));
+    assert!(!schedule_precedes(graph, fly_camera, publication));
+
     let stages = [
         ClientFrameSet::RawInput,
         ClientFrameSet::SemanticSample,
@@ -66,11 +107,12 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
 
     for adjacent in stages.windows(2) {
         assert!(
-            graph.dependency().graph().contains_edge(
+            schedule_precedes(
+                graph,
                 stage_node(graph, adjacent[0]),
                 stage_node(graph, adjacent[1]),
             ),
-            "{:?} must execute directly before {:?}",
+            "{:?} must execute before {:?}",
             adjacent[0],
             adjacent[1]
         );
@@ -161,31 +203,36 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         ClientFrameSet::NetworkSend,
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             system_node(graph, emit_phase3_evidence, "emit_phase3_evidence"),
             system_node(graph, produce_melee, "produce_melee"),
         ),
         "the exact build/session/PREG/BREG identity marker must precede attack production",
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             system_node(graph, produce_melee, "produce_melee"),
             system_node(graph, produce_survival_mining, "produce_survival_mining"),
         ),
         "an attacked actor must veto mining the block behind it",
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             system_node(graph, produce_survival_mining, "produce_survival_mining"),
             system_node(graph, produce_block_use, "produce_block_use"),
         ),
         "mining arbitration must precede provisional block-use production",
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             system_node(graph, produce_block_use, "produce_block_use"),
             system_node(graph, produce_item_use, "produce_item_use"),
-        ) && graph.dependency().graph().contains_edge(
+        ) && schedule_precedes(
+            graph,
             system_node(graph, produce_item_use, "produce_item_use"),
             system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
         ),
@@ -211,7 +258,8 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     );
 
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             system_node(
                 graph,
                 publish_local_player_frame,
@@ -226,14 +274,16 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         "the atomic local-player frame must publish before its interaction consumer"
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             system_node(graph, receive_network_events, "receive_network_events"),
             stage_node(graph, ClientFrameSet::Physics),
         ),
         "correction/session/dimension ingress must invalidate state before Physics and Interaction"
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             system_node(
                 graph,
                 reconcile_world_stream_before_physics,
@@ -258,14 +308,16 @@ fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
         .expect("production Update schedule")
         .graph();
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             stage_node(graph, ClientFrameSet::NetworkSend),
             system_node(graph, finish_acceptance_run, "finish_acceptance_run"),
         ),
         "terminal evidence must sample the final acknowledgement-drain state after NetworkSend closes admissions",
     );
     assert!(
-        graph.dependency().graph().contains_edge(
+        schedule_precedes(
+            graph,
             stage_node(graph, ClientFrameSet::NetworkSend),
             system_node(
                 graph,
@@ -275,6 +327,48 @@ fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
         ),
         "launcher recovery must observe send-side failures from the same frame before fatal exit",
     );
+}
+
+/// Checks ordering inherited from containing sets without treating shared membership as order.
+fn schedule_precedes(graph: &ScheduleGraph, from: NodeId, target: NodeId) -> bool {
+    let ancestors = |node| {
+        let mut pending = vec![node];
+        let mut found = Vec::new();
+        while let Some(node) = pending.pop() {
+            if !found.contains(&node) {
+                found.push(node);
+                pending.extend(
+                    graph
+                        .hierarchy()
+                        .graph()
+                        .neighbors_directed(node, Direction::Incoming),
+                );
+            }
+        }
+        found
+    };
+    let targets = ancestors(target);
+    ancestors(from).into_iter().any(|from| {
+        targets.iter().any(|&target| {
+            from != target && schedule_reaches(graph.dependency().graph(), from, target)
+        })
+    })
+}
+
+/// Follows explicit graph edges through any number of intermediate nodes.
+fn schedule_reaches(graph: &DiGraph<NodeId>, from: NodeId, target: NodeId) -> bool {
+    let mut pending = vec![from];
+    let mut visited = Vec::new();
+    while let Some(node) = pending.pop() {
+        if node == target {
+            return true;
+        }
+        if !visited.contains(&node) {
+            visited.push(node);
+            pending.extend(graph.neighbors(node));
+        }
+    }
+    false
 }
 
 fn stage_node(graph: &ScheduleGraph, stage: ClientFrameSet) -> NodeId {
@@ -292,10 +386,11 @@ fn assert_system_in_stage<M>(
     stage: ClientFrameSet,
 ) {
     assert!(
-        graph
-            .hierarchy()
-            .graph()
-            .contains_edge(stage_node(graph, stage), system_node(graph, system, label)),
+        schedule_reaches(
+            graph.hierarchy().graph(),
+            stage_node(graph, stage),
+            system_node(graph, system, label),
+        ),
         "production system {label} is not a member of {stage:?}"
     );
 }
@@ -942,36 +1037,6 @@ fn adaptive_publication_diagnostic_is_deterministic_and_cohort_tagged() {
 }
 
 #[test]
-fn application_wires_controller_before_world_handoff_and_render_apply() {
-    let source = include_str!("../app.rs");
-
-    assert!(source.contains("PublicationController::new("));
-    assert!(source.contains("PublicationServiceConfig::PHASE2_GATE"));
-    let publication_frame = source[source
-        .rfind("begin_publication_frame")
-        .expect("publication frame system is registered")..]
-        .split_once(".add_systems(")
-        .expect("publication frame registration is bounded")
-        .0;
-    assert!(publication_frame.contains(".before(ChunkRenderApplySet)"));
-    let production_schedule = source
-        .split_once("pub(crate) fn configure_client_production_frame_systems")
-        .expect("production frame systems are configured")
-        .1
-        .split_once("pub(crate) fn configure_acceptance_finish_system")
-        .expect("production frame-system configuration has a bounded body")
-        .0;
-    let world_publication = production_schedule[production_schedule
-        .find("drive_world_stream")
-        .expect("world publication system is registered")..]
-        .split_once(".add_systems(")
-        .expect("world publication registration is bounded")
-        .0;
-    assert!(world_publication.contains(".after(receive_network_events)"));
-    assert!(world_publication.contains(".before(ChunkRenderApplySet)"));
-}
-
-#[test]
 fn production_world_handoff_fails_closed_without_a_linear_publication_permit() {
     let missing = WorldMeshChange::Remove {
         key: world::SubChunkKey::new(0, 0, 0, 0),
@@ -1028,27 +1093,19 @@ fn local_player_pipeline_orders_physics_camera_and_interaction_and_has_one_camer
 }
 
 #[test]
-fn publication_frame_is_explicitly_ordered_before_world_poll_and_handoff() {
-    let source = include_str!("../app.rs");
-    let publication = source
-        .rfind("begin_publication_frame")
-        .expect("publication frame system is registered");
-    let registration = &source[publication..];
-    let next_registration = registration
-        .find("\n        .add_systems(")
-        .expect("publication registration has a bounded system block");
-    let registration = &registration[..next_registration];
-
-    assert!(registration.contains(".before(receive_network_events)"));
-    assert!(registration.contains(".before(drive_world_stream)"));
-    assert!(!registration.contains(".after(FlyCameraUpdateSet)"));
-}
-
-#[test]
 fn production_stage_capacities_can_carry_one_literal_maximum_payload_frame() {
     let config = PublicationServiceConfig::PHASE2_GATE;
 
     assert!(client_world::WORK_RESULT_CAPACITY >= config.maximum_frame_items);
     assert!(client_world::MAX_PENDING_MESH_CHANGES >= config.maximum_frame_items);
     assert!(render::ChunkRenderQueueLimits::default().max_items >= config.maximum_frame_items);
+}
+
+#[test]
+fn application_wires_controller_before_world_handoff_and_render_apply() {
+    // The graph test above covers execution order. Startup still must install
+    // the gate controller; constructing fixtures alone cannot prove that wiring.
+    let source = include_str!("../app.rs");
+    assert!(source.contains("PublicationController::new("));
+    assert!(source.contains("PublicationServiceConfig::PHASE2_GATE"));
 }

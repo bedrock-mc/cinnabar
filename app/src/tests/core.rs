@@ -398,30 +398,6 @@ fn visibility_capture_observes_post_deferred_upload_and_removal_generation() {
     assert_eq!(removed.cave_visible(), Some(VisibilityKeyDigest::default()));
 }
 
-#[test]
-fn camera_medium_sampling_is_ordered_after_fly_camera_transform_updates() {
-    let camera_source = include_str!("../camera.rs");
-    let main_source = include_str!("../app.rs");
-    assert!(camera_source.contains(".in_set(FlyCameraUpdateSet)"));
-    assert!(main_source.contains(".after(FlyCameraUpdateSet)"));
-}
-
-#[test]
-fn camera_environment_context_is_sampled_before_profiled_atmosphere_derivation() {
-    let main_source = include_str!("../app.rs");
-    let atmosphere_source = include_str!("../environment/atmosphere.rs");
-    let world_source = include_str!("../runtime/world.rs");
-    assert!(main_source.contains("insert_resource(EnvironmentContext::default())"));
-    assert!(main_source.contains("insert_resource(EnvironmentProfileRoute::default())"));
-    let sample = main_source.rfind("update_camera_medium,").unwrap();
-    let derive = main_source.rfind("update_atmosphere_frame,").unwrap();
-    assert!(sample < derive);
-    assert!(world_source.contains(".camera_biome_id(camera.translation.to_array())"));
-    assert!(world_source.contains(".render_distance_blocks()"));
-    assert!(atmosphere_source.contains("assets.biome_profiles()"));
-    assert!(atmosphere_source.contains("assets.fog_profiles()"));
-}
-
 pub(super) fn overworld_biome_payload() -> Vec<u8> {
     let mut payload = vec![1, 2];
     payload.extend(std::iter::repeat_n(0xff, 23));
@@ -1174,4 +1150,19 @@ fn review_mesh_publication_waits_beyond_a_scheduler_spin_count() {
         }),
         Some(1)
     );
+}
+
+#[test]
+fn camera_environment_context_is_sampled_before_profiled_atmosphere_derivation() {
+    // Production schedule order is checked through the actual graph. Retain the
+    // startup and profile wiring checks until a startup fixture can run them.
+    let main_source = include_str!("../app.rs");
+    let atmosphere_source = include_str!("../environment/atmosphere.rs");
+    let world_source = include_str!("../runtime/world.rs");
+    assert!(main_source.contains("insert_resource(EnvironmentContext::default())"));
+    assert!(main_source.contains("insert_resource(EnvironmentProfileRoute::default())"));
+    assert!(world_source.contains(".camera_biome_id(camera.translation.to_array())"));
+    assert!(world_source.contains(".render_distance_blocks()"));
+    assert!(atmosphere_source.contains("assets.biome_profiles()"));
+    assert!(atmosphere_source.contains("assets.fog_profiles()"));
 }
