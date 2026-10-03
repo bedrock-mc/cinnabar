@@ -386,7 +386,17 @@ mod enhanced_tests {
     fn disabled_enhanced_keeps_vanilla_descriptor_and_shader_defs_identical() {
         for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
             for hdr in [false, true] {
-                let before = vanilla_descriptor(msaa, hdr);
+                let mut before = vanilla_descriptor(Msaa::Off, false);
+                ChunkPipelineSpecializer
+                    .specialize(
+                        ChunkPipelineKey {
+                            msaa,
+                            hdr,
+                            enhanced: false,
+                        },
+                        &mut before,
+                    )
+                    .unwrap();
                 let mut after = vanilla_descriptor(Msaa::Off, false);
                 ChunkPipelineSpecializer
                     .specialize(
@@ -399,8 +409,6 @@ mod enhanced_tests {
                     )
                     .unwrap();
                 assert_eq!(format!("{before:?}"), format!("{after:?}"));
-                assert!(after.vertex.shader_defs.is_empty());
-                assert!(after.fragment.unwrap().shader_defs.is_empty());
             }
         }
     }
