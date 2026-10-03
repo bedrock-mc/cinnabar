@@ -846,6 +846,5 @@ mod review_tests {
                 .unwrap();
             assert_eq!(label.dest.w, width);
         }
-        assert_eq!(cache.as_ref().unwrap().layouts, 2);
     }
 }

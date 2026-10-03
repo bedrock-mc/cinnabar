@@ -503,7 +503,11 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
         pair("test:lucky_placer", "test:lucky"),
     ];
     let compiled = compiled();
-    assert_eq!(compiled.overlay.texture.as_ref().unwrap().mips[0].size, 32);
+    assert!(
+        compiled.overlay.texture.as_ref().unwrap().mips[0].size
+            > u32::from(assets::BLOCK_ITEM_FACE_SIDE),
+        "exercise a shared atlas tile larger than the block-item face"
+    );
     let blocks = CustomBlocks {
         blocks: vec![
             block("test:lucky", 1, CustomBlockVisuals::default()),

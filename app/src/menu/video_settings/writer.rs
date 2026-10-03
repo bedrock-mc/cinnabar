@@ -160,7 +160,8 @@ mod tests {
             returned_tx.send(()).unwrap();
         });
         started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        let responsive = returned_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        // Submission must finish while storage is still held, regardless of scheduling delay.
+        let responsive = returned_rx.recv_timeout(Duration::from_secs(2)).is_ok();
         release_tx.send(()).unwrap();
         thread.join().unwrap();
         assert!(responsive, "a flush blocked the frame's submission");

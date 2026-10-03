@@ -438,7 +438,7 @@ fn review_carried_item_draws_after_the_recipe_panel() {
     let presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let (mut nodes, mut next, mut layouts) =
         (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
-    let frame = super::super::hud_layout::HudFrame {
+    let mut frame = super::super::hud_layout::HudFrame {
         cursor_icon: Some(IconRef {
             page: 77,
             uv: [0, 0, 16, 16],
@@ -446,6 +446,11 @@ fn review_carried_item_draws_after_the_recipe_panel() {
         }),
         ..Default::default()
     };
+    frame.window_icons.book[0] = Some(IconRef {
+        page: 78,
+        uv: [0, 0, 16, 16],
+        glint: false,
+    });
     let mut layout = HudLayout::new(
         &mut nodes,
         &mut next,
@@ -471,9 +476,20 @@ fn review_carried_item_draws_after_the_recipe_panel() {
             )
         })
         .unwrap();
-    assert_eq!(
-        cursor,
-        nodes.len() - 1,
+    let recipe = nodes
+        .iter()
+        .position(|node| {
+            matches!(
+                node.visual(),
+                ui::UiVisual::Sprite {
+                    texture_page: 78,
+                    ..
+                }
+            )
+        })
+        .expect("the open recipe panel draws its item");
+    assert!(
+        recipe < cursor,
         "the recipe panel painted over the carried item"
     );
 }
