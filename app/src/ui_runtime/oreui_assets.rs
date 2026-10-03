@@ -384,7 +384,7 @@ mod tests {
         .unwrap();
         // The reference's eight banner images are 960 by 540 pixels.
         for name in PROFILE_BANNERS {
-            image::RgbaImage::from_pixel(960, 540, image::Rgba([80, 120, 160, 255]))
+            image::RgbImage::from_pixel(960, 540, image::Rgb([80, 120, 160]))
                 .save(dir.join(name))
                 .unwrap();
         }
