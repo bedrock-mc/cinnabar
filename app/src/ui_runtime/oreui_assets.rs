@@ -247,8 +247,11 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
     })
 }
 
+/// A decoded GIF frame: width, height, premultiplied RGBA8 pixels and duration in milliseconds.
+type AnimationFrame = (u32, u32, Vec<u8>, u32);
+
 /// Decodes bounded GIF frames with their own timing and premultiplied pixels.
-fn decode_animation(bytes: &[u8]) -> Result<Vec<(u32, u32, Vec<u8>, u32)>, String> {
+fn decode_animation(bytes: &[u8]) -> Result<Vec<AnimationFrame>, String> {
     let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes))
         .map_err(|error| error.to_string())?;
     let mut limits = Limits::default();
