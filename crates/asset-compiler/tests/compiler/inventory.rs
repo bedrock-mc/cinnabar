@@ -1,5 +1,15 @@
 use super::support::*;
 
+/// The full block collision box shared by the reviewed solid cube families.
+const FULL_CUBE_COLLISION: [CollisionBox; 1] = [CollisionBox {
+    min_x: 0,
+    min_y: 0,
+    min_z: 0,
+    max_x: 100_000_000,
+    max_y: 100_000_000,
+    max_z: 100_000_000,
+}];
+
 fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"
@@ -173,7 +183,7 @@ fn generated_registry_has_exact_chiseled_bookshelf_inventory() {
             BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
         );
         assert_eq!(record.face_coverage, 0x3f);
-        assert_eq!(record.collision_seed.boxes.len(), 1);
+        assert_eq!(record.collision_seed.boxes.as_ref(), FULL_CUBE_COLLISION);
         let books = record
             .model_state
             .get(ModelStateField::Connections)
@@ -208,15 +218,7 @@ fn generated_registry_has_exact_bee_housing_inventory() {
             record.collision_seed.confidence,
             CollisionConfidence::CollisionOnly
         );
-        assert_eq!(
-            record.collision_seed.boxes.as_ref(),
-            [CollisionBox {
-                max_x: 100_000_000,
-                max_y: 100_000_000,
-                max_z: 100_000_000,
-                ..CollisionBox::default()
-            }]
-        );
+        assert_eq!(record.collision_seed.boxes.as_ref(), FULL_CUBE_COLLISION);
         assert_eq!(record.model_state.mask(), selector_mask);
         let direction = record
             .model_state
@@ -472,17 +474,7 @@ fn generated_registry_has_exact_reviewed_selector_alias_cube_products() {
             record.collision_seed.confidence,
             CollisionConfidence::CollisionOnly
         );
-        assert_eq!(
-            record.collision_seed.boxes.as_ref(),
-            &[CollisionBox {
-                min_x: 0,
-                min_y: 0,
-                min_z: 0,
-                max_x: 100_000_000,
-                max_y: 100_000_000,
-                max_z: 100_000_000,
-            }]
-        );
+        assert_eq!(record.collision_seed.boxes.as_ref(), FULL_CUBE_COLLISION);
         if record.name.as_ref() == "minecraft:tnt" {
             assert_eq!(record.model_state.mask(), 0);
         } else {
