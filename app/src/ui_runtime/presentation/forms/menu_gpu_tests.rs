@@ -329,8 +329,9 @@ fn profile_frames_on_native_gpu() {
     };
     let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
     view.screen = MenuScreen::Profile;
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let mut runtime = pack_harness::menu_runtime();
-    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
+    runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
     presentation.sync_player_preview(Some(&skin.rgba8), Default::default(), true, false, 0.0);
     view.profile_icon = presentation.player_preview_icon();
@@ -385,7 +386,13 @@ fn profile_frames_on_native_gpu() {
         for frame in 0..8 {
             presentation.set_menu_view(Some(view.clone()));
             let input = presentation
-                .build(&runtime, frame * 16, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    frame * 16,
+                    SIZE,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             app.world_mut()
                 .resource_mut::<render::UiRenderScene>()
