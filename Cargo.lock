@@ -315,6 +315,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "serde",
+ "syn",
  "tempfile",
  "thiserror 2.0.18",
  "toml 0.9.12+spec-1.1.0",
@@ -548,6 +549,7 @@ dependencies = [
  "ctrlc",
  "fontdue",
  "image",
+ "inventory 0.1.0",
  "json-ui",
  "meshing",
  "mod-host",
@@ -1100,7 +1102,7 @@ dependencies = [
  "foldhash 0.2.0",
  "glam",
  "indexmap",
- "inventory",
+ "inventory 0.3.24",
  "serde",
  "smallvec",
  "smol_str",
@@ -1644,6 +1646,21 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "cinnabar-cxb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "protocol",
+ "serde",
+ "serde_json",
+ "server-experience",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+ "wit-component",
+ "zip",
 ]
 
 [[package]]
@@ -3369,6 +3386,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "inventory"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "jolyne",
+ "protocol",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tracing",
+ "valentine",
 ]
 
 [[package]]

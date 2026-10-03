@@ -44,6 +44,7 @@ pub(crate) struct NametagAtlas {
     rectangles: Vec<NametagAtlasRect>,
     lines: HashMap<Arc<str>, AtlasLine>,
     shelf: [u32; 3],
+    exhausted: bool,
     published: Option<Arc<[NametagAtlasRect]>>,
     revision: u64,
 }
@@ -80,13 +81,14 @@ impl NametagAtlas {
     pub(super) fn reset(&mut self) {
         self.lines.clear();
         self.shelf = [0; 3];
+        self.exhausted = false;
         self.rectangles.clear();
         self.published = None;
     }
 
-    /// Checks the retained line-count budget.
+    /// Checks both retained line count and whether shelf space was exhausted.
     pub(super) fn has_room_for(&self, texts: usize) -> bool {
-        self.lines.len() + texts < MAX_ATLAS_LINES
+        !self.exhausted && self.lines.len().saturating_add(texts) < MAX_ATLAS_LINES
     }
 
     /// Retains immutable line pixels so skipped extractions can recover every update.
@@ -112,6 +114,7 @@ impl NametagAtlas {
             (x, y, shelf_height) = (0, y + shelf_height, 0);
         }
         if y + height > side {
+            self.exhausted = true;
             return None;
         }
         self.shelf = [x + width, y, shelf_height.max(height)];
@@ -319,5 +322,25 @@ mod tests {
                 .len()
                 < incremental.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn review_pixel_exhaustion_requests_a_clean_atlas_on_the_next_frame() {
+        let mut atlas = NametagAtlas::default();
+        assert!(
+            atlas
+                .allocate(NAMETAG_ATLAS_SIDE, NAMETAG_ATLAS_SIDE)
+                .is_some()
+        );
+        assert!(atlas.allocate(1, 1).is_none());
+        assert!(!atlas.has_room_for(1));
+        atlas.reset();
+        assert!(atlas.has_room_for(1));
+        assert!(atlas.allocate(1, 1).is_some());
     }
 }

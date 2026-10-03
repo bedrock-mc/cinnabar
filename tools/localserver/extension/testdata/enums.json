@@ -1,0 +1,18 @@
+{
+  "permissions": [
+    "ui",
+    "modal_ui",
+    "input",
+    "messaging",
+    "scene",
+    "media"
+  ],
+  "implemented_permissions": [
+    "ui",
+    "messaging"
+  ],
+  "directions": [
+    "to_client",
+    "to_server"
+  ]
+}

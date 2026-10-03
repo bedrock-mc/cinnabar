@@ -190,7 +190,7 @@ fn featured_servers(
     solid_page: u16,
     position: [f32; 2],
     width: f32,
-    height: f32,
+    _height: f32,
     compact: bool,
 ) -> Result<(), UiPresentationError> {
     if view.featured.is_empty() && view.gatherings.is_empty() {
@@ -215,8 +215,6 @@ fn featured_servers(
     let columns = if compact || width < 700.0 { 1 } else { 2 };
     let gap = SPACE_SM;
     let card_width = (width - gap * (columns - 1) as f32) / columns as f32;
-    let max_rows = (height / 92.0).floor().max(1.0) as usize;
-    let max_cards = columns * max_rows;
     let entries = view
         .featured
         .iter()
@@ -237,8 +235,7 @@ fn featured_servers(
                 "Gathering",
             )
         }));
-    for (display_index, (action, server, fallback, category)) in entries.take(max_cards).enumerate()
-    {
+    for (display_index, (action, server, fallback, category)) in entries.enumerate() {
         let column = display_index % columns;
         let row = display_index / columns;
         let mut card_model = server.clone();
@@ -266,6 +263,7 @@ fn featured_servers(
             ],
             card_width,
             82.0,
+            0.0,
         )?;
     }
     Ok(())
@@ -283,7 +281,7 @@ fn saved_server_list<F: Fn(&SavedServer) -> bool>(
     solid_page: u16,
     position: [f32; 2],
     width: f32,
-    height: f32,
+    _height: f32,
     predicate: F,
     empty_title: &str,
     empty_body: &str,
@@ -312,8 +310,7 @@ fn saved_server_list<F: Fn(&SavedServer) -> bool>(
             150.0,
         );
     }
-    let max_cards = (height / 92.0).floor().max(1.0) as usize;
-    for (row, (index, server)) in entries.into_iter().take(max_cards).enumerate() {
+    for (row, (index, server)) in entries.into_iter().enumerate() {
         saved_card(
             view,
             nodes,
@@ -383,6 +380,7 @@ pub(super) fn saved_card(
         position,
         width,
         82.0,
+        action_width,
     )?;
     if actions {
         let small_width = (action_width - SPACE_XS) * 0.5;
@@ -428,4 +426,69 @@ pub(super) fn saved_card(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_saved_server_text_reserves_the_action_region() {
+        let view = crate::menu::MenuRuntime::new(true, 2, "Test".into()).view();
+        let server = SavedServer {
+            name: "Long server name ".repeat(50),
+            address: "example.test".into(),
+            favorite: false,
+            last_joined_unix: 0,
+        };
+        let font = crate::ui_runtime::presentation::tests::fixture_font();
+        let metrics =
+            TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+        let (mut nodes, mut hits, mut next, mut layouts) = (
+            Vec::new(),
+            Vec::new(),
+            1,
+            TextLayoutCache::new(128, 1024 * 1024),
+        );
+        saved_card(
+            &view,
+            &mut nodes,
+            &mut hits,
+            &mut next,
+            &mut layouts,
+            &font,
+            metrics,
+            0,
+            0,
+            &server,
+            [0.0, 0.0],
+            800.0,
+            None,
+            true,
+        )
+        .unwrap();
+        let action_left = hits
+            .iter()
+            .find(|(action, _)| *action == MenuAction::ToggleFavorite(0))
+            .unwrap()
+            .1
+            .min()
+            .x();
+        let title = nodes
+            .iter()
+            .find(|node| match node.visual() {
+                ui::UiVisual::Text { layout, .. } => layout
+                    .glyphs()
+                    .first()
+                    .is_some_and(|glyph| glyph.codepoint == 'L'),
+                _ => false,
+            })
+            .unwrap();
+        assert!(title.bounds().max().x() <= action_left);
+        let join = hits
+            .iter()
+            .find(|(action, _)| *action == MenuAction::PlaySaved(0))
+            .unwrap()
+            .1;
+        assert_eq!(join.width(), 800.0);
+    }
 }

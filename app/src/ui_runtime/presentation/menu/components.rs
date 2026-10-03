@@ -26,6 +26,7 @@ pub(super) fn card(
     position: [f32; 2],
     width: f32,
     height: f32,
+    text_reserve: f32,
 ) -> Result<(), UiPresentationError> {
     let bounds = rect(
         position[0],
@@ -70,8 +71,8 @@ pub(super) fn card(
         *next_id = next_id.saturating_add(1);
     }
     let content_left = if icon.is_some() { 76.0 } else { 16.0 };
-    let content_width = (width - content_left - 16.0).max(1.0);
-    text(
+    let content_width = (width - content_left - 16.0 - text_reserve).max(1.0);
+    text_line(
         nodes,
         next_id,
         layouts,
@@ -83,7 +84,7 @@ pub(super) fn card(
         content_width,
         TEXT,
     )?;
-    text(
+    text_line(
         nodes,
         next_id,
         layouts,
@@ -260,6 +261,29 @@ pub(super) fn text(
     let layout = layouts
         .layout(metrics.request(value, (width.max(1.0) * 64.0) as u32, font))
         .map_err(UiPresentationError::Text)?;
+    place_text(
+        nodes,
+        next_id,
+        layout,
+        metrics,
+        texture_page,
+        position,
+        width,
+        color,
+    )
+}
+
+/// Places one measured fallback label using the same bounds and shadow for every caller.
+fn place_text(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layout: std::sync::Arc<ui::TextLayout>,
+    metrics: TextMetrics,
+    texture_page: u16,
+    position: [f32; 2],
+    width: f32,
+    color: [u8; 4],
+) -> Result<(), UiPresentationError> {
     let height = (layout.size_64()[1] as f32 / 64.0).max(18.0);
     nodes.push(
         UiNode::new(
@@ -281,4 +305,32 @@ pub(super) fn text(
     *next_id = next_id.saturating_add(1);
     let _ = texture_page;
     Ok(())
+}
+
+/// Draws a single line with an ellipsis, leaving the next card label's row clear.
+fn text_line(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &assets::RuntimeFontCatalog,
+    metrics: TextMetrics,
+    texture_page: u16,
+    value: &str,
+    position: [f32; 2],
+    width: f32,
+    color: [u8; 4],
+) -> Result<(), UiPresentationError> {
+    let mut request = metrics.request(value, (width.max(1.0) * 64.0) as u32, font);
+    request.wrap.max_lines = Some(1);
+    let layout = layouts.layout(request).map_err(UiPresentationError::Text)?;
+    place_text(
+        nodes,
+        next_id,
+        layout,
+        metrics,
+        texture_page,
+        position,
+        width,
+        color,
+    )
 }

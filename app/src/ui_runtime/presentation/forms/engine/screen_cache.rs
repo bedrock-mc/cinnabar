@@ -167,7 +167,16 @@ impl ScreenCache {
         context: &Context,
         bind: impl FnOnce(&mut json_ui::BindState) -> T,
     ) -> T {
+        let resolved = lock(&self.resolved);
         let mut bindings = lock(&self.bindings);
+        bindings.retain(|bound| {
+            resolved.iter().any(|tree| {
+                bound.reference == tree.reference
+                    && Arc::ptr_eq(&bound.catalog, &tree.catalog)
+                    && bound.context == tree.context
+            })
+        });
+        drop(resolved);
         let index = match bindings.iter().position(|bound| {
             bound.reference == reference
                 && Arc::ptr_eq(&bound.catalog, catalog)
@@ -175,9 +184,6 @@ impl ScreenCache {
         }) {
             Some(index) => index,
             None => {
-                if bindings.len() >= SLOTS {
-                    bindings.remove(0);
-                }
                 bindings.push(Bound {
                     reference: reference.to_owned(),
                     catalog: Arc::clone(catalog),
@@ -441,5 +447,31 @@ mod tests {
                 panic!("evicted")
             })
             .unwrap();
+    }
+    #[test]
+    fn review_cached_screen_keeps_bindings_with_its_resolved_tree() {
+        let cache = ScreenCache::default();
+        let catalog = Arc::new(Catalog::default());
+        let context = Context::desktop();
+        let mut root = render().unwrap().bound;
+        root.properties
+            .insert("cache_screen".to_owned(), serde_json::json!(true));
+        cache.resolved("pause.pause_screen", &catalog, &context, || Some(root));
+        cache.with_binding("pause.pause_screen", &catalog, &context, |state| {
+            state.publish("/root", "#remembered", json_ui::Scalar::Num(42.0));
+        });
+        for index in 0..SLOTS + 1 {
+            let reference = format!("screen.{index}");
+            cache.resolved(&reference, &catalog, &context, || {
+                Some(render().unwrap().bound)
+            });
+            cache.with_binding(&reference, &catalog, &context, |_| {});
+        }
+        cache.with_binding("pause.pause_screen", &catalog, &context, |state| {
+            assert_eq!(
+                state.value("/root", "#remembered"),
+                Some(&json_ui::Scalar::Num(42.0))
+            );
+        });
     }
 }

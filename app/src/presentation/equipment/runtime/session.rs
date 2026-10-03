@@ -13,15 +13,18 @@ const MAX_SESSION_MESHES: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 pub(crate) struct StagedSessionIcons {
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
+    block_sheets: BTreeMap<Box<str>, usize>,
     atlas: SpriteAtlas,
 }
 
 impl StagedSessionIcons {
-    /// Packs the pack's item icons; `None` when the session has none.
+    /// Packs the pack's item icons and custom block cube sheets; `None` when the session has
+    /// none.
     pub(crate) fn stage(items: Option<&SessionItems>) -> Option<Self> {
         let icons = items?.icons.as_deref()?;
         let mut sprites = Vec::new();
         let mut by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>> = BTreeMap::new();
+        let mut block_sheets = BTreeMap::new();
         for icon in icons.icons.iter().take(MAX_SESSION_MESHES) {
             let (Ok(width), Ok(height)) = (u16::try_from(icon.width), u16::try_from(icon.height))
             else {
@@ -43,10 +46,26 @@ impl StagedSessionIcons {
                 rgba8: Arc::from(&icon.rgba8[..]),
             });
         }
+        let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
+        for sheet in &icons.block_sheets {
+            if sprites.len() >= MAX_SESSION_MESHES
+                || [sheet.width, sheet.height] != [u32::from(width), u32::from(height)]
+                || block_sheets.contains_key(sheet.identifier.as_ref())
+            {
+                continue;
+            }
+            block_sheets.insert(Box::from(sheet.identifier.as_ref()), sprites.len());
+            sprites.push(IconSprite {
+                width,
+                height,
+                rgba8: Arc::from(&sheet.rgba8[..]),
+            });
+        }
         (!sprites.is_empty()).then(|| Self {
             atlas: SpriteAtlas::pack(&sprites),
             sprites,
             by_identifier,
+            block_sheets,
         })
     }
 
@@ -62,6 +81,8 @@ pub(super) struct SessionLayer {
     wearable: BTreeMap<Box<str>, ArmorSlot>,
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
+    /// Custom block item to its cube sheet's index in `sprites`.
+    block_sheets: BTreeMap<Box<str>, usize>,
     placements: Vec<Option<Placement>>,
     locations: Vec<Option<ActorArtworkLocation>>,
 }
@@ -87,7 +108,7 @@ impl EquipmentRuntime {
         locations: Vec<Option<ActorArtworkLocation>>,
     ) {
         self.meshes
-            .retain(|key, _| !matches!(key, MeshKey::Session(_)));
+            .retain(|key, _| !matches!(key, MeshKey::Session(_) | MeshKey::SessionBlock(_)));
         let mut layer = SessionLayer::default();
         let mut item_use = (*self.base_item_use).clone();
         for (identifier, components) in items.into_iter().flat_map(|items| items.components.iter())
@@ -105,6 +126,7 @@ impl EquipmentRuntime {
         if let Some(icons) = icons {
             layer.sprites = icons.sprites;
             layer.by_identifier = icons.by_identifier;
+            layer.block_sheets = icons.block_sheets;
             layer.placements = icons.atlas.placements;
             layer.locations = locations;
         }
@@ -127,6 +149,21 @@ impl EquipmentRuntime {
         self.session.wearable.get(identifier).copied()
     }
 
+    /// What a custom item is held as: its block's cube sheet (vanilla holds a block item as its
+    /// block), else its icon; with the mesh key, atlas placement and artwork location.
+    pub(super) fn session_held(
+        &self,
+        identifier: &str,
+        metadata: u32,
+    ) -> Option<(usize, MeshKey, Placement, ActorArtworkLocation)> {
+        if let Some(&sheet) = self.session.block_sheets.get(identifier) {
+            let (placement, location) = self.session_placement(sheet)?;
+            return Some((sheet, MeshKey::SessionBlock(sheet), placement, location));
+        }
+        let (index, placement, location) = self.session_sprite(identifier, metadata)?;
+        Some((index, MeshKey::Session(index), placement, location))
+    }
+
     /// The session icon for `identifier` with its atlas placement and artwork location.
     pub(super) fn session_sprite(
         &self,
@@ -135,6 +172,11 @@ impl EquipmentRuntime {
     ) -> Option<(usize, Placement, ActorArtworkLocation)> {
         let variants = self.session.by_identifier.get(identifier)?;
         let index = *variants.get(&metadata).or_else(|| variants.get(&0))?;
+        let (placement, location) = self.session_placement(index)?;
+        Some((index, placement, location))
+    }
+
+    fn session_placement(&self, index: usize) -> Option<(Placement, ActorArtworkLocation)> {
         let placement = self.session.placements.get(index).copied().flatten()?;
         let location = self
             .session
@@ -142,7 +184,7 @@ impl EquipmentRuntime {
             .get(placement.layer)
             .copied()
             .flatten()?;
-        Some((index, placement, location))
+        Some((placement, location))
     }
 
     pub(super) fn session_sprite_pixels(&self, index: usize) -> Option<&IconSprite> {

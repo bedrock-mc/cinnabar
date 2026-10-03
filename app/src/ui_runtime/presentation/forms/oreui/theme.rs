@@ -24,7 +24,6 @@ pub(super) const BORDER: Rgba = rgb(0x1e1e1f);
 pub(super) const OUTLINE: Rgba = rgb(0xffffff);
 pub(super) const OVERLAY_SCREEN: Rgba = black(128);
 pub(super) const TEXT_SHADOW: Rgba = black(77);
-pub(super) const BADGE: Rgba = rgb(0xca3636);
 
 /// One semantic role's fills, text and edge colours.
 #[derive(Clone, Copy)]

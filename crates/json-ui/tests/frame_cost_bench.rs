@@ -43,25 +43,33 @@ impl TextureSource for FixedTextures {
 }
 
 /// Every `ui/*.json` file under `root`, keyed by its pack-relative path.
-fn pack_files(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+fn pack_files(root: &std::path::Path) -> std::io::Result<Vec<(String, Vec<u8>)>> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        for entry in std::fs::read_dir(&dir).map_err(|error| {
+            std::io::Error::new(error.kind(), format!("{}: {error}", dir.display()))
+        })? {
+            let entry = entry?;
             let path = entry.path();
-            if path.is_dir() {
+            if entry.file_type()?.is_dir() {
                 stack.push(path);
-            } else if let (Ok(relative), Ok(bytes)) =
-                (path.strip_prefix(root), std::fs::read(&path))
-            {
-                let relative = relative.to_string_lossy().replace('\\', "/");
+            } else {
+                let relative = path
+                    .strip_prefix(root)
+                    .expect("entry belongs to its root")
+                    .to_string_lossy()
+                    .replace('\\', "/");
                 if relative.starts_with("ui/") && relative.ends_with(".json") {
+                    let bytes = std::fs::read(&path).map_err(|error| {
+                        std::io::Error::new(error.kind(), format!("{}: {error}", path.display()))
+                    })?;
                     out.push((relative, bytes));
                 }
             }
         }
     }
-    out
+    Ok(out)
 }
 
 #[test]
@@ -96,7 +104,7 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
             .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
     );
     if let Some(pack) = &server_pack {
-        let files = pack_files(pack);
+        let files = pack_files(pack).expect("read requested benchmark pack");
         catalog.apply_pack(
             files
                 .iter()
@@ -247,4 +255,11 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
             ((stateful_time + incremental_time) / frames).as_secs_f64() * 1e3
         );
     }
+}
+
+#[test]
+fn review_missing_benchmark_pack_is_rejected() {
+    let path = std::env::temp_dir().join(format!("missing-ui-bench-{}", std::process::id()));
+    assert!(!path.exists());
+    assert!(pack_files(&path).is_err());
 }

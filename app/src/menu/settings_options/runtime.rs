@@ -86,7 +86,6 @@ impl MenuRuntime {
             match self.settings_options.save(&path) {
                 Ok(()) => self.settings_dirty = false,
                 Err(error) => {
-                    self.settings_dirty = false;
                     self.message = Some(format!("Could not save settings: {error}"));
                 }
             }

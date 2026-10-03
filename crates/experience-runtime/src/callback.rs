@@ -2,9 +2,11 @@
 //! What the guest stages through its borrowed `callback` becomes the outcome, or nothing does.
 
 use std::collections::HashMap;
+use std::io;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
+use serde::Serialize;
 use wasmtime::component::Resource;
 use wasmtime::{Engine, Store, Trap};
 
@@ -12,13 +14,16 @@ use crate::hex::{self, HexError};
 use crate::host::cinnabar::experience_server::types::{
     self as wit, CallbackInfo, ChangeCause, GuestError, WorldError,
 };
-use crate::host::{HostState, LimitExceeded};
+use crate::host::{HostState, LimitExceeded, Pre};
 use crate::limits::{
-    CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_STAGED_DATA_BYTES,
-    MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS,
+    CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_CLIENT_SEND_BYTES,
+    MAX_CLIENT_SENDS, MAX_HOST_CALLS, MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES,
+    MAX_TELLS,
 };
 use crate::load::Loaded;
-use crate::protocol::{self, BlockPos, Call, FailKind, Op, Outcome, Request, bounded_reason};
+use crate::protocol::{
+    self, BlockPos, Call, FailKind, Op, Outcome, Request, Scalar, bounded_reason,
+};
 
 /// The one block id outside its own namespace that an Experience may place.
 const AIR: &str = "minecraft:air";
@@ -42,6 +47,13 @@ pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outc
             return (Outcome::Rejected { reason }, 0);
         }
     };
+    if matches!(export, Export::ClientMessage { .. }) && !loaded.pre.has_client_message() {
+        let reason = format!(
+            "malformed callback request: api {} has no client-message",
+            loaded.manifest.api
+        );
+        return (Outcome::Rejected { reason }, 0);
+    }
     let id = &loaded.manifest.id;
     let mut store = match HostState::store(engine, id, CALLBACK_FUEL, CALLBACK_DEADLINE) {
         Ok(store) => store,
@@ -69,18 +81,45 @@ fn invoke(
     res: CallbackRes,
     export: &Export<'_>,
 ) -> Result<(Result<(), GuestError>, Vec<Op>)> {
-    let server = loaded.pre.instantiate(&mut *store)?;
     let owned = store.data_mut().table.push(res)?;
     // The guest only borrows the callback, for this call; the host keeps `owned`.
     let ctx = Resource::new_borrow(owned.rep());
-    let result = match export {
-        Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
-        Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
-        Export::Interact { player, pos, face } => {
-            server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+    let result = match &loaded.pre {
+        Pre::V0_1(pre) => {
+            let server = pre.instantiate(&mut *store)?;
+            match export {
+                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
+                Export::Interact { player, pos, face } => {
+                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+                }
+                Export::Neighbor { pos, neighbor } => {
+                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+                }
+                // `run_metered` answers it without running anything.
+                Export::ClientMessage { .. } => bail!("the 0.1 world has no client-message"),
+            }
         }
-        Export::Neighbor { pos, neighbor } => {
-            server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+        Pre::V0_2(pre) => {
+            let server = pre.instantiate(&mut *store)?;
+            match export {
+                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
+                Export::Interact { player, pos, face } => {
+                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+                }
+                Export::Neighbor { pos, neighbor } => {
+                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+                }
+                Export::ClientMessage {
+                    player,
+                    channel,
+                    schema,
+                    payload,
+                } => {
+                    server.call_client_message(&mut *store, ctx, player, channel, *schema, payload)
+                }
+            }
         }
     }?;
     let res = store.data_mut().table.delete(owned)?;
@@ -123,6 +162,9 @@ pub struct CallbackRes {
     staged_data: usize,
     host_calls: usize,
     tells: usize,
+    client_sends: usize,
+    /// Bytes of the staged `SendClient` ops, as [`MAX_CLIENT_SEND_BYTES`] counts them.
+    client_send_bytes: usize,
 }
 
 /// The snapshot cells by position, with staged writes applied.
@@ -130,8 +172,9 @@ struct Snapshot {
     cells: HashMap<BlockPos, Slot>,
     min_y: i32,
     max_y: i32,
-    /// The anchor's chunk column; writes stay inside it.
-    column: (i32, i32),
+    /// The anchor's chunk column, which writes stay inside; a callback without an anchor writes
+    /// nothing.
+    column: Option<(i32, i32)>,
 }
 
 /// One snapshot cell. `owned` means it holds this Experience's block, which alone has data.
@@ -155,12 +198,18 @@ enum Export<'a> {
         pos: wit::BlockPos,
         neighbor: wit::BlockPos,
     },
+    ClientMessage {
+        player: &'a wit::PlayerId,
+        channel: &'a str,
+        schema: u16,
+        payload: Vec<wit::Scalar>,
+    },
 }
 
 /// The callback's host value and export for `request`, an Experience whose block ids are `own`.
-/// The anchor, whose chunk column bounds writes, is the call's position. Hex is decoded and player
-/// ids are checked here, so a request that is not a callback, holds bad hex or a player id that
-/// is not canonical fails before anything runs.
+/// The anchor, whose chunk column bounds writes, is the call's position; a client message has
+/// none, and no snapshot. Hex is decoded and player ids are checked here, so a request that is
+/// not a callback, holds bad hex or a player id that is not canonical fails before anything runs.
 fn prepare<'a>(
     own: &Arc<[String]>,
     request: &'a Request,
@@ -180,8 +229,8 @@ fn prepare<'a>(
     };
     player_id("actor", actor.as_deref())?;
     let (anchor, export) = match call {
-        Call::Place { change } => (change.pos, Export::Place(block_change(change)?)),
-        Call::Break { change } => (change.pos, Export::Break(block_change(change)?)),
+        Call::Place { change } => (Some(change.pos), Export::Place(block_change(change)?)),
+        Call::Break { change } => (Some(change.pos), Export::Break(block_change(change)?)),
         Call::Interact { player, pos, face } => {
             player_id("player", Some(player))?;
             let export = Export::Interact {
@@ -189,15 +238,36 @@ fn prepare<'a>(
                 pos: (*pos).into(),
                 face: (*face).into(),
             };
-            (*pos, export)
+            (Some(*pos), export)
         }
         Call::Neighbor { pos, neighbor } => (
-            *pos,
+            Some(*pos),
             Export::Neighbor {
                 pos: (*pos).into(),
                 neighbor: (*neighbor).into(),
             },
         ),
+        Call::ClientMessage {
+            player,
+            channel,
+            schema,
+            payload,
+        } => {
+            player_id("player", Some(player))?;
+            if actor.as_deref() != Some(player.as_str()) {
+                return Err("a client message's actor is not its player".to_owned());
+            }
+            if !snapshot.is_empty() {
+                return Err("a client message has a snapshot".to_owned());
+            }
+            let export = Export::ClientMessage {
+                player,
+                channel,
+                schema: *schema,
+                payload: payload.iter().cloned().map(Into::into).collect(),
+            };
+            (None, export)
+        }
     };
     let cells = snapshot
         .iter()
@@ -226,7 +296,7 @@ fn prepare<'a>(
             cells,
             min_y: *world_min_y,
             max_y: *world_max_y,
-            column: column(anchor),
+            column: anchor.map(column),
         },
         ops: Vec::new(),
         budget: *data_budget,
@@ -234,6 +304,8 @@ fn prepare<'a>(
         staged_data: 0,
         host_calls: 0,
         tells: 0,
+        client_sends: 0,
+        client_send_bytes: 0,
     };
     Ok((res, export))
 }
@@ -286,7 +358,7 @@ impl Snapshot {
     /// A cell the guest may read that is also in the anchor's chunk column, so it may write it.
     fn write(&mut self, pos: BlockPos) -> Result<&mut Slot, WorldError> {
         self.within_height(pos)?;
-        if column(pos) != self.column {
+        if self.column != Some(column(pos)) {
             return Err(WorldError::Denied);
         }
         let slot = self.cells.get_mut(&pos).ok_or(WorldError::Denied)?;
@@ -413,10 +485,8 @@ impl CallbackRes {
     /// Tells the event's actor `text`; the tell past [`MAX_TELLS`] traps.
     pub(crate) fn tell(&mut self, player: String, text: String) -> Result<Result<(), WorldError>> {
         self.host_call()?;
-        match &self.actor {
-            None => return Ok(Err(WorldError::PlayerUnavailable)),
-            Some(actor) if *actor != player => return Ok(Err(WorldError::Denied)),
-            Some(_) => {}
+        if let Err(error) = self.actor_is(&player) {
+            return Ok(Err(error));
         }
         if text.len() > MAX_TELL_BYTES {
             return Ok(Err(WorldError::TooLarge));
@@ -433,6 +503,49 @@ impl CallbackRes {
         stage(&mut self.ops, Op::Tell { player, text })?;
         self.tells += 1;
         Ok(Ok(()))
+    }
+
+    /// Stages `payload` for the event's actor's client part on `channel`. The callback's channels
+    /// and payloads may hold [`MAX_CLIENT_SEND_BYTES`] in all; the send past [`MAX_CLIENT_SENDS`]
+    /// traps. Which channels the client part declares is the adapter's to check.
+    pub(crate) fn send_client(
+        &mut self,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<Scalar>,
+    ) -> Result<Result<(), WorldError>> {
+        self.host_call()?;
+        if let Err(error) = self.actor_is(&player) {
+            return Ok(Err(error));
+        }
+        let bytes = self.client_send_bytes + channel.len() + json_len(&payload);
+        if bytes > MAX_CLIENT_SEND_BYTES {
+            return Ok(Err(WorldError::TooLarge));
+        }
+        if self.client_sends == MAX_CLIENT_SENDS {
+            let sends = format!("more than {MAX_CLIENT_SENDS} client messages");
+            return Err(LimitExceeded(sends).into());
+        }
+        let op = Op::SendClient {
+            player,
+            channel,
+            schema,
+            payload,
+        };
+        stage(&mut self.ops, op)?;
+        self.client_sends += 1;
+        self.client_send_bytes = bytes;
+        Ok(Ok(()))
+    }
+
+    /// Whether `player` may be told or sent to: only the event's actor may.
+    fn actor_is(&self, player: &str) -> Result<(), WorldError> {
+        match &self.actor {
+            None => Err(WorldError::PlayerUnavailable),
+            Some(actor) if actor != player => Err(WorldError::Denied),
+            Some(_) => Ok(()),
+        }
     }
 
     /// Counts one host call; the call past [`MAX_HOST_CALLS`] traps.
@@ -476,6 +589,24 @@ fn len(data: Option<&[u8]>) -> i64 {
     data.map_or(0, |data| data.len() as i64)
 }
 
+/// The bytes of `value` as JSON, counted without building the JSON.
+fn json_len(value: &impl Serialize) -> usize {
+    struct Count(usize);
+    impl io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    serde_json::to_writer(&mut count, value).expect("protocol values serialize");
+    count.0
+}
+
 impl From<BlockPos> for wit::BlockPos {
     fn from(BlockPos { x, y, z }: BlockPos) -> Self {
         Self { x, y, z }
@@ -511,415 +642,27 @@ impl From<protocol::Cause> for ChangeCause {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use wasmtime::Trap;
-
-    use super::{CallbackRes, failed, prepare};
-    use crate::host::LimitExceeded;
-    use crate::host::cinnabar::experience_server::types::WorldError;
-    use crate::limits::{
-        MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS,
-        MAX_TELL_BYTES, MAX_TELLS,
-    };
-    use crate::protocol::{BlockPos, Call, Cell, Face, FailKind, Info, Op, Outcome, Request};
-
-    const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
-    const COUNTER: &str = "probe:counter";
-    const AIR: &str = "minecraft:air";
-
-    const ANCHOR: BlockPos = BlockPos { x: 0, y: 64, z: 0 };
-    const UP: BlockPos = BlockPos { x: 0, y: 65, z: 0 };
-    const DOWN: BlockPos = BlockPos { x: 0, y: 63, z: 0 };
-    const EAST: BlockPos = BlockPos { x: 1, y: 64, z: 0 };
-    const WEST: BlockPos = BlockPos { x: -1, y: 64, z: 0 };
-    const NORTH: BlockPos = BlockPos { x: 0, y: 64, z: -1 };
-    const SOUTH: BlockPos = BlockPos { x: 0, y: 64, z: 1 };
-
-    /// The actor's interaction with [`ANCHOR`], an owned probe:counter without data whose six
-    /// neighbors are loaded air, with room to spare in the world and the data budget.
-    struct Fixture {
-        actor: Option<&'static str>,
-        min_y: i32,
-        max_y: i32,
-        budget: u64,
-        cells: Vec<Cell>,
-    }
-
-    impl Fixture {
-        fn new() -> Self {
-            let mut cells = vec![loaded(ANCHOR, COUNTER, true, None)];
-            for pos in [UP, DOWN, EAST, WEST, NORTH, SOUTH] {
-                cells.push(loaded(pos, AIR, false, None));
-            }
-            Self {
-                actor: Some(ACTOR),
-                min_y: -64,
-                max_y: 319,
-                budget: 1 << 20,
-                cells,
-            }
-        }
-
-        /// Replaces the cell at `pos` with a loaded `id`; `data` is hex.
-        fn cell(mut self, pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Self {
-            let cell = self.cells.iter_mut().find(|cell| cell.pos == pos);
-            *cell.expect("a snapshot cell") = loaded(pos, id, owned, data);
-            self
-        }
-
-        /// The callback's host value, for an Experience whose only block is probe:counter.
-        fn res(self) -> CallbackRes {
-            let request = Request::Callback {
-                seq: 1,
-                info: Info {
-                    world_id: "world".to_owned(),
-                    dimension_id: "overworld".to_owned(),
-                    tick: 1,
-                    event_sequence: 1,
-                },
-                actor: self.actor.map(str::to_owned),
-                world_min_y: self.min_y,
-                world_max_y: self.max_y,
-                data_budget: self.budget,
-                snapshot: self.cells,
-                call: Call::Interact {
-                    player: ACTOR.to_owned(),
-                    pos: ANCHOR,
-                    face: Face::Up,
-                },
-            };
-            let (res, _) = prepare(&Arc::from([COUNTER.to_owned()]), &request).unwrap();
-            res
-        }
-    }
-
-    fn loaded(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
-        Cell {
-            pos,
-            loaded: true,
-            id: id.to_owned(),
-            owned,
-            data: data.map(str::to_owned),
-        }
-    }
-
-    /// Whether `result` is a trap that fails the callback as `limit`.
-    fn limited<T>(result: anyhow::Result<T>) -> bool {
-        result.is_err_and(|error| error.is::<LimitExceeded>())
-    }
-
-    /// Both bounds are inside the world; the cells past them are outside even though the
-    /// snapshot holds them.
-    #[test]
-    fn world_height_bounds_reads_and_writes() {
-        let mut res = Fixture {
-            min_y: ANCHOR.y,
-            max_y: ANCHOR.y,
-            ..Fixture::new()
-        }
-        .res();
-        assert_eq!(res.get_block(ANCHOR).unwrap(), Ok(COUNTER.to_owned()));
-        assert_eq!(res.get_block(UP).unwrap(), Err(WorldError::OutOfBounds));
-        assert_eq!(res.block_data(DOWN).unwrap(), Err(WorldError::OutOfBounds));
-        assert_eq!(
-            res.set_block(UP, AIR.to_owned()).unwrap(),
-            Err(WorldError::OutOfBounds)
-        );
-        assert_eq!(
-            res.set_block_data(DOWN, None).unwrap(),
-            Err(WorldError::OutOfBounds)
-        );
-    }
-
-    /// West and north of the anchor lie in other chunk columns (`-1 >> 4 == -1`); east shares
-    /// the anchor's. Reads reach all of them.
-    #[test]
-    fn writes_stay_in_the_anchor_chunk_column() {
-        let mut res = Fixture::new().cell(NORTH, COUNTER, true, None).res();
-        assert_eq!(res.get_block(WEST).unwrap(), Ok(AIR.to_owned()));
-        assert_eq!(
-            res.set_block(WEST, COUNTER.to_owned()).unwrap(),
-            Err(WorldError::Denied)
-        );
-        assert_eq!(res.block_data(NORTH).unwrap(), Ok(None));
-        assert_eq!(
-            res.set_block_data(NORTH, Some(vec![1])).unwrap(),
-            Err(WorldError::Denied)
-        );
-        assert_eq!(res.set_block(EAST, COUNTER.to_owned()).unwrap(), Ok(()));
-    }
-
-    /// Placing makes air an owned block without data; removing makes it air that is not owned.
-    /// Refused replacements stage nothing.
-    #[test]
-    fn set_block_replaces_air_or_own_blocks_with_known_ids() {
-        let mut res = Fixture::new()
-            .cell(EAST, "minecraft:stone", false, None)
-            .res();
-        assert_eq!(
-            res.set_block(EAST, AIR.to_owned()).unwrap(),
-            Err(WorldError::NotOwned)
-        );
-        assert_eq!(
-            res.set_block(UP, "probe:missing".to_owned()).unwrap(),
-            Err(WorldError::UnknownBlock)
-        );
-        assert_eq!(res.set_block(UP, COUNTER.to_owned()).unwrap(), Ok(()));
-        assert_eq!(res.block_data(UP).unwrap(), Ok(None));
-        assert_eq!(res.set_block(ANCHOR, AIR.to_owned()).unwrap(), Ok(()));
-        assert_eq!(res.block_data(ANCHOR).unwrap(), Err(WorldError::NotOwned));
-        assert_eq!(
-            res.ops,
-            vec![
-                Op::SetBlock {
-                    pos: UP,
-                    id: COUNTER.to_owned(),
-                },
-                Op::SetBlock {
-                    pos: ANCHOR,
-                    id: AIR.to_owned(),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn data_belongs_to_own_blocks_only() {
-        let mut res = Fixture::new().res();
-        assert_eq!(res.block_data(UP).unwrap(), Err(WorldError::NotOwned));
-        assert_eq!(
-            res.set_block_data(UP, Some(vec![1])).unwrap(),
-            Err(WorldError::NotOwned)
-        );
-    }
-
-    /// The limit itself fits; one byte more is refused and leaves the data as it was.
-    #[test]
-    fn block_data_limit_is_inclusive() {
-        let mut res = Fixture::new().res();
-        let full = vec![7; MAX_BLOCK_DATA_BYTES];
-        assert_eq!(
-            res.set_block_data(ANCHOR, Some(full.clone())).unwrap(),
-            Ok(())
-        );
-        assert_eq!(
-            res.set_block_data(ANCHOR, Some(vec![0; MAX_BLOCK_DATA_BYTES + 1]))
-                .unwrap(),
-            Err(WorldError::TooLarge)
-        );
-        assert_eq!(res.block_data(ANCHOR).unwrap(), Ok(Some(full)));
-    }
-
-    /// The budget bounds the bytes a callback adds in total, so shrinking or clearing data
-    /// frees room for later writes.
-    #[test]
-    fn quota_counts_net_growth() {
-        let mut res = Fixture {
-            budget: 3,
-            ..Fixture::new()
-        }
-        .cell(ANCHOR, COUNTER, true, Some("0102"))
-        .cell(EAST, COUNTER, true, None)
-        .res();
-        // Growing 2 bytes to 5 adds exactly the budget.
-        assert_eq!(
-            res.set_block_data(ANCHOR, Some(vec![0; 5])).unwrap(),
-            Ok(())
-        );
-        assert_eq!(
-            res.set_block_data(EAST, Some(vec![0])).unwrap(),
-            Err(WorldError::QuotaExceeded)
-        );
-        // Replacing the anchor clears its 5 bytes.
-        assert_eq!(res.set_block(ANCHOR, COUNTER.to_owned()).unwrap(), Ok(()));
-        assert_eq!(res.set_block_data(EAST, Some(vec![0; 5])).unwrap(), Ok(()));
-        assert_eq!(
-            res.set_block_data(EAST, Some(vec![0; 6])).unwrap(),
-            Err(WorldError::QuotaExceeded)
-        );
-    }
-
-    /// A rewrite replaces the op it rewrites, so it neither grows the result nor counts against
-    /// the op cap, and the last write is the one staged.
-    #[test]
-    fn rewriting_data_stages_one_op() {
-        let mut res = Fixture::new().res();
-        for _ in 0..MAX_STAGED_OPS {
-            assert_eq!(res.set_block_data(ANCHOR, Some(vec![0])).unwrap(), Ok(()));
-        }
-        assert_eq!(
-            res.set_block_data(ANCHOR, Some(vec![0xab])).unwrap(),
-            Ok(())
-        );
-        assert_eq!(
-            res.ops,
-            vec![Op::SetBlockData {
-                pos: ANCHOR,
-                data: Some("ab".to_owned()),
-            }]
-        );
-    }
-
-    /// The replacement clears the data staged before it, so that op is dropped. The ops are
-    /// applied in order, so data staged after the replacement must stay after it.
-    #[test]
-    fn replacement_drops_data_staged_before_it() {
-        let mut res = Fixture::new().res();
-        assert_eq!(res.set_block_data(ANCHOR, Some(vec![1])).unwrap(), Ok(()));
-        assert_eq!(res.set_block(ANCHOR, COUNTER.to_owned()).unwrap(), Ok(()));
-        assert_eq!(res.set_block_data(ANCHOR, Some(vec![2])).unwrap(), Ok(()));
-        assert_eq!(
-            res.ops,
-            vec![
-                Op::SetBlock {
-                    pos: ANCHOR,
-                    id: COUNTER.to_owned(),
-                },
-                Op::SetBlockData {
-                    pos: ANCHOR,
-                    data: Some("02".to_owned()),
-                },
-            ]
-        );
-    }
-
-    /// Owned cells in the anchor's chunk column whose full data fills the staged-data limit.
-    const FULL: [BlockPos; 4] = [ANCHOR, UP, DOWN, EAST];
-
-    /// A callback that has staged [`MAX_BLOCK_DATA_BYTES`] in every cell of [`FULL`], which
-    /// reaches the staged-data limit exactly. [`SOUTH`] is owned too and has no data.
-    fn full_staged_data() -> CallbackRes {
-        assert_eq!(
-            FULL.len() * MAX_BLOCK_DATA_BYTES,
-            MAX_STAGED_DATA_BYTES,
-            "FULL must fill the staged-data limit exactly"
-        );
-        let mut res = Fixture::new()
-            .cell(UP, COUNTER, true, None)
-            .cell(DOWN, COUNTER, true, None)
-            .cell(EAST, COUNTER, true, None)
-            .cell(SOUTH, COUNTER, true, None)
-            .res();
-        for pos in FULL {
-            let full = Some(vec![0; MAX_BLOCK_DATA_BYTES]);
-            assert_eq!(res.set_block_data(pos, full).unwrap(), Ok(()));
-        }
-        res
-    }
-
-    /// The limit itself fits; a byte more is refused and stages nothing.
-    #[test]
-    fn staged_data_limit_is_inclusive() {
-        let mut res = full_staged_data();
-        assert_eq!(
-            res.set_block_data(SOUTH, Some(vec![0])).unwrap(),
-            Err(WorldError::TooLarge)
-        );
-        assert_eq!(res.block_data(SOUTH).unwrap(), Ok(None));
-        assert_eq!(res.ops.len(), FULL.len());
-    }
-
-    /// Only the ops left staged count, so shrinking a rewrite and replacing a block both free
-    /// room.
-    #[test]
-    fn staged_data_counts_the_ops_left_after_rewrites() {
-        let mut res = full_staged_data();
-        let shrunk = Some(vec![0; MAX_BLOCK_DATA_BYTES - 1]);
-        assert_eq!(res.set_block_data(ANCHOR, shrunk).unwrap(), Ok(()));
-        assert_eq!(res.set_block_data(SOUTH, Some(vec![0])).unwrap(), Ok(()));
-        assert_eq!(res.set_block(UP, COUNTER.to_owned()).unwrap(), Ok(()));
-        let full = Some(vec![0; MAX_BLOCK_DATA_BYTES]);
-        assert_eq!(res.set_block_data(SOUTH, full).unwrap(), Ok(()));
-    }
-
-    #[test]
-    fn tell_reaches_only_the_actor() {
-        let mut res = Fixture::new().res();
-        let stranger = "00000000-0000-0000-0000-000000000000".to_owned();
-        assert_eq!(
-            res.tell(stranger, "x".to_owned()).unwrap(),
-            Err(WorldError::Denied)
-        );
-        let mut res = Fixture {
-            actor: None,
-            ..Fixture::new()
-        }
-        .res();
-        assert_eq!(
-            res.tell(ACTOR.to_owned(), "x".to_owned()).unwrap(),
-            Err(WorldError::PlayerUnavailable)
-        );
-    }
-
-    /// The size limit counts UTF-8 bytes, so 129 two-byte characters are too many.
-    #[test]
-    fn tell_text_is_plain_and_short() {
-        let mut res = Fixture::new().res();
-        let mut tell = |text: String| res.tell(ACTOR.to_owned(), text).unwrap();
-        assert_eq!(tell("a\nb".to_owned()), Err(WorldError::InvalidText));
-        assert_eq!(tell("§cred".to_owned()), Err(WorldError::InvalidText));
-        assert_eq!(
-            tell("a".repeat(MAX_TELL_BYTES + 1)),
-            Err(WorldError::TooLarge)
-        );
-        assert_eq!(
-            tell("é".repeat(MAX_TELL_BYTES / 2 + 1)),
-            Err(WorldError::TooLarge)
-        );
-        assert_eq!(tell("a".repeat(MAX_TELL_BYTES)), Ok(()));
-        assert_eq!(
-            res.ops,
-            vec![Op::Tell {
-                player: ACTOR.to_owned(),
-                text: "a".repeat(MAX_TELL_BYTES),
-            }]
-        );
-    }
-
-    #[test]
-    fn tell_past_the_cap_traps() {
-        let mut res = Fixture::new().res();
-        for _ in 0..MAX_TELLS {
-            assert_eq!(res.tell(ACTOR.to_owned(), "x".to_owned()).unwrap(), Ok(()));
-        }
-        assert!(limited(res.tell(ACTOR.to_owned(), "x".to_owned())));
-    }
-
-    #[test]
-    fn op_past_the_cap_traps() {
-        let mut res = Fixture::new().res();
-        for _ in 0..MAX_STAGED_OPS {
-            assert_eq!(res.set_block(UP, AIR.to_owned()).unwrap(), Ok(()));
-        }
-        assert!(limited(res.set_block(UP, AIR.to_owned())));
-    }
-
-    /// `info` is a host call too.
-    #[test]
-    fn host_call_past_the_cap_traps() {
-        let mut res = Fixture::new().res();
-        for _ in 0..MAX_HOST_CALLS {
-            assert_eq!(res.get_block(ANCHOR).unwrap(), Ok(COUNTER.to_owned()));
-        }
-        assert!(limited(res.info()));
-    }
-
-    /// A trap is classified and reported by its root cause, whatever context wraps it.
-    #[test]
-    fn failures_are_classified_by_cause() {
-        let cases: [(anyhow::Error, FailKind); 4] = [
-            (Trap::OutOfFuel.into(), FailKind::Fuel),
-            (Trap::Interrupt.into(), FailKind::Deadline),
-            (LimitExceeded("too many".to_owned()).into(), FailKind::Limit),
-            (Trap::UnreachableCodeReached.into(), FailKind::Trap),
-        ];
-        for (cause, kind) in cases {
-            let reason = cause.to_string();
-            let error = cause.context("error while executing at wasm backtrace: …");
-            assert_eq!(failed(&error), Outcome::Failed { kind, reason });
+impl From<Scalar> for wit::Scalar {
+    fn from(scalar: Scalar) -> Self {
+        match scalar {
+            Scalar::Bool(value) => Self::Bool(value),
+            Scalar::Integer(value) => Self::Integer(value),
+            Scalar::Text(value) => Self::Text(value),
+            Scalar::Choice(value) => Self::Choice(value),
         }
     }
 }
+
+impl From<wit::Scalar> for Scalar {
+    fn from(scalar: wit::Scalar) -> Self {
+        match scalar {
+            wit::Scalar::Bool(value) => Self::Bool(value),
+            wit::Scalar::Integer(value) => Self::Integer(value),
+            wit::Scalar::Text(value) => Self::Text(value),
+            wit::Scalar::Choice(value) => Self::Choice(value),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

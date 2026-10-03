@@ -736,6 +736,11 @@ impl LocalPhysicsController {
     }
 
     #[must_use]
+    /// Whether the last completed simulation tick intersected water.
+    pub(crate) const fn in_water(&self) -> bool {
+        self.last_environment.in_water
+    }
+
     pub const fn mode(&self) -> sim::MovementMode {
         self.modes.mode()
     }

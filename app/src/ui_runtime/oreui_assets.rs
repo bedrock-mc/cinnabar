@@ -19,6 +19,14 @@ const MAX_ATLAS_JSON_BYTES: u64 = 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_IMAGE_SIDE: u32 = 1024;
 const GUTTER: u32 = 1;
+/// Standalone category images from the installed OreUI bundle, in sidebar order.
+pub(crate) const INBOX_ICONS: [&str; 5] = [
+    "assets/News-f81489154ff3c38f5b5f.png",
+    "assets/Realms-c7419af9abd527149fcc.png",
+    "assets/Invites-6a62211ac071c98b2994.png",
+    "assets/MarketplacePass-8eb08ee1dd714dd15307.png",
+    "assets/Feedback-ecfce4d670046c25d3df.png",
+];
 
 /// The packed OreUI page: RGBA8 pixels (premultiplied) and each bundle image's
 /// pixel rect `[x0, y0, x1, y1]`, keyed by its bundle path (`assets/<name>.png`).
@@ -118,6 +126,27 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
                 ],
             );
         }
+        x += width + GUTTER;
+        shelf = shelf.max(height);
+    }
+    for key in INBOX_ICONS {
+        if !dir.join(key).is_file() {
+            continue;
+        }
+        let (width, height, pixels) = decode(&dir.join(key))?;
+        if x + width > OREUI_PAGE_SIDE {
+            x = 0;
+            y += shelf + GUTTER;
+            shelf = 0;
+        }
+        if y + height > OREUI_PAGE_SIDE {
+            return Err("inbox images do not fit one page".into());
+        }
+        blit(&mut rgba, side, x, y, &pixels, width, height);
+        sprites.insert(
+            key.into(),
+            [x as u16, y as u16, (x + width) as u16, (y + height) as u16],
+        );
         x += width + GUTTER;
         shelf = shelf.max(height);
     }

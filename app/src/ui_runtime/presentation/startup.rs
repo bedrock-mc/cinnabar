@@ -15,6 +15,8 @@ pub(super) struct StartupReadinessInput {
     pub(super) cohort_target_complete: bool,
     pub(super) stream_work_drained: bool,
     pub(super) render_work_drained: bool,
+    /// A consent decision the player must make before entering the world.
+    pub(super) world_entry_held: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -167,9 +169,11 @@ impl StartupPresentationState {
         {
             return false;
         }
-        if (dense_view_ready && gpu_completed_opaque.count != 0)
-            || bounded_small_or_zero_opaque_view_ready
-            || input.local_terrain_ready
+        // Like vanilla's join-time pack prompt, a pending decision keeps the loading screen.
+        if !input.world_entry_held
+            && ((dense_view_ready && gpu_completed_opaque.count != 0)
+                || bounded_small_or_zero_opaque_view_ready
+                || input.local_terrain_ready)
         {
             self.released = true;
         }
@@ -220,6 +224,7 @@ mod tests {
             cohort_target_complete: false,
             stream_work_drained: false,
             render_work_drained: false,
+            world_entry_held: false,
         }
     }
 
@@ -294,6 +299,25 @@ mod tests {
         stale.diagnostics_frame_generation = 8;
         stale.snapshot.frame_generation = 8;
         assert!(state.observe(stale));
+    }
+
+    #[test]
+    fn consent_hold_keeps_a_ready_view_loading_until_answered() {
+        let mut state = StartupPresentationState::default();
+        let mut ready = startup_input(1, 0, 0, 1);
+        ready.visible_rendered = MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION;
+        ready.world_entry_held = true;
+        assert!(!state.observe(ready));
+        ready.diagnostics_frame_generation = 1;
+        ready.snapshot.frame_generation = 1;
+        assert!(!state.observe(ready), "a pending consent holds the world");
+        assert!(state.probe_enabled(true));
+
+        ready.world_entry_held = false;
+        assert!(
+            state.observe(ready),
+            "the answer releases a view already ready"
+        );
     }
 
     #[test]

@@ -2,6 +2,8 @@
 //!
 //! Implement [`Experience`] on a type and export it with [`export_experience!`].
 //! Every callback receives a [`Callback`] that is valid only for that call.
+//! [`Callback::send_client`] stages a typed message for the actor's client part;
+//! [`Experience::client_message`] receives what that client part sends back.
 
 /// Bindings generated from `wit/server.wit`.
 // The canonical-ABI shims for `on-place` and `on-break` take the flattened
@@ -19,7 +21,7 @@ pub use bindings::cinnabar::experience_server::{
     diagnostics::log,
     types::{
         BlockChange, BlockDef, BlockPos, CallbackInfo, ChangeCause, Face, GuestError, LogLevel,
-        Mining, PlayerId, TextureBinding, WorldError,
+        Mining, PlayerId, Scalar, TextureBinding, WorldError,
     },
     world_access::Callback,
 };
@@ -57,6 +59,19 @@ pub trait Experience {
         _ctx: &Callback,
         _pos: BlockPos,
         _neighbor: BlockPos,
+    ) -> Result<(), GuestError> {
+        Ok(())
+    }
+
+    /// Handles `client-message`: `player`'s client part sent `payload` on `channel`, revision
+    /// `schema`. `ctx` has no snapshot, so it reads and writes no blocks; it may `tell` and
+    /// `send-client` to `player`.
+    fn client_message(
+        _ctx: &Callback,
+        _player: PlayerId,
+        _channel: String,
+        _schema: u16,
+        _payload: Vec<Scalar>,
     ) -> Result<(), GuestError> {
         Ok(())
     }
@@ -104,6 +119,16 @@ macro_rules! export_experience {
                 neighbor: $crate::BlockPos,
             ) -> ::core::result::Result<(), $crate::GuestError> {
                 <$ty as $crate::Experience>::on_neighbor_changed(ctx, pos, neighbor)
+            }
+
+            fn client_message(
+                ctx: &$crate::Callback,
+                player: $crate::PlayerId,
+                channel: ::std::string::String,
+                schema: u16,
+                payload: ::std::vec::Vec<$crate::Scalar>,
+            ) -> ::core::result::Result<(), $crate::GuestError> {
+                <$ty as $crate::Experience>::client_message(ctx, player, channel, schema, payload)
             }
         }
 

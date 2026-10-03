@@ -11,6 +11,7 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         display_name: "cache-owner".to_owned(),
         client_blob_cache: owner.cache(),
         player_skin: crate::player_skin::LocalPlayerSkin::generated_default("cache-owner"),
+        actor_artwork: None,
     };
     let hash = first
         .client_blob_cache
@@ -22,6 +23,7 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         display_name: "cache-owner".to_owned(),
         client_blob_cache: owner.cache(),
         player_skin: crate::player_skin::LocalPlayerSkin::generated_default("cache-owner"),
+        actor_artwork: None,
     };
 
     assert!(replacement.client_blob_cache.contains(hash));

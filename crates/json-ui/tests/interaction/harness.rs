@@ -149,6 +149,19 @@ impl Screen {
     }
 }
 
+/// Targets raised by hover mappings, which arrive in the Up state rather than as presses.
+pub(crate) fn hover_ids(events: &[ScreenEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ScreenEvent::Button(button) if !button.down && !button.interacted => {
+                Some(button.id.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 pub(crate) fn button_ids(events: &[ScreenEvent]) -> Vec<String> {
     events
         .iter()

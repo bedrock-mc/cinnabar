@@ -108,18 +108,18 @@ fn double_pressed_needs_two_quick_near_presses() {
     );
 }
 
-// I7/X9: a source-less pressed mapping fires its target on hover.
+// I7/X9: a source-less pressed mapping raises its target on hover in the Up state, never as a
+// press (a server form's button would otherwise answer itself under the cursor).
 #[test]
 fn hover_mappings_fire_on_hover() {
     let mut screen = Screen::new(page(vec![mapped(json!([
         { "to_button_id": "button.hovered", "mapping_type": "pressed" }
     ]))]));
-    assert_eq!(
-        button_ids(&screen.hover([5.0, 5.0]).events),
-        ["button.hovered"]
-    );
+    let entered = screen.hover([5.0, 5.0]).events;
+    assert_eq!(hover_ids(&entered), ["button.hovered"]);
+    assert!(button_ids(&entered).is_empty(), "hover is not a press");
     assert!(
-        button_ids(&screen.hover([6.0, 5.0]).events).is_empty(),
+        hover_ids(&screen.hover([6.0, 5.0]).events).is_empty(),
         "only on entering"
     );
 }
@@ -254,10 +254,10 @@ fn consume_hover_events_decides_the_hover_chain() {
         ])
     };
     let mut blocked = Screen::new(make(true));
-    assert!(button_ids(&blocked.hover([5.0, 5.0]).events).is_empty());
+    assert!(hover_ids(&blocked.hover([5.0, 5.0]).events).is_empty());
     let mut through = Screen::new(make(false));
     assert_eq!(
-        button_ids(&through.hover([5.0, 5.0]).events),
+        hover_ids(&through.hover([5.0, 5.0]).events),
         ["button.below"]
     );
 }

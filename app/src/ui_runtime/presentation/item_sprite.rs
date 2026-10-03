@@ -84,10 +84,7 @@ fn crop_icon(
     if u32::from(icon.uv[2]) > page_width || u32::from(icon.uv[3]) > page_height {
         return None;
     }
-    let factor = width.max(height).div_ceil(max_side.max(1));
-    if !width.is_multiple_of(factor) || !height.is_multiple_of(factor) {
-        return None;
-    }
+    let factor = reduction_factor(width, height, max_side)?;
     let (out_width, out_height) = (width / factor, height / factor);
     let pixels = page.pixels();
     let mut rgba8 = Vec::with_capacity((out_width * out_height * 4) as usize);
@@ -105,6 +102,19 @@ fn crop_icon(
         height: out_height,
         rgba8,
     })
+}
+
+/// Selects an integer sampling factor that preserves both icon dimensions.
+fn reduction_factor(width: u32, height: u32, max_side: u32) -> Option<u32> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let minimum = width.max(height).div_ceil(max_side.max(1));
+    let (mut a, mut b) = (width, height);
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    (minimum..=a).find(|factor| a.is_multiple_of(*factor))
 }
 
 #[cfg(test)]
@@ -127,5 +137,11 @@ mod tests {
             assert_eq!(cube.tints[face], render::OPAQUE_WHITE);
         }
         assert!(carried_cube(&tiles[0]).is_none());
+    }
+    #[test]
+    fn review_icon_reduction_finds_a_larger_common_divisor() {
+        assert_eq!(reduction_factor(16, 16, 6), Some(4));
+        assert_eq!(reduction_factor(70, 70, 20), Some(5));
+        assert_eq!(reduction_factor(70, 35, 20), Some(5));
     }
 }

@@ -163,9 +163,6 @@ fn merge_into(
     body: &Value,
     diagnostics: &mut Vec<String>,
 ) {
-    if base.is_some() {
-        existing.base = base;
-    }
     let body = match body {
         Value::Object(body) => body,
         Value::Array(items) if items.is_empty() => return,
@@ -174,6 +171,9 @@ fn merge_into(
             return;
         }
     };
+    if base.is_some() {
+        existing.base = base;
+    }
     for (property, value) in body {
         match property.as_str() {
             "controls" if value.is_string() => {
@@ -786,5 +786,24 @@ mod tests {
             br##"{ "panel": { "modifications": {} } }"##.as_slice(),
         )]);
         assert!(catalog.diagnostics().is_empty());
+    }
+    #[test]
+    fn review_invalid_overlay_bodies_preserve_the_previous_base() {
+        for body in [serde_json::json!(7), serde_json::json!([])] {
+            let mut notes = Vec::new();
+            let mut control = RawControl::from_entry(
+                "a",
+                "root@a.original",
+                &serde_json::json!({"type":"panel"}),
+                &mut notes,
+            );
+            merge_into(
+                &mut control,
+                Some("a.replacement".into()),
+                &body,
+                &mut notes,
+            );
+            assert_eq!(control.base.as_deref(), Some("a.original"));
+        }
     }
 }

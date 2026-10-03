@@ -61,6 +61,7 @@ pub(crate) struct MenuScrolls {
     /// (an engine view: the pointer's last virtual position along its axis).
     drag: Option<(String, f32)>,
     screen: Option<String>,
+    focused: Option<crate::menu::MenuAction>,
 }
 
 impl MenuScrolls {
@@ -70,7 +71,40 @@ impl MenuScrolls {
             self.offsets.clear();
             self.drag = None;
             self.screen = Some(screen);
+            self.focused = None;
         }
+    }
+
+    /// Reveals a newly focused fallback control without overriding later wheel movement.
+    pub(crate) fn reveal_focus(
+        &mut self,
+        key: &str,
+        action: Option<crate::menu::MenuAction>,
+        bounds: Option<UiRect>,
+        viewport: UiRect,
+        max: f32,
+    ) -> f32 {
+        let mut offset = self
+            .offsets
+            .get(key)
+            .copied()
+            .unwrap_or(0.0)
+            .clamp(0.0, max);
+        if self.focused != action {
+            self.focused = action;
+            if let Some(bounds) = bounds {
+                let top = bounds.min().y() - offset;
+                let bottom = bounds.max().y() - offset;
+                if top < viewport.min().y() {
+                    offset -= viewport.min().y() - top;
+                } else if bottom > viewport.max().y() {
+                    offset += bottom - viewport.max().y();
+                }
+                offset = offset.clamp(0.0, max);
+                self.offsets.insert(key.to_owned(), offset);
+            }
+        }
+        offset
     }
 
     pub(crate) fn offsets(&self) -> &HashMap<String, f32> {

@@ -6,8 +6,13 @@ use std::{
 };
 
 use render::UiTexturePage;
+use ui::UiMesh;
 
-use super::{IconRef, UiPresentationRuntime, dynamic_textures};
+use super::{
+    IconRef, UiPresentationRuntime, dynamic_textures,
+    gui_models::{IconKey, icon_key, ordinary_cube_sheet, sheet_faces},
+    item_gui,
+};
 
 /// Largest icon side kept as-is; larger sources are reduced to fit.
 pub(crate) const MAX_SESSION_ICON_SIDE: u32 = 64;
@@ -30,6 +35,10 @@ pub(crate) struct SessionIcon {
 #[derive(Debug, Default)]
 pub(crate) struct SessionIcons {
     pub(crate) icons: Vec<SessionIcon>,
+    /// Six-face sheets (`assets::BLOCK_ITEM_SHEET_SIZE`) of custom block items whose block is
+    /// a plain opaque cube. Slots and hands draw these as that cube, as vanilla block items
+    /// draw their sheet; the item's `icons` entry is the flat thumbnail behind it.
+    pub(crate) block_sheets: Vec<SessionIcon>,
     /// Why an item's icon key did not resolve to an image, for diagnostics.
     pub(crate) misses: HashMap<Arc<str>, Box<str>>,
 }
@@ -39,6 +48,8 @@ pub(crate) struct SessionIcons {
 pub(super) struct SessionIconPage {
     source: Option<Arc<SessionIcons>>,
     refs: IconRefs,
+    /// GUI cubes of custom block items, keyed by their flat thumbnail as vanilla GUI models are.
+    pub(super) models: BTreeMap<IconKey, Arc<UiMesh>>,
     pub(super) page: Option<UiTexturePage>,
     generation: u64,
 }
@@ -152,32 +163,97 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
     }
     let page_index =
         (runtime.textures.dynamic_start() + dynamic_textures::SESSION_ICON_PAGE) as u16;
-    let (page, refs) = icons
-        .and_then(|icons| pack(icons, page_index))
-        .map_or((None, HashMap::new()), |(page, refs)| (Some(page), refs));
+    let packed = icons.and_then(|icons| Some((icons, pack(icons, page_index)?)));
+    let models = packed
+        .as_ref()
+        .map(|(icons, packed)| block_cubes(icons, packed))
+        .unwrap_or_default();
+    let (page, refs) = packed.map_or((None, HashMap::new()), |(_, packed)| {
+        (Some(packed.page), packed.refs)
+    });
     runtime.session_icons = SessionIconPage {
         source: icons.cloned(),
         refs,
+        models,
         page,
         generation: runtime.session_icons.generation.wrapping_add(1),
     };
     dynamic_textures::rebuild(runtime);
 }
 
-/// Shelf-packs icons with a replicated gutter; icons that do not fit are left out.
-fn pack(icons: &SessionIcons, page_index: u16) -> Option<(UiTexturePage, IconRefs)> {
+/// The session page's pixels and where each icon and block sheet landed on it.
+struct PackedIcons {
+    page: UiTexturePage,
+    refs: IconRefs,
+    sheets: HashMap<Arc<str>, IconRef>,
+}
+
+/// Each placed opaque block sheet's GUI cube, keyed by its item's flat thumbnail: the cube
+/// replaces that sprite wherever JSON-UI draws the item, as vanilla block items' cubes do.
+fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, Arc<UiMesh>> {
+    let mut models = BTreeMap::new();
+    for sheet in &icons.block_sheets {
+        let (Some(placed), Some(thumbnail)) = (
+            packed.sheets.get(&sheet.identifier),
+            packed
+                .refs
+                .get(&sheet.identifier)
+                .and_then(|variants| variants.get(&sheet.metadata)),
+        ) else {
+            continue;
+        };
+        if !ordinary_cube_sheet(&sheet.rgba8) {
+            continue;
+        }
+        if let Some(mesh) = item_gui::cube(sheet_faces(*placed)) {
+            models.insert(icon_key(*thumbnail), mesh);
+        }
+    }
+    models
+}
+
+/// Shelf-packs icons and block sheets with a replicated gutter; those that do not fit, and
+/// sheets not shaped as `assets::BLOCK_ITEM_SHEET_SIZE`, are left out.
+fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
+    let sheet_size = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
     // Tallest first keeps shelves dense; ties keep input order.
-    let mut ordered = icons.icons.iter().collect::<Vec<_>>();
-    ordered.sort_by_key(|icon| std::cmp::Reverse(icon.height));
-    let side = page_side(&ordered);
+    // Invalid entries and later duplicates are dropped before sorting so they cannot size the page.
+    let mut seen = std::collections::HashSet::new();
+    let mut ordered = icons
+        .icons
+        .iter()
+        .map(|icon| (icon, false))
+        .chain(
+            icons
+                .block_sheets
+                .iter()
+                .filter(|sheet| [sheet.width, sheet.height] == sheet_size)
+                .map(|sheet| (sheet, true)),
+        )
+        .filter(|(icon, _)| {
+            icon.width > 0
+                && icon.height > 0
+                && icon.width <= MAX_SESSION_ICON_SIDE
+                && icon.height <= MAX_SESSION_ICON_SIDE
+                && icon.rgba8.len() == (icon.width * icon.height * 4) as usize
+        })
+        .filter(|(icon, sheet)| seen.insert((Arc::clone(&icon.identifier), icon.metadata, *sheet)))
+        .collect::<Vec<_>>();
+    ordered.sort_by_key(|(icon, _)| std::cmp::Reverse(icon.height));
+    let side = page_side(ordered.iter().map(|(icon, _)| *icon));
     let mut rgba8 = vec![0u8; (side * side * 4) as usize];
     let mut refs: IconRefs = HashMap::new();
+    let mut sheets = HashMap::new();
     let (mut cursor, mut row_height) = ([0u32; 2], 0u32);
-    for icon in ordered {
+    for (icon, sheet) in ordered {
         let padded = [icon.width + GUTTER * 2, icon.height + GUTTER * 2];
-        if refs
-            .get(&icon.identifier)
-            .is_some_and(|variants| variants.contains_key(&icon.metadata))
+        let placed = if sheet {
+            sheets.contains_key(&icon.identifier)
+        } else {
+            refs.get(&icon.identifier)
+                .is_some_and(|variants| variants.contains_key(&icon.metadata))
+        };
+        if placed
             || icon.width == 0
             || icon.height == 0
             || icon.width > MAX_SESSION_ICON_SIDE
@@ -203,34 +279,36 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<(UiTexturePage, IconRef
             }
         }
         let [left, top] = [cursor[0] + GUTTER, cursor[1] + GUTTER];
-        refs.entry(Arc::clone(&icon.identifier))
-            .or_default()
-            .insert(
-                icon.metadata,
-                IconRef {
-                    page: page_index,
-                    uv: [
-                        left as u16,
-                        top as u16,
-                        (left + icon.width) as u16,
-                        (top + icon.height) as u16,
-                    ],
-                    glint: false,
-                },
-            );
+        let placement = IconRef {
+            page: page_index,
+            uv: [
+                left as u16,
+                top as u16,
+                (left + icon.width) as u16,
+                (top + icon.height) as u16,
+            ],
+            glint: false,
+        };
+        if sheet {
+            sheets.insert(Arc::clone(&icon.identifier), placement);
+        } else {
+            refs.entry(Arc::clone(&icon.identifier))
+                .or_default()
+                .insert(icon.metadata, placement);
+        }
         cursor[0] += padded[0];
         row_height = row_height.max(padded[1]);
     }
     let page = UiTexturePage::owned([side, side], rgba8.into()).ok()?;
-    Some((page, refs))
+    Some(PackedIcons { page, refs, sheets })
 }
 
 /// Grows the reserved page to the smallest bounded shelf layout containing the icons.
-fn page_side(icons: &[&SessionIcon]) -> u32 {
+fn page_side<'a>(icons: impl Iterator<Item = &'a SessionIcon> + Clone) -> u32 {
     let mut side = MIN_PAGE_SIDE;
     loop {
         let (mut x, mut y, mut row) = (0, 0, 0);
-        for icon in icons {
+        for icon in icons.clone() {
             if icon.width > MAX_SESSION_ICON_SIDE || icon.height > MAX_SESSION_ICON_SIDE {
                 continue;
             }

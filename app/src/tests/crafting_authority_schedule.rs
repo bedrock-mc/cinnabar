@@ -1,4 +1,5 @@
 //! Actual inventory ingress, world reconcile and committed authority drain witnesses.
+use crate::player_runtime::PlayerRuntime;
 #[path = "latency_fences.rs"]
 mod latency_fences;
 
@@ -35,7 +36,9 @@ use protocol::{
     NetworkItemStack, SlotIdentity, WorldBootstrap, WorldEvent,
 };
 
+/// Creates the real committed-drain schedule with independent domain ownership.
 fn app() -> App {
+    let mut player_runtime = PlayerRuntime::new(1);
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
     bind_session_generation(&mut clock, &mut weather, 1);
@@ -45,6 +48,7 @@ fn app() -> App {
     let collisions = PhysicsCollisionRegistries::from_assets(breg, &records, preg, 2193).unwrap();
     let mut runtime = UiRuntime::new(1);
     assert!(publish_bootstrap_inventory(
+        &mut player_runtime,
         &mut runtime,
         Some(ItemRegistryEvent {
             entries: protocol::vanilla_item_registry(),
@@ -69,6 +73,7 @@ fn app() -> App {
     .insert_resource(weather)
     .insert_resource(collisions)
     .insert_resource(runtime)
+    .insert_resource(player_runtime.clone())
     .insert_resource(AcceptanceRun::new(Some(900), None, false, false))
     .insert_resource(ModelWitnessFileSource::new(None))
     .init_resource::<MovementTicker>()
@@ -98,10 +103,10 @@ fn app() -> App {
 }
 
 fn ingress(app: &mut App, sequence: u64, event: InventoryEvent) {
-    {
-        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+    crate::tests::with_ui_player(app, |runtime, player_runtime| {
         route_inventory_ingress(
-            &mut runtime,
+            player_runtime,
+            runtime,
             SequencedWorldEvent {
                 session_generation: 1,
                 sequence,
@@ -109,7 +114,7 @@ fn ingress(app: &mut App, sequence: u64, event: InventoryEvent) {
             },
         )
         .unwrap();
-    }
+    });
     app.world_mut()
         .resource_mut::<ClientWorld>()
         .stream
@@ -186,7 +191,8 @@ fn contextual_grid_ingress_and_mixed_slots_follow_actual_committed_frontier() {
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none(),
         "Content cannot synthesize known-empty cursor"
@@ -194,15 +200,21 @@ fn contextual_grid_ingress_and_mixed_slots_follow_actual_committed_frontier() {
     ingress(&mut app, 4, empty_slot(59, 0));
     app.update();
     assert!(matches!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::Unique { count: 4, .. })
     ));
-    let old = app.world().resource::<UiRuntime>().clone();
+    let old = app.world().resource::<PlayerRuntime>().inventory.clone();
     // Missing predecessor5 withholds the mutating Slot6, not ordinary inventory.
     ingress(&mut app, 6, contextual_slot(28));
     app.update();
     assert!(matches!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::Unique { .. })
     ));
     app.world_mut()
@@ -214,7 +226,10 @@ fn contextual_grid_ingress_and_mixed_slots_follow_actual_committed_frontier() {
         .unwrap();
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
     assert!(matches!(
@@ -227,7 +242,10 @@ fn contextual_grid_ingress_and_mixed_slots_follow_actual_committed_frontier() {
     ingress(&mut app, 9, contextual_grid(true));
     app.update();
     assert!(matches!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::Unique { .. })
     ));
     // Both incremental identities address only their distinct crafting cells.
@@ -245,20 +263,27 @@ fn contextual_grid_ingress_and_mixed_slots_follow_actual_committed_frontier() {
     ingress(&mut app, 11, named_present.clone());
     app.update();
     assert!(matches!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::Unique { .. })
     ));
     ingress(&mut app, 12, named_present);
     ingress(&mut app, 13, contextual_slot(28));
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
     assert_eq!(
         app.world()
-            .resource::<UiRuntime>()
-            .inventory_ledger()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
             .slot_state(28),
         Some(PlayerInventorySlot::Unknown),
         "default UI124 must never alias player inventory"
@@ -274,7 +299,10 @@ fn contextual_grid_burst_refuses_only_craft_projection_and_recovers_from_fresh_f
     ingress(&mut app, 3, empty_slot(59, 0));
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
     // Real ordinary drain observes the whole ingress burst before craft advance.
@@ -294,15 +322,17 @@ fn contextual_grid_burst_refuses_only_craft_projection_and_recovers_from_fresh_f
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
     assert_eq!(
         app.world()
-            .resource::<UiRuntime>()
-            .inventory_ledger()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
             .slot_state(28),
         Some(PlayerInventorySlot::Unknown)
     );
@@ -310,7 +340,8 @@ fn contextual_grid_burst_refuses_only_craft_projection_and_recovers_from_fresh_f
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none(),
         "grid recovery does not recover retired cursor"
@@ -318,7 +349,10 @@ fn contextual_grid_burst_refuses_only_craft_projection_and_recovers_from_fresh_f
     ingress(&mut app, 70, empty_slot(59, 0));
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch),
         "healthy catalog/registry/Server survived cell-domain overflow"
     );
@@ -359,7 +393,8 @@ fn contextual_grid_dimension_round_trip_accepts_only_final_epoch_cells() {
     );
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
@@ -367,14 +402,18 @@ fn contextual_grid_dimension_round_trip_accepts_only_final_epoch_cells() {
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
     ingress(&mut app, 9, empty_slot(59, 0));
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
 }
@@ -398,15 +437,18 @@ fn named_registry(name: &str) -> ItemRegistryEvent {
 }
 
 fn registry_ingress(app: &mut App, sequence: u64, registry: ItemRegistryEvent) {
-    route_item_registry_ingress(
-        &mut app.world_mut().resource_mut::<UiRuntime>(),
-        &SequencedWorldEvent {
-            session_generation: 1,
-            sequence,
-            event: WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(registry)),
-        },
-    )
-    .unwrap();
+    crate::tests::with_ui_player(app, |runtime, player_runtime| {
+        route_item_registry_ingress(
+            player_runtime,
+            runtime,
+            &SequencedWorldEvent {
+                session_generation: 1,
+                sequence,
+                event: WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(registry)),
+            },
+        )
+        .unwrap();
+    });
     app.world_mut()
         .resource_mut::<ClientWorld>()
         .stream
@@ -451,10 +493,10 @@ fn committed_registry_position_controls_cell_binding_even_when_ordinary_registry
     // missing predecessor8 keeps crafting bound to the committed RegistryA.
     registry_ingress(&mut app, 9, named_registry("minecraft:birch_log"));
     app.update();
-    let runtime = app.world().resource::<UiRuntime>();
+    let runtime = &app.world().resource::<PlayerRuntime>().inventory;
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .ledger()
             .negotiated_item_entry(6)
             .unwrap()
             .identifier
@@ -481,7 +523,8 @@ fn committed_registry_position_controls_cell_binding_even_when_ordinary_registry
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none(),
         "registry replacement must not rebind an older numeric cell"
@@ -493,7 +536,10 @@ fn committed_registry_position_controls_cell_binding_even_when_ordinary_registry
     ingress(&mut app, 10, present());
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
     ingress(&mut app, 11, clear_recipes());
@@ -519,9 +565,9 @@ fn missing_world_predecessor_withholds_crafting_but_not_ordinary_inventory_then_
     complete_empty_grid(&mut app, 3);
     ingress(&mut app, 8, empty_slot(12, 28));
     app.update();
-    let runtime = app.world().resource::<UiRuntime>();
+    let runtime = &app.world().resource::<PlayerRuntime>().inventory;
     assert!(matches!(
-        runtime.inventory_ledger().slot_state(28),
+        runtime.ledger().slot_state(28),
         Some(PlayerInventorySlot::Empty)
     ));
     assert!(runtime.crafting_preview().is_none());
@@ -534,7 +580,10 @@ fn missing_world_predecessor_withholds_crafting_but_not_ordinary_inventory_then_
         .unwrap();
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
@@ -634,7 +683,8 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
     assert_eq!(routed_slots, 64);
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
@@ -644,14 +694,16 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
     app.update();
     assert!(matches!(
         app.world()
-            .resource::<UiRuntime>()
-            .inventory_ledger()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
             .slot_state(31),
         Some(PlayerInventorySlot::Empty)
     ));
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
@@ -659,7 +711,10 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
     complete_empty_grid(&mut app, 69);
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
 }
@@ -672,7 +727,8 @@ fn immediate_client_loss_blocks_queued_older_server_when_only_the_older_prefix_c
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_some()
     );
@@ -689,14 +745,16 @@ fn immediate_client_loss_blocks_queued_older_server_when_only_the_older_prefix_c
     );
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
@@ -724,7 +782,10 @@ fn immediate_client_loss_blocks_queued_older_server_when_only_the_older_prefix_c
     complete_empty_grid(&mut app, 11);
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
 }
@@ -751,7 +812,8 @@ fn actual_dimension_boundaries_drop_old_cells_and_accept_only_the_final_epoch_su
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
@@ -782,7 +844,10 @@ fn actual_dimension_boundaries_drop_old_cells_and_accept_only_the_final_epoch_su
         10
     );
     assert_eq!(
-        app.world().resource::<UiRuntime>().crafting_preview(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .crafting_preview(),
         Some(CraftingPreview::NoMatch)
     );
 }
@@ -795,13 +860,15 @@ fn legacy_destructive_pop_remains_destructive_and_partial_updates_cannot_restore
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_some()
     );
     ingress(&mut app, 7, empty_slot(12, 28));
     {
-        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        let mut player_runtime = app.world_mut().resource_mut::<PlayerRuntime>();
+        let runtime = &mut player_runtime.inventory;
         assert_eq!(runtime.pop_inventory_event().unwrap().fifo_sequence, 7);
         assert!(runtime.pop_inventory_event().is_none());
         assert!(runtime.crafting_preview().is_none());
@@ -810,14 +877,16 @@ fn legacy_destructive_pop_remains_destructive_and_partial_updates_cannot_restore
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .inventory
             .crafting_preview()
             .is_none()
     );
     assert!(matches!(
         app.world()
-            .resource::<UiRuntime>()
-            .inventory_ledger()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
             .slot_state(28),
         Some(PlayerInventorySlot::Unknown)
     ));
@@ -842,11 +911,14 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
                 item_tags: std::sync::Arc::from([]),
             }]),
         };
-        assert!(publish_bootstrap_inventory(
-            &mut app.world_mut().resource_mut::<UiRuntime>(),
-            Some(registry),
-            InventoryEvent::Authority(InventoryAuthority::Server)
-        ));
+        assert!(crate::tests::with_ui_player(&mut app, |runtime, player| {
+            publish_bootstrap_inventory(
+                player,
+                runtime,
+                Some(registry),
+                InventoryEvent::Authority(InventoryAuthority::Server),
+            )
+        }));
         let stack = |id, count| NetworkItemStack {
             network_id: 878,
             stack_network_id: id,
@@ -962,7 +1034,8 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
             assert_eq!(routed_slots, 64);
             assert!(
                 app.world()
-                    .resource::<UiRuntime>()
+                    .resource::<PlayerRuntime>()
+                    .inventory
                     .crafting_preview()
                     .is_none()
             );
@@ -970,14 +1043,16 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
             app.update();
             assert!(
                 app.world()
-                    .resource::<UiRuntime>()
+                    .resource::<PlayerRuntime>()
+                    .inventory
                     .crafting_preview()
                     .is_none()
             );
             assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
         }
-        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
-        let ledger = runtime.inventory_ledger_mut();
+        let mut player_runtime = app.world_mut().resource_mut::<PlayerRuntime>();
+        let runtime = &mut player_runtime.inventory;
+        let ledger = runtime.ledger_mut();
         assert!(ledger.request_personal_open(42));
         assert!(ledger.mark_transport_enqueued(0));
         ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
@@ -1024,29 +1099,33 @@ fn output_click_crafts_the_unique_recipe_through_the_ledger() {
     ingress(&mut app, 3, contextual_grid(true));
     ingress(&mut app, 4, empty_slot(59, 0));
     app.update();
-    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
-    let ledger = runtime.inventory_ledger_mut();
-    assert!(ledger.request_personal_open(42));
-    assert!(ledger.mark_transport_enqueued(0));
-    ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
-        container: ContainerIdentity::window(2),
-        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
-        position: [0, 64, 0],
-        runtime_entity_id: -1,
-    }));
-    assert!(matches!(
-        runtime.crafting_match(),
-        protocol::CraftGridMatch::Unique(_)
-    ));
-    let request = dispatch_inventory_click(
-        &mut runtime,
-        InventoryCellHit::CraftOutput,
-        CellGesture::Click,
-    )
-    .unwrap();
-    let ledger = runtime.inventory_ledger();
-    assert_eq!(ledger.pending_request_id(), Some(request));
-    let held = ledger.cursor_stack().unwrap();
-    assert_eq!((held.network_id, held.count), (7, 4));
-    assert!(ledger.pending_batch().unwrap().is_some());
+    crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
+        let ledger = runtime.inventory_ledger_mut(player_runtime);
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.mark_transport_enqueued(0));
+        ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+            container: ContainerIdentity::window(2),
+            window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+            position: [0, 64, 0],
+            runtime_entity_id: -1,
+        }));
+        assert!(matches!(
+            runtime.crafting_match(player_runtime),
+            inventory::CraftGridMatch::Unique(_)
+        ));
+        let request = dispatch_inventory_click(
+            player_runtime,
+            runtime,
+            InventoryCellHit::CraftOutput,
+            CellGesture::Click,
+        )
+        .unwrap();
+        let ledger = runtime.inventory_ledger(player_runtime);
+        assert_eq!(ledger.pending_request_id(), Some(request));
+        let held = ledger.cursor_stack().unwrap();
+        assert_eq!((held.network_id, held.count), (7, 4));
+        assert!(ledger.pending_batch().unwrap().is_some());
+    });
 }
+
+mod observation;

@@ -404,7 +404,7 @@ impl ServerAtlas {
         let relative = key.strip_prefix(VANILLA_IN_PACKAGE).unwrap_or(key);
         let found = (key.starts_with("textures/") || relative != key)
             .then(|| {
-                let path = root.join(format!("{relative}.json"));
+                let path = vanilla_path(root, &format!("{relative}.json"))?;
                 exact_case(&path).then_some(())?;
                 (std::fs::metadata(&path).ok()?.len() <= MAX_PACK_TEXTURE_BYTES).then_some(())?;
                 let bytes = std::fs::read(path).ok()?;
@@ -438,7 +438,9 @@ impl ServerAtlas {
             let relative = key.strip_prefix(VANILLA_IN_PACKAGE).unwrap_or(key);
             let found = (key.starts_with("textures/") || relative != key).then(|| {
                 IMAGE_EXTENSIONS.iter().find_map(|extension| {
-                    let path = root.join(format!("{relative}{extension}"));
+                    let path = vanilla_path(root, &format!("{relative}{extension}"))?;
+                    (std::fs::metadata(&path).ok()?.len() <= MAX_PACK_TEXTURE_BYTES)
+                        .then_some(())?;
                     exact_case(&path).then_some(())?;
                     source(std::fs::read(path).ok()?.into())
                 })
@@ -594,6 +596,23 @@ impl ServerAtlas {
         page.cursor = [0; 3];
         Some((index, page.allocate(size)?))
     }
+}
+
+/// Resolves a pack-relative file while refusing parent components and linked escapes.
+fn vanilla_path(root: &std::path::Path, relative: &str) -> Option<std::path::PathBuf> {
+    use std::path::{Component, Path};
+    let relative = Path::new(relative);
+    if relative
+        .components()
+        .any(|part| !matches!(part, Component::Normal(_)))
+        || relative.as_os_str().is_empty()
+    {
+        return None;
+    }
+    let root = root.canonicalize().ok()?;
+    let path = root.join(relative);
+    let canonical = path.canonicalize().ok()?;
+    canonical.starts_with(&root).then_some(path)
 }
 
 /// Whether `path`'s file name exists spelled exactly so, as the client's asset
@@ -881,5 +900,38 @@ mod tests {
         std::fs::remove_file(path).unwrap();
         assert_eq!(atlas.fallback_sidecar("textures/ui/border"), Some(meta));
         let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn vanilla_fallback_rejects_parent_paths_and_symlink_escapes() {
+        let root = std::env::temp_dir().join(format!(
+            "cinnabar-fallback-boundary-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let vanilla = root.join("vanilla");
+        std::fs::create_dir_all(vanilla.join("textures")).unwrap();
+        std::fs::write(root.join("private.png"), png(2, 2)).unwrap();
+        std::fs::write(root.join("private.json"), br#"{"nineslice_size":4}"#).unwrap();
+        let atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(Some(vanilla.clone()), None);
+        for key in [
+            format!("{VANILLA_IN_PACKAGE}../private"),
+            "textures/../../private".into(),
+        ] {
+            assert!(atlas.fallback_size(&key).is_none(), "{key}");
+            assert!(atlas.fallback_sidecar(&key).is_none(), "{key}");
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("private.png"), vanilla.join("textures/link.png"))
+                .unwrap();
+            std::os::unix::fs::symlink(
+                root.join("private.json"),
+                vanilla.join("textures/link.json"),
+            )
+            .unwrap();
+            assert!(atlas.fallback_size("textures/link").is_none());
+            assert!(atlas.fallback_sidecar("textures/link").is_none());
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

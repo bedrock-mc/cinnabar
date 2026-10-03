@@ -40,6 +40,8 @@ pub struct NetworkConfig {
     pub client_blob_cache: ClientBlobCache,
     /// The client's own skin, uploaded in the ClientData login payload.
     pub player_skin: crate::player_skin::LocalPlayerSkin,
+    /// A snapshot for worker preparation; publication rechecks it against the current artwork.
+    pub actor_artwork: Option<render::ActorArtworkPages>,
 }
 
 /// Which transport leg or lifecycle stage produced a session failure.

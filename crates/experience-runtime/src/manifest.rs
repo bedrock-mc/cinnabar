@@ -9,8 +9,9 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use crate::hex;
+use crate::host::Api;
 use crate::limits::{MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
-use crate::{hex, host};
 
 /// The manifest's file name; `[files]` indexes every other file in the artifact.
 pub const MANIFEST_FILE: &str = "experience.toml";
@@ -28,7 +29,7 @@ pub struct Manifest {
     /// Matches `^[a-z][a-z0-9_]{0,31}$` and owns the block namespace `<id>:`.
     pub id: String,
     pub version: String,
-    /// The server WIT's `major.minor`.
+    /// The server WIT's `major.minor`, one of those the runtime implements.
     pub api: String,
     pub data_schema: u32,
     /// `/`-separated relative path → lowercase hex SHA-256.
@@ -63,12 +64,13 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest> {
         is_version(&manifest.version),
         "invalid version: a version has 1 to {MAX_VERSION_BYTES} bytes and no control characters"
     );
-    let api = host::api_version();
-    ensure!(
-        manifest.api == api,
-        "unsupported api \"{}\"; this runtime implements \"{api}\"",
-        manifest.api
-    );
+    if Api::of(&manifest.api).is_none() {
+        let supported: Vec<&str> = Api::ALL.into_iter().map(Api::api).collect();
+        bail!(
+            "unsupported api \"{}\"; this runtime implements {supported:?}",
+            manifest.api
+        );
+    }
     ensure!(
         manifest.data_schema == DATA_SCHEMA,
         "unsupported data-schema {}; this runtime implements {DATA_SCHEMA}",

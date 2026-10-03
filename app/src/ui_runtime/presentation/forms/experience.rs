@@ -113,6 +113,29 @@ impl UiPresentationRuntime {
         }
     }
 
+    /// Lights the popup button under the pointer, as vanilla's light buttons do on hover.
+    pub(crate) fn hover_experience(&mut self, point: Option<[f32; 2]>) {
+        let Some(chrome) = self.form_presentation.experience.as_mut() else {
+            return;
+        };
+        let Some(frame) = chrome.frame.as_ref().filter(|_| chrome.prompt) else {
+            return;
+        };
+        let hovered = point.and_then(|point| {
+            let point = [
+                f64::from((point[0] - frame.origin[0]) / frame.scale),
+                f64::from((point[1] - frame.origin[1]) / frame.scale),
+            ];
+            frame
+                .hits
+                .iter()
+                .rev()
+                .find(|region| region.enabled && region.pressed.is_some() && region.contains(point))
+                .map(|region| region.key.clone())
+        });
+        chrome.view.hovered = hovered;
+    }
+
     /// Missing trusted chrome revokes remote code instead of running it invisibly.
     pub(crate) fn experience_chrome_failed(&self) -> bool {
         self.form_presentation
@@ -141,6 +164,7 @@ impl UiPresentationRuntime {
             "experience.once" if self.experience_approval_ready() => Some(Choice::Once),
             "experience.always" if self.experience_approval_ready() => Some(Choice::Always),
             "experience.never" => Some(Choice::Never),
+            "experience.cancel" => Some(Choice::Cancel),
             _ => None,
         }
     }
@@ -164,6 +188,17 @@ impl UiPresentationRuntime {
         let mut data = DataSource::new();
         data.set_collection("disclosures", disclosure_rows(&chrome.text));
         data.set_global("#experience_reviewed", Scalar::Bool(chrome.reviewed));
+        data.set_global(
+            "#experience_hint",
+            Scalar::Text(
+                if chrome.reviewed {
+                    "F9 stops this server's code at any time."
+                } else {
+                    "Scroll to the end to enable Allow."
+                }
+                .to_owned(),
+            ),
+        );
         data.set_global("#experience_text", Scalar::Text(chrome.text.clone()));
         data.set_global("#experience_widgets", Scalar::Text(chrome.labels.clone()));
         let inputs = EngineInputs {
@@ -259,6 +294,8 @@ mod tests {
 
     #[test]
     fn small_viewports_scroll_maximum_disclosures_before_enabling_approval() {
+        let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let packages = (0..server_experience::policy::MAX_BUNDLES)
             .map(|i| {
                 format!(
@@ -294,7 +331,13 @@ mod tests {
                 .set_experience_chrome(Some(&text), true)
                 .unwrap();
             presentation
-                .build(&runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    size,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             assert!(presentation.experience_prompt_visible());
             assert!(!presentation.experience_approval_ready());
@@ -320,7 +363,13 @@ mod tests {
             for _ in 0..500 {
                 presentation.scroll_experience(1.0);
                 presentation
-                    .build(&runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+                    .build(
+                        &player_runtime,
+                        &runtime,
+                        0,
+                        size,
+                        ui::DpiScale::new(1.0).unwrap(),
+                    )
                     .unwrap();
                 if presentation.experience_approval_ready() {
                     break;
@@ -341,7 +390,13 @@ mod tests {
                 "last disclosure was not painted: {texts:?}"
             );
             presentation
-                .build(&runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    size,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             let frame = presentation
                 .form_presentation
@@ -362,6 +417,62 @@ mod tests {
                 frame.origin[1] + (once.rect.y + once.rect.h / 2.0) as f32 * frame.scale,
             ];
             assert_eq!(presentation.experience_choice(point), Some(Choice::Once));
+        }
+    }
+
+    #[test]
+    fn popup_buttons_answer_with_their_choices() {
+        let mut presentation = mini_engine_presentation();
+        let runtime = UiRuntime::new(1);
+        let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+        presentation
+            .set_experience_chrome(Some("Server: 127.0.0.1:19132"), true)
+            .unwrap();
+        let size = [1280, 720];
+        let build = |presentation: &mut UiPresentationRuntime| {
+            presentation
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    size,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+        };
+        // A disclosure that fits is reviewed by its first frame; the next one arms approval.
+        build(&mut presentation);
+        build(&mut presentation);
+        assert!(presentation.experience_approval_ready());
+        let frame = presentation
+            .form_presentation
+            .experience
+            .as_ref()
+            .unwrap()
+            .frame
+            .clone()
+            .unwrap();
+        for (action, choice) in [
+            ("experience.once", Choice::Once),
+            ("experience.always", Choice::Always),
+            ("experience.never", Choice::Never),
+            ("experience.cancel", Choice::Cancel),
+        ] {
+            let hit = frame
+                .hits
+                .iter()
+                .find(|hit| hit.pressed.as_deref() == Some(action))
+                .unwrap_or_else(|| panic!("{action} has no button"));
+            assert!(hit.enabled, "{action}");
+            let point = [
+                frame.origin[0] + (hit.rect.x + hit.rect.w / 2.0) as f32 * frame.scale,
+                frame.origin[1] + (hit.rect.y + hit.rect.h / 2.0) as f32 * frame.scale,
+            ];
+            assert_eq!(
+                presentation.experience_choice(point),
+                Some(choice),
+                "{action}"
+            );
         }
     }
 }

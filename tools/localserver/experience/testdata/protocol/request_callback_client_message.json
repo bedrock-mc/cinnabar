@@ -1,0 +1,39 @@
+{
+  "type": "callback",
+  "seq": 5,
+  "info": {
+    "world_id": "world",
+    "dimension_id": "overworld",
+    "tick": 48213,
+    "event_sequence": 905
+  },
+  "actor": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+  "world_min_y": -64,
+  "world_max_y": 319,
+  "data_budget": 4096,
+  "snapshot": [],
+  "call": {
+    "type": "client_message",
+    "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+    "channel": "benergistics.ack",
+    "schema": 1,
+    "payload": [
+      {
+        "type": "bool",
+        "value": true
+      },
+      {
+        "type": "integer",
+        "value": -9007199254740993
+      },
+      {
+        "type": "text",
+        "value": "ME Controller \"linked\""
+      },
+      {
+        "type": "choice",
+        "value": 2
+      }
+    ]
+  }
+}

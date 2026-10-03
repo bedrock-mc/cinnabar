@@ -14,24 +14,32 @@ const PHYSICAL: [u32; 2] = [1920, 1080];
 
 fn frame(app: &mut App) -> UiRect {
     let view = app.world().resource::<MenuRuntime>().view();
-    let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
-    presentation.set_menu_view(Some(view));
-    // The pinned video section places this slider below its other controls.
-    // Scroll its native pane into view before interacting with real hit regions.
-    let pane = UiPoint::new(PHYSICAL[0] as f32 * 0.75, PHYSICAL[1] as f32 * 0.6).unwrap();
-    for _ in 0..32 {
-        presentation
-            .build(&UiRuntime::new(1), 0, PHYSICAL, DpiScale::new(1.0).unwrap())
-            .unwrap();
-        if let Some(track) = presentation.gui_scale_slider_track() {
-            return track;
-        }
-        assert!(
-            presentation.scroll_menu(pane, -20.0, false),
-            "the native video pane takes scrolling"
-        );
-    }
-    panic!("the native video slider enters the viewport after scrolling");
+    app.world_mut()
+        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+            presentation.set_menu_view(Some(view));
+            // The pinned video section places this slider below its other controls.
+            // Scroll its native pane into view before interacting with real hit regions.
+            let pane = UiPoint::new(PHYSICAL[0] as f32 * 0.75, PHYSICAL[1] as f32 * 0.6).unwrap();
+            for _ in 0..32 {
+                presentation
+                    .build(
+                        world.resource::<crate::player_runtime::PlayerRuntime>(),
+                        &UiRuntime::new(1),
+                        0,
+                        PHYSICAL,
+                        DpiScale::new(1.0).unwrap(),
+                    )
+                    .unwrap();
+                if let Some(track) = presentation.gui_scale_slider_track() {
+                    return track;
+                }
+                assert!(
+                    presentation.scroll_menu(pane, -20.0, false),
+                    "the native video pane takes scrolling"
+                );
+            }
+            panic!("the native video slider enters the viewport after scrolling");
+        })
 }
 
 fn pointer(app: &mut App, window: Entity, position: Vec2, event: Option<ButtonState>) {
@@ -57,26 +65,40 @@ fn pointer(app: &mut App, window: Entity, position: Vec2, event: Option<ButtonSt
 
 fn relayout(app: &mut App) {
     let view = app.world().resource::<MenuRuntime>().view();
-    let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
-    presentation.set_menu_view(Some(view));
-    let first = presentation
-        .build(&UiRuntime::new(1), 0, PHYSICAL, DpiScale::new(1.0).unwrap())
-        .unwrap();
-    let left = UiPoint::new(0.0, 0.0).unwrap();
-    let action = presentation.gui_scale_drag_action(left);
-    let repeated = presentation
-        .build(&UiRuntime::new(1), 0, PHYSICAL, DpiScale::new(1.0).unwrap())
-        .unwrap();
-    assert_eq!(
-        first.revision, repeated.revision,
-        "the steady menu reuses its output"
-    );
-    assert_eq!(action, Some(MenuAction::SettingsScale(-2)));
-    assert_eq!(
-        presentation.gui_scale_drag_action(left),
-        action,
-        "cached menu output keeps the current unclipped drag geometry"
-    );
+    app.world_mut()
+        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+            presentation.set_menu_view(Some(view));
+            let first = presentation
+                .build(
+                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    &UiRuntime::new(1),
+                    0,
+                    PHYSICAL,
+                    DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+            let left = UiPoint::new(0.0, 0.0).unwrap();
+            let action = presentation.gui_scale_drag_action(left);
+            let repeated = presentation
+                .build(
+                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    &UiRuntime::new(1),
+                    0,
+                    PHYSICAL,
+                    DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+            assert_eq!(
+                first.revision, repeated.revision,
+                "the steady menu reuses its output"
+            );
+            assert_eq!(action, Some(MenuAction::SettingsScale(-2)));
+            assert_eq!(
+                presentation.gui_scale_drag_action(left),
+                action,
+                "cached menu output keeps the current unclipped drag geometry"
+            );
+        })
 }
 
 #[test]
@@ -99,6 +121,7 @@ fn gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
         .insert_resource(menu)
         .insert_resource(presentation)
         .add_systems(Update, (drive_menu_input, apply_gui_scale_setting).chain());

@@ -344,7 +344,18 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     data.set_global("#gamertag_label", text(gamertag));
     let portrait = !profile.picture_path.is_empty() || !view.feeds.home.persona_head.is_empty();
     data.set_global("#show_gamerpic", Scalar::Bool(portrait));
-    flags(data, &["#show_paper_doll", "#persona_and_skins_enabled"]);
+    flags(
+        data,
+        &[
+            "#show_paper_doll",
+            "#persona_and_skins_enabled",
+            "#profile_button_a_visible",
+        ],
+    );
+    data.set_global(
+        "#is_paper_doll_visible",
+        Scalar::Bool(view.profile_icon.is_some()),
+    );
     super::start_feed::bind(view, data);
     data.set_global("#version", text(version_label(protocol::GAME_VERSION)));
     data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));

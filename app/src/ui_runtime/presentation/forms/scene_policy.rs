@@ -10,13 +10,23 @@ use crate::{
 
 impl UiPresentationRuntime {
     /// Input-absorbing screens stop gameplay independently of their background policy.
-    pub(crate) fn absorbs_gameplay_input(&self, runtime: &UiRuntime, menu: &MenuRuntime) -> bool {
-        runtime.ui_focused()
+    pub(crate) fn absorbs_gameplay_input(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        runtime: &UiRuntime,
+        menu: &MenuRuntime,
+    ) -> bool {
+        runtime.ui_focused(player_runtime)
             || (menu.is_visible() && self.menu_settings(runtime, &menu.view()).absorbs_input)
     }
 
     /// Every visible scene above the world must permit drawing the game behind it.
-    pub(crate) fn renders_game_behind(&self, runtime: &UiRuntime, menu: &MenuRuntime) -> bool {
+    pub(crate) fn renders_game_behind(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        runtime: &UiRuntime,
+        menu: &MenuRuntime,
+    ) -> bool {
         let engine = self.form_presentation.engine.as_deref();
         let settings = |reference: &str| {
             engine.map_or_else(ScreenSettings::default, |engine| {
@@ -33,7 +43,7 @@ impl UiPresentationRuntime {
             return false;
         }
         if runtime.inventory_open()
-            && let Some(layout) = super::containers::ScreenLayout::of(runtime, None)
+            && let Some(layout) = super::containers::ScreenLayout::of(player_runtime, runtime, None)
             && !settings(layout.screen().0).render_game_behind
         {
             return false;
@@ -80,6 +90,8 @@ mod tests {
 
     #[test]
     fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let Some(mut presentation) = pack_harness::engine_presentation() else {
             eprintln!(
                 "skipping java_chat_keeps_the_world_and_hud_but_absorbs_gameplay: fixture unavailable; requires installed local carriers (make assets)"
@@ -87,15 +99,15 @@ mod tests {
             return;
         };
         let mut runtime = UiRuntime::new(1);
-        runtime.open_chat();
+        runtime.open_chat(&mut player_runtime);
         let menu = MenuRuntime::new(false, 2, "Tester".into());
         let engine = presentation.form_presentation.engine.as_deref().unwrap();
         let chat = engine.scene_settings(super::super::chat_screen::CHAT_SCREEN, engine.context());
         let hud = engine.scene_settings(json_ui::HUD_SCREEN, engine.context());
         assert!(chat.absorbs_input && chat.render_game_behind);
         assert!(!hud.absorbs_input && hud.renders(false));
-        assert!(presentation.renders_game_behind(&runtime, &menu));
-        assert!(presentation.absorbs_gameplay_input(&runtime, &menu));
+        assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+        assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
         presentation.set_server_ui_pack(&ServerUiPack {
             ui_layers: vec![vec![(
                 "ui/hud_screen.json".into(),
@@ -113,6 +125,8 @@ mod tests {
 
     #[test]
     fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root() {
+        let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let Some(mut presentation) = pack_harness::engine_presentation() else {
             return;
         };
@@ -121,11 +135,11 @@ mod tests {
         menu.open_pause();
         let pause = presentation.menu_settings(&runtime, &menu.view());
         assert!(pause.absorbs_input && pause.render_game_behind && pause.render_only_when_topmost);
-        assert!(presentation.renders_game_behind(&runtime, &menu));
+        assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
         menu.activate(MenuAction::PauseSettings);
         let settings = presentation.menu_settings(&runtime, &menu.view());
         assert!(settings.absorbs_input && settings.render_game_behind);
-        assert!(!presentation.renders_game_behind(&runtime, &menu));
+        assert!(!presentation.renders_game_behind(&player_runtime, &runtime, &menu));
         menu.set_visible(false);
         menu.open_pause();
         presentation.set_server_ui_pack(&ServerUiPack {
@@ -135,7 +149,7 @@ mod tests {
             )]],
             ..Default::default()
         });
-        assert!(!presentation.renders_game_behind(&runtime, &menu));
-        assert!(presentation.absorbs_gameplay_input(&runtime, &menu));
+        assert!(!presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+        assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
     }
 }

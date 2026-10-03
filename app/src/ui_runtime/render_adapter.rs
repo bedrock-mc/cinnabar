@@ -132,18 +132,30 @@ fn physical_scissor(
     scale: f32,
     viewport: [u32; 2],
 ) -> Result<UiScissor, UiRenderAdapterError> {
-    let left = scaled_floor(clip.min().x(), scale)?;
-    let top = scaled_floor(clip.min().y(), scale)?;
-    let right = scaled_ceil(clip.max().x(), scale)?.min(viewport[0]);
-    let bottom = scaled_ceil(clip.max().y(), scale)?.min(viewport[1]);
-    let left = left.min(viewport[0]);
-    let top = top.min(viewport[1]);
+    let left = clip_edge(clip.min().x(), scale, viewport[0], f32::floor)?;
+    let top = clip_edge(clip.min().y(), scale, viewport[1], f32::floor)?;
+    let right = clip_edge(clip.max().x(), scale, viewport[0], f32::ceil)?;
+    let bottom = clip_edge(clip.max().y(), scale, viewport[1], f32::ceil)?;
     Ok(UiScissor::new(
         left,
         top,
         right.saturating_sub(left),
         bottom.saturating_sub(top),
     ))
+}
+
+/// Intersects a finite logical clip edge with its physical viewport before conversion.
+fn clip_edge(
+    value: f32,
+    scale: f32,
+    limit: u32,
+    round: fn(f32) -> f32,
+) -> Result<u32, UiRenderAdapterError> {
+    let scaled = value * scale;
+    if !scaled.is_finite() {
+        return Err(UiRenderAdapterError::CoordinateOverflow);
+    }
+    Ok(round(scaled).clamp(0.0, limit as f32) as u32)
 }
 
 fn physical_safe_area(safe_area: SafeArea, scale: f32) -> Result<[u32; 4], UiRenderAdapterError> {
@@ -153,10 +165,6 @@ fn physical_safe_area(safe_area: SafeArea, scale: f32) -> Result<[u32; 4], UiRen
         scaled_ceil(safe_area.right(), scale)?,
         scaled_ceil(safe_area.bottom(), scale)?,
     ])
-}
-
-fn scaled_floor(value: f32, scale: f32) -> Result<u32, UiRenderAdapterError> {
-    scaled_u32(value, scale, f32::floor)
 }
 
 fn scaled_ceil(value: f32, scale: f32) -> Result<u32, UiRenderAdapterError> {
@@ -383,5 +391,13 @@ mod tests {
             UiPoint::new(right, bottom).unwrap(),
         )
         .unwrap()
+    }
+    #[test]
+    fn review_negative_clip_coordinates_intersect_the_physical_viewport() {
+        let clip = rect(-10.0, -20.0, 20.0, 30.0);
+        assert_eq!(
+            physical_scissor(clip, 2.0, [100, 100]).unwrap(),
+            UiScissor::new(0, 0, 40, 60)
+        );
     }
 }

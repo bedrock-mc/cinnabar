@@ -24,6 +24,8 @@ fn home_feed_preserves_promo_and_fallback_label() {
 
 #[test]
 fn snapshot_core_home_promo() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
     else {
@@ -63,7 +65,9 @@ fn snapshot_core_home_promo() {
     let runtime = crate::ui_runtime::UiRuntime::new(1);
     let dpi = ui::DpiScale::new(2.0).unwrap();
     presentation.set_menu_view(Some(view.clone()));
-    let before = presentation.build(&runtime, 0, [2560, 1440], dpi).unwrap();
+    let before = presentation
+        .build(&player_runtime, &runtime, 0, [2560, 1440], dpi)
+        .unwrap();
     let before_frame = crate::ui_runtime::presentation::forms::snapshot::rasterize(&before);
     assert!(
         !before_frame
@@ -74,10 +78,14 @@ fn snapshot_core_home_promo() {
     view.feeds.home = menu_home(&home, 0);
     for _ in 0..3 {
         presentation.set_menu_view(Some(view.clone()));
-        presentation.build(&runtime, 0, [2560, 1440], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, 0, [2560, 1440], dpi)
+            .unwrap();
     }
     presentation.set_menu_view(Some(view));
-    let input = presentation.build(&runtime, 0, [2560, 1440], dpi).unwrap();
+    let input = presentation
+        .build(&player_runtime, &runtime, 0, [2560, 1440], dpi)
+        .unwrap();
     let frame = crate::ui_runtime::presentation::forms::snapshot::rasterize(&input);
     assert!(
         frame
@@ -89,4 +97,26 @@ fn snapshot_core_home_promo() {
     );
     crate::ui_runtime::presentation::forms::snapshot::write(&input, "home-promo");
     std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn home_feed_keeps_inbox_identity_dates_counts_and_marketplace_ribbon() {
+    let home: Home = serde_json::from_value(serde_json::json!({
+        "inbox": {"unread":30,"categories":[{"type":"News","unread":30}]},
+        "messages": [
+            {"surface":"InboxMessage","instance_id":"instance","report_id":"report","received":"2026-10-03T10:00:00Z","sender":"Minecraft","category":"News","status":"Unread"},
+            {"surface":"MarketplaceButton","banner":"Add-ons!","colors":{"BannerTextColor":[255,200,40]},"images":[{"id":"defaultBackground","path":"/offline/art.png"},{"id":"banner","path":"/offline/ribbon.png"}]}
+        ]
+    })).unwrap();
+    let mapped = menu_home(&home, 0);
+    assert_eq!(mapped.inbox_counts.get(&0), Some(&30));
+    assert_eq!(mapped.inbox[0].instance_id, "instance");
+    assert_eq!(mapped.inbox[0].report_id, "report");
+    assert_eq!(mapped.inbox[0].received, "2026-10-03T10:00:00Z");
+    assert_eq!(mapped.inbox[0].source, "Minecraft");
+    let art = mapped.store_art.unwrap();
+    assert_eq!(art.banner, "Add-ons!");
+    assert_eq!(art.banner_texture, "/offline/ribbon.png");
+    assert_eq!(art.default_background, "/offline/art.png");
+    assert_eq!(art.colors.get("BannerTextColor"), Some(&[255, 200, 40]));
 }

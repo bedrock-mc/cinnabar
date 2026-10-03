@@ -47,6 +47,7 @@ const OVERRIDE_DIR_ENV: &str = "CINNABAR_PANORAMA_DIR";
 /// Uploads the faces on first sight of the carrier and shows the panorama
 /// behind launcher screens (never behind the in-game pause or death screens).
 pub(crate) fn drive_menu_panorama(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     presentation: Res<UiPresentationRuntime>,
     runtime: Option<Res<UiRuntime>>,
     menu: Option<Res<MenuRuntime>>,
@@ -58,6 +59,7 @@ pub(crate) fn drive_menu_panorama(
         return;
     };
     scene.set_game_visible(crate::screen_policy::renders_game(
+        &player_runtime,
         runtime.as_deref(),
         menu.as_deref(),
         Some(&presentation),

@@ -427,7 +427,7 @@ impl HudStore {
         }
         // Toasts show one after another, so expiry is monotone from the front.
         while let Some(front) = self.toasts.front() {
-            if front.visible_at(now_millis) {
+            if now_millis < front.expires_millis {
                 break;
             }
             let removed = self.toasts.pop_front().expect("front checked above");
@@ -489,14 +489,22 @@ impl HudStore {
     }
 }
 
+/// Formats a scaled stat with up to five decimal places, trimming trailing zeroes.
 fn format_stat_value(value: u16, scale: u16) -> String {
     let whole = value / scale;
-    let remainder = value % scale;
+    let mut remainder = u32::from(value % scale);
     if remainder == 0 {
         return whole.to_string();
     }
-    let width = scale.ilog10() as usize;
-    let mut fraction = format!("{remainder:0width$}");
+    let mut fraction = String::new();
+    for _ in 0..5 {
+        remainder *= 10;
+        fraction.push(char::from(b'0' + (remainder / u32::from(scale)) as u8));
+        remainder %= u32::from(scale);
+        if remainder == 0 {
+            break;
+        }
+    }
     while fraction.ends_with('0') {
         fraction.pop();
     }

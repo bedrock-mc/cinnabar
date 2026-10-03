@@ -20,3 +20,5 @@ docs/evidence/block-entity-render-evidence-v*.json text eol=lf
 tools/blockentitygen/testdata/*.json text eol=lf
 tools/registrygen/cmd/itemcapacity/probe/main.js text eol=lf
 tools/registrygen/cmd/itemcapacity/probe/manifest.json text eol=lf
+tools/localserver/extension/testdata/* -text
+tools/localserver/extension/testdata/go/* -text

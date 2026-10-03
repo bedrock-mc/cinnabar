@@ -81,3 +81,44 @@ fn confirmed_screenshot_delete_only_removes_saved_pngs() {
     assert!(pack.exists());
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn deleting_without_selection_preserves_every_cached_pack() {
+    let root = fixture();
+    let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+    menu.layout.user_data_root = root.clone();
+    let cache = menu.layout.resource_pack_cache_dir();
+    fs::create_dir_all(&cache).unwrap();
+    for name in ["a", "b"] {
+        fs::write(cache.join(name), name).unwrap();
+    }
+    menu.refresh_storage();
+    menu.activate_storage(StorageAction::Select(0));
+    menu.activate_storage(StorageAction::Select(0));
+    menu.activate_storage(StorageAction::RequestDelete);
+    assert_ne!(menu.dialog, Some(MenuDialog::StorageDelete));
+    menu.activate_storage(StorageAction::ConfirmDelete);
+    assert_eq!(entries(&cache).unwrap().len(), 2);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn individual_delete_keeps_the_requested_target_after_selection_changes() {
+    let root = fixture();
+    let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+    menu.layout.user_data_root = root.clone();
+    let cache = menu.layout.resource_pack_cache_dir();
+    fs::create_dir_all(&cache).unwrap();
+    for name in ["a", "b"] {
+        fs::write(cache.join(name), name).unwrap();
+    }
+    menu.refresh_storage();
+    let requested = menu.storage.cached[0].path.clone();
+    menu.activate_storage(StorageAction::Select(0));
+    menu.activate_storage(StorageAction::RequestDelete);
+    menu.activate_storage(StorageAction::Select(0));
+    menu.activate_storage(StorageAction::ConfirmDelete);
+    assert!(!requested.exists());
+    assert_eq!(entries(&cache).unwrap().len(), 1);
+    fs::remove_dir_all(root).unwrap();
+}

@@ -393,6 +393,12 @@ fn place_subtree<'a>(
     } else {
         let indexed_clip = (ctx.cull
             && grid::is_grid(control)
+            && allows
+            && !style.unclipped_descendant
+            && control.children.iter().all(|child| {
+                let style = measure::style(child);
+                child.children.is_empty() || style.clips
+            })
             && dropdown.is_none()
             && ctx.sliders.is_empty()
             && ctx
@@ -487,6 +493,10 @@ fn place_subtree<'a>(
                 .scrolls
                 .last()
                 .is_some_and(|frame| frame.metrics.is_some())
+            && allows
+            && measure::style(child).allows != Some(false)
+            && !measure::style(child).unclipped_descendant
+            && (child.children.is_empty() || measure::style(child).clips)
             && disjoint(child_rect, clip_for_child)
         {
             continue;

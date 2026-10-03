@@ -312,7 +312,12 @@ impl SemanticTouchTargets {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Player authority is borrowed separately from UI state."
+)]
 pub(crate) fn synchronize_semantic_input_authority(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut runtime: ResMut<SemanticInputRuntime>,
     ui: Option<Res<UiRuntime>>,
     menu: Option<Res<MenuRuntime>>,
@@ -329,13 +334,16 @@ pub(crate) fn synchronize_semantic_input_authority(
         .as_deref()
         .and_then(|world| world.stream.as_ref())
         .map_or(0, client_world::WorldStream::current_dimension);
-    let context =
-        if crate::screen_policy::absorbs_input(Some(&ui), menu.as_deref(), presentation.as_deref())
-        {
-            InputContext::UiFocused
-        } else {
-            InputContext::Gameplay
-        };
+    let context = if crate::screen_policy::absorbs_input(
+        &player_runtime,
+        Some(&ui),
+        menu.as_deref(),
+        presentation.as_deref(),
+    ) {
+        InputContext::UiFocused
+    } else {
+        InputContext::Gameplay
+    };
     let Some(session_generation) = NonZeroU64::new(ui.session_id()) else {
         return;
     };

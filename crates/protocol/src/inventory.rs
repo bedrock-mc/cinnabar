@@ -48,9 +48,6 @@ pub use client_packets::{
     crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub(crate) use raw_scan::validate_raw_inventory_packet;
-pub use request::manual_craft::{
-    ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
-};
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};
 pub(crate) use transaction::normalize_transaction;
 pub use windows::{
@@ -67,7 +64,6 @@ mod registry_snapshot;
 pub use recipes::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
-pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{
     ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,

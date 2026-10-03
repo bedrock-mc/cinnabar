@@ -65,7 +65,26 @@ impl UiRuntime {
         self.wake_requested |= self.local_sleeping;
     }
 
-    pub(crate) fn take_wake_request(&mut self) -> bool {
+    /// Sends a wake action when the local actor is known and the transport accepts it.
+    pub(crate) fn flush_wake_request<E>(
+        &mut self,
+        runtime_id: Option<u64>,
+        send: impl FnOnce(protocol::Packet) -> Result<(), E>,
+    ) -> bool {
+        if self.wake_requested
+            && let Some(runtime_id) = runtime_id
+            && send(protocol::stop_sleeping_packet(runtime_id)).is_ok()
+        {
+            self.wake_requested = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Consumes the retained request in focused state tests.
+    #[cfg(test)]
+    fn take_wake_request(&mut self) -> bool {
         std::mem::take(&mut self.wake_requested)
     }
 }
@@ -76,13 +95,15 @@ mod tests {
 
     #[test]
     fn sleeping_takes_ui_focus_and_wake_request_is_taken_once() {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let mut runtime = UiRuntime::new(1);
         runtime.request_wake();
         assert!(!runtime.take_wake_request());
 
         runtime.set_local_sleeping(true);
-        assert!(runtime.ui_focused() && !runtime.chat_focused());
-        runtime.open_chat();
+        assert!(runtime.ui_focused(&player_runtime) && !runtime.chat_focused());
+        runtime.open_chat(&mut player_runtime);
         runtime.request_wake();
         assert!(runtime.take_wake_request());
         assert!(!runtime.take_wake_request());
@@ -130,5 +151,21 @@ mod tests {
             runtime.sleep_status().is_some(),
             "a bad packet keeps the last status"
         );
+    }
+    #[test]
+    fn wake_survives_transport_pressure_and_missing_actor_identity() {
+        for missing_actor in [false, true] {
+            let mut runtime = UiRuntime::new(1);
+            runtime.set_local_sleeping(true);
+            runtime.request_wake();
+            assert!(!runtime.flush_wake_request((!missing_actor).then_some(7), |_| Err(())));
+            let mut sent = 0;
+            assert!(runtime.flush_wake_request(Some(7), |_| {
+                sent += 1;
+                Ok::<(), ()>(())
+            }));
+            assert_eq!(sent, 1);
+            assert!(!runtime.flush_wake_request(Some(7), |_| Ok::<(), ()>(())));
+        }
     }
 }

@@ -17,7 +17,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 1
+const protocolVersion = 2
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -86,12 +86,22 @@ type Change struct {
 	PreviousData *string  `json:"previous_data"`
 }
 
+// Scalar is one field of a client-channel record, in the form the client part's wire protocol
+// gives it. Exactly one field is set.
+type Scalar struct {
+	Bool    *bool
+	Integer *int64
+	Text    *string
+	Choice  *uint16
+}
+
 // Call is the guest callback that a CallbackRequest runs. Exactly one field is set.
 type Call struct {
-	Place    *PlaceCall
-	Break    *BreakCall
-	Interact *InteractCall
-	Neighbor *NeighborCall
+	Place         *PlaceCall
+	Break         *BreakCall
+	Interact      *InteractCall
+	Neighbor      *NeighborCall
+	ClientMessage *ClientMessageCall
 }
 
 // PlaceCall follows a successful player placement.
@@ -115,6 +125,15 @@ type InteractCall struct {
 type NeighborCall struct {
 	Pos      BlockPos `json:"pos"`
 	Neighbor BlockPos `json:"neighbor"`
+}
+
+// ClientMessageCall is a typed message that Player's client part sent on Channel, revision
+// Schema. Its callback's actor is Player, and its snapshot is empty.
+type ClientMessageCall struct {
+	Player  string   `json:"player"`
+	Channel string   `json:"channel"`
+	Schema  uint16   `json:"schema"`
+	Payload []Scalar `json:"payload"`
 }
 
 // Request is a message from the adapter to the runtime. Exactly one field is set.
@@ -188,11 +207,12 @@ var failKinds = []FailKind{FailTrap, FailFuel, FailDeadline, FailLimit}
 func (k FailKind) MarshalJSON() ([]byte, error)     { return marshalEnum(k, failKinds) }
 func (k *FailKind) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, k, failKinds) }
 
-// Op is a staged world operation. Exactly one field is set.
+// Op is a staged operation. Exactly one field is set.
 type Op struct {
 	SetBlock     *SetBlockOp
 	SetBlockData *SetBlockDataOp
 	Tell         *TellOp
+	SendClient   *SendClientOp
 }
 
 // SetBlockOp sets the block at Pos to ID.
@@ -211,6 +231,15 @@ type SetBlockDataOp struct {
 type TellOp struct {
 	Player string `json:"player"`
 	Text   string `json:"text"`
+}
+
+// SendClientOp sends Payload on Channel, revision Schema, to Player's client part once the rest
+// of its result has committed.
+type SendClientOp struct {
+	Player  string   `json:"player"`
+	Channel string   `json:"channel"`
+	Schema  uint16   `json:"schema"`
+	Payload []Scalar `json:"payload"`
 }
 
 // Outcome is the outcome of a callback. Exactly one field is set.
@@ -343,24 +372,30 @@ func unmarshalEnum[T ~string](data []byte, v *T, values []T) error {
 
 // The "type" that names each union variant on the wire, as protocol.rs names it.
 const (
-	typeLoad         = "load"
-	typeCallback     = "callback"
-	typeShutdown     = "shutdown"
-	typePlace        = "place"
-	typeBreak        = "break"
-	typeInteract     = "interact"
-	typeNeighbor     = "neighbor"
-	typeUnbreakable  = "unbreakable"
-	typeBreakable    = "breakable"
-	typeSetBlock     = "set_block"
-	typeSetBlockData = "set_block_data"
-	typeTell         = "tell"
-	typeCommitted    = "committed"
-	typeRejected     = "rejected"
-	typeFailed       = "failed"
-	typeLoaded       = "loaded"
-	typeLoadFailed   = "load_failed"
-	typeResult       = "result"
+	typeLoad          = "load"
+	typeCallback      = "callback"
+	typeShutdown      = "shutdown"
+	typePlace         = "place"
+	typeBreak         = "break"
+	typeInteract      = "interact"
+	typeNeighbor      = "neighbor"
+	typeClientMessage = "client_message"
+	typeUnbreakable   = "unbreakable"
+	typeBreakable     = "breakable"
+	typeSetBlock      = "set_block"
+	typeSetBlockData  = "set_block_data"
+	typeTell          = "tell"
+	typeSendClient    = "send_client"
+	typeCommitted     = "committed"
+	typeRejected      = "rejected"
+	typeFailed        = "failed"
+	typeLoaded        = "loaded"
+	typeLoadFailed    = "load_failed"
+	typeResult        = "result"
+	typeBool          = "bool"
+	typeInteger       = "integer"
+	typeText          = "text"
+	typeChoice        = "choice"
 )
 
 // variantTag is the "type" member of a union variant on the wire.
@@ -400,6 +435,10 @@ type (
 		variantTag
 		*NeighborCall
 	}
+	clientMessageWire struct {
+		variantTag
+		*ClientMessageCall
+	}
 	unbreakableWire struct {
 		variantTag
 		*Unbreakable
@@ -419,6 +458,10 @@ type (
 	tellWire struct {
 		variantTag
 		*TellOp
+	}
+	sendClientWire struct {
+		variantTag
+		*SendClientOp
 	}
 	committedWire struct {
 		variantTag
@@ -445,6 +488,12 @@ type (
 		*Result
 	}
 )
+
+// scalarWire is a Scalar on the wire: "type" names its field, and "value" holds it.
+type scalarWire[T any] struct {
+	Type  string `json:"type"`
+	Value *T     `json:"value"`
+}
 
 // unionTag returns the "type" of data, a JSON object.
 func unionTag(data []byte) (string, error) {
@@ -476,6 +525,8 @@ func (c Call) MarshalJSON() ([]byte, error) {
 		return json.Marshal(interactWire{variantTag{typeInteract}, c.Interact})
 	case c.Neighbor != nil:
 		return json.Marshal(neighborWire{variantTag{typeNeighbor}, c.Neighbor})
+	case c.ClientMessage != nil:
+		return json.Marshal(clientMessageWire{variantTag{typeClientMessage}, c.ClientMessage})
 	}
 	return nil, errors.New("empty call")
 }
@@ -495,8 +546,69 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &interactWire{InteractCall: fresh(&c.Interact)})
 	case typeNeighbor:
 		return decodeStrict(data, &neighborWire{NeighborCall: fresh(&c.Neighbor)})
+	case typeClientMessage:
+		return decodeStrict(data, &clientMessageWire{ClientMessageCall: fresh(&c.ClientMessage)})
 	}
 	return fmt.Errorf("unknown call type %q", tag)
+}
+
+// MarshalJSON writes the client wire protocol's form, escaping no HTML: the encoder that embeds
+// it escapes HTML only when it is set to.
+func (s Scalar) MarshalJSON() ([]byte, error) {
+	switch {
+	case s.Bool != nil:
+		return marshalUnescaped(scalarWire[bool]{typeBool, s.Bool})
+	case s.Integer != nil:
+		return marshalUnescaped(scalarWire[int64]{typeInteger, s.Integer})
+	case s.Text != nil:
+		return marshalUnescaped(scalarWire[string]{typeText, s.Text})
+	case s.Choice != nil:
+		return marshalUnescaped(scalarWire[uint16]{typeChoice, s.Choice})
+	}
+	return nil, errors.New("empty scalar")
+}
+
+// marshalUnescaped encodes v like json.Marshal, but leaves <, > and & as they are.
+func marshalUnescaped(v any) ([]byte, error) {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
+}
+
+func (s *Scalar) UnmarshalJSON(data []byte) error {
+	tag, err := unionTag(data)
+	if err != nil {
+		return err
+	}
+	*s = Scalar{}
+	switch tag {
+	case typeBool:
+		return scalarValue(data, &s.Bool)
+	case typeInteger:
+		return scalarValue(data, &s.Integer)
+	case typeText:
+		return scalarValue(data, &s.Text)
+	case typeChoice:
+		return scalarValue(data, &s.Choice)
+	}
+	return fmt.Errorf("unknown scalar type %q", tag)
+}
+
+// scalarValue decodes data, a Scalar on the wire whose value must be present and a T, into *p.
+func scalarValue[T any](data []byte, p **T) error {
+	var wire scalarWire[T]
+	if err := decodeStrict(data, &wire); err != nil {
+		return err
+	}
+	if wire.Value == nil {
+		return errors.New(`a scalar without a "value"`)
+	}
+	*p = wire.Value
+	return nil
 }
 
 func (r Request) MarshalJSON() ([]byte, error) {
@@ -561,6 +673,8 @@ func (o Op) MarshalJSON() ([]byte, error) {
 		return json.Marshal(setBlockDataWire{variantTag{typeSetBlockData}, o.SetBlockData})
 	case o.Tell != nil:
 		return json.Marshal(tellWire{variantTag{typeTell}, o.Tell})
+	case o.SendClient != nil:
+		return json.Marshal(sendClientWire{variantTag{typeSendClient}, o.SendClient})
 	}
 	return nil, errors.New("empty op")
 }
@@ -578,6 +692,8 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &setBlockDataWire{SetBlockDataOp: fresh(&o.SetBlockData)})
 	case typeTell:
 		return decodeStrict(data, &tellWire{TellOp: fresh(&o.Tell)})
+	case typeSendClient:
+		return decodeStrict(data, &sendClientWire{SendClientOp: fresh(&o.SendClient)})
 	}
 	return fmt.Errorf("unknown op type %q", tag)
 }

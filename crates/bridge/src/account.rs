@@ -149,6 +149,12 @@ pub struct Home {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Message {
     #[serde(default)]
+    pub colors: std::collections::BTreeMap<String, [u8; 3]>,
+    #[serde(default)]
+    pub received: String,
+    #[serde(default)]
+    pub sender: String,
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub instance_id: String,
@@ -198,8 +204,19 @@ pub struct MessageButton {
     pub action: String,
 }
 
+/// Per-category service totals can include messages outside the loaded page.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct InboxCategory {
+    #[serde(default, rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub unread: u32,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Inbox {
+    #[serde(default)]
+    pub categories: Vec<InboxCategory>,
     #[serde(default)]
     pub total: u32,
     #[serde(default)]

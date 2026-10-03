@@ -1,16 +1,21 @@
 //! The host side of the `server` world: generated bindings, per-store state and the imports.
+//! The current WIT is `crates/experience-sdk/wit/server.wit`; [`v0_1`] keeps the 0.1 world that
+//! older artifacts target.
 
 use std::fmt;
 use std::time::Duration;
 
-use anyhow::{Result, bail};
-use wasmtime::component::{Resource, ResourceTable};
+use anyhow::{Context, Result, bail};
+use wasmtime::component::{Component, HasSelf, Linker, Resource, ResourceTable};
 use wasmtime::{Engine, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder};
 
 use crate::limits::{
     EPOCH_PERIOD, MAX_CORE_INSTANCES, MAX_LOG_BYTES, MAX_LOGS, MAX_MEMORIES, MAX_MEMORY_BYTES,
     MAX_TABLE_ELEMENTS,
 };
+use crate::manifest::SERVER_WASM;
+
+pub(crate) mod v0_1;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit",
@@ -28,19 +33,88 @@ use crate::callback::CallbackRes;
 /// version.
 const WIT: &str = include_str!("../../experience-sdk/wit/server.wit");
 
-/// The WIT package, `cinnabar:experience-server@<major.minor.patch>`.
-pub(crate) fn wit_package() -> &'static str {
-    WIT.lines()
-        .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
-        .expect("server.wit declares its package")
+/// A server WIT version that the runtime implements; an artifact's manifest `api` selects it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Api {
+    /// The 0.1 world: no client messages.
+    V0_1,
+    /// The current world.
+    V0_2,
 }
 
-/// The manifest `api` this runtime implements: the WIT package's `major.minor`.
-pub(crate) fn api_version() -> &'static str {
-    let (_, version) = wit_package()
-        .rsplit_once('@')
-        .expect("server.wit's package is versioned");
-    version.rsplit_once('.').map_or(version, |(api, _)| api)
+impl Api {
+    pub(crate) const ALL: [Api; 2] = [Api::V0_1, Api::V0_2];
+
+    /// The version whose manifest `api` is `api`.
+    pub(crate) fn of(api: &str) -> Option<Api> {
+        Self::ALL.into_iter().find(|version| version.api() == api)
+    }
+
+    /// The WIT package, `cinnabar:experience-server@<major.minor.patch>`.
+    pub(crate) fn package(self) -> &'static str {
+        let wit = match self {
+            Api::V0_1 => v0_1::WIT,
+            Api::V0_2 => WIT,
+        };
+        wit.lines()
+            .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
+            .expect("server.wit declares its package")
+    }
+
+    /// The manifest `api`: the WIT package's `major.minor`.
+    pub(crate) fn api(self) -> &'static str {
+        let (_, version) = self
+            .package()
+            .rsplit_once('@')
+            .expect("server.wit's package is versioned");
+        version.rsplit_once('.').map_or(version, |(api, _)| api)
+    }
+}
+
+/// A guest component pre-linked against exactly the imports of its version's `server` world.
+pub(crate) enum Pre {
+    V0_1(v0_1::ServerPre<HostState>),
+    V0_2(ServerPre<HostState>),
+}
+
+impl Pre {
+    pub(crate) fn link(engine: &Engine, component: &Component, api: Api) -> Result<Self> {
+        let mut linker = Linker::new(engine);
+        Ok(match api {
+            Api::V0_1 => {
+                v0_1::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_1(v0_1::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_2 => {
+                Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_2(ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+        })
+    }
+
+    /// Runs `register` on a fresh instance in `store`.
+    pub(crate) fn register(
+        &self,
+        store: &mut Store<HostState>,
+    ) -> Result<Result<Vec<BlockDef>, GuestError>> {
+        let instantiating = || format!("instantiating {SERVER_WASM}");
+        let result = match self {
+            Self::V0_1(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_2(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+        };
+        result.context("register trapped")
+    }
+
+    /// Whether the world exports `client-message`.
+    pub(crate) fn has_client_message(&self) -> bool {
+        matches!(self, Self::V0_2(_))
+    }
 }
 
 /// A store limit or a per-callback cap was exceeded. A trap with this error fails the callback
@@ -259,6 +333,20 @@ impl world_access::HostCallback for HostState {
         text: String,
     ) -> Result<Result<(), WorldError>> {
         self.table.get_mut(&ctx)?.tell(player, text)
+    }
+
+    fn send_client(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<Scalar>,
+    ) -> Result<Result<(), WorldError>> {
+        let payload = payload.into_iter().map(Into::into).collect();
+        self.table
+            .get_mut(&ctx)?
+            .send_client(player, channel, schema, payload)
     }
 
     /// Only reachable for an owned handle, and the guest is only ever lent a callback.

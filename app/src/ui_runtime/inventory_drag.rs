@@ -99,10 +99,11 @@ impl InventoryPointer {
             self.press_primary(frame, &mut actions);
         }
         // When both edges arrive together the primary operation wins.
-        if frame.secondary_pressed
-            && !frame.primary_pressed
-            && let Some(hit) = frame.hit
-        {
+        if frame.secondary_pressed && !frame.primary_pressed {
+            self.drag = None;
+            let Some(hit) = frame.hit else {
+                return actions;
+            };
             if frame.holding && draggable(hit) {
                 self.drag = Some(Drag {
                     secondary: true,
@@ -116,6 +117,7 @@ impl InventoryPointer {
     }
 
     fn press_primary(&mut self, frame: PointerFrame, actions: &mut Vec<PointerAction>) {
+        self.drag = None;
         let Some(hit) = frame.hit else {
             return;
         };
@@ -123,11 +125,12 @@ impl InventoryPointer {
             cell == hit && frame.now_millis.saturating_sub(at) <= DOUBLE_CLICK_MILLIS
         });
         self.last_primary = Some((hit, frame.now_millis));
-        if double && frame.holding && draggable(hit) {
+        if frame.shift {
+            self.last_primary = None;
+            actions.push(PointerAction::QuickMove(hit));
+        } else if double && frame.holding && draggable(hit) {
             self.last_primary = None;
             actions.push(PointerAction::Gather);
-        } else if frame.shift {
-            actions.push(PointerAction::QuickMove(hit));
         } else if frame.holding && draggable(hit) {
             // Held stacks act on release, so a drag can claim the gesture first.
             self.drag = Some(Drag {
@@ -248,5 +251,56 @@ mod tests {
             ..frame(Some(A), 0)
         };
         assert_eq!(pointer.step(press), vec![PointerAction::QuickMove(A)]);
+    }
+    #[test]
+    fn shift_quick_move_wins_over_a_recent_primary_click() {
+        let mut pointer = InventoryPointer::default();
+        pointer.step(PointerFrame {
+            primary_pressed: true,
+            holding: false,
+            ..frame(Some(A), 0)
+        });
+        assert_eq!(
+            pointer.step(PointerFrame {
+                primary_pressed: true,
+                shift: true,
+                ..frame(Some(A), 10)
+            }),
+            vec![PointerAction::QuickMove(A)]
+        );
+    }
+
+    #[test]
+    fn a_new_completed_gesture_discards_the_previous_drag() {
+        for secondary in [false, true] {
+            let mut pointer = InventoryPointer::default();
+            pointer.step(PointerFrame {
+                primary_pressed: true,
+                ..frame(Some(A), 0)
+            });
+            let actions = pointer.step(PointerFrame {
+                primary_pressed: !secondary,
+                secondary_pressed: secondary,
+                shift: !secondary,
+                holding: false,
+                ..frame(Some(B), 500)
+            });
+            assert_eq!(
+                actions,
+                vec![if secondary {
+                    PointerAction::SecondaryClick(B)
+                } else {
+                    PointerAction::QuickMove(B)
+                }]
+            );
+            assert!(
+                pointer
+                    .step(PointerFrame {
+                        primary_released: true,
+                        ..frame(Some(B), 510)
+                    })
+                    .is_empty()
+            );
+        }
     }
 }

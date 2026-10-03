@@ -34,7 +34,11 @@ pub(crate) struct PickBlockContext<'w, 's> {
 }
 
 /// Sends one block-pick request per middle-click on a block in reach.
-pub(crate) fn produce_pick_block(context: PickBlockContext, ui: ResMut<UiRuntime>) {
+pub(crate) fn produce_pick_block(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    context: PickBlockContext,
+    ui: ResMut<UiRuntime>,
+) {
     if !(crate::menu::settings_options::binding_gamepad(
         Some(&context.menu),
         "key.pickItem",
@@ -45,23 +49,25 @@ pub(crate) fn produce_pick_block(context: PickBlockContext, ui: ResMut<UiRuntime
         &context.keys,
         &context.mouse,
     )) || crate::screen_policy::absorbs_input(
+        &player_runtime,
         Some(&ui),
         Some(&context.menu),
         context.presentation.as_deref(),
     ) || !context.windows.single().is_ok_and(|window| window.focused)
         || ui
-            .player_game_mode()
+            .player_game_mode(&player_runtime)
             .is_some_and(|mode| !mode.shows_hotbar())
     {
         return;
     }
-    let (Some(snapshot), Some(selection)) =
-        (context.input.snapshot(), hand_interaction_selection(&ui))
-    else {
+    let (Some(snapshot), Some(selection)) = (
+        context.input.snapshot(),
+        hand_interaction_selection(&player_runtime, &ui),
+    ) else {
         return;
     };
     let input_mode = protocol_input_mode(snapshot.input_mode);
-    let reach = if ui.player_game_mode() == Some(PlayerGameMode::Creative) {
+    let reach = if ui.player_game_mode(&player_runtime) == Some(PlayerGameMode::Creative) {
         creative_reach(input_mode)
     } else {
         survival_reach(input_mode)

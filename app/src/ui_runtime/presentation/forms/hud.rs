@@ -245,6 +245,7 @@ impl UiPresentationRuntime {
     #[allow(clippy::too_many_arguments)]
     pub(in super::super) fn append_engine_hud(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
@@ -277,7 +278,14 @@ impl UiPresentationRuntime {
                 .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
                 .map(sidebar_model);
             let options = &self.form_presentation.chat.settings.options;
-            let mut model = hud_model(runtime, &frame, sidebar, &mut icons, options);
+            let mut model = hud_model(
+                player_runtime,
+                runtime,
+                &frame,
+                sidebar,
+                &mut icons,
+                options,
+            );
             super::settings_chat::apply_hud(options, &mut model);
             let opacity = options.value("interface_opacity");
             let hud = &mut self.form_presentation.hud;
@@ -299,16 +307,24 @@ impl UiPresentationRuntime {
             .hud
             .clocks
             .extend(self.scene_clock.clone());
-        let paint = hud_layout::capture_hud_paint(runtime, &frame, self.hud_textures.as_ref());
+        let paint = hud_layout::capture_hud_paint(
+            player_runtime,
+            runtime,
+            &frame,
+            self.hud_textures.as_ref(),
+        );
         let context = hud_context(renderer.context());
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
         let screens = &mut self.form_presentation.hud;
+        let preview_view = std::cell::Cell::new(None);
         let art = ScreenArt {
             icons: &icons,
             now: now_millis as f64 / 1_000.0,
             hud: Some(&paint),
+            preview: frame.player_preview,
+            preview_view: Some(&preview_view),
             clocks: Some(&screens.clocks),
             ..ScreenArt::default()
         };
@@ -348,12 +364,16 @@ impl UiPresentationRuntime {
                 env,
             )
         })?;
+        if let Some(view) = preview_view.get() {
+            self.player_preview_view = view;
+        }
         Ok(true)
     }
 }
 
 /// What the player sees, as the HUD templates bind it.
 fn hud_model(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &UiRuntime,
     frame: &HudFrame,
     sidebar: Option<Sidebar>,
@@ -362,10 +382,10 @@ fn hud_model(
 ) -> HudModel {
     let seconds = |millis: u64| millis as f64 / 1_000.0;
     let now = frame.now_millis;
-    let mode = runtime.player_game_mode();
+    let mode = runtime.player_game_mode(player_runtime);
     let mode_allows_hotbar = mode.is_none_or(|mode| mode.shows_hotbar());
-    let selected = runtime.selected_hotbar_slot();
-    let survival = runtime.survival_stats_visible();
+    let selected = runtime.selected_hotbar_slot(player_runtime);
+    let survival = runtime.survival_stats_visible(player_runtime);
     let mut slot = |stack: Option<&protocol::NetworkItemStack>,
                     icon: Option<IconRef>,
                     durability: Option<f32>,
@@ -465,7 +485,9 @@ fn hud_model(
                 .hud()
                 .air()
                 .is_some_and(|air| air.current() < air.maximum()),
-        paper_doll: false,
+        paper_doll: frame.paper_doll_visible
+            && mode_allows_hotbar
+            && settings.value("hide_paperdoll") == 0,
         effects_visible: runtime
             .gameplay_hud()
             .effects()

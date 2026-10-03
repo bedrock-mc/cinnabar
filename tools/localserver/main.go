@@ -2,7 +2,8 @@
 // the core; vanilla terrain runs on BDS instead.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin, and
 // "experience reload <id>" lines when it hosts Experiences; stdin EOF and SIGINT/SIGTERM also stop
-// it. docs/experience-runtime.md describes the Experiences of -experiences.
+// it. docs/experience-runtime.md describes the Experiences of -experiences and the client parts of
+// the -extension flags.
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
 )
 
 // experienceDataDir is the directory under -dir that holds the Experiences' private data.
@@ -46,6 +48,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return err
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	// The offer's marker pack must be written before the resource packs load.
+	var ext *extension.Server
+	if cfg.extensionKey != "" {
+		if ext, err = startClientParts(cfg, logger); err != nil {
+			return err
+		}
+	} else if err := extension.RemoveMarkerPack(cfg.resourcesDir()); err != nil {
+		return err
+	}
 	var exps *experiences
 	if cfg.experiences != "" {
 		if exps, err = startExperiences(cfg, logger); err != nil {
@@ -61,6 +72,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		return fmt.Errorf("configure server: %w", err)
 	}
+	if ext != nil {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = ext.Listener(listen)
+		}
+	}
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
@@ -70,7 +86,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	runCtx, stopRunning := context.WithCancel(context.Background())
 	defer stopRunning()
 	if exps != nil {
-		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), logger)
+		// Without client parts every staged client message is dropped and counted.
+		var channels experience.ClientChannels
+		if ext != nil {
+			channels = ext
+		}
+		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
 		running.Go(func() { host.Run(runCtx) })
 		running.Go(func() { exps.store.RunFlusher(runCtx) })
 		cmds.pause = func(paused bool) {
@@ -84,6 +105,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			}
 			logger.Info("experience reloaded", "experience", id)
 		}
+	}
+	if ext != nil {
+		deliverClientMessages(ext, srv.Player, host, logger)
 	}
 	srv.Listen()
 	accepting := make(chan struct{})

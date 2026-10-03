@@ -196,12 +196,12 @@ impl TextureSource for Textures<'_> {
         // them: the server pack, then the carrier. An image promoted to the art
         // pages keeps its source size and sidecar.
         let size = self
-            .atlas
-            .image_size(key)
-            .or_else(|| {
-                let [u0, v0, u1, v1] = self.image(path)?.uv.map(f64::from);
-                Some([u1 - u0, v1 - v0])
+            .image(path)
+            .map(|image| {
+                let [u0, v0, u1, v1] = image.uv.map(f64::from);
+                [u1 - u0, v1 - v0]
             })
+            .or_else(|| self.atlas.image_size(key))
             .or_else(|| {
                 let placement = self.assets.texture(key)?;
                 Some([f64::from(placement.width), f64::from(placement.height)])
@@ -256,4 +256,41 @@ pub(super) fn texture_key(path: &str) -> &str {
         }
     }
     path
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_texture_metadata_uses_the_drawn_artwork_dimensions() {
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(16, 16, image::Rgba([255; 4]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let assets = super::super::tests::mini_carrier();
+        let set = TextureSet::new(0);
+        let atlas = ServerAtlas::new(&[("textures/ui/test.png".into(), png)], None, 1);
+        let images = HashMap::from([(
+            "textures/ui/test".into(),
+            IconRef {
+                page: 7,
+                uv: [0, 0, 256, 128],
+                glint: false,
+            },
+        )]);
+        let textures = Textures {
+            assets: &assets,
+            set: &set,
+            atlas: &atlas,
+            images: Some(&images),
+        };
+        assert_eq!(
+            textures.sprite("textures/ui/test").unwrap().1[2..],
+            [256.0, 128.0]
+        );
+        assert_eq!(
+            textures.texture("textures/ui/test").unwrap().pixels,
+            [256.0, 128.0]
+        );
+    }
 }

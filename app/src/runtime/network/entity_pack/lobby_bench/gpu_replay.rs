@@ -99,13 +99,20 @@ fn ui_presentation() -> crate::ui_runtime::presentation::UiPresentationRuntime {
 
 /// Publishes the production menu/HUD composite into the offscreen graph.
 fn publish_ui(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     app: &mut App,
     presentation: &mut crate::ui_runtime::presentation::UiPresentationRuntime,
     runtime: &crate::ui_runtime::UiRuntime,
     millis: u64,
 ) {
     let input = presentation
-        .build(runtime, millis, VIEWPORT, ui::DpiScale::new(1.0).unwrap())
+        .build(
+            player_runtime,
+            runtime,
+            millis,
+            VIEWPORT,
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let stats = app.world().resource::<render::UiRenderStats>().clone();
     app.world_mut()
@@ -117,6 +124,8 @@ fn publish_ui(
 #[test]
 #[ignore = "requires the local captured lobby and its resource pack"]
 fn enhanced_lobby_replay_on_native_gpu() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let capture = std::env::var_os("CINNABAR_LOBBY_CAPTURE").expect("offline capture path");
     let pack = std::env::var_os("CINNABAR_RENDER_PACK").expect("offline pack path");
     let capture = read_capture(Path::new(&capture));
@@ -132,7 +141,13 @@ fn enhanced_lobby_replay_on_native_gpu() {
         crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view(),
     ));
     for millis in 0..3 {
-        publish_ui(&mut app, &mut presentation, &runtime, millis);
+        publish_ui(
+            &player_runtime,
+            &mut app,
+            &mut presentation,
+            &runtime,
+            millis,
+        );
         app.update();
     }
     presentation.set_menu_view(None);
@@ -163,7 +178,13 @@ fn enhanced_lobby_replay_on_native_gpu() {
             .insert_resource(world.resource::<ActorRenderFrame>().clone());
         app.world_mut()
             .insert_resource(world.resource::<render::HandRigScene>().clone());
-        publish_ui(&mut app, &mut presentation, &runtime, frame as u64 * 16);
+        publish_ui(
+            &player_runtime,
+            &mut app,
+            &mut presentation,
+            &runtime,
+            frame as u64 * 16,
+        );
         {
             use crate::ui_runtime::presentation::{nametag_atlas, nametags};
             let client = world.resource::<crate::runtime::world::ClientWorld>();

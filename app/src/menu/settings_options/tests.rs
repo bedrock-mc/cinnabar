@@ -460,3 +460,37 @@ fn outline_selection_reaches_render_settings_after_persistence() {
         assert_eq!(restored.user_settings().video.outline_selection, enabled);
     }
 }
+
+#[test]
+fn loaded_supplemental_bindings_cannot_conflict_with_gameplay_controls() {
+    let loaded = SettingsOptions::decode(br#"{"keys":{"key.inventory":257}}"#).unwrap();
+    assert_eq!(
+        loaded.named_key_control("key.inventory"),
+        SettingsOptions::default().named_key_control("key.inventory")
+    );
+}
+
+#[test]
+fn a_failed_settings_save_remains_pending_until_storage_recovers() {
+    let root = std::env::temp_dir().join(format!(
+        "cinnabar-settings-retry-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let blocked = root.join("config");
+    std::fs::write(&blocked, b"blocked").unwrap();
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".into());
+    menu.config_path = blocked.join("servers.json");
+    menu.set_option(index("gamma") as u16, 70);
+    menu.sync_user_settings(None);
+    assert!(menu.settings_dirty);
+    std::fs::remove_file(&blocked).unwrap();
+    menu.sync_user_settings(None);
+    assert!(!menu.settings_dirty);
+    assert_eq!(
+        SettingsOptions::load(&blocked.join(SETTINGS_FILE)).value("gamma"),
+        70
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -517,3 +517,16 @@ fn zero_duration_steps_finish_immediately() {
     let drawn = node(&nodes, "image").animate(&mut Animator::new(), 5.0, None, None);
     assert!(close(drawn.opacity, 1.0), "{}", drawn.opacity);
 }
+
+#[test]
+fn review_offscreen_entrance_animation_survives_emission() {
+    let nodes = draws(
+        r#""move": {"anim_type":"offset","from":[-20,0],"to":[20,0],"duration":1},
+        "image":{"type":"image","texture":"textures/ui/strip","size":[10,10],
+        "anchor_from":"top_left","anchor_to":"top_left","offset":"@audit.move"}"#,
+        "image",
+    );
+    assert_eq!(nodes.len(), 1);
+    let animated = play(&mut Animator::new(), node(&nodes, "image"), 0.0, 0.75);
+    assert!(animated.dest.x >= 0.0 && animated.dest.x < 20.0);
+}

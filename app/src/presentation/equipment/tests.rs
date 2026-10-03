@@ -584,7 +584,7 @@ fn session_items(
                         rgba8: vec![255; 16 * 16 * 4].into(),
                     })
                     .collect(),
-                misses: Default::default(),
+                ..Default::default()
             })
         }),
     }
@@ -728,6 +728,57 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
         Some(24)
     );
     assert!(!runtime.take_pending_geometries().is_empty());
+}
+
+// A custom block item whose session icons carry a cube sheet is held as that cube in vanilla's
+// first-person and third-person block poses, not as its flat thumbnail.
+#[test]
+fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
+    use super::runtime::{ActorEquipmentInput, HeldKind, StagedSessionIcons, WornItem};
+    use crate::ui_runtime::presentation::SessionIcon;
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let body = player_body(&mut runtime);
+    let item = WornItem {
+        identifier: Arc::from("test:controller"),
+        metadata: 0,
+        kind: HeldKind::Other,
+        dye_rgb: None,
+    };
+    let mut items = session_items(
+        vec![("test:controller", Default::default())],
+        vec!["test:controller"],
+    );
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    Arc::get_mut(items.icons.as_mut().unwrap())
+        .unwrap()
+        .block_sheets
+        .push(SessionIcon {
+            identifier: Arc::from("test:controller"),
+            metadata: 0,
+            width,
+            height,
+            rgba8: vec![255; (width * height * 4) as usize].into(),
+        });
+    let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+    let (_, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&items), Some(staged), locations);
+    let animation = client_world::ItemAnimationState::default();
+    let first = runtime.first_person_item(&body, &item, animation).unwrap();
+    let expected = super::first_person::block_pose(animation).unwrap();
+    assert_eq!(
+        &*first.presentation.submission.input.current_bones,
+        &[expected]
+    );
+    let third = runtime.layers_for(
+        &body,
+        &ActorEquipmentInput {
+            main: Some(item),
+            ..Default::default()
+        },
+    );
+    let right_item = body.input.current_bones[5];
+    let grip = attach_to_bone(right_item, held_block_display()).unwrap();
+    assert_eq!(&*third[0].submission.input.current_bones, &[grip]);
 }
 
 // With the arm hanging (identity hand in the rig frame, facing -Z), a held sword points forward

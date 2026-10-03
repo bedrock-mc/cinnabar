@@ -65,6 +65,7 @@ pub(super) fn app_with_assets(assets: Arc<assets::RuntimeAssets>) -> App {
     let mut app = App::new();
     app.insert_resource(world)
         .insert_resource(UiRuntime::new(0))
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(0))
         .insert_resource(render::ChunkTextureAssets::with_revision(assets, 0))
         .init_resource::<PackReload>()
         .add_systems(Update, reload_resource_packs);
@@ -239,4 +240,47 @@ fn large_pack_reload_cpu_benchmark() {
         worker.as_secs_f64() * 1000.0,
         peak.as_secs_f64() * 1000.0
     );
+}
+
+/// The actual reload worker publishes pages prepared against the base it installs.
+#[test]
+fn session_reload_publishes_prepared_actor_pages() {
+    let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut png = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(1, 1, image::Rgba([37, 59, 83, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let packs = resource_packs::prepare_validated_application(
+        stack(&[
+            ("entity/fixture.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:actor","geometry":{"default":"geometry.fixture"},"materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/fixture"},"render_controllers":["controller.render.fixture"]}}}"#),
+            ("models/entity/fixture.json", br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":1,"texture_height":1},"bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#),
+            ("render_controllers/fixture.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#),
+            ("textures/entity/fixture.png", png.get_ref()),
+        ]),
+        Arc::new(PackInputs::default()),
+    );
+    let mut app = app();
+    app.init_resource::<render::ActorArtworkPages>();
+    app.world_mut()
+        .resource_mut::<PackReload>()
+        .begin_session(1, &packs);
+    settle(&mut app, 1);
+    assert!(app.world().resource::<PackReload>().error().is_none());
+    let world = app.world().resource::<ClientWorld>();
+    let pack = world.pack_entities.as_ref().unwrap();
+    assert!(!pack.textures.is_empty());
+    let base = app.world().resource::<render::ActorArtworkPages>();
+    let prepared = world.prepared_actor_artwork.as_ref().unwrap();
+    let pages = prepared.pages_for(base, pack).unwrap();
+    let expected = base
+        .clone()
+        .with_pack_artwork(&pack.textures, &pack.bindings);
+    assert_eq!(pages.identity(), expected.identity());
+    assert_eq!(pages.pages(), expected.pages());
+    for binding in pack.bindings.iter() {
+        let rig = render::pack_rig_id(binding.geometry_candidate);
+        assert_eq!(pages.route(rig), expected.route(rig));
+    }
 }

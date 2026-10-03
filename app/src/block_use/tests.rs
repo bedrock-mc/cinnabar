@@ -409,33 +409,47 @@ fn successful_uses_swing_before_their_always_sent_transaction() {
 
 #[test]
 fn unknown_or_inventory_pending_selection_fails_closed() {
-    let mut ui = UiRuntime::new(7);
-    ui.publish_player_game_mode(protocol::PlayerGameMode::Survival);
-    ui.inventory_ledger_mut()
-        .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    assert!(ui.inventory_ledger_mut().request_personal_open(42));
-    assert!(ui.inventory_ledger_mut().mark_transport_enqueued(0));
-    ui.set_local_selected_slot(2);
-    assert!(verified_use_selection(&ui).is_none());
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
 
-    ui.inventory_ledger_mut()
+    let mut ui = UiRuntime::new(7);
+    ui.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    ui.inventory_ledger_mut(&mut player_runtime)
+        .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    assert!(
+        ui.inventory_ledger_mut(&mut player_runtime)
+            .request_personal_open(42)
+    );
+    assert!(
+        ui.inventory_ledger_mut(&mut player_runtime)
+            .mark_transport_enqueued(0)
+    );
+    player_runtime.inventory.set_local_selected_slot(2);
+    assert!(verified_use_selection(&player_runtime, &ui).is_none());
+
+    ui.inventory_ledger_mut(&mut player_runtime)
         .apply(&inventory_slot(2, network_item(2, 77)));
-    let selection = verified_use_selection(&ui).unwrap();
+    let selection = verified_use_selection(&player_runtime, &ui).unwrap();
     assert_eq!(selection.slot, 2);
     assert_eq!(selection.item.block_runtime_id(), 77);
 
-    ui.inventory_ledger_mut()
+    ui.inventory_ledger_mut(&mut player_runtime)
         .apply(&inventory_slot(3, network_item(3, 0)));
-    ui.inventory_ledger_mut().begin_click(3).unwrap();
-    assert!(verified_use_selection(&ui).is_none());
+    ui.inventory_ledger_mut(&mut player_runtime)
+        .begin_click(3)
+        .unwrap();
+    assert!(verified_use_selection(&player_runtime, &ui).is_none());
 
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
     let mut pending_hotbar = UiRuntime::new(7);
-    pending_hotbar.publish_player_game_mode(protocol::PlayerGameMode::Survival);
     pending_hotbar
-        .inventory_ledger_mut()
+        .publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    pending_hotbar
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&inventory_slot(4, NetworkItemStack::empty()));
-    pending_hotbar.queue_local_hotbar_selection(4);
-    assert!(verified_use_selection(&pending_hotbar).is_none());
+    player_runtime
+        .inventory
+        .queue_local_hotbar_selection(4, player_runtime.facts.player_game_mode());
+    assert!(verified_use_selection(&player_runtime, &pending_hotbar).is_none());
 }
 
 #[test]

@@ -97,21 +97,23 @@ pub(super) fn offset_delta(
     let moved = |x: f64, y: f64| Some(Rect::new(x, y, rect.w, rect.h));
     if let Some(delta) = dragged {
         let axes = draggable_axes(control);
-        let mut delta = [
-            if axes[0] { delta[0] } else { 0.0 },
-            if axes[1] { delta[1] } else { 0.0 },
+        let mut destination = [
+            rect.x + if axes[0] { delta[0] } else { 0.0 },
+            rect.y + if axes[1] { delta[1] } else { 0.0 },
         ];
         if flag("contained") {
-            let (parent_size, own) = ([parent.w, parent.h], [rect.w, rect.h]);
+            let (parent_size, own, origin) =
+                ([parent.w, parent.h], [rect.w, rect.h], [parent.x, parent.y]);
             for axis in 0..2 {
-                delta[axis] = if parent_size[axis] < own[axis] {
-                    -(own[axis] - parent_size[axis]) / 2.0
+                destination[axis] = if parent_size[axis] < own[axis] {
+                    origin[axis] - (own[axis] - parent_size[axis]) / 2.0
                 } else {
-                    delta[axis].max(0.0).min(parent_size[axis] - own[axis])
+                    destination[axis]
+                        .clamp(origin[axis], origin[axis] + parent_size[axis] - own[axis])
                 };
             }
         }
-        return moved(rect.x + delta[0], rect.y + delta[1]);
+        return moved(destination[0], destination[1]);
     }
     let pointer = pointer?;
     if flag("follows_cursor") {

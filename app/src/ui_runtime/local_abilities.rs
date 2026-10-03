@@ -3,87 +3,60 @@ use protocol::AbilitiesUpdate;
 
 use super::UiRuntime;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Binding {
-    session: u64,
-    stream: u64,
-    actor_unique_id: i64,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(super) struct LocalAbilities {
-    binding: Option<Binding>,
-    sequence: Option<u64>,
-    update: Option<AbilitiesUpdate>,
-}
-
 impl UiRuntime {
     /// Retires evidence and its admission binding. A drain cannot re-arm it.
-    pub(crate) fn clear_local_abilities(&mut self) {
-        self.local_abilities = LocalAbilities::default();
+    pub(crate) fn clear_local_abilities(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    ) {
+        player_runtime.facts.clear_local_abilities()
     }
 
     /// Accepted fatal-free bootstrap tail only; no received evidence is invented.
     pub(crate) fn bind_local_abilities(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         session: u64,
         stream: u64,
         actor_unique_id: i64,
         setup_succeeded: bool,
     ) {
-        if self.session_id() == session && setup_succeeded {
-            self.local_abilities = LocalAbilities {
-                binding: Some(Binding {
-                    session,
-                    stream,
-                    actor_unique_id,
-                }),
-                ..Default::default()
-            };
-        }
+        player_runtime
+            .facts
+            .bind_local_abilities(session, stream, actor_unique_id, setup_succeeded)
     }
 
     /// Missing, failed or replaced streams retire evidence, without minting a new binding.
-    pub(crate) fn synchronize_local_abilities(&mut self, session: u64, stream: Option<u64>) {
-        if self
-            .local_abilities
-            .binding
-            .is_some_and(|binding| binding.session != session || Some(binding.stream) != stream)
-        {
-            self.clear_local_abilities();
-        }
+    pub(crate) fn synchronize_local_abilities(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        session: u64,
+        stream: Option<u64>,
+    ) {
+        player_runtime
+            .facts
+            .synchronize_local_abilities(session, stream)
     }
 
+    /// Applies admitted ability evidence to the shared player owner.
     pub(crate) fn apply_local_abilities(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         session: u64,
         stream: u64,
         sequence: u64,
         update: AbilitiesUpdate,
     ) {
-        let Some(binding) = self.local_abilities.binding else {
-            return;
-        };
-        if self.session_id() != session
-            || binding.session != session
-            || binding.stream != stream
-            || binding.actor_unique_id != update.actor_unique_id
-            || self
-                .local_abilities
-                .sequence
-                .is_some_and(|old| sequence <= old)
-        {
-            return;
-        }
-        self.local_abilities.sequence = Some(sequence);
-        self.local_abilities.update = Some(update);
+        player_runtime
+            .facts
+            .apply_local_abilities(session, stream, sequence, update)
     }
 
     /// None means unknown. Received-empty and unavailable remain distinct evidence.
-    pub(crate) fn local_abilities(&self) -> Option<&AbilitiesUpdate> {
-        self.local_abilities.update.as_ref()
+    pub(crate) fn local_abilities<'a>(
+        &self,
+        player_runtime: &'a crate::player_runtime::PlayerRuntime,
+    ) -> Option<&'a AbilitiesUpdate> {
+        player_runtime.facts.local_abilities()
     }
 }
-
-#[cfg(test)]
-mod tests;

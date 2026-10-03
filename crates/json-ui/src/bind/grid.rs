@@ -25,7 +25,11 @@ impl Binder<'_> {
         let collection = collection_name(control);
         let key = collection.map(|name| self.collection_key(name, scope));
         let count = grid_capacity(src)
-            .unwrap_or_else(|| key.as_ref().map_or(0, |key| self.data.collection_len(key)));
+            .unwrap_or_else(|| key.as_ref().map_or(0, |key| self.data.collection_len(key)))
+            .min(super::feed::MAX_FACTORY_ITEMS);
+        let Some(inner) = self.expansion_scope(scope, template) else {
+            return Vec::new();
+        };
         let Some(resolved) = self.resolve_scoped(template, control, &BTreeMap::new()) else {
             self.note(format!(
                 "{}: grid template {template} unresolved",
@@ -33,50 +37,63 @@ impl Binder<'_> {
             ));
             return Vec::new();
         };
-        let mut cells: Vec<Node> = (0..count)
-            .map(|index| {
-                let child_scope = match (collection, &key) {
-                    (Some(name), Some(key)) => scope.enter(name, key.clone(), index),
-                    _ => scope.clone(),
-                };
-                let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
-                    if let Some(name) = collection {
-                        patch.properties.insert(
-                            "collection_scope".to_owned(),
-                            Value::String(name.to_owned()),
-                        );
-                    }
-                });
-                self.build(cell, &child_scope, 0)
-            })
-            .collect();
+        let mut cells = Vec::with_capacity(count);
+        for index in 0..count {
+            if !self.can_create() {
+                break;
+            }
+            let child_scope = match (collection, &key) {
+                (Some(name), Some(key)) => inner.enter(name, key.clone(), index),
+                _ => inner.clone(),
+            };
+            let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
+                if let Some(name) = collection {
+                    patch.properties.insert(
+                        "collection_scope".to_owned(),
+                        Value::String(name.to_owned()),
+                    );
+                }
+            });
+            cells.push(self.build(cell, &child_scope, 0));
+        }
         let template_node = Src::root(resolved).patched(|patch| {
             patch
                 .properties
                 .insert(GRID_TEMPLATE_KEY.to_owned(), Value::Bool(true));
         });
-        cells.push(unbound(template_node));
+        if let Some(template) = self.unbound(template_node) {
+            cells.push(template);
+        }
         cells
     }
 }
 
-/// A node for a control and its subtree without binding: the grid template is
-/// only measured, as the client's template binds no data.
-fn unbound(src: Src) -> Node {
-    let children = (0..src.get().children.len())
-        .map(|index| unbound(src.child(index)))
-        .collect();
-    Node {
-        src,
-        key: 0,
-        layout_key: String::new(),
-        own: BTreeMap::new(),
-        native: Default::default(),
-        memory: Default::default(),
-        bindings: Arc::default(),
-        children,
-        deferred: None,
-        retained: false,
+impl Binder<'_> {
+    /// Measures a template without binding while retaining the common creation budget.
+    fn unbound(&mut self, src: Src) -> Option<Node> {
+        if !self.can_create() {
+            return None;
+        }
+        self.created += 1;
+        let mut children = Vec::new();
+        for index in 0..src.get().children.len() {
+            let Some(child) = self.unbound(src.child(index)) else {
+                break;
+            };
+            children.push(child);
+        }
+        Some(Node {
+            src,
+            key: 0,
+            layout_key: String::new(),
+            own: BTreeMap::new(),
+            native: Default::default(),
+            memory: Default::default(),
+            bindings: Arc::default(),
+            children,
+            deferred: None,
+            retained: false,
+        })
     }
 }
 
@@ -107,7 +124,7 @@ pub(super) fn grid_capacity(src: &Src) -> Option<usize> {
         dims.and_then(|dims| dims.get(index)?.as_i64())
             .map_or(0, |value| value.max(0) as usize)
     };
-    Some(int(0) * int(1))
+    Some(int(0).saturating_mul(int(1)))
 }
 
 /// The column count of a collection grid that lists its cells as children.
@@ -132,7 +149,7 @@ pub(super) fn grid_cell_index(control: &ResolvedControl, columns: u64) -> Option
     }
     let position = control.properties.get("grid_position")?.as_array()?;
     let (column, row) = (position.first()?.as_u64()?, position.get(1)?.as_u64()?);
-    usize::try_from(row * columns + column).ok()
+    usize::try_from(row.checked_mul(columns)?.checked_add(column)?).ok()
 }
 
 /// The `grid_item_template` of a `grid`.

@@ -38,6 +38,72 @@ impl MenuRuntime {
         self.activate(action);
     }
 
+    /// Tracks each visible settings control once, preserving focus across value changes.
+    pub(super) fn refresh_settings_focus(&mut self, actions: impl IntoIterator<Item = MenuAction>) {
+        if self.screen != MenuScreen::Settings || self.dialog.is_some() {
+            self.settings_focus.clear();
+            return;
+        }
+        let previous = self.focus_actions().get(self.focused).copied();
+        let mut visible = Vec::new();
+        for action in actions {
+            let action = match action {
+                MenuAction::SettingsOption(index, _) => {
+                    let value = self.settings_options.get(usize::from(index));
+                    let target = match settings_options::SETTINGS_OPTIONS
+                        .get(usize::from(index))
+                        .map(|option| option.kind)
+                    {
+                        Some(settings_options::SettingKind::Toggle) => 1 - value,
+                        _ => value,
+                    };
+                    MenuAction::SettingsOption(index, target)
+                }
+                MenuAction::SettingsScale(_) => MenuAction::SettingsScale(self.gui_scale_offset),
+                action => action,
+            };
+            if !visible
+                .iter()
+                .any(|candidate| same_control(*candidate, action))
+            {
+                visible.push(action);
+            }
+        }
+        if visible.is_empty() {
+            return;
+        }
+        self.focused = previous
+            .and_then(|action| {
+                visible
+                    .iter()
+                    .position(|candidate| same_control(*candidate, action))
+            })
+            .unwrap_or(self.focused.min(visible.len() - 1));
+        self.settings_focus = visible;
+    }
+
+    /// Adjusts a focused slider or option; otherwise moves to the adjacent control.
+    pub(super) fn move_horizontal_focus(&mut self, direction: i32) {
+        let focused = self.focus_actions().get(self.focused).copied();
+        match focused {
+            Some(MenuAction::SettingsOption(index, _)) if self.dialog.is_none() => {
+                if let Some(option) = settings_options::SETTINGS_OPTIONS.get(usize::from(index)) {
+                    let value = self.settings_options.get(usize::from(index));
+                    self.activate(MenuAction::SettingsOption(
+                        index,
+                        value.saturating_add(direction * option.step),
+                    ));
+                }
+            }
+            Some(MenuAction::SettingsScale(_)) if self.dialog.is_none() => {
+                self.activate(MenuAction::SettingsScale(
+                    self.gui_scale_offset.saturating_add(direction as i8),
+                ));
+            }
+            _ => self.move_focus(direction),
+        }
+    }
+
     /// The actions keyboard and gamepad focus cycles through on the current screen.
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
         if let Some(dialog) = self.dialog {
@@ -170,6 +236,7 @@ impl MenuRuntime {
                 );
                 actions
             }
+            MenuScreen::Settings if !self.settings_focus.is_empty() => self.settings_focus.clone(),
             MenuScreen::Settings => {
                 let mut actions = nav();
                 actions.push(MenuAction::SettingsFullscreen(!self.fullscreen));
@@ -196,8 +263,87 @@ impl MenuRuntime {
                 MenuAction::PauseDisconnect,
             ],
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::Navigate(MenuScreen::Pause)],
-            MenuScreen::Inbox | MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
+            MenuScreen::Inbox => {
+                use super::inbox::{Action, CATEGORIES, category_index};
+                if self.feeds.inbox_state.opened.is_some() {
+                    return vec![MenuAction::Inbox(Action::Cancel)];
+                }
+                let mut actions = vec![
+                    MenuAction::Navigate(MenuScreen::Home),
+                    MenuAction::Inbox(Action::Filters),
+                ];
+                actions
+                    .extend((0..CATEGORIES.len()).map(|i| MenuAction::Inbox(Action::Category(i))));
+                if self.feeds.inbox_state.filters {
+                    actions.extend([
+                        MenuAction::Inbox(Action::MarkAllRead),
+                        MenuAction::Inbox(Action::DeleteAllRead),
+                    ]);
+                }
+                for (i, _) in self
+                    .feeds
+                    .home
+                    .inbox
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| {
+                        category_index(&item.category) == Some(self.feeds.inbox_state.category)
+                    })
+                {
+                    if self.feeds.inbox_state.delete_pending.is_none() {
+                        actions.extend([
+                            MenuAction::Inbox(Action::Open(i)),
+                            MenuAction::Inbox(Action::Delete(i)),
+                        ]);
+                    }
+                }
+                if self.feeds.inbox_state.delete_pending.is_some() {
+                    return vec![
+                        MenuAction::Inbox(Action::Cancel),
+                        MenuAction::Inbox(Action::ConfirmDelete),
+                    ];
+                }
+                actions
+            }
+            MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
             MenuScreen::Store => vec![MenuAction::Store(crate::store::StoreAction::Back)],
         }
+    }
+}
+
+/// Whether two actions identify the same control despite a changed value.
+fn same_control(a: MenuAction, b: MenuAction) -> bool {
+    match (a, b) {
+        (MenuAction::SettingsOption(a, _), MenuAction::SettingsOption(b, _)) => a == b,
+        (MenuAction::SettingsScale(_), MenuAction::SettingsScale(_)) => true,
+        _ => a == b,
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_settings_focus_reaches_visible_ordinary_controls() {
+        let mut menu = MenuRuntime::new(true, 2, "Test".into());
+        menu.screen = MenuScreen::Settings;
+        let gamma = settings_options::SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == "gamma")
+            .unwrap();
+        let value = menu.settings_options.value("gamma");
+        menu.settings_focus = vec![MenuAction::SettingsOption(gamma as u16, value)];
+        assert_eq!(menu.focus_actions(), menu.settings_focus);
+        menu.refresh_settings_focus([
+            MenuAction::SettingsOption(gamma as u16, 0),
+            MenuAction::SettingsOption(gamma as u16, 100),
+        ]);
+        assert_eq!(
+            menu.focus_actions().len(),
+            1,
+            "a segmented slider is one focus control"
+        );
+        menu.move_horizontal_focus(1);
+        assert_eq!(menu.settings_options.value("gamma"), value + 1);
     }
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
 )
 
 func TestParseSettingsValidates(t *testing.T) {
@@ -111,7 +112,8 @@ func TestExperiencesRequireRuntimeFlag(t *testing.T) {
 	}
 }
 
-// Without -experiences the server starts as before and touches no Experience data.
+// Without -experiences or the -extension flags the server starts as before and touches no
+// Experience or client part data.
 func TestNoFlagLeavesStartupUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	var stdout bytes.Buffer
@@ -123,6 +125,11 @@ func TestNoFlagLeavesStartupUnchanged(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, experienceDataDir)); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("%s exists without -experiences: %v", experienceDataDir, err)
+	}
+	for _, path := range []string{filepath.Join(dir, extension.RevisionFile), markerPack(dir)} {
+		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s exists without the -extension flags: %v", path, err)
+		}
 	}
 }
 

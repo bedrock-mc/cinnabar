@@ -14,6 +14,8 @@ mod play;
 mod play_realms;
 mod play_servers;
 mod profile;
+#[cfg(test)]
+mod review_tests;
 mod theme;
 mod widgets;
 mod world_settings;

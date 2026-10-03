@@ -20,6 +20,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) has_player_rider: bool,
     /// The local player rendered from its own camera; selects the first-person render controller.
     pub(crate) is_local_first_person: bool,
+    /// Native HUD rendering uses a UI actor context without a first-person hand camera.
+    pub(crate) is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
     pub(crate) camera_rotation: [f32; 2],
     /// World position of the view, for camera-relative queries.
@@ -474,7 +476,10 @@ pub(super) fn apply_engine_variables(
     variables.set(engine.right_arm_swim_amount, input.swim_amount);
     variables.set(engine.has_target, truth(query::has_target(actor)));
     variables.set(engine.is_first_person, truth(context.is_local_first_person));
-    variables.set(engine.player_x_rotation, input.pitch);
+    variables.set(
+        engine.player_x_rotation,
+        if context.is_in_ui { 0.0 } else { input.pitch },
+    );
     variables.set(engine.player_arm_height, input.arm_height);
     variables.set(
         engine.context_player_offhand_arm_height,

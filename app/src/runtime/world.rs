@@ -112,6 +112,9 @@ pub(crate) struct ClientWorld {
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
     pub(crate) pack_entities: Option<Arc<crate::runtime::network::entity_pack::SessionEntityPack>>,
+    /// Worker-built pack pages, reused only while their base artwork and pack remain current.
+    pub(crate) prepared_actor_artwork:
+        Option<Arc<crate::runtime::network::prepared_actor_artwork::PreparedActorArtwork>>,
     /// The session's custom item facts and pack icons for held and worn items.
     pub(crate) session_items: Option<Arc<crate::runtime::network::entity_pack::SessionItems>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
@@ -136,6 +139,7 @@ impl ClientWorld {
             runtime_assets,
             entity_assets: None,
             pack_entities: None,
+            prepared_actor_artwork: None,
             session_items: None,
             pending_surface_spawn: None,
             fatal_error: None,

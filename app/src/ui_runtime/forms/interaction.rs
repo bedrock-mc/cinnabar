@@ -19,9 +19,12 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    (player_runtime, window): (
+        bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+        Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut motion: ResMut<AccumulatedMouseMotion>,
@@ -46,23 +49,35 @@ pub(crate) fn drive_server_form_input(
         released: mouse.just_released(MouseButton::Left),
         held: false,
     };
+    let mut pointer_edges = Vec::new();
     if let Some(messages) = button_messages.as_deref() {
         for input in button_cursor.read(messages) {
             if input.button == MouseButton::Left {
-                match input.state {
-                    ButtonState::Pressed => pointer.pressed = true,
-                    ButtonState::Released => pointer.released = true,
+                let down = input.state == ButtonState::Pressed;
+                pointer_edges.push(down);
+                if down {
+                    pointer.pressed = true;
+                } else {
+                    pointer.released = true;
                 }
             }
         }
     }
-    if pointer.pressed {
-        *held = true;
+    if pointer_edges.is_empty() {
+        if pointer.pressed {
+            pointer_edges.push(true);
+        }
+        if pointer.released {
+            pointer_edges.push(false);
+        }
+        if pointer_edges.is_empty() {
+            *held |= mouse.pressed(MouseButton::Left);
+        }
     }
-    pointer.held = *held || mouse.pressed(MouseButton::Left);
-    if pointer.released {
-        *held = false;
+    for down in &pointer_edges {
+        *held = *down;
     }
+    pointer.held = *held;
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         && !runtime.server_forms().settings_form_active()
     {
@@ -75,7 +90,7 @@ pub(crate) fn drive_server_form_input(
     if !runtime.server_forms().owns_input() {
         wheel.clear();
         keyboard.clear();
-        if *owned_last_frame && !runtime.ui_focused() && window.focused {
+        if *owned_last_frame && !runtime.ui_focused(&player_runtime) && window.focused {
             crate::ui_runtime::interaction::restore_gameplay_input_after_chat(
                 &mut cursor,
                 &mut keys,
@@ -96,6 +111,7 @@ pub(crate) fn drive_server_form_input(
         && let Some(frame) = engine_frame
     {
         let input = engine_input::EngineInput {
+            pointer_edges,
             cursor: window
                 .cursor_position()
                 .and_then(|point| ui::UiPoint::new(point.x, point.y).ok()),
@@ -109,9 +125,14 @@ pub(crate) fn drive_server_form_input(
                     (
                         input.key_code,
                         input.text.as_ref().map(|text| text.to_string()),
+                        input.repeat,
                     )
                 })
-                .chain(engine_focus::gamepad_keys(pads.iter(), &mut stick))
+                .chain(
+                    engine_focus::gamepad_keys(pads.iter(), &mut stick)
+                        .into_iter()
+                        .map(|(key, text)| (key, text, false)),
+                )
                 .collect(),
             now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
             animator: presentation.form_animator(),
@@ -190,6 +211,7 @@ pub(crate) fn drive_server_form_input(
     // Also retain ownership through the answer frame; pending enqueue owns
     // input until the later network phase accepts it or retires the session.
     crate::ui_runtime::interaction::suppress_gameplay_input_for_chat(
+        &player_runtime,
         &runtime,
         &mut cursor,
         &mut keys,

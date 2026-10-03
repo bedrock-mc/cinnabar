@@ -8,6 +8,8 @@
 
 mod account;
 mod account_control;
+#[cfg(test)]
+mod address_tests;
 pub(crate) mod auth;
 mod connection;
 mod construction;
@@ -16,6 +18,7 @@ pub(crate) mod disconnect;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
+pub(crate) mod inbox;
 mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
@@ -71,6 +74,13 @@ const DEFAULT_PORT: &str = "19132";
 
 /// Host and port of a saved `host:port`; a bare host gets the default port.
 pub(crate) fn split_address(address: &str) -> (String, String) {
+    let literal = address
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(address);
+    if literal.parse::<std::net::Ipv6Addr>().is_ok() {
+        return (literal.to_owned(), DEFAULT_PORT.to_owned());
+    }
     match address.rsplit_once(':') {
         Some((host, port))
             if !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) =>
@@ -150,6 +160,7 @@ pub(crate) enum MenuField {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MenuAction {
+    Inbox(inbox::Action),
     Navigate(MenuScreen),
     OpenExitDialog,
     ConfirmExit,
@@ -242,6 +253,8 @@ pub(crate) struct MenuRuntime {
     gui_scale_choices: Vec<i8>,
     fullscreen: bool,
     fullscreen_change: Option<bool>,
+    video_settings_writer: Option<video_settings::writer::Writer>,
+    settings_focus: Vec<MenuAction>,
     last_saved_video_settings: video_settings::SavedVideoSettings,
     failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
@@ -617,6 +630,7 @@ impl MenuRuntime {
         self.message = None;
         self.disconnect_message = None;
         match action {
+            MenuAction::Inbox(action) => self.activate_inbox(action),
             MenuAction::Navigate(screen) => {
                 self.enter(screen);
             }

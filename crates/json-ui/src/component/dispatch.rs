@@ -54,12 +54,14 @@ pub struct Dispatcher {
     hovered: Vec<String>,
     /// The slider whose track the pointer holds.
     track: Option<String>,
+    track_button: Option<String>,
     /// Last play time per (control key, sound entry).
     sounds: HashMap<(String, usize), f64>,
     /// Last controller-direction step per slider key.
     stepped: HashMap<String, f64>,
     /// The control tracking a gesture, and the pointer's last position.
     gesture: Option<(String, Option<[f64; 2]>)>,
+    gesture_button: Option<String>,
 }
 
 impl Dispatcher {
@@ -117,6 +119,18 @@ impl Dispatcher {
             if mapping.consume_event && region.widget.consume {
                 out.consumed = true;
                 break;
+            }
+        }
+        if !input.down {
+            if self.track_button.as_deref() == Some(input.id) {
+                self.track = None;
+                self.track_button = None;
+            }
+            if self.gesture_button.as_deref() == Some(input.id) {
+                if let Some((key, _)) = self.gesture.take() {
+                    write_gesture(&key, [0.0; 2], &mut view.components);
+                }
+                self.gesture_button = None;
             }
         }
         out
@@ -189,7 +203,7 @@ impl Dispatcher {
         let mut out = Dispatch::default();
         let components = &mut view.components;
         let selected = components.selected().map(str::to_owned);
-        for region in regions {
+        for region in reachable(regions).filter(|region| region.enabled) {
             let Some(meta) = &region.widget.edit else {
                 continue;
             };
@@ -226,7 +240,7 @@ impl Dispatcher {
         let components = &mut view.components;
         let Some(region) = focused
             .as_deref()
-            .and_then(|key| regions.iter().find(|region| region.key == key))
+            .and_then(|key| reachable(regions).find(|region| region.key == key && region.enabled))
         else {
             return out;
         };
@@ -393,6 +407,7 @@ impl Dispatcher {
         if region.widget.gesture.as_deref() == Some(fired.id.as_str()) {
             if input.down {
                 self.gesture = Some((region.key.clone(), input.point));
+                self.gesture_button = Some(input.id.to_owned());
             } else {
                 write_gesture(&region.key, [0.0; 2], components);
                 self.gesture = None;
@@ -479,6 +494,7 @@ impl Dispatcher {
         if id == meta.track_button.as_deref() {
             if input.down && self.track.is_none() {
                 self.track = Some(region.key.clone());
+                self.track_button = Some(input.id.to_owned());
                 if let Some(point) = input.point {
                     set_slider_at(region, point, false, components, out);
                 }
@@ -515,16 +531,17 @@ impl Dispatcher {
         out: &mut Dispatch,
     ) {
         if hovered {
+            // `_sendHoverScreenEvent` raises a hover mapping in the Up state: never a press.
             for (to, scope) in &region.input.hover_mappings {
                 let probe = ButtonInput {
                     id: to,
-                    down: true,
+                    down: false,
                     point: input.point,
                     mode: input.mode,
                     now: input.now,
                 };
                 out.events.push(ScreenEvent::Button(event(
-                    region, to, "", &probe, true, *scope,
+                    region, to, "", &probe, false, *scope,
                 )));
             }
         }

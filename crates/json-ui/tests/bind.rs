@@ -621,3 +621,77 @@ fn hash_prefixed_toggle_names_remain_identifiers() {
     );
     assert_eq!(prop(&bound, "#toggle_state"), &json!(false));
 }
+
+#[test]
+fn excessive_screen_factory_depth_is_bounded_and_reported() {
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| {
+            let mut controls = BTreeMap::new();
+            for i in 0..128 {
+                let mut control = ctrl(&format!("node{i}"), Some("panel"), json!({}));
+                control.factory = Some(json_ui::Factory {
+                    control_ids: [(
+                        "next".into(),
+                        ControlRef::parse(&format!("a.node{}", i + 1), "a"),
+                    )]
+                    .into(),
+                    ..Default::default()
+                });
+                controls.insert(format!("a.node{i}"), control);
+            }
+            controls.insert("a.node128".into(), ctrl("leaf", Some("panel"), json!({})));
+            let root = controls["a.node0"].clone();
+            let mut data = DataSource::default();
+            data.set_factory_id("next");
+            let (_, notes) =
+                json_ui::bind_reporting(&std::sync::Arc::new(root), &data, &StubLibrary(controls));
+            assert!(
+                notes.iter().any(|note| note.contains("factory expansion")),
+                "{notes:?}"
+            );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn cyclic_factory_references_skip_only_the_recursive_creation() {
+    for collection in [false, true] {
+        let mut loop_control = ctrl("loop", Some("panel"), json!({}));
+        loop_control.factory = Some(json_ui::Factory {
+            control_ids: [("loop".into(), ControlRef::parse("a.loop", "a"))].into(),
+            ..Default::default()
+        });
+        if collection {
+            loop_control
+                .properties
+                .insert("collection_name".into(), json!("items"));
+        }
+        let lib = StubLibrary([("a.loop".into(), loop_control.clone())].into());
+        let mut data = DataSource::default();
+        data.set_factory_id("loop");
+        data.set_collection("items", vec![CollectionItem::new("loop")]);
+        let (_, notes) = json_ui::bind_reporting(&std::sync::Arc::new(loop_control), &data, &lib);
+        assert!(
+            notes.iter().any(|note| note.contains("factory expansion")),
+            "{notes:?}"
+        );
+    }
+}
+
+#[test]
+fn review_templated_grid_creation_checks_the_node_budget() {
+    let template = ctrl("cell", Some("panel"), json!({}));
+    let library = StubLibrary(BTreeMap::from([("a.cell".to_owned(), template)]));
+    for dims in [json!([5000, 1]), json!([i64::MAX, 3])] {
+        let grid = ctrl(
+            "grid",
+            Some("grid"),
+            json!({"grid_dimensions":dims, "grid_item_template":"a.cell"}),
+        );
+        let bound = bind(&grid, &DataSource::default(), &library);
+        assert!(bound.children.len() < 5000);
+    }
+}

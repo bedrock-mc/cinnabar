@@ -45,7 +45,7 @@ impl SettingsOptions {
             validated.set_language(language);
         }
         validated.keys = saved.keys;
-        if validated.controls().is_err() {
+        if !validated.stored_bindings_valid() {
             validated.keys.clear();
         }
         Some(validated)

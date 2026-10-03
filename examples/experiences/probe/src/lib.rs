@@ -1,16 +1,20 @@
 //! Test guest for the Experience runtime. `on-interact` selects a behavior by
 //! `pos.x`; every other position it touches is relative to the interacted block
 //! `p`, and `up` is the block above it. World errors are told by their WIT
-//! kebab-case names.
+//! kebab-case names. `client-message` tries a block read and write, which its
+//! callback refuses, echoes the message back to the sender's client part and
+//! tells what happened.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use experience_sdk::{
     BlockChange, BlockDef, BlockPos, Callback, Experience, Face, GuestError, LogLevel, Mining,
-    PlayerId, TextureBinding, WorldError, log,
+    PlayerId, Scalar, TextureBinding, WorldError, log,
 };
 
 const COUNTER: &str = "probe:counter";
+/// The client channel that x=19 sends the counter on.
+const COUNTER_CHANNEL: &str = "probe.counter";
 const AIR: &str = "minecraft:air";
 const NIL_PLAYER: &str = "00000000-0000-0000-0000-000000000000";
 const MIB: usize = 1 << 20;
@@ -67,6 +71,24 @@ impl Experience for Probe {
         );
         Ok(())
     }
+
+    fn client_message(
+        ctx: &Callback,
+        player: PlayerId,
+        channel: String,
+        schema: u16,
+        payload: Vec<Scalar>,
+    ) -> Result<(), GuestError> {
+        let origin = BlockPos { x: 0, y: 64, z: 0 };
+        let read = id_or_error(ctx.get_block(origin));
+        let write = outcome(ctx.set_block(origin, COUNTER));
+        let echo = outcome(ctx.send_client(&player, &channel, schema, &payload));
+        let fields = payload.len();
+        let text =
+            format!("client {channel} {schema} {fields} read {read} write {write} echo {echo}");
+        let _ = ctx.tell(&player, &text);
+        Ok(())
+    }
 }
 
 experience_sdk::export_experience!(Probe);
@@ -82,6 +104,7 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         1 => {
             let _ = ctx.set_block_data(p, Some(&[1]));
             tell("staged");
+            let _ = ctx.send_client(player, COUNTER_CHANNEL, 1, &[Scalar::Integer(1)]);
             // Lowers to the Wasm `unreachable` instruction.
             std::process::abort();
         }
@@ -148,25 +171,52 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         }
         // About 2 MiB of the 3-byte `€`, so a byte limit can fall inside a character.
         18 => return Err(GuestError::Rejected("€".repeat(2 * MIB / 3))),
+        19 => match next_count(ctx, p) {
+            Ok(n) => {
+                let value = Scalar::Integer(n.into());
+                let sent = outcome(ctx.send_client(player, COUNTER_CHANNEL, 1, &[value]));
+                tell(&format!("count {n} {sent}"));
+            }
+            Err(error) => tell(&format!("error {}", error.name())),
+        },
+        20 => tell(outcome(ctx.send_client(
+            NIL_PLAYER,
+            COUNTER_CHANNEL,
+            1,
+            &[],
+        ))),
+        21 => {
+            let text = Scalar::Text("x".repeat(MIB));
+            tell(outcome(ctx.send_client(
+                player,
+                COUNTER_CHANNEL,
+                1,
+                &[text],
+            )));
+        }
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())
 }
 
-/// Increments the little-endian u32 in `p`'s data (absent counts as 0) and
-/// describes the outcome: `count {n}`, or `error {name}` if a call failed.
+/// Describes [`next_count`]: `count {n}`, or `error {name}` if a call failed.
 fn count(ctx: &Callback, p: BlockPos) -> String {
-    let next = match ctx.block_data(p) {
-        Ok(data) => data
-            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
-            .map_or(0, u32::from_le_bytes)
-            .wrapping_add(1),
-        Err(error) => return format!("error {}", error.name()),
-    };
-    match ctx.set_block_data(p, Some(&next.to_le_bytes())) {
-        Ok(()) => format!("count {next}"),
+    match next_count(ctx, p) {
+        Ok(n) => format!("count {n}"),
         Err(error) => format!("error {}", error.name()),
     }
+}
+
+/// Increments the little-endian u32 in `p`'s data (absent counts as 0) and
+/// returns the new count.
+fn next_count(ctx: &Callback, p: BlockPos) -> Result<u32, WorldError> {
+    let next = ctx
+        .block_data(p)?
+        .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+        .map_or(0, u32::from_le_bytes)
+        .wrapping_add(1);
+    ctx.set_block_data(p, Some(&next.to_le_bytes()))?;
+    Ok(next)
 }
 
 fn tell_actor(ctx: &Callback, change: &BlockChange, text: &str) {

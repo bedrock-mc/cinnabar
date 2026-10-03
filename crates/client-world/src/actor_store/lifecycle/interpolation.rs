@@ -130,6 +130,7 @@ impl ActorStore {
                     has_player_rider,
                     attachable: None,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
+                    is_in_ui: false,
                     camera_rotation,
                     camera_position,
                     armor: worn_armor(items.armor(actor.runtime_id)),

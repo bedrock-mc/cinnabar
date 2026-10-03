@@ -85,10 +85,12 @@ impl SignEdit {
     pub(crate) fn new(position: [i32; 3], front: bool, base: NbtCompound) -> Self {
         let face = base.compound(face_key(front));
         // Signs from before the two-sided format keep the front text at the root.
-        let source = face.unwrap_or(&base);
-        let text = source.string("Text").unwrap_or_default();
+        let source = face.or_else(|| front.then_some(&base));
+        let text = source
+            .and_then(|source| source.string("Text"))
+            .unwrap_or_default();
         let argb = source
-            .integer("SignTextColor")
+            .and_then(|source| source.integer("SignTextColor"))
             .and_then(|value| i32::try_from(value).ok())
             .unwrap_or(-0x0100_0000);
         let [_, red, green, blue] = argb.to_be_bytes();
@@ -251,7 +253,26 @@ impl SignEdit {
             root.insert(axis, NbtValue::Int(value));
         }
         for front in [true, false] {
-            let mut face = root.compound(face_key(front)).cloned().unwrap_or_default();
+            let mut face = root.compound(face_key(front)).cloned().unwrap_or_else(|| {
+                let mut face = NbtCompound::default();
+                if front {
+                    for key in [
+                        "Text",
+                        "TextOwner",
+                        "SignTextColor",
+                        "IgnoreLighting",
+                        "PersistFormatting",
+                        "HideGlowOutline",
+                        "FilteredText",
+                        "FilteredTextOwner",
+                    ] {
+                        if let Some(value) = root.get(key) {
+                            face.insert(key, value.clone());
+                        }
+                    }
+                }
+                face
+            });
             if front == self.front {
                 face.insert("Text", NbtValue::String(text.as_str().into()));
             } else if face.string("Text").is_none() {
@@ -297,7 +318,31 @@ impl SignEditor {
         self.active.as_mut()
     }
 
-    /// Closes the editor and returns what was being edited.
+    /// Keeps a completed edit open until the transport accepts its packet.
+    fn finish(&mut self, send: impl FnOnce(protocol::Packet) -> Result<(), ()>) -> bool {
+        let Some(edit) = self.active.clone() else {
+            return true;
+        };
+        if !edit.changed() {
+            self.close();
+            return true;
+        }
+        let position = edit.position();
+        let accepted = match edit.into_encoded_nbt() {
+            Ok(nbt) => send(protocol::sign_edit_packet(position, &nbt)).is_ok(),
+            Err(detail) => {
+                bevy::log::warn!("sign edit NBT was not encodable: {detail}");
+                false
+            }
+        };
+        if accepted {
+            self.close();
+        } else {
+            self.finish_requested = true;
+        }
+        accepted
+    }
+
     pub(crate) fn close(&mut self) -> Option<SignEdit> {
         self.active.take()
     }

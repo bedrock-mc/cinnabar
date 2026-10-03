@@ -91,9 +91,7 @@ pub fn navigate(
     {
         return FocusMove::Moved(target.key.clone());
     }
-    let Some(target) = sweep_from(regions, &candidates, current, direction, screen) else {
-        return FocusMove::Stayed;
-    };
+    let target = sweep_from(regions, &candidates, current, direction, screen);
     contain(&candidates, current, target, direction, &state.focus_memory)
 }
 
@@ -202,13 +200,13 @@ fn sweep_from<'a>(
 fn contain<'a>(
     candidates: &[&'a HitRegion],
     current: &HitRegion,
-    target: &'a HitRegion,
+    target: Option<&'a HitRegion>,
     direction: FocusDirection,
     memory: &FocusMemory,
 ) -> FocusMove {
     let containers = current.focus.as_ref().map_or(&[][..], |f| &f.containers);
     for container in containers.iter().rev() {
-        if container.holds(&target.key) {
+        if target.is_some_and(|target| container.holds(&target.key)) {
             break;
         }
         match container.mode(direction) {
@@ -234,6 +232,9 @@ fn contain<'a>(
             }
         }
     }
+    let Some(target) = target else {
+        return FocusMove::Stayed;
+    };
     let entered = target
         .focus
         .as_ref()

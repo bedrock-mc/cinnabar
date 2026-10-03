@@ -435,6 +435,21 @@ impl ActorArtworkPages {
     pub fn identity(&self) -> [u8; 32] {
         self.identity
     }
+
+    /// Recognizes clones of the exact artwork snapshot without scanning pixels or routes.
+    pub fn shares_storage_with(&self, other: &Self) -> bool {
+        self.identity == other.identity
+            && self.entity_identity == other.entity_identity
+            && self.rejected_bindings == other.rejected_bindings
+            && Arc::ptr_eq(&self.pages, &other.pages)
+            && Arc::ptr_eq(&self.routes, &other.routes)
+            && Arc::ptr_eq(&self.source_locations, &other.source_locations)
+            && Arc::ptr_eq(&self.entity_locations, &other.entity_locations)
+            && Arc::ptr_eq(&self.equipment, &other.equipment)
+            && Arc::ptr_eq(&self.pack_source_locations, &other.pack_source_locations)
+            && Arc::ptr_eq(&self.pack_locations, &other.pack_locations)
+    }
+
     pub fn pages(&self) -> &[ActorTexturePage] {
         &self.pages
     }
@@ -465,6 +480,26 @@ impl ActorArtworkPages {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Route-only changes can retain the pixel identity but must invalidate prepared artwork.
+    #[test]
+    fn shared_artwork_snapshot_checks_routes_as_well_as_pixels() {
+        let original = ActorArtworkPages::default();
+        let mut changed = original.clone();
+        assert!(original.shares_storage_with(&changed));
+        Arc::make_mut(&mut changed.routes).insert(
+            EntityRigId(0),
+            ActorArtworkLocation {
+                page: 1,
+                layer: 0,
+                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+            },
+        );
+        assert_eq!(original.identity(), changed.identity());
+        assert!(Arc::ptr_eq(&original.pages, &changed.pages));
+        assert!(!original.shares_storage_with(&changed));
+    }
+
     #[test]
     fn page_budget_reserves_player_capacity_and_checks_exact_boundaries() {
         assert_eq!(MAX_RENDERED_PLAYERS, 128);

@@ -123,6 +123,7 @@ fn wiring_app(ticker: MovementTicker, physics: LocalPhysicsController) -> App {
         .init_resource::<crate::movement::LocalMovementSpeedAuthority>()
         .insert_resource(fixture_registries())
         .insert_resource(UiRuntime::new(1))
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
         .init_resource::<bevy::prelude::Time<bevy::time::Real>>()
         .insert_resource(AcceptanceRun::new(Some(900), None, false, false))
         .init_resource::<ChunkUploadBudget>()

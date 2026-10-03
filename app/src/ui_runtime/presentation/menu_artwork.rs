@@ -23,6 +23,8 @@ const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 /// Largest source side, as a desktop texture allows; `MAX_DECODE_ALLOC` bounds memory.
 const MAX_SOURCE_SIDE: u32 = 16_384;
 const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
+/// Peak conversion scratch, allowing an ordinary 2048-square source on the serial worker.
+const MAX_WORKING_ALLOC: u64 = MAX_DECODE_ALLOC * 2;
 /// Largest side artwork keeps; bigger sources scale down, smaller stay native.
 const MAX_ARTWORK_SIDE: u32 = 512;
 const GUTTER: u32 = 1;
@@ -312,15 +314,19 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     let files = set
         .paths
         .iter()
-        .take(MAX_ARTWORKS)
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
         .map(|(path, side)| Source::File(path.clone(), (*side).min(MAX_ARTWORK_SIDE)));
     let engine = set
         .oversized
         .iter()
         .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
-    let mut all: Vec<_> = files.collect();
-    all.extend(engine.filter(|source| unique.insert(source.key().0)));
+    let mut all: Vec<_> = files.take(MAX_ARTWORKS).collect();
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(
+        engine
+            .filter(|source| unique.insert(source.key().0))
+            .take(remaining),
+    );
     all
 }
 
@@ -428,7 +434,7 @@ fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
 /// than `max_side` on either axis; a downscale filters premultiplied so
 /// transparent texels never bleed into edges.
 fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
-    if bytes.is_empty() {
+    if bytes.is_empty() || bytes.len() > MAX_SOURCE_BYTES || max_side == 0 {
         return None;
     }
     let format = image::guess_format(bytes).ok()?;
@@ -440,6 +446,30 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
         || dimensions.0 > MAX_SOURCE_SIDE
         || dimensions.1 > MAX_SOURCE_SIDE
     {
+        return None;
+    }
+    // Budget decoder output, RGBA32F conversion, the separable resize's
+    // intermediate and final buffers, and the RGBA8 result before allocating.
+    let pixels = u64::from(dimensions.0).checked_mul(u64::from(dimensions.1))?;
+    let scale = f64::from(max_side) / f64::from(dimensions.0.max(dimensions.1));
+    let fitted = |side: u32| {
+        if scale >= 1.0 {
+            side
+        } else {
+            ((f64::from(side) * scale).round() as u32).clamp(1, max_side)
+        }
+    };
+    let [output_width, output_height] = [fitted(dimensions.0), fitted(dimensions.1)].map(u64::from);
+    let conversion = pixels.checked_mul(32)?;
+    let resize = pixels
+        .checked_mul(16)?
+        .checked_add(
+            u64::from(dimensions.0)
+                .checked_mul(output_height)?
+                .checked_mul(16)?,
+        )?
+        .checked_add(output_width.checked_mul(output_height)?.checked_mul(20)?)?;
+    if conversion.max(resize) > MAX_WORKING_ALLOC {
         return None;
     }
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
@@ -534,6 +564,7 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
     let mut paths = vec![home.persona_head.clone()];
     for art in [&home.play_art, &home.store_art].into_iter().flatten() {
         paths.extend([
+            art.banner_texture.clone(),
             art.default_background.clone(),
             art.hover_background.clone(),
             art.default_foreground.clone(),
@@ -650,5 +681,40 @@ mod tests {
                 .zip([200, 100, 50])
                 .all(|(a, b)| a.abs_diff(b) <= 1)
         );
+    }
+    #[test]
+    fn grayscale_conversion_obeys_the_decode_memory_budget() {
+        let mut bytes = Vec::new();
+        image::GrayImage::new(4096, 4096)
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        assert!(decode_bytes(&bytes, 128).is_none());
+    }
+
+    #[test]
+    fn oversized_source_sets_cannot_defeat_the_decode_cache_bound() {
+        let bytes: Arc<[u8]> = png(2, 2, [255; 4]).into();
+        let set = ArtworkSet {
+            oversized: (0..MAX_DECODED + 1)
+                .map(|i| (format!("texture-{i}"), bytes.clone()))
+                .collect(),
+            ..Default::default()
+        };
+        let mut cache = DecodeCache::default();
+        let missing = cache.missing(&set);
+        assert!(missing.len() <= MAX_ARTWORKS);
+        cache.decode(&missing, &set);
+        assert!(cache.decoded.len() <= MAX_DECODED);
+    }
+
+    #[test]
+    fn repeated_artwork_paths_do_not_exclude_later_unique_sources() {
+        let set = ArtworkSet {
+            paths: std::iter::repeat_n(("same".into(), 128), MAX_ARTWORKS)
+                .chain([("later".into(), 128)])
+                .collect(),
+            ..Default::default()
+        };
+        assert_eq!(sources(&set).len(), 2);
     }
 }

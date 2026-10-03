@@ -372,7 +372,7 @@ pub fn hit_test(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegion> {
         .rev()
         .filter(|region| region.kind != HitKind::Panel || region.pressed.is_some())
         .find(|region| region.contains(point))?;
-    (top.kind != HitKind::Modal).then_some(top)
+    (top.enabled && top.kind != HitKind::Modal).then_some(top)
 }
 
 /// The scroll view the wheel at `point` reaches, innermost first: one whose

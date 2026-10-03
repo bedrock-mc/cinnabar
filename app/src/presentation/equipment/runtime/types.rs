@@ -29,6 +29,8 @@ pub(super) enum MeshKey {
     Block(u32),
     /// A session icon, by its index in the session layer.
     Session(usize),
+    /// A session custom block item's cube sheet, by its index in the session layer.
+    SessionBlock(usize),
 }
 
 #[derive(Clone, Debug, Default)]

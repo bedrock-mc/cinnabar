@@ -354,7 +354,6 @@ fn malformed_or_missing_score_siblings_reject_the_whole_event() {
             },
         )
         .unwrap();
-    let before = store.sidebar().unwrap();
 
     assert_eq!(
         store.apply(
@@ -366,9 +365,9 @@ fn malformed_or_missing_score_siblings_reject_the_whole_event() {
                 ]),
             }
         ),
-        Ok(RetainedUiApply::Ignored)
+        Ok(RetainedUiApply::Applied)
     );
-    assert_eq!(store.sidebar().unwrap(), before);
+    assert_eq!(store.sidebar().unwrap().rows.len(), 2);
 
     assert_eq!(
         store.apply(
@@ -377,9 +376,9 @@ fn malformed_or_missing_score_siblings_reject_the_whole_event() {
                 entries: Arc::from([removed("atomic", 1), removed("atomic", 404)]),
             }
         ),
-        Ok(RetainedUiApply::Ignored)
+        Ok(RetainedUiApply::Applied)
     );
-    assert_eq!(store.sidebar().unwrap(), before);
+    assert_eq!(store.sidebar().unwrap().rows.len(), 1);
 
     let oversized = Arc::from("x".repeat(MAX_RETAINED_UI_TEXT_FIELD_BYTES + 1));
     assert_eq!(
@@ -392,9 +391,9 @@ fn malformed_or_missing_score_siblings_reject_the_whole_event() {
                 ]),
             }
         ),
-        Ok(RetainedUiApply::Ignored)
+        Ok(RetainedUiApply::Applied)
     );
-    assert_eq!(store.sidebar().unwrap(), before);
+    assert_eq!(store.sidebar().unwrap().rows.len(), 1);
     assert_eq!(store.diagnostics().missing_objectives, 1);
     assert_eq!(store.diagnostics().missing_scores, 1);
     assert_eq!(store.diagnostics().text_field_rejections, 1);
@@ -756,4 +755,29 @@ fn below_name_and_list_owner_lookups_track_display_and_score_lifecycle() {
         .unwrap();
     assert_eq!(store.below_name_for_owner(&player), None);
     assert_eq!(store.list_score_for_owner(&player), None);
+}
+
+#[test]
+fn review_odd_score_entries_do_not_discard_valid_siblings() {
+    let mut store = ScoreboardStore::default();
+    store.apply(1, display("sidebar", "known", 0)).unwrap();
+    let owner = || ScoreOwner::FakePlayer(Arc::from("Player"));
+    let result = store
+        .apply(
+            2,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([
+                    score("known", 1, 11, owner()),
+                    score("unknown", 2, 22, owner()),
+                    removed("known", 99),
+                    score("known", 3, 33, owner()),
+                ]),
+            },
+        )
+        .unwrap();
+    assert_eq!(result, RetainedUiApply::Applied);
+    let rows = store.sidebar().unwrap().rows;
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|row| row.score == 11));
+    assert!(rows.iter().any(|row| row.score == 33));
 }

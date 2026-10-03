@@ -236,10 +236,15 @@ pub(in crate::chunk) fn queue_chunks(
             indirect_batch_sets.p0().0.insert(
                 view_entity,
                 ChunkIndirectBatch {
-                    visible_entities: visible
-                        .iter()
-                        .map(|(render_entity, _)| *render_entity)
-                        .collect(),
+                    visible_entities: front_to_back_cube_entities(
+                        visible.iter().filter_map(|(entity, _)| {
+                            allocations
+                                .get(*entity)
+                                .ok()
+                                .map(|item| (*entity, item.key))
+                        }),
+                        &view.rangefinder3d(),
+                    ),
                     drawn_allocations: Vec::new(),
                     indirect_offset: 0,
                     command_count: 0,

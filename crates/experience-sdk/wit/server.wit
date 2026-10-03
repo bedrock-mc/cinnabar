@@ -1,4 +1,4 @@
-package cinnabar:experience-server@0.1.0;
+package cinnabar:experience-server@0.2.0;
 
 interface types {
     record block-pos { x: s32, y: s32, z: s32 }
@@ -21,10 +21,12 @@ interface types {
         pos: block-pos, actor: option<player-id>, cause: change-cause,
         before-id: string, after-id: string, previous-data: option<list<u8>>,
     }
+    /// One field of a client-channel record, as the client part's channel declares it.
+    variant scalar { %bool(bool), integer(s64), text(string), choice(u16) }
 }
 
 interface world-access {
-    use types.{block-pos, player-id, callback-info, world-error};
+    use types.{block-pos, player-id, callback-info, world-error, scalar};
     /// Created only by the host, for one callback invocation.
     resource callback {
         info: func() -> callback-info;
@@ -34,6 +36,9 @@ interface world-access {
         /// none deletes the record.
         set-block-data: func(pos: block-pos, data: option<list<u8>>) -> result<_, world-error>;
         tell: func(player: player-id, text: string) -> result<_, world-error>;
+        /// Stages `payload` for `player`'s client part on `channel`, revision `schema`. It is sent
+        /// after the callback commits, if that player's client part declares the channel.
+        send-client: func(player: player-id, channel: string, schema: u16, payload: list<scalar>) -> result<_, world-error>;
     }
 }
 
@@ -46,10 +51,13 @@ world server {
     import world-access;
     import diagnostics;
     use world-access.{callback};
-    use types.{block-def, block-change, block-pos, player-id, face, guest-error};
+    use types.{block-def, block-change, block-pos, player-id, face, guest-error, scalar};
     export register: func() -> result<list<block-def>, guest-error>;
     export on-place: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
     export on-break: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
     export on-interact: func(ctx: borrow<callback>, player: player-id, pos: block-pos, clicked-face: face) -> result<_, guest-error>;
     export on-neighbor-changed: func(ctx: borrow<callback>, pos: block-pos, neighbor: block-pos) -> result<_, guest-error>;
+    /// `player`'s client part sent `payload` on `channel`, revision `schema`. `ctx` has no
+    /// snapshot, so every world read and write is refused.
+    export client-message: func(ctx: borrow<callback>, player: player-id, channel: string, schema: u16, payload: list<scalar>) -> result<_, guest-error>;
 }

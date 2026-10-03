@@ -280,3 +280,10 @@ fn rewritten_expression_reads_the_target() {
     );
     assert_eq!(both, Some(Scalar::Bool(false)));
 }
+
+#[test]
+fn review_oversized_expression_is_never_retained_in_the_parse_cache() {
+    let expression = "x".repeat(MAX_BYTES + 1);
+    assert!(super::parsed(&expression).is_none());
+    super::CACHE.with(|cache| assert!(!cache.borrow().contains_key(&expression)));
+}

@@ -5,9 +5,11 @@ use super::*;
 
 #[test]
 fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(11);
+
     let mut runtime = UiRuntime::new(11);
     runtime.set_chat_identity(Arc::from("Player"), Arc::from("1234"));
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("hello").unwrap();
 
     let request = runtime.queue_chat_send(100).unwrap();
@@ -17,7 +19,7 @@ fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
     assert!(runtime.chat_editor().as_str().is_empty());
     assert_eq!(runtime.pending_chat_sends().len(), 1);
 
-    runtime.begin_session(12);
+    runtime.begin_session(&mut player_runtime, 12);
     assert!(runtime.pending_chat_sends().is_empty());
     assert_eq!(runtime.dropped_unsent_chat_messages(), 1);
 }
@@ -66,8 +68,10 @@ impl ChatClipboard for ClipboardFixture {
 
 #[test]
 fn changed_editor_state_issues_one_complete_autocomplete_request_per_revision() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(5);
+
     let mut runtime = UiRuntime::new(5);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
 
     runtime.insert_chat_text("").unwrap();
     assert!(runtime.take_chat_autocomplete_request().is_none());
@@ -88,24 +92,29 @@ fn changed_editor_state_issues_one_complete_autocomplete_request_per_revision() 
 
 #[test]
 fn autocomplete_response_and_ui_action_complete_the_editor_then_clear_on_close() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("/g").unwrap();
     let request = runtime.take_chat_autocomplete_request().unwrap();
     runtime
-        .apply(envelope(
-            2,
-            1,
-            UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
-                enum_name: Arc::from("commands"),
-                action: ProtocolAutocompleteAction::Replace,
-                suggestions: Arc::from([Arc::from("/give"), Arc::from("/gamemode")]),
-            }),
-        ))
+        .apply(
+            &mut player_runtime,
+            envelope(
+                2,
+                1,
+                UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
+                    enum_name: Arc::from("commands"),
+                    action: ProtocolAutocompleteAction::Replace,
+                    suggestions: Arc::from([Arc::from("/give"), Arc::from("/gamemode")]),
+                }),
+            ),
+        )
         .unwrap();
 
     assert!(runtime.chat_suggestions().is_empty());
-    assert!(runtime.complete_chat_autocomplete(request));
+    assert!(runtime.complete_chat_autocomplete(&player_runtime, request));
     assert_eq!(runtime.chat_suggestions().len(), 2);
     runtime.handle_chat_ui_action(UiAction::Navigate([0, 1]));
     runtime.handle_chat_ui_action(UiAction::Accept);
@@ -118,76 +127,93 @@ fn autocomplete_response_and_ui_action_complete_the_editor_then_clear_on_close()
 
 #[test]
 fn stale_autocomplete_request_cannot_apply_to_a_new_editor_revision() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("/g").unwrap();
     let stale = runtime.take_chat_autocomplete_request().unwrap();
     runtime.insert_chat_text("i").unwrap();
     runtime.take_chat_autocomplete_request().unwrap();
     runtime
-        .apply(envelope(
-            2,
-            1,
-            UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
-                enum_name: Arc::from("commands"),
-                action: ProtocolAutocompleteAction::Replace,
-                suggestions: Arc::from([Arc::from("/give")]),
-            }),
-        ))
+        .apply(
+            &mut player_runtime,
+            envelope(
+                2,
+                1,
+                UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
+                    enum_name: Arc::from("commands"),
+                    action: ProtocolAutocompleteAction::Replace,
+                    suggestions: Arc::from([Arc::from("/give")]),
+                }),
+            ),
+        )
         .unwrap();
 
-    assert!(!runtime.complete_chat_autocomplete(stale));
+    assert!(!runtime.complete_chat_autocomplete(&player_runtime, stale));
     assert!(runtime.chat_suggestions().is_empty());
 }
 
 #[test]
 fn pending_autocomplete_request_is_serviced_once_against_catalog_revision() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime
-        .apply(envelope(
-            2,
-            1,
-            UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
-                enum_name: Arc::from("commands"),
-                action: ProtocolAutocompleteAction::Replace,
-                suggestions: Arc::from([Arc::from("/give")]),
-            }),
-        ))
+        .apply(
+            &mut player_runtime,
+            envelope(
+                2,
+                1,
+                UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
+                    enum_name: Arc::from("commands"),
+                    action: ProtocolAutocompleteAction::Replace,
+                    suggestions: Arc::from([Arc::from("/give")]),
+                }),
+            ),
+        )
         .unwrap();
     runtime.insert_chat_text("/g").unwrap();
 
-    assert!(runtime.service_pending_chat_autocomplete());
+    assert!(runtime.service_pending_chat_autocomplete(&player_runtime));
     assert_eq!(runtime.chat_suggestions(), [Arc::from("/give")]);
-    assert!(!runtime.service_pending_chat_autocomplete());
+    assert!(!runtime.service_pending_chat_autocomplete(&player_runtime));
 }
 
 #[test]
 fn session_replacement_discards_the_prior_autocomplete_catalog() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
     runtime
-        .apply(envelope(
-            2,
-            1,
-            UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
-                enum_name: Arc::from("commands"),
-                action: ProtocolAutocompleteAction::Replace,
-                suggestions: Arc::from([Arc::from("/give")]),
-            }),
-        ))
+        .apply(
+            &mut player_runtime,
+            envelope(
+                2,
+                1,
+                UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
+                    enum_name: Arc::from("commands"),
+                    action: ProtocolAutocompleteAction::Replace,
+                    suggestions: Arc::from([Arc::from("/give")]),
+                }),
+            ),
+        )
         .unwrap();
-    runtime.begin_session(3);
-    runtime.open_chat();
+    runtime.begin_session(&mut player_runtime, 3);
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("/g").unwrap();
 
-    assert!(runtime.service_pending_chat_autocomplete());
+    assert!(runtime.service_pending_chat_autocomplete(&player_runtime));
     assert!(runtime.chat_suggestions().is_empty());
 }
 
 #[test]
 fn history_navigation_replaces_the_presented_editor_text() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(4);
+
     let mut runtime = UiRuntime::new(4);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("first").unwrap();
     runtime.queue_chat_send(0).unwrap();
     runtime.insert_chat_text("second").unwrap();
@@ -294,14 +320,16 @@ fn fast_transfer_action_is_exact_and_carries_session_ordinal_identity() {
 
 #[test]
 fn session_replacement_clears_editor_autocomplete_and_old_outbox() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("/old").unwrap();
     runtime.queue_chat_send(0).unwrap();
     runtime.insert_chat_text("/draft").unwrap();
     assert!(runtime.take_chat_autocomplete_request().is_some());
 
-    runtime.begin_session(2);
+    runtime.begin_session(&mut player_runtime, 2);
 
     assert!(!runtime.chat_focused());
     assert!(runtime.chat_editor().as_str().is_empty());
@@ -312,8 +340,10 @@ fn session_replacement_clears_editor_autocomplete_and_old_outbox() {
 
 #[test]
 fn focused_chat_suppresses_production_gameplay_inputs() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     let mut cursor = CursorOptions {
         grab_mode: CursorGrabMode::Locked,
         visible: false,
@@ -328,6 +358,7 @@ fn focused_chat_suppresses_production_gameplay_inputs() {
     };
 
     suppress_gameplay_input_for_chat(
+        &player_runtime,
         &runtime,
         &mut cursor,
         &mut keys,
@@ -344,8 +375,10 @@ fn focused_chat_suppresses_production_gameplay_inputs() {
 
 #[test]
 fn control_or_command_v_uses_the_bounded_clipboard_adapter() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     let mut keys = ButtonInput::<KeyCode>::default();
     keys.press(KeyCode::ControlLeft);
     let mut clipboard = ClipboardFixture(Some(Arc::from("bounded paste")));
@@ -386,8 +419,10 @@ fn controller_buttons_map_to_the_shared_ui_action_adapter() {
 
 #[test]
 fn accept_and_cancel_actions_close_chat_and_restore_gameplay_authority() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("hello").unwrap();
     assert!(dispatch_chat_ui_action(
         &mut runtime,
@@ -398,7 +433,7 @@ fn accept_and_cancel_actions_close_chat_and_restore_gameplay_authority() {
     assert!(!runtime.chat_focused());
     assert_eq!(runtime.pending_chat_sends().len(), 1);
 
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     assert!(dispatch_chat_ui_action(
         &mut runtime,
         UiAction::Cancel,
@@ -439,24 +474,29 @@ fn closing_chat_immediately_regrabs_and_hides_the_gameplay_cursor() {
 
 #[test]
 fn provided_suggestion_hit_selects_the_matching_scrolled_row() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime
-        .apply(envelope(
-            1,
-            1,
-            UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
-                enum_name: Arc::from("commands"),
-                action: ProtocolAutocompleteAction::Replace,
-                suggestions: (0..12)
-                    .map(|index| Arc::from(format!("/s{index}")))
-                    .collect::<Vec<_>>()
-                    .into(),
-            }),
-        ))
+        .apply(
+            &mut player_runtime,
+            envelope(
+                1,
+                1,
+                UiEvent::ChatAutocomplete(ChatAutocompleteEvent {
+                    enum_name: Arc::from("commands"),
+                    action: ProtocolAutocompleteAction::Replace,
+                    suggestions: (0..12)
+                        .map(|index| Arc::from(format!("/s{index}")))
+                        .collect::<Vec<_>>()
+                        .into(),
+                }),
+            ),
+        )
         .unwrap();
     runtime.insert_chat_text("/").unwrap();
-    assert!(runtime.service_pending_chat_autocomplete());
+    assert!(runtime.service_pending_chat_autocomplete(&player_runtime));
     for _ in 0..10 {
         runtime.handle_chat_ui_action(UiAction::Navigate([0, 1]));
     }
@@ -499,13 +539,18 @@ fn warp_tree() -> protocol::CommandTreeEvent {
 
 #[test]
 fn command_tree_drives_suggestions_usage_and_mid_line_token_replacement() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime
-        .apply(envelope(2, 1, UiEvent::AvailableCommands(warp_tree())))
+        .apply(
+            &mut player_runtime,
+            envelope(2, 1, UiEvent::AvailableCommands(warp_tree())),
+        )
         .unwrap();
     runtime.insert_chat_text("/warp fa").unwrap();
-    assert!(runtime.service_pending_chat_autocomplete());
+    assert!(runtime.service_pending_chat_autocomplete(&player_runtime));
     assert_eq!(
         runtime.chat_suggestions(),
         [Arc::from("far"), Arc::from("fast")]
@@ -522,13 +567,18 @@ fn command_tree_drives_suggestions_usage_and_mid_line_token_replacement() {
 
 #[test]
 fn tab_inserts_then_cycles_the_same_suggestion_list() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime
-        .apply(envelope(2, 1, UiEvent::AvailableCommands(warp_tree())))
+        .apply(
+            &mut player_runtime,
+            envelope(2, 1, UiEvent::AvailableCommands(warp_tree())),
+        )
         .unwrap();
     runtime.insert_chat_text("/warp f").unwrap();
-    assert!(runtime.service_pending_chat_autocomplete());
+    assert!(runtime.service_pending_chat_autocomplete(&player_runtime));
 
     assert!(runtime.handle_chat_ui_action(UiAction::TabNext));
     assert_eq!(runtime.chat_editor().as_str(), "/warp far");
@@ -542,13 +592,18 @@ fn tab_inserts_then_cycles_the_same_suggestion_list() {
 
 #[test]
 fn typing_after_tab_restarts_completion() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime
-        .apply(envelope(2, 1, UiEvent::AvailableCommands(warp_tree())))
+        .apply(
+            &mut player_runtime,
+            envelope(2, 1, UiEvent::AvailableCommands(warp_tree())),
+        )
         .unwrap();
     runtime.insert_chat_text("/warp f").unwrap();
-    assert!(runtime.service_pending_chat_autocomplete());
+    assert!(runtime.service_pending_chat_autocomplete(&player_runtime));
     runtime.handle_chat_ui_action(UiAction::TabNext);
     runtime.insert_chat_text(" ").unwrap();
     assert!(runtime.take_chat_autocomplete_request().is_some());
@@ -557,9 +612,37 @@ fn typing_after_tab_restarts_completion() {
 
 #[test]
 fn local_chat_line_does_not_consume_the_next_server_sequence() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
     runtime.push_local_chat_line(Arc::from("Saved screenshot as a.png"), 5);
     runtime.push_local_chat_line(Arc::from("Saved screenshot as b.png"), 6);
-    runtime.apply(envelope(2, 0, text("server"))).unwrap();
+    runtime
+        .apply(&mut player_runtime, envelope(2, 0, text("server")))
+        .unwrap();
     assert_eq!(runtime.chat().messages().len(), 3);
+}
+
+#[test]
+fn tab_cycles_whitespace_suggestions_as_complete_replacements() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+    let mut runtime = UiRuntime::new(2);
+    runtime.open_chat(&mut player_runtime);
+    runtime.insert_chat_text("/tell A").unwrap();
+    let request = runtime.take_chat_autocomplete_request().unwrap();
+    runtime
+        .chat_autocomplete
+        .apply(
+            request,
+            ui::ChatAutocompleteDelta {
+                enum_name: Arc::from("players"),
+                action: ui::ChatAutocompleteAction::Replace,
+                suggestions: Arc::from([Arc::from("Alice One"), Arc::from("Alice Two")]),
+            },
+        )
+        .unwrap();
+    assert!(runtime.handle_chat_ui_action(UiAction::TabNext));
+    assert_eq!(runtime.chat_editor().as_str(), "/tell Alice One");
+    assert!(runtime.handle_chat_ui_action(UiAction::TabNext));
+    assert_eq!(runtime.chat_editor().as_str(), "/tell Alice Two");
 }

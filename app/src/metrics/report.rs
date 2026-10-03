@@ -4,6 +4,15 @@ use serde::Serialize;
 
 use super::{AssetMetrics, ExactFullViewProof, TeleportProof};
 
+/// Bounds on FPS from the mean duration of the slowest one percent of frames.
+/// The histogram's bucket width limits precision; this is not reciprocal p99.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct LowFpsBounds {
+    pub sample_count: u64,
+    pub lower: f64,
+    pub upper: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MetricsReport {
     pub session_seconds: f64,
@@ -14,6 +23,12 @@ pub struct MetricsReport {
     pub mutation_coordinate: Option<[i32; 3]>,
     pub visible_mutation_count: u64,
     pub frame_count: usize,
+    /// Sum of the recorded frame durations, after warmup and sample-window filtering.
+    pub frame_sample_seconds: f64,
+    pub average_fps: f64,
+    /// Null when no positive frame duration was recorded.
+    pub one_percent_low_fps: Option<LowFpsBounds>,
+    pub frame_histogram_resolution_ms: f64,
     pub p50_frame_ms: f64,
     pub p95_frame_ms: f64,
     pub p99_frame_ms: f64,

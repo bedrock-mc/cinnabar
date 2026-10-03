@@ -12,12 +12,16 @@ use super::UiRuntime;
 
 impl UiRuntime {
     /// Completes `request` against the catalog snapshot; false when it was stale or invalid.
-    pub fn complete_chat_autocomplete(&mut self, request: ChatAutocompleteRequest) -> bool {
+    pub fn complete_chat_autocomplete(
+        &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        request: ChatAutocompleteRequest,
+    ) -> bool {
         // UpdateSoftEnum and AvailableCommands arrive unsolicited without an editor request
         // identity, so the immutable catalog is queried locally and applied only through the
         // session/input/request correlation below.
         let command_permission = self
-            .local_abilities()
+            .local_abilities(player_runtime)
             .map(|update| update.command_permission);
         let context = CompletionContext {
             players: &self.known_player_names,
@@ -98,6 +102,7 @@ impl UiRuntime {
         let list = self.chat_autocomplete.suggestions().to_vec();
         let index = self.chat_autocomplete.selected_index();
         let hint = self.chat_usage_hint.clone();
+        let start = self.chat_token_start();
         self.replace_chat_token(&selected);
         // The edit re-arms completion; restoring the list keeps the cycle stable.
         if let Some(request) = self.pending_chat_autocomplete_request.take() {
@@ -117,7 +122,21 @@ impl UiRuntime {
         }
         self.chat_usage_hint = hint;
         self.chat_tab_cycling = true;
+        self.chat_tab_start = Some(start);
         true
+    }
+
+    /// Keeps the original replacement boundary while Tab cycles a suggestion list.
+    fn chat_token_start(&self) -> usize {
+        if self.chat_tab_cycling
+            && let Some(start) = self.chat_tab_start
+        {
+            return start;
+        }
+        let head = &self.chat_editor.as_str()[..self.chat_editor.cursor_byte()];
+        head.rfind(char::is_whitespace).map_or(0, |at| {
+            at + head[at..].chars().next().map_or(1, char::len_utf8)
+        })
     }
 
     /// Replaces the whitespace-delimited token ending at the cursor.
@@ -125,9 +144,7 @@ impl UiRuntime {
         let text = self.chat_editor.as_str();
         let cursor = self.chat_editor.cursor_byte();
         let head = &text[..cursor];
-        let start = head.rfind(char::is_whitespace).map_or(0, |at| {
-            at + head[at..].chars().next().map_or(1, char::len_utf8)
-        });
+        let start = self.chat_token_start();
         let tail = &text[cursor..];
         if start + value.len() + tail.len() > MAX_CHAT_INPUT_BYTES {
             return;

@@ -99,3 +99,38 @@ fn sign_art_follows_the_block_wood_and_mount() {
     );
     assert_eq!(SignLook::of_block(None).texture, "textures/ui/sign");
 }
+
+#[test]
+fn review_editing_the_legacy_back_preserves_the_front_text_and_color() {
+    let mut root = NbtCompound::default();
+    root.insert("Text", NbtValue::String("legacy front".into()));
+    root.insert("SignTextColor", NbtValue::Int(-123));
+    let mut edit = SignEdit::new([1, 2, 3], false, root);
+    assert_eq!(edit.text(), "");
+    edit.insert('b', |_| true);
+    let bytes = edit.into_encoded_nbt().unwrap();
+    let (encoded, _) = world::BlockEntityNbt::decode_prefix(&bytes).unwrap();
+    let root = encoded.parse().unwrap();
+    let front = root.compound("FrontText").unwrap();
+    assert_eq!(front.string("Text"), Some("legacy front"));
+    assert_eq!(front.integer("SignTextColor"), Some(-123));
+    assert_eq!(root.compound("BackText").unwrap().string("Text"), Some("b"));
+}
+
+#[test]
+fn review_sign_commit_survives_transport_backpressure() {
+    let mut editor = SignEditor::default();
+    let mut edit = SignEdit::new([1, 2, 3], true, NbtCompound::default());
+    assert!(edit.insert('x', |_| true));
+    editor.open(edit);
+    assert!(!editor.finish(|_| Err(())));
+    assert!(editor.is_open());
+    assert!(editor.take_finish_request());
+    let mut sent = 0;
+    assert!(editor.finish(|_| {
+        sent += 1;
+        Ok(())
+    }));
+    assert_eq!(sent, 1);
+    assert!(!editor.is_open());
+}

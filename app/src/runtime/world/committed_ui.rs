@@ -9,6 +9,7 @@ use bevy::{
 use client_world::CommittedUiEvent;
 
 pub(crate) fn drain_committed_ui_before_authority(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
     clock: Res<WorldClock>,
     mut ui_runtime: ResMut<UiRuntime>,
@@ -24,7 +25,7 @@ pub(crate) fn drain_committed_ui_before_authority(
                 && stream.inventory_committed_through().is_some()
         })
         .map(|stream| stream.biome_tint_identity().stream());
-    ui_runtime.synchronize_local_abilities(session, ability_stream);
+    ui_runtime.synchronize_local_abilities(&mut player_runtime, session, ability_stream);
     let craft_identity = client_world
         .stream
         .as_ref()
@@ -36,7 +37,7 @@ pub(crate) fn drain_committed_ui_before_authority(
                 stream.inventory_committed_through(),
             )
         });
-    ui_runtime.synchronize_crafting_frontier(session, craft_identity);
+    ui_runtime.synchronize_crafting_frontier(&mut player_runtime, session, craft_identity);
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
@@ -75,7 +76,13 @@ pub(crate) fn drain_committed_ui_before_authority(
                 event,
             } => {
                 if Some(stream_identity) == ability_stream {
-                    ui_runtime.apply_local_abilities(session, stream_identity, sequence, event);
+                    ui_runtime.apply_local_abilities(
+                        &mut player_runtime,
+                        session,
+                        stream_identity,
+                        sequence,
+                        event,
+                    );
                 }
                 Ok(())
             }
@@ -88,13 +95,16 @@ pub(crate) fn drain_committed_ui_before_authority(
                     continue;
                 }
                 ui_runtime
-                    .apply(SequencedUiEvent {
-                        session_id: session,
-                        fifo_sequence: sequence,
-                        local_millis,
-                        server_tick: None,
-                        event: protocol::UiEvent::Form(event),
-                    })
+                    .apply(
+                        &mut player_runtime,
+                        SequencedUiEvent {
+                            session_id: session,
+                            fifo_sequence: sequence,
+                            local_millis,
+                            server_tick: None,
+                            event: protocol::UiEvent::Form(event),
+                        },
+                    )
                     .map(|_| ())
             }
             // A generic UI entry must never bypass the form lifetime fence.
@@ -103,13 +113,16 @@ pub(crate) fn drain_committed_ui_before_authority(
                 ..
             } => continue,
             CommittedUiEvent::Ui { sequence, event } => ui_runtime
-                .apply(SequencedUiEvent {
-                    session_id: clock.session_generation(),
-                    fifo_sequence: sequence,
-                    local_millis,
-                    server_tick: None,
-                    event,
-                })
+                .apply(
+                    &mut player_runtime,
+                    SequencedUiEvent {
+                        session_id: clock.session_generation(),
+                        fifo_sequence: sequence,
+                        local_millis,
+                        server_tick: None,
+                        event,
+                    },
+                )
                 .map(|_| ()),
             CommittedUiEvent::BlockCrack {
                 sequence,
@@ -126,13 +139,16 @@ pub(crate) fn drain_committed_ui_before_authority(
                 sequence,
                 server_tick,
                 attributes,
-            } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
-                session_id: clock.session_generation(),
-                fifo_sequence: sequence,
-                local_millis,
-                server_tick,
-                attributes,
-            }),
+            } => ui_runtime.apply_local_attributes(
+                &mut player_runtime,
+                SequencedLocalAttributes {
+                    session_id: clock.session_generation(),
+                    fifo_sequence: sequence,
+                    local_millis,
+                    server_tick,
+                    attributes,
+                },
+            ),
             CommittedUiEvent::LocalMetadata {
                 sequence, metadata, ..
             } => ui_runtime.apply_local_metadata(
@@ -149,12 +165,15 @@ pub(crate) fn drain_committed_ui_before_authority(
             CommittedUiEvent::LocalMount {
                 sequence,
                 ridden_unique_id,
-            } => {
-                ui_runtime.apply_local_mount(clock.session_generation(), sequence, ridden_unique_id)
-            }
+            } => ui_runtime.apply_local_mount(
+                &mut player_runtime,
+                clock.session_generation(),
+                sequence,
+                ridden_unique_id,
+            ),
         };
         if let Err(error) = result {
-            ui_runtime.clear_local_abilities();
+            ui_runtime.clear_local_abilities(&mut player_runtime);
             record_fatal_error(
                 &mut client_world.fatal_error,
                 format!("committed UI/gameplay event rejected: {error:?}"),

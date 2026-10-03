@@ -555,14 +555,14 @@ impl ScoreboardStore {
             if !text_is_bounded(&entry.objective_name) || !entry.owner.text_is_bounded() {
                 self.diagnostics.text_field_rejections =
                     self.diagnostics.text_field_rejections.saturating_add(1);
-                return RetainedUiApply::Ignored;
+                continue;
             }
             let named =
                 (entry.action != ScoreAction::RemoveFromAll).then_some(&entry.objective_name);
             if named.is_some_and(|name| !self.objectives.contains_key(name)) {
                 self.diagnostics.missing_objectives =
                     self.diagnostics.missing_objectives.saturating_add(1);
-                return RetainedUiApply::Ignored;
+                continue;
             }
             if entry.action == ScoreAction::Change {
                 let score = StoredScore {
@@ -584,7 +584,7 @@ impl ScoreboardStore {
                 .collect();
             if removed.is_empty() {
                 self.diagnostics.missing_scores = self.diagnostics.missing_scores.saturating_add(1);
-                return RetainedUiApply::Ignored;
+                continue;
             }
             staged.extend(removed.into_iter().map(|key| (key, None)));
         }

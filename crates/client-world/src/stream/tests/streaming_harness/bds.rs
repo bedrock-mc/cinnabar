@@ -24,6 +24,28 @@ fn bds_local_startup_completes_with_distant_replies_withheld() {
     assert!(harness.stream.local_terrain_ready());
 }
 
+/// Worker scheduling must not consume the retry budget of deliberately withheld fixture replies.
+#[test]
+fn intentionally_withheld_replies_survive_the_normal_retry_horizon() {
+    let mut harness = Harness::for_tests();
+    let column = ChunkKey::new(0, 0, 0);
+    harness.withheld.insert(column);
+    harness.push_column(column);
+    harness.step_until(|h| !h.held.is_empty());
+    let after_retries =
+        Instant::now() + SUB_CHUNK_RESPONSE_TIMEOUT * u32::from(MAX_SUB_CHUNK_RETRIES + 1);
+    for _ in 0..=MAX_SUB_CHUNK_RETRIES {
+        harness.stream.expire_sub_chunk_deadlines(after_retries);
+        harness.answer_requests();
+    }
+    assert_eq!(harness.stream.stats().sub_chunk_timeouts, 0);
+    assert_eq!(harness.stream.stats().sub_chunk_retry_exhaustions, 0);
+    assert_eq!(harness.held.len(), 1);
+    harness.withheld.clear();
+    harness.step_until(Harness::idle);
+    assert!(!harness.presented.is_empty());
+}
+
 /// Replays local terrain occupancy encoded as `(x,y,z,length,payload)` records.
 #[test]
 fn bds_saved_terrain_drains_without_camera_motion() {

@@ -56,8 +56,11 @@ pub(crate) struct QueuedMiningInteraction {
     pub(crate) mining_request: Option<protocol::MineBlockRequest>,
 }
 
-pub(crate) fn verified_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
-    let selected = ui.selected_stack_snapshot()?;
+pub(crate) fn verified_selection(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    ui: &UiRuntime,
+) -> Option<FrozenMiningSelection> {
+    let selected = ui.selected_stack_snapshot(player_runtime)?;
     let stack = match selected.state {
         PlayerInventorySlot::Unknown => return None,
         PlayerInventorySlot::Empty => protocol::NetworkItemStack::empty(),
@@ -74,8 +77,11 @@ pub(crate) fn verified_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection
 /// selected slot resolves to an empty hand, matching vanilla (assume empty
 /// until restated), so hand actions work before the inventory arrives. Block
 /// placement must not use this — it stays fail-closed via `verified_selection`.
-pub(crate) fn hand_interaction_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
-    let selected = ui.selected_stack_snapshot()?;
+pub(crate) fn hand_interaction_selection(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    ui: &UiRuntime,
+) -> Option<FrozenMiningSelection> {
+    let selected = ui.selected_stack_snapshot(player_runtime)?;
     let stack = match selected.state {
         PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => {
             protocol::NetworkItemStack::empty()

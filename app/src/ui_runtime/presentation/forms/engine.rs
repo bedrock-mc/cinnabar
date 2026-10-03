@@ -630,7 +630,7 @@ impl Painter<'_> {
                     dest,
                 ))
             }
-            "live_player_renderer" | "paper_doll_renderer" => {
+            "live_player_renderer" | "paper_doll_renderer" | "hud_player_renderer" => {
                 self.player_preview(renderer, data, dest, &alpha)
             }
             "splash_text_renderer" => {

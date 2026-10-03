@@ -491,6 +491,52 @@ fn custom_block_items_draw_their_default_state() {
     assert_eq!(icons.icons.len(), 1);
 }
 
+// A full-cube block item also carries the six-face sheet vanilla block items draw as a GPU cube,
+// with 16-texel faces however large the overlay's shared tile is; model shapes carry none.
+#[test]
+fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
+    use super::super::item_icons::custom_block_icons;
+    let pair = |item: &str, block: &str| (Arc::<str>::from(item), Arc::<str>::from(block));
+    let items = [
+        pair("test:lucky", "test:lucky"),
+        pair("test:generator", "test:generator"),
+        pair("test:lucky_placer", "test:lucky"),
+    ];
+    let compiled = compiled();
+    assert_eq!(compiled.overlay.texture.as_ref().unwrap().mips[0].size, 32);
+    let blocks = CustomBlocks {
+        blocks: vec![
+            block("test:lucky", 1, CustomBlockVisuals::default()),
+            generator(),
+        ]
+        .into(),
+        skipped: 0,
+    };
+    let icons = custom_block_icons(&compiled.overlay, &blocks, false, &items);
+    let sheets = icons
+        .block_sheets
+        .iter()
+        .map(|sheet| sheet.identifier.as_ref())
+        .collect::<Vec<_>>();
+    assert_eq!(sheets, ["test:lucky", "test:lucky_placer"]);
+    let sheet = &icons.block_sheets[0];
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    assert_eq!((sheet.width, sheet.height), (width, height));
+    let side = u32::from(assets::BLOCK_ITEM_FACE_SIDE);
+    let columns = u32::from(assets::BLOCK_ITEM_SHEET_GRID[0]);
+    for face in 0..6 {
+        for (x, y) in [(0, 0), (7, 3), (15, 15)] {
+            let (column, row) = (face % columns * side + x, face / columns * side + y);
+            let at = ((row * width + column) * 4) as usize;
+            assert_eq!(
+                &sheet.rgba8[at..at + 4],
+                &[x as u8 * 16, 200, 0, 255],
+                "face {face} texel {x},{y} is lucky's own texel"
+            );
+        }
+    }
+}
+
 // Real cached packs (`CINNABAR_PACKCACHE_DIR`): each unencrypted pack's namespaced scalar-textured
 // blocks, as full-block custom blocks, draw item thumbnails.
 #[test]

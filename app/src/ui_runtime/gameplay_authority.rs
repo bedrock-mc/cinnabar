@@ -10,16 +10,8 @@ use protocol::{
 use ui::BoundedStat;
 
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
-use crate::ui_runtime::inventory_ledger::PlayerInventorySlot;
 
-/// One borrowed view of the selected hotbar slot and its tri-state stack authority.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) struct SelectedStackSnapshot<'a> {
-    /// The selected physical hotbar slot.
-    pub(crate) slot: u8,
-    /// The authoritative, predicted, or bounded bootstrap state for that slot.
-    pub(crate) state: PlayerInventorySlot<'a>,
-}
+pub(crate) use inventory::SelectedStackSnapshot;
 
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
 const MILLIS_PER_SERVER_TICK: u64 = 50;
@@ -30,48 +22,39 @@ const MILLIS_PER_SERVER_TICK: u64 = 50;
 const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
 
 impl UiRuntime {
-    pub(crate) fn clear_block_breaking_mode(&mut self) {
-        self.server_authoritative_block_breaking = None;
+    pub(crate) fn clear_block_breaking_mode(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    ) {
+        player_runtime.facts.clear_block_breaking_mode()
     }
 
     pub(crate) fn install_block_breaking_mode(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         session_generation: u64,
         mode: bool,
         setup_succeeded: bool,
     ) {
-        if self.session_id() == session_generation && setup_succeeded {
-            self.server_authoritative_block_breaking = Some(mode);
-        }
+        player_runtime
+            .facts
+            .install_block_breaking_mode(session_generation, mode, setup_succeeded)
     }
 
     /// Retained negotiation only; this does not authorize a mining request.
-    pub(crate) const fn server_authoritative_block_breaking(&self) -> Option<bool> {
-        self.server_authoritative_block_breaking
-    }
-
-    /// Predicts a physical hotbar selection and retains the latest slot until its packet is sent.
-    pub(crate) fn queue_local_hotbar_selection(&mut self, slot: u8) {
-        if self.selected_hotbar_slot() == Some(slot) && self.pending_hotbar_selection.is_none() {
-            self.set_local_selected_slot(slot);
-            return;
-        }
-        self.set_local_selected_slot(slot);
-        self.pending_hotbar_selection = Some(slot);
+    pub(crate) const fn server_authoritative_block_breaking(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> Option<bool> {
+        player_runtime.facts.server_authoritative_block_breaking()
     }
 
     /// Returns the latest locally selected slot whose packet has not entered the network queue.
-    pub(crate) const fn pending_hotbar_selection(&self) -> Option<u8> {
-        self.pending_hotbar_selection
-    }
-
-    /// Clears a pending hotbar selection only when it is still the slot that was sent.
-    pub(crate) fn clear_pending_hotbar_selection(&mut self, slot: u8) -> bool {
-        if self.pending_hotbar_selection != Some(slot) {
-            return false;
-        }
-        self.pending_hotbar_selection = None;
-        true
+    pub(crate) const fn pending_hotbar_selection(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> Option<u8> {
+        player_runtime.inventory.pending_hotbar_selection()
     }
 
     /// Installs an explicit authoritative game mode. Stats are never
@@ -80,9 +63,12 @@ impl UiRuntime {
     /// bootstrap goes through [`Self::publish_bootstrap_game_modes`]; the
     /// witnesses drive this directly.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn publish_player_game_mode(&mut self, game_mode: protocol::PlayerGameMode) {
-        self.player_game_mode = Some(game_mode);
-        self.player_mode_from_default = false;
+    pub(crate) fn publish_player_game_mode(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        game_mode: protocol::PlayerGameMode,
+    ) {
+        player_runtime.facts.publish_player_game_mode(game_mode)
     }
 
     pub(crate) fn set_hardcore(&mut self, hardcore: bool) {
@@ -98,147 +84,119 @@ impl UiRuntime {
     /// (StartGame carried the level-default sentinel).
     pub(crate) fn publish_bootstrap_game_modes(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         player: protocol::PlayerGameMode,
         world_default: protocol::PlayerGameMode,
         player_uses_world_default: bool,
     ) {
-        self.player_game_mode = Some(player);
-        self.world_default_game_mode = Some(world_default);
-        self.player_mode_from_default = player_uses_world_default;
+        player_runtime.facts.publish_bootstrap_game_modes(
+            player,
+            world_default,
+            player_uses_world_default,
+        )
     }
 
     pub(super) fn apply_game_mode_update(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         update: protocol::GameModeUpdate,
     ) -> super::UiApplyOutcome {
-        match update {
-            protocol::GameModeUpdate::Explicit(mode) => {
-                self.player_game_mode = Some(mode);
-                self.player_mode_from_default = false;
-                super::UiApplyOutcome::Applied
-            }
-            protocol::GameModeUpdate::WorldDefault => match self.world_default_game_mode {
-                Some(default) => {
-                    self.player_game_mode = Some(default);
-                    self.player_mode_from_default = true;
-                    super::UiApplyOutcome::Applied
-                }
-                // No retained default to resolve against: keep the current
-                // authoritative mode and count the skip.
-                None => {
-                    self.gameplay_hud.note_odd_hud_packet();
-                    super::UiApplyOutcome::IgnoredByReceiveStore
-                }
-            },
-            protocol::GameModeUpdate::Unknown(_) => {
-                self.gameplay_hud.note_odd_hud_packet();
-                super::UiApplyOutcome::IgnoredByReceiveStore
-            }
+        if player_runtime.facts.apply_game_mode_update(update) {
+            super::UiApplyOutcome::Applied
+        } else {
+            self.gameplay_hud.note_odd_hud_packet();
+            super::UiApplyOutcome::IgnoredByReceiveStore
         }
     }
 
     pub(super) fn apply_default_game_mode_update(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         update: protocol::GameModeUpdate,
     ) -> super::UiApplyOutcome {
-        match update {
-            protocol::GameModeUpdate::Explicit(mode) => {
-                self.world_default_game_mode = Some(mode);
-                if self.player_mode_from_default {
-                    self.player_game_mode = Some(mode);
-                }
-                super::UiApplyOutcome::Applied
-            }
-            // A default-of-default or unknown default is odd; keep state.
-            protocol::GameModeUpdate::WorldDefault | protocol::GameModeUpdate::Unknown(_) => {
-                self.gameplay_hud.note_odd_hud_packet();
-                super::UiApplyOutcome::IgnoredByReceiveStore
-            }
+        if player_runtime.facts.apply_default_game_mode_update(update) {
+            super::UiApplyOutcome::Applied
+        } else {
+            self.gameplay_hud.note_odd_hud_packet();
+            super::UiApplyOutcome::IgnoredByReceiveStore
         }
     }
 
     /// Registers a mine-block prediction and returns its request id.
-    pub(crate) fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
-        self.inventory_ledger
+    pub(crate) fn begin_mining_request(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        slot: u8,
+        predicted_damage: i32,
+    ) -> Option<i32> {
+        player_runtime
+            .inventory
+            .ledger_mut()
             .begin_mining_request(slot, predicted_damage)
     }
 
-    pub(crate) fn cancel_mining_request(&mut self, request_id: i32) {
-        self.inventory_ledger.cancel_mining_request(request_id);
+    pub(crate) fn cancel_mining_request(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        request_id: i32,
+    ) {
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .cancel_mining_request(request_id);
     }
 
-    pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
-        self.player_game_mode
+    pub(crate) const fn player_game_mode(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> Option<protocol::PlayerGameMode> {
+        player_runtime.facts.player_game_mode()
     }
 
     /// Interaction capabilities for the current mode, refined by any server
     /// ability evidence. `None` until a game mode is known.
     pub(crate) fn game_mode_capabilities(
         &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
     ) -> Option<crate::game_mode_capabilities::GameModeCapabilities> {
-        self.player_game_mode.map(|mode| {
-            crate::game_mode_capabilities::GameModeCapabilities::resolve(
-                mode,
-                self.local_abilities(),
-            )
-        })
+        player_runtime.facts.game_mode_capabilities()
     }
 
-    pub(crate) const fn survival_stats_visible(&self) -> bool {
-        match self.player_game_mode {
-            Some(game_mode) => game_mode.shows_survival_stats(),
-            None => true,
-        }
+    pub(crate) const fn survival_stats_visible(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> bool {
+        player_runtime.facts.survival_stats_visible()
     }
 
-    pub(crate) fn selected_hotbar_slot(&self) -> Option<u8> {
-        // Local selection is client-authoritative in Bedrock: once the player picks a slot
-        // (number key / scroll / controller) that prediction wins over the server-echoed
-        // equipment slot. A server PlayerHotbar with select_slot clears the local
-        // prediction when it drains, so it takes effect at its FIFO position.
-        self.local_selected_slot
-            .or(self.server_selected_slot)
-            .or_else(|| {
-                self.local_selected_equipment
-                    .as_ref()
-                    .map(|equipment| equipment.event.selected_slot)
-                    .filter(|slot| *slot < protocol::HOTBAR_SLOT_COUNT)
-            })
-            .or_else(|| {
-                self.player_game_mode
-                    .filter(|game_mode| game_mode.shows_hotbar())
-                    .map(|_| 0)
-            })
+    pub(crate) fn selected_hotbar_slot(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> Option<u8> {
+        player_runtime
+            .inventory
+            .selected_hotbar_slot(player_runtime.facts.player_game_mode())
     }
 
     /// Borrows the selected slot and its one tri-state stack authority.
-    pub(crate) fn selected_stack_snapshot(&self) -> Option<SelectedStackSnapshot<'_>> {
-        let slot = self.selected_hotbar_slot()?;
-        let ledger_state = self.inventory_ledger.slot_state(slot)?;
-        let state = match ledger_state {
-            PlayerInventorySlot::Unknown => self
-                .local_selected_equipment
-                .as_ref()
-                .filter(|equipment| equipment.event.selected_slot == slot)
-                .map_or(PlayerInventorySlot::Unknown, |equipment| {
-                    if equipment.event.stack.is_empty() {
-                        PlayerInventorySlot::Empty
-                    } else {
-                        PlayerInventorySlot::Present(&equipment.event.stack)
-                    }
-                }),
-            known => known,
-        };
-        Some(SelectedStackSnapshot { slot, state })
+    pub(crate) fn selected_stack_snapshot<'a>(
+        &self,
+        player_runtime: &'a crate::player_runtime::PlayerRuntime,
+    ) -> Option<SelectedStackSnapshot<'a>> {
+        player_runtime
+            .inventory
+            .selected_stack_snapshot(player_runtime.facts.player_game_mode())
     }
 
     /// Returns the present selected stack, preserving the existing optional API.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn selected_stack(&self) -> Option<&protocol::NetworkItemStack> {
-        match self.selected_stack_snapshot()?.state {
-            PlayerInventorySlot::Present(stack) => Some(stack),
-            PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => None,
-        }
+    pub(crate) fn selected_stack<'a>(
+        &self,
+        player_runtime: &'a crate::player_runtime::PlayerRuntime,
+    ) -> Option<&'a protocol::NetworkItemStack> {
+        player_runtime
+            .inventory
+            .selected_stack(player_runtime.facts.player_game_mode())
     }
 
     /// The authoritative custom display name the selected hotbar cell
@@ -247,12 +205,13 @@ impl UiRuntime {
     /// travelling overlay of the predicted half serves beside the predicted
     /// stack. Presentation prefers it over the localized identifier
     /// fallback.
-    pub(crate) fn selected_stack_custom_name(&self) -> Option<Arc<str>> {
-        let slot = self.selected_hotbar_slot()?;
-        self.inventory_ledger
-            .presented_slot_overlay(slot)?
-            .custom_name
-            .clone()
+    pub(crate) fn selected_stack_custom_name(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> Option<Arc<str>> {
+        player_runtime
+            .inventory
+            .selected_stack_custom_name(player_runtime.facts.player_game_mode())
     }
 
     pub(crate) const fn gameplay_hud(&self) -> &GameplayHudState {
@@ -264,11 +223,14 @@ impl UiRuntime {
     /// the MobEquipment echo only for the selected slot before any container
     /// content has arrived.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn presented_hotbar_stack(&self, slot: u8) -> Option<&protocol::NetworkItemStack> {
-        if self.selected_hotbar_slot() != Some(slot) {
-            return self.inventory_ledger.displayed_stack(slot);
-        }
-        self.selected_stack()
+    pub(crate) fn presented_hotbar_stack<'a>(
+        &self,
+        player_runtime: &'a crate::player_runtime::PlayerRuntime,
+        slot: u8,
+    ) -> Option<&'a protocol::NetworkItemStack> {
+        player_runtime
+            .inventory
+            .presented_hotbar_stack(slot, player_runtime.facts.player_game_mode())
     }
 
     /// The estimated authoritative tick at `now_millis`: the last observed
@@ -337,9 +299,13 @@ impl UiRuntime {
     /// the label timer starts when the authoritative selection (slot or
     /// contents) changes, exactly like the Java reference behavior.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn observe_selected_item_identity(&mut self, now_millis: u64) {
+    pub(crate) fn observe_selected_item_identity(
+        &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        now_millis: u64,
+    ) {
         let identity = self
-            .selected_stack()
+            .selected_stack(player_runtime)
             .map(|stack| (stack.network_id, stack.metadata));
         self.observe_selected_item_identity_value(identity, now_millis);
     }
@@ -364,18 +330,16 @@ impl UiRuntime {
     /// hotbar/offhand mirror. Runs once per frame before presentation; the
     /// queue would otherwise grow without a consumer until the Phase 5.5
     /// container store takes over this drain.
-    pub(crate) fn drain_pending_inventory(&mut self) {
-        while let Some(sequenced) = self.pending_inventory.pop_front() {
-            self.crafting_authority.observe(
-                sequenced.session_generation,
-                sequenced.fifo_sequence,
-                &sequenced.event,
-            );
+    pub(crate) fn drain_pending_inventory(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    ) {
+        while let Some(sequenced) = player_runtime.inventory.apply_next() {
             let event = match sequenced.event {
                 super::InventoryAuthorityEvent::Inventory(event) => event,
                 super::InventoryAuthorityEvent::Registry(registry) => {
-                    self.inventory_ledger.apply_registry(&registry);
                     self.observe_use_on_identity(
+                        player_runtime,
                         sequenced.session_generation,
                         sequenced.fifo_sequence,
                         &super::InventoryAuthorityEvent::Registry(registry),
@@ -383,15 +347,28 @@ impl UiRuntime {
                     continue;
                 }
             };
-            self.inventory_ledger.apply(&event);
             match &event {
                 InventoryEvent::Authority(_) => {
-                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
-                        || self.inventory_ledger.storage_generation().is_some();
+                    self.inventory_open = player_runtime
+                        .inventory
+                        .ledger()
+                        .personal_inventory_desired_open()
+                        || player_runtime
+                            .inventory
+                            .ledger()
+                            .storage_generation()
+                            .is_some();
                 }
                 InventoryEvent::Open(_) => {
-                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
-                        || self.inventory_ledger.storage_generation().is_some();
+                    self.inventory_open = player_runtime
+                        .inventory
+                        .ledger()
+                        .personal_inventory_desired_open()
+                        || player_runtime
+                            .inventory
+                            .ledger()
+                            .storage_generation()
+                            .is_some();
                     if self.inventory_open {
                         self.chat_focused = false;
                     }
@@ -402,41 +379,47 @@ impl UiRuntime {
                         Some(CanonicalCell::GenericStorage { .. })
                     ) =>
                 {
-                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
-                        || self.inventory_ledger.storage_slot_count().is_some();
+                    self.inventory_open = player_runtime
+                        .inventory
+                        .ledger()
+                        .personal_inventory_desired_open()
+                        || player_runtime
+                            .inventory
+                            .ledger()
+                            .storage_slot_count()
+                            .is_some();
                     if self.inventory_open {
                         self.chat_focused = false;
                     }
                 }
                 InventoryEvent::Close(_) => {
-                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
-                        || self.inventory_ledger.storage_generation().is_some();
+                    self.inventory_open = player_runtime
+                        .inventory
+                        .ledger()
+                        .personal_inventory_desired_open()
+                        || player_runtime
+                            .inventory
+                            .ledger()
+                            .storage_generation()
+                            .is_some();
                 }
                 _ => {}
             }
-            if let InventoryEvent::SelectedSlot(selected) = &event
-                && selected.select_slot
-                && selected.slot < protocol::HOTBAR_SLOT_COUNT
-            {
-                // A server-forced selection overrides the local prediction at
-                // its FIFO position; later local input re-predicts as usual.
-                self.server_selected_slot = Some(selected.slot);
-                self.local_selected_slot = None;
-                self.pending_hotbar_selection = None;
-            }
             self.gameplay_hud.apply_inventory(&event);
             self.observe_use_on_identity(
+                player_runtime,
                 sequenced.session_generation,
                 sequenced.fifo_sequence,
                 &super::InventoryAuthorityEvent::Inventory(event),
             );
         }
-        self.crafting_authority.advance();
-        self.sample_crafting_observation();
+        player_runtime.inventory.finish_drain();
+        self.sample_crafting_observation(player_runtime);
     }
 
     pub fn apply_local_attributes(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         envelope: SequencedLocalAttributes,
     ) -> Result<(), UiRuntimeError> {
         self.validate_identity(
@@ -459,18 +442,24 @@ impl UiRuntime {
                     Some(stat) => health = Some(stat),
                     None => self.gameplay_hud.note_odd_attribute(),
                 },
-                "minecraft:player.hunger" => match hud_adapter::attribute_stat(attribute) {
-                    Some(stat) => hunger = Some(stat),
-                    None => self.gameplay_hud.note_odd_attribute(),
-                },
+                "minecraft:player.hunger" => {
+                    if player_runtime.facts.apply_hunger_attribute(attribute) {
+                        hunger = player_runtime.facts.hunger().and_then(|stat| {
+                            BoundedStat::new_scaled(stat.current(), stat.maximum(), stat.scale())
+                        });
+                    } else {
+                        self.gameplay_hud.note_odd_attribute();
+                    }
+                }
                 "minecraft:player.saturation" => {
                     self.gameplay_hud.set_saturation(attribute.current);
                 }
                 // Absorption is an ordinary bounded attribute; zero is common
                 // and simply hides the golden hearts.
-                "minecraft:absorption" => {
-                    absorption = hud_adapter::attribute_stat(attribute);
-                }
+                "minecraft:absorption" => match hud_adapter::attribute_stat(attribute) {
+                    Some(stat) => absorption = Some(stat),
+                    None => self.gameplay_hud.note_odd_attribute(),
+                },
                 // Bedrock sends experience as attributes, not a dedicated packet: progress in
                 // 0.0..=1.0 and an integer level. `f32 as u32` saturates, so a stray value is bounded.
                 "minecraft:player.experience" if attribute.current.is_finite() => {
@@ -546,29 +535,29 @@ impl UiRuntime {
     /// The local player's worn armor, helmet to boots, from its armor
     /// container as the inventory shows it.
     #[must_use]
-    pub fn local_armor(&self) -> super::gameplay_hud::ArmorSlots {
-        let worn = |slot: u8| {
-            self.inventory_ledger
-                .target_stack(super::inventory_ledger::InventoryTarget::Armor(slot))
-                .cloned()
-                .unwrap_or_default()
-        };
+    pub fn local_armor(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> super::gameplay_hud::ArmorSlots {
+        let [helmet, chestplate, leggings, boots] = player_runtime.inventory.local_armor();
         super::gameplay_hud::ArmorSlots {
-            helmet: worn(0),
-            chestplate: worn(1),
-            leggings: worn(2),
-            boots: worn(3),
+            helmet,
+            chestplate,
+            leggings,
+            boots,
         }
     }
 
     /// Applies the committed local mount change from SetActorLink.
     pub fn apply_local_mount(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         session_id: u64,
         fifo_sequence: u64,
         ridden_unique_id: Option<i64>,
     ) -> Result<(), UiRuntimeError> {
         self.guard_local_apply(session_id, fifo_sequence)?;
+        player_runtime.facts.set_mount(ridden_unique_id);
         self.gameplay_hud.set_mount(ridden_unique_id);
         self.last_fifo_sequence = Some(fifo_sequence);
         Ok(())
@@ -593,8 +582,11 @@ impl UiRuntime {
     }
 }
 
-pub(crate) fn drain_inventory_authority(mut runtime: bevy::prelude::ResMut<UiRuntime>) {
-    runtime.drain_pending_inventory();
+pub(crate) fn drain_inventory_authority(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    mut runtime: bevy::prelude::ResMut<UiRuntime>,
+) {
+    runtime.drain_pending_inventory(&mut player_runtime);
 }
 
 impl UiRuntime {

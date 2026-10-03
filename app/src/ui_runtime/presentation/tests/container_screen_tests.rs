@@ -12,10 +12,13 @@ use super::*;
 use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 
 /// A server-authoritative session with the local language table, when built.
-fn session() -> UiRuntime {
+fn session(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
+    *player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(InventoryAuthority::Server);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime.publish_inventory_authority(player_runtime, InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(player_runtime, 1, 42)
+        .unwrap();
     let lang = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../.local/assets/compiled/vanilla-v1.mcbelang");
     if let Some(lang) = std::fs::read(lang)
@@ -27,8 +30,12 @@ fn session() -> UiRuntime {
     runtime
 }
 
-fn opened(window_type: i8, cells: usize) -> UiRuntime {
-    let mut runtime = session();
+fn opened(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    window_type: i8,
+    cells: usize,
+) -> UiRuntime {
+    let mut runtime = session(player_runtime);
     // Chest-like windows name their content by the level-entity container.
     let generic = protocol::WindowKind::from_window_type(window_type)
         .and_then(protocol::WindowKind::open_cells)
@@ -39,6 +46,7 @@ fn opened(window_type: i8, cells: usize) -> UiRuntime {
     };
     runtime
         .enqueue_inventory_event(
+            player_runtime,
             1,
             1,
             InventoryEvent::Open(ContainerOpenEvent {
@@ -52,6 +60,7 @@ fn opened(window_type: i8, cells: usize) -> UiRuntime {
     if cells > 0 {
         runtime
             .enqueue_inventory_event(
+                player_runtime,
                 1,
                 2,
                 InventoryEvent::Content(InventoryContentEvent {
@@ -62,15 +71,19 @@ fn opened(window_type: i8, cells: usize) -> UiRuntime {
             )
             .unwrap();
     }
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(player_runtime);
     runtime
 }
 
 /// `runtime` with the open window's `ContainerSetData` properties applied.
-fn with_data(mut runtime: UiRuntime, properties: &[(i32, i32)]) -> UiRuntime {
+fn with_data(
+    mut runtime: UiRuntime,
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    properties: &[(i32, i32)],
+) -> UiRuntime {
     for &(property, value) in properties {
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(player_runtime)
             .apply(&InventoryEvent::Data(protocol::ContainerDataEvent {
                 container: ContainerIdentity::window(7),
                 property,
@@ -81,7 +94,10 @@ fn with_data(mut runtime: UiRuntime, properties: &[(i32, i32)]) -> UiRuntime {
 }
 
 /// Three offered options costing 1, 5 and 30 levels.
-fn with_enchant_options(mut runtime: UiRuntime) -> UiRuntime {
+fn with_enchant_options(
+    mut runtime: UiRuntime,
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+) -> UiRuntime {
     let option = |cost: u8, network_id: u32| protocol::EnchantOption {
         cost,
         name: "abc def".into(),
@@ -89,7 +105,7 @@ fn with_enchant_options(mut runtime: UiRuntime) -> UiRuntime {
         enchants: vec![(9, cost.min(5))].into(),
     };
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::EnchantOptions(
             protocol::EnchantOptionsEvent {
                 options: vec![option(1, 1), option(5, 2), option(30, 3)].into(),
@@ -100,14 +116,17 @@ fn with_enchant_options(mut runtime: UiRuntime) -> UiRuntime {
 
 /// The creative inventory over a 300-item catalog across the four tabs, whose
 /// first construction items fold into a named group, the second one unfolded.
-fn creative() -> UiRuntime {
-    creative_with(300)
+fn creative(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
+    creative_with(player_runtime, 300)
 }
 
-pub(super) fn creative_with(count: u32) -> UiRuntime {
+pub(super) fn creative_with(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    count: u32,
+) -> UiRuntime {
     use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
-    let mut runtime = session();
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    let mut runtime = session(player_runtime);
+    runtime.publish_player_game_mode(player_runtime, protocol::PlayerGameMode::Creative);
     let categories = [
         CreativeCategory::Construction,
         CreativeCategory::Nature,
@@ -147,21 +166,21 @@ pub(super) fn creative_with(count: u32) -> UiRuntime {
         })
         .collect::<Vec<_>>();
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Creative(CreativeContentEvent {
             groups: groups.into(),
             items: items.into(),
             skipped: 0,
         }));
     runtime.screen_state_mut().creative_expanded.insert(5);
-    runtime.toggle_inventory();
+    runtime.toggle_inventory(player_runtime);
     runtime
 }
 
 /// A writable three-page book, on its first spread or its signing cover.
-fn book(signing: bool) -> UiRuntime {
+fn book(player_runtime: &mut crate::player_runtime::PlayerRuntime, signing: bool) -> UiRuntime {
     use crate::ui_runtime::book_screen::{BookSource, BookState};
-    let mut runtime = session();
+    let mut runtime = session(player_runtime);
     let pages = ["First page", "Second page", "Third"].map(str::to_owned);
     let mut state = BookState::new(
         BookSource::Held(0),
@@ -171,21 +190,45 @@ fn book(signing: bool) -> UiRuntime {
         "Steve".to_owned(),
     );
     state.signing = signing;
+    if signing {
+        state.title = "Book title".to_owned();
+    }
     // The right page shows its edit controls, the left its edit button.
     state.editing = Some(1);
     runtime.open_book(state);
     runtime
 }
 
-fn personal() -> UiRuntime {
-    let mut runtime = session();
-    runtime.toggle_inventory();
+fn personal(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
+    let mut runtime = session(player_runtime);
+    runtime.toggle_inventory(player_runtime);
     runtime
+}
+
+/// Builds each screen with its own authoritative player session.
+fn screen(
+    name: &'static str,
+    create: impl FnOnce(&mut crate::player_runtime::PlayerRuntime) -> UiRuntime,
+    hits: Vec<InventoryCellHit>,
+) -> (
+    &'static str,
+    crate::player_runtime::PlayerRuntime,
+    UiRuntime,
+    Vec<InventoryCellHit>,
+) {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let runtime = create(&mut player_runtime);
+    (name, player_runtime, runtime, hits)
 }
 
 /// Every screen the engine draws by default, by snapshot name, with the window
 /// cells its item slots must address.
-fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
+fn screens() -> Vec<(
+    &'static str,
+    crate::player_runtime::PlayerRuntime,
+    UiRuntime,
+    Vec<InventoryCellHit>,
+)> {
     use crate::ui_runtime::presentation::screens::{ReaderButton as R, Widget as W};
     use InventoryCellHit::{
         Craft, CraftOutput, CreativeSearch, CreativeTab, RecipeBook, Storage, Widget,
@@ -193,9 +236,9 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
     use protocol::*;
     let storage = |count: u8| (0..count).map(Storage).collect::<Vec<_>>();
     vec![
-        (
+        screen(
             "inventory",
-            personal(),
+            personal,
             vec![
                 Craft(28),
                 Craft(31),
@@ -203,9 +246,9 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
                 Widget(W::InventoryLayout(2)),
             ],
         ),
-        (
+        screen(
             "book",
-            book(false),
+            |player_runtime| book(player_runtime, false),
             [
                 R::NextSpread,
                 R::FocusPage(0),
@@ -221,15 +264,15 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
             .map(|button| Widget(W::Reader(button)))
             .to_vec(),
         ),
-        (
+        screen(
             "book_signing",
-            book(true),
+            |player_runtime| book(player_runtime, true),
             vec![Widget(W::Reader(R::Finalize))],
         ),
-        (
+        screen(
             "inventory_recipe_book",
-            {
-                let mut runtime = personal();
+            |player_runtime| {
+                let mut runtime = personal(player_runtime);
                 runtime.screen_state_mut().book_open = true;
                 runtime
             },
@@ -239,10 +282,10 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
                 CreativeSearch,
             ],
         ),
-        (
+        screen(
             "inventory_recipe_search",
-            {
-                let mut runtime = personal();
+            |player_runtime| {
+                let mut runtime = personal(player_runtime);
                 runtime.screen_state_mut().book_open = true;
                 runtime
                     .screen_state_mut()
@@ -251,9 +294,9 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
             },
             vec![Widget(W::RecipeFilter), CreativeSearch],
         ),
-        (
+        screen(
             "creative",
-            creative(),
+            creative,
             vec![
                 RecipeBook(0),
                 RecipeBook(20),
@@ -262,79 +305,102 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
                 Widget(W::InventoryLayout(3)),
             ],
         ),
-        (
+        screen(
             "crafting_table",
-            opened(WINDOW_TYPE_WORKBENCH, 0),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_WORKBENCH, 0),
             vec![Craft(32), Craft(40), CraftOutput],
         ),
-        ("chest", opened(WINDOW_TYPE_CONTAINER, 27), storage(27)),
-        (
+        screen(
+            "chest",
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_CONTAINER, 27),
+            storage(27),
+        ),
+        screen(
             "large_chest",
-            opened(WINDOW_TYPE_CONTAINER, 54),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_CONTAINER, 54),
             storage(54),
         ),
         // Half cooked, fuel half burnt.
-        (
+        screen(
             "furnace",
-            with_data(
-                opened(WINDOW_TYPE_FURNACE, 3),
-                &[(0, 100), (1, 50), (2, 100)],
-            ),
+            |player_runtime| {
+                with_data(
+                    opened(player_runtime, WINDOW_TYPE_FURNACE, 3),
+                    player_runtime,
+                    &[(0, 100), (1, 50), (2, 100)],
+                )
+            },
             storage(3),
         ),
-        (
+        screen(
             "blast_furnace",
-            opened(WINDOW_TYPE_BLAST_FURNACE, 3),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_BLAST_FURNACE, 3),
             storage(3),
         ),
-        ("smoker", opened(WINDOW_TYPE_SMOKER, 3), storage(3)),
+        screen(
+            "smoker",
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_SMOKER, 3),
+            storage(3),
+        ),
         // Half brewed, half the fuel left.
-        (
+        screen(
             "brewing_stand",
-            with_data(
-                opened(WINDOW_TYPE_BREWING_STAND, 5),
-                &[(0, 200), (1, 10), (2, 20)],
-            ),
+            |player_runtime| {
+                with_data(
+                    opened(player_runtime, WINDOW_TYPE_BREWING_STAND, 5),
+                    player_runtime,
+                    &[(0, 200), (1, 10), (2, 20)],
+                )
+            },
             storage(5),
         ),
-        (
+        screen(
             "anvil",
-            opened(WINDOW_TYPE_ANVIL, 0),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_ANVIL, 0),
             vec![Craft(1), Craft(2), CraftOutput, Widget(W::AnvilName)],
         ),
-        (
+        screen(
             "enchanting_table",
-            with_enchant_options(opened(WINDOW_TYPE_ENCHANTMENT, 0)),
+            |player_runtime| {
+                with_enchant_options(
+                    opened(player_runtime, WINDOW_TYPE_ENCHANTMENT, 0),
+                    player_runtime,
+                )
+            },
             vec![Craft(14), Craft(15)],
         ),
-        (
+        screen(
             "grindstone",
-            opened(WINDOW_TYPE_GRINDSTONE, 0),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_GRINDSTONE, 0),
             vec![Craft(16), Craft(17), CraftOutput],
         ),
-        (
+        screen(
             "loom",
-            opened(WINDOW_TYPE_LOOM, 0),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_LOOM, 0),
             vec![Craft(9), Craft(10), Craft(11), CraftOutput],
         ),
-        (
+        screen(
             "smithing_table",
-            opened(WINDOW_TYPE_SMITHING_TABLE, 0),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_SMITHING_TABLE, 0),
             vec![Craft(51), Craft(52), Craft(53), CraftOutput],
         ),
-        (
+        screen(
             "cartography_table",
-            opened(WINDOW_TYPE_CARTOGRAPHY, 0),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_CARTOGRAPHY, 0),
             vec![Craft(12), Craft(13), CraftOutput],
         ),
-        (
+        screen(
             "stonecutter",
-            opened(WINDOW_TYPE_STONECUTTER, 0),
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_STONECUTTER, 0),
             vec![Craft(3), CraftOutput],
         ),
-        (
+        screen(
             "beacon",
-            opened(WINDOW_TYPE_BEACON, 0),
+            |player_runtime| {
+                let mut runtime = opened(player_runtime, WINDOW_TYPE_BEACON, 0);
+                runtime.screen_state_mut().beacon = (3, 0);
+                runtime
+            },
             vec![
                 Craft(27),
                 Widget(W::BeaconEffect {
@@ -349,16 +415,36 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
                 Widget(W::BeaconConfirm),
             ],
         ),
-        ("hopper", opened(WINDOW_TYPE_HOPPER, 5), storage(5)),
-        ("dispenser", opened(WINDOW_TYPE_DISPENSER, 9), storage(9)),
-        ("dropper", opened(WINDOW_TYPE_DROPPER, 9), storage(9)),
-        ("crafter", opened(WINDOW_TYPE_CRAFTER, 9), storage(9)),
-        ("horse", opened(WINDOW_TYPE_HORSE, 17), storage(17)),
+        screen(
+            "hopper",
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_HOPPER, 5),
+            storage(5),
+        ),
+        screen(
+            "dispenser",
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_DISPENSER, 9),
+            storage(9),
+        ),
+        screen(
+            "dropper",
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_DROPPER, 9),
+            storage(9),
+        ),
+        screen(
+            "crafter",
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_CRAFTER, 9),
+            storage(9),
+        ),
+        screen(
+            "horse",
+            |player_runtime| opened(player_runtime, WINDOW_TYPE_HORSE, 17),
+            storage(17),
+        ),
         // A chested llama wears only a carpet, in container slot 1.
-        (
+        screen(
             "llama",
-            {
-                let mut runtime = opened(WINDOW_TYPE_HORSE, 17);
+            |player_runtime| {
+                let mut runtime = opened(player_runtime, WINDOW_TYPE_HORSE, 17);
                 runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
                 runtime
             },
@@ -372,7 +458,7 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
 #[test]
 fn every_container_screen_draws_through_the_engine() {
     let only = std::env::var("CINNABAR_CONTAINER_SCREEN").ok();
-    for (name, runtime, expected) in screens() {
+    for (name, player_runtime, runtime, expected) in screens() {
         if only.as_deref().is_some_and(|only| only != name) {
             continue;
         }
@@ -388,10 +474,12 @@ fn every_container_screen_draws_through_the_engine() {
         // Textures publish during the first builds.
         let dpi = DpiScale::new(1.0).unwrap();
         for now in [0, 500] {
-            presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+            presentation
+                .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+                .unwrap();
         }
         let input = presentation
-            .build(&runtime, 5_000, [1280, 720], dpi)
+            .build(&player_runtime, &runtime, 5_000, [1280, 720], dpi)
             .unwrap();
         super::super::forms::snapshot::write(&input, &format!("container-{name}"));
         let frame = presentation
@@ -421,6 +509,8 @@ fn every_container_screen_draws_through_the_engine() {
 // the server to re-enable the slot, and clicking an empty slot disables it.
 #[test]
 fn crafter_slots_toggle_through_their_buttons() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::ui_runtime::inventory_drag::PointerAction;
     use crate::ui_runtime::presentation::screens::Widget as W;
     let Some(mut presentation) =
@@ -431,11 +521,13 @@ fn crafter_slots_toggle_through_their_buttons() {
         );
         return;
     };
-    let mut runtime = opened(protocol::WINDOW_TYPE_CRAFTER, 9);
+    let mut runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_CRAFTER, 9);
     runtime.screen_state_mut().crafter.observe(0b101, true, 0);
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
-        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
     }
     let frame = presentation.engine_container_frame().unwrap();
     let reached: Vec<InventoryCellHit> = frame
@@ -457,10 +549,14 @@ fn crafter_slots_toggle_through_their_buttons() {
         assert!(reached.contains(&hit), "{hit:?} unreachable");
     }
     assert!(!reached.contains(&InventoryCellHit::Storage(0)));
-    runtime.perform_pointer_action(PointerAction::Click(InventoryCellHit::Widget(
-        W::CrafterSlot(0),
-    )));
-    runtime.perform_pointer_action(PointerAction::Click(InventoryCellHit::Storage(4)));
+    runtime.perform_pointer_action(
+        &mut player_runtime,
+        PointerAction::Click(InventoryCellHit::Widget(W::CrafterSlot(0))),
+    );
+    runtime.perform_pointer_action(
+        &mut player_runtime,
+        PointerAction::Click(InventoryCellHit::Storage(4)),
+    );
     assert_eq!(runtime.screen_state().crafter.shown_disabled(), 0b1_0100);
     let toggles: Vec<String> = std::iter::from_fn(|| runtime.take_client_packet())
         .map(|packet| format!("{:?}", packet.data))
@@ -473,6 +569,8 @@ fn crafter_slots_toggle_through_their_buttons() {
 // A llama's single equip cell is its carpet slot, never the saddle's.
 #[test]
 fn llama_equip_cell_addresses_the_carpet_slot() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
@@ -481,11 +579,13 @@ fn llama_equip_cell_addresses_the_carpet_slot() {
         );
         return;
     };
-    let mut runtime = opened(protocol::WINDOW_TYPE_HORSE, 17);
+    let mut runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_HORSE, 17);
     runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
-        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
     }
     let frame = presentation.engine_container_frame().unwrap();
     let reached: Vec<InventoryCellHit> = frame
@@ -507,6 +607,8 @@ fn llama_equip_cell_addresses_the_carpet_slot() {
 // the hotbar beneath it; its toggles pick each layout.
 #[test]
 fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::ui_runtime::presentation::screens::Widget as W;
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
@@ -516,14 +618,16 @@ fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
         );
         return;
     };
-    let mut runtime = creative();
+    let mut runtime = creative(&mut player_runtime);
     runtime.screen_state_mut().creative_wide = true;
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
-        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
     }
     let input = presentation
-        .build(&runtime, 5_000, [1280, 720], dpi)
+        .build(&player_runtime, &runtime, 5_000, [1280, 720], dpi)
         .unwrap();
     super::super::forms::snapshot::write(&input, "container-creative_wide");
     let frame = presentation.engine_container_frame().unwrap();
@@ -553,6 +657,8 @@ fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
 // screen never lays out again, however long the creative catalog.
 #[test]
 fn hovering_slots_never_lays_the_screen_out_again() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
@@ -561,10 +667,12 @@ fn hovering_slots_never_lays_the_screen_out_again() {
         );
         return;
     };
-    let mut runtime = creative_with(1500);
+    let mut runtime = creative_with(&mut player_runtime, 1500);
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
-        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
     }
     let layouts = presentation.engine_container_layouts();
     let hits = std::sync::Arc::clone(&presentation.engine_container_frame().unwrap().hits);
@@ -578,7 +686,7 @@ fn hovering_slots_never_lays_the_screen_out_again() {
         runtime.set_inventory_pointer_gui(Some(point));
         let started = std::time::Instant::now();
         presentation
-            .build(&runtime, 1_000 + frame, [1280, 720], dpi)
+            .build(&player_runtime, &runtime, 1_000 + frame, [1280, 720], dpi)
             .unwrap();
         frames.push(started.elapsed());
         assert!(std::sync::Arc::ptr_eq(
@@ -598,6 +706,8 @@ fn hovering_slots_never_lays_the_screen_out_again() {
 // Scrolling the creative catalog lays out only what the viewport shows.
 #[test]
 fn scrolling_the_creative_catalog_stays_interactive() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
@@ -606,9 +716,11 @@ fn scrolling_the_creative_catalog_stays_interactive() {
         );
         return;
     };
-    let mut runtime = creative_with(1500);
+    let mut runtime = creative_with(&mut player_runtime, 1500);
     let dpi = DpiScale::new(1.0).unwrap();
-    presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     let frame = presentation.engine_container_frame().unwrap();
     let (key, metrics) = frame
         .report
@@ -628,7 +740,7 @@ fn scrolling_the_creative_catalog_stays_interactive() {
             .insert(key.clone(), step as f64 * 60.0);
         let started = std::time::Instant::now();
         presentation
-            .build(&runtime, frame, [1280, 720], dpi)
+            .build(&player_runtime, &runtime, frame, [1280, 720], dpi)
             .unwrap();
         frames.push(started.elapsed());
     }
@@ -649,12 +761,14 @@ fn scrolling_the_creative_catalog_stays_interactive() {
 // pointer: pointers on either side of the model draw different rasters.
 #[test]
 fn inventory_player_model_turns_toward_the_pointer() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
         return;
     };
-    let mut runtime = personal();
+    let mut runtime = personal(&mut player_runtime);
     let dpi = DpiScale::new(1.0).unwrap();
     let skin = steve_skin();
     let mut rasters = Vec::new();
@@ -665,12 +779,14 @@ fn inventory_player_model_turns_toward_the_pointer() {
     ] {
         runtime.set_inventory_pointer_gui(Some(pointer));
         for now in [0, 500] {
-            presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+            presentation
+                .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+                .unwrap();
             presentation.sync_player_preview(skin.as_deref(), Default::default(), true, false, 0.0);
             presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
         }
         let input = presentation
-            .build(&runtime, 1_000, [1280, 720], dpi)
+            .build(&player_runtime, &runtime, 1_000, [1280, 720], dpi)
             .unwrap();
         super::super::forms::snapshot::write(&input, &format!("doll-{name}"));
         rasters.push(presentation.player_preview_raster());
@@ -704,6 +820,8 @@ fn steve_skin() -> Option<Vec<u8>> {
 // starting rotation, not the player's world facing.
 #[test]
 fn pause_paper_doll_faces_the_viewer() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
@@ -713,18 +831,20 @@ fn pause_paper_doll_faces_the_viewer() {
     menu.mark_connected();
     menu.open_pause();
     presentation.set_menu_view(Some(menu.view()));
-    let runtime = session();
+    let runtime = session(&mut player_runtime);
     let skin = steve_skin();
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
-        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
         // The world facing must not turn the doll.
         let pose = super::super::player_preview::PlayerPreviewPose::new(97.0, 97.0, 0.0, false);
         presentation.sync_player_preview(skin.as_deref(), pose, true, false, 0.0);
         presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
     }
     let input = presentation
-        .build(&runtime, 1_000, [1280, 720], dpi)
+        .build(&player_runtime, &runtime, 1_000, [1280, 720], dpi)
         .unwrap();
     super::super::forms::snapshot::write(&input, "pause-doll");
     assert!(
@@ -752,6 +872,8 @@ fn pack_texture(path: &str) -> Option<super::super::player_preview::PreviewTextu
 // Worn armor and the held item draw on the model over the bare skin.
 #[test]
 fn inventory_player_model_wears_armor_and_holds_items() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
@@ -764,7 +886,7 @@ fn inventory_player_model_wears_armor_and_holds_items() {
     ) else {
         return;
     };
-    let mut runtime = personal();
+    let mut runtime = personal(&mut player_runtime);
     runtime.set_inventory_pointer_gui(Some([260.0, 40.0]));
     let skin = steve_skin();
     let dpi = DpiScale::new(1.0).unwrap();
@@ -784,12 +906,14 @@ fn inventory_player_model_wears_armor_and_holds_items() {
     ] {
         presentation.player_preview_gear = gear;
         for now in [0, 500] {
-            presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+            presentation
+                .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+                .unwrap();
             presentation.sync_player_preview(skin.as_deref(), Default::default(), true, false, 0.0);
             presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
         }
         let input = presentation
-            .build(&runtime, 1_000, [1280, 720], dpi)
+            .build(&player_runtime, &runtime, 1_000, [1280, 720], dpi)
             .unwrap();
         let name = if rasters.is_empty() {
             "doll-bare"

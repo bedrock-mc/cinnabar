@@ -47,6 +47,11 @@ pub const MAX_STAGED_DATA_BYTES: usize = 262_144;
 pub const MAX_TELLS: usize = 4;
 /// UTF-8 bytes per tell.
 pub const MAX_TELL_BYTES: usize = 256;
+/// Client messages one callback may stage with `send-client`.
+pub const MAX_CLIENT_SENDS: usize = 8;
+/// Bytes of the client messages one callback may stage: their channels and their payloads as
+/// JSON, summed. The adapter applies the client channel's own limits as it sends each one.
+pub const MAX_CLIENT_SEND_BYTES: usize = 65_536;
 /// Bytes of data per block.
 pub const MAX_BLOCK_DATA_BYTES: usize = 65_536;
 /// UTF-8 bytes of a reason that reaches the adapter, a guest's error or why a load failed; the
@@ -60,5 +65,6 @@ pub const MAX_LOG_BYTES: usize = 512;
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
 // Hex doubles staged data, which may fill at most half of a result frame; the other half is
-// room for the remaining ops.
+// room for the remaining ops, client messages included.
 const _: () = assert!(2 * MAX_STAGED_DATA_BYTES <= MAX_FRAME_BYTES / 2);
+const _: () = assert!(MAX_CLIENT_SEND_BYTES <= MAX_FRAME_BYTES / 8);

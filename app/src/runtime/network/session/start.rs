@@ -56,7 +56,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 // publishing any StartGame state; optional semantic rejection
                 // remains a live base-assets session, a required one ends it.
                 let handoff = session.take_resource_pack_handoff();
-                let (custom_blocks, packs) =
+                let (custom_blocks, mut packs) =
                     match super::super::resource_packs::prepare_session_packs(handoff, &game_data) {
                         Ok(prepared) => prepared,
                         Err(error) => {
@@ -65,6 +65,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                             return;
                         }
                     };
+                packs.prepare_actor_artwork(config.actor_artwork.as_ref());
                 let packs_applied = matches!(
                     &packs.admission,
                     resource_pack::PackAdmission::Validated(stack) if !stack.packs().is_empty()

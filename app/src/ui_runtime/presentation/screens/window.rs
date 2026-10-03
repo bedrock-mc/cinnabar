@@ -108,6 +108,7 @@ fn standard(slots: Vec<PlacedSlot>) -> WindowLayout {
 /// workbench screens, which have their own.
 pub(crate) fn window_layout(kind: WindowKind, cells: usize) -> Option<WindowLayout> {
     let grid = |first: u8, count: usize, columns: usize, x: f32, y: f32| -> Vec<PlacedSlot> {
+        let count = count.min(usize::from(u8::MAX) + 1 - usize::from(first));
         (0..count)
             .map(|index| {
                 storage(
@@ -281,5 +282,21 @@ pub(crate) fn widget_rects(kind: WindowKind) -> Vec<(Widget, [f32; 2], [f32; 2])
             .collect(),
         WindowKind::Anvil => vec![(Widget::AnvilName, [62.0, 24.0], [103.0, 12.0])],
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn review_oversized_horse_storage_has_no_wrapped_slot_ids() {
+        let layout = window_layout(WindowKind::Horse, 300).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for slot in layout.slots {
+            if let InventoryCellHit::Storage(id) = slot.hit {
+                assert!(seen.insert(id));
+            }
+        }
     }
 }

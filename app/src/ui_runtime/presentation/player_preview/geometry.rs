@@ -21,6 +21,7 @@ mod lighting;
 /// Player's default `entity_alphatest` material has point sampling and a 0.5
 /// alpha cutoff. `fancy` chooses the material-list's native directional shader
 /// variant; brightness remains a float varying, separate from sRGB dye color.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn mesh(
     pose: PlayerPreviewPose,
@@ -32,7 +33,26 @@ pub(crate) fn mesh(
     hands: [Option<&PreviewHeldModel>; 2],
     fancy: bool,
 ) -> Option<Arc<UiMesh>> {
-    let rig = Rig::new(pose, view, bob, hands.map(|model| model.is_some()));
+    mesh_with_body(None, pose, view, bob, skin, gear, armor, hands, fancy)
+}
+
+/// Uses already posed world geometry for the HUD, retaining the shared UI shading and depth path.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mesh_with_body(
+    body: Option<(&[ActorVertex], &[Option<bevy::math::Affine3A>; 6])>,
+    pose: PlayerPreviewPose,
+    view: PreviewView,
+    bob: f32,
+    skin: IconRef,
+    gear: &PreviewEquipment,
+    armor: [Option<IconRef>; 4],
+    hands: [Option<&PreviewHeldModel>; 2],
+    fancy: bool,
+) -> Option<Arc<UiMesh>> {
+    let mut rig = Rig::new(pose, view, bob, hands.map(|model| model.is_some()));
+    if let Some((_, parts)) = body {
+        rig.parts = *parts;
+    }
     let mut vertices = Vec::new();
     let mut batches = Vec::new();
     let mut skin_vertices = standard_biped_vertices();
@@ -41,7 +61,7 @@ pub(crate) fn mesh(
         &mut vertices,
         &mut batches,
         &rig,
-        &skin_vertices,
+        body.map_or(skin_vertices.as_slice(), |(vertices, _)| vertices),
         skin,
         None,
         fancy,

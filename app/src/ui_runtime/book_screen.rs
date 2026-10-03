@@ -204,7 +204,9 @@ impl UiRuntime {
     }
 
     pub(crate) fn take_client_packet(&mut self) -> Option<Packet> {
-        self.client_packets.pop_front()
+        self.client_packets
+            .pop_front()
+            .or_else(|| self.book_packets.pop_front())
     }
 
     pub(crate) fn requeue_client_packet(&mut self, packet: Packet) {
@@ -219,15 +221,19 @@ impl UiRuntime {
     }
 
     /// Opens the book in the selected hotbar slot; whether one was there.
-    pub(crate) fn open_held_book(&mut self) -> bool {
-        let Some(slot) = self.selected_hotbar_slot() else {
+    pub(crate) fn open_held_book(
+        &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> bool {
+        let Some(slot) = self.selected_hotbar_slot(player_runtime) else {
             return false;
         };
-        let Some(stack) = self.inventory_ledger().displayed_stack(slot) else {
+        let Some(stack) = player_runtime.inventory.ledger().displayed_stack(slot) else {
             return false;
         };
-        let Some(entry) = self
-            .inventory_ledger()
+        let Some(entry) = player_runtime
+            .inventory
+            .ledger()
             .negotiated_item_entry(stack.network_id)
         else {
             return false;
@@ -249,22 +255,30 @@ impl UiRuntime {
         true
     }
 
-    /// Sends the open writable book's page edits, then closes the screen.
-    pub(crate) fn commit_book(&mut self, sign: bool) {
-        let Some(book) = self.screen.book.take() else {
-            return;
+    /// Retains a complete book commit before removing the editable screen state.
+    pub(crate) fn commit_book(&mut self, sign: bool) -> bool {
+        let Some(book) = self.screen.book.as_ref() else {
+            return true;
         };
         let BookSource::Held(slot) = book.source else {
-            return;
+            self.screen.book = None;
+            return true;
         };
         if !book.editable {
-            return;
+            self.screen.book = None;
+            return true;
         }
-        for edit in book.edits() {
-            if let Some(packet) = protocol::book_edit_packet(slot, &edit) {
-                self.queue_client_packet(packet);
-            }
+        if !self.book_packets.is_empty()
+            || book.pages.len() > MAX_BOOK_PAGES
+            || book.baseline.len() > MAX_BOOK_PAGES
+        {
+            return false;
         }
+        let mut packets: std::collections::VecDeque<_> = book
+            .edits()
+            .iter()
+            .filter_map(|edit| protocol::book_edit_packet(slot, edit))
+            .collect();
         if sign
             && let Some(packet) = protocol::book_edit_packet(
                 slot,
@@ -275,26 +289,38 @@ impl UiRuntime {
                 },
             )
         {
-            self.queue_client_packet(packet);
+            packets.push_back(packet);
         }
+        self.book_packets = packets;
+        self.screen.book = None;
+        true
     }
 
-    /// Sends a writable book's edits (signing it when `sign`) and closes the screen.
-    pub(crate) fn finish_book(&mut self, sign: bool) {
-        self.commit_book(sign);
-        self.close_inventory();
+    /// Closes the book after all its edits have been retained for transport.
+    pub(crate) fn finish_book(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        sign: bool,
+    ) {
+        if self.commit_book(sign) {
+            self.close_inventory(player_runtime);
+        }
     }
 
     /// Book navigation keys: arrows and page keys turn pages; Enter starts a
     /// new line, or signs the book from the title prompt. Whether the key was used.
-    pub(crate) fn book_key(&mut self, key: KeyCode) -> bool {
+    pub(crate) fn book_key(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        key: KeyCode,
+    ) -> bool {
         let Some(book) = self.screen.book.as_mut() else {
             return false;
         };
         match key {
             KeyCode::Enter | KeyCode::NumpadEnter if book.editable => {
                 if book.signing {
-                    self.finish_book(true);
+                    self.finish_book(player_runtime, true);
                 } else {
                     book.type_text("\n");
                 }
@@ -411,3 +437,7 @@ mod tests {
         assert_eq!(state.title.chars().count(), MAX_TITLE_CHARS);
     }
 }
+
+#[cfg(test)]
+#[path = "book_screen_tests.rs"]
+mod regression_tests;

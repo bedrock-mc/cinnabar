@@ -5,21 +5,6 @@ use super::*;
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use std::collections::BTreeSet;
 
-/// Signs canonical fixtures using an isolated deterministic test key.
-fn signed<T: serde::Serialize>(
-    value: &T,
-    domain: &[u8],
-    key: &Ed25519KeyPair,
-) -> crypto::SignedDocument {
-    let payload = serde_json::to_vec(value).unwrap();
-    let mut message = domain.to_vec();
-    message.extend_from_slice(&payload);
-    crypto::SignedDocument {
-        payload: crypto::hex(&payload),
-        signature: crypto::hex(key.sign(&message).as_ref()),
-    }
-}
-
 /// Builds a minimal valid advertisement without any network or local assets.
 fn offer(key: &Ed25519KeyPair) -> manifest::Offer {
     manifest::Offer {
@@ -52,7 +37,7 @@ fn signed_offer_checks_audience_expiry_key_and_canonical_bytes() {
     let value = offer(&key);
     let marker = negotiation::Marker {
         server_key: value.server_key.clone(),
-        offer: signed(&value, crypto::OFFER_DOMAIN, &key),
+        offer: crypto::sign(&value, crypto::OFFER_DOMAIN, &key).unwrap(),
     };
     let bytes = serde_json::to_vec(&marker).unwrap();
     let verified = negotiation::VerifiedOffer::read(&bytes, &value.audience, 1000).unwrap();
@@ -99,7 +84,7 @@ fn accept_is_bound_to_the_fresh_connection_and_exact_offer() {
         revision: verified.offer.revision,
         expires_unix: 1500,
     };
-    let document = signed(&accept, crypto::ACCEPT_DOMAIN, &key);
+    let document = crypto::sign(&accept, crypto::ACCEPT_DOMAIN, &key).unwrap();
     assert!(pending.accept(&document, 1000, 1).is_ok());
     let second = negotiation::Pending::approve(verified, 0, 0).unwrap();
     assert!(second.accept(&document, 1000, 1).is_err());
@@ -226,7 +211,7 @@ fn remembered_scope_requires_reapproval_and_updates_rollback_floor() {
     value.revision += 1;
     let marker = negotiation::Marker {
         server_key: value.server_key.clone(),
-        offer: signed(&value, crypto::OFFER_DOMAIN, &key),
+        offer: crypto::sign(&value, crypto::OFFER_DOMAIN, &key).unwrap(),
     };
     let bytes = serde_json::to_vec(&marker).unwrap();
     let mut session = session::Session::default();
@@ -380,7 +365,7 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
         let value = offer(&key);
         let marker = negotiation::Marker {
             server_key: value.server_key.clone(),
-            offer: signed(&value, crypto::OFFER_DOMAIN, &key),
+            offer: crypto::sign(&value, crypto::OFFER_DOMAIN, &key).unwrap(),
         };
         let mut settings = trust::Settings::default();
         let mut session = session::Session::default();
@@ -410,11 +395,9 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
             session: crypto::hex(&[3; 32]),
             expires_unix: 1500,
         };
-        let bytes = serde_json::to_vec(&session::Control::Accept(signed(
-            &accept,
-            crypto::ACCEPT_DOMAIN,
-            &key,
-        )))
+        let bytes = serde_json::to_vec(&session::Control::Accept(
+            crypto::sign(&accept, crypto::ACCEPT_DOMAIN, &key).unwrap(),
+        ))
         .unwrap();
         let mut snapshot = session.clone();
         if revoke {

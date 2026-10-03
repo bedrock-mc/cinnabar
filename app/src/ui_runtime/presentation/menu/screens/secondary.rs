@@ -466,8 +466,8 @@ fn action_panel(
 ) -> Result<(), UiPresentationError> {
     let width = area.width.min(460.0);
     let height = 314.0;
-    let left = (area.width - width) * 0.5;
-    let top = (area.height - height) * 0.5;
+    let left = area.left + (area.width - width) * 0.5;
+    let top = area.top + (area.height - height) * 0.5;
     panel(nodes, next_id, solid_page, left, top, width, height)?;
     text(
         nodes,
@@ -514,6 +514,44 @@ mod tests {
         ui_runtime::presentation::tests::fixture_font,
     };
 
+    #[test]
+    fn review_pause_panel_respects_content_origin() {
+        let view = MenuRuntime::new(true, 2, "Test".into()).view();
+        let font = fixture_font();
+        let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+        let area = ContentArea {
+            left: 200.0,
+            top: 80.0,
+            width: 1000.0,
+            height: 600.0,
+            compact: false,
+        };
+        let (mut nodes, mut hits, mut next, mut layouts) = (
+            Vec::new(),
+            Vec::new(),
+            1,
+            TextLayoutCache::new(128, 1024 * 1024),
+        );
+        action_panel(
+            &view,
+            (
+                &mut nodes,
+                &mut hits,
+                &mut next,
+                &mut layouts,
+                &font,
+                metrics,
+                0,
+            ),
+            area,
+            "Pause",
+            &[(MenuAction::PauseResume, "Resume")],
+        )
+        .unwrap();
+        let bounds = nodes[0].bounds();
+        assert_eq!(bounds.min().x(), 470.0);
+        assert_eq!(bounds.min().y(), 223.0);
+    }
     #[test]
     fn profile_presents_signed_out_and_device_code_actions() {
         let mut runtime = MenuRuntime::new(true, 2, "Offline Player".to_owned());

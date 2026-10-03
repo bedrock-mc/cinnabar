@@ -1,3 +1,4 @@
+use crate::player_runtime::PlayerRuntime;
 use std::{collections::HashSet, sync::Arc};
 
 use bevy::{
@@ -129,9 +130,13 @@ fn production_schedule_drains_content_before_click_and_admits_only_in_network_se
 
 #[test]
 fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_menu() {
+    let mut player_runtime = PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(InventoryAuthority::Server);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time<Real>>()
@@ -142,6 +147,7 @@ fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_me
         .init_resource::<MenuClipboard>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
         .insert_resource(SameFrameIngress(Some(InventoryEvent::Open(
@@ -187,8 +193,9 @@ fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_me
     assert!(!app.world().resource::<UiRuntime>().inventory_open());
     assert!(
         app.world()
-            .resource::<UiRuntime>()
-            .inventory_ledger()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
             .pending_batch()
             .unwrap()
             .is_some()
@@ -198,19 +205,25 @@ fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_me
 
 #[test]
 fn scheduled_mouse_press_uses_same_frame_complete_and_partial_inventory_ingress() {
+    let mut player_runtime = PlayerRuntime::new(1);
+
     for complete in [true, false] {
-        run_scheduled_ingress_click(complete);
+        run_scheduled_ingress_click(&mut player_runtime, complete);
     }
 }
 
 #[test]
 fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_owned() {
+    let mut player_runtime = PlayerRuntime::new(1);
+
     let current = stack(6, 2, 55);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(InventoryAuthority::Server);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
     runtime
-        .inventory_ledger_mut()
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&content(current.clone()));
 
     let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
@@ -248,6 +261,7 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
         .init_resource::<RuntimeSettings>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
         .add_systems(Update, collect_raw_input.in_set(ClientFrameSet::RawInput))
@@ -292,8 +306,22 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
     app.update();
     let runtime = app.world().resource::<UiRuntime>();
     assert!(runtime.inventory_open());
-    assert_eq!(runtime.inventory_ledger().pending_state(), None);
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), None);
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .pending_state(),
+        None
+    );
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .cursor_stack(),
+        None
+    );
     assert!(
         !app.world()
             .resource::<ButtonInput<MouseButton>>()
@@ -308,11 +336,12 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
         "the inventory-opening click cannot become gameplay attack"
     );
     assert!(
-        flush_inventory_send(
-            &mut app.world_mut().resource_mut::<UiRuntime>(),
+        crate::tests::with_ui_player(&mut app, |runtime, player| flush_inventory_send(
+            player,
+            runtime,
             10,
             |_| Ok::<_, ()>(())
-        )
+        ))
         .unwrap(),
         "the personal open notification is admitted before a gesture"
     );
@@ -347,8 +376,22 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
     app.update();
     let runtime = app.world().resource::<UiRuntime>();
     assert!(!runtime.inventory_open());
-    assert_eq!(runtime.inventory_ledger().pending_state(), None);
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), None);
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .pending_state(),
+        None
+    );
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .cursor_stack(),
+        None
+    );
     assert_eq!(
         app.world()
             .resource::<SemanticInputSnapshot>()
@@ -363,10 +406,9 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
         "a close-and-reopen frame must consume its pointer edge"
     );
 
-    {
-        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+    crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(player_runtime)
             .apply(&InventoryEvent::Open(ContainerOpenEvent {
                 container: ContainerIdentity::window(2),
                 window_type: -1,
@@ -374,30 +416,50 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
                 runtime_entity_id: -1,
             }));
         assert!(
-            flush_inventory_send(&mut runtime, 20, |_| Ok::<_, ()>(())).unwrap(),
+            flush_inventory_send(player_runtime, runtime, 20, |_| Ok::<_, ()>(())).unwrap(),
             "the close uses the acknowledged personal window"
         );
-        runtime.inventory_ledger_mut().apply(&InventoryEvent::Close(
-            protocol::ContainerCloseEvent {
+        runtime
+            .inventory_ledger_mut(player_runtime)
+            .apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
                 container: ContainerIdentity::window(2),
                 window_type: -1,
                 server_initiated: true,
-            },
-        ));
-        runtime.toggle_inventory();
+            }));
+        runtime.toggle_inventory(player_runtime);
         assert!(runtime.inventory_open());
-        assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(30));
-    }
+        assert!(
+            runtime
+                .inventory_ledger_mut(player_runtime)
+                .mark_transport_enqueued(30)
+        );
+    });
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
     app.update();
-    let runtime = app.world().resource::<UiRuntime>();
     let mut predicted = current.clone();
-    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
+    predicted.stack_network_id = app
+        .world()
+        .resource::<PlayerRuntime>()
+        .inventory
+        .ledger()
+        .pending_request_id()
+        .unwrap();
     assert_eq!(
-        runtime.inventory_ledger().pending_state(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .cursor_stack(),
+        Some(&predicted)
+    );
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .pending_state(),
         Some(InventoryPendingState::AwaitingTransport)
     );
     assert!(
@@ -411,9 +473,10 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
 #[test]
 fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalization() {
     for key_code in [KeyCode::KeyE, KeyCode::Escape] {
+        let mut player_runtime = PlayerRuntime::new(1);
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_inventory_authority(InventoryAuthority::Server);
-        open_personal_inventory(&mut runtime);
+        runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
+        open_personal_inventory(&mut player_runtime, &mut runtime);
 
         let mut app = App::new();
         configure_client_frame_schedule(&mut app);
@@ -431,6 +494,7 @@ fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalizat
             .init_resource::<RuntimeSettings>()
             .add_message::<KeyboardInput>()
             .insert_resource(runtime)
+            .insert_resource(player_runtime.clone())
             .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
             .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
             .add_systems(Update, collect_raw_input.in_set(ClientFrameSet::RawInput))
@@ -516,11 +580,14 @@ fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalizat
 #[test]
 fn menu_and_focus_loss_preempt_inventory_pointer_ownership() {
     for (menu_visible, window_focused) in [(true, true), (false, false)] {
+        let mut player_runtime = PlayerRuntime::new(1);
         let current = stack(6, 2, 55);
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_inventory_authority(InventoryAuthority::Server);
-        runtime.inventory_ledger_mut().apply(&content(current));
-        open_personal_inventory(&mut runtime);
+        runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
+        runtime
+            .inventory_ledger_mut(&mut player_runtime)
+            .apply(&content(current));
+        open_personal_inventory(&mut player_runtime, &mut runtime);
 
         let mut app = App::new();
         app.init_resource::<Time<Real>>()
@@ -531,6 +598,7 @@ fn menu_and_focus_loss_preempt_inventory_pointer_ownership() {
             .init_resource::<MenuClipboard>()
             .add_message::<KeyboardInput>()
             .insert_resource(runtime)
+            .insert_resource(player_runtime.clone())
             .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
             .insert_resource(MenuRuntime::new(menu_visible, 2, "Tester".to_owned()))
             .add_systems(
@@ -557,15 +625,33 @@ fn menu_and_focus_loss_preempt_inventory_pointer_ownership() {
         app.update();
 
         let runtime = app.world().resource::<UiRuntime>();
-        assert_eq!(runtime.inventory_ledger().pending_state(), None);
-        assert_eq!(runtime.inventory_ledger().cursor_stack(), None);
+        assert_eq!(
+            app.world()
+                .resource::<PlayerRuntime>()
+                .inventory
+                .ledger()
+                .pending_state(),
+            None
+        );
+        assert_eq!(
+            app.world()
+                .resource::<PlayerRuntime>()
+                .inventory
+                .ledger()
+                .cursor_stack(),
+            None
+        );
         if menu_visible {
             assert!(
                 !runtime.inventory_open(),
                 "the visible menu tears down personal inventory ownership"
             );
             assert!(
-                !runtime.inventory_ledger().personal_inventory_desired_open(),
+                !app.world()
+                    .resource::<PlayerRuntime>()
+                    .inventory
+                    .ledger()
+                    .personal_inventory_desired_open(),
                 "menu authority cannot leave a personal window desired"
             );
             assert!(
@@ -586,6 +672,7 @@ fn menu_and_focus_loss_preempt_inventory_pointer_ownership() {
 #[test]
 fn pause_opening_escape_is_not_replayed_as_back_on_the_next_frame() {
     let mut app = App::new();
+    app.insert_resource(PlayerRuntime::new(1));
     app.init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
@@ -624,9 +711,11 @@ fn pause_opening_escape_is_not_replayed_as_back_on_the_next_frame() {
 
 #[test]
 fn same_frame_storage_open_and_content_drive_real_button_input_before_network_send() {
+    let mut player_runtime = PlayerRuntime::new(1);
+
     let current = stack(6, 3, 91);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(InventoryAuthority::Server);
+    runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
     let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let physical_size = [1280, 720];
     let pointer = (0..physical_size[1])
@@ -682,6 +771,7 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
         .init_resource::<MenuClipboard>()
         .add_message::<bevy::input::keyboard::KeyboardInput>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
         .insert_resource(SameFrameStorageIngress(ingress))
@@ -713,10 +803,27 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
     let runtime = app.world().resource::<UiRuntime>();
     assert!(runtime.inventory_open());
     let mut predicted = current.clone();
-    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
+    predicted.stack_network_id = app
+        .world()
+        .resource::<PlayerRuntime>()
+        .inventory
+        .ledger()
+        .pending_request_id()
+        .unwrap();
     assert_eq!(
-        runtime.inventory_ledger().pending_state(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .cursor_stack(),
+        Some(&predicted)
+    );
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .pending_state(),
         Some(InventoryPendingState::AwaitingResponse)
     );
     assert!(
@@ -729,9 +836,11 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
 
 #[test]
 fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
+    let mut player_runtime = PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(InventoryAuthority::Server);
-    open_personal_inventory(&mut runtime);
+    runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
+    open_personal_inventory(&mut player_runtime, &mut runtime);
     let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let physical_size = [1280, 720];
     let pointer = (0..physical_size[1])
@@ -776,6 +885,7 @@ fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
         .init_resource::<MenuClipboard>()
         .add_message::<bevy::input::keyboard::KeyboardInput>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
         .insert_resource(ingress)
@@ -814,18 +924,21 @@ fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
     app.update();
 
     assert!(app.world().resource::<AdmissionObserved>().0);
-    let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
+    let ledger = app.world().resource::<PlayerRuntime>().inventory.ledger();
     assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(64));
     assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(29));
 }
 
-fn run_scheduled_ingress_click(complete: bool) {
+fn run_scheduled_ingress_click(player_runtime: &mut PlayerRuntime, complete: bool) {
+    *player_runtime = PlayerRuntime::new(1);
     let stale = stack(5, 1, 44);
     let current = stack(6, 2, 55);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(InventoryAuthority::Server);
-    runtime.inventory_ledger_mut().apply(&content(stale));
-    open_personal_inventory(&mut runtime);
+    runtime.publish_inventory_authority(player_runtime, InventoryAuthority::Server);
+    runtime
+        .inventory_ledger_mut(player_runtime)
+        .apply(&content(stale));
+    open_personal_inventory(player_runtime, &mut runtime);
 
     let presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let physical_size = [1280, 720];
@@ -856,6 +969,7 @@ fn run_scheduled_ingress_click(complete: bool) {
         .init_resource::<MenuClipboard>()
         .add_message::<bevy::input::keyboard::KeyboardInput>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
         .insert_resource(SameFrameIngress(Some(if complete {
@@ -889,12 +1003,28 @@ fn run_scheduled_ingress_click(complete: bool) {
     app.update();
 
     assert!(app.world().resource::<AdmissionObserved>().0);
-    let runtime = app.world().resource::<UiRuntime>();
     let mut predicted = current.clone();
-    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
+    predicted.stack_network_id = app
+        .world()
+        .resource::<PlayerRuntime>()
+        .inventory
+        .ledger()
+        .pending_request_id()
+        .unwrap();
     assert_eq!(
-        runtime.inventory_ledger().pending_state(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .cursor_stack(),
+        Some(&predicted)
+    );
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .inventory
+            .ledger()
+            .pending_state(),
         Some(InventoryPendingState::AwaitingResponse)
     );
     assert!(
@@ -924,62 +1054,76 @@ struct AdmissionObserved(bool);
 struct OpenSuppressionObserved(bool);
 
 fn observe_open_suppression(
+    player_runtime: bevy::prelude::Res<PlayerRuntime>,
     runtime: bevy::prelude::Res<UiRuntime>,
     mut observed: ResMut<OpenSuppressionObserved>,
 ) {
-    observed.0 = runtime.inventory_open() && runtime.ui_focused();
+    observed.0 = runtime.inventory_open() && runtime.ui_focused(&player_runtime);
 }
 
 fn route_same_frame_inventory_ingress(
+    mut player_runtime: bevy::prelude::ResMut<PlayerRuntime>,
     mut ingress: ResMut<SameFrameIngress>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     if let Some(event) = ingress.0.take() {
-        runtime.enqueue_inventory_event(1, 1, event).unwrap();
+        runtime
+            .enqueue_inventory_event(&mut player_runtime, 1, 1, event)
+            .unwrap();
     }
 }
 
 fn route_same_frame_storage_ingress(
+    mut player_runtime: bevy::prelude::ResMut<PlayerRuntime>,
     mut ingress: ResMut<SameFrameStorageIngress>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     for (index, event) in ingress.0.drain(..).enumerate() {
         runtime
-            .enqueue_inventory_event(1, index as u64 + 1, event)
+            .enqueue_inventory_event(&mut player_runtime, 1, index as u64 + 1, event)
             .unwrap();
     }
 }
 
 fn route_same_frame_merge_ingress(
+    mut player_runtime: bevy::prelude::ResMut<PlayerRuntime>,
     mut ingress: ResMut<SameFrameMergeIngress>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     if let Some(registry) = ingress.registry.take() {
-        runtime.enqueue_item_registry_event(1, 1, registry).unwrap();
+        runtime
+            .enqueue_item_registry_event(&mut player_runtime, 1, 1, registry)
+            .unwrap();
     }
     for (index, event) in ingress.inventory.drain(..).enumerate() {
         runtime
-            .enqueue_inventory_event(1, index as u64 + 2, event)
+            .enqueue_inventory_event(&mut player_runtime, 1, index as u64 + 2, event)
             .unwrap();
     }
 }
 
 fn admit_inventory_request(
+    mut player_runtime: bevy::prelude::ResMut<PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
     mut observed: ResMut<AdmissionObserved>,
 ) {
-    observed.0 = flush_inventory_send(&mut runtime, 10, |_| Ok::<_, ()>(())).unwrap();
+    observed.0 =
+        flush_inventory_send(&mut player_runtime, &mut runtime, 10, |_| Ok::<_, ()>(())).unwrap();
 }
 
-fn open_personal_inventory(runtime: &mut UiRuntime) {
+fn open_personal_inventory(player_runtime: &mut PlayerRuntime, runtime: &mut UiRuntime) {
     runtime
-        .publish_local_runtime_id(runtime.session_id(), 42)
+        .publish_local_runtime_id(player_runtime, runtime.session_id(), 42)
         .unwrap();
-    runtime.toggle_inventory();
+    runtime.toggle_inventory(player_runtime);
     assert!(runtime.inventory_open());
-    assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+    assert!(
+        runtime
+            .inventory_ledger_mut(player_runtime)
+            .mark_transport_enqueued(0)
+    );
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Open(ContainerOpenEvent {
             container: ContainerIdentity::window(2),
             window_type: -1,
@@ -1035,70 +1179,5 @@ fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack
     }
 }
 
-fn stage_node(graph: &ScheduleGraph, stage: ClientFrameSet) -> NodeId {
-    let key = graph
-        .system_sets
-        .get_key(stage.intern())
-        .expect("production stage");
-    NodeId::Set(key)
-}
-
-fn dependency_path_exists(graph: &ScheduleGraph, before: NodeId, after: NodeId) -> bool {
-    let dependencies = graph.dependency().graph();
-    let mut pending = vec![before];
-    let mut visited = HashSet::new();
-    while let Some(node) = pending.pop() {
-        if !visited.insert(node) {
-            continue;
-        }
-        for successor in dependencies.neighbors(node) {
-            if successor == after {
-                return true;
-            }
-            pending.push(successor);
-        }
-    }
-    false
-}
-
-fn assert_system_in_stage<M>(
-    graph: &ScheduleGraph,
-    system: impl IntoSystemSet<M>,
-    label: &str,
-    stage: ClientFrameSet,
-) {
-    assert!(
-        graph
-            .hierarchy()
-            .graph()
-            .contains_edge(stage_node(graph, stage), system_node(graph, system, label),)
-    );
-}
-
-fn system_set_node<M>(system: impl IntoSystemSet<M>, graph: &ScheduleGraph, label: &str) -> NodeId {
-    let key = graph
-        .system_sets
-        .get_key(system.into_system_set().intern())
-        .unwrap_or_else(|| panic!("missing {label}"));
-    NodeId::Set(key)
-}
-
-fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>, label: &str) -> NodeId {
-    let key = graph
-        .system_sets
-        .get_key(system.into_system_set().intern())
-        .unwrap_or_else(|| panic!("missing {label}"));
-    let parent = NodeId::Set(key);
-    graph
-        .systems
-        .iter()
-        .find_map(|(key, _, _)| {
-            let child = NodeId::System(key);
-            graph
-                .hierarchy()
-                .graph()
-                .contains_edge(parent, child)
-                .then_some(child)
-        })
-        .unwrap_or_else(|| panic!("missing {label}"))
-}
+mod graph;
+use graph::*;

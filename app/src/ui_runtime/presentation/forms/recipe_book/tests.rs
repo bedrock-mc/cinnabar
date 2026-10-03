@@ -9,10 +9,12 @@ use super::*;
 
 #[test]
 fn review_recipe_cell_clears_an_icon_when_replacement_has_no_art() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Creative);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&protocol::InventoryEvent::Creative(
             protocol::CreativeContentEvent {
                 groups: vec![protocol::CreativeGroup {
@@ -55,7 +57,15 @@ fn review_recipe_cell_clears_an_icon_when_replacement_has_no_art() {
         })];
         let mut data = DataSource::new();
         let mut icons = Vec::new();
-        book_data(&mut data, &runtime, &frame, &mut icons, true, &mut cache);
+        book_data(
+            &player_runtime,
+            &mut data,
+            &runtime,
+            &frame,
+            &mut icons,
+            true,
+            &mut cache,
+        );
         let (bound, notes) = bind_stateful(&root, &data, &EmptyLibrary, &mut state);
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(

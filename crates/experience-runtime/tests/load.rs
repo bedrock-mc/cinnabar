@@ -3,11 +3,15 @@ mod common;
 use std::fs;
 use std::path::Path;
 
-use common::{edit_manifest, hello_wasm, probe_dir, probe_dir_with, probe_wasm, rehash};
+use common::{
+    client_message, edit_manifest, hello_wasm, interact, probe_dir, probe_dir_with, probe_wasm,
+    rehash, tell, v0_1_dir,
+};
+use experience_runtime::callback::run;
 use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 use experience_runtime::load::{engine, load};
 use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM, read_manifest};
-use experience_runtime::protocol::{BlockDef, Mining, Texture};
+use experience_runtime::protocol::{BlockDef, Mining, Outcome, Texture};
 use tempfile::TempDir;
 
 /// Loads `dir`, which must fail, and returns the error chain. Every load error names the
@@ -246,4 +250,55 @@ fn oversized_component_is_refused() {
     let error = refusal(over.path());
     let limit = format!("{SERVER_WASM} exceeds {MAX_COMPONENT_BYTES} bytes");
     assert!(error.contains(&limit), "{error}");
+}
+
+/// A guest built against server WIT 0.1 still loads, and its callbacks run through the 0.1
+/// imports. 0.1 has no `client-message`, so a client message for it is rejected unrun.
+#[test]
+fn v0_1_artifact_loads_and_runs() {
+    let dir = v0_1_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    let texture = dir.path().join(ASSETS_DIR).join("counter.png");
+    assert_eq!(
+        loaded.blocks,
+        vec![BlockDef {
+            id: "probe:counter".to_owned(),
+            display_name: "Legacy".to_owned(),
+            textures: vec![Texture {
+                slot: "*".to_owned(),
+                path: texture.to_str().unwrap().to_owned(),
+            }],
+            mining: Mining::Breakable { hardness: 1.0 },
+        }]
+    );
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.1")]
+        }
+    );
+    let outcome = run(&engine, &loaded, &client_message("probe.echo", 1, vec![]));
+    assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+}
+
+/// The manifest's `api` names the world that `server.wasm` must target.
+#[test]
+fn api_must_match_the_component() {
+    let old_component = v0_1_dir();
+    edit_manifest(old_component.path(), |manifest| {
+        manifest.insert("api".to_owned(), "0.2".into());
+    });
+    let new_component = probe_dir_with(|dir| {
+        edit_manifest(dir, |manifest| {
+            manifest.insert("api".to_owned(), "0.1".into());
+        });
+    });
+    for dir in [old_component, new_component] {
+        let error = refusal(dir.path());
+        assert!(
+            error.contains("is not a") && error.contains("server component"),
+            "{error}"
+        );
+    }
 }

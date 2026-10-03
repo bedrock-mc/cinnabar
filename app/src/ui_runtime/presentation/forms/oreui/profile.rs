@@ -21,7 +21,7 @@ pub(super) fn draw(
 ) -> Result<(), UiPresentationError> {
     let [width, height] = size;
     screen_overlay(canvas, size)?;
-    let top = header(
+    let mut top = header(
         canvas,
         view,
         "Profile",
@@ -35,12 +35,40 @@ pub(super) fn draw(
         ((0, 4), (4, 8))
     };
     let [left, right] = grid.span(card_span.0, card_span.1);
-    let bottom = height - space(canvas, 2);
-    let card_bottom = if grid.narrow {
-        top + (bottom - top) * 0.45
+    let pad = space(canvas, 4);
+    let pic = canvas.r(GAMERPIC);
+    let text_left = left + pad;
+    let text_width = right - left - pad * 2.0;
+    let profile = &view.feeds.profile;
+    let name = if profile.gamertag.is_empty() {
+        view.display_name.as_str()
     } else {
-        bottom
+        profile.gamertag.as_str()
     };
+    let status = [profile.real_name.as_str(), profile.presence.as_str()]
+        .into_iter()
+        .find(|text| !text.is_empty())
+        .unwrap_or(if view.auth_state == AuthState::Authenticated {
+            "Online"
+        } else {
+            "Offline"
+        });
+    let bottom = height - space(canvas, 2);
+    let original_top = top;
+    let available = (bottom - top).max(0.0);
+    let span = grid.span(0, if grid.narrow { 8 } else { 12 });
+    let scroll = canvas.begin_scroll("profile_body", [span[0], top, span[1], bottom])?;
+    top -= scroll.offset;
+    let intrinsic = (right - left) * 9.0 / 16.0
+        + pic * 0.5
+        + space(canvas, 2)
+        + canvas.measure_height(name, text_width, HEADER5)?
+        + space(canvas, 1)
+        + canvas.measure_height(status, text_width, CAPTION)?
+        + space(canvas, 2)
+        + canvas.r(4.4)
+        + pad;
+    let card_bottom = top + intrinsic.max(if grid.narrow { 0.0 } else { available });
     panel(canvas, [left, top, right, card_bottom])?;
     let banner_bottom = top + (right - left) * 9.0 / 16.0;
     canvas.fill(
@@ -52,8 +80,6 @@ pub(super) fn draw(
         ],
         NEUTRAL100,
     )?;
-    let pad = space(canvas, 4);
-    let pic = canvas.r(GAMERPIC);
     let pic_bounds = [
         left + pad,
         banner_bottom - pic * 0.5,
@@ -77,24 +103,8 @@ pub(super) fn draw(
         }
     }
     canvas.frame(pic_bounds, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
-    let profile = &view.feeds.profile;
-    let name = if profile.gamertag.is_empty() {
-        view.display_name.as_str()
-    } else {
-        profile.gamertag.as_str()
-    };
-    let text_left = left + pad;
-    let text_width = right - left - pad * 2.0;
     let mut y = pic_bounds[3] + space(canvas, 2);
     y += canvas.text(name, [text_left, y], text_width, HEADER5, TEXT, false)? + space(canvas, 1);
-    let status = [profile.real_name.as_str(), profile.presence.as_str()]
-        .into_iter()
-        .find(|text| !text.is_empty())
-        .unwrap_or(if view.auth_state == AuthState::Authenticated {
-            "Online"
-        } else {
-            "Offline"
-        });
     y += canvas.text(
         status,
         [text_left, y],
@@ -164,5 +174,6 @@ pub(super) fn draw(
         )?;
         row_top += row_height + space(canvas, 1);
     }
-    Ok(())
+    let content = row_top.max(card_bottom) + scroll.offset - original_top;
+    canvas.end_scroll(scroll, content)
 }

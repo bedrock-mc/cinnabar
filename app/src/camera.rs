@@ -708,9 +708,12 @@ fn capture_cursor(cursor: &mut CursorOptions) {
     cursor.visible = false;
 }
 
-fn release_cursor(cursor: &mut CursorOptions) {
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+/// Releases capture only when needed, avoiding Bevy's repeated OS grab notifications.
+pub(crate) fn release_cursor(cursor: &mut Mut<CursorOptions>) {
+    if cursor.grab_mode != CursorGrabMode::None || !cursor.visible {
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
+    }
 }
 
 fn clear_controller_input(
@@ -725,6 +728,7 @@ fn clear_controller_input(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_cursor_capture(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
@@ -733,20 +737,28 @@ pub(crate) fn update_cursor_capture(
     ui: Option<Res<crate::ui_runtime::UiRuntime>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
     presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
+    consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
 ) {
     let (window, mut cursor) = window.into_inner();
 
     // Focus loss has priority over every capture request, including auto-fly.
-    if !window.focused {
+    // The trusted consent popup needs a pointer whatever settings the scene behind it declares.
+    if !window.focused || consent.is_some_and(|consent| consent.0) {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.capture_pending = false;
         return;
     }
 
-    let steals = ui.as_deref().map(|ui| ui.steals_mouse(menu.as_deref()));
-    if crate::screen_policy::absorbs_input(ui.as_deref(), menu.as_deref(), presentation.as_deref())
-        || steals == Some(false)
+    let steals = ui
+        .as_deref()
+        .map(|ui| ui.steals_mouse(&player_runtime, menu.as_deref()));
+    if crate::screen_policy::absorbs_input(
+        &player_runtime,
+        ui.as_deref(),
+        menu.as_deref(),
+        presentation.as_deref(),
+    ) || steals == Some(false)
     {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);

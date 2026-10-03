@@ -443,6 +443,28 @@ fn first_person_driver_variables_track_pitch_and_enable_view_bob() {
     );
     assert_eq!(variables.number_at(0), Some(30.0));
     assert_eq!(variables.number_at(1), Some(1.0));
+    let context = ActorTickContext {
+        is_in_ui: true,
+        ..Default::default()
+    };
+    tick::apply_engine_variables(&engine, &mut variables, &actor, &context, &input, &motion);
+    assert_eq!(variables.number_at(0), Some(0.0));
+    assert_eq!(
+        read_with(&actor, &input, &context, 0, "query.is_in_ui", &[]).number(),
+        1.0
+    );
+    assert_eq!(
+        read_with(
+            &actor,
+            &input,
+            &ActorTickContext::default(),
+            0,
+            "query.is_in_ui",
+            &[]
+        )
+        .number(),
+        0.0
+    );
 }
 
 #[test]
@@ -820,4 +842,48 @@ fn arrow_target_yaw_uses_interpolated_absolute_rotation_not_the_latest_packet() 
     // The frame's interpolated sample owns the query, not the newest packet.
     input.yaw = 165.0;
     assert_eq!(read(&actor, &input, 0, "query.target_y_rotation"), 165.0);
+}
+
+#[test]
+fn hud_pose_keeps_the_full_body_when_the_camera_uses_first_person() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
+    let Some(path) = std::fs::read_dir(root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "mcbeent")
+        })
+    else {
+        return;
+    };
+    let bytes = std::fs::read(path).unwrap();
+    let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
+    let mut actor = actor_with_metadata(HashMap::new());
+    actor.kind = ActorKind::Player {
+        uuid: [0; 16],
+        username: "Offline".into(),
+    };
+    let mut first = ActorAnimationStore::with_assets(Arc::clone(&assets));
+    let mut third = ActorAnimationStore::with_assets(assets);
+    first.insert(1, 0, &actor);
+    third.insert(1, 0, &actor);
+    let actors = HashMap::from([(actor.runtime_id, actor)]);
+    for _ in 0..4 {
+        first.advance_tick(&actors, None, Some(1), true, false, |_| ActorTickContext {
+            is_local_first_person: true,
+            ..Default::default()
+        });
+        third.advance_tick(&actors, None, Some(1), true, false, |_| {
+            ActorTickContext::default()
+        });
+    }
+    let hud = first.ui_pose(1).expect("full body pose");
+    assert!(!hud.is_empty());
+    assert_eq!(hud, third.ui_pose(1).unwrap());
+    assert_ne!(hud, first.get(1).unwrap().current);
 }

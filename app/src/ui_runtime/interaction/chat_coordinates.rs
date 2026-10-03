@@ -21,20 +21,31 @@ pub(crate) struct ChatCoordinateContext<'w> {
 
 impl ChatCoordinateContext<'_> {
     /// Refreshes both sources without generating inventory or network actions.
-    pub(super) fn publish(&self, runtime: &UiRuntime, presentation: &mut UiPresentationRuntime) {
+    pub(super) fn publish(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        runtime: &UiRuntime,
+        presentation: &mut UiPresentationRuntime,
+    ) {
         let position = self
             .frame
             .snapshot()
             .map(|frame| frame.pose().translation.to_array());
-        presentation.set_chat_coordinates(position, self.target(runtime));
+        presentation.set_chat_coordinates(position, self.target(player_runtime, runtime));
     }
 
     /// Reuses block picking's validated ray and input-mode reach.
-    fn target(&self, runtime: &UiRuntime) -> Option<[i32; 3]> {
+    fn target(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        runtime: &UiRuntime,
+    ) -> Option<[i32; 3]> {
         let snapshot = self.input.snapshot()?;
-        let selection = crate::mining::hand_interaction_selection(runtime)?;
+        let selection = crate::mining::hand_interaction_selection(player_runtime, runtime)?;
         let mode = crate::mining::protocol_input_mode(snapshot.input_mode);
-        let reach = if runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative) {
+        let reach = if runtime.player_game_mode(player_runtime)
+            == Some(protocol::PlayerGameMode::Creative)
+        {
             crate::mining::creative_reach(mode)
         } else {
             crate::mining::survival_reach(mode)

@@ -54,7 +54,12 @@ fn focus(runtime: &mut UiRuntime, frame: &EngineFrame, key: String) {
     if let Some(view) = owning_view(&frame.hits, region)
         && let Some(metrics) = frame.report.scrolls.get(&view.key)
     {
-        let offset = metrics.offset_revealing(region.rect.y, region.rect.y + region.rect.h);
+        let (start, length) = if metrics.horizontal {
+            (region.rect.x, region.rect.w)
+        } else {
+            (region.rect.y, region.rect.h)
+        };
+        let offset = metrics.offset_revealing(start, start + length);
         engine.view.scroll.insert(view.key.clone(), offset);
     }
 }
@@ -153,5 +158,53 @@ mod tests {
         );
         pad.digital_mut().clear();
         assert!(keys(&pad, &mut stick).is_empty());
+    }
+    #[test]
+    fn horizontal_focus_reveals_the_controls_horizontal_span() {
+        use crate::ui_runtime::presentation::forms::{
+            pack_harness, tests::mini_engine_presentation,
+        };
+        let mut presentation = mini_engine_presentation();
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+        let mut runtime = pack_harness::action_form(&mut player_runtime, "Test", &["Button"]);
+        presentation
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let identity = runtime.server_forms().active().unwrap().identity;
+        let mut frame = presentation.form_engine_frame(identity).unwrap().clone();
+        let mut region = frame
+            .hits
+            .iter()
+            .find(|region| region.kind == HitKind::Button)
+            .unwrap()
+            .clone();
+        region.key = "scroll/button".into();
+        region.rect = RectOut {
+            x: 150.0,
+            y: 10.0,
+            w: 20.0,
+            h: 20.0,
+        };
+        let mut scroll = region.clone();
+        scroll.key = "scroll".into();
+        scroll.kind = HitKind::ScrollView;
+        frame.hits = vec![scroll, region].into();
+        frame.report.scrolls.insert(
+            "scroll".into(),
+            json_ui::ScrollMetrics {
+                content: 300.0,
+                viewport: 100.0,
+                horizontal: true,
+                ..Default::default()
+            },
+        );
+        focus(&mut runtime, &frame, "scroll/button".into());
+        assert_eq!(runtime.server_forms().engine().view.scroll["scroll"], 70.0);
     }
 }

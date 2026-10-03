@@ -91,7 +91,26 @@ pub(crate) fn pack_files(root: &Path) -> Vec<(String, Vec<u8>)> {
 
 /// The packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest first).
 pub(crate) fn env_pack() -> Option<ServerUiPack> {
-    Some(dir_pack(&std::env::var(PACK_ENV).ok()?))
+    let dirs = std::env::var(PACK_ENV).ok()?;
+    for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
+        let path = Path::new(dir);
+        match std::fs::metadata(path) {
+            Ok(metadata) => assert!(
+                metadata.is_dir(),
+                "pack fixture {} is not a directory",
+                path.display()
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "skipping server pack fixture: missing {} ({PACK_ENV})",
+                    path.display()
+                );
+                return None;
+            }
+            Err(error) => panic!("read pack fixture {}: {error}", path.display()),
+        }
+    }
+    Some(dir_pack(&dirs))
 }
 
 /// Installs the real pack's Unicode cells alongside its JSON-UI textures.
@@ -149,36 +168,44 @@ pub(crate) fn dir_pack(dirs: &str) -> ServerUiPack {
     pack
 }
 
-pub(crate) fn action_form(title: &str, buttons: &[&str]) -> UiRuntime {
-    image_form(title, buttons, Vec::new())
+pub(crate) fn action_form(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    title: &str,
+    buttons: &[&str],
+) -> UiRuntime {
+    image_form(player_runtime, title, buttons, Vec::new())
 }
 
 pub(crate) fn image_form(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     title: &str,
     buttons: &[&str],
     images: Vec<Option<protocol::FormButtonImage>>,
 ) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Form(FormRequestEvent {
-                form_id: 3,
-                kind: FormKind::Menu,
-                title: Some(Arc::from(title)),
-                json: Arc::from("{}"),
-                model: ServerFormModel::TextMenu(TextMenuForm {
-                    title: Arc::from(title),
-                    content: Arc::from(""),
-                    buttons: buttons.iter().map(|text| Arc::from(*text)).collect(),
-                    button_images: images.into(),
-                    omitted_images: 0,
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Form(FormRequestEvent {
+                    form_id: 3,
+                    kind: FormKind::Menu,
+                    title: Some(Arc::from(title)),
+                    json: Arc::from("{}"),
+                    model: ServerFormModel::TextMenu(TextMenuForm {
+                        title: Arc::from(title),
+                        content: Arc::from(""),
+                        buttons: buttons.iter().map(|text| Arc::from(*text)).collect(),
+                        button_images: images.into(),
+                        omitted_images: 0,
+                    }),
                 }),
-            }),
-        })
+            },
+        )
         .unwrap();
     runtime
 }
@@ -305,6 +332,8 @@ pub(crate) fn dump(nodes: &[UiNode]) {
 
 #[test]
 fn server_pack_form_renders_its_text_through_the_engine() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
         eprintln!(
@@ -323,7 +352,11 @@ fn server_pack_form_renders_its_text_through_the_engine() {
         "Legendary",
         "Back",
     ];
-    let runtime = action_form("@mineville/boxes:Spirit Bundle", &buttons);
+    let runtime = action_form(
+        &mut player_runtime,
+        "@mineville/boxes:Spirit Bundle",
+        &buttons,
+    );
     let nodes = render(&mut presentation, &runtime, [2560, 1600], 2.0);
     dump(&nodes);
     let identity = runtime.server_forms().active().unwrap().identity;
@@ -398,6 +431,8 @@ fn visible_text_rects(nodes: &[UiNode]) -> Vec<[f32; 4]> {
 // instead of spilling over the next button.
 #[test]
 fn multi_line_button_labels_never_overlap() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
         eprintln!(
@@ -410,7 +445,7 @@ fn multi_line_button_labels_never_overlap() {
         "Updates In - 2m 24s\nKills - 7\nKillstreak - 1",
         "Duels",
     ];
-    let runtime = action_form("Free For All§zfp0;", &buttons);
+    let runtime = action_form(&mut player_runtime, "Free For All§zfp0;", &buttons);
     let nodes = render(&mut presentation, &runtime, [2560, 1600], 2.0);
     dump(&nodes);
     let rects = visible_text_rects(&nodes);
@@ -432,6 +467,8 @@ fn multi_line_button_labels_never_overlap() {
 // The vanilla template draws path and URL button images once they resolve.
 #[test]
 fn vanilla_form_button_images_resolve() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use protocol::FormButtonImage::{Path as ImagePath, Url};
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
@@ -446,6 +483,7 @@ fn vanilla_form_button_images_resolve() {
         .unwrap();
     let url = format!("{}/icon.png", super::remote_images::tests::serve(png));
     let runtime = image_form(
+        &mut player_runtime,
         "Shop",
         &["Diamond", "Stone", "Remote"],
         vec![
@@ -480,6 +518,8 @@ fn vanilla_form_button_images_resolve() {
 // from its full-resolution art copy, point-sampled, not the 256px downscale.
 #[test]
 fn large_server_pack_images_draw_at_full_resolution() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
         eprintln!(
@@ -498,6 +538,7 @@ fn large_server_pack_images_draw_at_full_resolution() {
         view: None,
     });
     let runtime = image_form(
+        &mut player_runtime,
         "Logo",
         &["Logo"],
         vec![Some(protocol::FormButtonImage::Path(
@@ -526,6 +567,8 @@ fn entry(name: &str) -> String {
 /// The snapshot's Zeqa training fixture keeps the full second-line word before dots.
 #[test]
 fn training_labels_keep_practice_before_the_ellipsis() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
         eprintln!(
@@ -542,7 +585,7 @@ fn training_labels_keep_practice_before_the_ellipsis() {
     };
     presentation.set_server_ui_pack(&pack);
     let button = entry("BRIDGING");
-    let runtime = action_form("Training", &[&button]);
+    let runtime = action_form(&mut player_runtime, "Training", &[&button]);
     let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
     let texts = drawn_texts(&nodes);
     assert!(
@@ -558,6 +601,8 @@ fn training_labels_keep_practice_before_the_ellipsis() {
 // Writes PNG snapshots of pack forms for visual inspection (local only).
 #[test]
 fn snapshot_pack_forms() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
         eprintln!(
@@ -613,15 +658,19 @@ fn snapshot_pack_forms() {
                     ))
                 })
                 .collect();
-            image_form(title, &labels, images)
+            image_form(&mut player_runtime, title, &labels, images)
         } else {
-            action_form(title, &labels)
+            action_form(&mut player_runtime, title, &labels)
         };
         let dpi = DpiScale::new(1.0).unwrap();
         for _ in 0..2 {
-            presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+            presentation
+                .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+                .unwrap();
         }
-        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        let input = presentation
+            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .unwrap();
         super::snapshot::write(&input, name);
         // The same form with its second button hovered.
         let identity = runtime.server_forms().active().unwrap().identity;
@@ -638,7 +687,9 @@ fn snapshot_pack_forms() {
         });
         let mut runtime = runtime;
         runtime.server_forms_mut().engine_mut().view.hovered = hovered;
-        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        let input = presentation
+            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .unwrap();
         super::snapshot::write(&input, &format!("{name}-hover"));
     }
 }
@@ -646,6 +697,8 @@ fn snapshot_pack_forms() {
 // Writes a snapshot of a pack's 2x2 image grid with a featured card (local only).
 #[test]
 fn snapshot_pack_image_grid() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
         eprintln!(
@@ -685,12 +738,16 @@ fn snapshot_pack_image_grid() {
             ))
         })
         .collect();
-    let runtime = image_form("Free For All§zfp0;", &labels, images);
+    let runtime = image_form(&mut player_runtime, "Free For All§zfp0;", &labels, images);
     let dpi = DpiScale::new(2.0).unwrap();
     for _ in 0..2 {
-        presentation.build(&runtime, 0, [1280, 1440], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, 0, [1280, 1440], dpi)
+            .unwrap();
     }
-    let input = presentation.build(&runtime, 0, [1280, 1440], dpi).unwrap();
+    let input = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 1440], dpi)
+        .unwrap();
     super::snapshot::write(&input, "image-grid");
     let identity = runtime.server_forms().active().unwrap().identity;
     let hovered = presentation.form_engine_frame(identity).and_then(|frame| {
@@ -703,7 +760,9 @@ fn snapshot_pack_image_grid() {
     });
     let mut runtime = runtime;
     runtime.server_forms_mut().engine_mut().view.hovered = hovered;
-    let input = presentation.build(&runtime, 0, [1280, 1440], dpi).unwrap();
+    let input = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 1440], dpi)
+        .unwrap();
     super::snapshot::write(&input, "image-grid-hover");
     let (drawn, missing) = presentation
         .form_presentation

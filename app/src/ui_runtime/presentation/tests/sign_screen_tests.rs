@@ -20,6 +20,8 @@ fn open_sign(runtime: &mut UiRuntime, block: &str) {
 
 #[test]
 fn sign_screen_shows_the_woods_art_and_the_lines_with_a_caret() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         eprintln!(
             "skipping sign_screen_shows_the_woods_art_and_the_lines_with_a_caret: fixture unavailable; requires installed local carriers (make assets)"
@@ -29,7 +31,13 @@ fn sign_screen_shows_the_woods_art_and_the_lines_with_a_caret() {
     let mut runtime = UiRuntime::new(1);
     open_sign(&mut runtime, "minecraft:birch_standing_sign");
     presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let nodes = presentation.sign_draw_nodes();
     assert!(nodes.iter().any(|node| matches!(
@@ -49,7 +57,13 @@ fn sign_screen_shows_the_woods_art_and_the_lines_with_a_caret() {
     assert!(!presentation.sign_editor_exit_hit(UiPoint::new(640.0, 360.0).unwrap()));
     runtime.sign_editor_mut().close();
     presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     assert!(!presentation.sign_editor_exit_hit(UiPoint::new(10.0, 10.0).unwrap()));
 }
@@ -57,6 +71,8 @@ fn sign_screen_shows_the_woods_art_and_the_lines_with_a_caret() {
 /// Local-only: writes `sign_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
 #[test]
 fn sign_screen_snapshot() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
@@ -68,7 +84,13 @@ fn sign_screen_snapshot() {
     let mut runtime = UiRuntime::new(1);
     open_sign(&mut runtime, "minecraft:dark_oak_hanging_sign");
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::super::forms::snapshot::write(&input, "sign_screen");
 }

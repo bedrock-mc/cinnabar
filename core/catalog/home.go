@@ -88,20 +88,22 @@ func HomeImages(home *Home) []*Image {
 // Message is one player-messaging message; Surface places it (PlayButton,
 // MarketplaceButton, InboxMessage, LoginAnnouncement, ToastNotification, ...).
 type Message struct {
-	ID         string          `json:"id"`
-	InstanceID string          `json:"instance_id"`
-	ReportID   string          `json:"report_id,omitempty"`
-	Surface    string          `json:"surface"`
-	Template   string          `json:"template"`
-	Category   string          `json:"category,omitempty"`
-	Status     string          `json:"status,omitempty"`
-	Received   string          `json:"received,omitempty"`
-	Header     string          `json:"header,omitempty"`
-	Body       string          `json:"body,omitempty"`
-	SubTitle   string          `json:"sub_title,omitempty"`
-	Banner     string          `json:"banner,omitempty"`
-	Images     []MessageImage  `json:"images"`
-	Buttons    []MessageButton `json:"buttons"`
+	Colors     map[string][3]uint8 `json:"colors,omitempty"`
+	Sender     string              `json:"sender,omitempty"`
+	ID         string              `json:"id"`
+	InstanceID string              `json:"instance_id"`
+	ReportID   string              `json:"report_id,omitempty"`
+	Surface    string              `json:"surface"`
+	Template   string              `json:"template"`
+	Category   string              `json:"category,omitempty"`
+	Status     string              `json:"status,omitempty"`
+	Received   string              `json:"received,omitempty"`
+	Header     string              `json:"header,omitempty"`
+	Body       string              `json:"body,omitempty"`
+	SubTitle   string              `json:"sub_title,omitempty"`
+	Banner     string              `json:"banner,omitempty"`
+	Images     []MessageImage      `json:"images"`
+	Buttons    []MessageButton     `json:"buttons"`
 }
 
 // MessageImage is one keyed message image.
@@ -157,6 +159,7 @@ type LiveEvent struct {
 
 // MessagingSession holds the account's messaging session across home refreshes and reports.
 type MessagingSession struct {
+	art      messageArt
 	mu       sync.Mutex
 	client   *playermessaging.Client
 	language string
@@ -177,6 +180,7 @@ func (s *MessagingSession) get(discovery *service.Discovery, account *authcache.
 			return nil, fmt.Errorf("resolve messaging service: %w", err)
 		}
 		env.HTTPClient = messagingHTTPClient(env.HTTPClient, s.language)
+		env.HTTPClient.Transport = messageArtTransport{RoundTripper: env.HTTPClient.Transport, art: &s.art}
 		s.client = env.New(account)
 	}
 	return s.client, nil
@@ -260,6 +264,7 @@ func messages(ctx context.Context, discovery *service.Discovery, account *authca
 		return err
 	}
 	home.Messages, home.Inbox = flatten(refreshed)
+	session.art.apply(home.Messages)
 	return nil
 }
 
@@ -286,7 +291,7 @@ func flatten(session *playermessaging.Session) ([]Message, Inbox) {
 		message := Message{
 			ID: wire.ID, InstanceID: wire.InstanceID, ReportID: wire.ReportID,
 			Surface: wire.Surface, Template: wire.Template, Category: wire.InboxCategory,
-			Status: wire.Status, Received: wire.DateReceived,
+			Status: wire.Status, Received: wire.DateReceived, Sender: wire.Sender,
 			Header: wire.Text.Header, Body: wire.Text.Body,
 			Images: []MessageImage{}, Buttons: []MessageButton{},
 		}
@@ -300,6 +305,7 @@ func flatten(session *playermessaging.Session) ([]Message, Inbox) {
 				ID: id, Text: button.Text, Link: button.Link, Action: strings.ToLower(button.Action),
 			})
 		}
+		applyMessageItems(&message, wire.Items)
 		slices.SortFunc(message.Images, func(a, b MessageImage) int { return strings.Compare(a.ID, b.ID) })
 		slices.SortFunc(message.Buttons, func(a, b MessageButton) int { return strings.Compare(a.ID, b.ID) })
 		messages = append(messages, message)

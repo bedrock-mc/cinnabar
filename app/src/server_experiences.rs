@@ -63,6 +63,16 @@ impl ExperienceSession {
         self.incoming_bytes -= entry.1.len();
         Some(entry)
     }
+
+    /// Holds the join on its loading screen while consent can still be asked; never once
+    /// approved, since the server reads the hello only after the client enters the world.
+    pub(crate) fn holds_world_entry(&self) -> bool {
+        (self.marker.is_some() && !self.handled_marker)
+            || matches!(
+                self.session.state,
+                server_experience::session::State::Offered(_)
+            )
+    }
 }
 
 /// Uses wall time only for signed expiration, never for media presentation.

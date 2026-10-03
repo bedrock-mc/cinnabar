@@ -92,6 +92,7 @@ pub(super) fn resolve_binding(
         layer_skeletons: BTreeMap::new(),
         controllers,
         previous: current.clone(),
+        ui_pose: None,
         rest: current.clone(),
         rest_completed_tick: 0,
         rest_reset_generation: 0,

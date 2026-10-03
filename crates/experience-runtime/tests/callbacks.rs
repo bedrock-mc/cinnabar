@@ -3,10 +3,12 @@
 
 mod common;
 
-use common::{ACTOR, AIR, COUNTER, callback, cell, interact, outcome, p, tell, up};
+use common::{
+    ACTOR, AIR, COUNTER, callback, cell, client_message, interact, outcome, p, send, tell, up,
+};
 use experience_runtime::limits::MAX_REASON_BYTES;
 use experience_runtime::protocol::{
-    Call, Cause, Cell, Change, Face, FailKind, Op, Outcome, Request,
+    Call, Cause, Cell, Change, Face, FailKind, Op, Outcome, Request, Scalar,
 };
 
 /// `request` with its snapshot cell at `new.pos` replaced by `new`.
@@ -286,4 +288,79 @@ fn non_canonical_player_ids_are_rejected_unrun() {
         assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
     }
     assert_eq!(outcome(&with_actor(place(None), None)), committed(vec![]));
+}
+
+/// A staged client message commits with the result, in the order it was staged.
+#[test]
+fn staged_send_commits_with_the_result() {
+    assert_eq!(
+        outcome(&interact(19)),
+        committed(vec![
+            Op::SetBlockData {
+                pos: p(19),
+                data: Some("01000000".to_owned()),
+            },
+            send("probe.counter", 1, vec![Scalar::Integer(1)]),
+            tell("count 1 ok"),
+        ])
+    );
+}
+
+#[test]
+fn send_to_non_actor_is_denied() {
+    assert_eq!(outcome(&interact(20)), committed(vec![tell("denied")]));
+}
+
+#[test]
+fn oversized_send_is_too_large() {
+    assert_eq!(outcome(&interact(21)), committed(vec![tell("too-large")]));
+}
+
+/// A client message reaches the guest with its fields in order. Its callback has no snapshot,
+/// so the block read and write are refused, while the echo to the sender is staged.
+#[test]
+fn client_message_reaches_guest_without_world_access() {
+    let payload = vec![
+        Scalar::Bool(true),
+        Scalar::Integer(-42),
+        Scalar::Text("ack".to_owned()),
+        Scalar::Choice(3),
+    ];
+    assert_eq!(
+        outcome(&client_message("probe.echo", 7, payload.clone())),
+        committed(vec![
+            send("probe.echo", 7, payload),
+            tell("client probe.echo 7 4 read denied write denied echo ok"),
+        ])
+    );
+}
+
+/// A client message comes from its player, who is the callback's actor, and carries no
+/// snapshot; otherwise nothing runs, though each of these would commit if it ran.
+#[test]
+fn malformed_client_message_is_rejected_unrun() {
+    let with = |edit: fn(&mut Option<String>, &mut Vec<Cell>)| {
+        let mut request = client_message("probe.echo", 1, vec![]);
+        let Request::Callback {
+            actor, snapshot, ..
+        } = &mut request
+        else {
+            unreachable!("a callback request");
+        };
+        edit(actor, snapshot);
+        request
+    };
+    let malformed = [
+        with(|actor, _| *actor = None),
+        with(|actor, _| *actor = Some("00000000-0000-0000-0000-000000000000".to_owned())),
+        with(|_, snapshot| snapshot.push(cell(p(0), COUNTER, true, None))),
+    ];
+    for request in malformed {
+        let outcome = outcome(&request);
+        assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+    }
+    assert!(matches!(
+        outcome(&with(|_, _| {})),
+        Outcome::Committed { .. }
+    ));
 }

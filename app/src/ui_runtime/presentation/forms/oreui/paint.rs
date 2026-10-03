@@ -52,6 +52,8 @@ pub(super) struct Canvas<'a> {
 
 /// A scroll view being drawn: restore `outer` when it ends.
 pub(super) struct Scroll {
+    id: UiNodeId,
+    first_node: usize,
     key: String,
     viewport: Bounds,
     outer: Option<(UiNodeId, Bounds)>,
@@ -418,11 +420,23 @@ impl<'a> Canvas<'a> {
         *self.next = self.next.saturating_add(1);
         let outer = self.clip.replace((id, viewport));
         Ok(Scroll {
+            id,
+            first_node: self.nodes.len(),
             key: key.to_owned(),
             viewport,
             outer,
             offset: self.offsets.get(key).copied().unwrap_or(0.0),
         })
+    }
+
+    /// Ends a viewport using the lowest directly attached content node as its extent.
+    pub(super) fn end_scroll_to_fit(&mut self, scroll: Scroll) -> Result<(), UiPresentationError> {
+        let content = self.nodes[scroll.first_node..]
+            .iter()
+            .filter(|node| node.parent() == Some(scroll.id))
+            .map(|node| node.bounds().max().y() + scroll.offset)
+            .fold(0.0, f32::max);
+        self.end_scroll(scroll, content)
     }
 
     /// Ends `scroll` with `content` logical px drawn: a thumb shows when it

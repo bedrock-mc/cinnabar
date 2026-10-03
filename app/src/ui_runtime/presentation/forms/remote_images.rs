@@ -43,6 +43,25 @@ struct Entries {
     asked: HashMap<String, Instant>,
 }
 
+impl Entries {
+    /// Evicts the oldest settled URLs after either admission or download completion.
+    fn trim(&mut self) {
+        while self.order.len() > MAX_ENTRIES {
+            let Some(position) = self
+                .order
+                .iter()
+                .position(|key| self.states.get(key) != Some(&RemoteState::Loading))
+            else {
+                break;
+            };
+            if let Some(key) = self.order.remove(position) {
+                self.states.remove(&key);
+                self.asked.remove(&key);
+            }
+        }
+    }
+}
+
 pub(super) fn is_remote(path: &str) -> bool {
     path.starts_with("https://") || path.starts_with("http://")
 }
@@ -67,21 +86,11 @@ impl RemoteImages {
         };
         entries.states.insert(url.to_owned(), state.clone());
         entries.order.push_back(url.to_owned());
-        while entries.order.len() > MAX_ENTRIES {
-            let Some(position) = entries
-                .order
-                .iter()
-                .position(|key| entries.states.get(key) != Some(&RemoteState::Loading))
-            else {
-                break;
-            };
-            if let Some(key) = entries.order.remove(position) {
-                entries.states.remove(&key);
-            }
-        }
+        entries.trim();
         state
     }
 
+    /// Queues a URL on the shared download worker.
     fn request(&self, url: &str) -> bool {
         let mut worker = self.0.worker.lock().unwrap_or_else(|p| p.into_inner());
         if worker.is_none() {
@@ -94,6 +103,7 @@ impl RemoteImages {
 }
 
 impl Remote {
+    /// Settles a download and restores the retained cache capacity.
     fn finish(&self, url: String, bytes: Option<Vec<u8>>) {
         let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
         entries.asked.remove(&url);
@@ -102,6 +112,7 @@ impl Remote {
                 RemoteState::Ready(bytes.into())
             });
         }
+        entries.trim();
     }
 
     /// Whether a queued `url` is still wanted; an obsolete one is forgotten so
@@ -273,5 +284,27 @@ pub(crate) mod tests {
             RemoteState::Ready(b"image bytes".as_slice().into())
         );
         assert_eq!(images.state("file:///etc/passwd"), RemoteState::Failed);
+    }
+    #[test]
+    fn review_download_completion_restores_the_cache_capacity() {
+        let remote = Remote::default();
+        let keys = (0..MAX_ENTRIES + 1)
+            .map(|index| format!("fixture:{index}"))
+            .collect::<Vec<_>>();
+        {
+            let mut entries = remote.entries.lock().unwrap();
+            for key in &keys {
+                entries.states.insert(key.clone(), RemoteState::Loading);
+                entries.order.push_back(key.clone());
+                entries.asked.insert(key.clone(), Instant::now());
+            }
+        }
+        for key in keys {
+            remote.finish(key, Some(vec![1]));
+        }
+        let entries = remote.entries.lock().unwrap();
+        assert!(entries.states.len() <= MAX_ENTRIES);
+        assert_eq!(entries.order.len(), entries.states.len());
+        assert!(entries.asked.is_empty());
     }
 }

@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/cube"
@@ -25,12 +24,16 @@ const airID = "minecraft:air"
 // Host runs the events of every Experience. Its hooks queue them on the world goroutines without
 // blocking, and one worker per Experience runs them one at a time: a snapshot in one world task,
 // the callback outside any task, then a commit in another task that checks the snapshot is still
-// current and the result valid before it applies anything.
+// current and the result valid before it applies anything. Client messages that a commit stages
+// go out through channels afterwards, and client messages that players send queue like events.
 type Host struct {
 	reg     *Registry
 	store   *Store
 	log     *slog.Logger
 	worldID string
+	// channels is the server half of the client parts; nil when the server has none, which
+	// drops every staged client message.
+	channels ClientChannels
 	// dispatchers holds each Experience's queue and supervisor by Experience id. It never
 	// changes after NewHost.
 	dispatchers map[string]*dispatcher
@@ -65,10 +68,11 @@ type dispatcher struct {
 	events chan event
 	// seq numbers the events that the worker runs. Only the worker uses it.
 	seq uint64
-	// dropped counts the events dropped for a full queue or the neighbor cap; lastDropLog is
-	// when, in Unix nanoseconds, that was last logged.
-	dropped     atomic.Uint64
-	lastDropLog atomic.Int64
+	// dropped counts the events dropped for a full queue or the neighbor cap.
+	dropped dropCount
+	// undeclared counts committed client messages on channels that the Experience's client part
+	// does not declare, and unsent those that the server half did not send.
+	undeclared, unsent dropCount
 	// neighborMu guards neighbors, the neighbor events admitted in the current tick of each
 	// world, whose goroutines all admit them.
 	neighborMu sync.Mutex
@@ -85,7 +89,8 @@ type neighborTick struct {
 	seen map[cube.Pos]struct{}
 }
 
-// event is one hook's callback, queued for its Experience's worker.
+// event is one hook's callback, queued for its Experience's worker. A client message's event has
+// no world until its snapshot finds the actor's.
 type event struct {
 	w   *world.World
 	dim dimension
@@ -122,14 +127,19 @@ func dimensionOf(tx *world.Tx) (dimension, bool) {
 
 // NewHost returns a Host for the Experiences in sups, by Experience id, and installs it as the
 // hook sink of every Experience block. worldID is the base name of the world folder, which
-// callbacks see as their world id. A block of an Experience missing from sups keeps its data in
-// the store but queues no events. The Host closes the supervisors when it closes.
-func NewHost(reg *Registry, store *Store, sups map[string]*Supervisor, worldID string, log *slog.Logger) *Host {
+// callbacks see as their world id. channels is the server half of the client parts, or nil. A
+// block of an Experience missing from sups keeps its data in the store but queues no events. The
+// Host closes the supervisors when it closes.
+func NewHost(
+	reg *Registry, store *Store, sups map[string]*Supervisor, worldID string, channels ClientChannels,
+	log *slog.Logger,
+) *Host {
 	h := &Host{
 		reg:         reg,
 		store:       store,
 		log:         log,
 		worldID:     worldID,
+		channels:    channels,
 		dispatchers: make(map[string]*dispatcher, len(sups)),
 		tell:        messageTeller{},
 		stop:        make(chan struct{}),
@@ -377,10 +387,7 @@ func (h *Host) enqueue(exp string, ev event) {
 
 // drop counts a dropped event and logs the count at most once per dropLogInterval.
 func (h *Host) drop(d *dispatcher) {
-	n := d.dropped.Add(1)
-	now := time.Now().UnixNano()
-	last := d.lastDropLog.Load()
-	if now-last >= int64(dropLogInterval) && d.lastDropLog.CompareAndSwap(last, now) {
+	if n, ok := d.dropped.add(); ok {
 		h.log.Warn("events dropped", "experience", d.id, "dropped", n)
 	}
 }
@@ -411,7 +418,7 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 		return
 	}
 	d.seq++
-	snap, err := h.snapshot(ctx, d, ev)
+	snap, err := h.snapshot(ctx, d, &ev)
 	if err != nil {
 		if ctx.Err() == nil {
 			h.log.Warn("snapshot failed", "experience", d.id, "error", err)
@@ -461,11 +468,28 @@ type cellState struct {
 }
 
 // snapshot reads the event's anchor and its loaded neighbors in a fresh task of the event's
-// world.
-func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev event) (snapshot, error) {
+// world. A client message has no anchor, so its snapshot holds no cell; it runs in the world its
+// actor is in at the time, which becomes the event's world.
+func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot, error) {
 	var snap snapshot
-	if err := await(ctx, ev.w.Do(func(tx *world.Tx) { snap = h.read(tx, d, ev) })); err != nil {
-		return snapshot{}, err
+	if ev.call.ClientMessage == nil {
+		if err := await(ctx, ev.w.Do(func(tx *world.Tx) { snap = h.read(tx, d, *ev) })); err != nil {
+			return snapshot{}, err
+		}
+		return snap, nil
+	}
+	found := false
+	task := ev.actor.Do(func(tx *world.Tx, _ world.Entity) {
+		if ev.dim, found = dimensionOf(tx); found {
+			ev.w = tx.World()
+			snap = h.read(tx, d, *ev)
+		}
+	})
+	if err := await(ctx, task); err != nil {
+		return snapshot{}, fmt.Errorf("finding the sender of a client message: %w", err)
+	}
+	if !found {
+		return snapshot{}, errors.New("the sender of a client message is in a world without a dimension id")
 	}
 	return snap, nil
 }
@@ -482,7 +506,7 @@ func await(ctx context.Context, task *world.Task) error {
 }
 
 // read builds the event's snapshot in tx: the anchor and its six neighbors within the world's
-// height, loaded or not, with the data of the owned ones.
+// height, loaded or not, with the data of the owned ones; nothing for a client message.
 func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	r := tx.Range()
 	snap := snapshot{
@@ -503,10 +527,13 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		id := ev.actor.UUID().String()
 		snap.req.Actor = &id
 	}
-	positions := []cube.Pos{ev.anchor}
-	for _, f := range cube.Faces() {
-		if side := ev.anchor.Side(f); !side.OutOfBounds(r) {
-			positions = append(positions, side)
+	var positions []cube.Pos
+	if ev.call.ClientMessage == nil {
+		positions = append(positions, ev.anchor)
+		for _, f := range cube.Faces() {
+			if side := ev.anchor.Side(f); !side.OutOfBounds(r) {
+				positions = append(positions, side)
+			}
 		}
 	}
 	for _, pos := range positions {

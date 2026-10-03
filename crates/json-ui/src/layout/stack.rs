@@ -136,7 +136,9 @@ pub(super) fn stack_children<'a>(
             };
         }
         let shown = super::visible(child) && !priority_hidden;
-        previous = Some((at, *size, shown));
+        if shown {
+            previous = Some((at, *size, shown));
+        }
         placed.push((
             child,
             Rect::new(stack.x + at[0], stack.y + at[1], size[0], size[1]),

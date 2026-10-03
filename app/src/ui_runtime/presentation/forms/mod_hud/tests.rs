@@ -35,9 +35,13 @@ fn hud_pack(hud: &[u8]) -> ServerUiPack {
 }
 
 /// Builds the same offline frame so only the extension state can change its pixels.
-fn frame(presentation: &mut UiPresentationRuntime) -> UiRenderInput {
+fn frame(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    presentation: &mut UiPresentationRuntime,
+) -> UiRenderInput {
     presentation
         .build(
+            player_runtime,
             &UiRuntime::new(1),
             0,
             [1280, 720],
@@ -48,22 +52,26 @@ fn frame(presentation: &mut UiPresentationRuntime) -> UiRenderInput {
 
 #[test]
 fn no_mod_output_is_identical_to_the_vanilla_frame() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = presentation();
-    let before = frame(&mut presentation);
+    let before = frame(&player_runtime, &mut presentation);
     presentation.set_mod_label(None).unwrap();
-    let after = frame(&mut presentation);
+    let after = frame(&player_runtime, &mut presentation);
     assert_eq!(before, after);
     assert!(presentation.form_presentation.mod_hud.is_none());
 }
 
 #[test]
 fn extension_mount_update_and_revoke_use_json_ui() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = presentation();
-    let before = snapshot::rasterize(&frame(&mut presentation));
+    let before = snapshot::rasterize(&frame(&player_runtime, &mut presentation));
     presentation
         .set_mod_label(Some("Cinnabar extension: Hello"))
         .unwrap();
-    let first = frame(&mut presentation);
+    let first = frame(&player_runtime, &mut presentation);
     assert!(presentation.form_presentation.hud.hud.has_visible_content());
     assert!(
         presentation
@@ -76,7 +84,7 @@ fn extension_mount_update_and_revoke_use_json_ui() {
             > 0
     );
     assert!(before != snapshot::rasterize(&first));
-    assert_eq!(first, frame(&mut presentation));
+    assert_eq!(first, frame(&player_runtime, &mut presentation));
     assert_eq!(
         presentation
             .form_presentation
@@ -90,14 +98,19 @@ fn extension_mount_update_and_revoke_use_json_ui() {
     presentation
         .set_mod_label(Some("Cinnabar extension: F8 pressed"))
         .unwrap();
-    let updated = frame(&mut presentation);
+    let updated = frame(&player_runtime, &mut presentation);
     assert_ne!(first.vertices, updated.vertices);
     presentation.set_mod_label(None).unwrap();
-    assert_eq!(before, snapshot::rasterize(&frame(&mut presentation)));
+    assert_eq!(
+        before,
+        snapshot::rasterize(&frame(&player_runtime, &mut presentation))
+    );
 }
 
 #[test]
 fn extension_is_hidden_while_chat_or_inventory_owns_input() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     for inventory in [false, true] {
         let mut presentation = presentation();
         let mut runtime = UiRuntime::new(1);
@@ -105,7 +118,13 @@ fn extension_is_hidden_while_chat_or_inventory_owns_input() {
         runtime.chat_focused = !inventory;
         let build = |presentation: &mut UiPresentationRuntime| {
             presentation
-                .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    [1280, 720],
+                    DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap()
         };
         let before = snapshot::rasterize(&build(&mut presentation));
@@ -128,17 +147,19 @@ fn extension_is_hidden_while_chat_or_inventory_owns_input() {
 
 #[test]
 fn extension_cannot_restore_a_server_hidden_hud() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = presentation();
     presentation.set_server_ui_pack(&hud_pack(
         br#"{
         "namespace": "hud", "hud_screen": { "type": "screen", "visible": false }
     }"#,
     ));
-    let before = frame(&mut presentation);
+    let before = frame(&player_runtime, &mut presentation);
     presentation
         .set_mod_label(Some("Hidden extension"))
         .unwrap();
-    assert_eq!(before, frame(&mut presentation));
+    assert_eq!(before, frame(&player_runtime, &mut presentation));
     assert_eq!(
         presentation
             .form_presentation
@@ -153,13 +174,15 @@ fn extension_cannot_restore_a_server_hidden_hud() {
 
 #[test]
 fn mod_spike_snapshot_with_real_carrier() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         eprintln!(
             "skipping mod_spike_snapshot_with_real_carrier: fixture unavailable; requires installed local carriers (make assets)"
         );
         return;
     };
-    let before = frame(&mut presentation);
+    let before = frame(&player_runtime, &mut presentation);
     snapshot::write(&before, "mod-spike-before");
     let mut guest = std::env::var_os(SAMPLE_COMPONENT_ENV).map(|path| {
         mod_host::ModHost::load_with_grants(
@@ -173,26 +196,27 @@ fn mod_spike_snapshot_with_real_carrier() {
         .map(|host| host.label().expect("sample must publish a label"))
         .unwrap_or("Cinnabar extension: Hello (Press demo key)");
     presentation.set_mod_label(Some(text)).unwrap();
-    let after = frame(&mut presentation);
+    let after = frame(&player_runtime, &mut presentation);
     snapshot::write(&after, "mod-spike-after");
     assert_ne!(snapshot::rasterize(&before), snapshot::rasterize(&after));
     if let Some(host) = guest.as_mut() {
         host.frame(true).unwrap();
         presentation.set_mod_label(host.label()).unwrap();
-        let pressed = frame(&mut presentation);
+        let pressed = frame(&player_runtime, &mut presentation);
         snapshot::write(&pressed, "mod-spike-keybind");
         assert_ne!(snapshot::rasterize(&after), snapshot::rasterize(&pressed));
     }
     presentation.set_mod_label(None).unwrap();
     assert_eq!(
         snapshot::rasterize(&before),
-        snapshot::rasterize(&frame(&mut presentation))
+        snapshot::rasterize(&frame(&player_runtime, &mut presentation))
     );
 }
 
 #[test]
 #[ignore = "requires the real carrier and a compiled sample; prints offline CPU timings"]
 fn mod_spike_offline_frame_overhead() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let path = std::env::var_os(SAMPLE_COMPONENT_ENV)
         .unwrap_or_else(|| panic!("set {SAMPLE_COMPONENT_ENV} to the compiled sample"));
     let mut host = mod_host::ModHost::load_with_grants(
@@ -203,19 +227,22 @@ fn mod_spike_offline_frame_overhead() {
     let mut vanilla = pack_harness::engine_presentation().expect("real UI carrier required");
     let mut modded = pack_harness::engine_presentation().expect("real UI carrier required");
     for _ in 0..5 {
-        measure_frame_batch(&mut vanilla, None);
-        measure_frame_batch(&mut modded, Some(&mut host));
+        measure_frame_batch(&player_runtime, &mut vanilla, None);
+        measure_frame_batch(&player_runtime, &mut modded, Some(&mut host));
     }
     let mut empty = Vec::new();
     let mut loaded = Vec::new();
     let mut delta = Vec::new();
     for batch in 0..40 {
         let (a, b) = if batch % 2 == 0 {
-            let a = measure_frame_batch(&mut vanilla, None);
-            (a, measure_frame_batch(&mut modded, Some(&mut host)))
+            let a = measure_frame_batch(&player_runtime, &mut vanilla, None);
+            (
+                a,
+                measure_frame_batch(&player_runtime, &mut modded, Some(&mut host)),
+            )
         } else {
-            let b = measure_frame_batch(&mut modded, Some(&mut host));
-            (measure_frame_batch(&mut vanilla, None), b)
+            let b = measure_frame_batch(&player_runtime, &mut modded, Some(&mut host));
+            (measure_frame_batch(&player_runtime, &mut vanilla, None), b)
         };
         empty.push(a);
         loaded.push(b);
@@ -249,6 +276,7 @@ const BENCH_FRAMES: usize = 100;
 
 /// Times the real CPU UI build plus the loaded guest and retained-label adapter.
 fn measure_frame_batch(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     presentation: &mut UiPresentationRuntime,
     mut host: Option<&mut mod_host::ModHost>,
 ) -> f64 {
@@ -258,7 +286,7 @@ fn measure_frame_batch(
             host.frame(std::hint::black_box(false)).unwrap();
             presentation.set_mod_label(host.label()).unwrap();
         }
-        std::hint::black_box(frame(presentation));
+        std::hint::black_box(frame(player_runtime, presentation));
     }
     start.elapsed().as_nanos() as f64 / BENCH_FRAMES as f64
 }

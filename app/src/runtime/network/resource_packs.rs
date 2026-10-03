@@ -28,6 +28,8 @@ pub struct PackApplication {
     pub(crate) glyph_sheets: Option<Arc<SessionGlyphSheets>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
     pub(super) entity_artwork: Option<Arc<render::ActorArtworkPages>>,
+    pub(crate) prepared_actor_artwork:
+        Option<Arc<super::prepared_actor_artwork::PreparedActorArtwork>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
     pub(crate) server_ui: Option<Arc<ServerUiPack>>,
     /// Installed only once the session's Bootstrap is accepted.
@@ -48,10 +50,27 @@ impl Default for PackApplication {
             glyph_sheets: None,
             entities: None,
             entity_artwork: None,
+            prepared_actor_artwork: None,
             property_defaults: Vec::new(),
             server_ui: None,
             server_sounds: None,
         }
+    }
+}
+
+impl PackApplication {
+    /// Prepares against the exact base snapshot that this application will publish over.
+    pub(super) fn prepare_actor_artwork(&mut self, base: Option<&render::ActorArtworkPages>) {
+        self.prepared_actor_artwork = base.zip(self.entities.as_ref()).map(|(base, pack)| {
+            if let Some(previous) = &self.prepared_actor_artwork
+                && previous.pages_for(base, pack).is_some()
+            {
+                return previous.clone();
+            }
+            Arc::new(super::prepared_actor_artwork::PreparedActorArtwork::new(
+                base, pack,
+            ))
+        });
     }
 }
 
@@ -244,6 +263,7 @@ pub(super) fn prepare_changed_application(
         } else {
             previous.and_then(|old| old.entity_artwork.clone())
         },
+        prepared_actor_artwork: previous.and_then(|old| old.prepared_actor_artwork.clone()),
         property_defaults: super::entity_pack::pack_property_defaults(&view),
         server_ui: if changes.ui {
             compile(Subscriber::Ui, &stack, &mut dependencies, collect_server_ui)

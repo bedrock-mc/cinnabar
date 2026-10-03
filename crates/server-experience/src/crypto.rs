@@ -1,6 +1,7 @@
 //! Domain-separated Ed25519 signatures over exact canonical JSON bytes.
 
 use anyhow::{Result, bail, ensure};
+pub use ring::signature::{Ed25519KeyPair, KeyPair};
 use ring::{
     rand::{SecureRandom, SystemRandom},
     signature,
@@ -45,6 +46,22 @@ impl SignedDocument {
         );
         Ok((value, digest(&payload)))
     }
+}
+
+/// Signs the canonical serde_json bytes of `value` under `domain`; the exact inverse of `verify`.
+pub fn sign<T: Serialize>(
+    value: &T,
+    domain: &[u8],
+    key: &Ed25519KeyPair,
+) -> Result<SignedDocument> {
+    let payload = serde_json::to_vec(value)?;
+    let mut message = Vec::with_capacity(domain.len() + payload.len());
+    message.extend_from_slice(domain);
+    message.extend_from_slice(&payload);
+    Ok(SignedDocument {
+        payload: hex(&payload),
+        signature: hex(key.sign(&message).as_ref()),
+    })
 }
 
 /// Computes the immutable content name, independent of URL or destination.

@@ -1,5 +1,6 @@
 //! Real ordered-stream commit-to-authority witnesses, not network-ingress tests.
 use super::*;
+use crate::player_runtime::PlayerRuntime;
 use crate::{
     acceptance::{AcceptanceRun, model_witness::ModelWitnessFileSource},
     app::{
@@ -66,7 +67,8 @@ fn targeted_game_mode_updates_reach_live_hud_and_input_authority_after_fifo_comm
     use protocol::{GameModeEvent, GameModeUpdate, PlayerGameMode};
     let (mut app, _) = fixture_app();
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<PlayerRuntime>()
+        .facts
         .publish_bootstrap_game_modes(PlayerGameMode::Survival, PlayerGameMode::Adventure, false);
     let targeted = |actor_unique_id, update| {
         WorldEvent::Ui(UiEvent::PlayerGameMode {
@@ -87,7 +89,10 @@ fn targeted_game_mode_updates_reach_live_hud_and_input_authority_after_fifo_comm
         .unwrap();
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().player_game_mode(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .player_game_mode(),
         Some(PlayerGameMode::Survival)
     );
     // An update addressed to the runtime ID rather than unique ID must not change the local UI.
@@ -102,11 +107,35 @@ fn targeted_game_mode_updates_reach_live_hud_and_input_authority_after_fifo_comm
         )
         .unwrap();
     app.update();
-    let runtime = app.world().resource::<UiRuntime>();
-    assert_eq!(runtime.player_game_mode(), Some(PlayerGameMode::Creative));
-    assert!(!runtime.survival_stats_visible());
-    assert!(runtime.game_mode_capabilities().unwrap().creative_inventory);
-    assert!(runtime.game_mode_capabilities().unwrap().can_fly);
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .player_game_mode(),
+        Some(PlayerGameMode::Creative)
+    );
+    assert!(
+        !app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .survival_stats_visible()
+    );
+    assert!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .game_mode_capabilities()
+            .unwrap()
+            .creative_inventory
+    );
+    assert!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .game_mode_capabilities()
+            .unwrap()
+            .can_fly
+    );
     app.world_mut()
         .resource_mut::<ClientWorld>()
         .stream
@@ -116,7 +145,13 @@ fn targeted_game_mode_updates_reach_live_hud_and_input_authority_after_fifo_comm
         .unwrap();
     app.update();
     let runtime = app.world().resource::<UiRuntime>();
-    assert_eq!(runtime.player_game_mode(), Some(PlayerGameMode::Creative));
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .player_game_mode(),
+        Some(PlayerGameMode::Creative)
+    );
     assert_eq!(runtime.gameplay_hud().diagnostics().odd_hud_packets, 1);
     app.world_mut()
         .resource_mut::<ClientWorld>()
@@ -126,10 +161,27 @@ fn targeted_game_mode_updates_reach_live_hud_and_input_authority_after_fifo_comm
         .submit(4, targeted(1, GameModeUpdate::WorldDefault))
         .unwrap();
     app.update();
-    let runtime = app.world().resource::<UiRuntime>();
-    assert_eq!(runtime.player_game_mode(), Some(PlayerGameMode::Adventure));
-    assert!(runtime.survival_stats_visible());
-    assert!(!runtime.game_mode_capabilities().unwrap().creative_inventory);
+    assert_eq!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .player_game_mode(),
+        Some(PlayerGameMode::Adventure)
+    );
+    assert!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .survival_stats_visible()
+    );
+    assert!(
+        !app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .game_mode_capabilities()
+            .unwrap()
+            .creative_inventory
+    );
     app.world_mut()
         .resource_mut::<ClientWorld>()
         .stream
@@ -144,12 +196,16 @@ fn targeted_game_mode_updates_reach_live_hud_and_input_authority_after_fifo_comm
         .unwrap();
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().player_game_mode(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .player_game_mode(),
         Some(PlayerGameMode::Survival)
     );
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
 }
 
+/// Binds the live player resource to the fixture stream.
 fn bind_ability_fixture(app: &mut App) {
     let stream = app
         .world()
@@ -160,7 +216,8 @@ fn bind_ability_fixture(app: &mut App) {
         .biome_tint_identity()
         .stream();
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<PlayerRuntime>()
+        .facts
         .bind_local_abilities(1, stream, 1, true);
 }
 
@@ -181,7 +238,8 @@ fn actual_schedule_commits_ability_fifo_once_without_changing_input_or_forms() {
     bind_ability_fixture(&mut app);
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .facts
             .local_abilities()
             .is_none()
     );
@@ -195,7 +253,8 @@ fn actual_schedule_commits_ability_fifo_once_without_changing_input_or_forms() {
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .facts
             .local_abilities()
             .is_none()
     );
@@ -208,13 +267,19 @@ fn actual_schedule_commits_ability_fifo_once_without_changing_input_or_forms() {
         .unwrap();
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().local_abilities(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .local_abilities(),
         Some(&ability_update(1, 0))
     );
     let input = app.world().resource::<SemanticInputSnapshot>().clone();
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().local_abilities(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .local_abilities(),
         Some(&ability_update(1, 0))
     );
     assert_eq!(
@@ -237,7 +302,10 @@ fn actual_schedule_commits_ability_fifo_once_without_changing_input_or_forms() {
         .unwrap();
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().local_abilities(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .local_abilities(),
         Some(&ability_update(1, 33))
     );
 }
@@ -257,7 +325,8 @@ fn actual_drain_cannot_repopulate_after_fatal_transfer_or_missing_stream() {
         app.update();
         assert!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<PlayerRuntime>()
+                .facts
                 .local_abilities()
                 .is_some()
         );
@@ -289,7 +358,8 @@ fn actual_drain_cannot_repopulate_after_fatal_transfer_or_missing_stream() {
         schedule.run(app.world_mut());
         assert!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<PlayerRuntime>()
+                .facts
                 .local_abilities()
                 .is_none()
         );
@@ -301,7 +371,8 @@ fn actual_drain_cannot_repopulate_after_fatal_transfer_or_missing_stream() {
         schedule.run(app.world_mut());
         assert!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<PlayerRuntime>()
+                .facts
                 .local_abilities()
                 .is_none(),
             "retired binding cannot be reminted"
@@ -324,7 +395,10 @@ fn actual_drain_retains_session_scoped_evidence_across_dimension_but_rejects_old
     submit_transition(&mut app, 2, 1);
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().local_abilities(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .local_abilities(),
         Some(&ability_update(1, 0))
     );
     app.world_mut().resource_mut::<ClientWorld>().stream =
@@ -347,7 +421,8 @@ fn actual_drain_retains_session_scoped_evidence_across_dimension_but_rejects_old
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<PlayerRuntime>()
+            .facts
             .local_abilities()
             .is_none()
     );
@@ -390,7 +465,8 @@ fn actual_terminal_control_then_drain_retires_queued_abilities_without_rearming(
         app.update();
         assert!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<PlayerRuntime>()
+                .facts
                 .local_abilities()
                 .is_some()
         );
@@ -410,7 +486,8 @@ fn actual_terminal_control_then_drain_retires_queued_abilities_without_rearming(
         schedule.run(app.world_mut());
         assert!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<PlayerRuntime>()
+                .facts
                 .local_abilities()
                 .is_none()
         );
@@ -441,7 +518,10 @@ fn prebinding_queue_waits_for_identity_and_old_terminal_receiver_cannot_clear_ne
     bind_ability_fixture(&mut app);
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().local_abilities(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .local_abilities(),
         Some(&ability_update(1, 0))
     );
     let (old_handle, sender) = NetworkHandle::stub_with_control_sender();
@@ -455,7 +535,10 @@ fn prebinding_queue_waits_for_identity_and_old_terminal_receiver_cannot_clear_ne
     app.insert_resource(NetworkHandle::disconnected());
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().local_abilities(),
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .local_abilities(),
         Some(&ability_update(1, 0))
     );
 }
@@ -519,14 +602,18 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
         schedule.run(app.world_mut());
         if generation < 2 {
             assert_eq!(
-                app.world().resource::<UiRuntime>().local_abilities(),
+                app.world()
+                    .resource::<PlayerRuntime>()
+                    .facts
+                    .local_abilities(),
                 Some(&ability_update(1, 0))
             );
             assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
         } else {
             assert!(
                 app.world()
-                    .resource::<UiRuntime>()
+                    .resource::<PlayerRuntime>()
+                    .facts
                     .local_abilities()
                     .is_none()
             );
@@ -535,7 +622,9 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
     }
 }
 
+/// Builds a complete authority schedule with independent player and UI owners.
 fn fixture_app() -> (App, Entity) {
+    let mut player_runtime = PlayerRuntime::new(1);
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
     bind_session_generation(&mut clock, &mut weather, 1);
@@ -556,8 +645,10 @@ fn fixture_app() -> (App, Entity) {
     menu.set_visible(false);
     let mut app = App::new();
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
     configure_client_frame_schedule(&mut app);
     configure_client_authority_systems(&mut app);
     app.add_message::<KeyboardInput>()
@@ -570,6 +661,7 @@ fn fixture_app() -> (App, Entity) {
         .insert_resource(weather)
         .insert_resource(collisions)
         .insert_resource(runtime)
+        .insert_resource(player_runtime)
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .insert_resource(menu)
         .insert_resource(NetworkHandle::disconnected())
@@ -775,7 +867,12 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
     let mut weather = app.world_mut().remove_resource::<WeatherState>().unwrap();
     bind_session_generation(&mut clock, &mut weather, 2);
     app.insert_resource(clock).insert_resource(weather);
-    app.world_mut().resource_mut::<UiRuntime>().begin_session(2);
+    app.world_mut()
+        .resource_scope(|world, mut player: Mut<PlayerRuntime>| {
+            world
+                .resource_mut::<UiRuntime>()
+                .begin_session(&mut player, 2);
+        });
     submit_form(&mut app, 1);
     app.update();
     let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
@@ -927,9 +1024,16 @@ fn committed_form_owns_first_visible_frame_and_recovers_each_real_input_consumer
             "real stream drain must succeed"
         );
         let mut runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
+        let player_runtime = app.world().resource::<PlayerRuntime>().clone();
         app.world_mut()
             .resource_mut::<UiPresentationRuntime>()
-            .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         if let Some(form) = runtime.server_forms().active() {
             let identity = form.identity;
@@ -949,9 +1053,90 @@ fn committed_form_owns_first_visible_frame_and_recovers_each_real_input_consumer
         app.update(); // Restore cursor/input without replaying the old edge.
         let cursor = app.world().get::<CursorOptions>(window).unwrap();
         assert!(!cursor.visible && cursor.grab_mode == CursorGrabMode::Locked);
-        assert!(!app.world().resource::<UiRuntime>().ui_focused());
+        assert!(
+            !app.world()
+                .resource::<UiRuntime>()
+                .ui_focused(app.world().resource::<PlayerRuntime>())
+        );
         press(&mut app, window, case);
         app.update();
         assert_positive_control(&app, case);
     }
+}
+
+#[test]
+fn committed_hunger_waits_for_fifo_and_rejected_updates_preserve_domain_facts() {
+    let (mut app, _) = fixture_app();
+    let attribute = |current| protocol::ActorAttribute {
+        name: "minecraft:player.hunger".into(),
+        min: 0.0,
+        max: 20.0,
+        current,
+        default: Some(20.0),
+        modifiers: Arc::from([]),
+    };
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            2,
+            WorldEvent::Actor(protocol::ActorEvent::Attributes(
+                protocol::ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 42,
+                    attributes: Arc::from([attribute(6.0)]),
+                    tick: 0,
+                },
+            )),
+        )
+        .unwrap();
+    app.update();
+    assert!(
+        app.world()
+            .resource::<PlayerRuntime>()
+            .facts
+            .hunger()
+            .is_none()
+    );
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .commit(1)
+        .unwrap();
+    app.update();
+    let accepted = app
+        .world()
+        .resource::<PlayerRuntime>()
+        .facts
+        .hunger()
+        .unwrap();
+    assert_eq!(accepted.current(), 600);
+    assert_eq!(accepted.scale(), 100);
+    for (session_id, fifo_sequence) in [(1, 2), (0, 3)] {
+        crate::tests::with_ui_player(&mut app, |runtime, player| {
+            assert!(
+                runtime
+                    .apply_local_attributes(
+                        player,
+                        crate::ui_runtime::SequencedLocalAttributes {
+                            session_id,
+                            fifo_sequence,
+                            local_millis: 0,
+                            server_tick: 0,
+                            attributes: Arc::from([attribute(1.0)]),
+                        }
+                    )
+                    .is_err()
+            );
+        });
+        assert_eq!(
+            app.world().resource::<PlayerRuntime>().facts.hunger(),
+            Some(accepted)
+        );
+    }
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
 }

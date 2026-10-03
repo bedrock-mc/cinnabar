@@ -12,6 +12,7 @@ use bevy::prelude::ResMut;
 use serde::{Deserialize, Serialize};
 
 use super::MenuRuntime;
+pub(super) mod writer;
 
 const FILE_NAME: &str = "video-settings.json";
 const MAX_FILE_BYTES: u64 = 4096;
@@ -77,22 +78,46 @@ pub(crate) fn persist_video_settings(mut menu: ResMut<MenuRuntime>) {
         fullscreen: menu.fullscreen,
         gui_scale_offset: menu.gui_scale_offset,
     };
-    if settings == menu.last_saved_video_settings {
-        menu.failed_video_settings_save = None;
+    if let Some(writer) = menu.video_settings_writer.as_mut() {
+        let results = writer.poll();
+        for (saved, result) in results {
+            match result {
+                Ok(()) => {
+                    menu.last_saved_video_settings = saved;
+                    menu.failed_video_settings_save = None;
+                }
+                Err(error) => {
+                    menu.failed_video_settings_save = Some(saved);
+                    menu.message = Some(format!("Video settings could not be saved: {error}"));
+                }
+            }
+        }
+    }
+    if (settings == menu.last_saved_video_settings && menu.video_settings_writer.is_none())
+        || Some(settings) == menu.failed_video_settings_save
+    {
         return;
     }
-    if Some(settings) == menu.failed_video_settings_save {
-        return;
+    if menu.video_settings_writer.is_none() {
+        let root = menu.layout.user_config_root.clone();
+        match writer::Writer::new(move |value| {
+            save(&root, value).map_err(|error| format!("{error:#}"))
+        }) {
+            Ok(writer) => menu.video_settings_writer = Some(writer),
+            Err(error) => {
+                menu.message = Some(format!("Video settings writer could not start: {error}"));
+                return;
+            }
+        }
     }
-    match save(&menu.layout.user_config_root, settings) {
-        Ok(()) => {
-            menu.last_saved_video_settings = settings;
-            menu.failed_video_settings_save = None;
-        }
-        Err(error) => {
-            menu.failed_video_settings_save = Some(settings);
-            menu.message = Some(format!("Video settings could not be saved: {error:#}"));
-        }
+    if let Err(error) = menu
+        .video_settings_writer
+        .as_mut()
+        .expect("writer started")
+        .submit(settings)
+    {
+        menu.failed_video_settings_save = Some(settings);
+        menu.message = Some(format!("Video settings could not be saved: {error}"));
     }
 }
 

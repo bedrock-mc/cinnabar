@@ -1,5 +1,6 @@
 //! Real keyboard and production ingress regression for close-response admission.
 
+use crate::player_runtime::PlayerRuntime;
 use bevy::{
     input::{
         ButtonInput, ButtonState,
@@ -19,10 +20,14 @@ use crate::ui_runtime::{
     inventory_ledger::{GENERIC_STORAGE_WINDOW_TYPE, PERSONAL_INVENTORY_WINDOW_TYPE},
 };
 
+/// Builds the keyboard fixture with one live domain owner.
 fn app() -> (App, Entity) {
+    let mut player_runtime = PlayerRuntime::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(InventoryAuthority::Server);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime.publish_inventory_authority(&mut player_runtime, InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
     let mut app = App::new();
     app.init_resource::<Time<Real>>()
         .init_resource::<ButtonInput<KeyCode>>()
@@ -30,6 +35,7 @@ fn app() -> (App, Entity) {
         .init_resource::<AccumulatedMouseMotion>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .add_systems(
             Update,
             (drain_inventory_authority, drive_chat_keyboard_input).chain(),
@@ -70,17 +76,19 @@ fn key(app: &mut App, window: Entity, key_code: KeyCode, state: ButtonState) {
 }
 
 fn receive(app: &mut App, sequence: u64, event: InventoryEvent) {
-    app.world_mut()
-        .resource_mut::<UiRuntime>()
-        .enqueue_inventory_event(1, sequence, event)
-        .unwrap();
+    crate::tests::with_ui_player(app, |runtime, player| {
+        runtime
+            .enqueue_inventory_event(player, 1, sequence, event)
+            .unwrap();
+    });
     app.update();
 }
 
 fn flush(app: &mut App, millis: u64) {
-    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
-    assert!(flush_inventory_send(&mut runtime, millis, |_| Ok::<_, ()>(())).unwrap());
-    assert!(!flush_inventory_send(&mut runtime, millis, |_| Ok::<_, ()>(())).unwrap());
+    crate::tests::with_ui_player(app, |runtime, player| {
+        assert!(flush_inventory_send(player, runtime, millis, |_| Ok::<_, ()>(())).unwrap());
+        assert!(!flush_inventory_send(player, runtime, millis, |_| Ok::<_, ()>(())).unwrap());
+    });
 }
 
 #[test]
@@ -131,10 +139,15 @@ fn e_key_reopens_after_e_or_escape_and_response_payload_does_not_identify_the_sc
                     }),
                 );
                 key(&mut app, window, close_key, ButtonState::Released);
-                let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
-                runtime.poll_inventory_timeout(cycle * 100_000 + 60_000);
-                assert!(!runtime.inventory_open());
-                assert!(!runtime.inventory_ledger().personal_inventory_desired_open());
+                crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
+                    runtime.poll_inventory_timeout(player_runtime, cycle * 100_000 + 60_000);
+                    assert!(!runtime.inventory_open());
+                    assert!(
+                        !runtime
+                            .inventory_ledger(player_runtime)
+                            .personal_inventory_desired_open()
+                    );
+                });
             }
         }
     }

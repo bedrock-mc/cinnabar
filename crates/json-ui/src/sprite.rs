@@ -275,6 +275,9 @@ fn tile_region(
     tile: [f64; 2],
     axes: Tiled,
 ) -> Vec<(Rect, UvRect)> {
+    if !rect.w.is_finite() || !rect.h.is_finite() || rect.w <= 0.0 || rect.h <= 0.0 {
+        return Vec::new();
+    }
     // Repeating one texel equals stretching it, and a wide 1x1 fill stays under MAX_TILES.
     let along_x = matches!(axes, Tiled::X | Tiled::Both) && region[2] > 1.0;
     let along_y = matches!(axes, Tiled::Y | Tiled::Both) && region[3] > 1.0;
@@ -298,7 +301,9 @@ fn tile_region(
     }
     let mut quads = Vec::new();
     let mut y = 0.0;
-    while y < rect.h && quads.len() < MAX_TILES {
+    let mut rows = 0;
+    while y < rect.h && quads.len() < MAX_TILES && rows < MAX_TILES {
+        rows += 1;
         let fy = ((rect.h - y) / step[1]).clamp(0.0, 1.0);
         let mut x = 0.0;
         while x < rect.w && quads.len() < MAX_TILES {

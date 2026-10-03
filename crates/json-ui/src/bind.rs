@@ -24,7 +24,7 @@ mod apply;
 mod bag;
 mod data;
 mod declarations;
-mod feed;
+pub(crate) mod feed;
 mod grid;
 mod native;
 mod output;
@@ -133,6 +133,7 @@ fn bind_with(
         resolved_with: BTreeMap::new(),
         keys: state::KeyMap::default(),
         retain,
+        created: 0,
     };
     let scope = Scope {
         values: Arc::clone(&data.creation_values),
@@ -166,6 +167,8 @@ struct Scope {
     retained_parent: u64,
     /// The control's layout key, tracked only while components write bags.
     layout_key: String,
+    /// Active factory/template references, carried through deferred children.
+    expansions: Vec<ControlRef>,
 }
 
 impl Default for Scope {
@@ -178,6 +181,7 @@ impl Default for Scope {
             parent_key: state::KEY_ROOT,
             retained_parent: state::KEY_ROOT,
             layout_key: String::new(),
+            expansions: Vec::new(),
         }
     }
 }
@@ -240,9 +244,20 @@ struct Binder<'a> {
     keys: state::KeyMap<usize>,
     /// Whether the refresh's state outlives it.
     retain: bool,
+    /// Controls materialized in this bind, including factory creations.
+    created: usize,
 }
 
 impl<'a> Binder<'a> {
+    /// Stops every creation path at the shared resolved-tree node budget.
+    fn can_create(&mut self) -> bool {
+        if self.created < crate::resolve::MAX_NODES {
+            return true;
+        }
+        self.note("bound control node limit exceeded".to_owned());
+        false
+    }
+
     fn note(&mut self, message: String) {
         if self.reported.insert(message.clone()) {
             self.diagnostics.push(message);
@@ -261,6 +276,7 @@ impl<'a> Binder<'a> {
     /// Create `src` under `scope`: its bag, its bindings for this refresh, and
     /// its subtree unless it is hidden.
     fn build(&mut self, src: Src, scope: &Scope, repeat: usize) -> Node {
+        self.created += 1;
         let key = self.control_key(&src, scope.parent_key);
         let declaration = self.declaration(&src);
         let bindings = Arc::clone(&declaration.bindings);
@@ -418,6 +434,9 @@ impl<'a> Binder<'a> {
     }
 
     fn children_of(&mut self, node: &Node, scope: &Scope) -> Vec<Node> {
+        if !self.can_create() {
+            return Vec::new();
+        }
         let src = &node.src;
         let control = src.get();
         let mut scope = scope.clone();
@@ -433,11 +452,13 @@ impl<'a> Binder<'a> {
         let created = if is_collection_factory(control) {
             Some(self.expand_factory(control, node, scope))
         } else if let Some(reference) = self.screen_factory(control) {
-            Some(
-                self.resolve(&reference)
-                    .map(|resolved| vec![self.build(Src::root(resolved), scope, 0)])
+            Some(match self.expansion_scope(scope, &reference) {
+                Some(inner) => self
+                    .resolve(&reference)
+                    .map(|resolved| vec![self.build(Src::root(resolved), &inner, 0)])
                     .unwrap_or_default(),
-            )
+                None => Vec::new(),
+            })
         } else if let Some(items) = self.feed(control) {
             Some(self.expand_feed(control, items, scope))
         } else {
@@ -466,6 +487,20 @@ impl<'a> Binder<'a> {
         self.literal_children(src, scope)
     }
 
+    /// Bounds recursive factory/template creation without rejecting ordinary siblings.
+    fn expansion_scope(&mut self, scope: &Scope, reference: &ControlRef) -> Option<Scope> {
+        const MAX_EXPANSIONS: usize = 64;
+        if scope.expansions.len() >= MAX_EXPANSIONS || scope.expansions.contains(reference) {
+            self.note(format!(
+                "factory expansion skipped at {reference}: cycle or depth limit"
+            ));
+            return None;
+        }
+        let mut inner = scope.clone();
+        inner.expansions.push(reference.clone());
+        Some(inner)
+    }
+
     /// The authored children; a `type: "factory"` child's creations join its
     /// parent after the siblings.
     fn literal_children(&mut self, src: &Src, scope: &Scope) -> Vec<Node> {
@@ -475,6 +510,9 @@ impl<'a> Binder<'a> {
         let mut created = Vec::new();
         let mut siblings = crate::layout::SiblingKeys::default();
         for index in 0..control.children.len() {
+            if !self.can_create() {
+                break;
+            }
             let child = src.child(index);
             let authored = &control.children[index];
             let cell = columns.and_then(|columns| grid_cell_index(authored, columns));

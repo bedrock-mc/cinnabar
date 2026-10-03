@@ -18,7 +18,7 @@ pub(crate) use equipment::{
     PreviewEquipment, PreviewHandItem, PreviewHeldModel, PreviewHeldPlacement, PreviewTexture,
 };
 use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
-pub(crate) use skin::validated_ui_skin;
+pub(crate) use skin::local_preview_skin;
 
 impl UiPresentationRuntime {
     /// Retain the CPU quad. Only exact current-render coverage may omit it in
@@ -63,11 +63,12 @@ impl UiPresentationRuntime {
     /// stack's item through `identify`.
     pub(crate) fn dress_player_preview(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &crate::ui_runtime::UiRuntime,
         identify: impl Fn(&protocol::NetworkItemStack) -> Option<Arc<str>>,
     ) {
         use crate::ui_runtime::inventory_ledger::InventoryTarget;
-        let ledger = runtime.inventory_ledger();
+        let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
             stack.and_then(|stack| Some((identify(stack)?, stack.clone())))
         };
@@ -76,7 +77,7 @@ impl UiPresentationRuntime {
         });
         let held = named(
             runtime
-                .selected_hotbar_slot()
+                .selected_hotbar_slot(player_runtime)
                 .and_then(|slot| ledger.displayed_stack(slot)),
         );
         self.set_player_preview_gear(
@@ -162,9 +163,10 @@ pub(crate) const PLAYER_EYE_HEIGHT: f32 = 1.62;
 /// Undyed leather armor's colour (the equipment renderer's default).
 const LEATHER_RGB: u32 = 0x00a0_6540;
 /// The player entity's render scale.
-const PLAYER_MODEL_SCALE: f32 = 0.9375;
-/// Half a player's height, the point a paper doll centres.
-pub(crate) const PLAYER_HALF_HEIGHT: f32 = 0.9;
+pub(super) const PLAYER_MODEL_SCALE: f32 = 0.9375;
+/// UI rendering retains the native ModelPart origin rather than the world feet origin.
+pub(crate) const PLAYER_UI_ORIGIN: f32 =
+    client_world::MODEL_PART_ORIGIN_Y / 16.0 * PLAYER_MODEL_SCALE;
 
 /// How a UI renderer shows the player model; both face the viewer.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -176,6 +178,8 @@ pub(crate) enum PreviewView {
     /// `paper_doll_renderer`: a fixed turn (`starting_rotation`) under a camera tilt
     /// (`camera_tilt_degrees`), both in degrees.
     Doll { yaw: f32, tilt: f32 },
+    /// Fixed HUD camera while the actor keeps its live pose.
+    Hud,
 }
 
 impl Default for PreviewView {
@@ -196,6 +200,7 @@ impl PreviewView {
                 [x * 20.0, x * 40.0, y * -20.0, y * -20.0]
             }
             Self::Doll { yaw, tilt } => [yaw, yaw, 0.0, tilt],
+            Self::Hud => [22.5, 22.5, 0.0, 0.0],
         }
     }
 }
@@ -221,12 +226,17 @@ pub(crate) fn renderer_frame(
             [centre[0] / px - point[0], centre[1] / px - point[1]]
         });
         (PreviewView::Live { offset }, w.min(h), PLAYER_EYE_HEIGHT)
+    } else if renderer == "hud_player_renderer" {
+        (PreviewView::Hud, w, PLAYER_UI_ORIGIN)
     } else {
         let view = PreviewView::Doll {
             yaw: number("starting_rotation").unwrap_or(0.0) as f32,
             tilt: number("camera_tilt_degrees").unwrap_or(0.0) as f32,
         };
-        (view, (w / 20.0).min(h / 39.0) * 16.0, PLAYER_HALF_HEIGHT)
+        // The native menu model retains its authored Y=24 origin. The
+        // paper-doll renderer subtracts inverse GUI scale in model pixels.
+        let anchor = PLAYER_UI_ORIGIN - 1.0 / (px * 16.0);
+        (view, (w / 20.0).min(h / 39.0) * 16.0, anchor)
     };
     // Logical pixels per raster pixel; the anchor point lands on the centre.
     let scale = block / PREVIEW_PIXELS_PER_BLOCK;
@@ -284,6 +294,19 @@ impl PlayerPreviewPose {
             sneaking,
         }
     }
+
+    /// The local actor's pose; the default stance off-world.
+    pub(crate) fn of_local_player(stream: Option<&client_world::WorldStream>) -> Self {
+        let Some(actor) = stream.and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        else {
+            return Self::default();
+        };
+        let sneaking = matches!(
+            actor.metadata.get(&0),
+            Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
+        );
+        Self::new(actor.body_yaw, actor.head_yaw, actor.pitch, sneaking)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -334,6 +357,7 @@ pub(crate) fn render(
 
 /// A posed, viewer-facing biped.
 struct Rig {
+    parts: [Option<bevy::math::Affine3A>; 6],
     body: f32,
     head_yaw: f32,
     head_pitch: f32,
@@ -349,8 +373,9 @@ impl Rig {
         let [body, head_yaw, head_pitch, model_pitch] = view.angles();
         // PaperDollRenderer sets variable.is_paperdoll=1. The vanilla player
         // controller's paperdoll branch excludes holding, sneak and idle bob.
-        let is_live = matches!(view, PreviewView::Live { .. });
+        let is_live = !matches!(view, PreviewView::Doll { .. });
         Self {
+            parts: [None; 6],
             body: body.to_radians(),
             head_yaw: (head_yaw - body).to_radians(),
             head_pitch: head_pitch.to_radians(),
@@ -363,30 +388,36 @@ impl Rig {
 
     fn project(&self, vertex: ActorVertex) -> ProjectedVertex {
         let mut local = vertex.position;
-        if self.sneaking {
-            local = sneak_pose(local, vertex.part);
-        }
-        match vertex.part {
-            0 => {
-                local = rotate_x(local, self.head_pitch, [0.0, 1.5, 0.0]);
-                local = rotate_y(local, self.head_yaw, [0.0, 1.5, 0.0]);
+        if let Some(Some(transform)) = self.parts.get(vertex.part as usize) {
+            local = transform
+                .transform_point3(bevy::math::Vec3::from_array(local))
+                .to_array();
+        } else {
+            if self.sneaking {
+                local = sneak_pose(local, vertex.part);
             }
-            // The arms sway out from the shoulders.
-            2 => {
-                let shoulder = [-5.0 / 16.0, 22.0 / 16.0, 0.0];
-                if self.holding[0] {
-                    local = rotate_x(local, -18f32.to_radians(), shoulder);
+            match vertex.part {
+                0 => {
+                    local = rotate_x(local, self.head_pitch, [0.0, 1.5, 0.0]);
+                    local = rotate_y(local, self.head_yaw, [0.0, 1.5, 0.0]);
                 }
-                local = rotate_z(local, -self.bob, shoulder);
-            }
-            3 => {
-                let shoulder = [5.0 / 16.0, 22.0 / 16.0, 0.0];
-                if self.holding[1] {
-                    local = rotate_x(local, -18f32.to_radians(), shoulder);
+                // The arms sway out from the shoulders.
+                2 => {
+                    let shoulder = [-5.0 / 16.0, 22.0 / 16.0, 0.0];
+                    if self.holding[0] {
+                        local = rotate_x(local, -18f32.to_radians(), shoulder);
+                    }
+                    local = rotate_z(local, -self.bob, shoulder);
                 }
-                local = rotate_z(local, self.bob, shoulder);
+                3 => {
+                    let shoulder = [5.0 / 16.0, 22.0 / 16.0, 0.0];
+                    if self.holding[1] {
+                        local = rotate_x(local, -18f32.to_radians(), shoulder);
+                    }
+                    local = rotate_z(local, self.bob, shoulder);
+                }
+                _ => {}
             }
-            _ => {}
         }
         // The player renders at `scale: 0.9375` (player.entity.json).
         local = local.map(|axis| axis * PLAYER_MODEL_SCALE);

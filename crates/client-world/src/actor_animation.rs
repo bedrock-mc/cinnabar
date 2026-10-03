@@ -194,6 +194,8 @@ struct ActorRigState {
     controllers: Vec<ControllerState>,
     previous: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
+    /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
+    ui_pose: Option<Vec<BoneTransform>>,
     rest: Vec<BoneTransform>,
     rest_completed_tick: u64,
     rest_reset_generation: u64,
@@ -580,6 +582,29 @@ impl ActorAnimationStore {
                 &mut budget,
                 None,
             );
+            if exempt == Some(actor.runtime_id) {
+                let ui_context = ActorTickContext {
+                    is_local_first_person: false,
+                    is_in_ui: true,
+                    ..context.clone()
+                };
+                state.ui_pose = Some(
+                    evaluate_state(
+                        state_assets,
+                        state_layout,
+                        state,
+                        actor,
+                        &ui_context,
+                        self.completed_tick,
+                        &mut budget,
+                        None,
+                    )
+                    .map(|evaluated| evaluated.pose)
+                    .unwrap_or_default(),
+                );
+            } else {
+                state.ui_pose = None;
+            }
             self.stats.evaluated_molang_ops = self
                 .stats
                 .evaluated_molang_ops
@@ -649,6 +674,16 @@ impl ActorAnimationStore {
     pub(crate) fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         let lifetime = *self.runtime_to_lifetime.get(&runtime_id)?;
         self.snapshot(lifetime, self.rigs.get(&lifetime)?)
+    }
+
+    /// The local actor's full-body pose while the main evaluation drives first-person hands.
+    pub(crate) fn ui_pose(&self, runtime_id: u64) -> Option<&[BoneTransform]> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        match state.ui_pose.as_deref() {
+            Some([]) => None,
+            Some(pose) => Some(pose),
+            None => Some(&state.current),
+        }
     }
 
     pub(crate) fn snapshots(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {

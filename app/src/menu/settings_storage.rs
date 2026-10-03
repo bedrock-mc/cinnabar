@@ -41,6 +41,7 @@ pub(crate) struct StorageView {
     pub(crate) selected: Option<usize>,
     pub(crate) selected_world: Option<usize>,
     world_request: Option<String>,
+    pending_delete: Option<(PathBuf, Vec<PathBuf>)>,
     return_from_world: bool,
     pub(crate) error: Option<String>,
 }
@@ -143,6 +144,38 @@ impl MenuRuntime {
                     self.request_storage_world_delete();
                     return;
                 }
+                let (root, paths) = match action {
+                    StorageAction::RequestDelete => {
+                        let Some(item) = self
+                            .storage
+                            .selected
+                            .and_then(|index| self.storage.cached.get(index))
+                        else {
+                            return;
+                        };
+                        (
+                            self.layout.resource_pack_cache_dir(),
+                            vec![item.path.clone()],
+                        )
+                    }
+                    StorageAction::RequestScreenshots => (
+                        self.layout.screenshots_dir(),
+                        self.storage
+                            .screenshots
+                            .iter()
+                            .map(|item| item.path.clone())
+                            .collect(),
+                    ),
+                    _ => (
+                        self.layout.resource_pack_cache_dir(),
+                        self.storage
+                            .cached
+                            .iter()
+                            .map(|item| item.path.clone())
+                            .collect(),
+                    ),
+                };
+                Arc::make_mut(&mut self.storage).pending_delete = Some((root, paths));
                 Arc::make_mut(&mut self.storage).deleting_screenshots =
                     action == StorageAction::RequestScreenshots;
                 if action != StorageAction::RequestDelete {
@@ -158,17 +191,11 @@ impl MenuRuntime {
                 if self.over_world() || self.connecting || self.session_directory.is_some() {
                     return;
                 }
-                let selected = self.storage.selected;
-                let (root, items) = if self.storage.deleting_screenshots {
-                    (self.layout.screenshots_dir(), &self.storage.screenshots)
-                } else {
-                    (self.layout.resource_pack_cache_dir(), &self.storage.cached)
+                let Some((root, paths)) = Arc::make_mut(&mut self.storage).pending_delete.take()
+                else {
+                    return;
                 };
-                let result = items
-                    .iter()
-                    .enumerate()
-                    .filter(|(index, _)| selected.is_none_or(|selected| selected == *index))
-                    .try_for_each(|(_, item)| remove_entry(&root, &item.path));
+                let result = paths.iter().try_for_each(|path| remove_entry(&root, path));
                 self.refresh_storage();
                 if let Err(error) = result {
                     Arc::make_mut(&mut self.storage).error =

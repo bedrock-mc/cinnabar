@@ -33,6 +33,195 @@ fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>) -> NodeI
         .unwrap()
 }
 
+/// A verified offer whose signed expiry never passes.
+fn offer() -> VerifiedOffer {
+    VerifiedOffer {
+        offer: Offer {
+            version: WIRE_VERSION,
+            audience: "127.0.0.1:19132".into(),
+            server_key: String::new(),
+            revision: 1,
+            expires_unix: u64::MAX,
+            scope: Scope {
+                permissions: BTreeSet::new(),
+                origins: BTreeSet::new(),
+                memory_bytes: 0,
+                gpu_bytes: 0,
+            },
+            packages: Vec::new(),
+            fallback: String::new(),
+            carrier: protocol::EXPERIENCE_CHANNEL.into(),
+        },
+        digest: String::new(),
+    }
+}
+
+/// The controller over a closed menu, as on the join's loading screen, saving trust to a
+/// private temporary file.
+fn join_app(state: State) -> App {
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    let mut runtime = UiRuntime::new(1);
+    runtime.experiences.session.state = state;
+    let mut app = App::new();
+    app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
+        .insert_resource(runtime)
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(crate::ui_runtime::presentation::forms::tests::mini_engine_presentation())
+        .insert_resource(NetworkHandle::disconnected())
+        .init_resource::<ClientWorld>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .add_message::<bevy::input::mouse::MouseWheel>();
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+    configure(&mut app);
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut service = app.world_mut().resource_mut::<ExperienceService>();
+    service.generation = 1;
+    service.settings = Some(Settings::default());
+    service.settings_path = std::env::temp_dir().join(format!(
+        "cinnabar-experience-popup-{}-{}.json",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    app
+}
+
+/// Presents one frame, as the renderer does between controller updates.
+fn present(app: &mut App) {
+    app.world_mut()
+        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+            presentation
+                .build(
+                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    world.resource::<UiRuntime>(),
+                    0,
+                    [1280, 720],
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+        });
+}
+
+fn consent_owned(app: &App) -> bool {
+    app.world()
+        .resource::<super::super::input::ConsentInput>()
+        .0
+}
+
+#[test]
+fn join_offer_opens_the_trusted_popup_and_owns_input_without_a_menu() {
+    let mut app = join_app(State::Offered(offer()));
+    app.update();
+    assert!(consent_owned(&app));
+    present(&mut app);
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .experience_prompt_visible()
+    );
+}
+
+#[test]
+fn popup_keys_answer_the_offer_and_then_release_input() {
+    use server_experience::trust::Decision;
+    for (key, remembered) in [
+        (KeyCode::Escape, None),
+        (KeyCode::F8, Some(Decision::Never)),
+    ] {
+        let mut app = join_app(State::Offered(offer()));
+        app.update();
+        present(&mut app);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        app.update();
+        assert!(
+            matches!(
+                app.world()
+                    .resource::<UiRuntime>()
+                    .experiences
+                    .session
+                    .state,
+                State::Disabled
+            ),
+            "{key:?} must answer the offer"
+        );
+        let service = app.world().resource::<ExperienceService>();
+        let path = service.settings_path.clone();
+        let decision = service
+            .settings
+            .as_ref()
+            .unwrap()
+            .decision(&offer().offer)
+            .unwrap();
+        assert_eq!(decision, remembered, "{key:?}");
+        assert!(consent_owned(&app), "the answering frame stays consent's");
+        app.update();
+        assert!(
+            !consent_owned(&app),
+            "{key:?} must return input to the game"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[test]
+fn running_or_disabled_experiences_never_open_the_popup() {
+    let grant = Grant {
+        offer: offer(),
+        session: "session".into(),
+        connection: "connection".into(),
+        subclient: 0,
+        expires_unix: u64::MAX,
+    };
+    for state in [State::Disabled, State::Granted(grant)] {
+        let mut app = join_app(state);
+        app.world_mut()
+            .resource_mut::<ExperienceService>()
+            .attempted = true;
+        app.update();
+        present(&mut app);
+        assert!(!consent_owned(&app));
+        assert!(
+            !app.world()
+                .resource::<UiPresentationRuntime>()
+                .experience_prompt_visible()
+        );
+    }
+}
+
+#[test]
+fn only_an_unanswered_offer_holds_the_world_entry() {
+    let mut extension = super::super::ExperienceSession::default();
+    assert!(!extension.holds_world_entry());
+    extension.marker = Some(std::sync::Arc::from(&b"{}"[..]));
+    assert!(
+        extension.holds_world_entry(),
+        "an unread marker can still offer"
+    );
+    extension.marker = None;
+    extension.handled_marker = true;
+    assert!(!extension.holds_world_entry());
+    extension.session.state = State::Offered(offer());
+    assert!(extension.holds_world_entry());
+    extension
+        .session
+        .choose(Choice::Once, &mut Settings::default(), 0)
+        .unwrap();
+    assert!(matches!(extension.session.state, State::Awaiting(_)));
+    // Dragonfly reads the hello only after the client initializes, so the handshake must not wait.
+    assert!(!extension.holds_world_entry());
+}
+
 #[test]
 fn controller_follows_committed_drain_before_semantic_input() {
     let mut app = App::new();
@@ -82,6 +271,7 @@ fn controller_follows_committed_drain_before_semantic_input() {
 
 #[test]
 fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let mut stream = client_world::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 42,
@@ -105,25 +295,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
     let new_epoch = stream.form_dimension_epoch();
     assert_ne!(old_epoch, new_epoch);
     let grant = Grant {
-        offer: VerifiedOffer {
-            offer: Offer {
-                version: WIRE_VERSION,
-                audience: String::new(),
-                server_key: String::new(),
-                revision: 1,
-                expires_unix: u64::MAX,
-                scope: Scope {
-                    permissions: BTreeSet::new(),
-                    origins: BTreeSet::new(),
-                    memory_bytes: 0,
-                    gpu_bytes: 0,
-                },
-                packages: Vec::new(),
-                fallback: String::new(),
-                carrier: protocol::EXPERIENCE_CHANNEL.into(),
-            },
-            digest: String::new(),
-        },
+        offer: offer(),
         session: "session".into(),
         connection: "connection".into(),
         subclient: 0,
@@ -136,6 +308,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ClientWorld {
@@ -167,6 +340,8 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
 
 #[test]
 fn unadvertised_experience_preserves_input_and_rendered_menu() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::ui_runtime::presentation::forms::{pack_harness, snapshot};
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
     let Some(mut presentation) = pack_harness::engine_presentation() else {
@@ -179,12 +354,19 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
     let menu = MenuRuntime::new(true, 2, "Test".into());
     presentation.set_menu_view(Some(menu.view()));
     let before = presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     snapshot::write(&before, "experience-unadvertised-before");
     let mut app = App::new();
     app.insert_resource(menu)
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .insert_resource(NetworkHandle::disconnected())
         .init_resource::<ClientWorld>()
@@ -225,7 +407,13 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
     let after = app
         .world_mut()
         .resource_mut::<UiPresentationRuntime>()
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     snapshot::write(&after, "experience-unadvertised-after");
     assert_eq!(snapshot::rasterize(&before), snapshot::rasterize(&after));

@@ -150,6 +150,7 @@ impl UseOnIdentityEvidence {
 impl UiRuntime {
     pub(super) fn observe_use_on_identity(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         session: u64,
         sequence: u64,
         event: &InventoryAuthorityEvent,
@@ -168,7 +169,9 @@ impl UiRuntime {
                     .iter()
                     .find(|entry| entry.identifier.as_ref() == TARGET)
                     .filter(|entry| {
-                        self.inventory_ledger
+                        player_runtime
+                            .inventory
+                            .ledger()
                             .negotiated_item_entry(entry.network_id)
                             == Some(*entry)
                     })
@@ -178,18 +181,26 @@ impl UiRuntime {
                 .use_on_identity_evidence
                 .note_inventory(sequence, event),
         }
-        let Some(slot) = self.selected_hotbar_slot() else {
+        let Some(slot) = self.selected_hotbar_slot(player_runtime) else {
             return;
         };
-        if self.pending_hotbar_selection.is_some()
-            || self.inventory_ledger.pending_request_id().is_some()
-            || self.inventory_ledger.resync_required()
+        if player_runtime
+            .inventory
+            .pending_hotbar_selection()
+            .is_some()
+            || player_runtime
+                .inventory
+                .ledger()
+                .pending_request_id()
+                .is_some()
+            || player_runtime.inventory.ledger().resync_required()
         {
             return;
         }
         // Selection is client intent, not server confirmation or transport success.
         // Never substitute equipment/bootstrap or predicted stacks for ledger authority.
-        let Some(PlayerInventorySlot::Present(stack)) = self.inventory_ledger.slot_state(slot)
+        let Some(PlayerInventorySlot::Present(stack)) =
+            player_runtime.inventory.ledger().slot_state(slot)
         else {
             return;
         };
@@ -197,8 +208,9 @@ impl UiRuntime {
             return;
         };
         if entry.network_id != stack.network_id
-            || self
-                .inventory_ledger
+            || player_runtime
+                .inventory
+                .ledger()
                 .negotiated_item_entry(stack.network_id)
                 != Some(entry)
         {

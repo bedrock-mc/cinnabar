@@ -106,8 +106,9 @@ impl EquipmentRuntime {
     }
 
     /// The held item's generated mesh and artwork, and whether the mesh is a block cube. A
-    /// server pack's icon replaces the vanilla one, as it does in the inventory. With
-    /// `icon_fallback`, a block with no plain cube sheet takes its icon sprite instead.
+    /// server pack's icon replaces the vanilla one, as it does in the inventory, and a custom
+    /// block item with a cube sheet is held as that cube. With `icon_fallback`, a block with no
+    /// plain cube sheet takes its icon sprite instead.
     pub(super) fn held_mesh(
         &mut self,
         item: &WornItem,
@@ -115,13 +116,12 @@ impl EquipmentRuntime {
     ) -> Option<(EntityRigId, ActorArtworkLocation, bool)> {
         let session = match item.kind {
             HeldKind::Sprite | HeldKind::Other => {
-                self.session_sprite(&item.identifier, item.metadata)
+                self.session_held(&item.identifier, item.metadata)
             }
             HeldKind::Block(_) => None,
         };
-        let (index, key, placement, location) = if let Some((index, placement, location)) = session
-        {
-            (index, MeshKey::Session(index), placement, location)
+        let (index, key, placement, location) = if let Some(held) = session {
+            held
         } else {
             let sheet = match item.kind {
                 HeldKind::Block(visual) => self
@@ -148,7 +148,8 @@ impl EquipmentRuntime {
             (index, key, placement, location)
         };
         let mesh = self.mesh_for(key, index, placement)?;
-        Some((mesh, location, matches!(key, MeshKey::Block(_))))
+        let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
+        Some((mesh, location, block))
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.

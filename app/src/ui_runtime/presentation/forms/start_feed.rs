@@ -85,6 +85,27 @@ fn button_art(data: &mut DataSource, button: &str, art: Option<&ButtonArt>) {
     let Some(art) = art else {
         return;
     };
+    for (field, color) in [
+        ("art_label_color", "DefaultTextColor"),
+        ("banner_text_color", "BannerTextColor"),
+    ] {
+        if let Some(rgb) = art.colors.get(color) {
+            data.set_global(
+                format!("#{button}_button_{field}"),
+                Scalar::Json(serde_json::json!(
+                    rgb.map(|channel| f64::from(channel) / 255.0)
+                )),
+            );
+        }
+    }
+    data.set_global(
+        format!("#{button}_button_banner_texture"),
+        text(art.banner_texture.clone()),
+    );
+    data.set_global(
+        format!("#{button}_button_banner_texture_source"),
+        text("RawPath"),
+    );
     for (layer, path) in [
         ("default_bg", &art.default_background),
         ("hover_bg", &art.hover_background),

@@ -19,7 +19,11 @@ pub(crate) struct PreviewTexture {
 impl PreviewTexture {
     pub(super) fn sample(&self, uv: [f32; 2]) -> Option<[u8; 4]> {
         let (width, height) = (usize::from(self.width), usize::from(self.height));
-        if self.rgba.len() != width * height * 4 || !uv.iter().all(|value| value.is_finite()) {
+        if width == 0
+            || height == 0
+            || self.rgba.len() != width * height * 4
+            || !uv.iter().all(|value| value.is_finite())
+        {
             return None;
         }
         let x = ((uv[0] * width as f32).floor() as isize).clamp(0, width as isize - 1) as usize;
@@ -252,4 +256,22 @@ pub(super) fn held_vertices() -> Vec<ActorVertex> {
             part: 2,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn review_zero_sized_preview_textures_cannot_be_sampled() {
+        for (width, height) in [(0, 0), (0, 16), (16, 0)] {
+            let texture = PreviewTexture {
+                rgba: Arc::from([]),
+                width,
+                height,
+                tint: None,
+            };
+            assert_eq!(texture.sample([0.5, 0.5]), None);
+        }
+    }
 }

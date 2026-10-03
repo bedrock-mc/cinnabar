@@ -17,7 +17,7 @@ const MAX_DEPTH: usize = 256;
 pub(crate) const FACTORY_SCOPE: &str = "factory_scope";
 /// A digest of [`FACTORY_SCOPE`], so equal scopes are recognised without comparing.
 pub(crate) const FACTORY_SCOPE_KEY: &str = "factory_scope_key";
-const MAX_NODES: usize = 200_000;
+pub(crate) const MAX_NODES: usize = 200_000;
 
 /// Drives resolution over one [`Catalog`], accumulating diagnostics.
 pub struct Resolver<'a> {
@@ -239,6 +239,13 @@ impl<'a> Resolver<'a> {
         let children = dynamic.as_ref().unwrap_or(&control.children);
         let mut resolved = Vec::new();
         for child in children {
+            if self.nodes >= MAX_NODES {
+                self.diagnostics.push(format!(
+                    "{}.{}: node budget exhausted",
+                    control.owner_ns, control.name
+                ));
+                break;
+            }
             let (mut working, provenance, unresolved) = self.resolve_child_base(child, env);
             if child.base.is_none() && !child.name.starts_with('$') {
                 working.name = crate::catalog::unqualified(&child.name).to_owned();
@@ -624,5 +631,32 @@ mod tests {
             .control
             .unwrap();
         assert!(inline.children[0].children.is_empty());
+    }
+    #[test]
+    fn wide_sibling_lists_obey_the_shared_node_budget() {
+        use super::{Env, MAX_NODES, RawControl, Resolver};
+        let catalog = Catalog::default();
+        let mut resolver = Resolver::new(&catalog);
+        let leaf = RawControl {
+            owner_ns: "a".into(),
+            name: "leaf".into(),
+            base: None,
+            props: serde_json::Map::new(),
+            children: Vec::new(),
+            has_controls: false,
+        };
+        let root = RawControl {
+            name: "root".into(),
+            children: vec![leaf.clone(); MAX_NODES + 1],
+            ..leaf
+        };
+        let resolved = resolver.resolve_with_env(&root, None, None, &Env::new(), 0);
+        assert_eq!(resolved.children.len(), MAX_NODES - 1);
+        assert!(
+            resolver
+                .diagnostics()
+                .iter()
+                .any(|note| note.contains("node budget"))
+        );
     }
 }

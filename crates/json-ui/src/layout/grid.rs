@@ -316,7 +316,7 @@ pub(super) fn grid_children<'a>(
     let extent = [Some(grid.w), Some(grid.h)];
     let layout = Layout::of(parent, extent, env);
     let sizes = super::measure::sizes(parent, extent, env);
-    let count = cells(parent).count();
+    let count = cells(parent).take(layout.limit).count();
     cells(parent)
         .take(layout.limit)
         .enumerate()

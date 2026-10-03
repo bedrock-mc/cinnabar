@@ -183,3 +183,36 @@ fn zero_length_fades_are_fully_opaque_for_the_stay() {
     assert_eq!(bar.alpha_at(199), 255);
     assert_eq!(bar.alpha_at(200), 0);
 }
+
+#[test]
+fn review_non_decimal_scales_format_the_actual_rational_value() {
+    for (current, scale, expected) in [(3, 2, "1.5/2"), (7, 4, "1.75/2"), (3, 5, "0.6/2")] {
+        let mut hud = HudStore::default();
+        hud.set_stats(
+            BoundedStat::new_scaled(current, scale * 2, scale),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(hud.view_nodes(0)[0].text.as_ref(), expected);
+    }
+}
+
+#[test]
+fn review_toast_expiry_keeps_notifications_that_have_not_started() {
+    let mut hud = HudStore::default();
+    for sequence in 0..=MAX_TOASTS as u64 {
+        hud.push_toast(Toast::new(
+            Arc::from("Title"),
+            Arc::from("Message"),
+            sequence,
+            0,
+        ));
+    }
+    assert!(hud.toasts().front().unwrap().started_millis > 0);
+    hud.expire(0);
+    assert_eq!(hud.toasts().len(), MAX_TOASTS);
+    assert!(hud.view_nodes(0).is_empty());
+    let first = hud.toasts().front().unwrap().started_millis;
+    assert!(!hud.view_nodes(first).is_empty());
+}

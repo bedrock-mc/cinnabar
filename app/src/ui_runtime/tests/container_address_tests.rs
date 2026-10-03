@@ -51,9 +51,12 @@ fn slot_event(container: ContainerIdentity, slot: u16, stack: NetworkItemStack) 
     })
 }
 
-fn server_ledger(runtime: &mut UiRuntime) {
+fn server_ledger(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+) {
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
 }
 
@@ -99,47 +102,58 @@ fn default_descriptor_slot_fixture() -> Vec<u8> {
 
 #[test]
 fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);
-    server_ledger(&mut runtime);
+    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Creative);
+    server_ledger(&mut player_runtime, &mut runtime);
 
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             1,
             decode_inventory_event(default_descriptor_full_inventory_fixture()),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(
-        runtime.selected_stack_snapshot().unwrap().state,
+        runtime
+            .selected_stack_snapshot(&player_runtime)
+            .unwrap()
+            .state,
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty,
         "the complete empty inventory establishes selected slot 0 as known empty"
     );
 
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             2,
             decode_inventory_event(default_descriptor_present_content_fixture()),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
     assert!(matches!(
-        runtime.selected_stack_snapshot().unwrap().state,
+        runtime
+            .selected_stack_snapshot(&player_runtime)
+            .unwrap()
+            .state,
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
     ));
 
-    runtime.set_local_selected_slot(4);
+    player_runtime.inventory.set_local_selected_slot(4);
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             3,
             decode_inventory_event(default_descriptor_slot_fixture()),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
-    let selected = runtime.selected_stack_snapshot().unwrap();
+    runtime.drain_pending_inventory(&mut player_runtime);
+    let selected = runtime.selected_stack_snapshot(&player_runtime).unwrap();
     assert_eq!(selected.slot, 4);
     assert!(matches!(
         selected.state,
@@ -149,33 +163,45 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
 
 #[test]
 fn cursor_slot_type_events_cannot_reach_the_hotbar_mirror_through_any_admission_path() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     let mut slots = vec![NetworkItemStack::empty(); 36];
     slots[0] = stack(11);
     slots[8] = stack(19);
     runtime
-        .enqueue_inventory_event(1, 1, content(identity(0, None), slots))
+        .enqueue_inventory_event(&mut player_runtime, 1, 1, content(identity(0, None), slots))
         .unwrap();
     // Cursor Slot and Content events ride the UI window naming the cursor container.
     runtime
-        .enqueue_inventory_event(1, 2, slot_event(identity(124, Some(59)), 0, stack(777)))
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            2,
+            slot_event(identity(124, Some(59)), 0, stack(777)),
+        )
         .unwrap();
     runtime
-        .enqueue_inventory_event(1, 3, content(identity(124, Some(59)), vec![stack(888)]))
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            3,
+            content(identity(124, Some(59)), vec![stack(888)]),
+        )
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
 
     // The cursor events belong to the cursor cell only.
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .cursor_stack()
             .map(|stack| stack.network_id),
         Some(888)
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(0)
             .map(|stack| stack.network_id),
         Some(11)
@@ -201,54 +227,63 @@ fn cursor_slot_type_events_cannot_reach_the_hotbar_mirror_through_any_admission_
 /// A server's arbitrary container name on the player window still fills player inventory cells.
 #[test]
 fn foreign_container_name_on_the_player_window_fills_player_inventory_cells() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    server_ledger(&mut runtime);
+    server_ledger(&mut player_runtime, &mut runtime);
     let anvil_material = Some(1);
-    runtime.inventory_ledger_mut().apply(&content(
-        identity(0, anvil_material),
-        vec![NetworkItemStack::empty(); 36],
-    ));
-    runtime.inventory_ledger_mut().apply(&slot_event(
-        identity(0, anvil_material),
-        0,
-        stack(20_329),
-    ));
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&content(
+            identity(0, anvil_material),
+            vec![NetworkItemStack::empty(); 36],
+        ));
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&slot_event(identity(0, anvil_material), 0, stack(20_329)));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(0)
             .map(|stack| stack.network_id),
         Some(20_329)
     );
-    assert_eq!(runtime.inventory_ledger().skipped_unknown_containers(), 0);
+    assert_eq!(
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
+        0
+    );
 }
 
 #[test]
 fn offhand_container_events_never_pollute_player_inventory_cells() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    server_ledger(&mut runtime);
+    server_ledger(&mut player_runtime, &mut runtime);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(0, None), 20, stack(20)));
 
     // Offhand traffic rides the offhand window and never reaches a player cell.
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&content(identity(119, Some(34)), vec![stack(34)]));
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(119, Some(34)), 0, stack(340)));
 
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(0)
             .map(|stack| stack.network_id),
         None
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(20)
             .map(|stack| stack.network_id),
         Some(20)
@@ -256,11 +291,11 @@ fn offhand_container_events_never_pollute_player_inventory_cells() {
 
     // The session continues: ordinary player-inventory traffic still lands.
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(0, None), 0, stack(5)));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(0)
             .map(|stack| stack.network_id),
         Some(5)
@@ -269,33 +304,37 @@ fn offhand_container_events_never_pollute_player_inventory_cells() {
 
 #[test]
 fn unknown_container_identities_skip_without_mutating_cells_or_ending_the_session() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    server_ledger(&mut runtime);
+    server_ledger(&mut player_runtime, &mut runtime);
 
     // A well-formed Slot event naming an unroutable container is odd data:
     // skipped whole, never written into any player-inventory cell, and
     // counted as typed leniency.
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(5, Some(211)), 3, stack(999)));
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(-777, None), 4, stack(998)));
     assert_eq!(
-        runtime.inventory_ledger().skipped_unknown_containers(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
         2,
         "both unrouted identities were counted"
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(3)
             .map(|stack| stack.network_id),
         None
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(4)
             .map(|stack| stack.network_id),
         None
@@ -303,16 +342,18 @@ fn unknown_container_identities_skip_without_mutating_cells_or_ending_the_sessio
 
     // The session continues and later well-formed traffic still applies.
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(0, None), 3, stack(3)));
     assert_eq!(
-        runtime.inventory_ledger().skipped_unknown_containers(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
         2,
         "routed traffic never inflates the skip counter"
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(3)
             .map(|stack| stack.network_id),
         Some(3)
@@ -321,34 +362,46 @@ fn unknown_container_identities_skip_without_mutating_cells_or_ending_the_sessio
 
 #[test]
 fn combined_player_name_on_a_foreign_window_is_skipped_by_ledger_and_hud() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let foreign = identity(
         6,
         Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
     );
     let mut runtime = UiRuntime::new(1);
-    server_ledger(&mut runtime);
+    server_ledger(&mut player_runtime, &mut runtime);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(0, None), 3, stack(3)));
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(foreign, 3, stack(63)));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(3)
             .map(|stack| stack.network_id),
         Some(3),
     );
-    assert_eq!(runtime.inventory_ledger().skipped_unknown_containers(), 1);
+    assert_eq!(
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
+        1
+    );
 
     runtime
-        .enqueue_inventory_event(1, 1, slot_event(identity(0, None), 3, stack(3)))
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            1,
+            slot_event(identity(0, None), 3, stack(3)),
+        )
         .unwrap();
     runtime
-        .enqueue_inventory_event(1, 2, content(foreign, vec![stack(60)]))
+        .enqueue_inventory_event(&mut player_runtime, 1, 2, content(foreign, vec![stack(60)]))
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(
         runtime
             .gameplay_hud()
@@ -367,19 +420,26 @@ fn combined_player_name_on_a_foreign_window_is_skipped_by_ledger_and_hud() {
 
 #[test]
 fn partial_window_zero_content_preserves_unseen_hotbar_mirror_cells() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     let slots: Vec<NetworkItemStack> = (1..=36).map(stack).collect();
     runtime
-        .enqueue_inventory_event(1, 1, content(identity(0, None), slots))
+        .enqueue_inventory_event(&mut player_runtime, 1, 1, content(identity(0, None), slots))
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
 
     // A partial authoritative rewrite states only the cells it carries; the
     // unseen mirror cells keep their last authoritative values.
     runtime
-        .enqueue_inventory_event(1, 2, content(identity(0, None), vec![stack(50)]))
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            2,
+            content(identity(0, None), vec![stack(50)]),
+        )
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
 
     assert_eq!(
         runtime
@@ -411,26 +471,32 @@ fn partial_window_zero_content_preserves_unseen_hotbar_mirror_cells() {
 /// mirror; the canonical projection must keep routing them there.
 #[test]
 fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     const INVENTORY_CONTAINER_NAME: u8 = 29;
 
     // Ledger admission.
     let mut runtime = UiRuntime::new(1);
-    server_ledger(&mut runtime);
-    runtime.inventory_ledger_mut().apply(&slot_event(
-        identity(0, Some(INVENTORY_CONTAINER_NAME)),
-        4,
-        stack(29),
-    ));
+    server_ledger(&mut player_runtime, &mut runtime);
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&slot_event(
+            identity(0, Some(INVENTORY_CONTAINER_NAME)),
+            4,
+            stack(29),
+        ));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(4)
             .map(|stack| stack.network_id),
         Some(29),
         "the fixture-shaped Slot event lands in canonical player cell 4"
     );
     assert_eq!(
-        runtime.inventory_ledger().skipped_unknown_containers(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
         0,
         "routed fixture traffic never counts as leniency"
     );
@@ -438,12 +504,13 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud()
     // HUD ingestion through the production queue.
     let mut hud = UiRuntime::new(1);
     hud.enqueue_inventory_event(
+        &mut player_runtime,
         1,
         1,
         slot_event(identity(0, Some(INVENTORY_CONTAINER_NAME)), 4, stack(29)),
     )
     .unwrap();
-    hud.drain_pending_inventory();
+    hud.drain_pending_inventory(&mut player_runtime);
     assert_eq!(
         hud.gameplay_hud()
             .hotbar_stack(4)
@@ -456,12 +523,13 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud()
     // A named full-content rewrite rides the same alias.
     let slots: Vec<NetworkItemStack> = (1..=36).map(stack).collect();
     hud.enqueue_inventory_event(
+        &mut player_runtime,
         1,
         2,
         content(identity(0, Some(INVENTORY_CONTAINER_NAME)), slots),
     )
     .unwrap();
-    hud.drain_pending_inventory();
+    hud.drain_pending_inventory(&mut player_runtime);
     assert!(hud.gameplay_hud().hotbar_known());
     assert_eq!(
         hud.gameplay_hud()
@@ -473,30 +541,36 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud()
     // Generic-storage-named traffic on a non-player window belongs to no
     // player cell; with no storage window open it is counted leniency.
     let mut runtime = UiRuntime::new(1);
-    server_ledger(&mut runtime);
+    server_ledger(&mut player_runtime, &mut runtime);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(0, None), 4, stack(4)));
-    runtime.inventory_ledger_mut().apply(&slot_event(
-        identity(5, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
-        4,
-        stack(777),
-    ));
-    runtime.inventory_ledger_mut().apply(&slot_event(
-        identity(6, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
-        4,
-        stack(778),
-    ));
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&slot_event(
+            identity(5, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
+            4,
+            stack(777),
+        ));
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&slot_event(
+            identity(6, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
+            4,
+            stack(778),
+        ));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(4)
             .map(|stack| stack.network_id),
         Some(4),
         "storage-named events never reach player cells"
     );
     assert_eq!(
-        runtime.inventory_ledger().skipped_unknown_containers(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
         2,
         "both storage events with no matching open window were counted"
     );
@@ -504,54 +578,64 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud()
     // With a matching open window the same surface lands in storage, while a
     // wrong-window storage identity stays the prior silent targeted drop.
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
             container: ContainerIdentity::window(4),
             window_type: GENERIC_STORAGE_WINDOW_TYPE,
             position: [0, 0, 0],
             runtime_entity_id: 1,
         }));
-    runtime.inventory_ledger_mut().apply(&content(
-        ContainerIdentity {
-            window_id: Some(4),
-            slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
-            dynamic_id: Some(9),
-        },
-        vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT],
-    ));
-    runtime.inventory_ledger_mut().apply(&slot_event(
-        identity(4, Some(protocol::CONTAINER_NAME_INVENTORY)),
-        3,
-        stack(33),
-    ));
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&content(
+            ContainerIdentity {
+                window_id: Some(4),
+                slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                dynamic_id: Some(9),
+            },
+            vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT],
+        ));
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&slot_event(
+            identity(4, Some(protocol::CONTAINER_NAME_INVENTORY)),
+            3,
+            stack(33),
+        ));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .storage_stack(3)
             .map(|stack| stack.network_id),
         None,
         "the player-inventory alias never reaches an open storage window"
     );
     assert_eq!(
-        runtime.inventory_ledger().skipped_unknown_containers(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
         3,
         "the off-window alias resolved onto no retained cell and was counted"
     );
-    runtime.inventory_ledger_mut().apply(&slot_event(
-        identity(9, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
-        3,
-        stack(99),
-    ));
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&slot_event(
+            identity(9, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
+            3,
+            stack(99),
+        ));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .storage_stack(3)
             .map(|stack| stack.network_id),
         None,
         "a wrong-window storage identity is dropped without mutation"
     );
     assert_eq!(
-        runtime.inventory_ledger().skipped_unknown_containers(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
         3,
         "the targeted mismatch drop stays distinct from unrouted leniency"
     );
@@ -563,67 +647,86 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud()
 /// projection boundary instead of being narrowed to `None`.
 #[test]
 fn bare_window_slot_updates_still_reach_the_open_generic_storage_window() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    server_ledger(&mut runtime);
+    server_ledger(&mut player_runtime, &mut runtime);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
             container: ContainerIdentity::window(4),
             window_type: GENERIC_STORAGE_WINDOW_TYPE,
             position: [0, 0, 0],
             runtime_entity_id: 1,
         }));
-    runtime.inventory_ledger_mut().apply(&content(
-        ContainerIdentity {
-            window_id: Some(4),
-            slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
-            dynamic_id: Some(9),
-        },
-        vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT],
-    ));
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&content(
+            ContainerIdentity {
+                window_id: Some(4),
+                slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                dynamic_id: Some(9),
+            },
+            vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT],
+        ));
 
     // A bare-window Slot update — the optional container name absent on the
     // wire — addresses the same open window exactly as before.
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(4, None), 5, stack(55)));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .storage_stack(5)
             .map(|stack| stack.network_id),
         Some(55),
         "bare-window updates reach the open generic-storage window like before"
     );
-    assert_eq!(runtime.inventory_ledger().skipped_unknown_containers(), 0);
+    assert_eq!(
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
+        0
+    );
 
     // A bare window id that matches no open window stays unrouted leniency.
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(9, None), 5, stack(99)));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .storage_stack(5)
             .map(|stack| stack.network_id),
         Some(55)
     );
-    assert_eq!(runtime.inventory_ledger().skipped_unknown_containers(), 1);
+    assert_eq!(
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
+        1
+    );
 
     // Without any open window the same bare shape cannot land anywhere and
     // is counted; the session keeps accepting routed traffic.
     let mut closed = UiRuntime::new(1);
-    server_ledger(&mut closed);
+    server_ledger(&mut player_runtime, &mut closed);
     closed
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(4, None), 5, stack(55)));
-    assert_eq!(closed.inventory_ledger().skipped_unknown_containers(), 1);
+    assert_eq!(
+        closed
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
+        1
+    );
     closed
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(0, None), 5, stack(5)));
     assert_eq!(
         closed
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(5)
             .map(|stack| stack.network_id),
         Some(5)
@@ -644,6 +747,8 @@ fn zero_count_correction(slot: u8) -> StackResponseSlot {
 
 #[test]
 fn accepted_response_corrections_resolve_through_the_same_canonical_projection() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     // Premise: an accepted-response container decodes without any window id
     // at all (`normalize_response` emits only the decoded container name),
     // so the reachable converged shape is the combined player-inventory
@@ -660,25 +765,38 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
     );
 
     let mut runtime = UiRuntime::new(1);
-    server_ledger(&mut runtime);
+    server_ledger(&mut player_runtime, &mut runtime);
     for (slot, network_id) in [(3, 33), (4, 44), (5, 55)] {
         let mut server_stack = stack(network_id);
         server_stack.stack_network_id = network_id;
-        runtime.inventory_ledger_mut().apply(&slot_event(
-            identity(
-                0,
-                Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
-            ),
-            slot,
-            server_stack,
-        ));
+        runtime
+            .inventory_ledger_mut(&mut player_runtime)
+            .apply(&slot_event(
+                identity(
+                    0,
+                    Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+                ),
+                slot,
+                server_stack,
+            ));
     }
-    assert!(runtime.inventory_ledger_mut().request_personal_open(42));
-    assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+    assert!(
+        runtime
+            .inventory_ledger_mut(&mut player_runtime)
+            .request_personal_open(42)
+    );
+    assert!(
+        runtime
+            .inventory_ledger_mut(&mut player_runtime)
+            .mark_transport_enqueued(0)
+    );
     // One in-flight gesture so an accepted response can reconcile at all.
-    let request = runtime.inventory_ledger_mut().begin_click(3).unwrap();
+    let request = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(3)
+        .unwrap();
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Response(ItemStackResponseEvent {
             responses: Arc::from([StackResponse {
                 status: StackResponseStatus::Accepted,
@@ -709,7 +827,7 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
 
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(3)
             .map(|stack| stack.network_id),
         None,
@@ -717,25 +835,27 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(4)
             .map(|stack| stack.network_id),
         Some(44),
         "the unrouted correction mutated nothing"
     );
     assert_eq!(
-        runtime.inventory_ledger().skipped_unknown_containers(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .skipped_unknown_containers(),
         1,
         "exactly the unrouted correction was counted"
     );
 
     // The session continues: later well-formed traffic still applies.
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&slot_event(identity(0, None), 4, stack(404)));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .displayed_stack(4)
             .map(|stack| stack.network_id),
         Some(404)

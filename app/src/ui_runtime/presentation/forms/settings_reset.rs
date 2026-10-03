@@ -46,6 +46,8 @@ mod tests {
 
     #[test]
     fn authored_section_reset_buttons_route_to_their_own_group() {
+        let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
             eprintln!(
                 "skipping authored_section_reset_buttons_route_to_their_own_group: fixture unavailable; requires installed local carriers (make assets)"
@@ -66,7 +68,9 @@ mod tests {
             presentation.set_menu_view(Some(view));
             let runtime = crate::ui_runtime::UiRuntime::new(1);
             let dpi = ui::DpiScale::new(1.0).unwrap();
-            presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+            presentation
+                .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+                .unwrap();
             let bounds = presentation
                 .menu_hit_targets
                 .iter()
@@ -80,7 +84,9 @@ mod tests {
                 .expect("section exposes a control inside its scroll view");
             let point = ui::UiPoint::new(bounds.min().x() + 1.0, bounds.min().y() + 1.0).unwrap();
             assert!(presentation.scroll_menu(point, -1000.0, false));
-            presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+            presentation
+                .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+                .unwrap();
             assert!(
                 presentation
                     .menu_hit_targets

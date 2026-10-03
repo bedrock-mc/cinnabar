@@ -160,7 +160,6 @@ pub(super) fn paint(
         | "vignette_renderer"
         | "progress_indicator_renderer"
         | "camera_renderer"
-        | "hud_player_renderer"
         | "editor_gizmo_renderer"
         | "editor_compass_renderer"
         | "editor_volume_highlight_renderer" => return true,

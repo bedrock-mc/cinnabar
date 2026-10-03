@@ -48,7 +48,9 @@ fn archive_files_with_permissions(
             })
             .collect(),
     };
-    let document = serde_json::to_vec(&signed(&manifest, crypto::MANIFEST_DOMAIN, &key)).unwrap();
+    let document =
+        serde_json::to_vec(&crypto::sign(&manifest, crypto::MANIFEST_DOMAIN, &key).unwrap())
+            .unwrap();
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default().compression_method(method);
     writer.start_file(bundle::MANIFEST_PATH, options).unwrap();

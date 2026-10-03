@@ -30,6 +30,8 @@ use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 #[cfg(test)]
 mod home_promo;
 
+mod message_reports;
+
 /// How often auth state and events refresh.
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 /// How often events refresh while a join is under way, so its progress bar moves smoothly.
@@ -46,6 +48,7 @@ const PING_INTERVAL: Duration = Duration::from_secs(15);
 
 #[derive(Default)]
 struct Snapshot {
+    auth_generation: u64,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
     friends: Option<Vec<Friend>>,
@@ -63,11 +66,36 @@ struct Snapshot {
     joining: bool,
 }
 
+impl Snapshot {
+    /// Retires values tied to the old account before accepting responses for another identity.
+    fn retire_account_data(&mut self) {
+        self.auth_generation = self.auth_generation.wrapping_add(1);
+        self.realms = None;
+        self.friends = None;
+        self.profile = None;
+        self.home = None;
+        self.gatherings = None;
+    }
+
+    /// Advances the identity boundary when the core changes account or sign-in state.
+    fn set_account(&mut self, account: Account) {
+        if self
+            .account
+            .as_ref()
+            .is_none_or(|old| old.state != account.state || old.gamertag != account.gamertag)
+        {
+            self.retire_account_data();
+        }
+        self.account = Some(account);
+    }
+}
+
 /// The menu's link to a running core's launcher control endpoint.
 #[derive(Resource)]
 pub(crate) struct LauncherAccount {
     snapshot: Arc<Mutex<Snapshot>>,
     sign_out: Sender<()>,
+    message_reports: Sender<MessageEvent>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
     socket_dir: PathBuf,
@@ -81,6 +109,7 @@ impl LauncherAccount {
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
+        let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
@@ -91,6 +120,7 @@ impl LauncherAccount {
         Self {
             snapshot,
             sign_out,
+            message_reports,
             _alive: alive,
             socket_dir,
         }
@@ -119,6 +149,22 @@ fn runtime() -> Option<tokio::runtime::Runtime> {
 
 fn publish(shared: &Mutex<Snapshot>, write: impl FnOnce(&mut Snapshot)) {
     write(&mut shared.lock().unwrap_or_else(|poison| poison.into_inner()));
+}
+
+/// Captures the identity boundary before an account-dependent request starts.
+fn auth_generation(shared: &Mutex<Snapshot>) -> u64 {
+    shared
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .auth_generation
+}
+
+/// Publishes a worker response under the identity that requested it.
+fn publish_account(shared: &Mutex<Snapshot>, generation: u64, write: impl FnOnce(&mut Snapshot)) {
+    let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+    if snapshot.auth_generation == generation {
+        write(&mut snapshot);
+    }
 }
 
 /// Waits `interval`; `false` once the link is gone.
@@ -152,6 +198,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
         }
+        let generation = auth_generation(shared);
         if let Ok(events) = runtime.block_on(launcher_control::poll_events(socket_dir)) {
             publish(shared, |snapshot| {
                 if let Some(disconnect) = events.disconnect
@@ -167,7 +214,9 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
                 }
                 snapshot.last_disconnect.get_or_insert(0);
                 snapshot.connect = events.connect;
-                snapshot.account = Some(events.auth);
+            });
+            publish_account(shared, generation, |snapshot| {
+                snapshot.set_account(events.auth);
             });
         }
         let targets = shared
@@ -198,11 +247,25 @@ fn poll_catalog(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &R
         return;
     };
     loop {
-        if let Ok(realms) = runtime.block_on(launcher_control::list_realms(socket_dir)) {
-            publish(shared, |snapshot| snapshot.realms = Some(realms));
-        }
-        if let Ok(friends) = runtime.block_on(launcher_control::list_friends(socket_dir)) {
-            publish(shared, |snapshot| snapshot.friends = Some(friends));
+        let generation = {
+            let snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+            snapshot
+                .account
+                .as_ref()
+                .filter(|account| account.state == CoreAuth::SignedIn)
+                .map(|_| snapshot.auth_generation)
+        };
+        if let Some(generation) = generation {
+            if let Ok(realms) = runtime.block_on(launcher_control::list_realms(socket_dir)) {
+                publish_account(shared, generation, |snapshot| {
+                    snapshot.realms = Some(realms)
+                });
+            }
+            if let Ok(friends) = runtime.block_on(launcher_control::list_friends(socket_dir)) {
+                publish_account(shared, generation, |snapshot| {
+                    snapshot.friends = Some(friends)
+                });
+            }
         }
         if !wait(stop, CATALOG_INTERVAL) {
             return;
@@ -217,22 +280,31 @@ fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Rec
     let mut reported = HashSet::new();
     loop {
         let mut failed = false;
+        let generation = auth_generation(shared);
         let home = runtime.block_on(launcher_control::home(socket_dir));
         if let Some(home) = settle("home", home, &mut failed) {
-            publish(shared, |snapshot| snapshot.home = Some(home.clone()));
+            publish_account(shared, generation, |snapshot| {
+                snapshot.home = Some(home.clone())
+            });
             report_impressions(&runtime, socket_dir, &home, &mut reported);
         }
         let featured = runtime.block_on(launcher_control::list_featured_servers(socket_dir));
         if let Some(featured) = settle("featured servers", featured, &mut failed) {
             publish(shared, |snapshot| snapshot.featured = Some(featured));
         }
+        let generation = auth_generation(shared);
         let gatherings = runtime.block_on(launcher_control::list_gatherings(socket_dir));
         if let Some(gatherings) = settle("gatherings", gatherings, &mut failed) {
-            publish(shared, |snapshot| snapshot.gatherings = Some(gatherings));
+            publish_account(shared, generation, |snapshot| {
+                snapshot.gatherings = Some(gatherings)
+            });
         }
+        let generation = auth_generation(shared);
         let profile = runtime.block_on(launcher_control::profile(socket_dir));
         if let Some(profile) = settle("profile", profile, &mut failed) {
-            publish(shared, |snapshot| snapshot.profile = Some(profile));
+            publish_account(shared, generation, |snapshot| {
+                snapshot.profile = Some(profile)
+            });
         }
         if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
             return;
@@ -243,14 +315,14 @@ fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Rec
 /// One result per pinged address: a server that sent no pong reads offline, as
 /// vanilla's red offline icon shows it, never as still loading.
 fn round_results(targets: &[String], pongs: Vec<ServerPing>) -> Vec<ServerPing> {
-    let mut pongs: std::collections::HashMap<String, ServerPing> = pongs
+    let pongs: std::collections::HashMap<String, ServerPing> = pongs
         .into_iter()
         .map(|pong| (pong.address.clone(), pong))
         .collect();
     targets
         .iter()
         .map(|address| {
-            pongs.remove(address).unwrap_or_else(|| ServerPing {
+            pongs.get(address).cloned().unwrap_or_else(|| ServerPing {
                 address: address.clone(),
                 ..ServerPing::default()
             })
@@ -329,6 +401,17 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         play_art: art("PlayButton"),
         store_art: art("MarketplaceButton"),
         inbox_unread: home.inbox.unread,
+        inbox_counts: home
+            .inbox
+            .categories
+            .iter()
+            .filter_map(|category| {
+                Some((
+                    super::inbox::category_index(&category.kind)?,
+                    category.unread,
+                ))
+            })
+            .collect(),
         realm_invites: home.realm_invites,
         live_event,
         persona_head: home.persona_head.path.clone(),
@@ -337,6 +420,10 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
             .iter()
             .filter(|message| message.surface == "InboxMessage")
             .map(|message| InboxItem {
+                instance_id: message.instance_id.clone(),
+                report_id: message.report_id.clone(),
+                received: message.received.clone(),
+                source: message.sender.clone(),
                 header: message.header.clone(),
                 body: message.body.clone(),
                 category: message.category.clone(),
@@ -350,10 +437,15 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
 fn button_art(message: &Message) -> ButtonArt {
     let mut art = ButtonArt {
         banner: message.banner.clone(),
+        colors: message.colors.clone(),
         ..ButtonArt::default()
     };
     for image in message.images.iter().filter(|image| !image.path.is_empty()) {
         let id = image.id.to_ascii_lowercase();
+        if id.contains("banner") {
+            art.banner_texture = image.path.clone();
+            continue;
+        }
         let hover = id.contains("hover");
         let foreground = id.contains("fore") || id.contains("fg");
         let slot = match (hover, foreground) {
@@ -460,9 +552,8 @@ impl AccountControl for LauncherAccount {
         if queued {
             // The signed-in lists and status are stale from here on.
             self.with(|snapshot| {
+                snapshot.retire_account_data();
                 snapshot.account = None;
-                snapshot.realms = None;
-                snapshot.friends = None;
             });
         }
         queued
@@ -503,6 +594,11 @@ impl AccountControl for LauncherAccount {
                 })
                 .collect(),
         )
+    }
+
+    /// Queues an inbox action on the dedicated reporting worker.
+    fn report_message(&mut self, event: MessageEvent) {
+        let _ = self.message_reports.send(event);
     }
 
     fn home(&mut self) -> Option<MenuHome> {
@@ -720,5 +816,40 @@ mod tests {
             auth_state(&account(CoreAuth::Failed)),
             Some(AuthState::Failed("expired".into()))
         );
+    }
+    #[test]
+    fn duplicate_ping_targets_keep_the_same_online_result() {
+        let targets = vec!["server.test".into(), "server.test".into()];
+        let results = round_results(
+            &targets,
+            vec![ServerPing {
+                address: targets[0].clone(),
+                online: true,
+                ..Default::default()
+            }],
+        );
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|ping| ping.online));
+    }
+    #[test]
+    fn account_responses_from_before_sign_out_are_discarded() {
+        let snapshot = Arc::new(Mutex::new(Snapshot::default()));
+        let generation = auth_generation(&snapshot);
+        let (sign_out, _requests) = bounded(1);
+        let (alive, _stop) = bounded(0);
+        let mut account = LauncherAccount {
+            snapshot: Arc::clone(&snapshot),
+            sign_out,
+            _alive: alive,
+            socket_dir: PathBuf::new(),
+            message_reports: crossbeam_channel::unbounded().0,
+        };
+        assert!(account.sign_out());
+        publish_account(&snapshot, generation, |snapshot| {
+            snapshot.realms = Some(Vec::new());
+            snapshot.friends = Some(Vec::new());
+        });
+        let retained = snapshot.lock().unwrap();
+        assert!(retained.realms.is_none() && retained.friends.is_none());
     }
 }

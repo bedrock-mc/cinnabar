@@ -773,7 +773,11 @@ fn phase3_non_monotonic_identity_isolates_each_detection_subcondition_v2() {
         };
     for (name, previous, current) in [
         // Tick gap with every other identity equal or advancing.
-        ("tick_gap", (7u64, 10u64, 0i32, 10u64, 11u64), (7, 12, 0, 12, 13)),
+        (
+            "tick_gap",
+            (7u64, 10u64, 0i32, 10u64, 11u64),
+            (7, 12, 0, 12, 13),
+        ),
         // Session change with a contiguous tick and no regression.
         ("session_change", (7, 10, 0, 10, 11), (8, 11, 0, 11, 12)),
         ("fifo_regression", (7, 20, 0, 20, 21), (7, 21, 0, 19, 22)),
@@ -782,7 +786,9 @@ fn phase3_non_monotonic_identity_isolates_each_detection_subcondition_v2() {
         let mut evidence = Phase3EvidenceEmitter::default();
         assert_eq!(
             evidence
-                .observe(frame(previous.0, previous.1, previous.2, previous.3, previous.4))
+                .observe(frame(
+                    previous.0, previous.1, previous.2, previous.3, previous.4
+                ))
                 .len(),
             1,
             "{name}"
@@ -860,14 +866,13 @@ fn phase3_other_violation_reasons_remain_exact_two_key_v2_objects() {
     assert_eq!(json["reason"], "invalid_frame");
     assert!(json.get("frame_identity").is_none());
 
-    let fault_markers = Phase3EvidenceEmitter::default().observe_authority_fault(
-        PhysicsAuthorityFaultRecord {
+    let fault_markers =
+        Phase3EvidenceEmitter::default().observe_authority_fault(PhysicsAuthorityFaultRecord {
             session_generation: 7,
             fault: PhysicsAuthorityFault::OutboxOverflow,
             next_tick: 42,
             pending_count: crate::movement::OUTBOX_CAPACITY,
-        },
-    );
+        });
     assert_eq!(fault_markers.len(), 2);
     let json: serde_json::Value = serde_json::from_str(
         fault_markers[1]
@@ -1051,8 +1056,7 @@ fn phase3_simulation_fault_evidence_preserves_frame_and_error_context() {
 
     let markers = evidence.observe_authority_fault(fault);
     let json: serde_json::Value =
-        serde_json::from_str(markers[0].strip_prefix("RUST_MCBE_PHASE3_EVENT=").unwrap())
-            .unwrap();
+        serde_json::from_str(markers[0].strip_prefix("RUST_MCBE_PHASE3_EVENT=").unwrap()).unwrap();
     assert_eq!(json["fault"], "physics_simulation_error");
     assert_eq!(json["detail"]["due"], 5);
     assert_eq!(json["detail"]["tick_index"], 2);

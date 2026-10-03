@@ -497,7 +497,12 @@ impl GameplayHudState {
                         self.hotbar_known = true;
                     }
                     Some(CanonicalCell::Offhand) => {
-                        self.offhand = content.slots.first().cloned();
+                        if let Some(stack) = content.slots.first() {
+                            self.offhand = Some(stack.clone());
+                        } else {
+                            self.diagnostics.dropped_inventory_events =
+                                self.diagnostics.dropped_inventory_events.saturating_add(1);
+                        }
                     }
                     // Cursor, armor, and generic-storage surfaces resolve
                     // canonically but belong to their owning stores.

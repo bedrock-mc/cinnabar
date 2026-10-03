@@ -41,12 +41,14 @@ pub(crate) fn bound_bool(control: &ResolvedControl, key: &str) -> Option<bool> {
     }
 }
 
+/// Reads a finite numeric property, including a numeric string.
 pub(crate) fn bound_number(control: &ResolvedControl, key: &str) -> Option<f64> {
     match control.properties.get(key)? {
         Value::Number(number) => number.as_f64(),
         Value::String(text) => text.parse().ok(),
         _ => None,
     }
+    .filter(|value| value.is_finite())
 }
 
 /// Whether the control accepts input: `enabled`/`#enabled` false locks it.

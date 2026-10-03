@@ -40,6 +40,7 @@ pub(super) fn append_menu_nodes(
     width: f32,
     height: f32,
     safe_area: SafeArea,
+    scrolls: &mut super::menu_scroll::MenuScrolls,
 ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
     if !view.visible {
         return Ok(Vec::new());
@@ -67,9 +68,31 @@ pub(super) fn append_menu_nodes(
         )?
     };
 
+    let content_start = nodes.len();
+    let hit_start = hits.len();
     screens::append(
         view, nodes, &mut hits, next_id, layouts, font, metrics, solid_page, content,
     )?;
+    if matches!(
+        view.screen,
+        MenuScreen::Play
+            | MenuScreen::Social
+            | MenuScreen::Servers
+            | MenuScreen::Friends
+            | MenuScreen::Inbox
+    ) {
+        scroll_content(
+            view,
+            nodes,
+            &mut hits,
+            next_id,
+            content_start,
+            hit_start,
+            content,
+            scrolls,
+            safe_area,
+        )?;
+    }
     if let Some(message) = view.message.as_deref() {
         append_toast(
             nodes, next_id, layouts, font, metrics, solid_page, content, message,
@@ -95,6 +118,94 @@ pub(super) fn append_menu_nodes(
             (action, translated)
         })
         .collect())
+}
+
+/// Clips the flattened fallback content while keeping the launcher shell fixed.
+fn scroll_content(
+    view: &MenuView,
+    nodes: &mut Vec<ui::UiNode>,
+    hits: &mut Vec<(MenuAction, UiRect)>,
+    next: &mut u32,
+    start: usize,
+    hit_start: usize,
+    area: ContentArea,
+    scrolls: &mut super::menu_scroll::MenuScrolls,
+    safe_area: SafeArea,
+) -> Result<(), UiPresentationError> {
+    let viewport = rect(
+        area.left,
+        area.top,
+        area.left + area.width,
+        area.top + area.height,
+    )?;
+    let bottom = nodes[start..]
+        .iter()
+        .map(|node| node.bounds().max().y())
+        .fold(viewport.max().y(), f32::max);
+    let max = (bottom - viewport.max().y()).max(0.0);
+    let focused = hits[hit_start..]
+        .iter()
+        .find(|(action, _)| Some(*action) == view.focused_action)
+        .map(|(_, bounds)| *bounds);
+    let offset = scrolls.reveal_focus(
+        "fallback_content",
+        view.focused_action,
+        focused,
+        viewport,
+        max,
+    );
+    let id = ui::UiNodeId::new(*next);
+    *next = next.saturating_add(1);
+    for node in &mut nodes[start..] {
+        if node.parent().is_none() {
+            let b = node.bounds();
+            *node = ui::UiNode::new(
+                node.id(),
+                Some(id),
+                rect(
+                    b.min().x() - area.left,
+                    b.min().y() - area.top - offset,
+                    b.max().x() - area.left,
+                    b.max().y() - area.top - offset,
+                )?,
+            )
+            .with_visual(node.visual().clone());
+        }
+    }
+    nodes.insert(
+        start,
+        ui::UiNode::new(id, None, viewport).with_clip_children(true),
+    );
+    let content_hits = hits.split_off(hit_start);
+    for (action, b) in content_hits {
+        let (left, top, right, bottom) = (
+            b.min().x().max(viewport.min().x()),
+            (b.min().y() - offset).max(viewport.min().y()),
+            b.max().x().min(viewport.max().x()),
+            (b.max().y() - offset).min(viewport.max().y()),
+        );
+        if right > left && bottom > top {
+            hits.push((action, rect(left, top, right, bottom)?));
+        }
+    }
+    scrolls.set_areas(vec![super::menu_scroll::ScrollArea {
+        key: "fallback_content".into(),
+        viewport: rect(
+            viewport.min().x() + safe_area.left(),
+            viewport.min().y() + safe_area.top(),
+            viewport.max().x() + safe_area.left(),
+            viewport.max().y() + safe_area.top(),
+        )?,
+        scale: 1.0,
+        offset,
+        max,
+        speed: CONTROL_HEIGHT,
+        track: None,
+        thumb: None,
+        engine: None,
+        draggable: false,
+    }]);
+    Ok(())
 }
 
 fn append_shell(
@@ -645,4 +756,53 @@ const fn nav_items() -> [(MenuScreen, &'static str); 6] {
         (MenuScreen::Profile, "Profile"),
         (MenuScreen::Settings, "Settings"),
     ]
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    use crate::menu::{MenuRuntime, MenuServerTab, SavedServer};
+    #[test]
+    fn review_fallback_destinations_can_scroll_to_the_last_saved_server() {
+        let mut view = MenuRuntime::new(true, 2, "Test".into()).view();
+        view.screen = MenuScreen::Servers;
+        view.server_tab = MenuServerTab::Saved;
+        view.servers = (0..40)
+            .map(|index| SavedServer {
+                name: index.to_string(),
+                address: "example.test".into(),
+                favorite: false,
+                last_joined_unix: 0,
+            })
+            .collect();
+        let font = crate::ui_runtime::presentation::tests::fixture_font();
+        let metrics =
+            TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+        let mut scrolls = super::super::menu_scroll::MenuScrolls::default();
+        let render = |scrolls: &mut super::super::menu_scroll::MenuScrolls| {
+            let (mut nodes, mut next, mut layouts) =
+                (Vec::new(), 1, TextLayoutCache::new(128, 1024 * 1024));
+            append_menu_nodes(
+                &view,
+                &mut nodes,
+                &mut next,
+                &mut layouts,
+                &font,
+                metrics,
+                0,
+                1280.0,
+                720.0,
+                SafeArea::ZERO,
+                scrolls,
+            )
+            .unwrap()
+        };
+        render(&mut scrolls);
+        assert!(scrolls.wheel(ui::UiPoint::new(600.0, 400.0).unwrap(), -100000.0, true));
+        let hits = render(&mut scrolls);
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::PlaySaved(39))
+        );
+    }
 }

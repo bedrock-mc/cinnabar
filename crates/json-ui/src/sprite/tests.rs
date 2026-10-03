@@ -288,3 +288,34 @@ fn insets_scale_from_base_size_onto_pixels() {
     assert_eq!(quads[0].dest.w, 2.0);
     assert_eq!(quads[0].uv.u1, 0.4);
 }
+
+#[test]
+fn empty_tiled_destinations_emit_nothing() {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let source = Source {
+            texture: [16.0, 16.0],
+            uv: [0.0, 0.0],
+            uv_size: [16.0, 16.0],
+            nineslice: None,
+            tiled: Some(Tiled::Both),
+            tiled_scale: [1.0, 1.0],
+        };
+        for [w, h] in [[0.0, 1.0], [-1.0, 1.0], [1.0, 0.0]] {
+            assert!(
+                tile_region(
+                    Rect::new(0.0, 0.0, w, h),
+                    &source,
+                    source.region(),
+                    [1.0, 1e-12],
+                    Tiled::Both
+                )
+                .is_empty()
+            );
+        }
+        send.send(()).unwrap();
+    });
+    receive
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("empty sprites must finish without traversing rows");
+}

@@ -184,6 +184,7 @@ fn home(
             [area.left, y],
             left_width,
             78.0,
+            0.0,
         )?;
         y += 88.0;
     }
@@ -211,6 +212,7 @@ fn home(
             [area.left, y],
             left_width,
             78.0,
+            0.0,
         )?;
         y += 88.0;
     }
@@ -288,6 +290,7 @@ fn home(
                 [right + SPACE_MD, right_y],
                 right_width - SPACE_XL,
                 82.0,
+                0.0,
             )?;
             right_y += 92.0;
         }
@@ -440,7 +443,7 @@ fn play_column(
     let mut count = 0usize;
     match kind {
         0 => {
-            for (index, friend) in view.friends.iter().take(4).enumerate() {
+            for (index, friend) in view.friends.iter().enumerate() {
                 let server = MenuServerCard {
                     name: friend.world_name.clone(),
                     address: friend.gamertag.clone(),
@@ -464,13 +467,14 @@ fn play_column(
                     [position[0] + SPACE_SM, y],
                     width - SPACE_SM * 2.0,
                     76.0,
+                    0.0,
                 )?;
                 y += 84.0;
                 count += 1;
             }
         }
         1 => {
-            for (index, realm) in view.realms.iter().take(4).enumerate() {
+            for (index, realm) in view.realms.iter().enumerate() {
                 let server = MenuServerCard {
                     name: realm.name.clone(),
                     address: realm.address.clone(),
@@ -494,6 +498,7 @@ fn play_column(
                     [position[0] + SPACE_SM, y],
                     width - SPACE_SM * 2.0,
                     76.0,
+                    0.0,
                 )?;
                 y += 84.0;
                 count += 1;
@@ -507,7 +512,7 @@ fn play_column(
                 .filter(|(_, server)| server.last_joined_unix > 0)
                 .collect::<Vec<_>>();
             recent.sort_by_key(|(_, server)| std::cmp::Reverse(server.last_joined_unix));
-            for (index, server) in recent.into_iter().take(4) {
+            for (index, server) in recent {
                 servers::saved_card(
                     view,
                     nodes,
@@ -633,8 +638,7 @@ fn social(
         TEXT,
     )?;
     let mut y = top + 52.0;
-    let visible_rows = ((area.height - 126.0) / 88.0).floor().max(1.0) as usize;
-    for (index, friend) in view.friends.iter().take(visible_rows).enumerate() {
+    for (index, friend) in view.friends.iter().enumerate() {
         let server = MenuServerCard {
             name: friend.gamertag.clone(),
             address: friend.world_name.clone(),
@@ -658,6 +662,7 @@ fn social(
             [area.left + SPACE_SM, y],
             left_width - SPACE_SM * 2.0,
             78.0,
+            0.0,
         )?;
         status_marker(
             nodes,

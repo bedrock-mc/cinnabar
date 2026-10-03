@@ -10,6 +10,13 @@ use super::UiPresentationRuntime;
 use crate::menu::MenuRuntime;
 
 impl UiPresentationRuntime {
+    /// Actions of the enabled controls in the most recently drawn menu.
+    pub(crate) fn visible_menu_actions(
+        &self,
+    ) -> impl Iterator<Item = crate::menu::MenuAction> + '_ {
+        self.menu_hit_targets.iter().map(|(action, _)| *action)
+    }
+
     #[cfg(test)]
     pub(crate) fn gui_scale_slider_track(&self) -> Option<ui::UiRect> {
         self.menu_hit_targets

@@ -40,9 +40,11 @@ func (messageTeller) tell(p world.Entity, text string) {
 
 // commit applies ops, the committed result of ev's callback on snap, in a fresh task of the
 // event's world, unless the snapshot went stale or an op is invalid; then it applies nothing.
+// Once the result has applied, its client messages go out to the actor's client part.
 func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) {
+	var sends []*SendClientOp
 	var result error
-	task := ev.w.Do(func(tx *world.Tx) { result = h.apply(tx, d.id, ev, snap, ops) })
+	task := ev.w.Do(func(tx *world.Tx) { sends, result = h.apply(tx, d.id, ev, snap, ops) })
 	if err := await(ctx, task); err != nil {
 		if ctx.Err() == nil {
 			h.log.Warn("commit failed", "experience", d.id, "error", err)
@@ -54,23 +56,27 @@ func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapsho
 		h.log.Info("stale result discarded", "experience", d.id, "reason", result)
 	case result != nil:
 		h.log.Error("invalid result discarded", "experience", d.id, "error", result)
+	default:
+		for _, send := range sends {
+			h.sendClient(d, ev.actor.UUID(), send)
+		}
 	}
 }
 
 // apply checks snap against the world in tx and validates every op before it applies any. Then
-// it applies the block ops in their order, the data writes, and last the tells. A position's
-// data write follows its last block op, as validate checks, so applying the data writes after
-// every block op changes nothing. Writes that shrink data go before those that grow it, so the
-// Experience's total only falls and then rises to the net that validate checked, and no single
-// write exceeds the quota.
-func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op) error {
+// it applies the block ops in their order, the data writes, and last the tells, and returns the
+// client messages for commit to send. A position's data write follows its last block op, as
+// validate checks, so applying the data writes after every block op changes nothing. Writes that
+// shrink data go before those that grow it, so the Experience's total only falls and then rises
+// to the net that validate checked, and no single write exceeds the quota.
+func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op) ([]*SendClientOp, error) {
 	actor, err := h.current(tx, exp, ev, snap)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	writes, err := h.validate(exp, ev, snap, ops)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, op := range ops {
 		if op.SetBlock == nil {
@@ -97,12 +103,16 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 			}
 		}
 	}
+	var sends []*SendClientOp
 	for _, op := range ops {
-		if op.Tell != nil {
+		switch {
+		case op.Tell != nil:
 			h.tell.tell(actor, op.Tell.Text)
+		case op.SendClient != nil:
+			sends = append(sends, op.SendClient)
 		}
 	}
-	return nil
+	return sends, nil
 }
 
 // current checks that every snapshot cell still has its loaded state, block id and store token,
@@ -147,9 +157,10 @@ type dataWrite struct {
 // validate checks every op against the snapshot as the ops before it change it, by the rules
 // the runtime enforced: writes stay in the anchor's chunk column on loaded snapshot cells, set
 // air or an own block over air or an own block, write data only to an own block within the size
-// limit, and tell only the actor, within the tell limits. A position has at most one data op,
-// after its last block op. Like the runtime, it holds the quota to the result's net data, not to
-// each write. It returns the data writes in their order.
+// limit, and tell and send client messages only to the actor, within the tell and client message
+// limits. A position has at most one data op, after its last block op. Like the runtime, it holds
+// the quota to the result's net data, not to each write. It returns the data writes in their
+// order.
 func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([]dataWrite, error) {
 	if len(ops) > maxStagedOps {
 		return nil, fmt.Errorf("%w: %d ops, at most %d", errInvalid, len(ops), maxStagedOps)
@@ -174,7 +185,7 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([]dataWr
 	// The snapshot cells are current, so the store's total counts their data.
 	used := int64(dataQuota - h.store.Budget(exp))
 	var writes []dataWrite
-	tells := 0
+	tells, sends := 0, 0
 	for i, op := range ops {
 		switch {
 		case op.SetBlock != nil:
@@ -234,6 +245,15 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([]dataWr
 				return nil, fmt.Errorf("%w: op %d tells %d bytes, at most %d", errInvalid, i, len(text), maxTellBytes)
 			case strings.ContainsFunc(text, func(r rune) bool { return unicode.IsControl(r) || r == formattingPrefix }):
 				return nil, fmt.Errorf("%w: op %d tells a control or formatting character", errInvalid, i)
+			}
+		case op.SendClient != nil:
+			sends++
+			switch {
+			case ev.actor == nil || op.SendClient.Player != actorID:
+				return nil, fmt.Errorf("%w: op %d sends a client message to %s, who is not the actor",
+					errInvalid, i, op.SendClient.Player)
+			case sends > maxClientSends:
+				return nil, fmt.Errorf("%w: more than %d client messages", errInvalid, maxClientSends)
 			}
 		default:
 			return nil, fmt.Errorf("%w: op %d is empty", errInvalid, i)

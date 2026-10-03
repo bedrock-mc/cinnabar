@@ -250,6 +250,7 @@ impl ConsumeAudio {
 /// Voices eating and drinking while the server admits the held consumable in use, finishing
 /// food with a burp once its pack use duration elapses.
 pub(super) fn drive_consume_audio(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     time: Res<Time>,
     ui: Option<Res<UiRuntime>>,
     world: Res<ClientWorld>,
@@ -266,7 +267,7 @@ pub(super) fn drive_consume_audio(
         .filter(|_| using)
         .and_then(|(stream, ui)| {
             let identifier = stream
-                .canonical_item_stack(ui.selected_stack()?)?
+                .canonical_item_stack(ui.selected_stack(&player_runtime)?)?
                 .identifier?;
             let event = is_consumable(&identifier)?;
             Some((identifier, event))

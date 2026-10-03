@@ -141,6 +141,7 @@ fn approach(current: f32, target: f32, step: f32) -> f32 {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn update_screen_overlays(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
@@ -187,7 +188,7 @@ pub(super) fn update_screen_overlays(
             }
         }
         freezing = hud.freezing_strength();
-        let helmet = ui.local_armor().helmet;
+        let helmet = ui.local_armor(&player_runtime).helmet;
         pumpkin = stream
             .filter(|_| !helmet.is_empty())
             .and_then(|stream| stream.canonical_item_stack(&helmet)?.identifier)

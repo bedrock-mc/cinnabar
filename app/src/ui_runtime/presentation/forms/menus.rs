@@ -67,6 +67,7 @@ impl UiPresentationRuntime {
                 width,
                 height,
                 self.safe_area,
+                &mut self.menu_scrolls,
             ),
         };
         self.form_presentation.ready_menu = if pending
@@ -343,7 +344,10 @@ impl UiPresentationRuntime {
         [width, height]: [f32; 2],
     ) -> Option<MenuHits> {
         let dialog = view.dialog?;
-        let renderer = self.form_presentation.engine.as_deref()?;
+        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+            return Some((Vec::new(), Vec::new()));
+        };
+        let rollback = (nodes.len(), *next);
         let translate = |key: &str| runtime.translation(key);
         let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
         let context = json_ui::form_context(&model, &menu_screens::retail_context());
@@ -368,24 +372,31 @@ impl UiPresentationRuntime {
             language: runtime.text_generation(),
         };
         let out = engine::EngineOutput {
-            nodes,
-            next,
+            nodes: &mut *nodes,
+            next: &mut *next,
             overlay: &[],
         };
-        let popup = renderer
-            .render_screen(
-                reference,
-                &data,
-                &context,
-                state,
-                engine::ScreenArt {
-                    now: self.menu_seconds,
-                    ..engine::ScreenArt::default()
-                },
-                inputs,
-                out,
-            )
-            .ok()??;
+        let popup = renderer.render_screen(
+            reference,
+            &data,
+            &context,
+            state,
+            engine::ScreenArt {
+                now: self.menu_seconds,
+                ..engine::ScreenArt::default()
+            },
+            inputs,
+            out,
+        );
+        let popup = match popup {
+            Ok(Some(popup)) => popup,
+            _ => {
+                nodes.truncate(rollback.0);
+                *next = rollback.1;
+                self.menu_scrolls.set_areas(Vec::new());
+                return Some((Vec::new(), Vec::new()));
+            }
+        };
         let origin = [self.safe_area.left(), self.safe_area.top()];
         self.menu_scrolls.set_areas(scroll_areas(&popup, origin));
         let mut hits = Vec::new();

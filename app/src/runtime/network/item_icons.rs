@@ -10,6 +10,7 @@ pub(crate) use vanilla::set_vanilla_item_paths;
 use resource_pack::LayeredPackView;
 
 use super::resource_packs::{DecodedTexture, decode_pack_texture};
+use crate::presentation::equipment::blocks::overlay_sheet;
 use crate::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 
 /// One icon per registry item, the most a session can name.
@@ -23,13 +24,16 @@ pub(super) fn compile_session_icons(
     icon_keys: &[(Arc<str>, Arc<str>)],
     block_icons: BlockIcons,
 ) -> Option<Arc<SessionIcons>> {
+    let BlockIcons {
+        icons: block_icons,
+        block_sheets,
+        misses: block_misses,
+    } = block_icons;
     let block_rendered = block_icons
-        .icons
         .iter()
         .map(|icon| Arc::clone(&icon.identifier))
         .chain(
-            block_icons
-                .misses
+            block_misses
                 .iter()
                 .map(|(identifier, _)| Arc::clone(identifier)),
         )
@@ -49,13 +53,13 @@ pub(super) fn compile_session_icons(
         .partition(|(identifier, key)| key.as_ref() == short_name(identifier));
     let mut icons = Vec::new();
     let mut misses = std::collections::HashMap::new();
-    for (identifier, reason) in block_icons.misses {
+    for (identifier, reason) in block_misses {
         if misses.len() < MAX_SESSION_ICONS {
             misses.insert(identifier, reason);
         }
     }
     let explicit_count = explicit.len();
-    let mut block_icons = block_icons.icons.into_iter();
+    let mut block_icons = block_icons.into_iter();
     for (index, (identifier, key)) in explicit.into_iter().chain(guessed).enumerate() {
         // Block items rank after explicit icons and before short-name guesses.
         if index == explicit_count {
@@ -94,13 +98,20 @@ pub(super) fn compile_session_icons(
     }
     icons.extend(block_icons.take(MAX_SESSION_ICONS.saturating_sub(icons.len())));
     vanilla::append(view, &mut icons);
-    (!icons.is_empty() || !misses.is_empty()).then(|| Arc::new(SessionIcons { icons, misses }))
+    (!icons.is_empty() || !misses.is_empty()).then(|| {
+        Arc::new(SessionIcons {
+            icons,
+            block_sheets,
+            misses,
+        })
+    })
 }
 
-/// Custom block item thumbnails, and why a block item has none.
+/// Custom block item thumbnails and cube sheets, and why a block item has no thumbnail.
 #[derive(Default)]
 pub(super) struct BlockIcons {
     pub(super) icons: Vec<SessionIcon>,
+    pub(super) block_sheets: Vec<SessionIcon>,
     pub(super) misses: Vec<(Arc<str>, Box<str>)>,
 }
 
@@ -143,7 +154,8 @@ pub(super) fn custom_block_items(
 }
 
 /// Thumbnails of each block item's block in its default (first) state, whose overlay index is
-/// the block's first palette state, or first `hashed_states` entry in a hashed session.
+/// the block's first palette state, or first `hashed_states` entry in a hashed session. A plain
+/// opaque cube state also yields the six-face sheet slots and hands draw as that cube.
 pub(super) fn custom_block_icons(
     overlay: &assets::BlockOverlay,
     blocks: &protocol::CustomBlocks,
@@ -163,19 +175,21 @@ pub(super) fn custom_block_icons(
         }
         offset = offset.saturating_add(count);
     }
+    let session_icon = |identifier: &Arc<str>, sprite: assets::IconSprite| SessionIcon {
+        identifier: Arc::clone(identifier),
+        metadata: 0,
+        width: u32::from(sprite.width),
+        height: u32::from(sprite.height),
+        rgba8: sprite.rgba8.to_vec().into_boxed_slice(),
+    };
     let mut result = BlockIcons::default();
     for (identifier, block) in block_items.iter().take(MAX_SESSION_ICONS) {
-        let icon = first_state
-            .get(block)
-            .and_then(|&visual| asset_compiler::overlay_block_icon(overlay, visual));
-        match icon {
-            Some(sprite) => result.icons.push(SessionIcon {
-                identifier: Arc::clone(identifier),
-                metadata: 0,
-                width: u32::from(sprite.width),
-                height: u32::from(sprite.height),
-                rgba8: sprite.rgba8.to_vec().into_boxed_slice(),
-            }),
+        let visual = first_state.get(block).copied();
+        if let Some(sheet) = visual.and_then(|visual| overlay_sheet(overlay, visual)) {
+            result.block_sheets.push(session_icon(identifier, sheet));
+        }
+        match visual.and_then(|visual| asset_compiler::overlay_block_icon(overlay, visual)) {
+            Some(sprite) => result.icons.push(session_icon(identifier, sprite)),
             None => result.misses.push((
                 Arc::clone(identifier),
                 format!("custom block {block} has no drawable default-state visual").into(),

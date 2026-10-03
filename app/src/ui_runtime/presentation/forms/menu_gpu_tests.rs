@@ -78,22 +78,62 @@ fn app() -> App {
 #[test]
 #[ignore = "offline native GPU menu timings and snapshots"]
 fn menu_frames_on_native_gpu() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let dir = pack_harness::scratch_dir("gpu-menu");
     let mut view = play_flow_snapshots::fixture_view(&dir);
+    view.feeds.home.inbox = [
+        ("A new adventure awaits", "2026-10-03T10:00:00Z", true),
+        ("Explore the latest update", "2026-08-01T10:00:00Z", false),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (title, date, unread))| crate::menu::InboxItem {
+        instance_id: format!("offline-{i}"),
+        header: title.into(),
+        received: date.into(),
+        source: "Minecraft".into(),
+        category: "News".into(),
+        unread,
+        ..Default::default()
+    })
+    .collect();
     let mut app = app();
     let mut runtime = pack_harness::menu_runtime();
+    runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
     let stats = app.world().resource::<render::UiRenderStats>().clone();
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
+    let skin_pixels = image::open(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../.local")
+            .join(crate::install_layout::vanilla_pack_relative())
+            .join("textures/entity/steve.png"),
+    )
+    .ok()
+    .map(|image| image.to_rgba8().into_raw());
     for (name, screen) in [
         ("home", MenuScreen::Home),
         ("inbox", MenuScreen::Inbox),
+        ("pause", MenuScreen::Pause),
+        ("paper-doll", MenuScreen::Home),
+        ("inventory", MenuScreen::Home),
         ("play", MenuScreen::Play),
         ("servers", MenuScreen::Servers),
         ("edit", MenuScreen::AddServer),
         ("settings", MenuScreen::Settings),
         ("loading", MenuScreen::Home),
     ] {
+        if name == "inventory" {
+            runtime.toggle_inventory(&mut player_runtime);
+            assert!(runtime.inventory_open());
+        }
+        if name == "play" && runtime.inventory_open() {
+            runtime.toggle_inventory(&mut player_runtime);
+        }
         view.screen = screen;
         view.editing = (screen == MenuScreen::AddServer).then_some(0);
         if name == "loading" {
@@ -111,20 +151,37 @@ fn menu_frames_on_native_gpu() {
         for frame in 0..40 {
             let started = Instant::now();
             presentation.sync_player_preview(
-                (name != "loading").then_some(skin.rgba8.as_ref()),
+                (name != "loading")
+                    .then_some(skin_pixels.as_deref().unwrap_or(skin.rgba8.as_ref())),
                 Default::default(),
                 name != "loading",
                 false,
                 frame as f64 * 0.016,
             );
             view.profile_icon = presentation.player_preview_icon();
+            presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
             if name != "loading" {
                 presentation.sync_menu_artwork(super::super::menu_artwork::view_paths(&view));
                 presentation.set_menu_view(Some(view.clone()));
             }
             let preview_done = Instant::now();
+            if matches!(name, "paper-doll" | "inventory") {
+                presentation.set_menu_view(None);
+                runtime.publish_player_game_mode(
+                    &mut player_runtime,
+                    protocol::PlayerGameMode::Survival,
+                );
+                presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
+                presentation.hud_frame_mut().paper_doll_visible = true;
+            }
             let input = presentation
-                .build(&runtime, frame * 16, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    frame * 16,
+                    SIZE,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             let paint_done = Instant::now();
             geometry = (input.vertices.len(), input.batches.len());
@@ -183,6 +240,8 @@ fn menu_frames_on_native_gpu() {
 #[test]
 #[ignore = "offline native GPU Zeqa page ordering"]
 fn zeqa_late_pages_match_the_published_frame_on_gpu() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let pack = pack_harness::env_pack().expect("CINNABAR_FORM_PACK_DIR");
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let mut runtime = pack_harness::menu_runtime();
@@ -197,7 +256,7 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
         if phase != 0 {
             presentation.set_menu_view(None);
             presentation.set_loading_stage(Some(super::LoadingStage::BuildingTerrain));
-            runtime.begin_session(phase + 1);
+            runtime.begin_session(&mut player_runtime, phase + 1);
             runtime.set_server_ui(Some(Arc::new(super::loading_sequence_tests::lazy(
                 pack.clone(),
             ))));
@@ -213,7 +272,13 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
             );
             presentation.sync_player_preview(None, Default::default(), phase == 0, false, 0.0);
             let input = presentation
-                .build(&runtime, 0, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    SIZE,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             let expected = (phase != 0).then(|| super::snapshot::rasterize(&input));
             app.world_mut()

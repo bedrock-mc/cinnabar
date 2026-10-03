@@ -35,6 +35,30 @@
         "type": "tell",
         "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
         "text": "Network online"
+      },
+      {
+        "type": "send_client",
+        "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+        "channel": "benergistics.controller",
+        "schema": 1,
+        "payload": [
+          {
+            "type": "bool",
+            "value": true
+          },
+          {
+            "type": "integer",
+            "value": -9007199254740993
+          },
+          {
+            "type": "text",
+            "value": "ME Controller \"linked\""
+          },
+          {
+            "type": "choice",
+            "value": 2
+          }
+        ]
       }
     ]
   }

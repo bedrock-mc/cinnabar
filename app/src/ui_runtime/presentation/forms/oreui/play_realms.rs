@@ -28,7 +28,8 @@ pub(super) fn draw(
     let [menu_left, menu_right] = grid.span(menu_span.0, menu_span.1);
     side_menu(canvas, [menu_left, body[1], menu_right, body[3]])?;
     let pad = canvas.r(1.6);
-    let mut y = body[1] + space(canvas, 2);
+    let scroll = canvas.begin_scroll("realms_list", [menu_left, body[1], menu_right, body[3]])?;
+    let mut y = body[1] + space(canvas, 2) - scroll.offset;
     let add_height = canvas.r(4.4);
     button(
         canvas,
@@ -69,8 +70,9 @@ pub(super) fn draw(
         )?;
         for (index, realm) in realms {
             first.get_or_insert(index);
-            if y + item_height > body[3] {
-                break;
+            if y + item_height < body[1] || y > body[3] {
+                y += item_height;
+                continue;
             }
             let bounds = [
                 menu_left + canvas.r(0.2),
@@ -101,6 +103,8 @@ pub(super) fn draw(
             y += item_height;
         }
     }
+    let content = y + scroll.offset - body[1];
+    canvas.end_scroll(scroll, content)?;
     let [left, right] = grid.span(details_span.0, details_span.1);
     let panel = [left, body[1], right, body[3]];
     canvas.fill(panel, NEUTRAL80.fill)?;

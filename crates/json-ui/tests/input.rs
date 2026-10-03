@@ -536,3 +536,70 @@ fn bound_grid_cells_report_their_collection_and_index() {
         Some("button.container_take_all_place_all")
     );
 }
+
+#[test]
+fn review_hit_test_does_not_return_disabled_controls_or_click_through_them() {
+    let underneath = button();
+    let mut disabled = button();
+    disabled.name = "disabled".into();
+    disabled.properties.insert("enabled".into(), json!(false));
+    let root = ctrl(
+        "root",
+        "panel",
+        top_left(json!([100, 100])),
+        vec![underneath, disabled],
+    );
+    let (laid, _) = layout_with(&root, [100.0, 100.0], &env(), &ViewState::default());
+    assert!(hit_test(&hit_regions(&laid), [10.0, 10.0]).is_none());
+}
+
+#[test]
+fn review_scroll_culling_preserves_unclipped_controls_and_escaping_descendants() {
+    for nested in [false, true] {
+        let mut root = screen(vec![scroll_view(200.0)]);
+        let escaped = ctrl(
+            "escaped",
+            "button",
+            json!({
+                "size": [10, 10], "offset": [0, 70], "anchor_from": "top_left",
+                "anchor_to": "top_left", "allow_clipping": false
+            }),
+            vec![],
+        );
+        let content = &mut root.children[0].children[0].children[0];
+        content.children = if nested {
+            vec![ctrl(
+                "offscreen",
+                "panel",
+                json!({
+                    "size": [10, 10], "offset": [0, 70], "anchor_from": "top_left",
+                    "anchor_to": "top_left"
+                }),
+                vec![ctrl(
+                    "escaped",
+                    "button",
+                    json!({
+                        "size": [10, 10], "anchor_from": "top_left", "anchor_to": "top_left", "allow_clipping": false
+                    }),
+                    vec![],
+                )],
+            )]
+        } else {
+            vec![escaped]
+        };
+        let state = ViewState::default();
+        let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env(), &state);
+        assert!(normal.hits.iter().any(|hit| hit.name == "escaped"));
+        let culled = json_ui::render_bound_gated(
+            root,
+            [200.0, 100.0],
+            &env(),
+            &state,
+            &mut json_ui::MeasureCache::default(),
+        );
+        assert!(
+            culled.hits.iter().any(|hit| hit.name == "escaped"),
+            "nested={nested}"
+        );
+    }
+}

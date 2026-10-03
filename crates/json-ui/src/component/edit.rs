@@ -158,6 +158,9 @@ pub(crate) fn type_text(
     if matches!(first, '\n' | '\r') && !meta.enabled_newline {
         return CharOutcome::Enter;
     }
+    if !meta.enabled_newline && input.contains(['\n', '\r']) {
+        return CharOutcome::Rejected;
+    }
     if first == '\u{8}' {
         if edit.text.pop().is_none() {
             return CharOutcome::Unchanged;
@@ -268,5 +271,16 @@ mod tests {
         assert!(!edit.tick(0.2));
         assert!(edit.tick(0.2));
         assert!(!edit.caret_shown);
+    }
+    #[test]
+    fn review_pasted_newlines_obey_the_single_line_rule() {
+        let mut edit = TextEdit::new("old");
+        for paste in ["a\nb", "a\rb"] {
+            assert_eq!(
+                type_text(&meta(40), &mut edit, paste, None),
+                CharOutcome::Rejected
+            );
+            assert_eq!(edit.text, "old");
+        }
     }
 }

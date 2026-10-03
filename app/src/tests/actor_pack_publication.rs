@@ -217,3 +217,126 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
             .contains_geometry(render::pack_rig_id(0))
     );
 }
+
+/// Gives the fixture geometry a distinct, original texture and its normal pack route.
+fn textured_pack(assets: Arc<assets::RuntimeEntityAssets>, color: u8) -> Arc<SessionEntityPack> {
+    use sha2::{Digest, Sha256};
+    let mut pack = session_pack(assets);
+    let data = Arc::get_mut(&mut pack).unwrap();
+    data.textures = Arc::from([assets::ActorTexture {
+        source: 0,
+        width: 1,
+        height: 1,
+        pixel_sha256: Sha256::digest([color; 4]).into(),
+        rgba8: Arc::from([color; 4]),
+    }]);
+    data.bindings = Arc::from([assets::ActorArtworkBinding {
+        rig: 0,
+        geometry_candidate: 0,
+        entity_symbol: 0,
+        geometry: 0,
+        render_controller: 0,
+        texture: 0,
+        material: "entity_alphatest".into(),
+        pose_mode: assets::ActorPoseMode::CompiledLiteral,
+    }]);
+    pack
+}
+
+/// Compares every page byte and the pack's entity and variant routes.
+fn same_artwork(actual: &ActorArtworkPages, expected: &ActorArtworkPages) {
+    assert_eq!(actual.identity(), expected.identity());
+    assert_eq!(actual.pages(), expected.pages());
+    assert_eq!(actual.rejected_bindings(), expected.rejected_bindings());
+    let rig = render::pack_rig_id(0);
+    assert_eq!(actual.route(rig), expected.route(rig));
+    assert_eq!(
+        actual.variant_location(rig, 0),
+        expected.variant_location(rig, 0)
+    );
+}
+
+/// The first publication reuses worker pixels; a later pack or base change rejects stale preparation.
+#[test]
+fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
+    use crate::runtime::network::prepared_actor_artwork::PreparedActorArtwork;
+    let (_fixture, artwork, entities) = super::actor_rest_presentation::compiled_fixture(
+        "1.0",
+        1,
+        assets::ActorPoseMode::CompiledLiteral,
+    );
+    let pack = textured_pack(entities.clone(), 19);
+    let expected = artwork
+        .clone()
+        .with_pack_artwork(&pack.textures, &pack.bindings);
+    let base = artwork.clone();
+    let input = pack.clone();
+    let prepared = Arc::new(
+        std::thread::spawn(move || PreparedActorArtwork::new(&base, &input))
+            .join()
+            .unwrap(),
+    );
+    let pages = prepared.pages_for(&artwork, &pack).unwrap();
+    let pixel_page = pages.pages().last().unwrap().shared_pixels();
+    let scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
+    let mut world = session_world(pack, artwork, scene);
+    world.resource_mut::<ClientWorld>().prepared_actor_artwork = Some(prepared);
+    let published = publish(&mut world);
+    same_artwork(published.artwork_pages(), &expected);
+    assert!(Arc::ptr_eq(
+        &published
+            .artwork_pages()
+            .pages()
+            .last()
+            .unwrap()
+            .shared_pixels(),
+        &pixel_page,
+    ));
+
+    let replacement = textured_pack(entities.clone(), 71);
+    let expected = world
+        .resource::<ActorArtworkPages>()
+        .clone()
+        .with_pack_artwork(&replacement.textures, &replacement.bindings);
+    world.resource_mut::<ClientWorld>().pack_entities = Some(replacement.clone());
+    let changed_pack = publish(&mut world);
+    same_artwork(changed_pack.artwork_pages(), &expected);
+    assert!(!Arc::ptr_eq(
+        &changed_pack
+            .artwork_pages()
+            .pages()
+            .last()
+            .unwrap()
+            .shared_pixels(),
+        &pixel_page,
+    ));
+
+    let prepared = Arc::new(PreparedActorArtwork::new(
+        world.resource::<ActorArtworkPages>(),
+        &replacement,
+    ));
+    world.resource_mut::<ClientWorld>().prepared_actor_artwork = Some(prepared);
+    let (base, _) = world
+        .resource::<ActorArtworkPages>()
+        .clone()
+        .with_equipment_rasters(&[render::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([43; 4]),
+        }]);
+    let expected = base
+        .clone()
+        .with_pack_artwork(&replacement.textures, &replacement.bindings);
+    *world.resource_mut::<ActorArtworkPages>() = base.clone();
+    let changed_base = publish(&mut world);
+    same_artwork(changed_base.artwork_pages(), &expected);
+    world.resource_mut::<ClientWorld>().stream = None;
+    let disconnected = publish(&mut world);
+    assert!(
+        world
+            .resource::<ClientWorld>()
+            .prepared_actor_artwork
+            .is_none()
+    );
+    same_artwork(disconnected.artwork_pages(), &base);
+}

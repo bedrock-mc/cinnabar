@@ -54,17 +54,22 @@ const GROUP_ITEM: &str = "textures/ui/recipe_book_dark_button";
 const RECIPE_DISABLED: &str = "textures/ui/recipe_book_red_button";
 
 /// Whether the panel shows: creative opens on it and the toggle flips either way.
-pub(crate) fn recipe_book_shown(runtime: &UiRuntime) -> bool {
-    let creative = runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
+pub(crate) fn recipe_book_shown(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+) -> bool {
+    let creative =
+        runtime.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Creative);
     creative != runtime.screen_state().book_open
 }
 
 /// The listed entries' icons, in list order.
 pub(crate) fn recipe_book_icons(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &UiRuntime,
     icon: impl Fn(&protocol::NetworkItemStack) -> Option<IconRef>,
 ) -> Vec<Option<IconRef>> {
-    recipe_book_entries(runtime)
+    recipe_book_entries(player_runtime, runtime)
         .iter()
         .map(|entry| icon(&entry.stack()))
         .collect()
@@ -72,10 +77,11 @@ pub(crate) fn recipe_book_icons(
 
 /// The stack a hovered entry's tooltip describes; a group head names its group.
 pub(crate) fn recipe_book_hover(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &UiRuntime,
     index: u16,
 ) -> Option<(protocol::NetworkItemStack, Option<std::sync::Arc<str>>)> {
-    let entries = recipe_book_entries(runtime);
+    let entries = recipe_book_entries(player_runtime, runtime);
     let entry = entries.get(usize::from(index))?;
     let name = match entry {
         BookEntry::Group { group, .. } => Some(
@@ -98,6 +104,7 @@ pub(super) fn context(mut context: Context) -> Context {
 
 /// The layout, tab and search globals and the `recipe_book` collection.
 pub(super) fn book_data(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     data: &mut DataSource,
     runtime: &UiRuntime,
     frame: &HudFrame,
@@ -105,7 +112,8 @@ pub(super) fn book_data(
     shown: bool,
     cache: &mut Option<BookCache>,
 ) {
-    let creative = runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
+    let creative =
+        runtime.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Creative);
     let state = runtime.screen_state();
     let tab = state.creative_tab;
     let wide = shown && creative && state.creative_wide;
@@ -120,7 +128,10 @@ pub(super) fn book_data(
             creative && shown && !wide,
         ),
         ("#is_creative_and_creative_layout", wide),
-        ("#filtering_enabled", runtime.recipe_filtering()),
+        (
+            "#filtering_enabled",
+            runtime.recipe_filtering(player_runtime),
+        ),
         ("#is_left_tab_inventory", !shown),
         ("#construction_tab_visible", true),
         ("#equipment_tab_visible", true),
@@ -152,11 +163,11 @@ pub(super) fn book_data(
     if !shown {
         return;
     }
-    if BookCache::reuse(cache, runtime, frame, icons, data) {
+    if BookCache::reuse(player_runtime, cache, runtime, frame, icons, data) {
         return;
     }
     let first_icon = icons.len();
-    let entries = recipe_book_entries(runtime);
+    let entries = recipe_book_entries(player_runtime, runtime);
     let total = entries.len() as f64;
     let items: Vec<_> = entries
         .iter()
@@ -187,14 +198,14 @@ pub(super) fn book_data(
             .with("#is_creative_selected_slot", Scalar::Bool(false))
             .with(
                 "#container_item_background_texture",
-                Scalar::Text(background(runtime, entry).to_owned()),
+                Scalar::Text(background(player_runtime, runtime, entry).to_owned()),
             )
             .with("#recipe_book_total_items", Scalar::Num(total))
             .with("#container_item_modifier", Scalar::Int(modifier(entry)))
         })
         .collect();
     let items = std::sync::Arc::from(items);
-    *cache = BookCache::capture(runtime, frame, first_icon, icons, &items);
+    *cache = BookCache::capture(player_runtime, runtime, frame, first_icon, icons, &items);
     data.set_shared_collection(COLLECTION, items);
 }
 
@@ -210,9 +221,17 @@ fn modifier(entry: &BookEntry<'_>) -> i64 {
     }
 }
 
-fn background(runtime: &UiRuntime, entry: &BookEntry<'_>) -> &'static str {
+fn background(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+    entry: &BookEntry<'_>,
+) -> &'static str {
     match entry {
-        BookEntry::Recipe(recipe) if !runtime.inventory_ledger().can_auto_craft(recipe) => {
+        BookEntry::Recipe(recipe)
+            if !runtime
+                .inventory_ledger(player_runtime)
+                .can_auto_craft(recipe) =>
+        {
             RECIPE_DISABLED
         }
         BookEntry::Group {

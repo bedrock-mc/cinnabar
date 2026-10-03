@@ -88,10 +88,14 @@ pub(super) fn draw(
         )?;
         return Ok(());
     }
+    let list_top = y;
+    let scroll = canvas.begin_scroll("friends_list", [left, list_top, right, height - pad])?;
+    y -= scroll.offset;
     let row_height = canvas.r(6.4);
     for (index, friend) in view.friends.iter().enumerate() {
-        if y + row_height > height {
-            break;
+        if y + row_height < list_top || y > height - pad {
+            y += row_height + space(canvas, 1);
+            continue;
         }
         let action = Some(MenuAction::PlayFriend(index));
         let bounds = [left, y, right, y + row_height];
@@ -117,5 +121,6 @@ pub(super) fn draw(
         )?;
         y += row_height + space(canvas, 1);
     }
-    Ok(())
+    let content = y + scroll.offset - list_top;
+    canvas.end_scroll(scroll, content)
 }

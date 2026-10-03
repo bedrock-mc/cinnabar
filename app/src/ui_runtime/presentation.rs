@@ -8,7 +8,7 @@ use bevy::{
     window::{PrimaryWindow, Window},
 };
 use render::{
-    ActorSkinPixels, ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
+    ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };
 use render::{UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray};
@@ -48,6 +48,7 @@ mod menu_scroll;
 pub(crate) use menu_artwork::BUILT_IN_TITLE;
 pub(crate) mod nametag_atlas;
 pub(crate) mod nametags;
+mod paper_doll;
 mod player_preview;
 mod primitives;
 mod publish;
@@ -150,6 +151,7 @@ pub struct UiPresentationRuntime {
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
     /// Stable reserved logical page for the optional preview raster.
+    paper_doll: paper_doll::PaperDoll,
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
@@ -266,6 +268,7 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
+            paper_doll: Default::default(),
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
@@ -474,8 +477,13 @@ impl UiPresentationRuntime {
     }
 
     /// The Java-look surfaces outside the engine HUD, over the safe HUD geometry.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Player authority is borrowed separately from UI state."
+    )]
     fn append_java_hud(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         nodes: &mut Vec<UiNode>,
         next_id: &mut u32,
@@ -497,7 +505,7 @@ impl UiPresentationRuntime {
             self.solid_texture_page,
             geometry,
         )?
-        .append(runtime, &frame, container)
+        .append(player_runtime, runtime, &frame, container)
     }
 
     /// Diagnostics drawn with the gameplay scene; scores join the world name tags.
@@ -514,6 +522,7 @@ impl UiPresentationRuntime {
     /// Builds the frame from its retained UI authority.
     pub fn build(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         now_millis: u64,
         physical_size: [u32; 2],
@@ -556,7 +565,7 @@ impl UiPresentationRuntime {
             over_world: self.menu_view.as_ref().is_none_or(|view| view.over_world),
             loading: self.loading_stage.is_some(),
         };
-        let stack = runtime.scenes_in(host, &self.screen_settings());
+        let stack = runtime.scenes_in(player_runtime, host, &self.screen_settings());
         let scenes = stack.visible(false);
         self.begin_form_frame();
         self.menu_seconds = now_millis as f64 / 1_000.0;
@@ -568,24 +577,48 @@ impl UiPresentationRuntime {
             let (nodes, next) = (&mut nodes, &mut next_id);
             match scene {
                 Scene::Gameplay => {
-                    self.append_java_hud(runtime, nodes, next, hud_geometry, now_millis, false)?;
+                    self.append_java_hud(
+                        player_runtime,
+                        runtime,
+                        nodes,
+                        next,
+                        hud_geometry,
+                        now_millis,
+                        false,
+                    )?;
                     self.append_gameplay_overlays(nodes, next, metrics, content)?;
                 }
                 Scene::Crosshair | Scene::Hud => {
                     let crosshair = *scene == Scene::Crosshair;
                     self.append_engine_hud(
-                        runtime, nodes, next, metrics, content, now_millis, crosshair,
+                        player_runtime,
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content,
+                        now_millis,
+                        crosshair,
                     )?;
                     if !crosshair {
-                        self.append_mod_hud(runtime, nodes, next, metrics, content);
+                        self.append_mod_hud(player_runtime, runtime, nodes, next, metrics, content);
                     }
                 }
                 Scene::Bed => {
                     self.append_bed_screen(runtime, nodes, next, metrics, content, now_millis)?;
                 }
                 Scene::Container => {
-                    self.append_java_hud(runtime, nodes, next, hud_geometry, now_millis, true)?;
+                    self.append_java_hud(
+                        player_runtime,
+                        runtime,
+                        nodes,
+                        next,
+                        hud_geometry,
+                        now_millis,
+                        true,
+                    )?;
                     self.append_container_scene(
+                        player_runtime,
                         runtime,
                         nodes,
                         next,

@@ -54,7 +54,7 @@ pub(super) fn draw(
         Screen::Templates => "Create From Template",
         _ => "Create New World",
     };
-    let top = header(canvas, view, title, width, Some(local(A::Back)))? + space(canvas, 2);
+    let mut top = header(canvas, view, title, width, Some(local(A::Back)))? + space(canvas, 2);
     let grid = Grid::new(canvas.r(1.0), width);
     let (side, content) = if grid.narrow {
         ((0, 3), (3, 5))
@@ -64,8 +64,11 @@ pub(super) fn draw(
     let side = grid.span(side.0, side.1);
     let content = grid.span(content.0, content.1);
     let bottom = height - space(canvas, 2);
+    let span = grid.span(0, if grid.narrow { 8 } else { 12 });
+    let scroll = canvas.begin_scroll("world_settings_body", [span[0], top, span[1], bottom])?;
+    top -= scroll.offset;
     let local_view = &view.local;
-    match route {
+    let result = match route {
         Screen::Templates => {
             let mut y = top;
             button(
@@ -128,7 +131,9 @@ pub(super) fn draw(
                 Tab::Advanced => create_advanced(canvas, view, local_view, area),
             }
         }
-    }
+    };
+    result?;
+    canvas.end_scroll_to_fit(scroll)
 }
 
 /// The 16:9 world preview at the top of the side menu; returns the y below it.

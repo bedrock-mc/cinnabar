@@ -212,6 +212,9 @@ thread_local! {
 
 /// The tokens of `expression`, parsed once per thread.
 fn parsed(expression: &str) -> Option<Arc<Vec<Token>>> {
+    if expression.len() > MAX_BYTES {
+        return None;
+    }
     CACHE.with(|cache| {
         if let Some(hit) = cache.borrow().get(expression) {
             return hit.clone();

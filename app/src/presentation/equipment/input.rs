@@ -73,6 +73,7 @@ pub(crate) fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipm
 /// The local player's equipment, all from its own containers as vanilla draws it: the selected
 /// hotbar stack, the offhand (window 119) and the armor (window 120).
 pub(crate) fn local_input(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &WorldStream,
     ui: Option<&UiRuntime>,
     runtime_id: u64,
@@ -84,13 +85,18 @@ pub(crate) fn local_input(
             .canonical_item_stack(stack)
             .and_then(|item| worn_item(&item, dye_rgb))
     };
-    let armor = ui.map(UiRuntime::local_armor).unwrap_or_default();
+    let armor = ui
+        .map(|ui| ui.local_armor(player_runtime))
+        .unwrap_or_default();
     ActorEquipmentInput {
         main: ui
-            .and_then(UiRuntime::selected_stack)
+            .and_then(|ui| ui.selected_stack(player_runtime))
             .and_then(|stack| resolve(stack, None)),
         off: ui
-            .and_then(|ui| ui.inventory_ledger().target_stack(InventoryTarget::Offhand))
+            .and_then(|ui| {
+                ui.inventory_ledger(player_runtime)
+                    .target_stack(InventoryTarget::Offhand)
+            })
             .and_then(|stack| resolve(stack, None)),
         armor: [
             &armor.helmet,

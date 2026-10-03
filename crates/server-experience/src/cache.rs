@@ -13,6 +13,11 @@ use std::{
     time::SystemTime,
 };
 
+/// The bundle cache under a client's per-user data root; cache seeding uses the same path.
+pub fn objects_dir(user_data_root: &Path) -> PathBuf {
+    user_data_root.join("server-experiences/v1/objects")
+}
+
 pub struct BundleCache {
     root: PathBuf,
     _lease: File,

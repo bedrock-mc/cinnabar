@@ -414,3 +414,33 @@ fn controller_direction_can_be_claimed() {
         FocusMove::Claimed("/root/slider_like".to_owned())
     );
 }
+
+#[test]
+fn review_custom_container_exit_runs_without_a_spatial_sweep_target() {
+    let hits = regions(vec![
+        container(
+            "left",
+            [0.0, 0.0],
+            json!({"focus_navigation_mode_left":"custom", "focus_container_custom_left":[{"other_focus_container_name":"right", "focus_id_inside":"target"}]}),
+            vec![button(
+                "source",
+                [0.0, 0.0],
+                json!({"focus_wrap_enabled":false}),
+            )],
+        ),
+        container(
+            "right",
+            [100.0, 0.0],
+            json!({}),
+            vec![button(
+                "target",
+                [0.0, 0.0],
+                json!({"focus_identifier":"target"}),
+            )],
+        ),
+    ]);
+    assert_eq!(
+        step(&hits, "/root/left/source", FocusDirection::Left),
+        to("/root/right/target")
+    );
+}

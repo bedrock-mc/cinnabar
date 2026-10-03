@@ -131,6 +131,8 @@ fn crafting_recipes_expose_ingredient_views() {
     let views = handles[0].ingredient_views();
     assert_eq!(views.len(), 1);
     let log = views[0].as_ref().unwrap();
-    assert!(log.accepts("minecraft:oak_log", 0, &[]));
-    assert!(!log.accepts("minecraft:stone", 0, &[]));
+    assert_eq!(&*log.name, "minecraft:oak_log");
+    assert!(!log.tag);
+    assert_eq!(log.aux, 0);
+    assert_eq!(log.count, 1);
 }

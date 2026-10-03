@@ -10,6 +10,8 @@ pub(super) struct Style {
     pub(super) clips: bool,
     pub(super) clip_offset: [f64; 2],
     pub(super) allows: Option<bool>,
+    /// Any descendant that can deliberately escape an ancestor clip.
+    pub(super) unclipped_descendant: bool,
     pub(super) enabled: bool,
     pub(super) alpha: f32,
     pub(super) layer: i32,
@@ -23,6 +25,10 @@ impl Style {
             clips: clip_children(control),
             clip_offset: clip_offset(control),
             allows: widgets::bound_bool(control, "allow_clipping"),
+            unclipped_descendant: control.children.iter().any(|child| {
+                let style = super::measure::style(child);
+                style.allows == Some(false) || style.unclipped_descendant
+            }),
             enabled: widgets::enabled(control),
             alpha: alpha(control),
             layer: layer(control),

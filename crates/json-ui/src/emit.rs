@@ -256,7 +256,16 @@ fn emit_own(
         let clipped = dest.intersect(node.clip);
         let floats =
             matches!(&draw, Draw::Custom { renderer, .. } if renderer == "hover_text_renderer");
-        if dest.w > 0.0 && dest.h > 0.0 && (clipped.w <= 0.0 || clipped.h <= 0.0) && !floats {
+        let moves_geometry = node
+            .anim
+            .as_ref()
+            .is_some_and(|anim| !anim.movers.is_empty() || !anim.clip_movers.is_empty());
+        if dest.w > 0.0
+            && dest.h > 0.0
+            && (clipped.w <= 0.0 || clipped.h <= 0.0)
+            && !floats
+            && !moves_geometry
+        {
             continue;
         }
         out.push((

@@ -244,7 +244,15 @@ impl Harness {
 
     fn answer_requests(&mut self) {
         for request in self.stream.take_requests() {
-            let sent_at = Instant::now();
+            // Intentional fixture withholding tests readiness, not retry expiry. Give held
+            // replies the bounded worker-completion horizon so slow CI cannot exhaust them
+            // before the test releases them; ordinary requests keep the real response clock.
+            let sent_at = Instant::now()
+                + if self.withheld.contains(&request.chunk) {
+                    COMPLETION_TIMEOUT
+                } else {
+                    Duration::ZERO
+                };
             self.stream.record_sub_chunk_request_transport_pending(
                 request.chunk,
                 request.base_sub_chunk_y,

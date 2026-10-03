@@ -275,12 +275,14 @@ impl MeasureCache {
 /// Reuse typed bound properties until an update changes this control or its allocation.
 pub(super) fn style(control: &ResolvedControl) -> super::style::Style {
     let address = std::ptr::from_ref(control).addr();
+    if let Some(style) = STYLES.with(|memo| memo.borrow().get(&address).copied()) {
+        return style;
+    }
+    let style = super::style::Style::read(control);
     STYLES.with(|memo| {
-        *memo
-            .borrow_mut()
-            .entry(address)
-            .or_insert_with(|| super::style::Style::read(control))
-    })
+        memo.borrow_mut().insert(address, style);
+    });
+    style
 }
 
 /// Resolve a widget's masks once per bound tree and ancestor lock state.
@@ -396,7 +398,6 @@ pub(super) fn resolve_children(
         }
         if reads_sibling_max(child) {
             deferred = true;
-            continue;
         }
         *slot = size::resolve_size(child, extent, [0.0; 2], env);
     }

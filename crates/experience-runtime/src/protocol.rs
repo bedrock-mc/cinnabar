@@ -10,11 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::hex;
 use crate::limits::{
-    MAX_BLOCK_DATA_BYTES, MAX_FRAME_BYTES, MAX_REASON_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES,
-    MAX_TELLS,
+    MAX_BLOCK_DATA_BYTES, MAX_CLIENT_SENDS, MAX_FRAME_BYTES, MAX_REASON_BYTES, MAX_STAGED_OPS,
+    MAX_TELL_BYTES, MAX_TELLS,
 };
 
-pub const PROTOCOL_VERSION: u32 = 1;
+/// 2 added the `client_message` call and the `send_client` op.
+pub const PROTOCOL_VERSION: u32 = 2;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -77,6 +78,21 @@ pub struct Change {
     pub previous_data: Option<String>,
 }
 
+/// One field of a client-channel record, in the form the client part's wire protocol gives it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    content = "value",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum Scalar {
+    Bool(bool),
+    Integer(i64),
+    Text(String),
+    Choice(u16),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {
@@ -94,6 +110,14 @@ pub enum Call {
     Neighbor {
         pos: BlockPos,
         neighbor: BlockPos,
+    },
+    /// `player`'s client part sent `payload` on `channel`. The callback's actor is `player`, and
+    /// its snapshot is empty.
+    ClientMessage {
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<Scalar>,
     },
 }
 
@@ -167,13 +191,29 @@ pub enum FailKind {
     Limit,
 }
 
-/// A staged world operation; `data` is lowercase hex, `None` clears it.
+/// A staged operation; `data` is lowercase hex, `None` clears it. `SendClient` goes to the
+/// player's client part after the rest commits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Op {
-    SetBlock { pos: BlockPos, id: String },
-    SetBlockData { pos: BlockPos, data: Option<String> },
-    Tell { player: String, text: String },
+    SetBlock {
+        pos: BlockPos,
+        id: String,
+    },
+    SetBlockData {
+        pos: BlockPos,
+        data: Option<String>,
+    },
+    Tell {
+        player: String,
+        text: String,
+    },
+    SendClient {
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<Scalar>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -279,6 +319,7 @@ struct Limits {
     max_staged_ops: usize,
     max_tells: usize,
     max_tell_bytes: usize,
+    max_client_sends: usize,
 }
 
 /// Every protocol enum string, so the Go adapter can check its sets against Rust.
@@ -359,6 +400,26 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         call,
     };
     let result = |seq: u64, outcome: Outcome| Response::Result { seq, outcome };
+    // Every scalar type; the integer is beyond what a JSON double holds exactly.
+    let record = vec![
+        Scalar::Bool(true),
+        Scalar::Integer(-9_007_199_254_740_993),
+        Scalar::Text("ME Controller \"linked\"".to_owned()),
+        Scalar::Choice(2),
+    ];
+    let mut client_message = callback(
+        5,
+        Some(player),
+        Call::ClientMessage {
+            player: player.to_owned(),
+            channel: "benergistics.ack".to_owned(),
+            schema: 1,
+            payload: record.clone(),
+        },
+    );
+    if let Request::Callback { snapshot, .. } = &mut client_message {
+        snapshot.clear();
+    }
     let texture = |slot: &str, file: &str| Texture {
         slot: slot.to_owned(),
         path: format!("/srv/experiences/benergistics/assets/{file}"),
@@ -428,6 +489,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 },
             )),
         ),
+        ("request_callback_client_message", pretty(&client_message)),
         ("request_shutdown", pretty(&Request::Shutdown {})),
         (
             "response_loaded",
@@ -482,6 +544,12 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                             player: player.to_owned(),
                             text: "Network online".to_owned(),
                         },
+                        Op::SendClient {
+                            player: player.to_owned(),
+                            channel: "benergistics.controller".to_owned(),
+                            schema: 1,
+                            payload: record,
+                        },
                     ],
                 },
             )),
@@ -514,6 +582,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 max_staged_ops: MAX_STAGED_OPS,
                 max_tells: MAX_TELLS,
                 max_tell_bytes: MAX_TELL_BYTES,
+                max_client_sends: MAX_CLIENT_SENDS,
             }),
         ),
         (

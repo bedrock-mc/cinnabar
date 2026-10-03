@@ -188,6 +188,7 @@ fn block_items_beat_short_name_guesses() {
     let blocks = BlockIcons {
         icons: vec![block],
         misses: vec![("t:broken".into(), "no drawable visual".into())],
+        ..Default::default()
     };
     let icons = compile_session_icons(
         &view(),

@@ -82,6 +82,28 @@ complete world. Synthetic fixtures, instrumented development builds and runs
 under build load validate the harness and help attribution; they do not close a
 native performance or vanilla parity gate.
 
+## Frame-rate measurements
+
+The client's metrics report includes `frame_sample_seconds`, the sum of recorded
+frame durations, and `average_fps`, which divides `frame_count` by that sum.
+These use the selected warmup/sample window; dividing by the entire process or
+session duration would also include time outside that window.
+
+`one_percent_low_fps` describes the reciprocal mean duration of the slowest one
+percent of recorded frames, rounding the number of selected frames up. This is
+different from the reciprocal of p99 frame time. Its `lower` and `upper` values
+bound the result using the existing histogram; `sample_count` is the number of
+slow frames selected. `frame_histogram_resolution_ms` reports the precision.
+The exact maximum bounds overflow samples, so long hitches are not silently
+clipped at the histogram ceiling. The value is null when no positive duration
+has been recorded.
+
+These are client update timings, not a count of frames displayed by the OS.
+Retain the present mode, focus/occlusion, world-ready cohort, build profile and
+host-load evidence alongside them. Acceptance mode also performs full-world
+cohort checks that normal play stops after startup; account for that measurement
+cost when attributing a steady-frame bottleneck.
+
 ## Tests and a minimal diagnostic fixture
 
 ```sh

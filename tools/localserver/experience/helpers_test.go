@@ -194,7 +194,7 @@ func freshProbe(t *testing.T) string {
 const (
 	// probeCount increments the little-endian u32 in the block's data and tells "count <n>".
 	probeCount = 0
-	// probeTrap stages a data write and a tell, then traps.
+	// probeTrap stages a data write, a tell and a client message, then traps.
 	probeTrap = 1
 	// probeReject stages a tell, then returns a guest error.
 	probeReject = 10

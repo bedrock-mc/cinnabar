@@ -22,10 +22,15 @@ fn vanilla_like_table() -> Arc<ScreenSettingsTable> {
     ])))
 }
 
-fn in_world(table: Arc<ScreenSettingsTable>) -> UiRuntime {
+fn in_world(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    table: Arc<ScreenSettingsTable>,
+) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
-    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(player_runtime, 1, 42)
+        .unwrap();
+    runtime.publish_inventory_authority(player_runtime, protocol::InventoryAuthority::Server);
     runtime.set_screen_settings(table);
     runtime
 }
@@ -41,12 +46,14 @@ fn host(menu: Option<MenuScreen>) -> SceneHost {
 // Only the HUD over the world: clicks reach gameplay and the mouse is captured.
 #[test]
 fn hud_only_routes_clicks_to_gameplay() {
-    let runtime = in_world(vanilla_like_table());
-    assert!(runtime.gameplay_input(None));
-    assert!(!runtime.ui_focused());
-    assert!(runtime.steals_mouse(None));
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let runtime = in_world(&mut player_runtime, vanilla_like_table());
+    assert!(runtime.gameplay_input(&player_runtime, None));
+    assert!(!runtime.ui_focused(&player_runtime));
+    assert!(runtime.steals_mouse(&player_runtime, None));
     assert_eq!(
-        runtime.scenes(host(None)).visible(false),
+        runtime.scenes(&player_runtime, host(None)).visible(false),
         [Scene::Gameplay, Scene::Hud]
     );
     let crosshair = settings(
@@ -55,14 +62,14 @@ fn hud_only_routes_clicks_to_gameplay() {
     );
     let mut table = (*vanilla_like_table()).clone();
     table.0.insert(json_ui::CROSSHAIR_SCREEN, crosshair);
-    let mut runtime = in_world(Arc::new(table));
+    let mut runtime = in_world(&mut player_runtime, Arc::new(table));
     assert!(
-        runtime.steals_mouse(None),
+        runtime.steals_mouse(&player_runtime, None),
         "the crosshair overlay sits under the HUD"
     );
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     assert_eq!(
-        runtime.scenes(host(None)).visible(false),
+        runtime.scenes(&player_runtime, host(None)).visible(false),
         [Scene::Gameplay, Scene::Crosshair, Scene::Chat]
     );
 }
@@ -70,22 +77,24 @@ fn hud_only_routes_clicks_to_gameplay() {
 // An absorbing screen (inventory, chat, pause) takes clicks and frees the mouse.
 #[test]
 fn absorbing_screens_route_clicks_to_the_ui() {
-    let mut runtime = in_world(vanilla_like_table());
-    runtime.toggle_inventory();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = in_world(&mut player_runtime, vanilla_like_table());
+    runtime.toggle_inventory(&mut player_runtime);
     assert!(runtime.inventory_open());
-    assert!(!runtime.gameplay_input(None));
-    assert!(!runtime.steals_mouse(None));
+    assert!(!runtime.gameplay_input(&player_runtime, None));
+    assert!(!runtime.steals_mouse(&player_runtime, None));
     assert_eq!(
-        runtime.scenes(host(None)).visible(false),
+        runtime.scenes(&player_runtime, host(None)).visible(false),
         [Scene::Gameplay, Scene::Container]
     );
-    runtime.close_inventory();
-    runtime.open_chat();
-    assert!(!runtime.gameplay_input(None));
+    runtime.close_inventory(&mut player_runtime);
+    runtime.open_chat(&mut player_runtime);
+    assert!(!runtime.gameplay_input(&player_runtime, None));
     runtime.close_chat();
-    assert!(runtime.gameplay_input(None));
+    assert!(runtime.gameplay_input(&player_runtime, None));
 
-    let paused = runtime.scenes(host(Some(MenuScreen::Pause)));
+    let paused = runtime.scenes(&player_runtime, host(Some(MenuScreen::Pause)));
     assert!(!paused.receives_input(Scene::Gameplay));
     assert!(!paused.steals_mouse());
     assert_eq!(
@@ -97,34 +106,41 @@ fn absorbing_screens_route_clicks_to_the_ui() {
 // A pack that makes the HUD absorb input takes clicks from gameplay, as vanilla would.
 #[test]
 fn pack_declared_absorbing_hud_blocks_gameplay() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let hud = settings(json!({"is_showing_menu": false, "should_steal_mouse": true}));
     let table = ScreenSettingsTable(HashMap::from([(json_ui::HUD_SCREEN, hud)]));
-    let runtime = in_world(Arc::new(table));
-    assert!(!runtime.gameplay_input(None));
+    let runtime = in_world(&mut player_runtime, Arc::new(table));
+    assert!(!runtime.gameplay_input(&player_runtime, None));
 }
 
 // The launcher's menus have no world under them; its start screen takes input.
 #[test]
 fn launcher_menus_have_no_world_beneath() {
-    let runtime = in_world(vanilla_like_table());
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let runtime = in_world(&mut player_runtime, vanilla_like_table());
     let launcher = SceneHost {
         over_world: false,
         ..host(Some(MenuScreen::Home))
     };
-    let stack = runtime.scenes(launcher);
+    let stack = runtime.scenes(&player_runtime, launcher);
     assert!(!stack.contains(Scene::Gameplay));
     assert_eq!(stack.visible(false), [Scene::Menu(MenuScreen::Home)]);
-    assert!(!runtime.scenes(launcher).steals_mouse());
+    assert!(!runtime.scenes(&player_runtime, launcher).steals_mouse());
 }
 
 // A health drop closes a top container whose screen asks for it.
 #[test]
 fn hurt_closes_a_top_container_that_asks() {
-    let mut runtime = in_world(vanilla_like_table());
-    runtime.toggle_inventory();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = in_world(&mut player_runtime, vanilla_like_table());
+    runtime.toggle_inventory(&mut player_runtime);
     runtime.note_player_hurt();
     let mut app = bevy::app::App::new();
     app.insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .add_systems(bevy::app::Update, close_scenes_on_player_hurt);
     app.update();
     assert!(!app.world().resource::<UiRuntime>().inventory_open());
@@ -133,6 +149,8 @@ fn hurt_closes_a_top_container_that_asks() {
 // The real carrier's HUD passes input through and a container absorbs it.
 #[test]
 fn carrier_settings_route_input_like_vanilla() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(carrier) = super::super::presentation::forms::pack_harness::carrier() else {
         eprintln!(
             "skipping carrier_settings_route_input_like_vanilla: fixture unavailable; requires installed local carriers (make assets)"
@@ -151,11 +169,14 @@ fn carrier_settings_route_input_like_vanilla() {
         .get(json_ui::HUD_SCREEN)
         .expect("the HUD screen resolves");
     assert!(!hud.absorbs_input && hud.should_steal_mouse);
-    let mut runtime = in_world(Arc::new(table));
-    assert!(runtime.gameplay_input(None));
-    runtime.toggle_inventory();
-    assert!(!runtime.gameplay_input(None));
-    assert_eq!(runtime.scenes(host(None)).closes_on_hurt(), None);
+    let mut runtime = in_world(&mut player_runtime, Arc::new(table));
+    assert!(runtime.gameplay_input(&player_runtime, None));
+    runtime.toggle_inventory(&mut player_runtime);
+    assert!(!runtime.gameplay_input(&player_runtime, None));
+    assert_eq!(
+        runtime.scenes(&player_runtime, host(None)).closes_on_hurt(),
+        None
+    );
 }
 
 // A pushed scene enters with a push fade; the one it covered re-enters with a pop fade.

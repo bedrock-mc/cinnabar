@@ -22,6 +22,8 @@ fn pickup() -> InventoryEvent {
 
 #[test]
 fn vanilla_pickup_replaces_closed_inventory_and_hud_before_the_next_drop() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let event = pickup();
     let [update] = event.slot_updates() else {
         panic!()
@@ -34,12 +36,18 @@ fn vanilla_pickup_replaces_closed_inventory_and_hud_before_the_next_drop() {
         ..update.stack.clone()
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.set_local_selected_slot(slot);
+    player_runtime.inventory.set_local_selected_slot(slot);
     runtime
-        .enqueue_inventory_event(1, 1, InventoryEvent::Authority(InventoryAuthority::Server))
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            1,
+            1,
+            InventoryEvent::Authority(InventoryAuthority::Server),
+        )
         .unwrap();
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             2,
             InventoryEvent::Content(InventoryContentEvent {
@@ -49,21 +57,25 @@ fn vanilla_pickup_replaces_closed_inventory_and_hud_before_the_next_drop() {
             }),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
     let before = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .authoritative_slot_revision(slot)
         .unwrap();
     runtime
-        .enqueue_inventory_event(1, 3, event.clone())
+        .enqueue_inventory_event(&mut player_runtime, 1, 3, event.clone())
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(
-        runtime.inventory_ledger().authoritative_slot_revision(slot),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .authoritative_slot_revision(slot),
         Some(before + 1)
     );
     assert_eq!(
-        runtime.inventory_ledger().displayed_stack(slot),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .displayed_stack(slot),
         Some(&update.stack)
     );
     assert_eq!(
@@ -71,14 +83,20 @@ fn vanilla_pickup_replaces_closed_inventory_and_hud_before_the_next_drop() {
         Some(&update.stack)
     );
     assert_eq!(
-        runtime.selected_stack_snapshot().unwrap().state,
+        runtime
+            .selected_stack_snapshot(&player_runtime)
+            .unwrap()
+            .state,
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&update.stack)
     );
     let request = runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .begin_world_drop(slot, Some(1))
         .unwrap();
-    let predicted = runtime.inventory_ledger().displayed_stack(slot).unwrap();
+    let predicted = runtime
+        .inventory_ledger(&player_runtime)
+        .displayed_stack(slot)
+        .unwrap();
     assert_eq!(predicted.count, 63);
     assert_eq!(predicted.stack_network_id, request);
 }

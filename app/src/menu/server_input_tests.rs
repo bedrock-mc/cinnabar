@@ -27,8 +27,48 @@ struct Frame(render::UiRenderInput);
 #[derive(Resource, Default)]
 struct FrameTime(u64);
 
+#[test]
+fn idle_menu_does_not_repeat_cursor_os_notifications() {
+    let Some(mut h) = Harness::new(1.0) else {
+        return;
+    };
+    #[derive(Resource, Default)]
+    struct CursorWrites(usize);
+    h.app.init_resource::<CursorWrites>().add_systems(
+        PostUpdate,
+        |cursors: Query<(), Changed<CursorOptions>>, mut writes: ResMut<CursorWrites>| {
+            writes.0 += cursors.iter().count();
+        },
+    );
+    {
+        let mut cursor = h
+            .app
+            .world_mut()
+            .get_mut::<CursorOptions>(h.window)
+            .unwrap();
+        cursor.grab_mode = bevy::window::CursorGrabMode::Locked;
+        cursor.visible = false;
+        cursor.hit_test = false;
+    }
+    h.app.update();
+    assert_eq!(h.app.world().resource::<CursorWrites>().0, 1);
+    for focused in [true, false, true] {
+        h.app
+            .world_mut()
+            .get_mut::<Window>(h.window)
+            .unwrap()
+            .focused = focused;
+        h.app.update();
+        assert_eq!(h.app.world().resource::<CursorWrites>().0, 1);
+        let cursor = h.app.world().get::<CursorOptions>(h.window).unwrap();
+        assert_eq!(cursor.grab_mode, bevy::window::CursorGrabMode::None);
+        assert!(cursor.visible && !cursor.hit_test);
+    }
+}
+
 /// Publishes through the same presentation builder after the production input system.
 fn publish(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     menu: Res<MenuRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut frame: ResMut<Frame>,
@@ -41,6 +81,7 @@ fn publish(
     let window = windows.single().unwrap();
     frame.0 = presentation
         .build(
+            &player_runtime,
             &runtime,
             time.0,
             [window.physical_width(), window.physical_height()],
@@ -59,9 +100,11 @@ struct Harness {
 impl Harness {
     /// Uses a temporary user directory; never touches the owner's saved servers.
     fn new(dpi: f32) -> Option<Self> {
+        let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
         let mut presentation = pack_harness::engine_presentation()?;
         let frame = presentation
             .build(
+                &player_runtime,
                 &UiRuntime::new(1),
                 0,
                 [1280, 720],
@@ -85,6 +128,7 @@ impl Harness {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Touches>()
+            .insert_resource(player_runtime)
             .insert_resource(presentation)
             .insert_resource(menu)
             .insert_resource(Frame(frame))
@@ -452,4 +496,48 @@ fn exercise_server_fields(dpi: f32) {
             .iter()
             .any(|server| { server.name == "Play" && server.address == pending.address })
     );
+}
+
+#[test]
+fn failed_server_loads_do_not_authorize_replacing_the_original_list() {
+    for failed_quarantine in [false, true] {
+        let root = std::env::temp_dir().join(format!(
+            "cinnabar-server-protection-{}-{:?}-{failed_quarantine}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut layout = MenuRuntime::new(true, 2, "Steve".into()).layout.clone();
+        layout.user_config_root = root.clone();
+        let path = layout.server_file();
+        if failed_quarantine {
+            std::fs::write(&path, b"invalid").unwrap();
+            let mut target = path.as_os_str().to_os_string();
+            target.push(".invalid");
+            let target = std::path::PathBuf::from(target);
+            std::fs::create_dir_all(&target).unwrap();
+            std::fs::write(target.join("keep"), b"keep").unwrap();
+        } else {
+            std::fs::create_dir_all(&path).unwrap();
+        }
+        let menu = MenuRuntime::new_with_layout(
+            true,
+            Some(2),
+            "Steve".into(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Steve"),
+        );
+        assert!(menu.message.is_some());
+        if !failed_quarantine {
+            std::fs::remove_dir(&path).unwrap();
+        }
+        // A transient failure can recover; the menu still has no authority for this snapshot.
+        let original = br#"[{"name":"Keep","address":"keep.example"}]"#;
+        std::fs::write(&path, original).unwrap();
+        assert!(menu.saves.save(&[]).is_err());
+        menu.saves.flush();
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        drop(menu);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

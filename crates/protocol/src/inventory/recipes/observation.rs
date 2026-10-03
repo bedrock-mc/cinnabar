@@ -81,8 +81,7 @@ fn summary(id: u32, recipe: &Recipe, registry: &RecipeRegistrySnapshot) -> Recip
         output_count: recipe.output.count,
         output_block: recipe.output.block,
         output_capacity: capacity,
-        output_binding_supported: output
-            .is_some_and(|entry| super::super::request::manual_craft::binding_entry(entry).is_ok()),
+        output_binding_supported: output.is_some_and(super::recipe_binding_supported),
         output_fits_capacity: capacity.map(|limit| u16::from(recipe.output.count) <= limit),
     }
 }

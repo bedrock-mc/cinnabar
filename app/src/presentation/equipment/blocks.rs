@@ -1,11 +1,13 @@
-//! Plain opaque block cubes held in hand: six 16-texel tiles composed into one 48x32 sheet.
+//! Plain opaque block cubes held in hand and drawn in slots: six 16-texel tiles composed into one
+//! 48x32 sheet, for vanilla block items and for server custom block items alike.
 
 use std::collections::BTreeMap;
 
 use assets::{
-    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BlockFace, BlockFlags, DIAGNOSTIC_MATERIAL,
-    IconSprite, ItemVisualDefinitionRoute, NO_ANIMATION, NetworkIdMode, RuntimeAssets,
-    RuntimeEntityAssets, VisualKind, VisualSupport, compose_block_item_sheet,
+    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BlockFace, BlockFlags, BlockOverlay,
+    DIAGNOSTIC_MATERIAL, IconSprite, ItemVisualDefinitionRoute, Material, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, RuntimeEntityAssets, TextureArray, TextureMip,
+    VisualKind, VisualSupport, compose_block_item_sheet,
 };
 
 pub(super) const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
@@ -77,26 +79,61 @@ fn compose_sheet(world: &RuntimeAssets, materials: &[u32; 6]) -> Option<IconSpri
     let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
     for id in materials {
         let material = world.materials().get(*id as usize)?;
-        if material.flags != 0 || material.animation != NO_ANIMATION {
-            return None;
-        }
         let page = world
             .texture_pages()
             .get(material.texture.page() as usize)?;
-        let mip = page.texture.mips.first()?;
-        if mip.size as usize != TILE || material.texture.layer() >= page.texture.layers {
-            return None;
-        }
-        let tile_bytes = TILE * TILE * 4;
-        let first = (material.texture.layer() as usize).checked_mul(tile_bytes)?;
-        let tile = mip.rgba8.get(first..first.checked_add(tile_bytes)?)?;
-        tiles.push(IconSprite {
-            width: BLOCK_ITEM_FACE_SIDE,
-            height: BLOCK_ITEM_FACE_SIDE,
-            rgba8: tile.into(),
-        });
+        tiles.push(face_tile(
+            material,
+            &page.texture,
+            page.texture.mips.first()?,
+        )?);
     }
     compose_block_item_sheet(&tiles.try_into().ok()?)
+}
+
+/// The sheet of a session overlay's state `visual` when it is a plain opaque cube, held and
+/// drawn in slots like a vanilla block item's (`collect`); `None` for any other shape.
+pub(crate) fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite> {
+    let block = overlay.visuals.get(visual)?;
+    if block.kind != VisualKind::Cube
+        || block.flags != (BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
+        || block.model_template != NO_MODEL_TEMPLATE
+        || block.animation != NO_ANIMATION
+    {
+        return None;
+    }
+    let texture = overlay.texture.as_ref()?;
+    // Overlay layers share the largest source's tile size; their 16-texel mip is the face.
+    let mip = texture.mips.iter().find(|mip| mip.size as usize == TILE)?;
+    let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
+    for id in block.faces {
+        // Overlay materials address the overlay's own array as page 1.
+        let material = overlay
+            .materials
+            .get(id as usize)
+            .filter(|material| id != DIAGNOSTIC_MATERIAL && material.texture.page() == 1)?;
+        tiles.push(face_tile(material, texture, mip)?);
+    }
+    compose_block_item_sheet(&tiles.try_into().ok()?)
+}
+
+/// `material`'s 16-texel layer of `mip`; tinted, alpha-flagged or animated materials have none.
+fn face_tile(material: &Material, texture: &TextureArray, mip: &TextureMip) -> Option<IconSprite> {
+    if material.flags != 0
+        || material.animation != NO_ANIMATION
+        || mip.size as usize != TILE
+        || material.texture.layer() >= texture.layers
+    {
+        return None;
+    }
+    let tile_bytes = TILE * TILE * 4;
+    let first = (material.texture.layer() as usize).checked_mul(tile_bytes)?;
+    let tile = mip.rgba8.get(first..first.checked_add(tile_bytes)?)?;
+    Some(IconSprite {
+        width: BLOCK_ITEM_FACE_SIDE,
+        height: BLOCK_ITEM_FACE_SIDE,
+        rgba8: tile.into(),
+    })
 }
 
 /// The `[u0, v0, u1, v1]` region of each face's tile within a sheet placed at `region`.

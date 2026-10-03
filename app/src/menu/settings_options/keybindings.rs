@@ -32,6 +32,27 @@ pub(crate) const KEY_BINDINGS: &[(Action, &str)] = &[
 ];
 
 impl SettingsOptions {
+    /// Validates stored controls with the same device and collision rules as interactive remapping.
+    pub(super) fn stored_bindings_valid(&self) -> bool {
+        self.controls().is_ok()
+            && (0..KEY_BINDINGS.len() + EXTRA_KEYS.len())
+                .chain(
+                    GAMEPAD_OFFSET..GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + EXTRA_GAMEPAD.len(),
+                )
+                .all(|index| {
+                    let Some((name, _, _)) = self.binding(index) else {
+                        return true;
+                    };
+                    let Some(code) = self.keys.get(&name) else {
+                        return true;
+                    };
+                    decode_control(*code).is_some_and(|control| {
+                        is_gamepad(control) == (index >= GAMEPAD_OFFSET)
+                            && !self.binding_conflicts(index, self.swap_gamepad_control(control))
+                    })
+                })
+    }
+
     /// Resolves a settings row to its persisted name and optional semantic action.
     fn binding(&self, index: usize) -> Option<(String, Option<Action>, Option<PhysicalControl>)> {
         if let Some(index) = index.checked_sub(GAMEPAD_OFFSET) {

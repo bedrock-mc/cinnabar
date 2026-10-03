@@ -99,6 +99,7 @@ pub(crate) struct MenuProfile {
 /// by address, the profile, and the featured server the info panel shows.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct MenuFeeds {
+    pub(crate) inbox_state: super::inbox::InboxState,
     pub(crate) details: HashMap<String, ServerDetails>,
     pub(crate) profile: MenuProfile,
     pub(crate) selected_featured: Option<usize>,
@@ -190,6 +191,7 @@ pub(crate) struct MenuHome {
     pub(crate) play_art: Option<ButtonArt>,
     pub(crate) store_art: Option<ButtonArt>,
     pub(crate) inbox_unread: u32,
+    pub(crate) inbox_counts: std::collections::BTreeMap<usize, u32>,
     pub(crate) realm_invites: u32,
     pub(crate) live_event: Option<LiveEventCard>,
     pub(crate) persona_head: String,
@@ -200,6 +202,10 @@ pub(crate) struct MenuHome {
 /// One inbox message.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct InboxItem {
+    pub(crate) instance_id: String,
+    pub(crate) report_id: String,
+    pub(crate) received: String,
+    pub(crate) source: String,
     pub(crate) header: String,
     pub(crate) body: String,
     pub(crate) category: String,
@@ -209,6 +215,8 @@ pub(crate) struct InboxItem {
 /// A main button's messaging art: local image paths per layer and its banner.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ButtonArt {
+    pub(crate) banner_texture: String,
+    pub(crate) colors: std::collections::BTreeMap<String, [u8; 3]>,
     pub(crate) default_background: String,
     pub(crate) hover_background: String,
     pub(crate) default_foreground: String,

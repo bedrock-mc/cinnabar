@@ -543,6 +543,14 @@ fn json_output_is_pretty_deterministic_and_newline_terminated() {
         mutation_coordinate: Some([4, 65, -2]),
         visible_mutation_count: 3,
         frame_count: 2,
+        frame_sample_seconds: 0.009,
+        average_fps: 2.0 / 0.009,
+        one_percent_low_fps: Some(super::LowFpsBounds {
+            sample_count: 1,
+            lower: 200.0,
+            upper: 200.0,
+        }),
+        frame_histogram_resolution_ms: super::FRAME_HISTOGRAM_RESOLUTION_MS,
         p50_frame_ms: 4.0,
         p95_frame_ms: 5.0,
         p99_frame_ms: 5.0,
@@ -634,6 +642,14 @@ fn json_output_is_pretty_deterministic_and_newline_terminated() {
             "  ],\n",
             "  \"visible_mutation_count\": 3,\n",
             "  \"frame_count\": 2,\n",
+            "  \"frame_sample_seconds\": 0.009,\n",
+            "  \"average_fps\": 222.22222222222223,\n",
+            "  \"one_percent_low_fps\": {\n",
+            "    \"sample_count\": 1,\n",
+            "    \"lower\": 200.0,\n",
+            "    \"upper\": 200.0\n",
+            "  },\n",
+            "  \"frame_histogram_resolution_ms\": HISTOGRAM_RESOLUTION,\n",
             "  \"p50_frame_ms\": 4.0,\n",
             "  \"p95_frame_ms\": 5.0,\n",
             "  \"p99_frame_ms\": 5.0,\n",
@@ -720,6 +736,10 @@ fn json_output_is_pretty_deterministic_and_newline_terminated() {
             "    }\n",
             "  }\n",
             "}\n",
+        )
+        .replace(
+            "HISTOGRAM_RESOLUTION",
+            &super::FRAME_HISTOGRAM_RESOLUTION_MS.to_string(),
         )
     );
     let _ = fs::remove_dir_all(directory);

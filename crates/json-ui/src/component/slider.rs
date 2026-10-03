@@ -177,7 +177,7 @@ pub(crate) fn step_marks(
                 .and_then(Value::as_f64)
         })
         .unwrap_or(1.0) as i64;
-    if steps <= 2 {
+    if steps <= 2 || steps - 2 > crate::bind::feed::MAX_FACTORY_ITEMS as i64 {
         return None;
     }
     let current = number("#slider_value").unwrap_or(0.0) as i64;
@@ -243,5 +243,21 @@ mod tests {
         let (value, _) = meta.value_at([0.0, 0.0, 20.0, 100.0], [5.0, 25.0]);
         assert!((value - 0.75).abs() < 1e-6);
         assert!((meta.stepped(0.5, 1).0 - 0.49).abs() < 1e-9);
+    }
+    #[test]
+    fn review_step_mark_factory_checks_the_budget_before_building_items() {
+        let control = ResolvedControl {
+            name: "slider".into(),
+            control_type: Some("slider".into()),
+            base: None,
+            unresolved_base: None,
+            properties: [("slider_steps".into(), serde_json::json!(5000))]
+                .into_iter()
+                .collect::<BTreeMap<_, _>>()
+                .into(),
+            children: Vec::new(),
+            factory: Some(crate::tree::Factory::default()),
+        };
+        assert!(step_marks(&control, &BTreeMap::new()).is_none());
     }
 }

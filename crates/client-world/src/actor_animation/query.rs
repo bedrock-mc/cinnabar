@@ -260,6 +260,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         }
     }
     let argument = |index: usize| arguments.get(index).map(MolangValue::number);
+    if name == "is_in_ui" && evaluator.context.is_in_ui {
+        return 1.0;
+    }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));
     }

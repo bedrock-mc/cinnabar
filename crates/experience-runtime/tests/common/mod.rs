@@ -11,7 +11,9 @@ use std::sync::LazyLock;
 use experience_runtime::callback::run;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
 use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
-use experience_runtime::protocol::{BlockPos, Call, Cell, Face, Info, Op, Outcome, Request};
+use experience_runtime::protocol::{
+    BlockPos, Call, Cell, Face, Info, Op, Outcome, Request, Scalar,
+};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use wasmtime::Engine;
@@ -26,6 +28,8 @@ const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
 /// The WIT that guests are built against.
 const SERVER_WIT: &str = include_str!("../../../experience-sdk/wit/server.wit");
+/// The server WIT 0.1, which the runtime still accepts.
+const SERVER_WIT_0_1: &str = include_str!("../../wit/0.1/server.wit");
 
 /// A core module for the `server` world whose `register` spins forever and whose callbacks trap.
 /// Each export takes the canonical ABI's flattening of its WIT signature, and returns a pointer
@@ -44,7 +48,58 @@ const LOOPING_REGISTER: &str = r#"(module
         unreachable)
     (func (export "on-interact") (param i32 i32 i32 i32 i32 i32 i32) (result i32) unreachable)
     (func (export "on-neighbor-changed") (param i32 i32 i32 i32 i32 i32 i32) (result i32)
+        unreachable)
+    (func (export "client-message") (param i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
         unreachable))"#;
+
+/// A core module for the 0.1 `server` world, as a guest built before 0.2 would be. `register`
+/// declares `probe:counter`, breakable with hardness 1, whose `*` texture is `counter.png`, and
+/// `on-interact` tells the player "v0.1" through the 0.1 `tell`; the other callbacks do nothing.
+/// Each callback drops its borrowed `callback` before it returns, as the canonical ABI requires.
+/// Results live at fixed addresses: an `ok` without payload at 0, the tell's at 16, register's
+/// at 32 pointing at the block at 64, whose texture is at 128 and strings from 256 on.
+const V0_1_GUEST: &str = r#"(module
+    (import "cinnabar:experience-server/world-access@0.1.0" "[method]callback.tell"
+        (func $tell (param i32 i32 i32 i32 i32 i32)))
+    (import "cinnabar:experience-server/world-access@0.1.0" "[resource-drop]callback"
+        (func $drop (param i32)))
+    (memory (export "memory") 1)
+    (global $heap (mut i32) (i32.const 1024))
+    (data (i32.const 32) "\00\00\00\00\40\00\00\00\01\00\00\00")
+    (data (i32.const 64) "\00\01\00\00\0d\00\00\00\10\01\00\00\06\00\00\00")
+    (data (i32.const 80) "\80\00\00\00\01\00\00\00\01\00\00\00\00\00\80\3f")
+    (data (i32.const 128) "\20\01\00\00\01\00\00\00\28\01\00\00\0b\00\00\00")
+    (data (i32.const 256) "probe:counter")
+    (data (i32.const 272) "Legacy")
+    (data (i32.const 288) "*")
+    (data (i32.const 296) "counter.png")
+    (data (i32.const 320) "v0.1")
+    (func (export "cabi_realloc") (param i32 i32) (param $align i32) (param $size i32)
+        (result i32)
+        (local $at i32)
+        (local.set $at (i32.and
+            (i32.add (global.get $heap) (i32.sub (local.get $align) (i32.const 1)))
+            (i32.sub (i32.const 0) (local.get $align))))
+        (global.set $heap (i32.add (local.get $at) (local.get $size)))
+        (local.get $at))
+    (func (export "register") (result i32) (i32.const 32))
+    (func (export "on-place")
+        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0))
+    (func (export "on-break")
+        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0))
+    (func (export "on-interact")
+        (param $ctx i32) (param $player i32) (param $len i32) (param i32 i32 i32 i32) (result i32)
+        (call $tell (local.get $ctx) (local.get $player) (local.get $len)
+            (i32.const 320) (i32.const 4) (i32.const 16))
+        (call $drop (local.get $ctx))
+        (i32.const 0))
+    (func (export "on-neighbor-changed") (param i32 i32 i32 i32 i32 i32 i32) (result i32)
+        (call $drop (local.get 0))
+        (i32.const 0)))"#;
 
 /// The probe's `assets/counter.png`: a 1×1 opaque RGBA PNG.
 const COUNTER_PNG: &[u8] = &[
@@ -165,15 +220,30 @@ pub fn edit_manifest(dir: &Path, edit: impl FnOnce(&mut toml::Table)) {
 /// A probe artifact whose `server.wasm` is [`LOOPING_REGISTER`] with the `server` world
 /// embedded, the way wit-bindgen embeds it in a guest.
 pub fn looping_register_dir() -> TempDir {
-    let mut module = wat::parse_str(LOOPING_REGISTER).unwrap();
+    wat_dir(LOOPING_REGISTER, SERVER_WIT, "0.2")
+}
+
+/// A probe artifact whose `server.wasm` is [`V0_1_GUEST`] with the 0.1 `server` world embedded,
+/// and whose manifest has `api = "0.1"`.
+pub fn v0_1_dir() -> TempDir {
+    wat_dir(V0_1_GUEST, SERVER_WIT_0_1, "0.1")
+}
+
+/// A probe artifact whose `server.wasm` is the module `wat` with the `server` world of `wit`
+/// embedded, and whose manifest has `api`.
+fn wat_dir(wat: &str, wit: &str, api: &str) -> TempDir {
+    let mut module = wat::parse_str(wat).unwrap();
     // wit-component hands out a `Resolve` only inside a `Bindgen`.
     let mut resolve = Bindgen::default().resolve;
-    let package = resolve.push_source("server.wit", SERVER_WIT).unwrap();
+    let package = resolve.push_source("server.wit", wit).unwrap();
     let world = resolve.select_world(&[package], Some("server")).unwrap();
     wit_component::embed_component_metadata(&mut module, &resolve, world, StringEncoding::UTF8)
         .unwrap();
     probe_dir_with(|dir| {
         fs::write(dir.join(SERVER_WASM), module).unwrap();
+        edit_manifest(dir, |manifest| {
+            manifest.insert("api".to_owned(), api.into());
+        });
         rehash(dir);
     })
 }
@@ -289,10 +359,35 @@ pub fn interact(x: i32) -> Request {
     )
 }
 
+/// A message that the actor's client part sent: a callback without a snapshot.
+pub fn client_message(channel: &str, schema: u16, payload: Vec<Scalar>) -> Request {
+    let call = Call::ClientMessage {
+        player: ACTOR.to_owned(),
+        channel: channel.to_owned(),
+        schema,
+        payload,
+    };
+    let mut request = callback(p(0), call);
+    if let Request::Callback { snapshot, .. } = &mut request {
+        snapshot.clear();
+    }
+    request
+}
+
 /// A tell to the actor.
 pub fn tell(text: &str) -> Op {
     Op::Tell {
         player: ACTOR.to_owned(),
         text: text.to_owned(),
+    }
+}
+
+/// A client message to the actor.
+pub fn send(channel: &str, schema: u16, payload: Vec<Scalar>) -> Op {
+    Op::SendClient {
+        player: ACTOR.to_owned(),
+        channel: channel.to_owned(),
+        schema,
+        payload,
     }
 }

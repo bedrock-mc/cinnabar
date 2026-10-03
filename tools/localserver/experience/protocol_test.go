@@ -20,6 +20,7 @@ type fixtureLimits struct {
 	MaxStagedOps      int    `json:"max_staged_ops"`
 	MaxTells          int    `json:"max_tells"`
 	MaxTellBytes      int    `json:"max_tell_bytes"`
+	MaxClientSends    int    `json:"max_client_sends"`
 }
 
 // rustLimits reads the limits fixture.
@@ -223,10 +224,39 @@ func TestUnknownFieldRejected(t *testing.T) {
 		{new(Response), `{"type":"result","seq":1,"outcome":{"type":"exploded"}}`},
 		{new(Response), `{"type":"result","seq":1,"outcome":null}`},
 		{new(Response), `null`},
+		{new(Scalar), `{"type":"float","value":1.5}`},
+		{new(Scalar), `{"type":"text"}`},
+		{new(Scalar), `{"type":"text","value":null}`},
+		{new(Scalar), `{"type":"bool","value":1}`},
+		{new(Scalar), `{"type":"choice","value":65536}`},
+		{new(Scalar), `{"type":"integer","value":1.5}`},
 	} {
 		if err := decodeStrict([]byte(bad.json), bad.into); err == nil {
 			t.Errorf("%T decoded %s", bad.into, bad.json)
 		}
+	}
+}
+
+// A Scalar has the client wire protocol's form, whose canonical bytes escape no HTML, so its
+// encoder decides: one that escapes HTML escapes it, one that does not leaves it as written.
+func TestScalarLeavesHTMLEscapingToEncoder(t *testing.T) {
+	text := "<a & b>"
+	payload := []Scalar{{Text: &text}}
+	var raw bytes.Buffer
+	encoder := json.NewEncoder(&raw)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(payload); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := raw.String(), `[{"type":"text","value":"<a & b>"}]`+"\n"; got != want {
+		t.Errorf("without HTML escaping: %s, want %s", got, want)
+	}
+	escaped, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(escaped), `[{"type":"text","value":"\u003ca \u0026 b\u003e"}]`; got != want {
+		t.Errorf("with HTML escaping: %s, want %s", got, want)
 	}
 }
 
@@ -271,8 +301,8 @@ func TestFrameLimitMatchesRust(t *testing.T) {
 	})
 }
 
-// The commit check enforces the runtime's op, block data and tell limits again, so Go shares them
-// with Rust.
+// The commit check enforces the runtime's op, block data, tell and client message limits again,
+// so Go shares them with Rust.
 func TestCommitLimitsMatchRust(t *testing.T) {
 	rust := rustLimits(t)
 	for _, limit := range []struct {
@@ -283,6 +313,7 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxStagedOps", maxStagedOps, rust.MaxStagedOps},
 		{"maxTells", maxTells, rust.MaxTells},
 		{"maxTellBytes", maxTellBytes, rust.MaxTellBytes},
+		{"maxClientSends", maxClientSends, rust.MaxClientSends},
 	} {
 		if limit.goV != limit.rust {
 			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)

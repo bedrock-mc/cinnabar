@@ -53,6 +53,8 @@ pub(crate) trait AccountControl {
     fn home(&mut self) -> Option<MenuHome> {
         None
     }
+    /// Reports an inbox interaction through the core messaging session.
+    fn report_message(&mut self, _event: protocol::launcher_control::MessageEvent) {}
     /// The server rows `ping.v1` keeps fresh while the launcher shows them.
     fn set_ping_targets(&mut self, _targets: Vec<String>) {}
     /// Pongs from the latest ping round, keyed by address.
@@ -109,6 +111,10 @@ impl MenuRuntime {
         }
         if let Some(home) = control.home() {
             self.feeds.home = home;
+            self.feeds.inbox_state.reconcile(&mut self.feeds.home);
+        }
+        for event in std::mem::take(&mut self.feeds.inbox_state.pending) {
+            control.report_message(event);
         }
         let targets = if self.visible && !self.connecting {
             let mut seen = std::collections::HashSet::new();

@@ -4,9 +4,9 @@ mod bed;
 mod book_screen;
 mod chat_completion;
 mod chat_send;
-mod crafting_authority;
+mod crafting_observation;
 mod presentation_snapshot;
-pub use crafting_authority::CraftingPreview;
+pub use inventory::CraftingPreview;
 mod event_apply;
 mod forms;
 mod gameplay_authority;
@@ -17,8 +17,8 @@ mod interaction;
 mod inventory_actions;
 mod inventory_drag;
 mod inventory_ingress;
-pub mod inventory_ledger;
-pub mod inventory_router;
+pub use inventory::inventory_ledger;
+pub use inventory::inventory_router;
 pub(crate) mod item_facts;
 pub(crate) mod json_ui_assets;
 mod local_abilities;
@@ -63,7 +63,7 @@ use std::{collections::VecDeque, sync::Arc};
 use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
-    EquipmentEvent, InventoryAuthority, InventoryEvent, PlayerGameMode, UiEvent,
+    EquipmentEvent, InventoryAuthority, UiEvent,
 };
 use semantic_input::InputContext;
 #[cfg(test)]
@@ -77,9 +77,9 @@ use ui::{
 
 use self::gameplay_hud::GameplayHudState;
 use self::inventory_ledger::PlayerInventoryLedger;
-use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
+use self::inventory_router::{EquipmentRoute, InventoryRouterError};
 
-pub const MAX_PENDING_INVENTORY_EVENTS: usize = 1_024;
+pub use inventory::MAX_PENDING_INVENTORY_EVENTS;
 const MAX_PENDING_CHAT_SENDS: usize = 32;
 const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
 const CHAT_RATE_WINDOW_MILLIS: u64 = 2_000;
@@ -115,12 +115,7 @@ pub struct SequencedLocalAttributes {
     pub attributes: Arc<[ActorAttribute]>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SequencedLocalEquipment {
-    pub session_id: u64,
-    pub fifo_sequence: u64,
-    pub event: EquipmentEvent,
-}
+pub use inventory::SequencedLocalEquipment;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UiApplyOutcome {
@@ -164,7 +159,6 @@ impl UiAuthorityTransition {
 #[derive(Clone, Debug, Resource)]
 pub struct UiRuntime {
     pub(crate) experiences: crate::server_experiences::ExperienceSession,
-    local_abilities: local_abilities::LocalAbilities,
     session_id: u64,
     last_fifo_sequence: Option<u64>,
     last_block_crack_sequence: Option<u64>,
@@ -190,6 +184,7 @@ pub struct UiRuntime {
     wake_requested: bool,
     sleep_status: Option<bed::SleepStatus>,
     chat_tab_cycling: bool,
+    chat_tab_start: Option<usize>,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
     chat_sends: ChatSendQueue,
     in_flight_chat_send: Option<(u64, u64)>,
@@ -197,21 +192,7 @@ pub struct UiRuntime {
     chat_xuid: Arc<str>,
     dropped_unsent_chat_messages: u64,
     block_cracks: crate::block_cracks::BlockCracks,
-    inventory_authority: Option<InventoryAuthority>,
-    player_game_mode: Option<PlayerGameMode>,
-    server_authoritative_block_breaking: Option<bool>,
-    world_default_game_mode: Option<PlayerGameMode>,
-    player_mode_from_default: bool,
-    last_inventory_sequence: Option<u64>,
-    pending_inventory: VecDeque<SequencedInventoryEvent>,
-    crafting_authority: crafting_authority::CraftingAuthority,
-    equipment_router: InventoryEquipmentRouter,
-    local_selected_equipment: Option<SequencedLocalEquipment>,
-    local_selected_slot: Option<u8>,
-    pending_hotbar_selection: Option<u8>,
-    server_selected_slot: Option<u8>,
     gameplay_hud: GameplayHudState,
-    inventory_ledger: PlayerInventoryLedger,
     use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
     sign_editor: sign_editor::SignEditor,
@@ -220,6 +201,8 @@ pub struct UiRuntime {
     screen: screen_state::ScreenState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
+    /// One complete book commit, bounded by the protocol page limit plus signing.
+    book_packets: VecDeque<protocol::Packet>,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
@@ -249,12 +232,9 @@ pub struct UiRuntime {
 
 impl UiRuntime {
     pub fn new(session_id: u64) -> Self {
-        let mut inventory_ledger = PlayerInventoryLedger::default();
-        inventory_ledger.begin_session(session_id);
         Self {
             session_id,
             experiences: Default::default(),
-            local_abilities: Default::default(),
             last_fifo_sequence: None,
             last_block_crack_sequence: None,
             last_local_millis: None,
@@ -283,6 +263,7 @@ impl UiRuntime {
             wake_requested: false,
             sleep_status: None,
             chat_tab_cycling: false,
+            chat_tab_start: None,
             pending_chat_autocomplete_request: None,
             chat_sends: ChatSendQueue::new(
                 MAX_PENDING_CHAT_SENDS,
@@ -295,21 +276,7 @@ impl UiRuntime {
             chat_xuid: Arc::from(""),
             dropped_unsent_chat_messages: 0,
             block_cracks: crate::block_cracks::BlockCracks::default(),
-            inventory_authority: None,
-            player_game_mode: None,
-            server_authoritative_block_breaking: None,
-            world_default_game_mode: None,
-            player_mode_from_default: false,
-            last_inventory_sequence: None,
-            pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
-            crafting_authority: crafting_authority::CraftingAuthority::new(session_id),
-            equipment_router: InventoryEquipmentRouter::new(session_id),
-            local_selected_equipment: None,
-            local_selected_slot: None,
-            pending_hotbar_selection: None,
-            server_selected_slot: None,
             gameplay_hud: GameplayHudState::default(),
-            inventory_ledger,
             use_on_identity_evidence:
                 use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
             forms: ServerFormStore::default(),
@@ -318,6 +285,7 @@ impl UiRuntime {
             inventory_keys: interaction::InventoryKeys::default(),
             screen: screen_state::ScreenState::default(),
             client_packets: VecDeque::new(),
+            book_packets: VecDeque::new(),
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
@@ -336,69 +304,77 @@ impl UiRuntime {
         self.session_id
     }
 
-    pub const fn inventory_authority(&self) -> Option<InventoryAuthority> {
-        self.inventory_authority
+    pub const fn inventory_authority(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> Option<InventoryAuthority> {
+        player_runtime.inventory.inventory_authority()
     }
 
-    pub const fn local_selected_equipment(&self) -> Option<&SequencedLocalEquipment> {
-        self.local_selected_equipment.as_ref()
+    pub const fn local_selected_equipment<'a>(
+        &self,
+        player_runtime: &'a crate::player_runtime::PlayerRuntime,
+    ) -> Option<&'a SequencedLocalEquipment> {
+        player_runtime.inventory.local_selected_equipment()
     }
 
-    pub(crate) fn publish_inventory_authority(&mut self, authority: InventoryAuthority) {
-        self.inventory_authority = Some(authority);
-        self.inventory_ledger
-            .apply(&InventoryEvent::Authority(authority));
+    pub(crate) fn publish_inventory_authority(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        authority: InventoryAuthority,
+    ) {
+        player_runtime
+            .inventory
+            .publish_inventory_authority(authority);
         if authority != InventoryAuthority::Server {
             self.inventory_open = false;
         }
     }
 
-    /// Records a locally-predicted hotbar slot selection so the HUD highlight follows input
-    /// immediately, ahead of any server confirmation.
-    pub(crate) fn set_local_selected_slot(&mut self, slot: u8) {
-        self.local_selected_slot = Some(slot);
-    }
-
     /// The local player's StartGame-assigned runtime id, once known — required to address the
     /// local player in outbound packets such as the hotbar-selection `MobEquipment`.
-    pub(crate) fn local_runtime_id(&self) -> Option<u64> {
-        self.equipment_router.local_runtime_id()
+    pub(crate) fn local_runtime_id(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> Option<u64> {
+        player_runtime.inventory.local_runtime_id()
     }
 
     pub(crate) fn publish_local_runtime_id(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         session_id: u64,
         runtime_id: u64,
     ) -> Result<Vec<EquipmentRoute>, InventoryRouterError> {
-        self.equipment_router
+        player_runtime
+            .inventory
             .publish_local_runtime_id(session_id, runtime_id)
     }
 
     pub(crate) fn route_equipment(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         session_id: u64,
         fifo_sequence: u64,
         event: EquipmentEvent,
     ) -> Result<inventory_router::EquipmentRouteResult, InventoryRouterError> {
-        self.equipment_router
-            .route(session_id, fifo_sequence, event)
+        player_runtime
+            .inventory
+            .route_equipment(session_id, fifo_sequence, event)
     }
 
     pub(crate) fn retain_local_selected_equipment(
         &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
         fifo_sequence: u64,
         event: EquipmentEvent,
     ) {
-        // Left-hand (offhand window) echoes carry the offhand stack; they must
-        // not clobber the retained main-hand slot echo.
         if self.gameplay_hud.apply_offhand_equipment(&event) {
             return;
         }
-        self.local_selected_equipment = Some(SequencedLocalEquipment {
-            session_id: self.session_id,
-            fifo_sequence,
-            event,
-        });
+        player_runtime
+            .inventory
+            .retain_local_selected_equipment(fifo_sequence, event);
     }
 
     pub const fn hud(&self) -> &HudStore {
@@ -425,8 +401,11 @@ impl UiRuntime {
         self.inventory_open
     }
 
-    pub const fn inventory_ledger(&self) -> &PlayerInventoryLedger {
-        &self.inventory_ledger
+    pub const fn inventory_ledger<'a>(
+        &self,
+        player_runtime: &'a crate::player_runtime::PlayerRuntime,
+    ) -> &'a PlayerInventoryLedger {
+        player_runtime.inventory.ledger()
     }
 
     pub(crate) const fn sign_editor(&self) -> &sign_editor::SignEditor {
@@ -460,19 +439,37 @@ impl UiRuntime {
         self.block_cracks.synchronize_dimension(Some(dimension));
     }
 
-    pub fn inventory_ledger_mut(&mut self) -> &mut PlayerInventoryLedger {
-        &mut self.inventory_ledger
+    pub fn inventory_ledger_mut<'a>(
+        &mut self,
+        player_runtime: &'a mut crate::player_runtime::PlayerRuntime,
+    ) -> &'a mut PlayerInventoryLedger {
+        player_runtime.inventory.ledger_mut()
     }
 
-    pub(crate) fn poll_inventory_timeout(&mut self, now_millis: u64) {
-        if self.inventory_ledger.poll_timeout(now_millis) {
-            self.inventory_open = self.inventory_ledger.storage_generation().is_some();
+    pub(crate) fn poll_inventory_timeout(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        now_millis: u64,
+    ) {
+        if player_runtime
+            .inventory
+            .ledger_mut()
+            .poll_timeout(now_millis)
+        {
+            self.inventory_open = player_runtime
+                .inventory
+                .ledger()
+                .storage_generation()
+                .is_some();
             self.inventory_pointer_gui = None;
         }
     }
 
-    pub(crate) fn inventory_transport_closed(&mut self) {
-        self.inventory_ledger.transport_closed();
+    pub(crate) fn inventory_transport_closed(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    ) {
+        player_runtime.inventory.ledger_mut().transport_closed();
         self.inventory_open = false;
         self.inventory_pointer_gui = None;
     }
@@ -494,8 +491,8 @@ impl UiRuntime {
     }
 
     /// Whether a scene over the game, menus aside, takes gameplay input.
-    pub fn ui_focused(&self) -> bool {
-        !self.gameplay_input(None)
+    pub fn ui_focused(&self, player_runtime: &crate::player_runtime::PlayerRuntime) -> bool {
+        !self.gameplay_input(player_runtime, None)
     }
 
     pub const fn chat_editor(&self) -> &ChatEditor {
@@ -518,11 +515,14 @@ impl UiRuntime {
         self.pending_chat_autocomplete_request.take()
     }
 
-    pub fn service_pending_chat_autocomplete(&mut self) -> bool {
+    pub fn service_pending_chat_autocomplete(
+        &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> bool {
         let Some(request) = self.take_chat_autocomplete_request() else {
             return false;
         };
-        self.complete_chat_autocomplete(request)
+        self.complete_chat_autocomplete(player_runtime, request)
     }
 
     pub fn insert_chat_text(&mut self, value: &str) -> Result<(), ChatEditorError> {
@@ -606,13 +606,20 @@ impl UiRuntime {
             .report_status(self.session_id, self.block_cracks_status());
     }
 
-    pub fn begin_session(&mut self, session_id: u64) {
+    pub fn begin_session(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        session_id: u64,
+    ) {
         if self.session_id == session_id {
             return;
         }
         self.session_id = session_id;
+        self.client_packets.clear();
+        self.book_packets.clear();
+        self.screen = screen_state::ScreenState::default();
         self.experiences.reset();
-        self.clear_local_abilities();
+        player_runtime.begin_session(session_id);
         self.server_lang = None;
         self.session_icons = None;
         self.session_items = None;
@@ -634,6 +641,8 @@ impl UiRuntime {
         self.chat_editor.clear();
         self.chat_history.clear_navigation();
         self.chat_input_revision = 0;
+        self.chat_tab_cycling = false;
+        self.chat_tab_start = None;
         self.chat_autocomplete.begin_session(session_id);
         self.chat_autocomplete_catalog = ChatAutocompleteCatalog::default();
         self.chat_usage_hint = None;
@@ -648,21 +657,7 @@ impl UiRuntime {
             .saturating_add(dropped as u64);
         self.block_cracks = crate::block_cracks::BlockCracks::default();
         self.sign_editor = sign_editor::SignEditor::default();
-        self.inventory_authority = None;
-        self.player_game_mode = None;
-        self.server_authoritative_block_breaking = None;
-        self.world_default_game_mode = None;
-        self.player_mode_from_default = false;
-        self.last_inventory_sequence = None;
-        self.pending_inventory.clear();
-        self.crafting_authority = crafting_authority::CraftingAuthority::new(session_id);
-        self.equipment_router.begin_session(session_id);
-        self.local_selected_equipment = None;
-        self.local_selected_slot = None;
-        self.pending_hotbar_selection = None;
-        self.server_selected_slot = None;
         self.gameplay_hud.clear();
-        self.inventory_ledger.begin_session(session_id);
         self.use_on_identity_evidence.reset(session_id);
         self.forms.clear();
         self.inventory_pointer_gui = None;
@@ -673,9 +668,18 @@ impl UiRuntime {
         self.mount_jump_hold_started_millis = None;
     }
 
-    pub fn open_chat(&mut self) -> UiAuthorityTransition {
-        self.inventory_ledger.request_storage_close();
-        self.inventory_ledger.request_personal_close();
+    pub fn open_chat(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    ) -> UiAuthorityTransition {
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .request_storage_close();
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .request_personal_close();
         self.inventory_open = false;
         self.chat_focused = true;
         UiAuthorityTransition {
@@ -697,18 +701,37 @@ impl UiRuntime {
         }
     }
 
-    pub fn toggle_inventory(&mut self) -> UiAuthorityTransition {
+    pub fn toggle_inventory(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    ) -> UiAuthorityTransition {
         self.chat_focused = false;
-        if self.inventory_ledger.storage_generation().is_some() {
-            self.inventory_ledger.request_storage_close();
+        if player_runtime
+            .inventory
+            .ledger()
+            .storage_generation()
+            .is_some()
+        {
+            player_runtime
+                .inventory
+                .ledger_mut()
+                .request_storage_close();
             self.inventory_open = false;
         } else if self.inventory_open {
-            self.inventory_ledger.request_personal_close();
+            player_runtime
+                .inventory
+                .ledger_mut()
+                .request_personal_close();
             self.inventory_open = false;
         } else {
             self.inventory_open = self
-                .local_runtime_id()
-                .is_some_and(|runtime_id| self.inventory_ledger.request_personal_open(runtime_id));
+                .local_runtime_id(player_runtime)
+                .is_some_and(|runtime_id| {
+                    player_runtime
+                        .inventory
+                        .ledger_mut()
+                        .request_personal_open(runtime_id)
+                });
         }
         UiAuthorityTransition {
             consumes_text: false,
@@ -720,9 +743,18 @@ impl UiRuntime {
         }
     }
 
-    pub fn close_inventory(&mut self) -> UiAuthorityTransition {
-        self.inventory_ledger.request_storage_close();
-        self.inventory_ledger.request_personal_close();
+    pub fn close_inventory(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    ) -> UiAuthorityTransition {
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .request_storage_close();
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .request_personal_close();
         self.inventory_open = false;
         UiAuthorityTransition {
             consumes_text: false,
@@ -730,7 +762,11 @@ impl UiRuntime {
         }
     }
 
-    pub fn apply(&mut self, envelope: SequencedUiEvent) -> Result<UiApplyOutcome, UiRuntimeError> {
+    pub fn apply(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        envelope: SequencedUiEvent,
+    ) -> Result<UiApplyOutcome, UiRuntimeError> {
         self.validate_identity(
             envelope.session_id,
             envelope.fifo_sequence,
@@ -813,20 +849,29 @@ impl UiRuntime {
                     .apply(envelope.fifo_sequence, scoreboard_adapter::boss(event))
                     .map_err(UiRuntimeError::RetainedUiSequence)?,
             ),
-            UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
+            UiEvent::GameMode(event) => self.apply_game_mode_update(player_runtime, event.update),
             // Targeted mode updates must pass the world stream's local-unique-ID
             // admission first; a direct UI injection cannot establish that identity.
             UiEvent::PlayerGameMode { .. } => {
                 self.gameplay_hud.note_odd_hud_packet();
                 UiApplyOutcome::IgnoredByReceiveStore
             }
-            UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
+            UiEvent::DefaultGameMode(event) => {
+                self.apply_default_game_mode_update(player_runtime, event.update)
+            }
             UiEvent::HudRules(rules) => {
                 self.apply_hud_rules(rules);
                 UiApplyOutcome::Applied
             }
             UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),
             UiEvent::Form(event) => {
+                bevy::log::info!(
+                    target: "server_form",
+                    form_id = event.form_id,
+                    kind = ?event.kind,
+                    title = ?event.title,
+                    "form received"
+                );
                 self.forms.admit(
                     event,
                     envelope.fifo_sequence,
@@ -869,6 +914,7 @@ impl UiRuntime {
     fn note_chat_editor_change(&mut self) {
         self.chat_usage_hint = None;
         self.chat_tab_cycling = false;
+        self.chat_tab_start = None;
         self.chat_input_revision = self.chat_input_revision.saturating_add(1);
         self.pending_chat_autocomplete_request = self
             .chat_autocomplete

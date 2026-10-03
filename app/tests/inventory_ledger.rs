@@ -362,11 +362,13 @@ fn empty_place_and_occupied_swap_preserve_sparse_state() {
 
 #[test]
 fn bounded_transport_pressure_does_not_consume_or_duplicate_the_request() {
+    let mut player_runtime = bedrock_client::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    open_personal_inventory(runtime.inventory_ledger_mut());
+    open_personal_inventory(runtime.inventory_ledger_mut(&mut player_runtime));
     let content = InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity::window(0),
         slots: Arc::from(
@@ -382,39 +384,52 @@ fn bounded_transport_pressure_does_not_consume_or_duplicate_the_request() {
         ),
         storage_item: NetworkItemStack::default(),
     });
-    runtime.inventory_ledger_mut().apply(&content);
-    let request = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&content);
+    let request = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
 
     assert_eq!(
-        flush_inventory_send(&mut runtime, 10, |_| Err("full")),
+        flush_inventory_send(&mut player_runtime, &mut runtime, 10, |_| Err("full")),
         Err("full")
     );
     assert_eq!(
-        runtime.inventory_ledger().pending_request_id(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .pending_request_id(),
         Some(request)
     );
     assert_eq!(
-        runtime.inventory_ledger().pending_state(),
+        runtime.inventory_ledger(&player_runtime).pending_state(),
         Some(InventoryPendingState::AwaitingTransport)
     );
     assert_eq!(
         flush_inventory_send(
+            &mut player_runtime,
             &mut runtime,
             10 + INVENTORY_REQUEST_TIMEOUT_MILLIS,
             |_| Err("full")
         ),
         Err("full")
     );
-    assert!(!runtime.inventory_ledger().resync_required());
+    assert!(!runtime.inventory_ledger(&player_runtime).resync_required());
 
-    runtime.inventory_ledger_mut().apply(&content);
-    let retry = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&content);
+    let retry = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
     assert_eq!(
-        flush_inventory_send(&mut runtime, 11, |_| Ok::<_, &str>(())),
+        flush_inventory_send(&mut player_runtime, &mut runtime, 11, |_| Ok::<_, &str>(())),
         Ok(true)
     );
     assert_eq!(
-        flush_inventory_send(&mut runtime, 12, |_| Ok::<_, &str>(())),
+        flush_inventory_send(&mut player_runtime, &mut runtime, 12, |_| Ok::<_, &str>(())),
         Ok(false)
     );
     assert_ne!(request, retry);

@@ -250,3 +250,38 @@ func TestExportReplayFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestReplayEndPrioritizesCancellation prevents deadline-triggered EOF and timer ties reporting success.
+func TestReplayEndPrioritizesCancellation(t *testing.T) {
+	for _, fixtureEnd := range []bool{false, true} {
+		for range 64 {
+			ctx, cancel := context.WithCancel(context.Background())
+			readDone := make(chan error, 1)
+			holdDone := make(chan time.Time, 1)
+			if fixtureEnd {
+				holdDone <- time.Now()
+			} else {
+				readDone <- io.EOF
+			}
+			cancel()
+			reason, err := waitReplayEnd(ctx, readDone, holdDone)
+			if !errors.Is(err, context.Canceled) || reason != "" {
+				t.Fatalf("cancellation reported successful end %q: %v", reason, err)
+			}
+		}
+	}
+}
+
+// TestReplayEndAcceptsUninterruptedCompletion keeps genuine client exit and planned fixture EOF successful.
+func TestReplayEndAcceptsUninterruptedCompletion(t *testing.T) {
+	readDone := make(chan error, 1)
+	readDone <- io.EOF
+	if reason, err := waitReplayEnd(context.Background(), readDone, nil); err != nil || reason != "client_exit" {
+		t.Fatalf("client exit: %q, %v", reason, err)
+	}
+	fixtureEnd := make(chan time.Time, 1)
+	fixtureEnd <- time.Now()
+	if reason, err := waitReplayEnd(context.Background(), nil, fixtureEnd); err != nil || reason != "fixture_end" {
+		t.Fatalf("fixture end: %q, %v", reason, err)
+	}
+}

@@ -20,24 +20,35 @@ const SIZE: [u32; 2] = [1280, 720];
 /// Builds the menu at `now_millis` (which also sets its hit targets) and returns its nodes.
 fn frame(app: &mut App, now_millis: u64) -> Vec<UiNode> {
     let view = app.world().resource::<MenuRuntime>().view();
-    let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
-    presentation.set_menu_view(Some(view));
-    let runtime = UiRuntime::new(1);
-    let dpi = DpiScale::new(1.0).unwrap();
-    presentation.build(&runtime, now_millis, SIZE, dpi).unwrap();
-    let metrics = TextMetrics::for_viewport(SIZE, dpi, None);
-    let (mut nodes, mut next) = (Vec::new(), 1);
-    presentation
-        .append_menu(
-            &runtime,
-            &mut nodes,
-            &mut next,
-            metrics,
-            SIZE[0] as f32,
-            SIZE[1] as f32,
-        )
-        .unwrap();
-    nodes
+    app.world_mut().resource_scope(
+        |world, mut presentation: bevy::prelude::Mut<UiPresentationRuntime>| {
+            presentation.set_menu_view(Some(view));
+            let runtime = UiRuntime::new(1);
+            let dpi = DpiScale::new(1.0).unwrap();
+            presentation
+                .build(
+                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    &runtime,
+                    now_millis,
+                    SIZE,
+                    dpi,
+                )
+                .unwrap();
+            let metrics = TextMetrics::for_viewport(SIZE, dpi, None);
+            let (mut nodes, mut next) = (Vec::new(), 1);
+            presentation
+                .append_menu(
+                    &runtime,
+                    &mut nodes,
+                    &mut next,
+                    metrics,
+                    SIZE[0] as f32,
+                    SIZE[1] as f32,
+                )
+                .unwrap();
+            nodes
+        },
+    )
 }
 
 fn add_server(app: &mut App) {

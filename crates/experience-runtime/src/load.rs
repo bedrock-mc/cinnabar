@@ -12,13 +12,13 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use sha2::{Digest, Sha256};
-use wasmtime::component::{Component, HasSelf, Linker};
+use wasmtime::component::Component;
 use wasmtime::{Config, Engine};
 use wit_component::ComponentEncoder;
 
 use crate::hex;
 use crate::host::cinnabar::experience_server::types as wit;
-use crate::host::{self, HostState, Server, ServerPre};
+use crate::host::{Api, HostState, Pre};
 use crate::limits::{
     EPOCH_PERIOD, MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_COMPONENT_BYTES, MAX_DISPLAY_NAME_BYTES,
     MAX_WASM_STACK_BYTES, REGISTER_DEADLINE, REGISTER_FUEL,
@@ -33,14 +33,14 @@ const ALL_FACES: &str = "*";
 const FACES: [&str; 6] = ["up", "down", "north", "south", "east", "west"];
 
 /// A verified artifact: its manifest, its validated blocks, and the component pre-linked against
-/// the `server` world, ready for a fresh instance per callback.
+/// the `server` world of its `api`, ready for a fresh instance per callback.
 pub struct Loaded {
     pub manifest: Manifest,
     /// Texture paths are absolute.
     pub blocks: Vec<protocol::BlockDef>,
     /// The ids of `blocks`, shared by every callback.
     pub(crate) block_ids: Arc<[String]>,
-    pub(crate) pre: ServerPre<HostState>,
+    pub(crate) pre: Pre,
 }
 
 /// Advances the engine's epoch once per elapsed [`EPOCH_PERIOD`]; dropping it stops and joins
@@ -110,13 +110,10 @@ pub fn load(engine: &Engine, dir: &Path) -> Result<Loaded> {
 
 fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
     let manifest = read_manifest(dir)?;
+    let api = Api::of(&manifest.api).expect("read_manifest admits only implemented apis");
     let module = read_module(dir, &manifest)?;
-    let pre = link(engine, &module).with_context(|| {
-        format!(
-            "{SERVER_WASM} is not a {} server component",
-            host::wit_package()
-        )
-    })?;
+    let pre = link(engine, &module, api)
+        .with_context(|| format!("{SERVER_WASM} is not a {} server component", api.package()))?;
     let defs = register(engine, &pre, &manifest.id)?;
     let blocks = validate_blocks(dir, &manifest, defs)?;
     let block_ids = blocks.iter().map(|block| block.id.clone()).collect();
@@ -153,29 +150,21 @@ fn read_module(dir: &Path, manifest: &Manifest) -> Result<Vec<u8>> {
     Ok(module)
 }
 
-/// Turns the core module into a component and links it against exactly the `server` world's
-/// imports; a client world, a WASI import or a missing export fails here.
-fn link(engine: &Engine, module: &[u8]) -> Result<ServerPre<HostState>> {
+/// Turns the core module into a component and links it against exactly the imports of `api`'s
+/// `server` world; a client world, a WASI import, another version's world or a missing export
+/// fails here.
+fn link(engine: &Engine, module: &[u8], api: Api) -> Result<Pre> {
     let component = ComponentEncoder::default()
         .module(module)?
         .validate(true)
         .encode()?;
-    let component = Component::new(engine, &component)?;
-    let mut linker = Linker::new(engine);
-    Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-    ServerPre::new(linker.instantiate_pre(&component)?)
+    Pre::link(engine, &Component::new(engine, &component)?, api)
 }
 
 /// Runs `register` once on a fresh instance under the register fuel and deadline.
-fn register(engine: &Engine, pre: &ServerPre<HostState>, id: &str) -> Result<Vec<wit::BlockDef>> {
+fn register(engine: &Engine, pre: &Pre, id: &str) -> Result<Vec<wit::BlockDef>> {
     let mut store = HostState::store(engine, id, REGISTER_FUEL, REGISTER_DEADLINE)?;
-    let server = pre
-        .instantiate(&mut store)
-        .with_context(|| format!("instantiating {SERVER_WASM}"))?;
-    match server
-        .call_register(&mut store)
-        .context("register trapped")?
-    {
+    match pre.register(&mut store)? {
         Ok(defs) => Ok(defs),
         Err(wit::GuestError::Rejected(reason) | wit::GuestError::Failed(reason)) => {
             bail!("register failed: {reason}")
@@ -302,7 +291,7 @@ mod tests {
     use wasmtime::component::{Component, Linker};
 
     use super::{engine, validate_blocks, wit};
-    use crate::host::{HostState, api_version};
+    use crate::host::{Api, HostState};
     use crate::limits::{MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_DISPLAY_NAME_BYTES};
     use crate::manifest::{ASSETS_DIR, DATA_SCHEMA, Manifest, SERVER_WASM};
 
@@ -502,7 +491,7 @@ mod tests {
         let manifest = Manifest {
             id: "probe".to_owned(),
             version: "0.1.0".to_owned(),
-            api: api_version().to_owned(),
+            api: Api::V0_2.api().to_owned(),
             data_schema: DATA_SCHEMA,
             files: [format!("{ASSETS_DIR}/counter.png"), SERVER_WASM.to_owned()]
                 .into_iter()

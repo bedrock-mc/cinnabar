@@ -193,11 +193,11 @@ use pipeline::commands::{
     DrawPackedModelsIndirect, DrawPackedTransparentModel, DrawTransparentLiquid,
     DrawTransparentLiquidCommands, DrawTransparentLiquidIndirect,
     DrawTransparentLiquidIndirectCommands, DrawTransparentModelCommands, OpaqueChunkViewQuery,
-    drawable_allocation_identity, indirect_batch_draw_args, prepare_chunk_indirect_batches,
-    prepare_depth_liquid_indirect_batch_draws, prepare_indirect_batch_draws,
-    prepare_model_indirect_batch_draws, record_visibility_direct_submission,
-    record_visibility_mdi_submissions, sorted_visible_entities,
-    upload_indirect_commands_if_changed,
+    drawable_allocation_identity, front_to_back_cube_entities, indirect_batch_draw_args,
+    prepare_chunk_indirect_batches, prepare_depth_liquid_indirect_batch_draws,
+    prepare_indirect_batch_draws, prepare_model_indirect_batch_draws,
+    record_visibility_direct_submission, record_visibility_mdi_submissions,
+    sorted_visible_entities, upload_indirect_commands_if_changed,
 };
 use pipeline::install_chunk_commands;
 #[allow(unused_imports)]

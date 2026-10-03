@@ -67,4 +67,7 @@ const (
 	maxTells = 4
 	// maxTellBytes is the most UTF-8 bytes of one tell: Rust's MAX_TELL_BYTES.
 	maxTellBytes = 256
+	// maxClientSends is the most client messages one callback may send: Rust's
+	// MAX_CLIENT_SENDS.
+	maxClientSends = 8
 )

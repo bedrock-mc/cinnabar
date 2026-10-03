@@ -1,9 +1,12 @@
 use super::*;
 
 /// Captures all authority fields the scoped rendering view must restore.
-fn inventory_state(runtime: &UiRuntime) -> (String, String, bool, Option<[f32; 2]>) {
+fn inventory_state(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+) -> (String, String, bool, Option<[f32; 2]>) {
     (
-        format!("{:?}", runtime.inventory_ledger()),
+        format!("{:?}", runtime.inventory_ledger(player_runtime)),
         format!("{:?}", runtime.server_forms()),
         runtime.inventory_open(),
         runtime.inventory_pointer_gui(),
@@ -12,80 +15,116 @@ fn inventory_state(runtime: &UiRuntime) -> (String, String, bool, Option<[f32; 2
 
 #[test]
 fn captured_inventory_keeps_pre_send_pixels_and_restores_post_send_authority() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut immediate = super::super::forms::tests::mini_engine_presentation();
     let mut deferred = super::super::forms::tests::mini_engine_presentation();
-    let mut runtime = super::super::forms::pack_harness::action_form("before send", &["keep"]);
+    let mut runtime = super::super::forms::pack_harness::action_form(
+        &mut player_runtime,
+        "before send",
+        &["keep"],
+    );
     let dpi = DpiScale::new(1.0).unwrap();
-    let expected = immediate.build(&runtime, 100, [800, 600], dpi).unwrap();
+    let expected = immediate
+        .build(&player_runtime, &runtime, 100, [800, 600], dpi)
+        .unwrap();
     assert!(
         !expected.vertices.is_empty(),
         "fixture must render before capture"
     );
-    let captured = runtime.capture_presentation_inventory();
+    let captured = runtime.capture_presentation_inventory(&player_runtime);
     runtime.server_forms_mut().clear();
     runtime.inventory_open = true;
     runtime.inventory_pointer_gui = Some([23.0, 42.0]);
-    runtime.inventory_ledger.begin_session(2);
-    let after_send = inventory_state(&runtime);
-    let actual = runtime.with_presentation_inventory(captured, |before_send| {
-        deferred.build(before_send, 100, [800, 600], dpi).unwrap()
-    });
+    player_runtime.inventory.ledger_mut().begin_session(2);
+    let after_send = inventory_state(&player_runtime, &runtime);
+    let actual = runtime.with_presentation_inventory(
+        &mut player_runtime,
+        captured,
+        |before_send, player_runtime| {
+            deferred
+                .build(player_runtime, before_send, 100, [800, 600], dpi)
+                .unwrap()
+        },
+    );
     assert_eq!(actual, expected);
-    assert_eq!(inventory_state(&runtime), after_send);
+    assert_eq!(inventory_state(&player_runtime, &runtime), after_send);
     assert_ne!(
-        immediate.build(&runtime, 100, [800, 600], dpi).unwrap(),
+        immediate
+            .build(&player_runtime, &runtime, 100, [800, 600], dpi)
+            .unwrap(),
         expected
     );
 }
 
 #[test]
 fn inventory_authority_is_restored_on_render_error_and_unwind() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     for unwind in [false, true] {
-        let captured = runtime.capture_presentation_inventory();
+        let captured = runtime.capture_presentation_inventory(&player_runtime);
         runtime.inventory_open = !runtime.inventory_open;
         runtime.inventory_pointer_gui = Some([37.0, 19.0]);
-        runtime.inventory_ledger.begin_session(2);
-        let after_send = inventory_state(&runtime);
+        player_runtime.inventory.ledger_mut().begin_session(2);
+        let after_send = inventory_state(&player_runtime, &runtime);
         if unwind {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                runtime.with_presentation_inventory(captured, |_| panic!("render panic"))
+                runtime.with_presentation_inventory(&mut player_runtime, captured, |_, _| {
+                    panic!("render panic")
+                })
             }));
             assert!(result.is_err());
         } else {
             let result =
-                runtime.with_presentation_inventory(captured, |_| Err::<(), _>("render error"));
+                runtime.with_presentation_inventory(&mut player_runtime, captured, |_, _| {
+                    Err::<(), _>("render error")
+                });
             assert_eq!(result, Err("render error"));
         }
-        assert_eq!(inventory_state(&runtime), after_send);
+        assert_eq!(inventory_state(&player_runtime, &runtime), after_send);
     }
 }
 
 #[test]
 fn deferred_and_immediate_ui_match_across_retained_frames() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut immediate = super::super::forms::tests::mini_engine_presentation();
     let mut deferred = super::super::forms::tests::mini_engine_presentation();
-    let mut runtime = super::super::forms::pack_harness::action_form("retained", &["one", "two"]);
+    let mut runtime = super::super::forms::pack_harness::action_form(
+        &mut player_runtime,
+        "retained",
+        &["one", "two"],
+    );
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 16, 50, 100, 1_000] {
-        let expected = immediate.build(&runtime, now, [800, 600], dpi).unwrap();
+        let expected = immediate
+            .build(&player_runtime, &runtime, now, [800, 600], dpi)
+            .unwrap();
         assert!(
             !expected.vertices.is_empty(),
             "fixture must render retained frames"
         );
-        let captured = runtime.capture_presentation_inventory();
-        let actual = runtime.with_presentation_inventory(captured, |runtime| {
-            deferred.build(runtime, now, [800, 600], dpi).unwrap()
-        });
+        let captured = runtime.capture_presentation_inventory(&player_runtime);
+        let actual = runtime.with_presentation_inventory(
+            &mut player_runtime,
+            captured,
+            |runtime, player_runtime| {
+                deferred
+                    .build(player_runtime, runtime, now, [800, 600], dpi)
+                    .unwrap()
+            },
+        );
         assert_eq!(actual, expected);
     }
 }
 
 /// Uses the existing large creative fixture with the complete pinned registry.
-fn catalog_runtime() -> UiRuntime {
-    let mut runtime = container_screen_tests::creative_with(1500);
+fn catalog_runtime(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
+    let mut runtime = container_screen_tests::creative_with(player_runtime, 1500);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply_registry(&protocol::ItemRegistryEvent {
             entries: protocol::vanilla_item_registry(),
         });
@@ -94,37 +133,43 @@ fn catalog_runtime() -> UiRuntime {
 
 #[test]
 fn publication_snapshot_shares_registry_and_creative_catalogs() {
-    let mut runtime = catalog_runtime();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = catalog_runtime(&mut player_runtime);
     let first = protocol::vanilla_item_registry()[0].network_id;
     let entry = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .negotiated_item_entry(first)
         .unwrap() as *const _;
     let creative = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .creative_catalog()
         .unwrap()
         .items
         .as_ptr();
-    let snapshot = runtime.capture_presentation_inventory();
-    runtime.with_presentation_inventory(snapshot, |captured| {
-        assert!(std::ptr::eq(
-            entry,
-            captured
-                .inventory_ledger()
-                .negotiated_item_entry(first)
-                .unwrap()
-        ));
-        assert_eq!(
-            creative,
-            captured
-                .inventory_ledger()
-                .creative_catalog()
-                .unwrap()
-                .items
-                .as_ptr()
-        );
-    });
+    let snapshot = runtime.capture_presentation_inventory(&player_runtime);
+    runtime.with_presentation_inventory(
+        &mut player_runtime,
+        snapshot,
+        |captured, player_runtime| {
+            assert!(std::ptr::eq(
+                entry,
+                captured
+                    .inventory_ledger(player_runtime)
+                    .negotiated_item_entry(first)
+                    .unwrap()
+            ));
+            assert_eq!(
+                creative,
+                captured
+                    .inventory_ledger(player_runtime)
+                    .creative_catalog()
+                    .unwrap()
+                    .items
+                    .as_ptr()
+            );
+        },
+    );
 }
 
 #[test]
@@ -133,20 +178,33 @@ fn ui_publication_capture_bench() {
     use crate::tests::alloc_count::thread_allocations;
     let labels = vec!["Action"; 128];
     let cases = [
-        ("idle", UiRuntime::new(1)),
-        ("creative1500_registry", catalog_runtime()),
         (
-            "form128",
-            super::super::forms::pack_harness::action_form("Actions", &labels),
+            "idle",
+            crate::player_runtime::PlayerRuntime::new(1),
+            UiRuntime::new(1),
         ),
+        {
+            let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+            let runtime = catalog_runtime(&mut player_runtime);
+            ("creative1500_registry", player_runtime, runtime)
+        },
+        {
+            let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+            let runtime = super::super::forms::pack_harness::action_form(
+                &mut player_runtime,
+                "Actions",
+                &labels,
+            );
+            ("form128", player_runtime, runtime)
+        },
     ];
-    for (name, runtime) in cases {
+    for (name, player_runtime, runtime) in cases {
         let mut times = Vec::with_capacity(1000);
         let allocations = thread_allocations();
         for _ in 0..1000 {
             let started = std::time::Instant::now();
             drop(std::hint::black_box(
-                runtime.capture_presentation_inventory(),
+                runtime.capture_presentation_inventory(&player_runtime),
             ));
             times.push(started.elapsed().as_secs_f64() * 1_000_000.0);
         }

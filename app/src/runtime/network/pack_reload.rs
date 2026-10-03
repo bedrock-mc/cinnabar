@@ -137,6 +137,7 @@ impl PackReload {
         base: Arc<assets::RuntimeAssets>,
         catalog: Option<Arc<json_ui::Catalog>>,
         environment_base: Option<EnvironmentBase>,
+        current_artwork: Option<render::ActorArtworkPages>,
     ) {
         let globals = self.globals.clone();
         let server = self.server.clone();
@@ -178,6 +179,15 @@ impl PackReload {
                             .extend(environment.dependencies.clone());
                     }
                     application.item_components = items;
+                    let artwork = current_artwork.as_ref().map(|current| {
+                        application
+                            .entity_artwork
+                            .as_deref()
+                            .filter(|next| next.identity() != current.identity())
+                            .unwrap_or(current)
+                            .clone()
+                    });
+                    application.prepare_actor_artwork(artwork.as_ref().filter(|_| generation != 0));
                     if changes.blocks {
                         let mut biome_overlay = assets::BlockOverlay::default();
                         let biome_view =
@@ -398,6 +408,7 @@ pub(crate) fn reload_resource_packs(
                     **textures = candidate;
                 }
                 world.pack_entities = packs.entities.clone();
+                world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
                 if items_changed {
                     world.session_items = Some(Arc::new(super::entity_pack::SessionItems {
                         components: packs.item_components.clone().unwrap_or_default(),
@@ -433,6 +444,7 @@ pub(crate) fn reload_resource_packs(
                 .as_deref()
                 .and_then(|presentation| presentation.pack_catalog_base()),
             environment_base.as_deref().cloned(),
+            entity_artwork.as_deref().cloned(),
         );
     }
 }

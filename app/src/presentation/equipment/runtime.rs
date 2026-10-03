@@ -570,10 +570,10 @@ impl EquipmentRuntime {
         let sprite = match key {
             MeshKey::Sprite(_) => self.icons.sprites().get(placement_index),
             MeshKey::Session(index) => self.session_sprite_pixels(index),
-            MeshKey::Block(_) => None,
+            MeshKey::Block(_) | MeshKey::SessionBlock(_) => None,
         };
         let vertices = match (key, sprite) {
-            (MeshKey::Block(_), _) => {
+            (MeshKey::Block(_) | MeshKey::SessionBlock(_), _) => {
                 textured_cube_vertices(blocks::face_rects(placement.uv_rect()))
             }
             (_, Some(sprite)) => held_sprite_vertices(
@@ -584,7 +584,7 @@ impl EquipmentRuntime {
             )?,
             (_, None) => return None,
         };
-        if let MeshKey::Session(index) = key {
+        if let MeshKey::Session(index) | MeshKey::SessionBlock(index) = key {
             let id = session::session_mesh_id(index)?;
             let geometry = ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()?;
             self.pending.push(geometry);

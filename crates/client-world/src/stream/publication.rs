@@ -263,6 +263,10 @@ impl WorldStream {
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }
+    /// Full-body pose for HUD rendering, independent of the local first-person hand pose.
+    pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
+        self.actors.actor_ui_pose(runtime_id)
+    }
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()
     }

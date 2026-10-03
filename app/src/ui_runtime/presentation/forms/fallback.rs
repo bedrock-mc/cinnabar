@@ -302,13 +302,15 @@ impl UiPresentationRuntime {
             LocalFormAction::Dismiss,
             window_rect(cancel, self.safe_area)?,
         ));
-        state.engine = self.form_presentation.engine.take();
-        state.container = self.form_presentation.container.take();
-        state.menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
-        state.logged = self.form_presentation.logged;
-        state.oreui_originals = self.form_presentation.oreui_originals.take();
-        state.oreui_look = self.form_presentation.oreui_look;
-        self.form_presentation = state;
+        let retained = &mut self.form_presentation;
+        retained.identity = state.identity;
+        retained.scroll = state.scroll;
+        retained.height = state.height;
+        retained.maximum = state.maximum;
+        retained.row_height = state.row_height;
+        retained.offsets = state.offsets;
+        retained.hits = state.hits;
+        retained.frame = None;
         Ok(())
     }
 }

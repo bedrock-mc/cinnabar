@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use experience_runtime::hex;
 use experience_runtime::limits::MAX_FRAME_BYTES;
 use experience_runtime::protocol::{
-    Cause, Face, FailKind, Mining, Request, Response, Texture, fixtures, read_frame, write_frame,
+    Cause, Face, FailKind, Mining, Request, Response, Scalar, Texture, fixtures, read_frame,
+    write_frame,
 };
 use serde::{Deserialize, Serialize};
 
@@ -134,6 +135,33 @@ fn unknown_field_is_rejected() {
 
     let unbreakable = r#"{"type":"unbreakable","extra":1}"#;
     assert!(serde_json::from_str::<Mining>(unbreakable).is_err());
+
+    let scalar = r#"{"type":"integer","value":1,"extra":1}"#;
+    assert!(serde_json::from_str::<Scalar>(scalar).is_err());
+}
+
+/// A scalar is adjacently tagged like the client's wire `Scalar`: its value is required and must
+/// fit its type.
+#[test]
+fn scalar_value_is_typed_and_required() {
+    let decoded = |json: &str| serde_json::from_str::<Scalar>(json).ok();
+    assert_eq!(
+        decoded(r#"{"type":"choice","value":65535}"#),
+        Some(Scalar::Choice(u16::MAX))
+    );
+    assert_eq!(
+        decoded(r#"{"type":"integer","value":-9223372036854775808}"#),
+        Some(Scalar::Integer(i64::MIN))
+    );
+    for bad in [
+        r#"{"type":"choice","value":65536}"#,
+        r#"{"type":"bool","value":1}"#,
+        r#"{"type":"text"}"#,
+        r#"{"type":"text","value":null}"#,
+        r#"{"type":"float","value":1.5}"#,
+    ] {
+        assert_eq!(decoded(bad), None, "{bad} decoded");
+    }
 }
 
 #[test]

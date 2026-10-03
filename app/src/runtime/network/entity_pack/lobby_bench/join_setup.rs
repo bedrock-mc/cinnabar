@@ -1,4 +1,4 @@
-//! Repeatable cold actor publication against an external captured lobby and pack.
+//! Repeatable actor publication against an offline packet fixture and pack.
 use super::*;
 
 /// Covers all registered vertex data, including geometry not yet used by a drawn actor.
@@ -56,7 +56,7 @@ fn geometry_payload_digest(frame: &ActorRenderFrame) -> u64 {
 
 /// Includes initial setup and the item refresh that follows the same accepted entity pack.
 #[test]
-#[ignore = "requires a captured server session, its pack and local carriers"]
+#[ignore = "requires an offline packet fixture, its pack and local carriers"]
 fn lobby_join_setup_bench() {
     let capture = std::env::var_os("CINNABAR_LOBBY_CAPTURE").expect("captured lobby required");
     let pack = std::env::var_os("CINNABAR_RENDER_PACK").expect("captured pack required");
@@ -66,6 +66,9 @@ fn lobby_join_setup_bench() {
         world
             .resource_mut::<Time<Real>>()
             .update_with_instant(Instant::now());
+        if std::env::var_os("CINNABAR_PREPARE_ACTOR_ARTWORK").is_some() {
+            prepare_artwork(&mut world, trial);
+        }
         measure_setup(&mut world, trial, "initial");
         world
             .resource_mut::<crate::runtime::world::ClientWorld>()
@@ -75,6 +78,43 @@ fn lobby_join_setup_bench() {
         }));
         measure_setup(&mut world, trial, "items_refresh");
     }
+}
+
+/// Reports worker preparation separately so moving work cannot be mistaken for removing it.
+fn prepare_artwork(world: &mut World, trial: usize) {
+    use crate::runtime::network::prepared_actor_artwork::PreparedActorArtwork;
+    let base = world.resource::<render::ActorArtworkPages>().clone();
+    let pack = world
+        .resource::<crate::runtime::world::ClientWorld>()
+        .pack_entities
+        .clone()
+        .expect("benchmark session pack");
+    let prepared = std::thread::spawn(move || {
+        let allocated = crate::tests::alloc_count::thread_allocations();
+        let started = Instant::now();
+        let cpu_started = thread_cpu_time();
+        let prepared = PreparedActorArtwork::new(&base, &pack);
+        let wall = started.elapsed();
+        let cpu = thread_cpu_time()
+            .zip(cpu_started)
+            .map(|(after, before)| (after - before).as_secs_f64() * 1e3);
+        let allocations = crate::tests::alloc_count::thread_allocations() - allocated;
+        eprintln!(
+            "LOBBY_JOIN_ARTWORK_PREP {}",
+            serde_json::json!({
+                "trial": trial,
+                "wall_ms": wall.as_secs_f64() * 1e3,
+                "cpu_ms": cpu,
+                "allocations": allocations,
+            })
+        );
+        Arc::new(prepared)
+    })
+    .join()
+    .unwrap();
+    world
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .prepared_actor_artwork = Some(prepared);
 }
 
 /// Measures only publication; hashes outside the timed region cover every geometry and artwork page.

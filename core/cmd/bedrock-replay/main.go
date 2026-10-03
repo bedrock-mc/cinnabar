@@ -194,17 +194,27 @@ func run(ctx context.Context, opts options, output io.Writer) (result error) {
 		defer timer.Stop()
 		fixtureEnd = timer.C
 	}
+	report.EndReason, err = waitReplayEnd(ctx, readDone, fixtureEnd)
+	return err
+}
+
+// waitReplayEnd distinguishes normal completion from cancellation that also closes the transport.
+func waitReplayEnd(ctx context.Context, readDone <-chan error, fixtureEnd <-chan time.Time) (string, error) {
+	var reason string
+	var err error
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
 	case <-fixtureEnd:
-		report.EndReason = "fixture_end"
-		return nil
-	case err := <-readDone:
+		reason = "fixture_end"
+	case err = <-readDone:
 		if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
-			report.EndReason = "client_exit"
-			return nil
+			reason, err = "client_exit", nil
 		}
-		return err
 	}
+	// The deadline callback closes the listener and its accepted connections. Both cases can
+	// therefore be ready together; a random select choice must not turn a timeout into success.
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	return reason, err
 }

@@ -19,23 +19,27 @@ pub(in super::super) struct BookCache {
 
 impl BookCache {
     /// Search names depend on the item registry; keep that path uncached.
-    fn eligible(runtime: &UiRuntime) -> Option<&CreativeContentEvent> {
+    fn eligible<'a>(
+        player_runtime: &'a crate::player_runtime::PlayerRuntime,
+        runtime: &UiRuntime,
+    ) -> Option<&'a CreativeContentEvent> {
         let state = runtime.screen_state();
-        (runtime.player_game_mode() == Some(PlayerGameMode::Creative)
+        (runtime.player_game_mode(player_runtime) == Some(PlayerGameMode::Creative)
             && (state.creative_tab != SEARCH_TAB || state.search.is_empty()))
-        .then(|| runtime.inventory_ledger().creative_catalog())
+        .then(|| runtime.inventory_ledger(player_runtime).creative_catalog())
         .flatten()
     }
 
     /// Publish the same row allocation when all row inputs still match.
     pub(super) fn reuse(
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         cache: &Option<Self>,
         runtime: &UiRuntime,
         frame: &HudFrame,
         icons: &mut Vec<IconRef>,
         data: &mut DataSource,
     ) -> bool {
-        let (Some(cache), Some(catalog)) = (cache, Self::eligible(runtime)) else {
+        let (Some(cache), Some(catalog)) = (cache, Self::eligible(player_runtime, runtime)) else {
             return false;
         };
         let state = runtime.screen_state();
@@ -55,13 +59,14 @@ impl BookCache {
 
     /// Retain a creative publication and its icon-table positions.
     pub(super) fn capture(
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         first_icon: usize,
         icons: &[IconRef],
         items: &Arc<[CollectionItem]>,
     ) -> Option<Self> {
-        let catalog = Self::eligible(runtime)?;
+        let catalog = Self::eligible(player_runtime, runtime)?;
         let state = runtime.screen_state();
         Some(Self {
             catalog: catalog.clone(),
@@ -82,21 +87,26 @@ mod tests {
     /// Scroll and pointer changes reuse rows; tab, group, catalog and icon changes invalidate them.
     #[test]
     fn creative_rows_follow_their_inputs() {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_player_game_mode(PlayerGameMode::Creative);
+        runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Creative);
         let catalog = CreativeContentEvent {
             groups: Arc::from([]),
             items: Arc::from([]),
             skipped: 0,
         };
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(&mut player_runtime)
             .apply(&protocol::InventoryEvent::Creative(catalog.clone()));
         let frame = HudFrame::default();
         let items = Arc::from([CollectionItem::default()]);
-        let cache = BookCache::capture(&runtime, &frame, 0, &[], &items);
-        let reuse = |runtime: &UiRuntime, frame: &HudFrame| {
+        let cache = BookCache::capture(&player_runtime, &runtime, &frame, 0, &[], &items);
+        let reuse = |player_runtime: &crate::player_runtime::PlayerRuntime,
+                     runtime: &UiRuntime,
+                     frame: &HudFrame| {
             BookCache::reuse(
+                player_runtime,
                 &cache,
                 runtime,
                 frame,
@@ -108,26 +118,26 @@ mod tests {
             .screen_state_mut()
             .container_scroll
             .insert("grid".into(), 60.0);
-        assert!(reuse(&runtime, &frame));
+        assert!(reuse(&player_runtime, &runtime, &frame));
         runtime.screen_state_mut().creative_expanded.insert(1);
-        assert!(!reuse(&runtime, &frame));
+        assert!(!reuse(&player_runtime, &runtime, &frame));
         runtime.screen_state_mut().creative_expanded.clear();
         runtime.screen_state_mut().creative_tab += 1;
-        assert!(!reuse(&runtime, &frame));
+        assert!(!reuse(&player_runtime, &runtime, &frame));
         runtime.screen_state_mut().creative_tab -= 1;
         let mut other_frame = frame.clone();
         other_frame.window_icons.book_entries.push(None);
-        assert!(!reuse(&runtime, &other_frame));
-        runtime
-            .inventory_ledger_mut()
-            .apply(&protocol::InventoryEvent::Creative(CreativeContentEvent {
+        assert!(!reuse(&player_runtime, &runtime, &other_frame));
+        runtime.inventory_ledger_mut(&mut player_runtime).apply(
+            &protocol::InventoryEvent::Creative(CreativeContentEvent {
                 items: Arc::from([protocol::CreativeItem {
                     creative_network_id: 1,
                     stack: protocol::NetworkItemStack::empty(),
                     group: 0,
                 }]),
                 ..catalog
-            }));
-        assert!(!reuse(&runtime, &frame));
+            }),
+        );
+        assert!(!reuse(&player_runtime, &runtime, &frame));
     }
 }

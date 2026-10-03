@@ -72,10 +72,19 @@ type hostFixture struct {
 	tells *tellRecorder
 }
 
-// newHostFixture runs a Host of sups, logging to log. It closes the Host, and so sups, at cleanup.
+// newHostFixture runs a Host of sups without a server half for client parts, logging to log. It
+// closes the Host, and so sups, at cleanup.
 func newHostFixture(t *testing.T, log *slog.Logger, sups map[string]*Supervisor) *hostFixture {
 	t.Helper()
-	f := newIdleFixture(t, log, sups)
+	return newClientFixture(t, log, sups, nil)
+}
+
+// newClientFixture is newHostFixture with channels as the server half for client parts.
+func newClientFixture(
+	t *testing.T, log *slog.Logger, sups map[string]*Supervisor, channels ClientChannels,
+) *hostFixture {
+	t.Helper()
+	f := newIdleClientFixture(t, log, sups, channels)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -96,11 +105,19 @@ func newHostFixture(t *testing.T, log *slog.Logger, sups map[string]*Supervisor)
 // newIdleFixture is newHostFixture without running the Host's workers.
 func newIdleFixture(t *testing.T, log *slog.Logger, sups map[string]*Supervisor) *hostFixture {
 	t.Helper()
+	return newIdleClientFixture(t, log, sups, nil)
+}
+
+// newIdleClientFixture is newClientFixture without running the Host's workers.
+func newIdleClientFixture(
+	t *testing.T, log *slog.Logger, sups map[string]*Supervisor, channels ClientChannels,
+) *hostFixture {
+	t.Helper()
 	reg := registered(t)
 	w := world.Config{Log: slog.New(slog.DiscardHandler)}.New()
 	t.Cleanup(func() { w.Close() })
 	f := &hostFixture{t: t, store: openTestStore(t, t.TempDir()), w: w, tells: &tellRecorder{}}
-	f.host = NewHost(reg, f.store, sups, "world", log)
+	f.host = NewHost(reg, f.store, sups, "world", channels, log)
 	f.host.tell = f.tells
 	f.actor = world.EntitySpawnOpts{Position: mgl64.Vec3{0.5, 100, 40.5}}.
 		New(player.Type, player.Config{Name: "Actor"})
@@ -557,7 +574,7 @@ func TestQuotaCheckedOnNetData(t *testing.T) {
 	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: a.cube(), call: Call{
 		Neighbor: &NeighborCall{Pos: a, Neighbor: b},
 	}}
-	snap, err := f.host.snapshot(context.Background(), d, ev)
+	snap, err := f.host.snapshot(context.Background(), d, &ev)
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}

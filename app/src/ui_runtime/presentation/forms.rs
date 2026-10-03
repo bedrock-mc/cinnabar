@@ -440,8 +440,13 @@ impl UiPresentationRuntime {
     }
 
     /// Draws the open container's engine screen.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Player authority is borrowed separately from UI state."
+    )]
     pub(super) fn append_container_scene(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
@@ -451,6 +456,7 @@ impl UiPresentationRuntime {
     ) -> Result<(), UiPresentationError> {
         let previous = self.form_presentation.previous_container.take();
         self.append_engine_container(
+            player_runtime,
             runtime,
             previous.as_ref().map(|(frame, _)| frame),
             nodes,

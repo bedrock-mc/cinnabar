@@ -18,6 +18,7 @@ use crate::{
 
 #[derive(SystemParam)]
 struct SelectionContext<'w> {
+    player: Res<'w, crate::player_runtime::PlayerRuntime>,
     world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     ui: Res<'w, UiRuntime>,
@@ -36,7 +37,7 @@ pub(crate) fn configure(app: &mut App) {
 
 /// A missing, stale or menu-owned ray clears last frame's target immediately.
 fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
-    let target = target(&context);
+    let target = target(&context.player, &context);
     frame.update(
         target.as_ref(),
         context.camera.transform().translation,
@@ -51,19 +52,29 @@ fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
 }
 
 /// Resolves outline bounds from the same shapes that admitted the nearest block pick.
-fn target(context: &SelectionContext) -> Option<BlockSelectionTarget> {
-    if context.menu.is_visible() || context.ui.ui_focused() || context.world.fatal_error.is_some() {
+fn target(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    context: &SelectionContext,
+) -> Option<BlockSelectionTarget> {
+    if context.menu.is_visible()
+        || context.ui.ui_focused(player_runtime)
+        || context.world.fatal_error.is_some()
+    {
         return None;
     }
     let stream = context.world.stream.as_ref()?;
     let ray = context.origin.outbound_ray()?;
     if !ray_is_current(ray, context.ui.session_id(), stream)
-        || context.ui.player_game_mode() == Some(protocol::PlayerGameMode::Spectator)
+        || context.ui.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Spectator)
     {
         return None;
     }
     let mode = protocol_input_mode(context.input.snapshot()?.input_mode);
-    let reach = if context.ui.game_mode_capabilities()?.creative_reach {
+    let reach = if context
+        .ui
+        .game_mode_capabilities(player_runtime)?
+        .creative_reach
+    {
         creative_reach(mode)
     } else {
         survival_reach(mode)

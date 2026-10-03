@@ -17,9 +17,6 @@ use super::widgets::{Variant, button, header, panel, row, screen_overlay, tabs, 
 use super::{play_realms, play_servers};
 use crate::menu::{LocalWorldAction, MenuAction, MenuScreen, MenuView};
 
-/// Worlds shown per page.
-const PAGE: usize = 12;
-
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -138,7 +135,8 @@ fn worlds_tab(
     }
     let row_height = canvas.r(8.4);
     let gap = space(canvas, 2);
-    let mut y = list_top;
+    let scroll = canvas.begin_scroll("worlds_list", [body[0], list_top, body[2], body[3]])?;
+    let mut y = list_top - scroll.offset;
     let entries = view
         .friends
         .iter()
@@ -165,16 +163,17 @@ fn worlds_tab(
                     action: MenuAction::PlayLocalWorld(index),
                     edit: Some(MenuAction::LocalWorld(LocalWorldAction::Edit(index))),
                 }),
-        )
-        .take(PAGE);
+        );
     for entry in entries {
-        if y + row_height > body[3] {
-            break;
+        if y + row_height < list_top || y > body[3] {
+            y += row_height + gap;
+            continue;
         }
         world_row(canvas, view, &entry, [body[0], y, body[2], y + row_height])?;
         y += row_height + gap;
     }
-    Ok(())
+    let content = y + scroll.offset - list_top;
+    canvas.end_scroll(scroll, content)
 }
 
 struct WorldEntry {

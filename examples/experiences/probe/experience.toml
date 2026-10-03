@@ -1,6 +1,6 @@
 id = "probe"
 version = "0.1.0"
-api = "0.1"
+api = "0.2"
 data-schema = 1
 # Filled by the runtime test helper, because the hashes depend on the build.
 [files]

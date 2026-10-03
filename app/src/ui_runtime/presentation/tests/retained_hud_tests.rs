@@ -18,8 +18,15 @@ fn scoreboard_contract_matches_hash_pinned_1_26_3301_ui_definition() {
 
 #[test]
 fn scoreboard_projection_uses_authoritative_order_and_fake_player_names() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    install_scoreboard(&mut runtime, "Wins", &[(8, "Beta", 4), (4, "Alpha", 9)]);
+    install_scoreboard(
+        &mut player_runtime,
+        &mut runtime,
+        "Wins",
+        &[(8, "Beta", 4), (4, "Alpha", 9)],
+    );
 
     let sidebar = project_scoreboard_for_scope(
         runtime.scoreboards(),
@@ -40,8 +47,11 @@ fn scoreboard_projection_uses_authoritative_order_and_fake_player_names() {
 
 #[test]
 fn scoreboard_slots_remain_scoped_to_their_native_surfaces_and_resolve_protocol_owners() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     install_mixed_scoreboard_slot(
+        &mut player_runtime,
         &mut runtime,
         "list",
         &[
@@ -70,8 +80,11 @@ fn scoreboard_slots_remain_scoped_to_their_native_surfaces_and_resolve_protocol_
 
 #[test]
 fn hearts_objectives_project_bounded_non_decimal_score_values() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     install_mixed_scoreboard_slot_with_criteria(
+        &mut player_runtime,
         &mut runtime,
         "sidebar",
         "health",
@@ -99,6 +112,7 @@ fn hearts_objectives_project_bounded_non_decimal_score_values() {
 
     let mut capped_runtime = UiRuntime::new(1);
     install_mixed_scoreboard_slot_with_criteria(
+        &mut player_runtime,
         &mut capped_runtime,
         "sidebar",
         "hearts",
@@ -125,8 +139,11 @@ fn hearts_objectives_project_bounded_non_decimal_score_values() {
 
 #[test]
 fn unresolvable_owner_ids_fall_back_to_their_raw_retained_identity() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     install_mixed_scoreboard_slot(
+        &mut player_runtime,
         &mut runtime,
         "sidebar",
         &[
@@ -155,9 +172,12 @@ fn unresolvable_owner_ids_fall_back_to_their_raw_retained_identity() {
 
 #[test]
 fn xuid_keyed_owner_ids_resolve_through_the_roster_map_then_fall_back_cleanly() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     const XUID_KEYED_OWNER: i64 = 2535406042983449;
     let mut runtime = UiRuntime::new(1);
     install_mixed_scoreboard_slot(
+        &mut player_runtime,
         &mut runtime,
         "sidebar",
         &[
@@ -192,8 +212,11 @@ fn xuid_keyed_owner_ids_resolve_through_the_roster_map_then_fall_back_cleanly() 
 
 #[test]
 fn below_name_projection_preserves_actor_identity_and_raw_objective_semantics() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     install_mixed_scoreboard_slot(
+        &mut player_runtime,
         &mut runtime,
         "belowname",
         &[
@@ -219,90 +242,109 @@ fn below_name_projection_preserves_actor_identity_and_raw_objective_semantics() 
 }
 
 pub(super) fn install_mixed_scoreboard_slot(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     slot: &str,
     rows: &[(i64, ProtocolScoreIdentity, i32)],
 ) {
-    install_mixed_scoreboard_slot_with_criteria(runtime, slot, "dummy", rows);
+    install_mixed_scoreboard_slot_with_criteria(player_runtime, runtime, slot, "dummy", rows);
 }
 
 fn install_mixed_scoreboard_slot_with_criteria(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     slot: &str,
     criteria_name: &str,
     rows: &[(i64, ProtocolScoreIdentity, i32)],
 ) {
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Objective(ObjectiveEvent::Display {
-                display_slot: Arc::from(slot),
-                objective_name: Arc::from("objective"),
-                display_name: Arc::from("Objective"),
-                criteria_name: Arc::from(criteria_name),
-                sort_order: 1,
-            }),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Objective(ObjectiveEvent::Display {
+                    display_slot: Arc::from(slot),
+                    objective_name: Arc::from("objective"),
+                    display_name: Arc::from("Objective"),
+                    criteria_name: Arc::from(criteria_name),
+                    sort_order: 1,
+                }),
+            },
+        )
         .unwrap();
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 2,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Score(ScoreEvent {
-                entries: rows
-                    .iter()
-                    .map(|(id, identity, score)| ProtocolScoreEntry {
-                        action: ProtocolScoreAction::Change,
-                        scoreboard_id: *id,
-                        objective_name: Arc::from("objective"),
-                        score: *score,
-                        identity: identity.clone(),
-                    })
-                    .collect(),
-            }),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 2,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Score(ScoreEvent {
+                    entries: rows
+                        .iter()
+                        .map(|(id, identity, score)| ProtocolScoreEntry {
+                            action: ProtocolScoreAction::Change,
+                            scoreboard_id: *id,
+                            objective_name: Arc::from("objective"),
+                            score: *score,
+                            identity: identity.clone(),
+                        })
+                        .collect(),
+                }),
+            },
+        )
         .unwrap();
 }
 
-fn install_scoreboard(runtime: &mut UiRuntime, title: &str, rows: &[(i64, &str, i32)]) {
+fn install_scoreboard(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    title: &str,
+    rows: &[(i64, &str, i32)],
+) {
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Objective(ObjectiveEvent::Display {
-                display_slot: Arc::from("sidebar"),
-                objective_name: Arc::from("objective"),
-                display_name: Arc::from(title),
-                criteria_name: Arc::from("dummy"),
-                sort_order: 1,
-            }),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Objective(ObjectiveEvent::Display {
+                    display_slot: Arc::from("sidebar"),
+                    objective_name: Arc::from("objective"),
+                    display_name: Arc::from(title),
+                    criteria_name: Arc::from("dummy"),
+                    sort_order: 1,
+                }),
+            },
+        )
         .unwrap();
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 2,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Score(ScoreEvent {
-                entries: rows
-                    .iter()
-                    .map(|(id, name, score)| ProtocolScoreEntry {
-                        action: ProtocolScoreAction::Change,
-                        scoreboard_id: *id,
-                        objective_name: Arc::from("objective"),
-                        score: *score,
-                        identity: ProtocolScoreIdentity::FakePlayer(Arc::from(*name)),
-                    })
-                    .collect(),
-            }),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 2,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Score(ScoreEvent {
+                    entries: rows
+                        .iter()
+                        .map(|(id, name, score)| ProtocolScoreEntry {
+                            action: ProtocolScoreAction::Change,
+                            scoreboard_id: *id,
+                            objective_name: Arc::from("objective"),
+                            score: *score,
+                            identity: ProtocolScoreIdentity::FakePlayer(Arc::from(*name)),
+                        })
+                        .collect(),
+                }),
+            },
+        )
         .unwrap();
 }

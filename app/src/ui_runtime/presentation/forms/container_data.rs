@@ -52,12 +52,13 @@ const BUBBLE_HEIGHTS: [f64; 7] = [29.0, 24.0, 20.0, 16.0, 11.0, 6.0, 0.0];
 /// Reads the open station's block for its screen: the beacon's pyramid level,
 /// the crafter's disabled slots and its `triggered_bit`.
 pub(crate) fn observe_station_block(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     stream: Option<&client_world::WorldStream>,
     collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
     now_millis: u64,
 ) {
-    let ledger = runtime.inventory_ledger();
+    let ledger = runtime.inventory_ledger(player_runtime);
     let (Some(kind), Some(position), Some(stream)) =
         (ledger.window_kind(), ledger.window_position(), stream)
     else {
@@ -118,8 +119,13 @@ fn state_bit(canonical: &str, name: &str) -> Option<bool> {
 }
 
 /// Globals for the open station's progress and layout.
-pub(super) fn station_globals(data: &mut DataSource, runtime: &UiRuntime, kind: WindowKind) {
-    let ledger = runtime.inventory_ledger();
+pub(super) fn station_globals(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    data: &mut DataSource,
+    runtime: &UiRuntime,
+    kind: WindowKind,
+) {
+    let ledger = runtime.inventory_ledger(player_runtime);
     let property = |id: i32| ledger.window_data(id).map(f64::from);
     let mut clip = |name: &str, shown: f64| {
         data.set_global(name, Scalar::Num(1.0 - shown.clamp(0.0, 1.0)));
@@ -204,20 +210,25 @@ pub(super) fn station_globals(data: &mut DataSource, runtime: &UiRuntime, kind: 
 
 /// Collections and globals of the open station's controls.
 pub(super) fn station_controls(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     data: &mut DataSource,
     runtime: &UiRuntime,
     frame: &HudFrame,
     kind: WindowKind,
 ) {
     match kind {
-        WindowKind::Enchanting => data.set_collection("#enchant_buttons", enchant_buttons(runtime)),
+        WindowKind::Enchanting => {
+            data.set_collection("#enchant_buttons", enchant_buttons(player_runtime, runtime))
+        }
         WindowKind::Anvil => {
             let name = runtime.screen_state().anvil_name.clone();
             data.set_global("#text_box_item_name", Scalar::Text(name));
         }
-        WindowKind::Stonecutter => data.set_collection("stones", stones(runtime, frame)),
+        WindowKind::Stonecutter => {
+            data.set_collection("stones", stones(player_runtime, runtime, frame))
+        }
         WindowKind::Beacon => beacon_buttons(data, runtime),
-        WindowKind::Loom => data.set_collection("patterns", patterns(runtime)),
+        WindowKind::Loom => data.set_collection("patterns", patterns(player_runtime, runtime)),
         WindowKind::Cartography => data.set_global("#is_none_mode", Scalar::Bool(true)),
         WindowKind::Crafter => crafter_controls(data, runtime, frame),
         _ => {}
@@ -227,11 +238,12 @@ pub(super) fn station_controls(
 /// Icons for `#item_id_aux` renderers: the beacon's payment row by its legacy
 /// ids, and the stonecutter's recipes by the negative keys `stones` binds.
 pub(super) fn id_aux_icons(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &UiRuntime,
     frame: &HudFrame,
     icon: impl Fn(&str) -> Option<IconRef>,
 ) -> Vec<(i64, IconRef)> {
-    match runtime.inventory_ledger().window_kind() {
+    match runtime.inventory_ledger(player_runtime).window_kind() {
         Some(WindowKind::Beacon) => BEACON_PAYMENTS
             .iter()
             .filter_map(|(key, id)| Some((*key, icon(id)?)))
@@ -335,14 +347,18 @@ pub(super) fn widget_hit(screen: &str, region: &HitRegion) -> Option<Widget> {
 
 /// The three option rows: selectable when the player has the levels and lapis
 /// (creative always does), with the vanilla clue and cost hover text.
-fn enchant_buttons(runtime: &UiRuntime) -> Vec<CollectionItem> {
-    let ledger = runtime.inventory_ledger();
+fn enchant_buttons(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+) -> Vec<CollectionItem> {
+    let ledger = runtime.inventory_ledger(player_runtime);
     let options = ledger.enchant_options().unwrap_or(&[]);
     let level = runtime.hud().experience().map_or(0, |xp| xp.level);
     let lapis = ledger
         .target_stack(InventoryTarget::Craft(15))
         .map_or(0, |stack| u32::from(stack.count));
-    let creative = runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
+    let creative =
+        runtime.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Creative);
     (0..3u32)
         .map(|row| {
             let item = CollectionItem::default();
@@ -430,9 +446,15 @@ fn enchant_hover(
 }
 
 /// The stonecutter's recipe cells for the input, the chosen one inverted.
-fn stones(runtime: &UiRuntime, frame: &HudFrame) -> Vec<CollectionItem> {
-    let chosen = runtime.active_screen_recipe().map(|recipe| recipe.id);
-    let options = runtime.stonecutter_options();
+fn stones(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+    frame: &HudFrame,
+) -> Vec<CollectionItem> {
+    let chosen = runtime
+        .active_screen_recipe(player_runtime)
+        .map(|recipe| recipe.id);
+    let options = runtime.stonecutter_options(player_runtime);
     let total = options.len().min(STONECUTTER_CELLS);
     options
         .iter()
@@ -475,8 +497,11 @@ fn stones(runtime: &UiRuntime, frame: &HudFrame) -> Vec<CollectionItem> {
 
 /// The loom's pattern cells once a banner and a dye are in, the chosen one
 /// inverted. The banner preview renderer is not drawn.
-fn patterns(runtime: &UiRuntime) -> Vec<CollectionItem> {
-    let ledger = runtime.inventory_ledger();
+fn patterns(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+) -> Vec<CollectionItem> {
+    let ledger = runtime.inventory_ledger(player_runtime);
     let loaded = |slot: u8| ledger.target_stack(InventoryTarget::Craft(slot)).is_some();
     if !(loaded(9) && loaded(10)) {
         return Vec::new();
@@ -552,10 +577,18 @@ fn beacon_buttons(data: &mut DataSource, runtime: &UiRuntime) {
 
 /// How many cells of `collection` the open window fills; the mount chest shows
 /// only the columns the mount carries.
-pub(super) fn collection_len(runtime: &UiRuntime, collection: &str, cells: usize) -> usize {
-    match (runtime.inventory_ledger().window_kind(), collection) {
+pub(super) fn collection_len(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+    collection: &str,
+    cells: usize,
+) -> usize {
+    match (
+        runtime.inventory_ledger(player_runtime).window_kind(),
+        collection,
+    ) {
         (Some(WindowKind::Horse), "container_items") => runtime
-            .inventory_ledger()
+            .inventory_ledger(player_runtime)
             .storage_slot_count()
             .map_or(0, |count| count.saturating_sub(2))
             .min(cells),
@@ -565,12 +598,14 @@ pub(super) fn collection_len(runtime: &UiRuntime, collection: &str, cells: usize
 
 /// Empty-slot silhouettes and cell art the brewing stand and loom bind per cell.
 pub(super) fn decorate(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &UiRuntime,
     collection: &str,
     empty: bool,
     item: CollectionItem,
 ) -> CollectionItem {
-    let crafter = runtime.inventory_ledger().window_kind() == Some(WindowKind::Crafter);
+    let crafter =
+        runtime.inventory_ledger(player_runtime).window_kind() == Some(WindowKind::Crafter);
     match collection {
         // An empty crafter slot offers to disable itself.
         "container_items" if crafter && empty => item.with(

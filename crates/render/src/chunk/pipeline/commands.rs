@@ -201,6 +201,32 @@ pub(in crate::chunk) fn sorted_visible_entities<T>(
     visible
 }
 
+/// Draws nearer cube chunks first so depth can reject hidden alpha-tested terrain.
+pub(in crate::chunk) fn front_to_back_cube_entities(
+    visible: impl IntoIterator<Item = (Entity, SubChunkKey)>,
+    rangefinder: &ViewRangefinder3d,
+) -> Vec<Entity> {
+    let mut visible = visible
+        .into_iter()
+        .map(|(entity, key)| {
+            // Equal-sized sub-chunks have the same origin-to-centre offset, so
+            // their origins and centres have the same camera-depth ordering.
+            let origin = Vec3::from_array(chunk_origin(key).map(|value| value as f32));
+            (entity, rangefinder.distance(&origin))
+        })
+        .collect::<Vec<_>>();
+    // Bevy's camera looks along negative view Z. Preserve entity order at ties.
+    visible.sort_unstable_by(|(left, left_depth), (right, right_depth)| {
+        right_depth
+            .total_cmp(left_depth)
+            .then_with(|| left.cmp(right))
+    });
+    visible.into_iter().map(|(entity, _)| entity).collect()
+}
+
+#[cfg(test)]
+mod order_tests;
+
 pub(in crate::chunk) type DrawChunkCommands = (
     SetItemPipeline,
     crate::lighting::SetWorldLightmap,

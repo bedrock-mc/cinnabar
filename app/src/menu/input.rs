@@ -13,7 +13,7 @@ use bevy::{
         ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut,
         Resource, Single, With,
     },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
+    window::{CursorOptions, PrimaryWindow, Window},
 };
 use ui::{ChatClipboard, ChatEditor, UiPoint};
 
@@ -297,7 +297,10 @@ fn max_bytes(field: MenuField) -> usize {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_input(
-    mut keyboard_messages: MessageReader<KeyboardInput>,
+    (player_runtime, mut keyboard_messages): (
+        bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+        MessageReader<KeyboardInput>,
+    ),
     wheel_messages: Option<Res<Messages<MouseWheel>>>,
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     window: Single<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -330,6 +333,7 @@ pub(crate) fn drive_menu_input(
         }
         return;
     }
+    menu.refresh_settings_focus(presentation.visible_menu_actions());
     let (window_entity, window, mut cursor) = window.into_inner();
     if let Some(messages) = mouse_messages.as_deref() {
         let GuiScaleDrag {
@@ -367,8 +371,7 @@ pub(crate) fn drive_menu_input(
         gui_scale_drag.left_held = false;
         if !menu.is_visible() && menu.settings_options.value("pause_menu_on_focus_lost") != 0 {
             menu.open_pause();
-            cursor.grab_mode = CursorGrabMode::None;
-            cursor.visible = true;
+            crate::camera::release_cursor(&mut cursor);
         }
         *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
@@ -383,7 +386,11 @@ pub(crate) fn drive_menu_input(
             menu.note_player_alive();
         }
     }
-    if !menu.is_visible() && runtime.as_ref().is_none_or(|runtime| !runtime.ui_focused()) {
+    if !menu.is_visible()
+        && runtime
+            .as_ref()
+            .is_none_or(|runtime| !runtime.ui_focused(&player_runtime))
+    {
         // R:v/VanillaClientInputMappingFactory.cpp:10994,11010 uses fixed F1/F8 shortcuts.
         for (key, option) in [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")] {
             if keys.just_pressed(key) {
@@ -403,8 +410,7 @@ pub(crate) fn drive_menu_input(
         if keys.just_pressed(KeyCode::Escape) {
             modifiers.capture_pressed(&keys);
             menu.open_pause();
-            cursor.grab_mode = CursorGrabMode::None;
-            cursor.visible = true;
+            crate::camera::release_cursor(&mut cursor);
             keys.reset_all();
         }
         return;
@@ -422,8 +428,7 @@ pub(crate) fn drive_menu_input(
     }
 
     modifiers.capture_pressed(&keys);
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+    crate::camera::release_cursor(&mut cursor);
     let pointer = window
         .cursor_position()
         .and_then(|position| UiPoint::new(position.x, position.y).ok());
@@ -520,14 +525,16 @@ pub(crate) fn drive_menu_input(
         menu.place_caret(byte);
     }
     for gamepad in &gamepads {
-        if gamepad.just_pressed(GamepadButton::DPadUp)
-            || gamepad.just_pressed(GamepadButton::DPadLeft)
-        {
+        if gamepad.just_pressed(GamepadButton::DPadLeft) {
+            menu.move_horizontal_focus(-1);
+        }
+        if gamepad.just_pressed(GamepadButton::DPadRight) {
+            menu.move_horizontal_focus(1);
+        }
+        if gamepad.just_pressed(GamepadButton::DPadUp) {
             menu.move_focus(-1);
         }
-        if gamepad.just_pressed(GamepadButton::DPadDown)
-            || gamepad.just_pressed(GamepadButton::DPadRight)
-        {
+        if gamepad.just_pressed(GamepadButton::DPadDown) {
             menu.move_focus(1);
         }
         if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::South)) {
@@ -572,8 +579,10 @@ pub(crate) fn drive_menu_input(
         }
         match input.key_code {
             KeyCode::Escape => menu.go_back_from_input(),
-            KeyCode::ArrowUp | KeyCode::ArrowLeft => menu.move_focus(-1),
-            KeyCode::ArrowDown | KeyCode::ArrowRight => menu.move_focus(1),
+            KeyCode::ArrowUp => menu.move_focus(-1),
+            KeyCode::ArrowLeft => menu.move_horizontal_focus(-1),
+            KeyCode::ArrowDown => menu.move_focus(1),
+            KeyCode::ArrowRight => menu.move_horizontal_focus(1),
             KeyCode::Tab => menu.move_focus(if modifiers.shift() { -1 } else { 1 }),
             KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
             _ if menu.has_focused_field() && !modifiers.shortcut() => {
@@ -594,6 +603,14 @@ pub(crate) fn drive_menu_input(
 impl MenuRuntime {
     /// A selected vanilla edit box consumes cancel before the screen handles it.
     fn go_back_from_input(&mut self) {
+        if self.screen == super::MenuScreen::Inbox
+            && (self.feeds.inbox_state.opened.is_some()
+                || self.feeds.inbox_state.delete_pending.is_some()
+                || self.feeds.inbox_state.filters)
+        {
+            self.activate_inbox(super::inbox::Action::Cancel);
+            return;
+        }
         if self.screen == super::MenuScreen::AddServer && self.field.is_some() {
             self.edit_field(|editor| editor.place_cursor(editor.cursor_byte()));
             self.field = None;

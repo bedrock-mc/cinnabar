@@ -405,15 +405,16 @@ fn details_content(
                 TEXT_DIMMER,
                 false,
             )?;
-            canvas.text(
+            line += space(canvas, 2);
+            line += canvas.text(
                 &game.description,
-                [text_left, line + space(canvas, 2)],
+                [text_left, line],
                 width,
                 CAPTION,
                 TEXT_DIMMER,
                 false,
             )?;
-            y += image + space(canvas, 3);
+            y = (y + image).max(line) + space(canvas, 3);
         }
     }
     Ok(y)
@@ -465,5 +466,64 @@ mod tests {
         assert_eq!(ping_label(Some(&pong(20))), "Low ping");
         assert_eq!(ping_label(Some(&pong(120))), "Medium ping");
         assert_eq!(ping_label(Some(&pong(500))), "High ping");
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_activity_extent_includes_wrapped_text() {
+        use crate::menu::{MenuGameCard, MenuRuntime, ServerDetails};
+        let mut view = MenuRuntime::new(true, 2, "Test".into()).view();
+        let server = MenuServerCard {
+            name: "Server".into(),
+            address: "example.test".into(),
+            caption: String::new(),
+            image_path: String::new(),
+            icon: None,
+        };
+        view.feeds.details.insert(
+            server.address.clone(),
+            ServerDetails {
+                games: vec![
+                    MenuGameCard {
+                        description: "Long activity description ".repeat(100),
+                        ..Default::default()
+                    };
+                    2
+                ],
+                ..Default::default()
+            },
+        );
+        let font = crate::ui_runtime::presentation::tests::fixture_font();
+        let (mut nodes, mut next, mut layouts) =
+            (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
+        let metrics = crate::ui_runtime::presentation::TextMetrics::for_viewport(
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+            Some(2),
+        );
+        let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
+        let bottom = details_content(
+            &mut canvas,
+            &view,
+            &server,
+            0,
+            [0.0, 0.0, 500.0],
+            &HashMap::new(),
+        )
+        .unwrap();
+        let text_bottom = canvas
+            .nodes
+            .iter()
+            .filter(|node| matches!(node.visual(), ui::UiVisual::Text { .. }))
+            .map(|node| node.bounds().max().y())
+            .reduce(f32::max)
+            .unwrap();
+        assert!(
+            bottom >= text_bottom,
+            "content bottom {bottom}, text bottom {text_bottom}"
+        );
     }
 }

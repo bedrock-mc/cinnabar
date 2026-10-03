@@ -202,6 +202,49 @@ impl FrameHistogram {
         }
         (FRAME_HISTOGRAM_BUCKETS - 1) as f64 * FRAME_HISTOGRAM_RESOLUTION_MS
     }
+
+    /// Bounds the reciprocal mean of the slowest ceil(N / 100) frame durations.
+    /// Include the exact maximum once and bound the remaining samples by their
+    /// bucket edges. The overflow bucket uses the observed maximum as its upper
+    /// edge, so multi-second hitches are never silently clipped to two seconds.
+    fn one_percent_low_fps(&self) -> Option<LowFpsBounds> {
+        if self.sample_count == 0 || self.max_milliseconds <= 0.0 {
+            return None;
+        }
+        let sample_count = self.sample_count.div_ceil(100);
+        let mut remaining = sample_count;
+        let mut lower_ms = 0.0;
+        let mut upper_ms = 0.0;
+        for (index, count) in self.counts.iter().copied().enumerate().rev() {
+            let mut selected = remaining.min(count);
+            if selected == 0 {
+                continue;
+            }
+            if remaining == sample_count {
+                lower_ms += self.max_milliseconds;
+                upper_ms += self.max_milliseconds;
+                selected -= 1;
+                remaining -= 1;
+            }
+            let bucket_min = index.saturating_sub(1) as f64 * FRAME_HISTOGRAM_RESOLUTION_MS;
+            let bucket_max = if index == self.counts.len() - 1 {
+                self.max_milliseconds
+            } else {
+                (index as f64 * FRAME_HISTOGRAM_RESOLUTION_MS).min(self.max_milliseconds)
+            };
+            lower_ms += selected as f64 * bucket_min;
+            upper_ms += selected as f64 * bucket_max;
+            remaining -= selected;
+            if remaining == 0 {
+                break;
+            }
+        }
+        Some(LowFpsBounds {
+            sample_count,
+            lower: 1_000.0 * sample_count as f64 / upper_ms,
+            upper: 1_000.0 * sample_count as f64 / lower_ms,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -714,6 +757,7 @@ impl MetricsCollector {
     #[must_use]
     pub fn report(&self) -> MetricsReport {
         let finished = self.finished.unwrap_or_else(Instant::now);
+        let frame_sample_seconds = self.frame_sample_elapsed.as_secs_f64();
         MetricsReport {
             session_seconds: finished
                 .saturating_duration_since(self.started)
@@ -725,6 +769,14 @@ impl MetricsCollector {
             mutation_coordinate: self.mutation_coordinate,
             visible_mutation_count: self.visible_mutation_count,
             frame_count: usize::try_from(self.frame_histogram.sample_count).unwrap_or(usize::MAX),
+            frame_sample_seconds,
+            average_fps: if frame_sample_seconds > 0.0 {
+                self.frame_histogram.sample_count as f64 / frame_sample_seconds
+            } else {
+                0.0
+            },
+            one_percent_low_fps: self.frame_histogram.one_percent_low_fps(),
+            frame_histogram_resolution_ms: FRAME_HISTOGRAM_RESOLUTION_MS,
             p50_frame_ms: self.frame_histogram.quantile(0.50),
             p95_frame_ms: self.frame_histogram.quantile(0.95),
             p99_frame_ms: self.frame_histogram.quantile(0.99),
@@ -815,7 +867,7 @@ impl MetricsCollector {
 }
 
 mod report;
-pub use report::MetricsReport;
+pub use report::{LowFpsBounds, MetricsReport};
 
 #[cfg(test)]
 fn percentile(sorted: &[f64], percentile: f64) -> f64 {
@@ -828,3 +880,6 @@ fn percentile(sorted: &[f64], percentile: f64) -> f64 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod fps_tests;

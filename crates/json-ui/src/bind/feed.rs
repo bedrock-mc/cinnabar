@@ -92,13 +92,19 @@ impl<'a> Binder<'a> {
         };
         let mut nodes = Vec::new();
         let mut siblings = crate::layout::SiblingKeys::default();
-        for item in items {
+        for item in items.iter().take(MAX_FACTORY_ITEMS) {
+            if !self.can_create() {
+                break;
+            }
             let (reference, vars) = match &factory.control_name {
                 Some(template) => (template.clone(), BTreeMap::new()),
                 None => match factory.control_ids.get(&item.control_id) {
                     Some(reference) => (reference.clone(), factory.creation_vars(&item.vars)),
                     None => continue,
                 },
+            };
+            let Some(inner) = self.expansion_scope(scope, &reference) else {
+                continue;
             };
             let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
                 continue;
@@ -120,7 +126,7 @@ impl<'a> Binder<'a> {
                 }
             });
             // The item's property bag is readable throughout the created subtree.
-            let mut item_scope = scope.clone();
+            let mut item_scope = inner;
             if let Some((collection, index)) = &item.cursor {
                 std::sync::Arc::make_mut(&mut item_scope.cursor)
                     .indices
@@ -172,6 +178,9 @@ impl<'a> Binder<'a> {
         };
         let mut nodes = Vec::with_capacity(roles.len());
         for (index, role) in roles.iter().enumerate() {
+            if !self.can_create() {
+                break;
+            }
             let role = role.as_deref();
             let Some(reference) = select_control(factory, role) else {
                 self.note(format!(
@@ -185,6 +194,9 @@ impl<'a> Binder<'a> {
                 Some(_) => BTreeMap::new(),
                 None => factory.creation_vars(&BTreeMap::new()),
             };
+            let Some(inner) = self.expansion_scope(scope, &reference) else {
+                continue;
+            };
             let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
                 self.note(format!(
                     "{}: factory control {reference} unresolved",
@@ -192,7 +204,7 @@ impl<'a> Binder<'a> {
                 ));
                 continue;
             };
-            let child_scope = scope.enter(collection, key.clone(), index);
+            let child_scope = inner.enter(collection, key.clone(), index);
             nodes.push(self.build(with_index(Src::root(resolved), index), &child_scope, 0));
         }
         nodes
@@ -251,7 +263,7 @@ fn factory_scope(control: &ResolvedControl) -> BTreeMap<String, Value> {
 }
 
 /// Most instances a factory makes from a bound or literal count.
-const MAX_FACTORY_ITEMS: usize = 4096;
+pub(crate) const MAX_FACTORY_ITEMS: usize = 4096;
 
 /// Roles for a bound `#collection_length`: one per control id, or that many
 /// of a `control_name` template.

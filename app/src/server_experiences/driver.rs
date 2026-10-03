@@ -55,7 +55,6 @@ fn drive(
     mut service: ResMut<ExperienceService>,
     mut runtime: ResMut<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
-    menu: Res<MenuRuntime>,
     network: Res<NetworkHandle>,
     world: Res<crate::runtime::world::ClientWorld>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -122,7 +121,7 @@ fn drive(
         }
     }
     extension.session.tick(super::unix_seconds(), now_ms);
-    let (text, wants_prompt) = chrome(&extension.session, menu.is_visible());
+    let (text, wants_prompt) = chrome(&extension.session);
     if presentation
         .set_experience_chrome(text.as_deref(), wants_prompt)
         .is_err()
@@ -131,6 +130,10 @@ fn drive(
     }
     let prompt = wants_prompt && presentation.experience_prompt_visible();
     let wheel_delta: f64 = wheel.read().map(|event| -f64::from(event.y) * 0.15).sum();
+    let window = windows.single().ok();
+    let cursor = window
+        .and_then(Window::cursor_position)
+        .map(|point| point.to_array());
     if prompt {
         let pages = if keys.just_pressed(KeyCode::PageDown) || keys.just_pressed(KeyCode::ArrowDown)
         {
@@ -141,9 +144,10 @@ fn drive(
             0.0
         };
         presentation.scroll_experience(pages + wheel_delta);
+        presentation.hover_experience(cursor);
     }
     let approval_ready = presentation.experience_approval_ready();
-    let focused = windows.single().is_ok_and(|window| window.focused);
+    let focused = window.is_some_and(|window| window.focused);
     let choice =
         if focused && can_disable(&extension.session.state) && keys.just_pressed(KeyCode::F9) {
             Some(Choice::Disable)
@@ -157,11 +161,7 @@ fn drive(
             } else if keys.just_pressed(KeyCode::Escape) {
                 Some(Choice::Cancel)
             } else if mouse.just_pressed(MouseButton::Left) {
-                windows
-                    .single()
-                    .ok()
-                    .and_then(|window| window.cursor_position())
-                    .and_then(|point| presentation.experience_choice(point.to_array()))
+                cursor.and_then(|point| presentation.experience_choice(point))
             } else {
                 None
             }
@@ -202,7 +202,7 @@ fn drive(
         service.live = None;
         bevy::log::warn!(%error, "server experience runtime disabled");
     }
-    let (text, prompt) = chrome(&extension.session, menu.is_visible());
+    let (text, prompt) = chrome(&extension.session);
     if let Err(error) = presentation.set_experience_chrome(text.as_deref(), prompt) {
         extension.session.disable();
         bevy::log::warn!(%error, "server experience trusted UI unavailable");
@@ -297,11 +297,12 @@ fn advance_runtime(
     Ok(())
 }
 
-/// Builds plain trusted text; pack data can only fill labeled values.
-fn chrome(session: &server_experience::session::Session, in_menu: bool) -> (Option<String>, bool) {
+/// Builds plain trusted text; pack data can only fill labeled values. Only an unanswered
+/// offer prompts, over whatever is on screen: the join holds its loading screen meanwhile.
+fn chrome(session: &server_experience::session::Session) -> (Option<String>, bool) {
     let text = match &session.state {
         State::Inert | State::Disabled => return (None, false),
-        State::Offered(offer) if in_menu => {
+        State::Offered(offer) => {
             let packages = offer
                 .offer
                 .packages
@@ -321,7 +322,7 @@ fn chrome(session: &server_experience::session::Session, in_menu: bool) -> (Opti
             };
             format!(
                 concat!(
-                    "Cinnabar server experience\nServer: {}\nKey: {}\n{}\n{}\n",
+                    "Server: {}\nKey: {}\n{}\n{}\n",
                     "Permissions: {:?}\nMemory limit: {} bytes; GPU limit: {} bytes\n",
                     "Media/download hosts: {}\nThese hosts see your IP address.\n",
                     "Fallback: {}\nServer code is untrusted. F9 disables it immediately.",
@@ -344,16 +345,12 @@ fn chrome(session: &server_experience::session::Session, in_menu: bool) -> (Opti
                 offer.offer.fallback,
             )
         }
-        State::Offered(_) => "Server experience offered. Pause to review. F9: decline".into(),
         State::Awaiting(_) => "Cinnabar: verifying server experience. F9: disable".into(),
         State::Granted(_) => session.notice.clone().unwrap_or_else(|| {
             "Cinnabar: experience approved; runtime unavailable. F9: disable".into()
         }),
     };
-    (
-        Some(text),
-        in_menu && matches!(session.state, State::Offered(_)),
-    )
+    (Some(text), matches!(session.state, State::Offered(_)))
 }
 
 /// Leaves all ordinary input untouched when there is no offered experience.
@@ -372,8 +369,7 @@ mod status_tests {
     fn vanilla_session_does_not_claim_disable_key_or_draw_chrome() {
         let session = server_experience::session::Session::default();
         assert!(!can_disable(&session.state));
-        assert_eq!(chrome(&session, true), (None, false));
-        assert_eq!(chrome(&session, false), (None, false));
+        assert_eq!(chrome(&session), (None, false));
         assert!(!can_disable(&State::Disabled));
     }
 }

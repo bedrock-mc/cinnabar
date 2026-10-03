@@ -26,6 +26,8 @@ use sim::{
 use ui::UserSettings;
 use world::ChunkKey;
 
+mod cursor_changes;
+
 #[derive(Default)]
 struct CameraCollisionFixture {
     boxes: Vec<Aabb>,
@@ -397,6 +399,7 @@ fn capture_test_app(
     capture_on_start: bool,
 ) -> (App, Entity) {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     app.init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
@@ -509,8 +512,21 @@ fn left_click_recaptures_with_locked_invisible_cursor() {
 }
 
 #[test]
+fn consent_popup_releases_a_captured_cursor_whatever_the_scene_asks() {
+    let (mut app, window) = capture_test_app(true, CursorGrabMode::Locked, false, true);
+    app.insert_resource(crate::server_experiences::input::ConsentInput(true));
+
+    app.update();
+
+    let cursor = app.world().get::<CursorOptions>(window).unwrap();
+    assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+    assert!(cursor.visible);
+}
+
+#[test]
 fn production_schedule_consumes_recapture_click_until_physical_release() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -580,6 +596,7 @@ fn production_schedule_consumes_recapture_click_until_physical_release() {
 #[test]
 fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -631,6 +648,7 @@ fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
 #[test]
 fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut().spawn((
@@ -677,6 +695,7 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
 #[test]
 fn stable_presentation_pause_ignores_held_movement_and_look_input() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true))
@@ -867,6 +886,7 @@ fn review_unrelated_settings_keep_the_hotkey_perspective() {
 #[test]
 fn captured_f5_cycles_perspective_without_moving_the_local_view() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -913,6 +933,7 @@ fn captured_f5_cycles_perspective_without_moving_the_local_view() {
 #[test]
 fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     configure_client_frame_schedule(&mut app);
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
@@ -970,6 +991,7 @@ fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
 #[test]
 fn replacing_user_settings_updates_the_live_projection() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
     app.world_mut().spawn((
@@ -1022,6 +1044,7 @@ fn horizontal_fov_conversion_is_finite_and_bounded_for_bad_inputs() {
 #[test]
 fn plugin_spawns_camera_with_default_horizontal_fov() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
     app.world_mut().spawn((
@@ -1053,6 +1076,7 @@ fn plugin_spawns_camera_with_default_horizontal_fov() {
 #[test]
 fn camera_vertical_fov_tracks_primary_window_aspect_changes() {
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::default());
     let window = app
@@ -1110,6 +1134,7 @@ fn camera_vertical_fov_tracks_primary_window_aspect_changes() {
 fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
     let target = Vec3::new(4.5, 70.0, -3.5);
     let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     app.init_resource::<Time>()
         .add_plugins(FlyCameraPlugin::new(true));
     app.world_mut()

@@ -26,6 +26,8 @@ fn hud_presentation(preference: Option<u8>, safe_area: SafeArea) -> UiPresentati
 
 #[test]
 fn too_short_or_over_inset_viewports_fail_closed_to_no_hud() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     // (physical, dpi, preference, insets): each safe viewport is too narrow
     // or too short for the fixed hotbar and bottom stack.
     for (physical, dpi, preference, safe_area) in [
@@ -39,10 +41,16 @@ fn too_short_or_over_inset_viewports_fail_closed_to_no_hud() {
     ] {
         let mut presentation = hud_presentation(preference, safe_area);
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_player_game_mode(PlayerGameMode::Survival);
-        runtime.set_local_selected_slot(2);
+        runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+        player_runtime.inventory.set_local_selected_slot(2);
         let input = presentation
-            .build(&runtime, 0, physical, ui::DpiScale::new(dpi).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                physical,
+                ui::DpiScale::new(dpi).unwrap(),
+            )
             .unwrap();
         assert!(
             input.vertices.is_empty(),
@@ -53,10 +61,18 @@ fn too_short_or_over_inset_viewports_fail_closed_to_no_hud() {
 
 #[test]
 fn render_input_carries_the_physical_safe_area_insets() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = hud_presentation(None, insets(10.0, 20.0, 30.0, 40.0));
     let runtime = UiRuntime::new(1);
     let input = presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.5).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.5).unwrap(),
+        )
         .unwrap();
     assert_eq!(input.viewport_size, [1280, 720]);
     assert_eq!(

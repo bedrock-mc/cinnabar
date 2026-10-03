@@ -573,3 +573,45 @@ fn anonymous_siblings_hover_and_click_independently() {
         ScreenEvent::Toggle { name, checked: true, .. } if name == "radio_1"
     )));
 }
+
+#[test]
+fn review_disabled_edit_boxes_and_toggles_reject_nonbutton_input() {
+    let mut screen = Screen::new(page(vec![edit_box(
+        json!({"enabled":false, "always_listening":true}),
+    )]));
+    let regions = screen.regions();
+    let typed = screen
+        .dispatcher
+        .text(&regions, &mut screen.view, "x", None);
+    assert!(!typed.consumed && typed.events.is_empty());
+    let mut screen = Screen::new(page(vec![toggle(
+        "t",
+        json!({"enabled":false, "enable_directional_toggling":true}),
+    )]));
+    screen.view.focused = Some("/root/t".into());
+    let regions = screen.regions();
+    let directed = screen
+        .dispatcher
+        .direction(&regions, &mut screen.view, [1.0, 0.0], 0.0);
+    assert!(!directed.consumed && directed.events.is_empty());
+}
+
+#[test]
+fn review_slider_release_outside_its_region_clears_pointer_capture() {
+    let mut screen = Screen::new(page(vec![slider(
+        json!({"button_mappings":[{"from_button_id":"button.menu_select", "to_button_id":"button.slider_track", "mapping_type":"pressed"}]}),
+        vec![],
+    )]));
+    screen.hover([5.0, 5.0]);
+    screen.press("button.menu_select", true, [5.0, 5.0], 0.0);
+    screen.press("button.menu_select", false, [150.0, 150.0], 0.1);
+    let regions = screen.regions();
+    let input = PointerInput {
+        point: Some([75.0, 5.0]),
+        held: true,
+        mode: InputMode::Mouse,
+        now: 0.2,
+    };
+    let later = screen.dispatcher.pointer(&regions, &mut screen.view, input);
+    assert!(slider_values(&later.events).is_empty());
+}

@@ -79,6 +79,8 @@ pub(crate) struct HudFrame {
     /// Cached software-rendered 3-D local avatar shown by the personal
     /// inventory screen.
     pub player_preview: Option<IconRef>,
+    /// The native HUD hold timer is active. Settings are applied during binding.
+    pub paper_doll_visible: bool,
     /// Skin-backed first-person arm carriers. These are separate from the
     /// item atlas so an empty hand still has the same silhouette as the
     /// player's authoritative skin.
@@ -218,17 +220,18 @@ impl<'a> HudLayout<'a> {
     /// screens for a container scene, else the sleep overlay and first-person hands.
     pub(super) fn append(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         container: bool,
     ) -> Result<(), UiPresentationError> {
         if container {
-            self.inventory_screen(runtime, frame)?;
+            self.inventory_screen(player_runtime, runtime, frame)?;
             return Ok(());
         }
         self.sleep_overlay(frame)?;
         let mode_allows_hotbar = runtime
-            .player_game_mode()
+            .player_game_mode(player_runtime)
             .is_none_or(|mode| mode.shows_hotbar());
         if frame.first_person && mode_allows_hotbar {
             self.held_items(frame)?;

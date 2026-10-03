@@ -215,6 +215,9 @@ impl UiPresentationRuntime {
     /// Scroll the history by a wheel delta in notches, or logical px when
     /// `pixels`; positive scrolls toward older messages.
     pub(crate) fn scroll_chat(&mut self, delta: f32, pixels: bool) {
+        if self.chat_settings_open() {
+            return;
+        }
         let chat = &mut self.form_presentation.chat;
         let Some(metrics) = chat.scroll.as_ref().map(|(_, metrics)| metrics.clone()) else {
             return;
@@ -386,5 +389,29 @@ impl UiPresentationRuntime {
         hits.iter()
             .map(|(hit, bounds, _)| (*hit, *bounds))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_chat_settings_own_wheel_input() {
+        let mut presentation =
+            UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+        presentation.form_presentation.chat.scroll = Some((
+            "history".to_owned(),
+            ScrollMetrics {
+                content: 400.0,
+                viewport: 100.0,
+                ..ScrollMetrics::default()
+            },
+        ));
+        presentation.set_chat_settings_open(true);
+        presentation.scroll_chat(40.0, true);
+        assert_eq!(presentation.form_presentation.chat.from_bottom, 0.0);
+        presentation.set_chat_settings_open(false);
+        presentation.scroll_chat(40.0, true);
+        assert!(presentation.form_presentation.chat.from_bottom > 0.0);
     }
 }
