@@ -26,6 +26,7 @@ pub(super) type Bounds = [f32; 4];
 pub(crate) struct Originals {
     pub(super) page: u16,
     pub(super) sprites: HashMap<String, [u16; 4]>,
+    pub(super) loading_frames: Vec<(String, u32)>,
 }
 
 pub(super) struct Canvas<'a> {
@@ -41,6 +42,8 @@ pub(super) struct Canvas<'a> {
     pub(super) hits: Vec<(MenuAction, UiRect)>,
     /// Opacity multiplier for everything drawn, for fading screens in.
     pub(super) alpha: f32,
+    /// The menu clock used to select timed animation frames.
+    pub(super) seconds: f64,
     /// Scroll offsets by view key, as the last input left them.
     pub(super) offsets: HashMap<String, f32>,
     pub(super) scrolls: Vec<ScrollArea>,
@@ -82,6 +85,7 @@ impl<'a> Canvas<'a> {
             rem: gui_pixel * 5.0,
             hits: Vec::new(),
             alpha: 1.0,
+            seconds: 0.0,
             offsets: HashMap::new(),
             scrolls: Vec::new(),
             spots: Vec::new(),
@@ -194,6 +198,32 @@ impl<'a> Canvas<'a> {
         }
         let layout = self.layout(value, (width.max(1.0) * 64.0) as u32, style)?;
         self.place_text(layout, at, width, color, shadow)
+    }
+
+    /// Draws wrapped lines centered within the requested width, returning their height.
+    pub(super) fn centered_wrapped_text(
+        &mut self,
+        value: &str,
+        at: [f32; 2],
+        width: f32,
+        style: Type,
+        color: Rgba,
+    ) -> Result<f32, UiPresentationError> {
+        if value.is_empty() {
+            return Ok(0.0);
+        }
+        let mut request = self
+            .metrics
+            .request(value, (width.max(1.0) * 64.0) as u32, self.font);
+        request.wrap.align = ui::TextLineAlign::Center;
+        if let Ok(scale) = UiScale::new_display(self.metrics.scale.get() * text_factor(style)) {
+            request.scale = scale;
+        }
+        let layout = self
+            .layouts
+            .layout(request)
+            .map_err(UiPresentationError::Text)?;
+        self.place_text(layout, at, width, color, false)
     }
 
     fn layout(

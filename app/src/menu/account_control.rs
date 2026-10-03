@@ -49,6 +49,8 @@ pub(crate) trait AccountControl {
     fn profile(&mut self) -> Option<MenuProfile> {
         None
     }
+    /// Requests an immediate profile retry from the feed worker.
+    fn refresh_profile(&mut self) {}
     /// `home.v1`: the start screen's service data, when fetched.
     fn home(&mut self) -> Option<MenuHome> {
         None
@@ -105,6 +107,9 @@ impl MenuRuntime {
                     .map(|(card, details)| (card.address.clone(), details.clone())),
             );
             self.gatherings = gatherings.into_iter().map(|(card, _)| card).collect();
+        }
+        if std::mem::take(&mut self.feeds.profile_refresh_requested) {
+            control.refresh_profile();
         }
         if let Some(profile) = control.profile() {
             self.feeds.profile = profile;

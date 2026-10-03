@@ -273,6 +273,9 @@ func (s *Service) prune() {
 		keep[image.Path] = true
 	}
 	keep[s.gamerpic] = true
+	for _, path := range s.profileArt {
+		keep[path] = true
+	}
 	s.mu.Unlock()
 	for _, entry := range entries {
 		path := filepath.Join(s.cfg.ArtworkDir, entry.Name())

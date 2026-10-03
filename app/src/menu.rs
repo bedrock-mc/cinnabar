@@ -23,6 +23,7 @@ mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
 mod navigation;
+pub(crate) mod profile_achievements;
 #[cfg(test)]
 mod server_input_tests;
 pub(crate) mod servers;
@@ -166,6 +167,8 @@ pub(crate) enum MenuAction {
     ConfirmExit,
     DismissDialog,
     SelectServerTab(MenuServerTab),
+    SelectProfileTab(ui::ProfileTab),
+    RefreshProfile,
     RefreshCatalog,
     StartSignIn,
     CancelSignIn,
@@ -236,6 +239,7 @@ pub(crate) struct MenuRuntime {
     pressed: Option<MenuAction>,
     pointer_down: bool,
     server_tab: MenuServerTab,
+    profile_tab: ui::ProfileTab,
     dialog: Option<MenuDialog>,
     field: Option<MenuField>,
     /// Bumped by every field edit and caret move, restarting the caret blink.
@@ -411,6 +415,7 @@ impl MenuRuntime {
             hovered: self.hovered,
             pressed: self.pressed,
             server_tab: self.server_tab,
+            profile_tab: self.profile_tab,
             dialog: self.dialog,
             field: self.field,
             caret: self.caret(),
@@ -630,6 +635,12 @@ impl MenuRuntime {
         self.message = None;
         self.disconnect_message = None;
         match action {
+            MenuAction::SelectProfileTab(tab) => self.profile_tab = tab,
+            MenuAction::RefreshProfile => {
+                self.feeds.profile.loaded = false;
+                self.feeds.profile.unavailable = false;
+                self.feeds.profile_refresh_requested = true;
+            }
             MenuAction::Inbox(action) => self.activate_inbox(action),
             MenuAction::Navigate(screen) => {
                 self.enter(screen);

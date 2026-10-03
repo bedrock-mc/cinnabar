@@ -127,10 +127,12 @@ fn review_realm_list_reveals_the_last_entry() {
 
 #[test]
 fn review_short_profile_is_scrollable() {
-    let view = MenuRuntime::new(true, 2, "Test".into()).view();
+    let mut view = MenuRuntime::new(true, 2, "Test".into()).view();
+    view.auth_state = crate::menu::auth::AuthState::Authenticated;
+    view.feeds.profile.loaded = true;
     let (scrolls, _, _) = paint(HashMap::new(), |c| {
         let size = [c.r(60.0), c.r(40.0)];
-        profile::draw(c, &view, size, None).unwrap();
+        profile::draw(c, &view, size, None, &HashMap::new()).unwrap();
     });
     assert!(
         scrolls.iter().any(|area| area.max > 0.0),

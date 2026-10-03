@@ -86,13 +86,28 @@ pub(crate) struct MenuGameCard {
 /// The signed-in profile as the start screen shows it.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct MenuProfile {
+    pub(crate) loaded: bool,
+    pub(crate) unavailable: bool,
+    pub(crate) xuid: String,
+    pub(crate) statistics_loaded: bool,
+    pub(crate) statistics_error: bool,
+    pub(crate) achievements_loaded: bool,
+    pub(crate) achievements_error: bool,
+    pub(crate) achievements: Option<protocol::launcher_control::ProfileAchievements>,
     pub(crate) gamertag: String,
     pub(crate) picture_path: String,
+    pub(crate) avatar_path: String,
+    pub(crate) avatar_loaded: bool,
+    pub(crate) avatar_error: bool,
+    pub(crate) featured_screenshot_path: String,
+    pub(crate) featured_screenshot_loaded: bool,
+    pub(crate) featured_screenshot_error: bool,
     pub(crate) real_name: String,
     pub(crate) presence: String,
     pub(crate) gamerscore: Option<i64>,
     pub(crate) friends: Option<u32>,
     pub(crate) followers: Option<u32>,
+    pub(crate) statistics: Option<protocol::launcher_control::ProfileStatistics>,
 }
 
 /// Service feed data beyond the catalog cards: featured-server details keyed
@@ -102,6 +117,7 @@ pub(crate) struct MenuFeeds {
     pub(crate) inbox_state: super::inbox::InboxState,
     pub(crate) details: HashMap<String, ServerDetails>,
     pub(crate) profile: MenuProfile,
+    pub(crate) profile_refresh_requested: bool,
     pub(crate) selected_featured: Option<usize>,
     /// The saved server the Servers tab's details show, instead of a featured one.
     pub(crate) selected_saved: Option<usize>,
@@ -288,6 +304,7 @@ pub(crate) struct MenuView {
     pub(crate) hovered: Option<MenuAction>,
     pub(crate) pressed: Option<MenuAction>,
     pub(crate) server_tab: MenuServerTab,
+    pub(crate) profile_tab: ui::ProfileTab,
     pub(crate) dialog: Option<MenuDialog>,
     pub(crate) field: Option<MenuField>,
     /// The focused field's caret.

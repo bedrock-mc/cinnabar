@@ -115,6 +115,14 @@ pub struct Profile {
     #[serde(default)]
     pub gamerpic: Artwork,
     #[serde(default)]
+    pub avatar: Artwork,
+    #[serde(default)]
+    pub avatar_error: bool,
+    #[serde(default)]
+    pub featured_screenshot: Artwork,
+    #[serde(default)]
+    pub featured_screenshot_error: bool,
+    #[serde(default)]
     pub real_name: String,
     #[serde(default)]
     pub presence_text: String,
@@ -125,6 +133,44 @@ pub struct Profile {
     pub friends: Option<u32>,
     #[serde(default)]
     pub followers: Option<u32>,
+    #[serde(default)]
+    pub statistics: Option<ProfileStatistics>,
+    #[serde(default)]
+    pub achievements: Option<ProfileAchievements>,
+}
+
+/// The four Xbox title statistics requested by vanilla's PlayerStatisticsFacet.
+/// Numeric strings preserve the service's precision; absent values are unavailable.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ProfileStatistics {
+    pub minutes_played: Option<String>,
+    pub blocks_broken: Option<String>,
+    pub mobs_defeated: Option<String>,
+    pub distance_travelled: Option<String>,
+}
+
+/// The account's achievement summary for the authenticated Minecraft title.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ProfileAchievements {
+    pub unlocked: u32,
+    pub total: u32,
+    pub current_gamerscore: Option<i64>,
+    pub max_gamerscore: Option<i64>,
+    pub entries: Vec<ProfileAchievement>,
+}
+
+/// Xbox achievement data; game-specific suggested order remains optional.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ProfileAchievement {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub image: Artwork,
+    pub gamerscore: Option<i64>,
+    pub locked: bool,
+    #[serde(default)]
+    pub date_unlocked: String,
+    pub suggested_order: Option<u32>,
 }
 
 /// The start screen's service data: messaging surfaces, inbox counts,
@@ -742,6 +788,15 @@ mod tests {
             "profile":{"gamertag":"Steve","xuid":"1","gamerpic":{"path":"/art/p.img"}}}}"#;
         let body: ProfileBody = parse_response(profile).expect("profile");
         assert_eq!(body.profile.gamerpic.path, "/art/p.img");
+        assert!(body.profile.statistics.is_none());
+        let profile = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "profile":{"statistics":{"minutes_played":"120.5","blocks_broken":"0"}}}}"#;
+        let body: ProfileBody = parse_response(profile).expect("profile statistics");
+        let statistics = body.profile.statistics.expect("loaded statistics");
+        assert_eq!(statistics.minutes_played.as_deref(), Some("120.5"));
+        assert_eq!(statistics.blocks_broken.as_deref(), Some("0"));
+        assert!(statistics.mobs_defeated.is_none());
+        assert!(statistics.distance_travelled.is_none());
         let realm = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"realms":[
             {"name":"R","state":"OPEN","target":"realm_id/7","online_players":2,"max_players":10}]}}"#;
         let body: RealmsBody = parse_response(realm).expect("realm");

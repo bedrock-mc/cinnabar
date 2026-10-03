@@ -10,15 +10,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use image::{ImageFormat, ImageReader, Limits};
+use image::{AnimationDecoder, ImageDecoder, ImageFormat, ImageReader, Limits};
 use serde::Deserialize;
 
 /// Side of the packed OreUI page.
-pub(crate) const OREUI_PAGE_SIDE: u32 = 1024;
+pub(crate) const OREUI_PAGE_SIDE: u32 = 4096;
 const MAX_ATLAS_JSON_BYTES: u64 = 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_IMAGE_SIDE: u32 = 1024;
 const GUTTER: u32 = 1;
+const MAX_ANIMATION_FRAMES: usize = 32;
+const MAX_ANIMATION_PIXELS_BYTES: usize = 1024 * 1024;
+/// The pixelated loading animation selected by OreUI `ep`.
+pub(crate) const LOADING_ANIMATION: &str = "assets/animation-074ed0ba8c16bb30e36c.gif";
 /// Standalone category images from the installed OreUI bundle, in sidebar order.
 pub(crate) const INBOX_ICONS: [&str; 5] = [
     "assets/News-f81489154ff3c38f5b5f.png",
@@ -28,11 +32,69 @@ pub(crate) const INBOX_ICONS: [&str; 5] = [
     "assets/Feedback-ecfce4d670046c25d3df.png",
 ];
 
+/// Standalone Profile assets named by the version-matched OreUI components.
+pub(crate) const PROFILE_STAT_ICONS: [&str; 4] = [
+    "assets/IconClockGrey-ea5642bd84ad58714dd4.png",
+    "assets/IconPickaxeGrey-cb118f7d544ff4fce2e2.png",
+    "assets/IconSwordGrey-9087f66e9056b3b959aa.png",
+    "assets/IconBootsGrey-142a375cbe9eecc3879d.png",
+];
+/// The deterministic fallback banner choices used by OreUI `mZ`.
+pub(crate) const PROFILE_BANNERS: [&str; 8] = [
+    "assets/screenshot_1-48404d5a8f0097356091.jpg",
+    "assets/screenshot_2-7c721593cd419875cf29.jpg",
+    "assets/screenshot_3-9dd41022b2ee8d8c2c08.jpg",
+    "assets/screenshot_4-72ff980d133dc323944c.jpg",
+    "assets/screenshot_5-5636d6b539bf7f23759d.jpg",
+    "assets/screenshot_6-380c0205af54e86438ac.jpg",
+    "assets/screenshot_7-6cfec1e1e1009ea73447.jpg",
+    "assets/screenshot_8-b5f240429090c0ddd613.jpg",
+];
+/// Profile error art, loaded only from an install at runtime.
+pub(crate) const PROFILE_ERRORS: [&str; 3] = [
+    "assets/nothing_to_see-1107fc6902173eb98f28.png",
+    "assets/generic_error-aa90619c4c1746eb7ac0.png",
+    "assets/connection_error-01bc20883b3a2f7e5fb3.png",
+];
+/// The Overview row art selected by OreUI `g2`.
+pub(crate) const PROFILE_SUMMARY_ICONS: [&str; 4] = [
+    "assets/friends-9e435522a799e248f3c5.png",
+    "assets/followers-bec3d954895866890570.png",
+    "assets/gallery-10d21b3ca655e32b1ac8.png",
+    "assets/achievements-a42ab3d4b8e49c24b217.png",
+];
+/// Gamerscore art shared by Overview and achievement cards.
+pub(crate) const PROFILE_GAMERSCORE: &str = "assets/gamerscore_icon-53b10130cb6f6c0271cb.png";
+/// All standalone Profile images to pack alongside the atlases.
+const PROFILE_IMAGES: [&str; 20] = [
+    PROFILE_STAT_ICONS[0],
+    PROFILE_STAT_ICONS[1],
+    PROFILE_STAT_ICONS[2],
+    PROFILE_STAT_ICONS[3],
+    PROFILE_BANNERS[0],
+    PROFILE_BANNERS[1],
+    PROFILE_BANNERS[2],
+    PROFILE_BANNERS[3],
+    PROFILE_BANNERS[4],
+    PROFILE_BANNERS[5],
+    PROFILE_BANNERS[6],
+    PROFILE_BANNERS[7],
+    PROFILE_ERRORS[0],
+    PROFILE_ERRORS[1],
+    PROFILE_ERRORS[2],
+    PROFILE_SUMMARY_ICONS[0],
+    PROFILE_SUMMARY_ICONS[1],
+    PROFILE_SUMMARY_ICONS[2],
+    PROFILE_SUMMARY_ICONS[3],
+    PROFILE_GAMERSCORE,
+];
+
 /// The packed OreUI page: RGBA8 pixels (premultiplied) and each bundle image's
 /// pixel rect `[x0, y0, x1, y1]`, keyed by its bundle path (`assets/<name>.png`).
 pub(crate) struct OreUiImages {
     pub(crate) rgba: Vec<u8>,
     pub(crate) sprites: HashMap<String, [u16; 4]>,
+    pub(crate) loading_frames: Vec<(String, u32)>,
 }
 
 #[derive(Deserialize)]
@@ -129,7 +191,7 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
         x += width + GUTTER;
         shelf = shelf.max(height);
     }
-    for key in INBOX_ICONS {
+    for key in INBOX_ICONS.into_iter().chain(PROFILE_IMAGES) {
         if !dir.join(key).is_file() {
             continue;
         }
@@ -140,7 +202,7 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
             shelf = 0;
         }
         if y + height > OREUI_PAGE_SIDE {
-            return Err("inbox images do not fit one page".into());
+            return Err("OreUI images do not fit one page".into());
         }
         blit(&mut rgba, side, x, y, &pixels, width, height);
         sprites.insert(
@@ -150,7 +212,77 @@ fn load(dir: &Path) -> Result<OreUiImages, String> {
         x += width + GUTTER;
         shelf = shelf.max(height);
     }
-    Ok(OreUiImages { rgba, sprites })
+    let mut loading_frames = Vec::new();
+    if dir.join(LOADING_ANIMATION).is_file() {
+        for (index, (width, height, pixels, millis)) in decode_animation(&read_bounded(
+            &dir.join(LOADING_ANIMATION),
+            MAX_IMAGE_BYTES,
+        )?)?
+        .into_iter()
+        .enumerate()
+        {
+            if x + width > OREUI_PAGE_SIDE {
+                x = 0;
+                y += shelf + GUTTER;
+                shelf = 0;
+            }
+            if y + height > OREUI_PAGE_SIDE {
+                return Err("OreUI animation does not fit one page".into());
+            }
+            blit(&mut rgba, side, x, y, &pixels, width, height);
+            let key = format!("{LOADING_ANIMATION}#{index}");
+            sprites.insert(
+                key.clone(),
+                [x as u16, y as u16, (x + width) as u16, (y + height) as u16],
+            );
+            loading_frames.push((key, millis));
+            x += width + GUTTER;
+            shelf = shelf.max(height);
+        }
+    }
+    Ok(OreUiImages {
+        rgba,
+        sprites,
+        loading_frames,
+    })
+}
+
+/// Decodes bounded GIF frames with their own timing and premultiplied pixels.
+fn decode_animation(bytes: &[u8]) -> Result<Vec<(u32, u32, Vec<u8>, u32)>, String> {
+    let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes))
+        .map_err(|error| error.to_string())?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_IMAGE_SIDE);
+    limits.max_alloc = Some(MAX_ANIMATION_PIXELS_BYTES as u64);
+    decoder
+        .set_limits(limits)
+        .map_err(|error| error.to_string())?;
+    let mut frames = Vec::new();
+    let mut decoded_bytes = 0;
+    for frame in decoder.into_frames() {
+        if frames.len() == MAX_ANIMATION_FRAMES {
+            return Err("OreUI animation has too many frames".into());
+        }
+        let frame = frame.map_err(|error| error.to_string())?;
+        let (numerator, denominator) = frame.delay().numer_denom_ms();
+        let millis = numerator.div_ceil(denominator).max(1);
+        let buffer = frame.into_buffer();
+        let (width, height) = buffer.dimensions();
+        let mut pixels = buffer.into_raw();
+        decoded_bytes += pixels.len();
+        if decoded_bytes > MAX_ANIMATION_PIXELS_BYTES {
+            return Err("OreUI animation pixels are too large".into());
+        }
+        for pixel in pixels.chunks_exact_mut(4) {
+            let alpha = u16::from(pixel[3]);
+            for channel in &mut pixel[..3] {
+                *channel = ((u16::from(*channel) * alpha + 127) / 255) as u8;
+            }
+        }
+        frames.push((width, height, pixels, millis));
+    }
+    Ok(frames)
 }
 
 fn blit(target: &mut [u8], side: usize, x: u32, y: u32, source: &[u8], width: u32, height: u32) {
@@ -176,7 +308,12 @@ fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
 /// A PNG as premultiplied RGBA8, matching the UI pipeline's blending.
 fn decode(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
     let bytes = read_bounded(path, MAX_IMAGE_BYTES)?;
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png);
+    let format = if path.extension().is_some_and(|ext| ext == "jpg") {
+        ImageFormat::Jpeg
+    } else {
+        ImageFormat::Png
+    };
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_SIDE);
     limits.max_image_height = Some(MAX_IMAGE_SIDE);
@@ -199,6 +336,39 @@ fn decode(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Makes authored GIF bytes without requiring any installed assets.
+    fn synthetic_animation(count: usize) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
+            for index in 0..count {
+                let pixels =
+                    image::RgbaImage::from_pixel(2, 2, image::Rgba([index as u8, 120, 40, 255]));
+                encoder
+                    .encode_frame(image::Frame::from_parts(
+                        pixels,
+                        0,
+                        0,
+                        image::Delay::from_numer_denom_ms(100, 1),
+                    ))
+                    .unwrap();
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn animated_loading_keeps_each_frame_and_delay() {
+        let frames = decode_animation(&synthetic_animation(3)).unwrap();
+        assert_eq!(frames.len(), 3);
+        for (index, (width, height, pixels, millis)) in frames.iter().enumerate() {
+            assert_eq!((*width, *height, *millis), (2, 2, 100));
+            assert_eq!(&pixels[..4], &[index as u8, 120, 40, 255]);
+        }
+        assert!(decode_animation(&synthetic_animation(MAX_ANIMATION_FRAMES + 1)).is_err());
+        assert!(decode_animation(b"invalid GIF").is_err());
+    }
 
     #[test]
     fn atlases_pack_side_by_side_with_their_sprite_rects() {

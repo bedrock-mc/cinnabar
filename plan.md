@@ -1,5 +1,26 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+### Profile 1.26.50 (incomplete parity acceptance, 2026-10-03)
+
+Profile now has source-backed responsive card/tab geometry, independent scrolling,
+Overview friend/follower and Minecraft achievement summaries, completed achievement
+ordering, and populated Stats. The Go core builds the Xbox statistics and achievement
+requests, persona avatar and featured gallery requests; authored fixtures verify the
+contracts without owner-account requests. Missing values remain unavailable rather
+than invented zeros. Exact references are in `docs/profile-parity.md`.
+
+Full 1:1 parity remains incomplete. Dressing Room has no persona destination or hanger
+icon; screenshot gallery counts and navigation need local gallery persistence;
+followers and achievement detail destinations are missing. Minecraft suggestion order,
+persona achievement rewards and progress are not supplied by the Xbox achievement
+collection and need the additional native metadata path. Offline, privacy and user-not-found
+failures still share a generic error because the feed does not yet preserve their native
+classification. Runtime reference artwork and the exact loading animation require the
+optional OreUI originals directory; normal mode retains diagnostic fallbacks. English
+formatting needs integration with the locale system. Native fixture frames are not matched
+vanilla captures, and no overall visual parity gate is closed. No live server, remote
+machine or owner's authenticated service request was used for verification.
+
 2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
 the account control surface only lists and connects to existing Realms. Joining
 by invite or code and creating a Realm need a supported backend operation and a

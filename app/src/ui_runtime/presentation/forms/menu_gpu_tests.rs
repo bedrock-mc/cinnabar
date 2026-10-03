@@ -298,3 +298,96 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Renders Profile fixtures on the native GPU without account auth or a server.
+#[test]
+#[ignore = "offline native GPU Profile frames"]
+fn profile_frames_on_native_gpu() {
+    let Some(mut presentation) = pack_harness::startup_presentation() else {
+        return;
+    };
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
+    view.screen = MenuScreen::Profile;
+    let mut runtime = pack_harness::menu_runtime();
+    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
+    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
+    presentation.sync_player_preview(Some(&skin.rgba8), Default::default(), true, false, 0.0);
+    view.profile_icon = presentation.player_preview_icon();
+    let mut app = app();
+    let stats = app.world().resource::<render::UiRenderStats>().clone();
+    for state in [
+        "signed-out",
+        "loading",
+        "overview",
+        "stats",
+        "empty",
+        "error",
+    ] {
+        view.auth_state = if state == "signed-out" {
+            crate::menu::auth::AuthState::SignedOut
+        } else {
+            crate::menu::auth::AuthState::Authenticated
+        };
+        view.profile_tab = if matches!(state, "stats" | "empty") {
+            ui::ProfileTab::Stats
+        } else {
+            ui::ProfileTab::Overview
+        };
+        let profile = &mut view.feeds.profile;
+        profile.loaded = state != "loading";
+        profile.avatar_loaded = true;
+        profile.featured_screenshot_loaded = true;
+        profile.featured_screenshot_error = false;
+        profile.avatar_error = true;
+        profile.achievements_loaded = true;
+        profile.achievements_error = false;
+        profile.achievements = Some(protocol::launcher_control::ProfileAchievements {
+            unlocked: 2,
+            total: 10,
+            current_gamerscore: Some(20),
+            max_gamerscore: Some(100),
+            entries: Vec::new(),
+        });
+        profile.unavailable = state == "error";
+        profile.gamertag = "Steve".into();
+        profile.presence = "Minecraft".into();
+        profile.friends = Some(17);
+        profile.followers = Some(24);
+        profile.statistics_loaded = true;
+        profile.statistics_error = false;
+        profile.statistics = Some(protocol::launcher_control::ProfileStatistics {
+            minutes_played: (state != "empty").then(|| "120.5".into()),
+            blocks_broken: (state != "empty").then(|| "12345".into()),
+            mobs_defeated: (state != "empty").then(|| "0".into()),
+            distance_travelled: (state != "empty").then(|| "1234567.89".into()),
+        });
+        for frame in 0..8 {
+            presentation.set_menu_view(Some(view.clone()));
+            let input = presentation
+                .build(&runtime, frame * 16, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .unwrap();
+            app.world_mut()
+                .resource_mut::<render::UiRenderScene>()
+                .publish(input, &stats)
+                .unwrap();
+            app.update();
+            app.sub_app(RenderApp)
+                .world()
+                .resource::<RenderDevice>()
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+        }
+        if let Some(output) = std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR") {
+            let output = std::path::PathBuf::from(output);
+            std::fs::create_dir_all(&output).unwrap();
+            image::RgbaImage::from_raw(
+                SIZE[0],
+                SIZE[1],
+                app.world().resource::<Captured>().0.clone(),
+            )
+            .expect("GPU readback")
+            .save(output.join(format!("native-profile-{state}.png")))
+            .unwrap();
+        }
+    }
+}

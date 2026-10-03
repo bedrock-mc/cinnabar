@@ -512,6 +512,9 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
 
 /// Every downloaded artwork path the menu view can draw.
 pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+    if view.screen == crate::menu::MenuScreen::Profile {
+        return profile_art(view);
+    }
     // The Servers tab shows the first experience until a server is picked.
     let shown = match view.feeds.selected_saved {
         Some(_) => None,
@@ -534,6 +537,10 @@ pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         .map(|path| (path, THUMBNAIL_SIDE));
     let full = home_art(&view.feeds.home)
         .into_iter()
+        .chain(std::iter::once(view.feeds.profile.avatar_path.clone()))
+        .chain(std::iter::once(
+            view.feeds.profile.featured_screenshot_path.clone(),
+        ))
         .chain(selected.into_iter().flat_map(|details| {
             details
                 .screenshots
@@ -557,6 +564,31 @@ pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         .chain(full)
         .filter(|(path, _)| !path.is_empty())
         .collect()
+}
+
+/// Queues Profile card art first, followed by only the achievements Overview draws.
+fn profile_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+    let profile = &view.feeds.profile;
+    let mut paths = vec![
+        (profile.avatar_path.clone(), MAX_ARTWORK_SIDE),
+        (profile.featured_screenshot_path.clone(), MAX_ARTWORK_SIDE),
+        (profile.picture_path.clone(), THUMBNAIL_SIDE),
+    ];
+    if view.profile_tab == ui::ProfileTab::Overview
+        && profile.achievements_loaded
+        && !profile.achievements_error
+        && let Some(summary) = &profile.achievements
+    {
+        let sections = crate::menu::profile_achievements::visible_achievements(&summary.entries);
+        paths.extend(
+            sections
+                .into_iter()
+                .flatten()
+                .map(|entry| (entry.image.path.clone(), THUMBNAIL_SIDE)),
+        );
+    }
+    paths.retain(|(path, _)| !path.is_empty());
+    paths
 }
 
 /// The start screen's service art: messaging tile layers, the event badge and the persona head.

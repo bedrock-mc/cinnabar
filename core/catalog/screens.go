@@ -59,15 +59,21 @@ type Gathering struct {
 // Profile is the signed-in account as the start and profile screens show it. A count whose
 // lookup failed is omitted rather than reported as zero.
 type Profile struct {
-	Gamertag     string `json:"gamertag"`
-	XUID         string `json:"xuid"`
-	Gamerpic     Image  `json:"gamerpic"`
-	RealName     string `json:"real_name,omitempty"`
-	PresenceText string `json:"presence_text,omitempty"`
-	Gamerscore   *int64 `json:"gamerscore,omitempty"`
-	Friends      *int   `json:"friends,omitempty"`
-	Followers    *int   `json:"followers,omitempty"`
-	partial      error
+	Gamertag                string               `json:"gamertag"`
+	XUID                    string               `json:"xuid"`
+	Gamerpic                Image                `json:"gamerpic"`
+	Avatar                  Image                `json:"avatar"`
+	AvatarError             bool                 `json:"avatar_error,omitempty"`
+	FeaturedScreenshot      Image                `json:"featured_screenshot"`
+	FeaturedScreenshotError bool                 `json:"featured_screenshot_error,omitempty"`
+	RealName                string               `json:"real_name,omitempty"`
+	PresenceText            string               `json:"presence_text,omitempty"`
+	Gamerscore              *int64               `json:"gamerscore,omitempty"`
+	Friends                 *int                 `json:"friends,omitempty"`
+	Followers               *int                 `json:"followers,omitempty"`
+	Statistics              *ProfileStatistics   `json:"statistics,omitempty"`
+	Achievements            *ProfileAchievements `json:"achievements,omitempty"`
+	partial                 error
 }
 
 // Partial returns why lookups failed; their fields are left unset. Callers redact it before logging.
@@ -154,6 +160,16 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 	} else {
 		count := len(followers)
 		profile.Followers = &count
+	}
+	if stats, err := profileStatistics(ctx, xbl.HTTPClient(), info.XUID); err != nil {
+		failures = append(failures, fmt.Errorf("statistics: %w", err))
+	} else {
+		profile.Statistics = stats
+	}
+	if achievements, err := profileAchievements(ctx, xbl.HTTPClient(), info.XUID); err != nil {
+		failures = append(failures, fmt.Errorf("achievements: %w", err))
+	} else {
+		profile.Achievements = achievements
 	}
 	profile.partial = errors.Join(failures...)
 	return profile, nil

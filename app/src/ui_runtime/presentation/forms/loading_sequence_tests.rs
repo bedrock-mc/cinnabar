@@ -129,6 +129,7 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
         .enable_oreui_originals(crate::ui_runtime::oreui_assets::OreUiImages {
             rgba: vec![255; side * side * 4],
             sprites: Default::default(),
+            loading_frames: Default::default(),
         })
         .unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));

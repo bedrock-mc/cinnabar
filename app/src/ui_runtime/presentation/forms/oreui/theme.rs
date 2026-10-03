@@ -117,6 +117,10 @@ pub(super) const DESTRUCTIVE: Role = Role {
 pub(super) const FIELD_PLACEHOLDER: Rgba = rgb(0xb1b2b5);
 pub(super) const FIELD_CARET: Rgba = rgb(0x6cc349);
 
+/// Section tints from the vanilla theme (`informativeTint` and `successTint`).
+pub(super) const INFORMATIVE_TINT: Rgba = rgb(0x8cb3ff);
+pub(super) const SUCCESS_TINT: Rgba = rgb(0xa0e081);
+
 /// Solid surfaces.
 pub(super) const NEUTRAL90: Rgba = rgb(0x242425);
 pub(super) const NEUTRAL100: Rgba = rgb(0x1e1e1f);

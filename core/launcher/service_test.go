@@ -289,3 +289,34 @@ func TestSignOutReportsLeaseFailureWithoutRemovingUnlockedCredentials(t *testing
 		t.Fatal("lease failure left the local account signed in")
 	}
 }
+
+// TestProfileCarriesTheRenderedAvatar uses an injected fixture rather than any account service.
+func TestProfileCarriesTheRenderedAvatar(t *testing.T) {
+	calls := 0
+	service := New(Config{
+		Account: testAccount(), ArtworkDir: t.TempDir(),
+		Profile: func(context.Context, *authcache.Account) (catalog.Profile, error) {
+			return catalog.Profile{Gamertag: "Steve", XUID: "123"}, nil
+		},
+		ProfileFeaturedScreenshot: func(context.Context, *authcache.Account, string) (catalog.Image, error) { return catalog.Image{}, nil },
+		ProfileAvatar: func(_ context.Context, _ *authcache.Account, xuid, directory string) (catalog.Image, error) {
+			calls++
+			if xuid != "123" || directory == "" {
+				t.Fatal("avatar did not use profile identity/cache")
+			}
+			return catalog.Image{Path: directory + "/avatar.img"}, nil
+		},
+		CacheArt: func(context.Context, string, []*catalog.Image) {},
+	})
+	profile, err := service.Profile(context.Background())
+	if err != nil || calls != 1 || profile.Avatar.Path == "" || profile.AvatarError {
+		t.Fatalf("profile avatar: %+v %v", profile, err)
+	}
+	service.cfg.ProfileAvatar = func(context.Context, *authcache.Account, string, string) (catalog.Image, error) {
+		return catalog.Image{}, errors.New("fixture unavailable")
+	}
+	profile, err = service.Profile(context.Background())
+	if err != nil || !profile.AvatarError || profile.Gamertag != "Steve" {
+		t.Fatalf("failed avatar lost available profile: %+v %v", profile, err)
+	}
+}

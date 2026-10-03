@@ -1,179 +1,219 @@
-//! The profile route (`/profile/overview`): header with back, the player card
-//! in four of twelve columns (16:9 banner, large gamerpic, name, status, the
-//! primary action) and the Overview/Stats tabs with their rows in eight.
+//! Profile layout from the version-matched OreUI `p2`, `bZ`, `g2` and `h2` components.
+//! Remaining parity gaps and exact references are recorded in docs/profile-parity.md.
+
+mod achievements;
+mod card;
+mod rows;
 
 use super::super::super::{IconRef, UiPresentationError};
 use super::grid::{Grid, space};
-use super::icons::{self, Icon};
-use super::paint::Canvas;
-use super::theme::{BODY, CAPTION, HEADER5, NEUTRAL100, TEXT, TEXT_DIMMER};
-use super::widgets::{Variant, button, header, panel, row, screen_overlay, tabs};
-use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
+use super::paint::{Bounds, Canvas};
+use super::theme::{CAPTION, NEUTRAL80, SECONDARY_BUTTON, TEXT, TEXT_DIMMEST};
+use super::widgets::{Variant, button, header, screen_overlay, tabs};
+use crate::menu::{MenuAction, MenuView, auth::AuthState};
+use ui::ProfileTab;
 
-/// Large gamerpic side, in rem.
-const GAMERPIC: f32 = 9.6;
-
+/// Draws fixed navigation above independently scrolling card and active tab content.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     portrait: Option<IconRef>,
+    artwork: &std::collections::HashMap<String, IconRef>,
 ) -> Result<(), UiPresentationError> {
     let [width, height] = size;
     screen_overlay(canvas, size)?;
-    let mut top = header(
+    let top = header(
         canvas,
         view,
-        "Profile",
+        "Your Profile",
         width,
-        Some(MenuAction::Navigate(MenuScreen::Home)),
+        Some(MenuAction::AddBack),
     )? + space(canvas, 2);
-    let grid = Grid::new(canvas.r(1.0), width);
-    let (card_span, content_span) = if grid.narrow {
-        ((0, 8), (0, 8))
-    } else {
-        ((0, 4), (4, 8))
-    };
-    let [left, right] = grid.span(card_span.0, card_span.1);
-    let pad = space(canvas, 4);
-    let pic = canvas.r(GAMERPIC);
-    let text_left = left + pad;
-    let text_width = right - left - pad * 2.0;
-    let profile = &view.feeds.profile;
-    let name = if profile.gamertag.is_empty() {
-        view.display_name.as_str()
-    } else {
-        profile.gamertag.as_str()
-    };
-    let status = [profile.real_name.as_str(), profile.presence.as_str()]
-        .into_iter()
-        .find(|text| !text.is_empty())
-        .unwrap_or(if view.auth_state == AuthState::Authenticated {
-            "Online"
-        } else {
-            "Offline"
-        });
     let bottom = height - space(canvas, 2);
-    let original_top = top;
-    let available = (bottom - top).max(0.0);
-    let span = grid.span(0, if grid.narrow { 8 } else { 12 });
-    let scroll = canvas.begin_scroll("profile_body", [span[0], top, span[1], bottom])?;
-    top -= scroll.offset;
-    let intrinsic = (right - left) * 9.0 / 16.0
-        + pic * 0.5
-        + space(canvas, 2)
-        + canvas.measure_height(name, text_width, HEADER5)?
-        + space(canvas, 1)
-        + canvas.measure_height(status, text_width, CAPTION)?
-        + space(canvas, 2)
-        + canvas.r(4.4)
-        + pad;
-    let card_bottom = top + intrinsic.max(if grid.narrow { 0.0 } else { available });
-    panel(canvas, [left, top, right, card_bottom])?;
-    let banner_bottom = top + (right - left) * 9.0 / 16.0;
-    canvas.fill(
-        [
-            left + canvas.r(0.2),
-            top + canvas.r(0.2),
-            right - canvas.r(0.2),
-            banner_bottom,
-        ],
-        NEUTRAL100,
-    )?;
-    let pic_bounds = [
-        left + pad,
-        banner_bottom - pic * 0.5,
-        left + pad + pic,
-        banner_bottom + pic * 0.5,
-    ];
-    match portrait {
-        Some(icon) => {
-            canvas.fill(pic_bounds, [0x1e, 0x1e, 0x1f, 255])?;
-            canvas.icon_ref(icon, pic_bounds)?;
-        }
-        None => {
-            canvas.fill(pic_bounds, [0x48, 0x49, 0x4a, 255])?;
-            let [w, h] = Icon::Player.texels();
-            let texel = canvas.r(0.2);
-            let at = [
-                (pic_bounds[0] + pic_bounds[2] - w as f32 * texel) * 0.5,
-                (pic_bounds[1] + pic_bounds[3] - h as f32 * texel) * 0.5,
-            ];
-            icons::draw(canvas, Icon::Player, at, TEXT_DIMMER)?;
+    let grid = Grid::new(canvas.r(1.0), width);
+    if view.auth_state != AuthState::Authenticated {
+        let [left, right] = grid.span(
+            if grid.narrow { 0 } else { 1 },
+            if grid.narrow { 8 } else { 10 },
+        );
+        return error(canvas, view, [left, top, right, bottom], true);
+    }
+    if view.feeds.profile.unavailable {
+        let [left, right] = grid.span(
+            if grid.narrow { 0 } else { 1 },
+            if grid.narrow { 8 } else { 10 },
+        );
+        return error(canvas, view, [left, top, right, bottom], false);
+    }
+    if !view.feeds.profile.loaded {
+        return loading(canvas, [0.0, top, width, bottom]);
+    }
+    let avatar = artwork
+        .get(&view.feeds.profile.avatar_path)
+        .copied()
+        .filter(|_| !view.feeds.profile.avatar_error);
+    let featured = artwork
+        .get(&view.feeds.profile.featured_screenshot_path)
+        .copied()
+        .filter(|_| !view.feeds.profile.featured_screenshot_error);
+    let [left, right] = grid.span(if grid.narrow { 0 } else { 4 }, 8);
+    if !grid.narrow {
+        let [card_left, card_right] = grid.span(0, 4);
+        let waiting =
+            !view.feeds.profile.avatar_loaded || !view.feeds.profile.featured_screenshot_loaded;
+        if waiting {
+            loading(canvas, [card_left, top, card_right, bottom])?;
+        } else {
+            let scroll =
+                canvas.begin_scroll("profile_card", [card_left, top, card_right, bottom])?;
+            let offset = scroll.offset;
+            let end = card::draw(
+                canvas,
+                view,
+                [card_left, top - scroll.offset, card_right, bottom],
+                portrait,
+                avatar,
+                featured,
+                false,
+            )?;
+            canvas.end_scroll(scroll, end - top + offset)?;
         }
     }
-    canvas.frame(pic_bounds, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
-    let mut y = pic_bounds[3] + space(canvas, 2);
-    y += canvas.text(name, [text_left, y], text_width, HEADER5, TEXT, false)? + space(canvas, 1);
-    y += canvas.text(
-        status,
-        [text_left, y],
-        text_width,
-        CAPTION,
-        TEXT_DIMMER,
-        false,
-    )? + space(canvas, 2);
-    let (label, action) = if view.auth_state == AuthState::Authenticated {
-        ("Dressing Room", None)
-    } else {
-        ("Sign In", Some(MenuAction::StartSignIn))
-    };
-    button(
-        canvas,
-        view,
-        [text_left, y, text_left + text_width, y + canvas.r(4.4)],
-        Variant::Primary,
-        label,
-        action,
-    )?;
-
-    let [content_left, content_right] = grid.span(content_span.0, content_span.1);
-    let content_top = if grid.narrow {
-        card_bottom + space(canvas, 2)
-    } else {
-        top
-    };
-    let tab_bottom = content_top + canvas.r(5.2);
+    let tab_bottom = top + canvas.r(4.8);
     tabs(
         canvas,
         view,
-        [content_left, content_top, content_right, tab_bottom],
-        &[("Overview", None), ("Stats", None)],
-        0,
+        [left, top, right, tab_bottom],
+        &[
+            (
+                "Overview",
+                Some(MenuAction::SelectProfileTab(ProfileTab::Overview)),
+            ),
+            (
+                "Stats",
+                Some(MenuAction::SelectProfileTab(ProfileTab::Stats)),
+            ),
+        ],
+        usize::from(view.profile_tab == ProfileTab::Stats),
     )?;
-    // An unavailable count stays blank rather than reading as zero.
-    let count = |value: Option<i64>| value.map_or_else(String::new, |n| n.to_string());
-    let rows = [
-        ("Friends", count(profile.friends.map(i64::from))),
-        ("Followers", count(profile.followers.map(i64::from))),
-        ("Gamerscore", count(profile.gamerscore)),
-    ];
-    let mut row_top = tab_bottom + space(canvas, 2);
-    let row_height = canvas.r(6.4);
-    for (label, value) in rows {
-        let bounds = [content_left, row_top, content_right, row_top + row_height];
-        row(canvas, view, bounds, false, None)?;
-        let inner = canvas.r(2.4);
-        let text_top = row_top + (row_height - canvas.r(BODY.line)) * 0.5;
-        canvas.text(
-            label,
-            [bounds[0] + inner, text_top],
-            (bounds[2] - bounds[0]) * 0.6,
-            BODY,
-            TEXT,
-            false,
-        )?;
-        let value_width = canvas.measure(&value, BODY)?;
-        canvas.text(
-            &value,
-            [bounds[2] - inner - value_width, text_top],
-            value_width + 1.0,
-            BODY,
-            TEXT_DIMMER,
-            false,
-        )?;
-        row_top += row_height + space(canvas, 1);
+    let content_top = tab_bottom + space(canvas, 2);
+    let scroll = canvas.begin_scroll("profile_body", [left, content_top, right, bottom])?;
+    let offset = scroll.offset;
+    let mut y = content_top - offset;
+    if grid.narrow {
+        y = card::draw(
+            canvas,
+            view,
+            [left, y, right, bottom],
+            portrait,
+            avatar,
+            featured,
+            true,
+        )? + space(canvas, 2);
     }
-    let content = row_top.max(card_bottom) + scroll.offset - original_top;
-    canvas.end_scroll(scroll, content)
+    y = match view.profile_tab {
+        ProfileTab::Overview => {
+            let end = rows::overview(canvas, view, [left, y, right, bottom])?;
+            achievements::draw(
+                canvas,
+                view,
+                [left, end + space(canvas, 2), right, bottom],
+                artwork,
+            )?
+        }
+        ProfileTab::Stats => rows::statistics(canvas, view, [left, y, right, bottom])?,
+    };
+    canvas.end_scroll(scroll, y + offset - content_top + space(canvas, 2))
+}
+
+/// Shows the route-wide signed-out or offline state; unavailable services never become zeros.
+fn error(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+    signed_out: bool,
+) -> Result<(), UiPresentationError> {
+    let (title, text) = if signed_out {
+        (
+            "Profile Unavailable",
+            "Please sign in to a Microsoft account to view player profiles.",
+        )
+    } else {
+        (
+            "Profile couldn't load!",
+            "We encountered an unknown error, please try again.",
+        )
+    };
+    let scroll = canvas.begin_scroll("profile_error", b)?;
+    let offset = scroll.offset;
+    let pad = canvas.r(1.6);
+    let width = (b[2] - b[0] - pad * 2.0).max(1.0);
+    let text_height = canvas.measure_height(text, width, CAPTION)?;
+    let art_width = canvas
+        .r(if width >= canvas.r(51.2) { 51.2 } else { 25.6 })
+        .min(width);
+    let art_height = art_width * 96.0 / 256.0;
+    let height = pad * 2.0
+        + canvas.r(SECONDARY_BUTTON.line)
+        + space(canvas, 4) * 2.0
+        + art_height
+        + text_height
+        + space(canvas, 2)
+        + canvas.r(4.4);
+    let top = b[1] - offset;
+    super::widgets::panel(canvas, [b[0], top, b[2], top + height])?;
+    let mut y = top + pad;
+    y += canvas.centered_wrapped_text(title, [b[0] + pad, y], width, SECONDARY_BUTTON, TEXT)?
+        + space(canvas, 4);
+    let art_left = (b[0] + b[2] - art_width) * 0.5;
+    let image = crate::ui_runtime::oreui_assets::PROFILE_ERRORS[usize::from(!signed_out)];
+    let _ = canvas.sprite(
+        image,
+        [art_left, y, art_left + art_width, y + art_height],
+        [255; 4],
+    )?;
+    y += art_height + space(canvas, 4);
+    y += canvas.centered_wrapped_text(text, [b[0] + pad, y], width, CAPTION, TEXT_DIMMEST)?
+        + space(canvas, 2);
+    let button_width = (width * 0.7).min(canvas.r(32.0));
+    let button_left = (b[0] + b[2] - button_width) * 0.5;
+    button(
+        canvas,
+        view,
+        [
+            button_left,
+            y,
+            button_left + button_width,
+            y + canvas.r(4.4),
+        ],
+        if signed_out {
+            Variant::Primary
+        } else {
+            Variant::Secondary
+        },
+        if signed_out {
+            "Sign in with Microsoft"
+        } else {
+            "Try again"
+        },
+        Some(if signed_out {
+            MenuAction::StartSignIn
+        } else {
+            MenuAction::RefreshProfile
+        }),
+    )?;
+    canvas.end_scroll(scroll, height)
+}
+
+/// Draws the reference's two-rem animation while the service is pending.
+fn loading(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), UiPresentationError> {
+    let side = canvas.r(2.0);
+    let x = (b[0] + b[2] - side) * 0.5;
+    let y = b[1] + canvas.r(6.4);
+    if canvas.loading_sprite([x, y, x + side, y + side])? {
+        return Ok(());
+    }
+    canvas.frame([x, y, x + side, y + side], 0.4, NEUTRAL80.hovered)?;
+    canvas.fill([x, y, x + side, y + canvas.r(0.4)], TEXT)
 }

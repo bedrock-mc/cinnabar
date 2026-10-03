@@ -47,14 +47,16 @@ type Config struct {
 	Gamertag func(context.Context, *authcache.Account) (string, error)
 	Remove   func(path string) error
 
-	Featured      func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
-	Gatherings    func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
-	Profile       func(context.Context, *authcache.Account) (catalog.Profile, error)
-	CacheArt      func(ctx context.Context, directory string, images []*catalog.Image)
-	Ping          func(ctx context.Context, addresses []string) []catalog.PingResult
-	Home          func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
-	Report        func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
-	JoinGathering func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error)
+	Featured                  func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
+	Gatherings                func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
+	Profile                   func(context.Context, *authcache.Account) (catalog.Profile, error)
+	ProfileFeaturedScreenshot func(context.Context, *authcache.Account, string) (catalog.Image, error)
+	ProfileAvatar             func(context.Context, *authcache.Account, string, string) (catalog.Image, error)
+	CacheArt                  func(ctx context.Context, directory string, images []*catalog.Image)
+	Ping                      func(ctx context.Context, addresses []string) []catalog.PingResult
+	Home                      func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
+	Report                    func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
+	JoinGathering             func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error)
 }
 
 // Service implements control.Services.
@@ -64,12 +66,13 @@ type Service struct {
 	signedOut atomic.Bool
 	messaging *catalog.MessagingSession
 
-	mu        sync.Mutex
-	snap      snapshot
-	flights   [3]*flight
-	attempted [3]time.Time
-	gamerpic  string     // profile artwork pruning must keep
-	disk      sync.Mutex // orders cache rewrites
+	mu         sync.Mutex
+	snap       snapshot
+	flights    [3]*flight
+	attempted  [3]time.Time
+	profileArt []string   // current avatar and achievement art pruning must keep
+	gamerpic   string     // profile artwork pruning must keep
+	disk       sync.Mutex // orders cache rewrites
 }
 
 // New returns a Service; it fills unset injectables with the real implementations.
@@ -94,6 +97,12 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Profile == nil {
 		cfg.Profile = catalog.AccountProfile
+	}
+	if cfg.ProfileFeaturedScreenshot == nil {
+		cfg.ProfileFeaturedScreenshot = catalog.ProfileFeaturedScreenshot
+	}
+	if cfg.ProfileAvatar == nil {
+		cfg.ProfileAvatar = catalog.ProfileAvatar
 	}
 	if cfg.CacheArt == nil {
 		cfg.CacheArt = catalog.CacheImages
@@ -166,9 +175,37 @@ func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
 	if partial := profile.Partial(); partial != nil {
 		s.logger.Warn("profile partly unavailable", "error", control.RedactError(partial))
 	}
-	s.cacheArt(ctx, []*catalog.Image{&profile.Gamerpic})
+	if s.cfg.ArtworkDir != "" && profile.XUID != "" {
+		avatar, err := s.cfg.ProfileAvatar(ctx, src, profile.XUID, s.cfg.ArtworkDir)
+		if err != nil {
+			profile.AvatarError = true
+			s.logger.Warn("profile avatar unavailable", "error", control.RedactError(err))
+		} else {
+			profile.Avatar = avatar
+		}
+	}
+	if profile.XUID != "" {
+		screenshot, err := s.cfg.ProfileFeaturedScreenshot(ctx, src, profile.XUID)
+		if err != nil {
+			profile.FeaturedScreenshotError = true
+			s.logger.Warn("profile featured screenshot unavailable", "error", control.RedactError(err))
+		} else {
+			profile.FeaturedScreenshot = screenshot
+		}
+	}
+	images := []*catalog.Image{&profile.Gamerpic, &profile.FeaturedScreenshot}
+	if profile.Achievements != nil {
+		for index := range profile.Achievements.Entries {
+			images = append(images, &profile.Achievements.Entries[index].Image)
+		}
+	}
+	s.cacheArt(ctx, images)
 	s.mu.Lock()
 	s.gamerpic = profile.Gamerpic.Path
+	s.profileArt = []string{profile.Avatar.Path}
+	for _, image := range images {
+		s.profileArt = append(s.profileArt, image.Path)
+	}
 	s.mu.Unlock()
 	return profile, nil
 }

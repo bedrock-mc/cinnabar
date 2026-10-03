@@ -8,6 +8,7 @@ mod friends;
 mod grid;
 mod icons;
 mod inbox;
+mod loading;
 mod modal;
 mod paint;
 mod play;
@@ -73,6 +74,7 @@ impl UiPresentationRuntime {
         self.form_presentation.oreui_originals = Some(Arc::new(Originals {
             page: first,
             sprites: images.sprites,
+            loading_frames: images.loading_frames,
         }));
         Ok(())
     }
@@ -125,9 +127,12 @@ impl UiPresentationRuntime {
             originals.as_deref(),
         );
         canvas.offsets = offsets;
+        canvas.seconds = self.menu_seconds;
         match screen {
             MenuScreen::Death => death::draw(&mut canvas, view, size)?,
-            MenuScreen::Profile => profile::draw(&mut canvas, view, size, portrait)?,
+            MenuScreen::Profile => {
+                profile::draw(&mut canvas, view, size, portrait, &self.menu_artwork.refs)?
+            }
             MenuScreen::Inbox => inbox::draw(&mut canvas, view, size)?,
             MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
                 match world_settings::route(view.local.screen, &view.local) {

@@ -45,8 +45,8 @@ impl UiPresentationRuntime {
             &view
         };
         self.menu_scrolls.begin_frame(format!(
-            "{:?}/{:?}/{}",
-            shown.screen, shown.server_tab, shown.settings_section
+            "{:?}/{:?}/{:?}/{}",
+            shown.screen, shown.server_tab, shown.profile_tab, shown.settings_section
         ));
         self.menu_scrolls.set_areas(Vec::new());
         let drawn = if shown.visible {

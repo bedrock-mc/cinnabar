@@ -56,6 +56,7 @@ impl MenuRuntime {
             pressed: None,
             pointer_down: false,
             server_tab: MenuServerTab::Featured,
+            profile_tab: ui::ProfileTab::default(),
             dialog: None,
             field: None,
             caret_revision: 0,

@@ -55,7 +55,7 @@ struct Snapshot {
     /// Delivered once per fetch.
     featured: Option<Vec<FeaturedServer>>,
     gatherings: Option<Vec<Gathering>>,
-    profile: Option<Profile>,
+    profile: Option<Result<Profile, ()>>,
     ping_targets: Vec<String>,
     pings: Option<Vec<ServerPing>>,
     home: Option<Home>,
@@ -95,6 +95,7 @@ impl Snapshot {
 pub(crate) struct LauncherAccount {
     snapshot: Arc<Mutex<Snapshot>>,
     sign_out: Sender<()>,
+    profile_refresh: Sender<()>,
     message_reports: Sender<MessageEvent>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
@@ -109,6 +110,7 @@ impl LauncherAccount {
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
+        let (profile_refresh, profile_requests) = bounded(1);
         let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
@@ -116,10 +118,11 @@ impl LauncherAccount {
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         thread::spawn(move || poll_catalog(&dir, &shared, &until));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
-        thread::spawn(move || poll_feeds(&dir, &shared, &stop));
+        thread::spawn(move || poll_feeds(&dir, &shared, &stop, &profile_requests));
         Self {
             snapshot,
             sign_out,
+            profile_refresh,
             message_reports,
             _alive: alive,
             socket_dir,
@@ -273,7 +276,13 @@ fn poll_catalog(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &R
     }
 }
 
-fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
+/// Polls service feeds, waking early when the Profile screen requests a retry.
+fn poll_feeds(
+    socket_dir: &std::path::Path,
+    shared: &Mutex<Snapshot>,
+    stop: &Receiver<()>,
+    profile_requests: &Receiver<()>,
+) {
     let Some(runtime) = runtime() else {
         return;
     };
@@ -301,13 +310,16 @@ fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Rec
         }
         let generation = auth_generation(shared);
         let profile = runtime.block_on(launcher_control::profile(socket_dir));
-        if let Some(profile) = settle("profile", profile, &mut failed) {
-            publish_account(shared, generation, |snapshot| {
-                snapshot.profile = Some(profile)
-            });
-        }
-        if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
-            return;
+        let profile = settle("profile", profile, &mut failed).ok_or(());
+        publish_account(shared, generation, |snapshot| {
+            snapshot.profile = Some(profile);
+        });
+        crossbeam_channel::select! {
+            recv(stop) -> _ => return,
+            recv(profile_requests) -> request => {
+                if request.is_err() { return; }
+            }
+            default(if failed { FEED_RETRY } else { FEED_INTERVAL }) => {}
         }
     }
 }
@@ -635,16 +647,51 @@ impl AccountControl for LauncherAccount {
         )
     }
 
+    /// Wakes the feed worker when the user retries an unavailable profile.
+    fn refresh_profile(&mut self) {
+        let _ = self.profile_refresh.try_send(());
+    }
+
     fn profile(&mut self) -> Option<MenuProfile> {
         let profile = self.with(|snapshot| snapshot.profile.take())?;
+        let Ok(profile) = profile else {
+            return Some(MenuProfile {
+                loaded: true,
+                unavailable: true,
+                avatar_loaded: true,
+                avatar_error: true,
+                featured_screenshot_loaded: true,
+                featured_screenshot_error: true,
+                statistics_loaded: true,
+                statistics_error: true,
+                achievements_loaded: true,
+                achievements_error: true,
+                ..MenuProfile::default()
+            });
+        };
         Some(MenuProfile {
+            loaded: true,
+            unavailable: false,
+            xuid: profile.xuid,
+            statistics_loaded: true,
+            statistics_error: profile.statistics.is_none(),
+            achievements_loaded: true,
+            achievements_error: profile.achievements.is_none(),
+            achievements: profile.achievements,
             gamertag: profile.gamertag,
             picture_path: profile.gamerpic.path,
+            avatar_path: profile.avatar.path,
+            avatar_loaded: true,
+            avatar_error: profile.avatar_error,
+            featured_screenshot_path: profile.featured_screenshot.path,
+            featured_screenshot_loaded: true,
+            featured_screenshot_error: profile.featured_screenshot_error,
             real_name: profile.real_name,
             presence: profile.presence_text,
             gamerscore: profile.gamerscore,
             friends: profile.friends,
             followers: profile.followers,
+            statistics: profile.statistics,
         })
     }
 }
@@ -840,6 +887,7 @@ mod tests {
         let mut account = LauncherAccount {
             snapshot: Arc::clone(&snapshot),
             sign_out,
+            profile_refresh: crossbeam_channel::bounded(1).0,
             _alive: alive,
             socket_dir: PathBuf::new(),
             message_reports: crossbeam_channel::unbounded().0,

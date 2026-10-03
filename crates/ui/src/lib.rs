@@ -5,6 +5,7 @@ mod chat;
 mod geometry;
 mod hud;
 mod model;
+mod profile;
 mod scoreboard;
 mod settings;
 mod text;
@@ -31,6 +32,9 @@ pub use model::{
     UI_STYLE_GRAYSCALE, UiBlendMode, UiDrawBatch, UiDrawList, UiError, UiFrame, UiMesh,
     UiMeshBatch, UiMeshError, UiMeshVertex, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
     UiWorldProjection,
+};
+pub use profile::{
+    ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,
