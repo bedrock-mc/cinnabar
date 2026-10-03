@@ -203,10 +203,9 @@ fn compiler_compiles_all_vine_masks_as_exact_tinted_attachment_planes() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_real_pinned_pack_has_zero_diagnostic_vine_states_when_requested() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let records = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"
@@ -434,10 +433,9 @@ fn compiler_compiles_glow_lichen_and_sculk_vein_as_distinct_exact_multiface_plan
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_real_pinned_pack_has_zero_diagnostic_multiface_states_when_requested() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let records = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"

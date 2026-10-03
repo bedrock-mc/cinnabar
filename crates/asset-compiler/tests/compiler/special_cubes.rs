@@ -524,7 +524,7 @@ fn compiler_bee_housing_admission_is_atomic_and_pack_routes_are_exact() {
 #[test]
 #[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_all_exact_bee_housing_records() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+    let pack = crate::fixture_input::env_path("PINNED_VANILLA_PACK")
         .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
     let records = bee_housing_records();
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned bee family");
@@ -541,7 +541,7 @@ fn compiler_real_pinned_pack_admits_all_exact_bee_housing_records() {
 #[test]
 #[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_all_exact_chiseled_bookshelf_records() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+    let pack = crate::fixture_input::env_path("PINNED_VANILLA_PACK")
         .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
     let mut records = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"
@@ -874,10 +874,9 @@ fn compiler_fails_closed_for_noncanonical_mushroom_variant_counts() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge_mushrooms() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let all = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"

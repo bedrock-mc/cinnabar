@@ -1,3 +1,6 @@
+#[path = "support/fixture_input.rs"]
+mod fixture_input;
+
 #[path = "compiler/support.rs"]
 mod support;
 

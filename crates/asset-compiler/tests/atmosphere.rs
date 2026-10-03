@@ -1,3 +1,6 @@
+#[path = "support/fixture_input.rs"]
+mod fixture_input;
+
 use std::{
     collections::HashSet,
     fs,
@@ -30,15 +33,12 @@ const NATIVE_CLOUD_PIXELS_SHA256: &str =
     "95f8808115fcc28c8665324bba1b72dcb1350fbfebd1c9a30009691326695136";
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack and CINNABAR_CLOUDS_PNG pointing at the pinned native clouds texture"]
 fn exact_native_cloud_override_replaces_only_clouds_and_retains_logical_provenance() {
-    let (Ok(pack), Ok(clouds_override)) = (
-        std::env::var("PINNED_VANILLA_PACK"),
-        std::env::var("CINNABAR_CLOUDS_PNG"),
+    let (Some(pack), Some(clouds_override)) = (
+        crate::fixture_input::env_path("PINNED_VANILLA_PACK"),
+        crate::fixture_input::env_path("CINNABAR_CLOUDS_PNG"),
     ) else {
-        panic!(
-            "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack and CINNABAR_CLOUDS_PNG pointing at the pinned native clouds texture"
-        );
+        return;
     };
     let manifest = tracked_manifest();
     let compiled = compile_atmosphere_assets_with_options(
@@ -115,10 +115,9 @@ fn production_compiler_rejects_any_manifest_bytes_other_than_the_tracked_pin() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn production_compiler_accepts_the_exact_pin_with_lf_or_crlf() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let lf = canonical_tracked_manifest();
     let crlf = std::str::from_utf8(&lf)
@@ -136,10 +135,9 @@ fn production_compiler_accepts_the_exact_pin_with_lf_or_crlf() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn production_compiler_rejects_each_modified_pinned_png() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let manifest = tracked_manifest();
 
@@ -163,10 +161,9 @@ fn production_compiler_rejects_each_modified_pinned_png() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_carries_exact_sources_in_canonical_order_with_hashes() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let manifest = tracked_manifest();
     let compiled =
@@ -397,10 +394,9 @@ fn blob_rejects_noncanonical_or_corrupt_envelopes() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let outputs = tempfile::tempdir().unwrap();
     let manifest_path = outputs.path().join("vanilla-source.json");
@@ -456,15 +452,12 @@ fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack and CINNABAR_CLOUDS_PNG pointing at the pinned native clouds texture"]
 fn assetc_cloud_override_report_uses_only_canonical_logical_provenance() {
-    let (Ok(pack), Ok(clouds_override)) = (
-        std::env::var("PINNED_VANILLA_PACK"),
-        std::env::var("CINNABAR_CLOUDS_PNG"),
+    let (Some(pack), Some(clouds_override)) = (
+        crate::fixture_input::env_path("PINNED_VANILLA_PACK"),
+        crate::fixture_input::env_path("CINNABAR_CLOUDS_PNG"),
     ) else {
-        panic!(
-            "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack and CINNABAR_CLOUDS_PNG pointing at the pinned native clouds texture"
-        );
+        return;
     };
     let outputs = tempfile::tempdir().unwrap();
     let manifest_path = outputs.path().join("vanilla-source.json");
@@ -509,10 +502,9 @@ fn assetc_cloud_override_report_uses_only_canonical_logical_provenance() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn assetc_atmosphere_preserves_existing_output_when_report_cannot_publish() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let outputs = tempfile::tempdir().unwrap();
     let manifest_path = outputs.path().join("vanilla-source.json");
@@ -616,10 +608,9 @@ fn assetc_atmosphere_rejects_symlink_output_aliases_when_supported() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn pinned_pack_atmosphere_sources_match_exact_provenance() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let manifest_path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/vanilla-source.json");

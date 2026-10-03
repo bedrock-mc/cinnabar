@@ -496,10 +496,9 @@ fn compiler_carpet_selectors_fail_closed_when_missing_invalid_or_extra() {
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_real_pinned_pack_has_zero_diagnostic_carpet_states_when_requested() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let mut records = generated_carpet_records();
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned carpets");

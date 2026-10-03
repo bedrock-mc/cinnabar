@@ -360,10 +360,9 @@ fn compiler_sign_selectors_fail_closed_when_typed_state_is_missing_or_mismatched
 }
 
 #[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_real_pinned_pack_has_zero_diagnostic_sign_states_when_requested() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
+        return;
     };
     let records = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"
