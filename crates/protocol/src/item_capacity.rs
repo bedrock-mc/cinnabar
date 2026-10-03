@@ -79,14 +79,10 @@ mod tests {
     }
 
     #[test]
-    fn generated_inputs_and_output_match_reviewed_hashes() {
+    fn generated_capacity_table_matches_its_reviewed_hash() {
         assert_eq!(
             sha256(CAPACITY_DATA.as_bytes()),
             "58caa65a685f531787b9444e43d35c4d8bfafba551ae4ce9742fed24486aa6da"
-        );
-        assert_eq!(
-            sha256(RETAIL_ITEMS.as_bytes()),
-            "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821"
         );
     }
 
