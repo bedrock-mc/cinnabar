@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bevy::math::{Mat4, Vec3};
 
 use super::{
-    ActorCullView, ActorRenderScene, ActorRenderSource, ActorSkinPixels, DEFAULT_SKIN_PROVENANCE,
-    MAX_RENDERED_PLAYERS, STANDARD_BIPED_VERTEX_COUNT, standard_biped_vertices,
+    ActorCullView, ActorRenderScene, ActorRenderSource, ActorSkinPixels, MAX_RENDERED_PLAYERS,
+    STANDARD_BIPED_VERTEX_COUNT, standard_biped_vertices,
 };
 
 fn source(runtime_id: u64, x: f32, yaw_degrees: f32) -> ActorRenderSource {
@@ -195,26 +195,14 @@ fn high_resolution_standard_skin_is_nearest_sampled_and_invalid_skin_uses_author
     first.skin = Some(valid);
     let mut second = source(2, 0.0, 0.0);
     second.skin = Some(invalid);
+    let expected_default = super::default_actor_skin_rgba8();
     let mut scene = ActorRenderScene::default();
     let frame = scene.update(1.0, None, [first, second]);
 
     assert_eq!(&frame.skins_rgba8[0..4], &[1, 2, 3, 255]);
     assert_eq!(frame.skins_rgba8.len(), 2 * super::STANDARD_SKIN_BYTES);
-    assert_eq!(
-        DEFAULT_SKIN_PROVENANCE,
-        "locally generated Cinnabar Default skin"
-    );
     let default = &frame.skins_rgba8[super::STANDARD_SKIN_BYTES..];
-    assert!(
-        default
-            .chunks_exact(4)
-            .any(|pixel| pixel == [42, 91, 99, 255])
-    );
-    assert!(
-        default
-            .chunks_exact(4)
-            .any(|pixel| pixel == [198, 134, 91, 255])
-    );
+    assert_eq!(default, expected_default.as_ref());
 }
 
 #[test]
