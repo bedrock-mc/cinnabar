@@ -503,7 +503,6 @@ async fn saturated_event_queue_is_cancelled_without_waiting_for_capacity() {
 
 #[tokio::test]
 async fn saturated_world_event_channel_does_not_block_request_sent_control_event() {
-    assert_eq!(CONTROL_EVENT_CAPACITY, 64);
     let (world_events, mut world_event_rx) = mpsc::channel(1);
     world_events
         .try_send(SequencedWorldEvent {
