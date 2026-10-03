@@ -1,5 +1,5 @@
 //! The gameplay HUD against the real vanilla templates. The `.local` pack is
-//! gitignored, so reference tests are explicitly ignored until the pack is fetched.
+//! gitignored, so reference tests explain missing fixtures and skip until the pack is fetched.
 
 #[path = "support/java_pack.rs"]
 mod java_pack;
@@ -15,7 +15,7 @@ use json_ui::{
 
 fn pack() -> Option<PathBuf> {
     let dir = support::vanilla_pack();
-    dir.is_dir().then_some(dir)
+    dir.join("ui").is_dir().then_some(dir)
 }
 
 /// Six virtual px per character, nine per line.
@@ -172,11 +172,10 @@ fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
 
 // The HUD never takes a gameplay click: a press at the crosshair reaches no control.
 #[test]
-#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn hud_leaves_gameplay_clicks_alone() {
     for java in [false, true] {
         let Some(render) = render_full(&model(), java) else {
-            panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
+            return;
         };
         let mut view = ViewState::default();
         let mut dispatcher = json_ui::Dispatcher::default();
@@ -245,10 +244,9 @@ fn dump(nodes: &[DrawNode]) {
 }
 
 #[test]
-#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn vanilla_hud_draws_its_bound_surfaces() {
     let Some(nodes) = render(&model()) else {
-        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
+        return;
     };
     dump(&nodes);
     // Item-lock overlays bind flags the controller never raises for the hotbar.
@@ -336,7 +334,6 @@ fn descendant<'a>(
 }
 
 #[test]
-#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     let mut item = model();
     item.item_name = Some(Timed {
@@ -347,7 +344,7 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     for survival in [false, true] {
         item.survival_ui = survival;
         let Some(render) = render_full(&item, true) else {
-            panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
+            return;
         };
         let name = text_node(&render.nodes, "Dirt");
         let slots = custom(&render.nodes, "hotbar_renderer");
@@ -399,10 +396,9 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
 
 // Java Gui geometry on a 480x270 GUI-px screen (centre 240, bottom 270).
 #[test]
-#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn java_pack_places_the_hud_where_java_does() {
     let Some(nodes) = render_with(&model(), true) else {
-        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
+        return;
     };
     dump(&nodes);
     // Status rows: hearts from (c-91, H-39); hunger's right end at c+90.
@@ -537,14 +533,13 @@ fn ignored_instances_and_unanswered_collection_flags_draw_nothing() {
 }
 
 #[test]
-#[ignore = "requires the pinned local vanilla UI pack; fetch vanilla-assets first"]
 fn java_pack_keeps_the_position_and_days_lines_top_left() {
     let mut model = model();
     model.player_position = Some("Position: 1, 64, -3".into());
     model.days_played = Some("Days played: 2".into());
     model.text_background_alpha = 0.5;
     let Some(nodes) = render_with(&model, true) else {
-        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
+        return;
     };
     dump(&nodes);
     let position = named(&nodes, "player_position_text");
@@ -559,7 +554,7 @@ fn java_pack_keeps_the_position_and_days_lines_top_left() {
     assert!(backing.iter().all(|node| (node.alpha - 0.5).abs() < 1e-6));
     // Off by default: neither line draws.
     let Some(nodes) = render_with(&self::model(), true) else {
-        panic!("requires the pinned local vanilla UI pack; fetch vanilla-assets first");
+        return;
     };
     assert!(named(&nodes, "player_position_text").is_empty());
     assert!(named(&nodes, "number_of_days_played_text").is_empty());
