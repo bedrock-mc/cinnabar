@@ -8,8 +8,9 @@ use gpu_snapshot::{Draw, Gpu};
 use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape};
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn selection_pixels_show_black_edges_or_a_brighter_surface() {
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     let target = BlockSelectionTarget {
         block: [0; 3],
         bounds: [[0.0; 3], [1.0; 3]],

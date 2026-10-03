@@ -18,16 +18,16 @@ fn finish<T>(future: impl Future<Output = T>) -> T {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn positional_material_gpu_matches_signed_coordinate_vectors() {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-    let Ok(adapter) = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-    else {
-        eprintln!("positional material GPU fixture skipped: no physical adapter");
-        return;
-    };
-    if adapter.get_info().backend == wgpu::Backend::Noop {
-        return;
-    }
+    let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        .expect("this fixture requires a native GPU adapter");
+    assert_ne!(
+        adapter.get_info().backend,
+        wgpu::Backend::Noop,
+        "native GPU required"
+    );
     eprintln!("positional material GPU fixture: {:?}", adapter.get_info());
     let (device, queue) =
         finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();

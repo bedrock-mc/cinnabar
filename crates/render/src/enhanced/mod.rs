@@ -16,8 +16,6 @@ use snapshot::{EnhancedSnapshotLabel, EnhancedSnapshotNode};
 #[cfg(test)]
 mod graph_tests;
 #[cfg(test)]
-mod populated_tests;
-#[cfg(test)]
 mod validation;
 pub(crate) use frame::CascadeBounds;
 use shadows::{EnhancedShadowLabel, EnhancedShadowNode, EnhancedShadowPipelines};

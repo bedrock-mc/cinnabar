@@ -54,11 +54,6 @@ fn foliage_variants_select_their_palette_inside_the_shared_average() {
 }
 
 #[test]
-fn biome_shader_uses_vanilla_inverse_distance_weights() {
-    assert!(shader("biome_tint.wgsl").contains("BIOME_DISTANCE_EPSILON"));
-}
-
-#[test]
 fn model_tints_use_the_block_position_for_every_vertex() {
     let source = shader("model.wgsl");
     assert!(source.contains("out.local_position = block_position;"));

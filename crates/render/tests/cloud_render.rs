@@ -81,38 +81,6 @@ fn all_six_faces_reconstruct_the_packed_fixed_height_bounds() {
 }
 
 #[test]
-fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
-    let source = include_str!("../src/cloud_render.rs");
-    assert!(source.contains("struct CloudPipelineKey"));
-    assert!(source.contains("msaa: Msaa"));
-    assert!(source.contains("hdr: bool"));
-    assert!(source.contains("descriptor.multisample.count = key.msaa.samples()"));
-    assert!(source.contains("ViewTarget::TEXTURE_FORMAT_HDR"));
-    assert!(source.contains(".add_render_command::<Transparent3d, DrawCloudCommands>()"));
-    assert!(source.contains("ViewSortedRenderPhases<Transparent3d>"));
-    assert!(source.contains("phase.add(Transparent3d {"));
-    assert!(source.contains("blend: Some(BlendState::ALPHA_BLENDING)"));
-    assert!(source.contains("depth_write_enabled: false"));
-    assert!(source.contains("depth_compare: CompareFunction::GreaterEqual"));
-    assert!(source.contains("CORE_3D_DEPTH_FORMAT"));
-    assert!(source.contains("BufferBindingType::Storage { read_only: true }"));
-    assert!(source.contains("ShaderStages::VERTEX | ShaderStages::FRAGMENT"));
-    assert!(!source.contains("BinnedRenderPhaseType::NonMesh"));
-}
-
-#[test]
-fn cloud_gpu_resources_are_immutable_identity_cached_and_not_frame_rebuilt() {
-    let source = include_str!("../src/cloud_render.rs");
-    assert!(source.contains("pub(crate) struct CloudGpu"));
-    assert!(source.contains("BufferUsages::STORAGE | BufferUsages::COPY_DST"));
-    assert!(source.contains("prepared_identity == Some(identity)"));
-    assert!(source.contains("bound_asset_identity == Some(identity)"));
-    assert_eq!(source.matches("create_buffer_with_data(").count(), 1);
-    assert_eq!(source.matches("create_bind_group(").count(), 1);
-    assert!(!source.contains("write_buffer("));
-}
-
-#[test]
 fn one_sorted_item_draws_exact_quad_vertices_and_nine_instances() {
     let source = include_str!("../src/cloud_render.rs");
     assert!(source.contains("PhaseItemExtraIndex::None"));

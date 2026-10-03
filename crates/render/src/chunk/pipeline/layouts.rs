@@ -431,3 +431,7 @@ mod review_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "contract_tests.rs"]
+mod contract_tests;

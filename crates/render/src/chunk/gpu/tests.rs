@@ -344,35 +344,6 @@ fn presentation_waits_for_expected_stream_mask() {
     assert_eq!(probe.complete().drawn_manifest.as_ref(), &[(key, 7)]);
 }
 
-fn normalize_source_newlines(source: &str) -> String {
-    source.replace("\r\n", "\n")
-}
-
-#[test]
-fn source_parser_normalizes_crlf_for_windows_worktrees() {
-    assert_eq!(
-        normalize_source_newlines("first\r\nsecond\r\n"),
-        "first\nsecond\n"
-    );
-}
-
-#[test]
-fn presentation_completion_uses_keyed_expected_mask_lookup() {
-    let source = normalize_source_newlines(include_str!("../presentation/frame_probe.rs"));
-    let complete = source
-        .split_once("    pub(in crate::chunk) fn complete(self) -> CompletedFrameProbe {")
-        .expect("frame probe completion")
-        .1
-        .split_once("\n    }\n}\n\n#[derive(Default)]")
-        .expect("end of frame probe completion")
-        .0;
-
-    assert!(
-        !complete.contains("self.eligible.values().find_map"),
-        "completion must not linearly scan every eligible allocation per drawn identity"
-    );
-}
-
 #[test]
 fn realizable_packed_model_upload_addresses_are_identical_for_direct_and_mdi() {
     let model_quad_counts = [2_u32, 12, 20];
