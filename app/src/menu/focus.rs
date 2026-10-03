@@ -32,7 +32,10 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate_focused(&mut self) {
-        let Some(action) = self.focus_actions().get(self.focused).copied() else {
+        let actions = self.focus_actions();
+        // A modal can replace the controls while the old focus index remains.
+        self.focused = self.focused.min(actions.len().saturating_sub(1));
+        let Some(action) = actions.get(self.focused).copied() else {
             return;
         };
         self.activate(action);
@@ -224,10 +227,23 @@ impl MenuRuntime {
             }
             MenuScreen::Profile => {
                 let mut actions = vec![MenuAction::AddBack];
-                let auth = self
-                    .control_auth
-                    .as_ref()
-                    .or_else(|| self.auth_process.as_ref().map(AuthSupervisor::state));
+                // Match view(): an active helper outranks the core's previous report.
+                let auth = match (
+                    self.auth_process.as_ref().map(AuthSupervisor::state),
+                    self.control_auth.as_ref(),
+                ) {
+                    (Some(state @ (AuthState::Checking | AuthState::AwaitingCode { .. })), _) => {
+                        Some(state)
+                    }
+                    (_, Some(control)) => Some(control),
+                    (supervisor, None) => supervisor,
+                };
+                if matches!(
+                    auth,
+                    Some(AuthState::Checking | AuthState::AwaitingCode { .. })
+                ) {
+                    return vec![MenuAction::CancelSignIn];
+                }
                 if auth == Some(&AuthState::Authenticated) {
                     if self.feeds.profile.unavailable {
                         actions.push(MenuAction::RefreshProfile);

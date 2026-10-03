@@ -730,6 +730,61 @@ mod tests {
     }
 
     #[test]
+    fn profile_sign_in_focus_outranks_stale_control_auth() {
+        use super::super::{MenuAction, MenuRuntime, MenuScreen};
+
+        for state in [
+            AuthState::Checking,
+            AuthState::AwaitingCode {
+                uri: "https://example.invalid/device".into(),
+                code: "FIXTURE".into(),
+            },
+        ] {
+            for control in [AuthState::SignedOut, AuthState::Authenticated] {
+                let (child, directory) = event_child_holding(&[]);
+                let mut supervisor = AuthSupervisor::from_child(child).unwrap();
+                supervisor.state = state.clone();
+                let mut menu = MenuRuntime::new(true, 2, "Fixture Player".into());
+                menu.screen = MenuScreen::Profile;
+                menu.auth_process = Some(supervisor);
+                menu.control_auth = Some(control);
+                menu.feeds.profile.loaded = true;
+                menu.feeds.profile.friends = Some(1);
+                assert_eq!(menu.view().auth_state, state);
+                let actions = menu.focus_actions();
+                assert_eq!(actions, vec![MenuAction::CancelSignIn]);
+                // The previous signed-out Profile action occupied index one.
+                menu.focused = 1;
+                menu.activate_focused();
+                let supervisor = menu.auth_process.as_ref().unwrap();
+                assert!(supervisor.cancel_requested);
+                assert_eq!(supervisor.state(), &AuthState::SignedOut);
+                assert!(!menu.auth_restart_requested);
+                drop(menu);
+                fs::remove_dir_all(directory).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn profile_sign_in_focus_outranks_stale_control_auth_and_resets_transition() {
+        use super::super::{MenuRuntime, MenuScreen};
+
+        let (child, directory) = event_child_holding(&[]);
+        let supervisor = AuthSupervisor::from_child(child).unwrap();
+        let mut menu = MenuRuntime::new(true, 2, "Fixture Player".into());
+        menu.screen = MenuScreen::Profile;
+        menu.auth_process = Some(supervisor);
+        menu.focused = 1;
+        menu.start_sign_in();
+        assert_eq!(menu.focused, 0);
+        assert!(menu.auth_restart_requested);
+        assert!(menu.auth_process.as_ref().unwrap().cancel_requested);
+        drop(menu);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn signed_out_profile_exposes_sign_in_without_gating_offline_servers() {
         use super::super::{MenuAction, MenuRuntime, MenuScreen};
 

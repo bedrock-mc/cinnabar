@@ -131,6 +131,7 @@ impl MenuRuntime {
     }
 
     pub(super) fn start_sign_in(&mut self) {
+        self.focused = 0;
         self.auth_attempted = true;
         self.stop_catalog();
         self.catalog_started = false;
