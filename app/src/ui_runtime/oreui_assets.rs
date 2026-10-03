@@ -14,7 +14,7 @@ use image::{AnimationDecoder, ImageDecoder, ImageFormat, ImageReader, Limits};
 use serde::Deserialize;
 
 /// Side of the packed OreUI page.
-pub(crate) const OREUI_PAGE_SIDE: u32 = 4096;
+pub(crate) const OREUI_PAGE_SIDE: u32 = 3072;
 const MAX_ATLAS_JSON_BYTES: u64 = 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_IMAGE_SIDE: u32 = 1024;
@@ -368,6 +368,32 @@ mod tests {
         }
         assert!(decode_animation(&synthetic_animation(MAX_ANIMATION_FRAMES + 1)).is_err());
         assert!(decode_animation(b"invalid GIF").is_err());
+    }
+
+    #[test]
+    fn profile_banners_fit_beside_existing_atlas_without_resizing() {
+        let dir = std::env::temp_dir().join(format!("oreui-profile-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        image::RgbaImage::from_pixel(1024, 1024, image::Rgba([0, 0, 0, 255]))
+            .save(dir.join("base.png"))
+            .unwrap();
+        std::fs::write(
+            dir.join("atlas.json"),
+            r#"[{"name":"base.png","width":1024,"height":1024,"coordinates":{}}]"#,
+        )
+        .unwrap();
+        // The reference's eight banner images are 960 by 540 pixels.
+        for name in PROFILE_BANNERS {
+            image::RgbaImage::from_pixel(960, 540, image::Rgba([80, 120, 160, 255]))
+                .save(dir.join(name))
+                .unwrap();
+        }
+        let images = load(&dir).unwrap();
+        for name in PROFILE_BANNERS {
+            let [left, top, right, bottom] = images.sprites[name];
+            assert_eq!((right - left, bottom - top), (960, 540));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
