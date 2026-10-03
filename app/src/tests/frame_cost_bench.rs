@@ -131,15 +131,12 @@ fn frame_cost_bench_block_entity_scene_400_static() {
 fn frame_cost_bench_sound_decode() {
     let path = crate::audio::sound_bank_path(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../.local/assets/compiled/vanilla-v2193.mcbea"),
+            .join("..")
+            .join(crate::asset_startup::DEFAULT_ASSET_PATH),
     );
-    let Ok(Some(mut bank)) = crate::audio::SoundBank::open(&path, None) else {
-        eprintln!(
-            "FRAME_COST music_decode: skipped, no bank at {}",
-            path.display()
-        );
-        return;
-    };
+    let mut bank = crate::audio::SoundBank::open(&path, None)
+        .expect("offline sound timing requires a valid installed sound bank (make assets)")
+        .expect("offline sound timing requires the installed sound bank (make assets)");
     // The largest streamed sound (re-decoded on every start) and common first-play effects.
     for sound in [
         "sounds/ambient/underwater/loop/underwater_ambience",

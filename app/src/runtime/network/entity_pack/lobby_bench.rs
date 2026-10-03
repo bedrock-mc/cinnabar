@@ -477,13 +477,10 @@ impl Series {
 #[test]
 #[ignore = "benchmark; needs a lobby capture and its cached pack"]
 fn lobby_frame_bench() {
-    let (Some(capture), Some(pack)) = (
-        std::env::var_os("CINNABAR_LOBBY_CAPTURE"),
-        std::env::var_os("CINNABAR_RENDER_PACK"),
-    ) else {
-        eprintln!("LOBBY_BENCH skipped: set CINNABAR_LOBBY_CAPTURE and CINNABAR_RENDER_PACK");
-        return;
-    };
+    let capture = std::env::var_os("CINNABAR_LOBBY_CAPTURE")
+        .expect("offline lobby timing requires CINNABAR_LOBBY_CAPTURE");
+    let pack = std::env::var_os("CINNABAR_RENDER_PACK")
+        .expect("offline lobby timing requires CINNABAR_RENDER_PACK");
     let frames: usize = std::env::var("CINNABAR_LOBBY_FRAMES")
         .ok()
         .and_then(|value| value.parse().ok())

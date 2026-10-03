@@ -580,6 +580,7 @@ fn packcache_custom_block_items_draw_when_requested() {
         );
         checked += icons.icons.len();
     }
+    assert!(checked > 0, "fixture must contain drawable custom blocks");
     eprintln!("{checked} packcache custom block item icons drawn");
 }
 

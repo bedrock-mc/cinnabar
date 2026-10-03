@@ -61,13 +61,12 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
 /// compiled vanilla carriers; custom armor attachables with compiled textures, given the
 /// `wearable` slot their binding declares, draw on a player body.
 #[test]
+#[ignore = "requires offline cached custom-armor packs and compiled carriers"]
 fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
-    let (Some(packs), Some(carriers)) = (
-        std::env::var_os("CINNABAR_PACKCACHE_DIR"),
-        std::env::var_os("CINNABAR_CARRIER_DIR"),
-    ) else {
-        return;
-    };
+    let packs = std::env::var_os("CINNABAR_PACKCACHE_DIR")
+        .expect("offline armor check requires CINNABAR_PACKCACHE_DIR");
+    let carriers = std::env::var_os("CINNABAR_CARRIER_DIR")
+        .expect("offline armor check requires CINNABAR_CARRIER_DIR");
     let carriers = std::path::PathBuf::from(carriers);
     let read = |name: &str| std::fs::read(carriers.join(name)).unwrap();
     let entities =
@@ -179,5 +178,6 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
     }
     eprintln!("custom armor drawn: {drawn}/{checked}");
     // Artwork page budgets can still drop a texture; most must draw.
+    assert!(checked > 0, "fixture must contain textured custom armor");
     assert!(drawn * 4 >= checked * 3, "{drawn}/{checked}");
 }
