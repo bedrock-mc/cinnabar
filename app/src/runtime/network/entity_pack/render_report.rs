@@ -29,6 +29,14 @@ fn render_local_pack_entities() {
         );
         return;
     };
+    assert!(!actors.trim().is_empty(), "fixture must name an actor");
+    if !Path::new(&pack).exists() {
+        eprintln!(
+            "skipping entity render fixture test: CINNABAR_RENDER_PACK names missing {}",
+            Path::new(&pack).display()
+        );
+        return;
+    }
     let LocalPack {
         entities,
         artwork,
