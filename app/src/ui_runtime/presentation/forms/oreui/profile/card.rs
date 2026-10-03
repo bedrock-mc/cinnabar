@@ -3,6 +3,9 @@ use super::super::icons::{self, Icon};
 use super::super::theme::{BORDER, CAPTION, HEADER5, NEUTRAL100, TEXT_DIMMER, TEXT_DIMMEST};
 use super::*;
 
+/// Fixed height of OreUI's narrow player card (CSS `.cfdfb462a95f1a51c994`).
+const NARROW_CARD_HEIGHT_REM: f32 = 12.8;
+
 /// Draws a natural-height player card; the narrow form places its banner on the right.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -36,9 +39,8 @@ pub(super) fn draw(
     };
     let name_left = b[0] + pad + pic + space(canvas, 2);
     let name_width = (content_right - name_left).max(canvas.r(1.0));
-    let text_height = canvas.measure_height(name, name_width, HEADER5)?
-        + canvas.measure_height(status, name_width, CAPTION)?
-        + space(canvas, 2);
+    // OreUI vZ wraps each label in yu: nowrap with an overflow ellipsis.
+    let text_height = canvas.r(HEADER5.line + CAPTION.line) + space(canvas, 2);
     let name_height = text_height.max(pic);
     let name_top = if narrow {
         b[1] + canvas.r(0.8)
@@ -47,7 +49,7 @@ pub(super) fn draw(
     };
     let button_y = name_top + name_height + space(canvas, 2);
     let end = if narrow {
-        b[1] + canvas.r(12.8)
+        b[1] + canvas.r(NARROW_CARD_HEIGHT_REM)
     } else {
         button_y + canvas.r(4.4) + pad
     };
@@ -123,14 +125,13 @@ pub(super) fn draw(
         )?;
     }
     let text_y = name_top + space(canvas, 1);
-    let h = canvas.text(name, [name_left, text_y], name_width, HEADER5, TEXT, false)?;
-    canvas.text(
+    canvas.text_line(name, [name_left, text_y], name_width, HEADER5, TEXT)?;
+    canvas.text_line(
         status,
-        [name_left, text_y + h],
+        [name_left, text_y + canvas.r(HEADER5.line)],
         name_width,
         CAPTION,
         TEXT_DIMMER,
-        false,
     )?;
     button(
         canvas,
@@ -167,4 +168,56 @@ fn cover(mut icon: IconRef, bounds: Bounds) -> IconRef {
         icon.uv[3] -= crop;
     }
     icon
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::menu::MenuRuntime;
+    use crate::ui_runtime::presentation::TextMetrics;
+    use crate::ui_runtime::presentation::tests::fixture_font;
+
+    #[test]
+    fn narrow_card_ellipsizes_long_names_without_moving_its_button() {
+        let mut view = MenuRuntime::new(true, 2, "Fixture".into()).view();
+        view.feeds.profile.gamertag = "Long player name ".repeat(20);
+        view.feeds.profile.real_name = "Long real name ".repeat(20);
+        let (mut nodes, mut next, mut layouts) =
+            (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
+        let font = fixture_font();
+        let metrics =
+            TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+        let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
+        let bounds = [0.0, 0.0, canvas.r(50.0), canvas.r(40.0)];
+        let end = draw(&mut canvas, &view, bounds, None, None, None, true).unwrap();
+        let card_bottom = canvas.r(NARROW_CARD_HEIGHT_REM);
+        let line_limit = canvas.r(HEADER5.line);
+        drop(canvas);
+        assert_eq!(end, card_bottom);
+        let mut ellipsis_labels = 0;
+        for node in &nodes {
+            assert!(
+                node.bounds().max().y() <= end,
+                "card content escaped its fixed height"
+            );
+            if let ui::UiVisual::Text { layout, .. } = node.visual() {
+                assert!(
+                    node.bounds().height() <= line_limit,
+                    "Profile text wrapped instead of ellipsizing"
+                );
+                assert_eq!(layout.line_count(), 1);
+                if layout
+                    .glyphs()
+                    .last()
+                    .is_some_and(|glyph| glyph.codepoint == '…')
+                {
+                    ellipsis_labels += 1;
+                }
+            }
+        }
+        assert_eq!(
+            ellipsis_labels, 2,
+            "both player name and real name need ellipses"
+        );
+    }
 }

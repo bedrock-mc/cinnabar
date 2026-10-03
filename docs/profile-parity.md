@@ -40,6 +40,9 @@ The card name uses Header5B (2rem font, 2.4rem line). Stats labels and values
 use captionShort (1.4rem font, 2rem line), with a dimmest label. Overview
 counts use body (1.6rem font, 2rem line). J `vZ`, `EJ`, `g2`; C
 `.d6e62706875e51a9fa20`, `.fc77bf1310dc483c1eba`, `.bcd956e248e044dfd9a3`.
+J `vZ` places both the name and status inside `yu`. C
+`.e41d8159223d4eea19af` sets `white-space: nowrap`, `overflow: hidden`, and
+`text-overflow: ellipsis`; long labels stay on one line in both card layouts.
 The reference font is Minecraft Seven v2; the project's open font remains
 the accepted repository deviation.
 
