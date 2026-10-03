@@ -72,9 +72,10 @@ fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
 /// Local-only: writes `toast_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
 #[test]
 fn toast_screen_snapshot() {
-    let mut presentation = super::engine_hud_tests::engine_presentation_with(
+    let Some(mut presentation) = super::engine_hud_tests::engine_presentation_with(
         super::super::forms::pack_harness::font(),
-    ) else {
+    ))
+ else {
         eprintln!(
             "skipping toast_screen_snapshot: fixture unavailable; requires installed local carriers (make assets)"
         );

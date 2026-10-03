@@ -92,8 +92,8 @@ fn newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat() {
     });
     let bytes = assets::encode_font_catalog([15; 32], &glyphs, &[page]).unwrap();
     let font = Arc::new(assets::RuntimeFontCatalog::decode(&bytes, [15; 32]).unwrap());
-    let mut presentation =
-        crate::ui_runtime::presentation::tests::engine_hud_tests::engine_presentation_with(font)
+    let Some(mut presentation) =
+        crate::ui_runtime::presentation::tests::engine_hud_tests::engine_presentation_with(font))
     else {
         eprintln!(
             "skipping newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat: fixture unavailable; requires installed local carriers (make assets)"
