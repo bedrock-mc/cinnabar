@@ -261,8 +261,11 @@ mod tests {
 
     #[test]
     fn request_is_the_exact_parameterless_status_v1_call() {
-        let encoded = serde_json::to_string(&status_request()).expect("encode request");
-        assert_eq!(encoded, r#"{"jsonrpc":"2.0","id":1,"method":"status.v1"}"#);
+        let encoded = serde_json::to_value(&status_request()).expect("encode request");
+        assert_eq!(
+            encoded,
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"status.v1"})
+        );
     }
 
     #[test]
@@ -331,7 +334,7 @@ mod tests {
 
     #[test]
     fn application_report_request_carries_strict_params() {
-        let encoded = serde_json::to_string(&PackApplicationRequest {
+        let encoded = serde_json::to_value(&PackApplicationRequest {
             jsonrpc: "2.0",
             id: STATUS_REQUEST_ID,
             method: "pack_application.v1",
@@ -343,7 +346,7 @@ mod tests {
         .expect("encode request");
         assert_eq!(
             encoded,
-            r#"{"jsonrpc":"2.0","id":1,"method":"pack_application.v1","params":{"attempt_id":9,"applied":true}}"#
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"pack_application.v1","params":{"attempt_id":9,"applied":true}})
         );
     }
 
