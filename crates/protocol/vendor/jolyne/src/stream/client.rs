@@ -1270,10 +1270,14 @@ mod tests {
     #[tokio::test]
     async fn start_game_caps_aggregate_deferred_packet_count() {
         let deferred = McpePacket::from(crate::valentine::SetTimePacket { time: 1 });
+        let first_count = MAX_RAW_BATCH_PACKETS / 2;
         let mut first = vec![start_game_packet()];
-        first.extend(std::iter::repeat_n(deferred.clone(), 800));
+        first.extend(std::iter::repeat_n(deferred.clone(), first_count));
         let mut second = Vec::new();
-        second.extend(std::iter::repeat_n(deferred, 801));
+        second.extend(std::iter::repeat_n(
+            deferred,
+            MAX_RAW_BATCH_PACKETS - first_count + 1,
+        ));
         second.extend(spawn_completion_packets());
 
         let stream = start_game_stream(vec![
@@ -1281,18 +1285,20 @@ mod tests {
             uncompressed_frame(&second),
         ]);
         let error = match stream.await_start_game().await {
-            Ok(_) => panic!("more than 1,600 deferred packets must fail"),
+            Ok(_) => panic!("exceeding the deferred packet budget must fail"),
             Err(error) => error,
         };
         assert!(matches!(
             error,
-            JolyneError::Protocol(ProtocolError::TooManyPackets { max: 1_600 })
+            JolyneError::Protocol(ProtocolError::TooManyPackets {
+                max: MAX_RAW_BATCH_PACKETS
+            })
         ));
     }
 
     #[tokio::test]
     async fn start_game_caps_aggregate_deferred_frame_bytes() {
-        const HALF_LIMIT: usize = 8 * 1024 * 1024;
+        const HALF_LIMIT: usize = MAX_DEFERRED_PACKET_BYTES / 2;
         let level_chunk = || {
             McpePacket::from(crate::valentine::LevelChunkPacket {
                 // The chunk blob is a length-prefixed byte buffer; HALF_LIMIT
@@ -1307,13 +1313,13 @@ mod tests {
 
         let stream = start_game_stream(vec![first, uncompressed_frame(&second)]);
         let error = match stream.await_start_game().await {
-            Ok(_) => panic!("more than 16 MiB of deferred frames must fail"),
+            Ok(_) => panic!("exceeding the deferred frame byte budget must fail"),
             Err(error) => error,
         };
         assert!(matches!(
             error,
             JolyneError::Protocol(ProtocolError::BatchTooLarge {
-                max: 16_777_216,
+                max: MAX_DEFERRED_PACKET_BYTES,
                 ..
             })
         ));

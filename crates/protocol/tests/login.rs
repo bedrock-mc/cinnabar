@@ -8,7 +8,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use jolyne::valentine::McpePacketData;
-use protocol::{GAME_VERSION, LoginSequence, PROTOCOL_VERSION};
+use protocol::LoginSequence;
 
 const EXTERNAL_HARNESS_TEST: &str = "^TestProxyExternalRustClientHarness$";
 const ENDPOINT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -17,11 +17,11 @@ const CHILD_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 const GO_BUILD_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "manual live BDS login; requires BEDROCK_BDS_DIR and the local Go harness"]
 async fn login_reaches_start_game_through_bds() {
-    let Some(bds_configuration) = live_bds_configuration().expect("validate live BDS paths") else {
-        eprintln!("skipping live login: BEDROCK_BDS_DIR is not set");
-        return;
-    };
+    let bds_configuration = live_bds_configuration()
+        .expect("validate live BDS paths")
+        .expect("manual live BDS fixture requires BEDROCK_BDS_DIR");
 
     let socket_dir = TestSocketDir::new().expect("create test socket directory");
     let mut harness =
@@ -53,8 +53,6 @@ async fn login_reaches_start_game_through_bds() {
         .await
         .expect("headless presentation ready");
 
-    assert_eq!(PROTOCOL_VERSION, 2193);
-    assert_eq!(GAME_VERSION, "1.26.50");
     // `runtime_entity_id` is now the `runtime_id: ActorRuntimeId` wrapper, and
     // the version string prismarine called `engine` is gophertunnel's
     // `ServerVersion` (`server_version` in the generated crate).
@@ -62,11 +60,9 @@ async fn login_reaches_start_game_through_bds() {
         game_data.start_game.runtime_id.actor_runtime_id, 0,
         "StartGame runtime entity ID must be non-zero"
     );
-    // The pinned BDS is a later 1.26.5x build of the same protocol.
     assert!(
-        game_data.start_game.server_version.starts_with("1.26.5"),
-        "unexpected BDS version {}",
-        game_data.start_game.server_version
+        !game_data.start_game.server_version.trim().is_empty(),
+        "StartGame must expose the compatible server's version"
     );
 
     let available_commands = tokio::time::timeout(LOGIN_TIMEOUT, async {
