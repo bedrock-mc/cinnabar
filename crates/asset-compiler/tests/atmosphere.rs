@@ -79,7 +79,11 @@ fn exact_native_cloud_override_replaces_only_clouds_and_retains_logical_provenan
             .count(),
         13_356
     );
-    assert!(!cloud.source_path.contains(&clouds_override));
+    assert!(
+        !cloud
+            .source_path
+            .contains(clouds_override.to_string_lossy().as_ref())
+    );
 }
 
 #[test]
@@ -448,7 +452,7 @@ fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
             .is_some_and(|value| value.len() == 64)
     );
     let report_text = fs::read_to_string(first_report).unwrap();
-    assert!(!report_text.contains(&pack));
+    assert!(!report_text.contains(pack.to_string_lossy().as_ref()));
 }
 
 #[test]
@@ -498,7 +502,7 @@ fn assetc_cloud_override_report_uses_only_canonical_logical_provenance() {
         report["textures"][2]["pixels_sha256"],
         NATIVE_CLOUD_PIXELS_SHA256
     );
-    assert!(!report_text.contains(&clouds_override));
+    assert!(!report_text.contains(clouds_override.to_string_lossy().as_ref()));
 }
 
 #[test]
