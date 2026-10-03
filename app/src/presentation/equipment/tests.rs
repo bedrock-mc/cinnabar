@@ -64,7 +64,9 @@ fn atlas_places_sprites_without_overlap_and_copies_their_pixels() {
 
 #[test]
 fn atlas_spills_into_extra_layers_and_skips_invalid_sprites() {
-    let mut sprites = (0..600).map(|_| sprite(32, 9)).collect::<Vec<_>>();
+    let size = ATLAS_SIDE.min(32);
+    let count = usize::from(ATLAS_SIDE).pow(2) / usize::from(size).pow(2) + 1;
+    let mut sprites = (0..count).map(|_| sprite(size, 9)).collect::<Vec<_>>();
     sprites.push(IconSprite {
         width: 4,
         height: 4,
@@ -75,8 +77,8 @@ fn atlas_spills_into_extra_layers_and_skips_invalid_sprites() {
         atlas.layers.len() > 1,
         "sprites exceed a single atlas layer"
     );
-    assert!(atlas.placements[..600].iter().all(Option::is_some));
-    assert!(atlas.placements[600].is_none());
+    assert!(atlas.placements[..count].iter().all(Option::is_some));
+    assert!(atlas.placements[count].is_none());
 }
 
 #[test]
