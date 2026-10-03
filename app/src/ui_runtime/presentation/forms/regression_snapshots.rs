@@ -253,7 +253,10 @@ fn captured_form(
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("skipping captured form snapshot: missing {}", path.display());
+            eprintln!(
+                "skipping captured form snapshot: missing {}",
+                path.display()
+            );
             return None;
         }
         Err(error) => panic!("read captured form fixture {}: {error}", path.display()),
