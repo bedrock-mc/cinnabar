@@ -460,7 +460,7 @@ fn generated_registry_has_exact_reviewed_selector_alias_cube_products() {
         .map(|record| record.name.as_ref())
         .collect::<HashSet<_>>();
     assert_eq!(names, HashSet::from(SELECTOR_ALIAS_CUBE_NAMES));
-    for record in records {
+    for record in &records {
         assert_eq!(record.model_family, ModelFamily::Cube);
         assert_eq!(record.contributor_role, ContributorRole::Primary);
         assert_eq!(
@@ -495,6 +495,22 @@ fn generated_registry_has_exact_reviewed_selector_alias_cube_products() {
                 Some(0..=2)
             ));
         }
+    }
+    for name in SELECTOR_ALIAS_CUBE_NAMES {
+        if name == "minecraft:tnt" {
+            continue;
+        }
+        let orientations = records
+            .iter()
+            .filter(|record| record.name.as_ref() == name)
+            .map(|record| {
+                record
+                    .model_state
+                    .get(ModelStateField::Orientation)
+                    .unwrap()
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(orientations, HashSet::from([0, 1, 2]), "{name} axes");
     }
 }
 
