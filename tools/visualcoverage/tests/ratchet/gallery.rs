@@ -60,8 +60,8 @@ fn full_gallery_fixture_with_route_error(
         Vec::new(),
     );
     let snapshot = analyze_bytes(&registry, &assets).expect("analyze full gallery fixture");
-    let mut baseline = baseline(&snapshot);
-    baseline.expected_vine_diagnostic_masks = snapshot.vine_diagnostic_masks.clone();
+    let baseline = baseline_from_snapshot(&snapshot, Vec::new())
+        .expect("baseline includes reviewed diagnostic and fallback routes");
     (registry, assets, baseline)
 }
 
