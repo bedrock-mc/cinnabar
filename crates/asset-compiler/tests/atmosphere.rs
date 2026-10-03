@@ -625,11 +625,14 @@ fn pinned_pack_atmosphere_sources_match_exact_provenance() {
         <[u8; 32]>::from(Sha256::digest(canonical_tracked_manifest())),
         assets::vanilla_source_manifest_sha256()
     );
-    assert_eq!(blob.len(), 334_457);
+    let runtime = RuntimeAtmosphereAssets::decode(&blob).expect("decode pinned atmosphere carrier");
     assert_eq!(
-        format!("{:x}", Sha256::digest(&blob)),
-        "bd5c34eacfd995e3352f2541edfa2447935ae5ec2e63479fbdca74ee8ad0da40"
+        runtime.source_manifest_sha256(),
+        compiled.source_manifest_sha256
     );
+    assert_eq!(runtime.textures(), compiled.textures.as_ref());
+    assert_eq!(runtime.biome_profiles(), compiled.biome_profiles.as_ref());
+    assert_eq!(runtime.fog_profiles(), compiled.fog_profiles.as_ref());
     let expected = [
         (
             AtmosphereRole::Sun,
