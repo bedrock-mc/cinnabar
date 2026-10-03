@@ -114,7 +114,7 @@ impl Binder<'_> {
                     expanded |= self.expand_named(root, &name);
                 }
             }
-            expanded |= self.expand_deferred(root, true);
+            expanded |= self.expand_deferred(root, false);
             if !expanded {
                 break;
             }
@@ -127,7 +127,7 @@ impl Binder<'_> {
         let mut expanded = false;
         if node.deferred.is_some() && holds(node.src.get(), name) {
             let scope = node.deferred.take().unwrap_or_default();
-            node.children = self.children_of(node, &scope);
+            self.build_deferred(node, &scope);
             expanded = true;
         }
         for child in &mut node.children {
