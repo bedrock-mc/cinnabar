@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/bedrock-mc/cinnabar/tools/web-spectator/server/internal/ingress"
+	"github.com/bedrock-mc/cinnabar/tools/web-spectator/server/internal/recording"
+	"github.com/bedrock-mc/cinnabar/tools/web-spectator/server/internal/replay"
 	"github.com/bedrock-mc/cinnabar/tools/web-spectator/server/internal/spectator"
 	"github.com/nats-io/nats.go"
 )
@@ -44,13 +46,40 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	store := spectator.NewStore()
+	var capture *recording.Service
+	var replayHTTP http.Handler
+	if directory := os.Getenv("REPLAY_DIRECTORY"); directory != "" {
+		secret := os.Getenv("REPLAY_API_SECRET")
+		if len(secret) < 32 {
+			return errors.New("REPLAY_API_SECRET must contain at least 32 characters")
+		}
+		recordings, openErr := replay.Open(replay.Config{Directory: directory, MaxBytes: replay.DefaultMaxBytes})
+		if openErr != nil {
+			return fmt.Errorf("open replay storage: %w", openErr)
+		}
+		defer recordings.Close()
+		capture = recording.New(recordings, store, log)
+		defer capture.Close()
+		replayHTTP = recording.NewHTTP(recordings)
+	}
+	disconnect := func() {
+		if capture != nil {
+			capture.Disconnect()
+		}
+		store.CloseAll(time.Now())
+	}
 	assets, err := ingress.LoadAssets(os.Getenv("SPECTATOR_ASSET_DIR"))
 	if err != nil {
 		return fmt.Errorf("SPECTATOR_ASSET_DIR: %w", err)
 	}
 	defer assets.Close()
-	options := []nats.Option{nats.Name("cinnabar-web-spectator"), nats.Timeout(5 * time.Second), nats.MaxReconnects(-1), nats.ReconnectWait(time.Second), nats.ReconnectBufSize(0), nats.DisconnectErrHandler(func(_ *nats.Conn, _ error) { store.CloseAll(time.Now()); log.Warn("spectator bus disconnected") }), nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, _ error) {
-		store.CloseAll(time.Now())
+	audio, err := ingress.LoadAudio(os.Getenv("SPECTATOR_AUDIO_DIR"))
+	if err != nil {
+		return fmt.Errorf("SPECTATOR_AUDIO_DIR: %w", err)
+	}
+	defer audio.Close()
+	options := []nats.Option{nats.Name("cinnabar-web-spectator"), nats.Timeout(5 * time.Second), nats.MaxReconnects(-1), nats.ReconnectWait(time.Second), nats.ReconnectBufSize(0), nats.DisconnectErrHandler(func(_ *nats.Conn, _ error) { disconnect(); log.Warn("spectator bus disconnected") }), nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, _ error) {
+		disconnect()
 		log.Warn("spectator subscription lost messages; active views closed")
 	})}
 	if credentials := os.Getenv("SPECTATOR_NATS_CREDENTIALS_FILE"); credentials != "" {
@@ -63,8 +92,26 @@ func run(log *slog.Logger) error {
 	defer connection.Close()
 	var rejected atomic.Uint64
 	subscription, err := connection.Subscribe("practice.spectator.v1.>", func(message *nats.Msg) {
-		if err := store.Accept(message.Subject, message.Data, time.Now()); err != nil {
+		now := time.Now()
+		if message.Subject == spectator.ReplayStartSubject {
+			opening, arena, err := store.ValidateReplayStart(message.Data, now)
+			if err != nil {
+				rejected.Add(1)
+				if capture != nil {
+					capture.Disconnect()
+				}
+			} else if capture != nil {
+				capture.AcceptReplayStart(opening, arena, message.Data, now)
+			}
+			return
+		}
+		if err := store.Accept(message.Subject, message.Data, now); err != nil {
 			rejected.Add(1)
+			if capture != nil && message.Subject == spectator.FrameSubject {
+				capture.Disconnect()
+			}
+		} else if capture != nil {
+			capture.Accept(message.Subject, message.Data, now)
 		}
 	})
 	if err != nil {
@@ -76,7 +123,11 @@ func run(log *slog.Logger) error {
 	if err := connection.FlushTimeout(5 * time.Second); err != nil {
 		return errors.New("spectator event subscription did not become ready")
 	}
-	server := &http.Server{Addr: env("SPECTATOR_LISTEN_ADDRESS", "127.0.0.1:3002"), Handler: ingress.New(store, upstream, origin, trusted, assets), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	handler := ingress.New(store, upstream, origin, trusted, assets)
+	handler.ProtectAccounts(upstream, os.Getenv("REPLAY_API_SECRET"))
+	handler.SetReplays(replayHTTP)
+	handler.SetAudio(audio)
+	server := &http.Server{Addr: env("SPECTATOR_LISTEN_ADDRESS", "127.0.0.1:3002"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)

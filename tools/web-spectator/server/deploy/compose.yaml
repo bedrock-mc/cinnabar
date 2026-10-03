@@ -19,5 +19,9 @@ services:
       GOMAXPROCS: "1"
       GOMEMLIMIT: "300MiB"
       SPECTATOR_ASSET_DIR: /assets
+      SPECTATOR_AUDIO_DIR: /audio
+      REPLAY_DIRECTORY: /replays
     volumes:
       - ${SPECTATOR_ASSET_DIR:?SPECTATOR_ASSET_DIR is required}:/assets:ro,Z
+      - ${REPLAY_DATA_DIR:?REPLAY_DATA_DIR is required}:/replays:Z
+      - ${SPECTATOR_AUDIO_DIR:?SPECTATOR_AUDIO_DIR is required}:/audio:ro,Z

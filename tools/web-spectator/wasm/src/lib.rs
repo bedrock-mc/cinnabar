@@ -24,11 +24,19 @@ mod browser;
 #[cfg(target_arch = "wasm32")]
 mod browser_actor;
 #[cfg(target_arch = "wasm32")]
+mod browser_audio;
+#[cfg(target_arch = "wasm32")]
 mod browser_camera;
 #[cfg(target_arch = "wasm32")]
 mod browser_diagnostics;
 #[cfg(target_arch = "wasm32")]
+mod browser_effects;
+#[cfg(target_arch = "wasm32")]
 mod browser_hud;
+#[cfg(target_arch = "wasm32")]
+pub use browser_audio::SoundRoutes;
+#[cfg(target_arch = "wasm32")]
+mod browser_items;
 
 #[cfg(target_arch = "wasm32")]
 pub use browser::Viewer;

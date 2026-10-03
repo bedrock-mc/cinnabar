@@ -10,6 +10,7 @@ mod molang;
 mod particle;
 mod render;
 mod system;
+mod tiles;
 mod triggers;
 mod world;
 
@@ -18,10 +19,11 @@ pub use draw::{DrawLists, ParticleInstance, ParticleView};
 pub use emitter::{ParticleSound, SpawnRequest, TileRequest};
 pub use render::{ParticleGpuFrame, ParticleRenderPlugin, particle_view, update_particle_frame};
 pub use system::{MAX_LIVE_PARTICLES, ParticleSystem};
+pub use tiles::{block_particle_tile, item_particle_tile};
 pub use triggers::{
-    LevelParticle, block_break_request, block_crack_request, classify_level_event,
-    is_particle_level_event, item_icon_request, named_request, parse_molang_variables,
-    terrain_request,
+    BLOCK_BREAK_EFFECT, ITEM_ICON_PIECES, LevelParticle, block_break_request, block_crack_request,
+    classify_level_event, is_particle_level_event, item_icon_request, named_request,
+    parse_molang_variables, terrain_request,
 };
 pub use world::{EmptyWorld, Fluid, ParticleWorld};
 

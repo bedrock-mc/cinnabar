@@ -70,6 +70,16 @@ pub fn target_rotation_is_absolute(kind: &ActorKind) -> bool {
         "minecraft:arrow" | "minecraft:fireworks_rocket" | "minecraft:wither_skull" | "minecraft:wither_skull_dangerous"))
 }
 
+/// Entity rigs whose authored billboard bones already carry the camera rotation.
+/// Shared by native and browser placement, avoiding a second actor yaw.
+pub fn actor_is_billboard(kind: &ActorKind) -> bool {
+    matches!(kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+        "minecraft:xp_bottle" | "minecraft:ender_pearl" | "minecraft:xp_orb"
+        | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
+        | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
+        | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"))
+}
+
 /// Movement flags retained from Bedrock's primary actor flag word.
 pub const ACTOR_FLAG_SNEAKING: u32 = 1;
 pub const ACTOR_FLAG_SPRINTING: u32 = 3;

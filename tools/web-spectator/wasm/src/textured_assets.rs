@@ -16,6 +16,10 @@ pub struct TerrainAssets {
     pub(super) runtime: Arc<RuntimeAssets>,
     pub(super) canonical: Arc<canonical::CanonicalIndex>,
     pub(super) air: u32,
+    #[cfg(target_arch = "wasm32")]
+    pub(super) collision_records: Arc<[assets::RegistryRecord]>,
+    #[cfg(target_arch = "wasm32")]
+    pub(super) collision_halo: [[i32; 2]; 3],
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
@@ -48,10 +52,30 @@ impl TerrainAssets {
             .air_network_id(NetworkIdMode::Sequential)
             .ok_or("terrain carrier does not contain one unambiguous air identity")?;
         let canonical = canonical::registry_index(&records)?;
+        #[cfg(target_arch = "wasm32")]
+        let mut collision_halo = [[0, 0]; 3];
+        #[cfg(target_arch = "wasm32")]
+        for shape in records
+            .iter()
+            .flat_map(|record| record.collision_seed.boxes.iter())
+        {
+            let lower = [shape.min_x, shape.min_y, shape.min_z];
+            let upper = [shape.max_x, shape.max_y, shape.max_z];
+            for axis in 0..3 {
+                collision_halo[axis][0] =
+                    collision_halo[axis][0].min(lower[axis].div_euclid(100_000_000));
+                collision_halo[axis][1] = collision_halo[axis][1]
+                    .max((i64::from(upper[axis]) + 99_999_999).div_euclid(100_000_000) as i32);
+            }
+        }
         Ok(Self {
             runtime: Arc::new(runtime),
             canonical: Arc::new(canonical),
             air,
+            #[cfg(target_arch = "wasm32")]
+            collision_records: Arc::from(records),
+            #[cfg(target_arch = "wasm32")]
+            collision_halo,
         })
     }
 

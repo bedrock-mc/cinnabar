@@ -650,11 +650,7 @@ fn wrap_degrees(degrees: f32) -> f32 {
 
 /// Projectile bones carry absolute rotation; billboard bones carry the camera's rotation.
 fn actor_world_yaw(actor: &ActorSnapshot, rig: &ActorRigSnapshot<'_>, alpha: f32) -> f32 {
-    let billboard = matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
-        "minecraft:xp_bottle" | "minecraft:ender_pearl" | "minecraft:xp_orb"
-        | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
-        | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
-        | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"));
+    let billboard = client_world::actor_is_billboard(&actor.kind);
     if billboard {
         180.0
     } else if actor.target_rotation_is_absolute() {

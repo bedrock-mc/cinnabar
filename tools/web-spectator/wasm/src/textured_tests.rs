@@ -81,6 +81,15 @@ fn native_mesh_keeps_packed_streams_and_cross_boundary_final_updates() {
     let input = json!({"palette":[{"name":"minecraft:air"},{"name":"minecraft:stone"}],
         "blocks":[[-1,0,0,1],[0,0,0,1],[0,0,0,0]],"bounds":[-1,0,0,0,0,0]});
     let arena = Arena::parse(&input.to_string()).unwrap();
+    let assets = diagnostic_assets(&arena);
+    let meshes = terrain_runtime::prepare(&arena, &assets).unwrap();
+    assert_eq!(meshes.len(), 1);
+    let (key, mesh) = &meshes[0];
+    assert_eq!(key.x, -1);
+    assert_eq!(mesh.quad_count(), 6);
+}
+
+fn diagnostic_assets(arena: &Arena) -> TerrainAssets {
     let (runtime, _) = materials::palette_assets(&arena.palette).unwrap();
     let canonical = std::collections::BTreeMap::from([
         (
@@ -100,14 +109,48 @@ fn native_mesh_keeps_packed_streams_and_cross_boundary_final_updates() {
             1,
         ),
     ]);
-    let assets = TerrainAssets {
+    TerrainAssets {
         runtime: Arc::new(runtime),
         canonical: Arc::new(canonical),
         air: 0,
-    };
-    let meshes = terrain_runtime::prepare(&arena, &assets).unwrap();
-    assert_eq!(meshes.len(), 1);
-    let (key, mesh) = &meshes[0];
-    assert_eq!(key.x, -1);
-    assert_eq!(mesh.quad_count(), 6);
+    }
+}
+
+#[test]
+fn replay_seek_restores_removed_blocks_and_cross_boundary_faces() {
+    let arena = Arena::parse(&json!({"palette":[{"name":"minecraft:air"},{"name":"minecraft:stone"}],"blocks":[[-1,0,0,1],[0,0,0,1]],"bounds":[-1,0,0,0,0,0]}).to_string()).unwrap();
+    let assets = diagnostic_assets(&arena);
+    let mut scene = terrain_runtime::TerrainScene::new(&arena, &assets).unwrap();
+    let original = scene
+        .initial(&assets)
+        .unwrap()
+        .iter()
+        .map(|(_, mesh)| mesh.quad_count())
+        .sum::<usize>();
+    let removed = [crate::browser_model::SceneBlock {
+        position: [0, 0, 0],
+        name: "minecraft:air".into(),
+        states: Default::default(),
+    }];
+    let changed = scene.apply(&removed, &assets).unwrap();
+    assert!(
+        changed
+            .iter()
+            .any(|(key, mesh)| key.x == 0 && mesh.is_empty())
+    );
+    assert!(
+        changed
+            .iter()
+            .any(|(key, mesh)| key.x == -1 && mesh.quad_count() == 6)
+    );
+    assert!(scene.apply(&removed, &assets).unwrap().is_empty());
+    let restored = scene.apply(&[], &assets).unwrap();
+    assert_eq!(
+        restored
+            .iter()
+            .map(|(_, mesh)| mesh.quad_count())
+            .sum::<usize>(),
+        original
+    );
+    assert!(scene.apply(&[], &assets).unwrap().is_empty());
 }

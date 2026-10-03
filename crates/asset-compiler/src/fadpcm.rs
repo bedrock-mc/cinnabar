@@ -150,6 +150,7 @@ pub fn decode_fsb5_fadpcm(input: &[u8]) -> Result<DecodedFadpcm, FadpcmDecodeErr
     let mut cursor = 8_usize;
     let mut chunks = 0;
     let mut rate_override = false;
+    let mut loop_range = None;
     while more {
         chunks += 1;
         if chunks > MAX_CHUNKS {
@@ -162,14 +163,27 @@ pub fn decode_fsb5_fadpcm(input: &[u8]) -> Result<DecodedFadpcm, FadpcmDecodeErr
         let payload = header
             .get(cursor..end)
             .ok_or_else(|| malformed("chunk length"))?;
-        if chunk >> 25 != 2 {
-            return Err(FadpcmDecodeError::Unsupported("metadata chunk"));
+        match chunk >> 25 {
+            2 => {
+                if rate_override || payload.len() != 4 {
+                    return Err(malformed("rate override"));
+                }
+                sample_rate = u32_at(payload, 0)?;
+                rate_override = true;
+            }
+            // FSB5 type 3 carries two little-endian sample positions, with an
+            // inclusive end (vgmstream's pinned fsb5.c parse_header case 0x03).
+            // Validate this metadata but keep this decoder finite: playback
+            // loop requests are a separate client policy, never activated by
+            // metadata commonly present even on short combat one-shot samples.
+            3 => {
+                if loop_range.is_some() || payload.len() != 8 {
+                    return Err(malformed("loop range"));
+                }
+                loop_range = Some((u32_at(payload, 0)?, u32_at(payload, 4)?));
+            }
+            _ => return Err(FadpcmDecodeError::Unsupported("metadata chunk")),
         }
-        if rate_override || payload.len() != 4 {
-            return Err(malformed("rate override"));
-        }
-        sample_rate = u32_at(payload, 0)?;
-        rate_override = true;
         more = chunk & 1 != 0;
         cursor = end;
     }
@@ -179,6 +193,9 @@ pub fn decode_fsb5_fadpcm(input: &[u8]) -> Result<DecodedFadpcm, FadpcmDecodeErr
     validate_names(&input[names_start..data_start])?;
     let frames =
         usize::try_from((mode >> 34) & 0x3fff_ffff).map_err(|_| malformed("frame count"))?;
+    if loop_range.is_some_and(|(start, end)| start > end || u64::from(end) >= frames as u64) {
+        return Err(malformed("loop sample bounds"));
+    }
     if frames == 0 {
         return Err(malformed("zero sample count"));
     }

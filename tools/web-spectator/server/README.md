@@ -46,7 +46,14 @@ Practice publishes version 1 messages on:
   updatedAt,players,teamWins}`. Player records contain `id,name,bot,team,position,
   yaw,pitch,health,maxHealth,hits,dead`. Positions are feet coordinates; angles
   retain Minecraft degrees. `updatedAt` is RFC3339 UTC, and teams are zero-based.
-- `practice.spectator.v1.closed`: `{version,id,updatedAt}`.
+- `practice.spectator.v1.replay-start`: `{version,id,arenaId,frames}`. This
+  atomic, recording-only opening contains real preparation and pre-arena
+  snapshots. It is limited to 200 frames, 512 KiB and ten seconds, with at
+  most 500 ms between observed snapshots. Historical frames never enter the
+  live cache. Deploy this ingress before the matching Practice exporter.
+- `practice.spectator.v1.closed`: `{version,id,updatedAt,reason,finalFrame,
+  replayIncomplete}`. Only a normal `finished` close can retain a recording;
+  consent revocation, aborts and incomplete exports discard it.
 
 Limits: 1 MiB per bus message, 4096 voxels per part, 256 parts and one million
 voxels per complete arena, 16 cached arenas, two million cached voxels total,
@@ -59,7 +66,7 @@ matches cannot be evicted. Only fresh exports from the trusted bus are accepted.
 Run checks on the shared development host through `agent-check`, with one owner:
 
 ```sh
-/home/danick/.local/bin/agent-check -- env GOWORK=off go test -race ./...
+/home/danick/.local/bin/agent-check -- env GOWORK=off go test -p=1 ./...
 /home/danick/.local/bin/agent-check -- env GOWORK=off go build -trimpath -o /tmp/zeno-spectator ./cmd/spectator
 ```
 
@@ -70,10 +77,28 @@ the Linux binary at the systemd unit's release path and use
 
 Copy the nonsecret defaults from `deploy/spectator.env.example`; put credentials
 only in the deployment environment or a read-only NATS credentials mount. Point
-ForwardMe's `dev.zenomc.org` route to `http://10.0.0.69:3002`, and run the separate
-website on port 3001. Do not change the current port-3000 public website. The
-ForwardMe config is loaded at startup; restart just its proxy after adding the
-route. Configure dev DNS for that proxy and verify its certificate before use.
+the native ingress at `127.0.0.1:3003` with the public website on port 3000.
+ForwardMe routes `zenomc.org` to that website; the former `dev.zenomc.org`
+preview redirects there. Website session validation remains required for live
+and replay routes.
+
+## Replay storage
+
+Set `REPLAY_DIRECTORY` to a persistent directory writable by the container's
+nonroot user and supply `REPLAY_API_SECRET` through a private runtime env.
+Practice uses the same secret for replay reads; browsers use validated website
+sessions and never receive that bearer secret.
+
+Recordings use independent Zstandard chunks for bounded seeking and share
+content-addressed arena, skin and appearance assets. The 25,000,000,000-byte
+storage limit counts completed and active files plus their assets. New writes
+remove the oldest completed recordings and unused assets when space is needed.
+Interrupted recordings are discarded on restart. Keep extra disk space for
+filesystem overhead and temporary files.
+
+The API exposes `/api/replays`, replay metadata and bounded frame windows,
+plus frozen arena and appearance assets. A recording must start from a complete
+opening and end normally. Lost exports and invalid timelines fail closed.
 
 ## Appearance and native POV
 
@@ -86,10 +111,16 @@ presence, durability and leather color only. No item names/lore or private chat
 are exported. `practice.spectator.v1.skin` carries bounded bot PNGs with content
 hash, dimensions and model. Human skins keep their regular shared API/cooldown.
 
-Generate the runtime carriers with the repository's pinned asset compiler, then
-run `agent-check python3 tools/web-spectator/bundle_assets.py .local/runtime-assets`.
-Set `SPECTATOR_ASSET_DIR` to this immutable release directory and mount it read-only
-in Compose. The loader verifies all eight sizes/hashes, regular file types and gzip
-representations before serving. Assets remain outside Git and container images.
+Generate the runtime carriers with the repository's pinned asset compiler,
+including `make actor-assets particle-assets` under `agent-check`. Stage the
+legacy eight carriers in `.local/runtime-assets`, then run
+`tools/web-spectator/bundle_assets.py .local/runtime-assets --actors .local/assets/compiled/vanilla-v1.mcbeact --particles .local/assets/compiled/vanilla-v1.mcbept`.
+The actor and particle paths may instead be pre-staged as `actors.mcbeact` and
+`particles.mcbept` in that directory. The bundle requires both and records ten
+verified carriers; the legacy asset-manifest route still exposes its original
+eight in the same order. Set `SPECTATOR_ASSET_DIR` to the immutable release
+directory and mount it read-only in Compose. The loader verifies sizes, hashes,
+regular file types and gzip representations before serving. Assets remain
+outside Git and container images.
 Downloads share two nonblocking admission slots and a60-second write deadline;
 active duel skin writes retain the three-second consent-atomic limit.

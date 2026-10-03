@@ -1,5 +1,15 @@
 use serde::Deserialize;
 
+// Go encodes nil event data and block state maps as JSON null. They carry no
+// entries, so accept the empty collection without loosening other fields.
+fn null_is_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Option::<T>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Frame {
@@ -11,7 +21,18 @@ pub(super) struct Frame {
     pub(super) round_active: bool,
     #[serde(rename = "players")]
     pub(super) fighters: Vec<Fighter>,
+    #[serde(default, deserialize_with = "null_is_default")]
     pub(super) team_wins: Vec<i32>,
+    #[serde(default)]
+    pub(super) entities: Vec<SceneEntity>,
+    #[serde(default)]
+    pub(super) events: Vec<SceneEvent>,
+    #[serde(default)]
+    pub(super) blocks: Vec<SceneBlock>,
+    #[serde(default)]
+    pub(super) replay_epoch: u64,
+    pub(super) replay_playing: Option<bool>,
+    pub(super) replay_speed: Option<f32>,
 }
 
 impl Frame {
@@ -20,6 +41,48 @@ impl Frame {
             return Err("spectator frame exceeds 1 MiB".into());
         }
         let frame: Self = serde_json::from_str(input).map_err(|error| error.to_string())?;
+        if frame.entities.len() > 256 || frame.events.len() > 512 || frame.blocks.len() > 8192 {
+            return Err("spectator world state exceeds admission limits".into());
+        }
+        for entity in &frame.entities {
+            if entity.id.len() > 128
+                || entity.kind.len() > 128
+                || !finite_position(&entity.position)
+                || !entity.yaw.is_finite()
+                || !entity.pitch.is_finite()
+            {
+                return Err("spectator entity exceeds admission limits".into());
+            }
+            if let Some(item) = &entity.item {
+                item.validate()?;
+            }
+        }
+        for event in &frame.events {
+            if event.id.len() > 128
+                || event.kind.len() > 64
+                || event.name.len() > 128
+                || event.updated_at.len() > 64
+                || !finite_position(&event.position)
+                || event.data.len() > 64
+                || event
+                    .data
+                    .iter()
+                    .any(|(key, value)| key.len() > 128 || !value.is_finite())
+            {
+                return Err("spectator event exceeds admission limits".into());
+            }
+        }
+        for block in &frame.blocks {
+            if block.name.len() > 128
+                || block.states.len() > 64
+                || block
+                    .position
+                    .iter()
+                    .any(|value| !(-1_000_000..=1_000_000).contains(value))
+            {
+                return Err("spectator block exceeds admission limits".into());
+            }
+        }
         if frame.fighters.len() > 32
             || frame.id.len() > 128
             || frame.arena_id.len() > 128
@@ -96,7 +159,9 @@ pub(super) struct Fighter {
     #[serde(default)]
     pub(super) swimming: bool,
     pub(super) swing_at: Option<String>,
+    pub(super) swing_id: Option<String>,
     pub(super) hurt_at: Option<String>,
+    pub(super) hurt_id: Option<String>,
     pub(super) pov: Option<Pov>,
 }
 
@@ -118,8 +183,15 @@ pub(super) struct Item {
     pub(super) durability: i32,
     pub(super) max_durability: i32,
     pub(super) color: Option<String>,
+    pub(super) block: Option<ItemBlock>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub(super) struct ItemBlock {
+    pub(super) name: String,
+    #[serde(default, deserialize_with = "null_is_default")]
+    pub(super) states: serde_json::Map<String, serde_json::Value>,
+}
 impl Item {
     fn validate(&self) -> Result<(), String> {
         if self.name.len() > 128
@@ -128,6 +200,16 @@ impl Item {
             || self.color.as_ref().is_some_and(|value| value.len() > 32)
         {
             return Err("spectator item exceeds admission limits".into());
+        }
+        if self.block.as_ref().is_some_and(|block| {
+            block.name.len() > 128
+                || block.states.len() > 64
+                || block.states.iter().any(|(key, value)| {
+                    key.len() > 64
+                        || !(value.is_boolean() || value.is_string() || value.as_i64().is_some())
+                })
+        }) {
+            return Err("invalid item block state".into());
         }
         Ok(())
     }
@@ -146,6 +228,7 @@ pub(super) struct Pov {
     pub(super) experience_progress: f32,
     pub(super) air_ticks: Option<i32>,
     pub(super) max_air_ticks: Option<i32>,
+    #[serde(default, deserialize_with = "null_is_default")]
     pub(super) effects: Vec<Effect>,
     pub(super) hud: Hud,
 }
@@ -230,4 +313,73 @@ pub(super) struct HudTitle {
     pub(super) stay_ticks: i32,
     pub(super) fade_out_ticks: i32,
     pub(super) updated_at: String,
+}
+
+fn finite_position(position: &[f32; 3]) -> bool {
+    position
+        .iter()
+        .all(|value| value.is_finite() && value.abs() <= 1_000_000.0)
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SceneEntity {
+    pub(super) id: String,
+    pub(super) kind: String,
+    pub(super) position: [f32; 3],
+    pub(super) yaw: f32,
+    pub(super) pitch: f32,
+    pub(super) item: Option<Item>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SceneEvent {
+    pub(super) id: String,
+    pub(super) kind: String,
+    pub(super) position: [f32; 3],
+    #[serde(default)]
+    pub(super) name: String,
+    #[serde(default, deserialize_with = "null_is_default")]
+    pub(super) data: std::collections::BTreeMap<String, f64>,
+    pub(super) updated_at: String,
+    #[serde(default)]
+    pub(super) block_name: String,
+    #[serde(default)]
+    pub(super) item_name: String,
+    #[serde(default)]
+    pub(super) item_aux: u32,
+    #[serde(default, deserialize_with = "null_is_default")]
+    pub(super) block_states: serde_json::Map<String, serde_json::Value>,
+}
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub(super) struct SceneBlock {
+    pub(super) position: [i32; 3],
+    pub(super) name: String,
+    #[serde(default, deserialize_with = "null_is_default")]
+    pub(super) states: serde_json::Map<String, serde_json::Value>,
+}
+
+impl SceneEntity {
+    pub(super) fn observation(&self) -> Fighter {
+        Fighter {
+            id: self.id.clone(),
+            name: self.kind.clone(),
+            position: self.position,
+            yaw: self.yaw,
+            pitch: self.pitch,
+            health: 1.0,
+            max_health: 1.0,
+            dead: false,
+            equipment: None,
+            sneaking: false,
+            sprinting: false,
+            using_item: false,
+            on_ground: false,
+            swimming: false,
+            swing_at: None,
+            swing_id: None,
+            hurt_at: None,
+            hurt_id: None,
+            pov: None,
+        }
+    }
 }

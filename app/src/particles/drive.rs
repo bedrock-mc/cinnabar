@@ -8,10 +8,10 @@ use bevy::prelude::{
 use client_world::{ActorStatusNotice, CommittedParticleEvent, WorldStream};
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
-    AtmosphereFrame, LevelParticle, ParticleGpuFrame, ParticleSystem, RainSplashQueue,
-    SpawnRequest, block_break_request, block_crack_request, classify_level_event,
-    item_icon_request, named_request, parse_molang_variables, particle_view, terrain_request,
-    update_particle_frame,
+    AtmosphereFrame, BLOCK_BREAK_EFFECT, ITEM_ICON_PIECES, LevelParticle, ParticleGpuFrame,
+    ParticleSystem, RainSplashQueue, SpawnRequest, block_break_request, block_crack_request,
+    classify_level_event, item_icon_request, named_request, parse_molang_variables, particle_view,
+    terrain_request, update_particle_frame,
 };
 
 use super::{
@@ -55,12 +55,9 @@ const MAX_QUEUED_INBOX: usize = 512;
 const MAX_RAIN_SPLASHES_PER_FRAME: usize = 64;
 const IDENTITY_BASIS: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
-const BLOCK_BREAK_EFFECT: &str = "minecraft:block_destruct";
 const RAIN_SPLASH_EFFECT: &str = "minecraft:rain_splash_particle";
 /// Height fraction of an actor's box where head-level effects originate.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
-/// Item pieces per eating or icon-crack event; needs independent measurement.
-const ITEM_ICON_PIECES: f32 = 6.0;
 
 pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut ParticleInbox) {
     let committed = stream.take_committed_particles();

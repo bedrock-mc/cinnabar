@@ -53,8 +53,11 @@ func (s *Store) Accept(subject string, data []byte, now time.Time) error {
 		if err := decode(data, &closed); err != nil {
 			return err
 		}
-		if closed.Version != Version || !ValidID(closed.ID) || !fresh(closed.UpdatedAt, now) {
+		if !validCloseReason(closed.Reason) || closed.Version != Version || !ValidID(closed.ID) || !fresh(closed.UpdatedAt, now) {
 			return errors.New("invalid spectator close")
+		}
+		if final := closed.FinalFrame; final != nil && (closed.Reason != "finished" || final.ID != closed.ID || !validFrame(*final, now)) {
+			return errors.New("invalid replay terminal frame")
 		}
 		s.Close(closed.ID, now)
 		return nil

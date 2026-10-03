@@ -75,6 +75,7 @@ struct ArenaPublication {
 
 struct ViewerState {
     arena: Option<ArenaPublication>,
+    terrain_updates: VecDeque<(SubChunkKey, ChunkMesh)>,
     current: Option<Frame>,
     previous: Option<Frame>,
     received: Instant,
@@ -82,6 +83,11 @@ struct ViewerState {
     wall_millis: u64,
     camera: CameraControl,
     skins: VecDeque<SkinUpload>,
+    geometry_uploads: VecDeque<(String, String, String)>,
+    cape_uploads: VecDeque<SkinUpload>,
+    animation_uploads: VecDeque<(String, render_data::SkinAnimation)>,
+    listener_position: [f32; 3],
+    listener_right: [f32; 3],
     ready: bool,
     error: Option<String>,
     submitted_chunks: usize,
@@ -94,11 +100,16 @@ struct BrowserRuntime {
     state: Arc<Mutex<ViewerState>>,
     actors: BrowserActors,
     hud: BrowserHud,
+    effects: crate::browser_effects::BrowserEffects,
+    terrain_scene: Arc<Mutex<Option<terrain_runtime::TerrainScene>>>,
+    terrain_assets: TerrainAssets,
+    items: crate::browser_items::BrowserItems,
     pending: VecDeque<(SubChunkKey, ChunkMesh)>,
     arena_center: Vec3,
     generation: u64,
     expectation_set: bool,
     camera_motion: PovMotion,
+    replay_epoch: u64,
 }
 
 #[derive(Component)]
@@ -116,6 +127,8 @@ struct ViewerOutput<'w> {
     visibility: Res<'w, VisibilityDiagnostics>,
     actor_presented: Res<'w, ActorPresentationGate>,
     nametags: ResMut<'w, render::NametagScene>,
+    particles: ResMut<'w, render::ParticleGpuFrame>,
+    items: ResMut<'w, render::DroppedItemScene>,
 }
 
 #[derive(serde::Serialize)]
@@ -145,6 +158,7 @@ fn gpu_requirements_for(terrain: &TerrainAssets) -> GpuRequirements {
 pub struct Viewer {
     state: Arc<Mutex<ViewerState>>,
     terrain: TerrainAssets,
+    terrain_scene: Arc<Mutex<Option<terrain_runtime::TerrainScene>>>,
 }
 
 #[wasm_bindgen]
@@ -161,6 +175,8 @@ impl Viewer {
         canvas_selector: &str,
         terrain: &TerrainAssets,
         entities: &[u8],
+        actor_artwork: &[u8],
+        particles: &[u8],
         equipment: &[u8],
         hud: &[u8],
         icons: &[u8],
@@ -178,11 +194,15 @@ impl Viewer {
         if gpu.is_null() || gpu.is_undefined() {
             return Err("This Cinnabar spectator requires a browser with WebGPU enabled.".into());
         }
-        let actors = BrowserActors::new(entities, equipment, icons)?;
+        let actors = BrowserActors::new(entities, actor_artwork, equipment, icons)?;
         let hud = BrowserHud::new(json_ui, hud, icons, font)?;
+        let terrain_scene = Arc::new(Mutex::new(None));
+        let effects = crate::browser_effects::BrowserEffects::new(particles, icons)?;
+        let items = crate::browser_items::BrowserItems::new(icons, terrain)?;
         let now = Instant::now();
         let state = Arc::new(Mutex::new(ViewerState {
             arena: None,
+            terrain_updates: VecDeque::new(),
             current: None,
             previous: None,
             received: now,
@@ -190,6 +210,11 @@ impl Viewer {
             wall_millis: 0,
             camera: CameraControl::default(),
             skins: VecDeque::new(),
+            geometry_uploads: VecDeque::new(),
+            cape_uploads: VecDeque::new(),
+            animation_uploads: VecDeque::new(),
+            listener_position: [0.0; 3],
+            listener_right: [1.0, 0.0, 0.0],
             ready: false,
             error: None,
             submitted_chunks: 0,
@@ -250,17 +275,24 @@ impl Viewer {
                 state: Arc::clone(&state),
                 actors,
                 hud,
+                effects,
+                terrain_scene: Arc::clone(&terrain_scene),
+                terrain_assets: terrain.clone(),
+                items,
                 pending: VecDeque::new(),
                 arena_center: Vec3::ZERO,
                 generation: 0,
                 expectation_set: false,
                 camera_motion: PovMotion::default(),
+                replay_epoch: 0,
             })
             .add_plugins((
                 ChunkRenderPlugin::with_budget(ChunkUploadBudget::new(8, 8 * 1024 * 1024)),
                 ActorRenderPlugin,
                 UiRenderPlugin,
                 render::HandRigRenderPlugin,
+                render::ParticleRenderPlugin,
+                render::DroppedItemRenderPlugin,
             ))
             .add_systems(Startup, spawn_camera)
             .add_systems(Update, update_viewer.before(ChunkRenderApplySet));
@@ -268,13 +300,19 @@ impl Viewer {
         Ok(Self {
             state,
             terrain: terrain.clone(),
+            terrain_scene,
         })
     }
 
     /// Validates the canonical block states and meshes with native Cinnabar assets.
     pub fn set_arena(&self, input: &str) -> Result<(), String> {
         let arena = Arena::parse(input)?;
-        let meshes = terrain_runtime::prepare(&arena, &self.terrain)?;
+        let terrain_scene = terrain_runtime::TerrainScene::new(&arena, &self.terrain)?;
+        let meshes = terrain_scene.initial(&self.terrain)?;
+        *self
+            .terrain_scene
+            .lock()
+            .map_err(|_| "arena state is unavailable")? = Some(terrain_scene);
         let center = Vec3::new(
             (arena.bounds[0] + arena.bounds[3]) as f32 * 0.5,
             (arena.bounds[1] + arena.bounds[4]) as f32 * 0.5,
@@ -287,6 +325,7 @@ impl Viewer {
         if state.error.is_some() {
             return Err("spectator renderer has stopped".into());
         }
+        state.terrain_updates.clear();
         state.arena = Some(ArenaPublication { meshes, center });
         Ok(())
     }
@@ -310,7 +349,25 @@ impl Viewer {
         {
             return Err("spectator frame belongs to a different duel".into());
         }
-        state.previous = state.current.take();
+        if state
+            .current
+            .as_ref()
+            .is_none_or(|current| current.blocks != frame.blocks)
+            && let Some(terrain) = self
+                .terrain_scene
+                .lock()
+                .map_err(|_| "arena state is unavailable")?
+                .as_mut()
+        {
+            for (key, mesh) in terrain.apply(&frame.blocks, &self.terrain)? {
+                state.terrain_updates.retain(|(pending, _)| *pending != key);
+                state.terrain_updates.push_back((key, mesh));
+            }
+        }
+        state.previous = state
+            .current
+            .take()
+            .filter(|current| current.replay_epoch == frame.replay_epoch);
         state.previous_received = state.received;
         state.current = Some(frame);
         state.received = Instant::now();
@@ -362,6 +419,135 @@ impl Viewer {
         state.camera.pitch = (state.camera.pitch + delta_pitch).clamp(0.03, 1.45);
         state.camera.distance =
             (state.camera.distance * delta_zoom.clamp(-2.0, 2.0).exp()).clamp(2.0, 512.0);
+        Ok(())
+    }
+
+    pub fn listener_pose(&self) -> Result<String, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "spectator state is unavailable")?;
+        Ok(
+            serde_json::json!({"position":state.listener_position,"right":state.listener_right})
+                .to_string(),
+        )
+    }
+
+    // This flat signature is the browser/WASM upload ABI.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_skin_animation(
+        &self,
+        player_id: &str,
+        kind: u32,
+        width: u32,
+        height: u32,
+        frames: u32,
+        blinking: bool,
+        pixels: Vec<u8>,
+    ) -> Result<(), String> {
+        if player_id.is_empty()
+            || player_id.len() > 128
+            || width == 0
+            || height == 0
+            || width > 512
+            || height > 512
+            || frames == 0
+            || frames > height
+            || frames > 256
+            || pixels.len() != width as usize * height as usize * 4
+        {
+            return Err("invalid persona animation".into());
+        }
+        let kind = match kind {
+            0 => render_data::SkinAnimationKind::Face,
+            1 => render_data::SkinAnimationKind::Body32,
+            2 => render_data::SkinAnimationKind::Body128,
+            _ => return Err("invalid persona animation kind".into()),
+        };
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "spectator state is unavailable")?;
+        state
+            .animation_uploads
+            .retain(|(id, image)| id != player_id || image.kind != kind);
+        if state.animation_uploads.len() >= 24 {
+            return Err("persona upload queue full".into());
+        }
+        state.animation_uploads.push_back((
+            player_id.into(),
+            render_data::SkinAnimation {
+                kind,
+                width,
+                height,
+                frames,
+                blinking,
+                rgba8: pixels.into(),
+            },
+        ));
+        Ok(())
+    }
+
+    pub fn set_cape(
+        &self,
+        player_id: &str,
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+    ) -> Result<(), String> {
+        if player_id.is_empty()
+            || player_id.len() > 128
+            || width > 256
+            || height > 256
+            || pixels.len() != width as usize * height as usize * 4
+        {
+            return Err("invalid cape upload".into());
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "spectator state is unavailable")?;
+        state.cape_uploads.retain(|skin| skin.id != player_id);
+        if state.cape_uploads.len() >= 32 {
+            return Err("cape upload queue full".into());
+        }
+        state.cape_uploads.push_back(SkinUpload {
+            id: player_id.into(),
+            width,
+            height,
+            pixels,
+            slim: false,
+        });
+        Ok(())
+    }
+
+    pub fn set_skin_geometry(
+        &self,
+        player_id: &str,
+        resource_patch: &str,
+        geometry: &str,
+    ) -> Result<(), String> {
+        if player_id.is_empty()
+            || player_id.len() > 128
+            || resource_patch.len() > 16384
+            || geometry.len() > 262144
+        {
+            return Err("invalid skin geometry bounds".into());
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "spectator state is unavailable")?;
+        state.geometry_uploads.retain(|(id, _, _)| id != player_id);
+        state.animation_uploads.retain(|(id, _)| id != player_id);
+        if state.geometry_uploads.len() >= 32 {
+            return Err("skin geometry queue is full".into());
+        }
+        state.geometry_uploads.push_back((
+            player_id.into(),
+            resource_patch.into(),
+            geometry.into(),
+        ));
         Ok(())
     }
 
@@ -450,6 +636,8 @@ fn update_viewer(
         visibility: render_visibility,
         actor_presented,
         mut nametags,
+        mut particles,
+        mut items,
     } = output;
     let state_arc = Arc::clone(&runtime.state);
     let Ok(mut state) = state_arc.lock() else {
@@ -470,6 +658,8 @@ fn update_viewer(
         *nametags = render::NametagScene::default();
         state.diagnostics.nametag_records = 0;
         hands.clear();
+        items.clear();
+        *particles = render::ParticleGpuFrame::default();
         ui.input = None;
         visibility.is_active = false;
         state.ready = false;
@@ -481,6 +671,8 @@ fn update_viewer(
         *nametags = render::NametagScene::default();
         state.diagnostics.nametag_records = 0;
         hands.clear();
+        items.clear();
+        *particles = render::ParticleGpuFrame::default();
         ui.input = None;
         visibility.is_active = false;
         state.ready = false;
@@ -500,10 +692,21 @@ fn update_viewer(
         state.rendered_frames = 0;
         state.diagnostics = Diagnostics::default();
     }
+    while let Some((key, mesh)) = state.terrain_updates.pop_front() {
+        runtime.pending.retain(|(pending, _)| *pending != key);
+        runtime.pending.push_back((key, mesh));
+    }
     for _ in 0..8 {
         let Some((key, mesh)) = runtime.pending.pop_front() else {
             break;
         };
+        if mesh.is_empty() {
+            if queue.try_remove(key).is_err() {
+                runtime.pending.push_front((key, mesh));
+                break;
+            }
+            continue;
+        }
         if let Err((mesh, _)) = queue.try_insert_with_biome_identity(
             key,
             mesh,
@@ -550,6 +753,33 @@ fn update_viewer(
             state.error = Some(error);
             return;
         }
+    }
+    while let Some(skin) = state.cape_uploads.pop_front() {
+        if let Err(error) = runtime
+            .actors
+            .set_cape(&skin.id, skin.width, skin.height, skin.pixels)
+        {
+            state.error = Some(error);
+            return;
+        }
+    }
+    while let Some((id, patch, data)) = state.geometry_uploads.pop_front() {
+        if let Err(error) = runtime.actors.set_geometry(&id, &patch, &data) {
+            state.error = Some(error);
+            return;
+        }
+    }
+    while let Some((id, image)) = state.animation_uploads.pop_front() {
+        if let Err(error) = runtime.actors.set_animation(&id, image) {
+            state.error = Some(error);
+            return;
+        }
+    }
+    if let Some(frame) = state.current.as_ref()
+        && frame.replay_epoch != runtime.replay_epoch
+    {
+        runtime.camera_motion.reset();
+        runtime.replay_epoch = frame.replay_epoch;
     }
     let current = state.current.as_ref();
     let fighter = current.and_then(|frame| {
@@ -624,6 +854,14 @@ fn update_viewer(
             motion.as_ref().and_then(FrameMotion::previous),
             partial,
             hidden,
+            {
+                let (yaw, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
+                [
+                    -pitch.to_degrees(),
+                    (180.0 - yaw.to_degrees()).rem_euclid(360.0),
+                ]
+            },
+            camera.translation.to_array(),
         );
         let anchors = current
             .fighters
@@ -665,6 +903,25 @@ fn update_viewer(
     *hands = runtime
         .actors
         .update_hands(hud_fighter, partial, perspective.fov, hand_motion);
+    if let Some(current) = current {
+        runtime
+            .items
+            .update(current, state.previous.as_ref(), partial, &mut items);
+        let view = render::particle_view(&GlobalTransform::from(**camera), &projection);
+        let terrain_arc = Arc::clone(&runtime.terrain_scene);
+        let terrain_assets = runtime.terrain_assets.clone();
+        let terrain = terrain_arc.lock().ok();
+        runtime.effects.update(
+            current,
+            &mut particles,
+            &view,
+            state
+                .wall_millis
+                .saturating_add(state.received.elapsed().as_millis() as u64),
+            terrain.as_ref().and_then(|guard| guard.as_ref()),
+            &terrain_assets,
+        );
+    }
     let now_millis = state
         .wall_millis
         .saturating_add(state.received.elapsed().as_millis() as u64);
@@ -679,5 +936,7 @@ fn update_viewer(
         }
         Err(error) => state.error = Some(error),
     }
+    state.listener_position = camera.translation.to_array();
+    state.listener_right = (camera.rotation * Vec3::X).to_array();
     state.diagnostics.nametag_records = nametags.records.len();
 }

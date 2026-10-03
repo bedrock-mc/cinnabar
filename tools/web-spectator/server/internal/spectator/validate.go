@@ -48,26 +48,8 @@ func validArena(part ArenaPart) bool {
 		}
 	}
 	for _, entry := range part.Palette {
-		if len(entry.Name) > 128 || !blockPattern.MatchString(entry.Name) || len(entry.States) > 32 {
+		if !validPaletteEntry(entry) {
 			return false
-		}
-		for key, value := range entry.States {
-			if !cleanLabel(key, 128) {
-				return false
-			}
-			switch v := value.(type) {
-			case bool:
-			case string:
-				if !cleanLabel(v, 256) {
-					return false
-				}
-			case float64:
-				if !finite(v) || math.Trunc(v) != v || v < math.MinInt32 || v > math.MaxInt32 {
-					return false
-				}
-			default:
-				return false
-			}
 		}
 	}
 	for _, block := range part.Blocks {
@@ -84,7 +66,11 @@ func validArena(part ArenaPart) bool {
 }
 
 func validFrame(frame Frame, now time.Time) bool {
-	if frame.Version != Version || !ValidID(frame.ID) || !ValidID(frame.ArenaID) || !cleanLabel(frame.Mode, 64) || !fresh(frame.UpdatedAt, now) || len(frame.Players) < 2 || len(frame.Players) > 32 || len(frame.TeamWins) > 16 {
+	return validFrameAge(frame, now, Freshness)
+}
+
+func validFrameAge(frame Frame, now time.Time, maxAge time.Duration) bool {
+	if !validWorldState(frame) || frame.Version != Version || !ValidID(frame.ID) || !ValidID(frame.ArenaID) || !cleanLabel(frame.Mode, 64) || frame.UpdatedAt.IsZero() || now.Sub(frame.UpdatedAt) > maxAge || frame.UpdatedAt.Sub(now) > time.Second || len(frame.Players) < 2 || len(frame.Players) > 32 || len(frame.TeamWins) > 16 {
 		return false
 	}
 	ids := make(map[string]struct{}, len(frame.Players))

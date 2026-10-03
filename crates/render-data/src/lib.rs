@@ -19,7 +19,7 @@ mod actor_status;
 mod skin_model;
 pub use actor::{
     ActorKind, ActorMetadataValue, PropertyDefinition, PropertyKind, actor_flag,
-    actor_render_scale, player_is_sleeping, target_rotation_is_absolute,
+    actor_is_billboard, actor_render_scale, player_is_sleeping, target_rotation_is_absolute,
 };
 pub use actor_status::{
     ActorPickup, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA,

@@ -2,7 +2,9 @@
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use std::sync::Arc;
 
+mod block;
 mod mesh;
+pub use block::block_cube;
 mod rope;
 
 pub use mesh::{

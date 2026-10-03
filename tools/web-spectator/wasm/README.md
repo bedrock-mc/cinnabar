@@ -126,3 +126,15 @@ above is for bounded iteration. Deploy `web_spectator.js` and
 `web_spectator_bg.wasm` together under a content-addressed website path and pin
 the source commit, actual build profile and WASM hash in its manifest. Validate
 rendered frames and cold/warm performance with that exact artifact before push.
+
+## Recorded duel playback
+
+Replay windows use the same canonical renderer as live duels, with immutable
+arena and appearance assets. Seeking resets actor interpolation, camera smoothing
+and particle emitters. Playback time freezes and scales actor/particle animation;
+recorded entity transforms, equipment, HUD and block snapshots remain authoritative.
+Sound assets are decoded from the pinned pack once and fetched by verified content
+hash on demand, after the viewer enables sound.
+
+Remaining parity work is tracked in plan.md; a compiled viewer is not a visual
+parity result.

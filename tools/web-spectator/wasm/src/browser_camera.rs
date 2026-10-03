@@ -49,8 +49,9 @@ impl PovMotion {
             delta_seconds,
         );
         self.hurt.advance(delta_seconds);
-        if self.hurt_at != fighter.hurt_at {
-            self.hurt_at.clone_from(&fighter.hurt_at);
+        let hurt_identity = fighter.hurt_id.as_ref().or(fighter.hurt_at.as_ref());
+        if self.hurt_at.as_ref() != hurt_identity {
+            self.hurt_at = hurt_identity.cloned();
             if let Some(stamp) = fighter.hurt_at.as_deref() {
                 let age_seconds =
                     ((js_sys::Date::now() - js_sys::Date::parse(stamp)) / 1000.0) as f32;

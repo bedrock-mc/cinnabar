@@ -18,7 +18,7 @@ func TestVerifiedAssetsCacheCompressionAndReplacement(t *testing.T) {
 	dir := t.TempDir()
 	manifest := AssetManifest{Version: 1, Protocol: 1, Source: "test"}
 	data := []byte("original carrier bytes")
-	for _, name := range []string{"world", "registry", "entities", "equipment", "hud", "icons", "ui", "font"} {
+	for _, name := range append(append([]string(nil), requiredAssetNames...), optionalAssetNames...) {
 		hash := sha256.Sum256(append([]byte(name), data...))
 		content := append([]byte(name), data...)
 		record := AssetRecord{Name: name, File: name + ".bin", SHA256: hex.EncodeToString(hash[:]), Size: int64(len(content))}
@@ -45,6 +45,14 @@ func TestVerifiedAssetsCacheCompressionAndReplacement(t *testing.T) {
 	defer assets.Close()
 	h, _ := testHandler(t)
 	h.assets = assets
+	for path, count := range map[string]int{"/api/spectator/assets": len(requiredAssetNames), "/api/spectator/assets/manifest-v10": len(manifest.Files)} {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		var served AssetManifest
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &served) != nil || len(served.Files) != count {
+			t.Fatalf("renderer manifest %s: status=%d files=%d; want %d", path, response.Code, len(served.Files), count)
+		}
+	}
 	record := manifest.Files[0]
 	route := "/api/spectator/assets/" + record.SHA256 + "/" + record.File
 	request := httptest.NewRequest(http.MethodGet, route, nil)

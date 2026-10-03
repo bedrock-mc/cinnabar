@@ -3701,3 +3701,16 @@ isotropic face rotation, complete repeater/comparator geometry and per-species o
 are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
+
+## Website duel replays: parity checks still open
+
+The replay branch records complete bounded public duel snapshots at 20 Hz,
+including fighters, frozen appearances, inventory/HUD, projectiles/items, changed
+blocks, particles and sound triggers. Independent compressed chunks, asset sharing,
+and oldest-first 25 GB retention are implemented. In-game playback uses native
+Bedrock presentation; website playback uses canonical Cinnabar render assets.
+
+Browser fidelity checks remain open for cape/persona layers, terrain/item-textured
+particle variants and contextual particle collision. Sound loop-count semantics
+also require a pinned native reference. These are incomplete parity work, not
+closed gates. Rendered browser and in-game replay verification must precede release.

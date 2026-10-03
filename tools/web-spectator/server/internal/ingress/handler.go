@@ -17,6 +17,7 @@ const apiPrefix = "/api/spectator/duels"
 const writeTimeout = 3 * time.Second
 
 type Handler struct {
+	audio     *Audio
 	store     *spectator.Store
 	proxy     *httputil.ReverseProxy
 	origin    *url.URL
@@ -24,6 +25,8 @@ type Handler struct {
 	limits    *limits
 	downloads chan struct{}
 	assets    *Assets
+	replays   http.Handler
+	accounts  *accountGate
 }
 
 func New(store *spectator.Store, upstream, origin *url.URL, trusted []netip.Prefix, assets ...*Assets) *Handler {
@@ -62,7 +65,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, r, map[string]bool{"ok": true})
 		return
 	}
-	if !strings.HasPrefix(r.URL.Path, "/api/spectator") {
+	isReplay := r.URL.Path == "/api/replays" || strings.HasPrefix(r.URL.Path, "/api/replays/")
+	if !isReplay && !strings.HasPrefix(r.URL.Path, "/api/spectator") {
 		h.proxy.ServeHTTP(w, r)
 		return
 	}
@@ -80,7 +84,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, http.StatusForbidden, "Use the Zeno preview to watch a duel.")
 		return
 	}
-	if r.URL.RawQuery != "" {
+	if !isReplay && r.URL.RawQuery != "" {
 		failure(w, http.StatusBadRequest, "This spectator route does not accept parameters.")
 		return
 	}
@@ -92,6 +96,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer release()
+	if h.accounts != nil && !h.accounts.authorize(w, r, isReplay) {
+		return
+	}
+	if isReplay {
+		if h.replays == nil {
+			failure(w, 503, "Replays are not available.")
+			return
+		}
+		h.replays.ServeHTTP(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/spectator/audio/") {
+		h.audioRoute(w, r)
+		return
+	}
 	if r.URL.Path == "/api/spectator/assets" || strings.HasPrefix(r.URL.Path, "/api/spectator/assets/") {
 		h.assetsRoute(w, r)
 		return

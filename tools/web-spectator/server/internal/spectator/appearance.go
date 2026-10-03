@@ -8,13 +8,14 @@ import (
 
 // Item carries public rendering state, never custom names, lore or private NBT.
 type Item struct {
-	Name          string `json:"name"`
-	Meta          int16  `json:"meta"`
-	Count         int    `json:"count"`
-	Enchanted     bool   `json:"enchanted"`
-	Durability    int    `json:"durability"`
-	MaxDurability int    `json:"maxDurability"`
-	Color         string `json:"color,omitempty"`
+	Name          string        `json:"name"`
+	Meta          int16         `json:"meta"`
+	Count         int           `json:"count"`
+	Enchanted     bool          `json:"enchanted"`
+	Durability    int           `json:"durability"`
+	MaxDurability int           `json:"maxDurability"`
+	Color         string        `json:"color,omitempty"`
+	Block         *PaletteEntry `json:"block,omitempty"`
 }
 type Equipment struct {
 	MainHand *Item    `json:"mainHand"`
@@ -70,6 +71,9 @@ func validItem(v *Item) bool {
 	if v == nil {
 		return true
 	}
+	if v.Block != nil && !validPaletteEntry(*v.Block) {
+		return false
+	}
 	if len(v.Name) > 128 || !blockPattern.MatchString(v.Name) || v.Count < 1 || v.Count > 255 || v.Durability < -1 || v.MaxDurability < -1 || v.Durability > 10_000_000 || v.MaxDurability > 10_000_000 {
 		return false
 	}
@@ -86,7 +90,10 @@ func validItem(v *Item) bool {
 	return true
 }
 func validAppearance(p Player, now time.Time) bool {
-	if p.SkinID != "" && (!p.Bot || !validSkinID(p.SkinID)) {
+	if p.AppearanceID != "" && !validSkinID(p.AppearanceID) {
+		return false
+	}
+	if p.SkinID != "" && !validSkinID(p.SkinID) {
 		return false
 	}
 	if p.SkinModel != "" && !validSkinModel(p.SkinModel) {

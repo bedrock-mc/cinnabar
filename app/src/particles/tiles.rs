@@ -1,19 +1,16 @@
-use std::sync::Arc;
-
 use assets::{
-    BlockFace, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
-    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_WATER_TINT, NetworkIdMode,
-    RuntimeAssets, RuntimeIconCatalog,
+    MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
+    MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_WATER_TINT, NetworkIdMode, RuntimeAssets,
+    RuntimeIconCatalog,
 };
 use client_world::WorldStream;
 use render::TileRequest;
 
 #[cfg(test)]
+use assets::BlockFace;
+#[cfg(test)]
 mod tests;
-
-/// Marks item-icon tile keys so they never collide with block layer keys.
-const ITEM_KEY_FLAG: u64 = 1 << 63;
 
 /// A block-textured particle tile with its gamma-space biome tint.
 pub(super) struct BlockTile {
@@ -45,45 +42,12 @@ pub(super) fn block_tile(
     })
 }
 
-/// Copies the selected state texture; tint policy is independent of that texture's face.
 fn resolved_tile(
     assets: &RuntimeAssets,
     mode: NetworkIdMode,
     network_id: u32,
 ) -> Option<(TileRequest, u32)> {
-    if !assets.is_known(mode, network_id) {
-        return None;
-    }
-    let resolved = assets.resolve(mode, network_id);
-    let id = resolved.face(BlockFace::Down).material_id();
-    if id == assets::DIAGNOSTIC_MATERIAL {
-        return None;
-    }
-    let material = assets.material(id);
-    let flags = [BlockFace::Up, BlockFace::North, BlockFace::Down]
-        .into_iter()
-        .map(|face| assets.material(resolved.face(face).material_id()).flags)
-        .find(|flags| flags & MATERIAL_FLAG_TINT_MASK != 0)
-        .unwrap_or(0);
-    let page = assets
-        .texture_pages()
-        .get(material.texture.page() as usize)?;
-    let mip = page.texture.mips.first()?;
-    let layer = material.texture.layer();
-    if layer >= page.texture.layers {
-        return None;
-    }
-    let stride = (mip.size * mip.size * 4) as usize;
-    let start = layer as usize * stride;
-    let pixels = mip.rgba8.get(start..start + stride)?;
-    Some((
-        TileRequest {
-            key: (u64::from(material.texture.page()) << 32) | u64::from(layer),
-            size: mip.size,
-            pixels: Arc::from(pixels),
-        },
-        flags,
-    ))
+    render::block_particle_tile(assets, mode, network_id)
 }
 
 /// Gamma-space biome colour for a material's tint mode; white when untinted.
@@ -122,21 +86,10 @@ fn biome_tint(stream: &WorldStream, flags: u32, block: [i32; 3]) -> [f32; 4] {
     ]
 }
 
-/// An item icon as a particle tile, keyed by its catalog sprite.
 pub(super) fn item_tile(
     icons: &RuntimeIconCatalog,
     identifier: &str,
     metadata: u32,
 ) -> Option<TileRequest> {
-    let index = icons.lookup_index(identifier, metadata)?;
-    let sprite = icons.sprites().get(index)?;
-    // The particle tile is square; a non-square sprite is skipped rather than distorted.
-    if sprite.width != sprite.height || sprite.width == 0 {
-        return None;
-    }
-    Some(TileRequest {
-        key: ITEM_KEY_FLAG | index as u64,
-        size: u32::from(sprite.width),
-        pixels: Arc::clone(&sprite.rgba8),
-    })
+    render::item_particle_tile(icons, identifier, metadata)
 }

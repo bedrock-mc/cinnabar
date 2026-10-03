@@ -22,6 +22,7 @@ pub(super) struct NativeAnimator {
     actors: HashMap<u64, Observation>,
     session: u64,
     last_tick: Instant,
+    pending_millis: f64,
     poses: PoseCache<ConvertedPose>,
 }
 
@@ -59,7 +60,8 @@ impl NativeAnimator {
             store: ActorAnimationStore::with_assets(entities),
             actors: HashMap::new(),
             session: 0,
-            last_tick: Instant::now() - ACTOR_TICK_DURATION,
+            last_tick: Instant::now(),
+            pending_millis: ACTOR_TICK_DURATION.as_secs_f64() * 1000.0,
             poses: PoseCache::default(),
         }
     }
@@ -69,20 +71,26 @@ impl NativeAnimator {
         frame: &Frame,
         previous: Option<&Frame>,
         fraction: f32,
-        hidden_player: Option<&str>,
+        view: AnimationView<'_>,
         equipment: &RuntimeEquipmentCatalog,
         skin: impl Fn(&str) -> Option<Arc<SkinGeometrySource>>,
     ) {
+        let AnimationView {
+            hidden_player,
+            rotation: view_rotation,
+            position: view_position,
+        } = view;
         let now = js_sys::Date::now();
         let clock = Instant::now();
         let tick_millis = ACTOR_TICK_DURATION.as_secs_f64() * 1000.0;
-        let session = hash_id(&frame.id);
+        let session = hash_id(&format!("{}:{}", frame.id, frame.replay_epoch));
         if self.session != session {
             self.store.clear();
             self.actors.clear();
             self.poses.clear();
             self.session = session;
-            self.last_tick = clock - ACTOR_TICK_DURATION;
+            self.last_tick = clock;
+            self.pending_millis = tick_millis;
         }
         let removed = self
             .actors
@@ -93,6 +101,10 @@ impl NativeAnimator {
                     .fighters
                     .iter()
                     .any(|fighter| hash_id(&fighter.id) == *id)
+                    && !frame
+                        .entities
+                        .iter()
+                        .any(|entity| hash_id(&entity.id) == *id)
             })
             .collect::<Vec<_>>();
         for id in removed {
@@ -108,12 +120,27 @@ impl NativeAnimator {
             .filter(|v| v.is_finite() && *v > 0.0)
             .unwrap_or(ACTOR_TICK_DURATION.as_secs_f64())
             .clamp(ACTOR_TICK_DURATION.as_secs_f64(), 1.0) as f32;
-        for fighter in &frame.fighters {
+        let entities = frame
+            .entities
+            .iter()
+            .map(|entity| entity.observation())
+            .collect::<Vec<_>>();
+        let old_entities = previous
+            .map(|frame| {
+                frame
+                    .entities
+                    .iter()
+                    .map(|entity| entity.observation())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for fighter in frame.fighters.iter().chain(&entities) {
             let runtime_id = hash_id(&fighter.id);
             let old = previous
                 .and_then(|old| {
                     old.fighters
                         .iter()
+                        .chain(&old_entities)
                         .find(|old| old.id == fighter.id && old.dead == fighter.dead)
                 })
                 .unwrap_or(fighter);
@@ -147,10 +174,19 @@ impl NativeAnimator {
                     hurt: None,
                 });
             actor.fighter.clone_from(fighter);
-            actor.kind = ActorKind::Player {
-                uuid: [0; 16],
-                username: fighter.name.as_str().into(),
-            };
+            actor.kind = frame
+                .entities
+                .iter()
+                .find(|entity| entity.id == fighter.id)
+                .map_or_else(
+                    || ActorKind::Player {
+                        uuid: [0; 16],
+                        username: fighter.name.as_str().into(),
+                    },
+                    |entity| ActorKind::Entity {
+                        identifier: entity.kind.as_str().into(),
+                    },
+                );
             actor.position = position;
             actor.velocity = velocity;
             actor.skin = skin(&fighter.id);
@@ -177,8 +213,9 @@ impl NativeAnimator {
             if fresh {
                 self.store.insert(session, 0, actor);
             }
-            if actor.swing != fighter.swing_at {
-                actor.swing.clone_from(&fighter.swing_at);
+            let swing_identity = fighter.swing_id.as_ref().or(fighter.swing_at.as_ref());
+            if actor.swing.as_ref() != swing_identity {
+                actor.swing = swing_identity.cloned();
                 if recent(
                     fighter.swing_at.as_deref(),
                     now,
@@ -187,8 +224,9 @@ impl NativeAnimator {
                     self.store.start_swing(runtime_id, ACTOR_SWING_TICKS);
                 }
             }
-            if actor.hurt != fighter.hurt_at {
-                actor.hurt.clone_from(&fighter.hurt_at);
+            let hurt_identity = fighter.hurt_id.as_ref().or(fighter.hurt_at.as_ref());
+            if actor.hurt.as_ref() != hurt_identity {
+                actor.hurt = hurt_identity.cloned();
                 if recent(
                     fighter.hurt_at.as_deref(),
                     now,
@@ -199,19 +237,25 @@ impl NativeAnimator {
                 }
             }
             if fresh {
-                self.last_tick = self.last_tick.min(clock - ACTOR_TICK_DURATION);
+                self.pending_millis = self.pending_millis.max(tick_millis);
             }
         }
-        let elapsed = clock.duration_since(self.last_tick).as_secs_f64() * 1000.0;
-        let steps = (elapsed / tick_millis).floor().min(5.0) as u32;
-        if elapsed > tick_millis * 5.0 {
-            self.last_tick = clock - ACTOR_TICK_DURATION * steps;
+        let speed = if frame.replay_playing == Some(false) {
+            0.0
+        } else {
+            frame.replay_speed.unwrap_or(1.0).clamp(0.25, 2.0) as f64
+        };
+        self.pending_millis += clock.duration_since(self.last_tick).as_secs_f64() * 1000.0 * speed;
+        self.last_tick = clock;
+        if self.pending_millis > tick_millis * 5.0 {
+            self.pending_millis = tick_millis * 5.0;
             for runtime_id in self.actors.keys() {
                 self.store.mark_reset(*runtime_id);
             }
         }
+        let steps = (self.pending_millis / tick_millis).floor() as u32;
+        self.pending_millis -= f64::from(steps) * tick_millis;
         for step in 0..steps {
-            self.last_tick += ACTOR_TICK_DURATION;
             self.store.advance_tick(
                 &self.actors,
                 None,
@@ -240,8 +284,16 @@ impl NativeAnimator {
                         off_hand: off.map(|item| item.name.as_str().into()),
                         main_hand_max_use_ticks: main_use,
                         is_local_first_person: hidden_player == Some(fighter.id.as_str()),
-                        camera_rotation: [fighter.pitch, fighter.yaw],
-                        camera_position,
+                        camera_rotation: if matches!(actor.kind, ActorKind::Entity { .. }) {
+                            view_rotation
+                        } else {
+                            [fighter.pitch, fighter.yaw]
+                        },
+                        camera_position: if matches!(actor.kind, ActorKind::Entity { .. }) {
+                            view_position
+                        } else {
+                            camera_position
+                        },
                         armor: std::array::from_fn(|slot| {
                             equipment_items
                                 .and_then(|items| items.armour.get(slot))
@@ -263,10 +315,15 @@ impl NativeAnimator {
         }
     }
 
+    pub(super) fn skin_layers(&self, id: &str) -> Vec<actor_animation::SkinRenderLayer> {
+        self.store
+            .get(hash_id(id))
+            .map(|rig| rig.skin_layers.to_vec())
+            .unwrap_or_default()
+    }
+
     pub(super) fn partial_tick(&self) -> f32 {
-        (Instant::now().duration_since(self.last_tick).as_secs_f32()
-            / ACTOR_TICK_DURATION.as_secs_f32())
-        .clamp(0.0, 1.0)
+        (self.pending_millis / (ACTOR_TICK_DURATION.as_secs_f64() * 1000.0)).clamp(0.0, 1.0) as f32
     }
 
     pub(super) fn invalidate_pose(&mut self, id: &str) {
@@ -408,4 +465,10 @@ impl AnimationActor for Observation {
     fn max_health(&self) -> Option<f32> {
         Some(self.fighter.max_health)
     }
+}
+
+pub(super) struct AnimationView<'a> {
+    pub hidden_player: Option<&'a str>,
+    pub rotation: [f32; 2],
+    pub position: [f32; 3],
 }

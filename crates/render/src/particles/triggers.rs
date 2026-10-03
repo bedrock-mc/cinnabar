@@ -11,6 +11,11 @@ use super::{
 /// Level events at or above this bit carry a legacy particle type in the low bits.
 pub const LEVEL_EVENT_PARTICLE_FLAG: i32 = 0x4000;
 
+/// Canonical block-destruction definition used by native trigger adapters.
+pub const BLOCK_BREAK_EFFECT: &str = "minecraft:block_destruct";
+/// Native item-icon trigger count; target measurement remains open.
+pub const ITEM_ICON_PIECES: f32 = 6.0;
+
 /// Default destruction count from vanilla BlockDestructionParticlesComponent.
 pub const BLOCK_BREAK_PARTICLES: f32 = 100.0;
 /// One piece per vanilla hit-particle event.

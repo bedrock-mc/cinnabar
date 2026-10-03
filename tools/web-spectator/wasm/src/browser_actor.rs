@@ -21,6 +21,7 @@ use render::equipment_display::{self, FirstPersonArms, FirstPersonShape};
 use render::equipment_sprite_atlas::{Placement, SpriteAtlas};
 
 mod animation;
+mod persona;
 use animation::NativeAnimator;
 
 const MAX_BROWSER_SKINS: usize = 64;
@@ -34,16 +35,22 @@ struct Rig {
     names: Vec<Box<str>>,
     source: Arc<render_data::SkinGeometrySource>,
     geometry: ActorRigGeometry,
+    bounds: assets::SkinGeometryBounds,
 }
 
 pub(super) struct BrowserActors {
     scene: ActorRenderScene,
     equipment: RuntimeEquipmentCatalog,
     classic: Rig,
+    entities: BTreeMap<String, Rig>,
     slim: Option<Rig>,
     armor: BTreeMap<String, Rig>,
     textures: BTreeMap<String, ActorArtworkLocation>,
     skins: BTreeMap<String, Skin>,
+    custom: BTreeMap<String, Rig>,
+    next_custom: u32,
+    cape_rig: Option<render::cape::CapeRig>,
+    capes: BTreeMap<String, Arc<[u8]>>,
     skin_keys: Vec<String>,
     skin_pixels: Arc<[u8]>,
     generation: u64,
@@ -53,12 +60,14 @@ pub(super) struct BrowserActors {
     meshes: BTreeMap<usize, EntityRigId>,
     hand_builder: ActorRigFrameBuilder,
     artwork: ActorArtworkPages,
+    persona: persona::PersonaLayers,
     animator: NativeAnimator,
 }
 
 impl BrowserActors {
     pub(super) fn new(
         entity_bytes: &[u8],
+        actor_bytes: &[u8],
         equipment_bytes: &[u8],
         icon_bytes: &[u8],
     ) -> Result<Self, String> {
@@ -77,6 +86,12 @@ impl BrowserActors {
         }
         let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities)
             .map_err(|e| format!("compiled actor geometry: {e:?}"))?;
+        let cape_rig = render::cape::CapeRig::resolve(&entities);
+        if let Some(rig) = &cape_rig {
+            scene
+                .insert_geometry(rig.geometry.clone())
+                .map_err(|e| format!("cape geometry: {e:?}"))?;
+        }
         let classic = register_rig(
             &mut scene,
             &entities,
@@ -112,6 +127,27 @@ impl BrowserActors {
             )?;
             armor.insert(binding.geometry.identifier.to_string(), rig);
         }
+        let catalog = assets::RuntimeActorCatalog::decode(actor_bytes, entity_bytes)
+            .map_err(|error| error.to_string())?;
+        let mut world_entities = BTreeMap::new();
+        for binding in catalog.bindings() {
+            let Some(symbol) = entities.symbols().get(binding.entity_symbol as usize) else {
+                continue;
+            };
+            if world_entities.contains_key(symbol.identifier.as_ref()) {
+                continue;
+            }
+            let Some(geometry) = entities.geometries().get(binding.geometry as usize) else {
+                continue;
+            };
+            let rig = register_rig(
+                &mut scene,
+                &entities,
+                &geometry.identifier,
+                render::pack_rig_id(binding.geometry_candidate),
+            )?;
+            world_entities.insert(symbol.identifier.to_string(), rig);
+        }
         let atlas = SpriteAtlas::pack(icons.sprites());
         let rasters = equipment
             .textures()
@@ -122,7 +158,9 @@ impl BrowserActors {
                 rgba8: Arc::clone(&texture.rgba8),
             })
             .collect::<Vec<_>>();
-        let (artwork, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
+        let (artwork, locations) = ActorArtworkPages::default()
+            .with_pack_artwork(catalog.textures(), catalog.bindings())
+            .with_equipment_rasters(&rasters);
         let (artwork, item_locations) = artwork.with_equipment_rasters(&atlas.layers);
         let hand_builder = ActorRigFrameBuilder::new(
             std::iter::once(classic.geometry.clone())
@@ -140,10 +178,15 @@ impl BrowserActors {
             scene,
             equipment,
             classic,
+            entities: world_entities,
             slim,
             armor,
             textures,
             skins: BTreeMap::new(),
+            custom: BTreeMap::new(),
+            next_custom: 2,
+            cape_rig,
+            capes: BTreeMap::new(),
             skin_keys: Vec::new(),
             skin_pixels: Arc::from([]),
             generation: 0,
@@ -153,6 +196,7 @@ impl BrowserActors {
             meshes: BTreeMap::new(),
             hand_builder,
             artwork,
+            persona: persona::PersonaLayers::default(),
             animator: NativeAnimator::new(Arc::new(entities)),
         })
     }
@@ -192,12 +236,113 @@ impl BrowserActors {
         Ok(())
     }
 
+    pub(super) fn set_cape(
+        &mut self,
+        id: &str,
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+    ) -> Result<(), String> {
+        if id.is_empty() || id.len() > 128 || width > 256 || height > 256 {
+            return Err("invalid cape bounds".into());
+        }
+        if width == 0 || height == 0 {
+            self.capes.remove(id);
+        } else {
+            if self.cape_rig.is_none() {
+                return Err("canonical cape geometry unavailable".into());
+            }
+            let pixels =
+                render::cape::cape_layer(width, height, &pixels).ok_or("invalid cape raster")?;
+            if self.capes.len() >= MAX_BROWSER_SKINS && !self.capes.contains_key(id) {
+                return Err("cape cache is full".into());
+            }
+            self.capes.insert(id.into(), pixels);
+        }
+        self.skin_keys.clear();
+        Ok(())
+    }
+
+    pub(super) fn set_animation(
+        &mut self,
+        id: &str,
+        image: render_data::SkinAnimation,
+    ) -> Result<(), String> {
+        let rig = self
+            .custom
+            .get_mut(id)
+            .ok_or("persona geometry unavailable")?;
+        let mut animations = rig.source.animations.to_vec();
+        animations.retain(|known| known.kind != image.kind);
+        animations.push(image);
+        if animations.len() > 3 {
+            return Err("too many persona layers".into());
+        }
+        rig.source = Arc::new(render_data::SkinGeometrySource {
+            resource_patch: Arc::clone(&rig.source.resource_patch),
+            geometry_data: Arc::clone(&rig.source.geometry_data),
+            animations: animations.into(),
+        });
+        self.animator.invalidate_pose(id);
+        Ok(())
+    }
+
+    pub(super) fn set_geometry(&mut self, id: &str, patch: &str, data: &str) -> Result<(), String> {
+        if id.is_empty() || id.len() > 128 || patch.len() > 16384 || data.len() > 262144 {
+            return Err("invalid skin geometry bounds".into());
+        }
+        let model = assets::parse_skin_geometry(patch, data)
+            .map_err(|e| format!("skin geometry: {e:?}"))?;
+        let Some(model) = model else {
+            self.custom.remove(id);
+            self.animator.invalidate_pose(id);
+            return Ok(());
+        };
+        let index = if let Some(existing) = self.custom.get(id) {
+            existing.id
+        } else {
+            if self.next_custom >= 2 + MAX_BROWSER_SKINS as u32 {
+                return Err("custom geometry cache is full".into());
+            }
+            {
+                let id = render::skin_rig_id(self.next_custom);
+                self.next_custom += 1;
+                id
+            }
+        };
+        let geometry =
+            render::skin_geometry(&model, index).map_err(|e| format!("skin rig: {e:?}"))?;
+        let names = model.bones.iter().map(|bone| bone.name.clone()).collect();
+        let source = Arc::new(render_data::SkinGeometrySource {
+            resource_patch: Arc::from(patch),
+            geometry_data: Arc::from(data),
+            animations: Arc::from([]),
+        });
+        self.scene
+            .insert_geometry(geometry.clone())
+            .map_err(|e| format!("register skin rig: {e:?}"))?;
+        self.custom.insert(
+            id.into(),
+            Rig {
+                bounds: model.visible_bounds.unwrap_or_default(),
+                id: index,
+                names,
+                source,
+                geometry,
+            },
+        );
+        self.animator.invalidate_pose(id);
+        Ok(())
+    }
+
     pub(super) fn update(
         &mut self,
         current: &Frame,
         previous: Option<&Frame>,
         partial_tick: f32,
         hidden_player: Option<&str>,
+        view_rotation: [f32; 2],
+        view_position: [f32; 3],
     ) -> ActorRenderFrame {
         self.generation = self.generation.wrapping_add(1).max(1);
         let fraction = if partial_tick.is_finite() {
@@ -208,14 +353,22 @@ impl BrowserActors {
         let classic = Arc::clone(&self.classic.source);
         let slim_source = self.slim.as_ref().map(|rig| Arc::clone(&rig.source));
         let skins = &self.skins;
+        let custom = &self.custom;
         self.animator.advance(
             current,
             previous,
             fraction,
-            hidden_player,
+            animation::AnimationView {
+                hidden_player,
+                rotation: view_rotation,
+                position: view_position,
+            },
             &self.equipment,
             |id| {
                 skins.get(id).map(|skin| {
+                    if let Some(rig) = custom.get(id) {
+                        return Arc::clone(&rig.source);
+                    }
                     if skin.slim {
                         slim_source.as_ref().unwrap_or(&classic).clone()
                     } else {
@@ -245,13 +398,21 @@ impl BrowserActors {
             for key in &keys {
                 pixels.extend_from_slice(&self.skins[key].pixels);
             }
+            for key in &keys {
+                if let Some(cape) = self.capes.get(key) {
+                    pixels.extend_from_slice(cape);
+                }
+            }
             self.skin_pixels = pixels.into();
-            self.skin_keys = keys;
+            self.skin_keys = keys.clone();
         }
         let mut submissions = Vec::new();
+        let mut persona_selections = Vec::new();
         let mut assignments = HashMap::new();
         for (layer, (fighter, _, slim)) in visible.iter().enumerate() {
-            let rig = if *slim {
+            let rig = if let Some(rig) = self.custom.get(&fighter.id) {
+                rig
+            } else if *slim {
                 self.slim.as_ref().unwrap_or(&self.classic)
             } else {
                 &self.classic
@@ -285,7 +446,7 @@ impl BrowserActors {
             let position =
                 Vec3::from_array(old.position).lerp(Vec3::from_array(fighter.position), fraction);
             let body = ActorRigSubmission {
-                culling_bounds: assets::SkinGeometryBounds::default(),
+                culling_bounds: rig.bounds,
                 input: ActorRigRenderInput {
                     identity,
                     rig: rig.id,
@@ -347,6 +508,23 @@ impl BrowserActors {
                     submissions.push(armor_body);
                 }
             }
+            if let (Some(cape), Some(_pixels)) = (&self.cape_rig, self.capes.get(&fighter.id)) {
+                let offset = keys[..layer]
+                    .iter()
+                    .filter(|key| self.capes.contains_key(*key))
+                    .count();
+                let mut submission = body.clone();
+                submission.input.identity.layer = render::cape::ACTOR_LAYER_CAPE;
+                submission.input.rig = cape.id;
+                submission.input.previous_bones =
+                    render::cape::cape_pose(cape, &rig.names, &body.input.previous_bones);
+                submission.input.current_bones =
+                    render::cape::cape_pose(cape, &rig.names, &body.input.current_bones);
+                submission.texture_layer = (keys.len() + offset) as u32;
+                submission.tint = 0;
+                submission.overlay_rgba8 = 0;
+                submissions.push(submission);
+            }
             let hand_bones = ["rightItem", "leftItem"].map(|name| {
                 rig.names
                     .iter()
@@ -370,8 +548,81 @@ impl BrowserActors {
                     }
                 }
             }
+            persona_selections.push((body.clone(), self.animator.skin_layers(&fighter.id)));
             submissions.push(body);
         }
+        for entity in &current.entities {
+            let Some(rig) = self.entities.get(&entity.kind) else {
+                continue;
+            };
+            let Some(location) = self.artwork.route(rig.id) else {
+                continue;
+            };
+            let Some(animated) = self.animator.pose(&entity.id, rig.id, &rig.names) else {
+                continue;
+            };
+            let old = previous
+                .and_then(|frame| {
+                    frame
+                        .entities
+                        .iter()
+                        .find(|old| old.id == entity.id && old.kind == entity.kind)
+                })
+                .unwrap_or(entity);
+            let position =
+                Vec3::from_array(old.position).lerp(Vec3::from_array(entity.position), fraction);
+            let identity = ActorRenderIdentity {
+                session_id: hash_id(&current.id),
+                dimension: 0,
+                runtime_id: hash_id(&entity.id),
+                spawn_revision: 1,
+                ingress_sequence: self.generation,
+                source_tick: Some(self.generation),
+                movement_revision: self.generation,
+                pose_generation: animated.completed_tick,
+                layer: render::ACTOR_LAYER_BODY,
+            };
+            let kind = render_data::ActorKind::Entity {
+                identifier: entity.kind.as_str().into(),
+            };
+            let yaw = if render_data::actor_is_billboard(&kind) {
+                180.0
+            } else if render_data::target_rotation_is_absolute(&kind) {
+                0.0
+            } else {
+                animated.body_yaw
+            };
+            assignments.insert(identity, location);
+            submissions.push(ActorRigSubmission {
+                culling_bounds: assets::SkinGeometryBounds::default(),
+                input: ActorRigRenderInput {
+                    identity,
+                    rig: rig.id,
+                    previous_bones: animated.previous,
+                    current_bones: animated.current,
+                    completed_tick: animated.completed_tick,
+                    reset_generation: animated.reset_generation,
+                },
+                world_from_actor: equipment_display::rig_world_from_actor(
+                    position.to_array(),
+                    yaw,
+                    animated.scale,
+                ),
+                texture_layer: location.layer(),
+                route: ActorRigRoute::Compiled,
+                tint: 0,
+                overlay_rgba8: animated.overlay,
+                uv_anim: render::IDENTITY_UV_ANIM,
+                light: render::pack_actor_light(0, 15),
+            });
+        }
+        self.persona.apply(
+            &mut self.scene,
+            &self.artwork,
+            &persona_selections,
+            &mut submissions,
+            &mut assignments,
+        );
         self.scene
             .update_rigs_with_artwork(
                 animation_fraction,
@@ -457,7 +708,9 @@ impl BrowserActors {
             return scene;
         };
         let skin_pixels = Arc::clone(&skin.pixels);
-        let rig = if skin.slim {
+        let rig = if let Some(rig) = self.custom.get(&fighter.id) {
+            rig
+        } else if skin.slim {
             self.slim.as_ref().unwrap_or(&self.classic)
         } else {
             &self.classic
@@ -622,6 +875,7 @@ fn register_rig(
         names,
         source,
         geometry,
+        bounds: assets::SkinGeometryBounds::default(),
     })
 }
 

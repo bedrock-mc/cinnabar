@@ -15,6 +15,7 @@ mod atmosphere;
 mod atmosphere_render;
 mod block_entity;
 pub mod camera;
+pub mod cape;
 mod celestial;
 mod chunk;
 pub use camera::bedrock_camera_rotation;
@@ -62,12 +63,13 @@ pub use hand_rig_render::{
     HAND_ITEM_LAYER_FLAG, HandItemAtlas, HandRigLight, HandRigRenderPlugin, HandRigScene,
 };
 pub use particles::{
-    ATLAS_SIDE as PARTICLE_ATLAS_SIDE, DrawLists as ParticleDrawLists,
-    EmptyWorld as EmptyParticleWorld, Fluid as ParticleFluid, LevelParticle, MAX_LIVE_PARTICLES,
-    ParticleGpuFrame, ParticleInstance, ParticleRenderPlugin, ParticleSound, ParticleSystem,
-    ParticleView, ParticleWorld, SpawnRequest, TileRequest, block_break_request,
-    block_crack_request, classify_level_event, is_particle_level_event, item_icon_request,
-    named_request, parse_molang_variables, particle_view, terrain_request, update_particle_frame,
+    ATLAS_SIDE as PARTICLE_ATLAS_SIDE, BLOCK_BREAK_EFFECT, DrawLists as ParticleDrawLists,
+    EmptyWorld as EmptyParticleWorld, Fluid as ParticleFluid, ITEM_ICON_PIECES, LevelParticle,
+    MAX_LIVE_PARTICLES, ParticleGpuFrame, ParticleInstance, ParticleRenderPlugin, ParticleSound,
+    ParticleSystem, ParticleView, ParticleWorld, SpawnRequest, TileRequest, block_break_request,
+    block_crack_request, block_particle_tile, classify_level_event, is_particle_level_event,
+    item_icon_request, item_particle_tile, named_request, parse_molang_variables, particle_view,
+    terrain_request, update_particle_frame,
 };
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,
@@ -168,8 +170,8 @@ pub use cloud_config::{
 pub use dropped_item::{
     DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemSprite,
     ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS,
-    MAX_ITEM_SPRITE_SIDE, OPAQUE_WHITE, WHITE_LAYER, dropped_item_transform, rope_color,
-    rope_point, rope_ribbon,
+    MAX_ITEM_SPRITE_SIDE, OPAQUE_WHITE, WHITE_LAYER, block_cube as dropped_block_cube,
+    dropped_item_transform, rope_color, rope_point, rope_ribbon,
 };
 pub use dropped_item_render::DroppedItemRenderPlugin;
 pub use lightning::{

@@ -211,7 +211,9 @@ pub use sound_bank::{
     MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,
     SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank, sound_bank_prefix_len,
 };
-pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
+pub use sound_events::{
+    FloatRange, RouteLookup, SoundEventTables, SoundRoute, level_event_sound_route,
+};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,
     downsample_linear_premultiplied,
