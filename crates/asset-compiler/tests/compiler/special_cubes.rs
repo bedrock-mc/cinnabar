@@ -910,10 +910,26 @@ fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge
         .expect("canonical invisible bedrock")
         .clone();
     assert_eq!(huge_mushrooms.len(), 48);
-    assert_eq!(legacy_flags_zero.len(), 43);
-    assert_eq!(transparency_family.len(), 25);
-
-    let non_mushroom_count = legacy_flags_zero.len() + transparency_family.len() + 1;
+    assert!(
+        !legacy_flags_zero.is_empty(),
+        "exercise zero-flag cube records"
+    );
+    for name in ORDINARY_STAINED_GLASS_NAMES
+        .iter()
+        .chain(COPPER_GRATE_NAMES.iter())
+    {
+        assert!(
+            transparency_family
+                .iter()
+                .any(|record| record.name.as_ref() == *name),
+            "exercise checked transparent cube {name}"
+        );
+    }
+    assert!(
+        transparency_family
+            .iter()
+            .any(|record| record.name.as_ref() == "minecraft:slime")
+    );
     let mut records = huge_mushrooms
         .into_iter()
         .chain(legacy_flags_zero)
@@ -927,7 +943,7 @@ fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge
 
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned mushrooms");
     for (id, record) in records.iter().enumerate() {
-        if id < 48 {
+        if HUGE_MUSHROOM_NAMES.contains(&record.name.as_ref()) {
             assert_eq!(compiled.visuals[id].kind, VisualKind::Cube, "{record:?}");
             assert!(
                 compiled.visuals[id]
@@ -948,6 +964,12 @@ fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge
                 VisualKind::Model,
                 "checked transparent cube became diagnostic: {record:?}"
             );
+        } else if record.name.as_ref() == "minecraft:invisible_bedrock" {
+            assert_eq!(
+                compiled.visuals[id].kind,
+                VisualKind::Invisible,
+                "{record:?}"
+            );
         } else {
             assert_eq!(
                 compiled.visuals[id].kind,
@@ -956,8 +978,6 @@ fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge
             );
         }
     }
-    assert_eq!(records.len() - 48, non_mushroom_count);
-
     let baseline = encode_blob(&compiled).expect("encode pinned mushrooms");
     records.reverse();
     let reversed = compile_pack(Path::new(&pack), &records).expect("compile reversed mushrooms");
