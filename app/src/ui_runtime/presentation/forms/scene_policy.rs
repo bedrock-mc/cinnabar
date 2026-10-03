@@ -79,10 +79,13 @@ mod tests {
     use crate::ui_runtime::presentation::forms::{ServerUiPack, pack_harness};
 
     #[test]
-    #[ignore = "requires installed local carriers (make assets)"]
     fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
-        let mut presentation = pack_harness::engine_presentation()
-            .expect("required offline fixture; see the ignore reason");
+        let Some(mut presentation) = pack_harness::engine_presentation() else {
+            eprintln!(
+                "skipping java_chat_keeps_the_world_and_hud_but_absorbs_gameplay: fixture unavailable; requires installed local carriers (make assets)"
+            );
+            return;
+        };
         let mut runtime = UiRuntime::new(1);
         runtime.open_chat();
         let menu = MenuRuntime::new(false, 2, "Tester".into());

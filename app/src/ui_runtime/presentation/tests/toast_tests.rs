@@ -37,10 +37,13 @@ fn build(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime, now: u64
 }
 
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
-    let mut presentation = super::engine_hud_tests::engine_presentation()
-        .expect("required offline fixture; see the ignore reason");
+    let Some(mut presentation) = super::engine_hud_tests::engine_presentation() else {
+        eprintln!(
+            "skipping server_toast_slides_down_from_the_top_holds_then_yields_to_the_next: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let mut runtime = UiRuntime::new(1);
     push_toast(&mut runtime, 1, "Welcome", "to the server");
     push_toast(&mut runtime, 2, "Second", "");
@@ -68,12 +71,15 @@ fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
 
 /// Local-only: writes `toast_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn toast_screen_snapshot() {
     let mut presentation = super::engine_hud_tests::engine_presentation_with(
         super::super::forms::pack_harness::font(),
-    )
-    .expect("required offline fixture; see the ignore reason");
+    ) else {
+        eprintln!(
+            "skipping toast_screen_snapshot: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let mut runtime = UiRuntime::new(1);
     push_toast(&mut runtime, 1, "Welcome", "to the server");
     let start = runtime.hud().toasts()[0].received_millis;

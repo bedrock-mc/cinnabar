@@ -152,9 +152,17 @@ fn extension_cannot_restore_a_server_hidden_hud() {
 }
 
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn mod_spike_snapshot_with_real_carrier() {
-    let mut presentation = pack_harness::engine_presentation().expect("make assets: UI carrier");
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        assert!(
+            std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR").is_none(),
+            "snapshot requested without UI carrier"
+        );
+        eprintln!(
+            "skipping mod_spike_snapshot_with_real_carrier: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let before = frame(&mut presentation);
     snapshot::write(&before, "mod-spike-before");
     let mut guest = std::env::var_os(SAMPLE_COMPONENT_ENV).map(|path| {

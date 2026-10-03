@@ -27,9 +27,13 @@ fn selector(tree: &json_ui::LaidOut<'_>, name: &str) -> Option<json_ui::Rect> {
 }
 
 #[test]
-#[ignore = "requires installed UI carrier (make assets)"]
 fn settings_category_button_pitch_matches_vanilla_toggle_height() {
-    let carrier = super::pack_harness::carrier().expect("make assets: UI carrier");
+    let Some(carrier) = super::pack_harness::carrier() else {
+        eprintln!(
+            "skipping settings_category_button_pitch_matches_vanilla_toggle_height: fixture unavailable; requires installed UI carrier (make assets)"
+        );
+        return;
+    };
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
@@ -61,7 +65,9 @@ fn section(variable: &str) {
 
 /// Render a section after adjusting the menu view, such as opening a dropdown.
 fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu::MenuView)) {
-    super::pack_harness::carrier().expect("make assets: UI carrier for settings gallery");
+    if super::pack_harness::carrier().is_none() {
+        return;
+    }
     let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
     if variable == "storage_management_forced_index" {
         menu.activate(crate::menu::MenuAction::SettingsSection(
@@ -82,7 +88,6 @@ fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu
 }
 
 #[test]
-#[ignore = "offline settings gallery; requires installed UI carrier (make assets)"]
 fn settings_sections_gallery() {
     for section_name in [
         "accessibility_forced_index",
@@ -102,7 +107,6 @@ fn settings_sections_gallery() {
 }
 
 #[test]
-#[ignore = "requires installed UI carrier (make assets)"]
 fn settings_video_graphics_mode_open() {
     let index = crate::menu::settings_options::SETTINGS_OPTIONS
         .iter()
@@ -117,10 +121,13 @@ fn settings_video_graphics_mode_open() {
 
 // Every row of an open settings dropdown is its own click target for its own choice.
 #[test]
-#[ignore = "requires installed UI carrier (make assets)"]
 fn open_graphics_mode_rows_select_their_own_choice() {
-    let mut presentation =
-        super::pack_harness::engine_presentation().expect("make assets: UI carrier");
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping open_graphics_mode_rows_select_their_own_choice: fixture unavailable; requires installed UI carrier (make assets)"
+        );
+        return;
+    };
     let index = crate::menu::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "graphics_mode")
@@ -156,9 +163,10 @@ fn open_graphics_mode_rows_select_their_own_choice() {
 }
 
 #[test]
-#[ignore = "requires installed UI carrier (make assets)"]
 fn settings_video_graphics_options_pack_before() {
-    super::pack_harness::carrier().expect("make assets: UI carrier for settings gallery");
+    if super::pack_harness::carrier().is_none() {
+        return;
+    }
     let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
     view.screen = MenuScreen::Settings;
     view.settings_section = super::menu_screens::SETTINGS_SECTIONS
@@ -171,7 +179,6 @@ fn settings_video_graphics_options_pack_before() {
 }
 
 #[test]
-#[ignore = "requires installed UI carrier (make assets)"]
 fn settings_video_graphics_options_expanded() {
     section_with("video_forced_index", "settings-video-expanded", |view| {
         simple_graphics(view);
@@ -190,9 +197,13 @@ fn simple_graphics(view: &mut crate::menu::MenuView) {
 
 // A complete section-button hit target expands and collapses the original option grid.
 #[test]
-#[ignore = "requires installed UI carrier (make assets)"]
 fn graphics_options_expander_uses_full_settings_button_height() {
-    let carrier = super::pack_harness::carrier().expect("make assets: UI carrier");
+    let Some(carrier) = super::pack_harness::carrier() else {
+        eprintln!(
+            "skipping graphics_options_expander_uses_full_settings_button_height: fixture unavailable; requires installed UI carrier (make assets)"
+        );
+        return;
+    };
     let files = carrier.ui_files();
     let mut catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();

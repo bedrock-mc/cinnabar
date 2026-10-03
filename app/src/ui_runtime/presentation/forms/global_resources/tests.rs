@@ -38,10 +38,13 @@ fn back_closes_pack_settings_before_leaving_global_resources() {
 }
 
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn global_resources_screen_renders_actions_and_pack_settings() {
-    let mut presentation = pack_harness::engine_presentation()
-        .expect("required offline fixture; see the ignore reason");
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping global_resources_screen_renders_actions_and_pack_settings: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let mut view = MenuRuntime::new(true, 2, "Steve".into()).view();
     view.screen = MenuScreen::Settings;
     view.settings_section = 24;
@@ -123,10 +126,13 @@ fn test_raster() -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
-    let mut presentation = pack_harness::engine_presentation()
-        .expect("required offline fixture; see the ignore reason");
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping live_hud_texture_and_definition_swap_reverts_without_session_change: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let mut runtime = UiRuntime::new(7);
     runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
     let dpi = ui::DpiScale::new(1.0).unwrap();

@@ -132,10 +132,13 @@ fn hurt_closes_a_top_container_that_asks() {
 
 // The real carrier's HUD passes input through and a container absorbs it.
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn carrier_settings_route_input_like_vanilla() {
-    let carrier = super::super::presentation::forms::pack_harness::carrier()
-        .expect("required offline fixture; see the ignore reason");
+    let Some(carrier) = super::super::presentation::forms::pack_harness::carrier() else {
+        eprintln!(
+            "skipping carrier_settings_route_input_like_vanilla: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let catalog = Catalog::from_files(
         carrier
             .ui_files()

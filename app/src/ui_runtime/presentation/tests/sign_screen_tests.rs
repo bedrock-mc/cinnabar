@@ -19,10 +19,13 @@ fn open_sign(runtime: &mut UiRuntime, block: &str) {
 }
 
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn sign_screen_shows_the_woods_art_and_the_lines_with_a_caret() {
-    let mut presentation =
-        engine_presentation().expect("required offline fixture; see the ignore reason");
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping sign_screen_shows_the_woods_art_and_the_lines_with_a_caret: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let mut runtime = UiRuntime::new(1);
     open_sign(&mut runtime, "minecraft:birch_standing_sign");
     presentation
@@ -53,10 +56,15 @@ fn sign_screen_shows_the_woods_art_and_the_lines_with_a_caret() {
 
 /// Local-only: writes `sign_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn sign_screen_snapshot() {
-    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())
-        .expect("required offline fixture; see the ignore reason");
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        eprintln!(
+            "skipping sign_screen_snapshot: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let mut runtime = UiRuntime::new(1);
     open_sign(&mut runtime, "minecraft:dark_oak_hanging_sign");
     let input = presentation

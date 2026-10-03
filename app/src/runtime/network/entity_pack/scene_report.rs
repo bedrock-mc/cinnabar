@@ -28,7 +28,6 @@ const HORIZONTAL_FOV_DEGREES: f32 = 90.0;
 /// `x,y,z,yaw,pitch` (radians, Bevy convention), `CINNABAR_RENDER_FONT` a `.mcbefont`,
 /// `CINNABAR_RENDER_GLYPHS` a directory of `glyph_XX.png`; the frame goes to `CINNABAR_RENDER_OUT`.
 #[test]
-#[ignore = "offline scene export; requires the CINNABAR_RENDER_* fixture paths documented above"]
 fn render_captured_scene() {
     let vars = [
         "CINNABAR_RENDER_PACK",
@@ -38,10 +37,36 @@ fn render_captured_scene() {
         "CINNABAR_RENDER_GLYPHS",
         "CINNABAR_RENDER_OUT",
     ]
-    .map(|name| {
-        std::env::var(name).unwrap_or_else(|_| panic!("offline scene export requires {name}"))
+    .map(|name| match std::env::var(name) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => {
+            eprintln!("skipping captured-scene fixture test: {name} is not set");
+            None
+        }
+        Err(error) => panic!("read scene fixture setting {name}: {error}"),
     });
-    let [pack, scene, camera, font, glyphs, out] = vars;
+    let [
+        Some(pack),
+        Some(scene),
+        Some(camera),
+        Some(font),
+        Some(glyphs),
+        Some(out),
+    ] = vars
+    else {
+        return;
+    };
+    for (name, path) in [
+        ("CINNABAR_RENDER_PACK", &pack),
+        ("CINNABAR_RENDER_SCENE", &scene),
+        ("CINNABAR_RENDER_FONT", &font),
+        ("CINNABAR_RENDER_GLYPHS", &glyphs),
+    ] {
+        if !Path::new(path).exists() {
+            eprintln!("skipping captured-scene fixture test: missing {name} fixture {path}");
+            return;
+        }
+    }
     let pack = compile_local_pack(Path::new(&pack));
     let camera: Vec<f32> = camera
         .split(',')

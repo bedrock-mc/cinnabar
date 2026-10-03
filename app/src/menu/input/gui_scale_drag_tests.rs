@@ -80,10 +80,13 @@ fn relayout(app: &mut App) {
 }
 
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases() {
-    let presentation =
-        engine_presentation().expect("required offline fixture; see the ignore reason");
+    let Some(presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::SettingsScale(0));
     menu.set_gui_scale_preference(None);

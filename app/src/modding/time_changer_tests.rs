@@ -2,10 +2,13 @@ use super::*;
 use crate::environment::{self, WeatherState, WorldClock};
 
 #[test]
-#[ignore = "requires installed local carriers (make assets) and CINNABAR_MOD_COMPONENT"]
 fn configured_time_changer_is_visual_only_offline() {
-    let path =
-        std::env::var_os(COMPONENT_ENV).expect("required offline fixture; see the ignore reason");
+    let Some(path) = std::env::var_os(COMPONENT_ENV) else {
+        eprintln!(
+            "skipping configured_time_changer_is_visual_only_offline: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_MOD_COMPONENT"
+        );
+        return;
+    };
     let mut app = App::new();
     let presentation = crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
         .expect("real UI carrier required for selected time changer");

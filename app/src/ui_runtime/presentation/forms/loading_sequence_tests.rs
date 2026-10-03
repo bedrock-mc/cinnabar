@@ -45,9 +45,13 @@ fn frame(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime) -> rende
 }
 
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
-    let pack = pack_harness::env_pack().expect("required offline fixture; see the ignore reason");
+    let Some(pack) = pack_harness::env_pack() else {
+        eprintln!(
+            "skipping zeqa_lazy_pages_survive_menu_join_reload_and_cancellation: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let dir = pack_harness::scratch_dir("loading-sequence");
     let view = super::play_flow_snapshots::fixture_view(&dir);
@@ -119,10 +123,13 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
 }
 
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
-    let mut presentation = pack_harness::engine_presentation()
-        .expect("required offline fixture; see the ignore reason");
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping vanilla_loading_before_pack_arrival_survives_static_page_insertion: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     let side = crate::ui_runtime::oreui_assets::OREUI_PAGE_SIDE as usize;
     presentation
         .enable_oreui_originals(crate::ui_runtime::oreui_assets::OreUiImages {

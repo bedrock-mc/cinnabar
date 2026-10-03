@@ -33,12 +33,16 @@ pub(super) fn local_pack_view_at(path: &Path) -> Option<LayeredPackView> {
 
 /// Writes every readable file of the `$var` pack under `$CINNABAR_DUMP_DIR`, for inspection.
 #[test]
-#[ignore = "offline pack export; requires CINNABAR_SERVER_PACK and CINNABAR_DUMP_DIR"]
 fn dump_local_pack() {
-    let view = local_pack_view("CINNABAR_SERVER_PACK")
-        .expect("offline pack export requires CINNABAR_SERVER_PACK");
-    let dir = std::env::var_os("CINNABAR_DUMP_DIR")
-        .expect("offline pack export requires CINNABAR_DUMP_DIR");
+    let (Some(view), Some(dir)) = (
+        local_pack_view("CINNABAR_SERVER_PACK"),
+        std::env::var_os("CINNABAR_DUMP_DIR"),
+    ) else {
+        eprintln!(
+            "skipping dump_local_pack: fixture unavailable; offline pack export; requires CINNABAR_SERVER_PACK and CINNABAR_DUMP_DIR"
+        );
+        return;
+    };
     for path in view.list("") {
         if let Some(bytes) = view.read(path) {
             let target = Path::new(&dir).join(path);

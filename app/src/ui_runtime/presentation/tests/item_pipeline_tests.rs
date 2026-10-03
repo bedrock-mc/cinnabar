@@ -14,13 +14,22 @@ use protocol::{
 use super::*;
 use crate::ui_runtime::presentation::refresh_hud_frame;
 
-fn local(path: &str) -> Option<Vec<u8>> {
-    std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../.local/assets/compiled")
-            .join(path),
-    )
-    .ok()
+/// Reads an installed item fixture, skipping missing files and rejecting other read errors.
+fn local(name: &str) -> Option<Vec<u8>> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local/assets/compiled")
+        .join(name);
+    match std::fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping item pipeline fixture test: missing {}; make assets",
+                path.display()
+            );
+            None
+        }
+        Err(error) => panic!("read item fixture {}: {error}", path.display()),
+    }
 }
 
 struct Harness {
@@ -29,13 +38,25 @@ struct Harness {
 }
 
 fn harness() -> Option<Harness> {
-    let icons = Arc::new(RuntimeIconCatalog::decode(&local("vanilla-v1.mcbeico")?).ok()?);
-    let entities = Arc::new(RuntimeEntityAssets::decode(&local("vanilla-v1.mcbeent")?).ok()?);
-    let world = Arc::new(RuntimeAssets::decode(&local("vanilla-v2193.mcbea")?).ok()?);
+    let icons = Arc::new(
+        RuntimeIconCatalog::decode(&local("vanilla-v1.mcbeico")?)
+            .expect("decode installed icon fixture"),
+    );
+    let entities = Arc::new(
+        RuntimeEntityAssets::decode(&local("vanilla-v1.mcbeent")?)
+            .expect("decode installed entity fixture"),
+    );
+    let world = Arc::new(
+        RuntimeAssets::decode(&local("vanilla-v2193.mcbea")?)
+            .expect("decode installed world fixture"),
+    );
     let carrier = super::super::forms::pack_harness::carrier()?;
     let mut presentation =
-        UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons).ok()?;
-    presentation.enable_json_ui(carrier).ok()?;
+        UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons)
+            .expect("build item fixture HUD");
+    presentation
+        .enable_json_ui(carrier)
+        .expect("enable installed UI fixture");
     let bootstrap = WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -100,12 +121,17 @@ fn registry_with_custom_item() -> ItemRegistryEvent {
 // Every hotbar stack with a resolvable icon reaches an item renderer; the
 // report names the stage where each other stack stops.
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
-    let Harness {
+    let Some(Harness {
         mut presentation,
         mut stream,
-    } = harness().expect("make assets: UI, entity and icon carriers");
+    }) = harness()
+    else {
+        eprintln!(
+            "skipping hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     assert!(stream.seed_item_registry(registry_with_custom_item()));
     let hotbar = [
         ("minecraft:diamond", 0, 3),
@@ -205,12 +231,17 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
 // it fills the inventory's armor cells, the HUD armor points and icons, and the
 // local rig's worn items.
 #[test]
-#[ignore = "requires installed local carriers (make assets)"]
 fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
-    let Harness {
+    let Some(Harness {
         mut presentation,
         mut stream,
-    } = harness().expect("make assets: UI, entity and icon carriers");
+    }) = harness()
+    else {
+        eprintln!(
+            "skipping window_120_armor_dresses_the_hud_inventory_and_local_rig: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
     assert!(stream.seed_item_registry(registry_with_custom_item()));
     let mut runtime = UiRuntime::new(1);
     runtime.publish_local_runtime_id(1, 1).unwrap();
