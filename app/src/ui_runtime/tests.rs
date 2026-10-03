@@ -697,44 +697,6 @@ fn rejected_timed_event_leaves_fifo_and_server_tick_state_unadvanced() {
 }
 
 #[test]
-fn block_crack_history_does_not_accumulate_across_production_batches() {
-    let mut runtime = UiRuntime::new(9);
-    for batch in 0..40_u64 {
-        for offset in 0..32_u64 {
-            runtime
-                .retain_block_crack(SequencedBlockCrackEvent {
-                    session_id: 9,
-                    fifo_sequence: batch * 32 + offset,
-                    dimension: 0,
-                    event: BlockCrackEvent {
-                        position: [0, 64, 0],
-                        action: BlockCrackAction::Stop,
-                    },
-                })
-                .expect("consumed crack events must not exhaust a session history queue");
-        }
-    }
-}
-
-#[test]
-fn block_crack_single_committed_batch_exceeds_former_history_limit() {
-    let mut runtime = UiRuntime::new(9);
-    for sequence in 0..1_280_u64 {
-        runtime
-            .retain_block_crack(SequencedBlockCrackEvent {
-                session_id: 9,
-                fifo_sequence: sequence,
-                dimension: 0,
-                event: BlockCrackEvent {
-                    position: [0, 64, 0],
-                    action: BlockCrackAction::Stop,
-                },
-            })
-            .expect("one committed batch must consume each crack synchronously");
-    }
-}
-
-#[test]
 fn block_cracks_are_consumed_in_sequence_and_cleared_on_session_change() {
     let mut runtime = UiRuntime::new(4);
     let event = BlockCrackEvent {

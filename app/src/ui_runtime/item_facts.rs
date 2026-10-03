@@ -360,49 +360,6 @@ mod tests {
         assert_eq!(durability_fraction(&NetworkItemStack::empty(), None), None);
     }
 
-    #[test]
-    fn corrected_damage_drives_the_same_fraction_contract_as_nbt_damage() {
-        // Iron sword maximum 250: a server-corrected damage of 125 is exactly
-        // half, zero damage hides the bar, and unknown identifiers stay shut.
-        assert_eq!(
-            cell_durability_fraction(
-                &NetworkItemStack::empty(),
-                max_durability("minecraft:iron_sword"),
-                Some(125)
-            ),
-            Some(0.5)
-        );
-        assert_eq!(
-            cell_durability_fraction(
-                &NetworkItemStack::empty(),
-                max_durability("minecraft:iron_sword"),
-                Some(0)
-            ),
-            None
-        );
-        assert_eq!(
-            cell_durability_fraction(
-                &NetworkItemStack::empty(),
-                max_durability("minecraft:stick"),
-                Some(5)
-            ),
-            None
-        );
-        assert_eq!(
-            cell_durability_fraction(&NetworkItemStack::empty(), None, Some(5)),
-            None
-        );
-        // Over-damage clamps to an empty bar instead of wrapping.
-        assert_eq!(
-            cell_durability_fraction(
-                &NetworkItemStack::empty(),
-                max_durability("minecraft:iron_sword"),
-                Some(9_999)
-            ),
-            Some(0.0)
-        );
-    }
-
     /// Builds one stack whose retained user data carries a vanilla `Damage`
     /// integer, exactly as the fixed little-endian wire encoding stores it.
     fn stack_with_damage(damage: i32) -> NetworkItemStack {
@@ -432,14 +389,23 @@ mod tests {
 
     #[test]
     fn authoritative_corrections_take_precedence_over_derived_damage() {
-        // A correction wins even when the local stack carries no readable damage.
+        // A correction wins over conflicting damage carried by the local stack.
         let fraction = cell_durability_fraction(
-            &NetworkItemStack::empty(),
+            &stack_with_damage(125),
             max_durability("minecraft:iron_sword"),
-            Some(125),
+            Some(50),
         )
         .unwrap();
-        assert!((fraction - 0.5).abs() < 0.01);
+        assert!((fraction - 0.8).abs() < 0.01);
+        assert_eq!(
+            cell_durability_fraction(
+                &NetworkItemStack::empty(),
+                max_durability("minecraft:iron_sword"),
+                Some(9_999),
+            ),
+            Some(0.0),
+            "over-damage clamps instead of wrapping"
+        );
         // Zero correction keeps the bar hidden exactly like a pristine stack.
         assert_eq!(
             cell_durability_fraction(
