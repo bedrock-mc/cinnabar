@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/service/persona"
 )
 
@@ -44,6 +46,47 @@ func TestProfileAvatarUsesDiscoveredService(t *testing.T) {
 	repeated, err := cacheProfileAvatar(context.Background(), env, fixedTokens{}, "123", directory)
 	if err != nil || repeated.Path != image.Path {
 		t.Fatalf("content-addressed cache changed: %+v %v", repeated, err)
+	}
+}
+
+// TestProfileAvatarCacheHitSurvivesEviction keeps a reused avatar ahead of older artwork.
+func TestProfileAvatarCacheHitSurvivesEviction(t *testing.T) {
+	directory := t.TempDir()
+	env := new(persona.Environment)
+	if err := json.Unmarshal([]byte(`{"serviceUri":"https://persona.fixture.test"}`), env); err != nil {
+		t.Fatal(err)
+	}
+	env.HTTPClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		data := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(data))}, nil
+	})}
+	avatar, err := cacheProfileAvatar(context.Background(), env, fixedTokens{}, "123", directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unusedPath := filepath.Join(directory, "unused-artwork.img")
+	if err := os.WriteFile(unusedPath, []byte("unused artwork"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for path, stamp := range map[string]time.Time{
+		avatar.Path: now.Add(-2 * time.Hour),
+		unusedPath:  now.Add(-time.Hour),
+	} {
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reused, err := cacheProfileAvatar(context.Background(), env, fixedTokens{}, "123", directory)
+	if err != nil || reused.Path != avatar.Path {
+		t.Fatalf("reused avatar = %+v, error = %v", reused, err)
+	}
+	imagecache.New(directory, imagecache.Config{MaxFiles: 1}).Prune()
+	if _, err := os.Stat(avatar.Path); err != nil {
+		t.Fatalf("recently reused avatar was evicted: %v", err)
+	}
+	if _, err := os.Stat(unusedPath); !os.IsNotExist(err) {
+		t.Fatalf("older unused artwork survived eviction: %v", err)
 	}
 }
 

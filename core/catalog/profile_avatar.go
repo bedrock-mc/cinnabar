@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
@@ -46,6 +47,10 @@ func cacheProfileAvatar(ctx context.Context, env *persona.Environment, tokens se
 	digest := sha256.Sum256(avatar.Data)
 	path := filepath.Join(artworkDir, "persona-avatar-"+hex.EncodeToString(digest[:])+".img")
 	if _, err := os.Stat(path); err == nil {
+		now := time.Now()
+		if err := os.Chtimes(path, now, now); err != nil {
+			return Image{}, err
+		}
 		return Image{Path: path}, nil
 	}
 	temporary, err := os.CreateTemp(artworkDir, ".persona-avatar-*")
