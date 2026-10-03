@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_writes() {
-    let (app, _) = crate::queue_review_support::app();
-    let cache = app.world().resource::<PipelineCache>();
+    let (mut app, _) = crate::queue_review_support::app();
+    let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
     let mut pipeline = AtmospherePipeline::from_world(&mut World::new());
     crate::shader_test_support::assert_binding_visibility(
         &crate::shader_source::standalone(include_str!("atmosphere.wgsl"), &[]),
@@ -14,9 +14,9 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
         for hdr in [false, true] {
             let id = pipeline
                 .variants
-                .specialize(cache, AtmospherePipelineKey { msaa, hdr })
+                .specialize(&cache, AtmospherePipelineKey { msaa, hdr })
                 .unwrap();
-            let descriptor = cache.get_render_pipeline_descriptor(id);
+            let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
             assert_eq!(descriptor.multisample.count, msaa.samples());
             let depth = descriptor.depth_stencil.as_ref().unwrap();
             assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);

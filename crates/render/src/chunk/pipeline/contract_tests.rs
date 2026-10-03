@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn vanilla_base_pipeline_construction_matches_baseline() {
-    let (app, _) = crate::queue_review_support::app();
-    let cache = app.world().resource::<PipelineCache>();
+    let (mut app, _) = crate::queue_review_support::app();
+    let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
     let mut pipelines = ChunkPipeline::from_world(&mut World::new());
     for msaa in [Msaa::Off, Msaa::Sample4] {
         for hdr in [false, true] {
@@ -49,8 +49,8 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                     None,
                 ),
             ] {
-                let id = variants.specialize(cache, key).unwrap();
-                let descriptor = cache.get_render_pipeline_descriptor(id);
+                let id = variants.specialize(&cache, key).unwrap();
+                let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
                 assert_eq!(descriptor.multisample.count, msaa.samples());
                 assert_eq!(descriptor.primitive.cull_mode, cull);
                 assert_eq!(descriptor.vertex.shader, shader);

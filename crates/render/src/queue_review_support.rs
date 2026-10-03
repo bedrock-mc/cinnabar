@@ -4,13 +4,24 @@ use bevy::{
     prelude::*,
     render::{
         render_phase::{DrawFunctions, ViewSortedRenderPhases},
-        render_resource::PipelineCache,
+        render_resource::{CachedRenderPipelineId, PipelineCache, RenderPipelineDescriptor},
         renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper},
         sync_world::MainEntity,
         view::{ExtractedView, RetainedViewEntity},
     },
 };
 use std::sync::Arc;
+
+/// Processes queued descriptors before reading one, without requiring loaded shader assets.
+pub(crate) fn queued_descriptor(
+    cache: &mut PipelineCache,
+    id: CachedRenderPipelineId,
+) -> &RenderPipelineDescriptor {
+    // Linux processes the cache on Bevy's asynchronous pool, even on the NOOP backend.
+    bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    cache.process_queue();
+    cache.get_render_pipeline_descriptor(id)
+}
 
 /// Creates a render view with an empty transparent phase and a real pipeline cache.
 pub(crate) fn app() -> (App, RetainedViewEntity) {
@@ -25,8 +36,14 @@ pub(crate) fn app() -> (App, RetainedViewEntity) {
     let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
-    let (device, queue) =
-        bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }))
+    .unwrap();
     let device = RenderDevice::from(device);
     let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
     let mut app = App::new();
