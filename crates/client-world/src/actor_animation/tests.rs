@@ -848,20 +848,41 @@ fn arrow_target_yaw_uses_interpolated_absolute_rotation_not_the_latest_packet() 
 fn hud_pose_keeps_the_full_body_when_the_camera_uses_first_person() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
-    let Some(path) = std::fs::read_dir(root)
-        .ok()
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
+    let entries = match std::fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping HUD pose test: missing entity fixture directory {}",
+                root.display()
+            );
+            return;
+        }
+        Err(error) => panic!("read entity fixture directory {}: {error}", root.display()),
+    };
+    let Some(path) = entries
+        .map(|entry| entry.expect("read entity fixture entry").path())
         .find(|path| {
             path.extension()
                 .is_some_and(|extension| extension == "mcbeent")
         })
     else {
+        eprintln!(
+            "skipping HUD pose test: missing entity fixture {}/*.mcbeent",
+            root.display()
+        );
         return;
     };
-    let bytes = std::fs::read(path).unwrap();
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping HUD pose test: missing entity fixture {}",
+                path.display()
+            );
+            return;
+        }
+        Err(error) => panic!("read entity fixture {}: {error}", path.display()),
+    };
     let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let mut actor = actor_with_metadata(HashMap::new());
     actor.kind = ActorKind::Player {
