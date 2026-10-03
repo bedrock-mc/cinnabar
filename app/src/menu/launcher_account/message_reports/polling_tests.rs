@@ -14,6 +14,8 @@ use std::{
 
 /// Replies to a framed launcher request, holding message reports until the fixture ends.
 fn respond(mut stream: UnixStream, held: &mut Vec<UnixStream>) {
+    // Accepted sockets inherit the listener's non-blocking mode on macOS.
+    stream.set_nonblocking(false).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
