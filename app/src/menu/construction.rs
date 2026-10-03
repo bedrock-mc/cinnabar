@@ -126,6 +126,7 @@ impl MenuRuntime {
             storage: Default::default(),
             settings_dropdown: None,
             settings_dirty: false,
+            settings_retry_at: None,
             settings_apply: true,
             language_choices,
             language_pending,

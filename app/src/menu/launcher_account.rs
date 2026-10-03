@@ -49,6 +49,8 @@ const PING_INTERVAL: Duration = Duration::from_secs(15);
 #[derive(Default)]
 struct Snapshot {
     auth_generation: u64,
+    /// Wakes the catalog worker when its account identity changes.
+    catalog_wake: Option<Sender<()>>,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
     friends: Option<Vec<Friend>>,
@@ -75,6 +77,10 @@ impl Snapshot {
         self.profile = None;
         self.home = None;
         self.gatherings = None;
+        if let Some(wake) = &self.catalog_wake {
+            // A queued wake already covers the newest snapshot; never block a frame.
+            let _ = wake.try_send(());
+        }
     }
 
     /// Advances the identity boundary when the core changes account or sign-in state.
@@ -106,7 +112,11 @@ impl LauncherAccount {
     /// when this is dropped. Events, the slow catalog and the screen feeds each
     /// poll on their own worker, publishing every answer as it arrives.
     pub(crate) fn new(socket_dir: PathBuf) -> Self {
-        let snapshot = Arc::new(Mutex::new(Snapshot::default()));
+        let (catalog_wake, catalog_changes) = bounded(1);
+        let snapshot = Arc::new(Mutex::new(Snapshot {
+            catalog_wake: Some(catalog_wake),
+            ..Default::default()
+        }));
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
         let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
@@ -114,7 +124,7 @@ impl LauncherAccount {
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
-        thread::spawn(move || poll_catalog(&dir, &shared, &until));
+        thread::spawn(move || poll_catalog(&dir, &shared, &until, &catalog_changes));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
         thread::spawn(move || poll_feeds(&dir, &shared, &stop));
         Self {
@@ -173,6 +183,15 @@ fn wait(stop: &Receiver<()>, interval: Duration) -> bool {
         stop.recv_timeout(interval),
         Err(crossbeam_channel::RecvTimeoutError::Disconnected)
     )
+}
+
+/// Waits for the next catalog poll, an identity change, or the link being dropped.
+fn wait_catalog(stop: &Receiver<()>, changes: &Receiver<()>) -> bool {
+    crossbeam_channel::select! {
+        recv(stop) -> _ => false,
+        recv(changes) -> result => result.is_ok(),
+        default(CATALOG_INTERVAL) => true,
+    }
 }
 
 fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiver<()>) {
@@ -242,11 +261,18 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
     }
 }
 
-fn poll_catalog(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
+fn poll_catalog(
+    socket_dir: &std::path::Path,
+    shared: &Mutex<Snapshot>,
+    stop: &Receiver<()>,
+    changes: &Receiver<()>,
+) {
     let Some(runtime) = runtime() else {
         return;
     };
     loop {
+        // Adopt all changes already present before starting this account's requests.
+        while changes.try_recv().is_ok() {}
         let generation = {
             let snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
             snapshot
@@ -267,7 +293,7 @@ fn poll_catalog(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &R
                 });
             }
         }
-        if !wait(stop, CATALOG_INTERVAL) {
+        if !wait_catalog(stop, changes) {
             return;
         }
     }
@@ -684,6 +710,54 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_ui_account_changes_wake_catalog_without_repeated_poll_wakes() {
+        let (wake, changes) = bounded(1);
+        let mut snapshot = Snapshot {
+            catalog_wake: Some(wake),
+            ..Default::default()
+        };
+        let account = Account {
+            state: CoreAuth::SignedIn,
+            gamertag: Some("Alex".into()),
+            verification_uri: None,
+            user_code: None,
+            reason: None,
+        };
+        snapshot.set_account(account.clone());
+        assert_eq!(
+            changes.try_recv(),
+            Ok(()),
+            "the first account must wake catalogs"
+        );
+        snapshot.set_account(account.clone());
+        assert_eq!(
+            changes.try_recv(),
+            Err(crossbeam_channel::TryRecvError::Empty)
+        );
+        snapshot.set_account(Account {
+            gamertag: Some("Steve".into()),
+            ..account
+        });
+        assert_eq!(
+            changes.try_recv(),
+            Ok(()),
+            "another identity must wake catalogs"
+        );
+        snapshot.retire_account_data();
+        assert_eq!(changes.try_recv(), Ok(()), "sign-out must wake catalogs");
+    }
+
+    #[test]
+    fn review_ui_catalog_wait_handles_wakes_and_shutdown() {
+        let (alive, stop) = bounded(0);
+        let (wake, changes) = bounded(1);
+        wake.try_send(()).unwrap();
+        assert!(wait_catalog(&stop, &changes));
+        drop(alive);
+        assert!(!wait_catalog(&stop, &changes));
+    }
 
     // A pinged server that sent no pong reads offline instead of loading.
     #[test]

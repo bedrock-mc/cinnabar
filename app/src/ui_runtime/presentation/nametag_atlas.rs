@@ -47,9 +47,18 @@ pub(crate) struct NametagAtlas {
     exhausted: bool,
     published: Option<Arc<[NametagAtlasRect]>>,
     revision: u64,
+    palette: ui::FormattingPalette,
 }
 
 impl NametagAtlas {
+    /// Retires cached line pixels when the active formatting colors change.
+    pub(super) fn set_palette(&mut self, palette: ui::FormattingPalette) {
+        if self.palette != palette {
+            self.reset();
+            self.palette = palette;
+        }
+    }
+
     /// The cell of `text`, rasterizing it on first use; `None` when the font cannot lay it out.
     pub(super) fn line<'p>(
         &mut self,
@@ -61,7 +70,8 @@ impl NametagAtlas {
         if let Some(line) = self.lines.get(text) {
             return Some(*line);
         }
-        let (width, height, top, rgba8, advance) = rasterize(text, font, layouts, pages)?;
+        let (width, height, top, rgba8, advance) =
+            rasterize(text, font, layouts, pages, &self.palette)?;
         let origin = self.allocate(width, height)?;
         self.rectangles.push(NametagAtlasRect {
             cell: [origin[0], origin[1], width, height],
@@ -132,6 +142,7 @@ fn rasterize<'p>(
     font: &RuntimeFontCatalog,
     layouts: &mut TextLayoutCache,
     pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
+    palette: &ui::FormattingPalette,
 ) -> Option<(u32, u32, i32, Vec<u8>, u32)> {
     let layout = layouts
         .layout(TextLayoutRequest {
@@ -168,7 +179,7 @@ fn rasterize<'p>(
         let Some(page) = pages(usize::from(glyph.page)) else {
             continue;
         };
-        let tint = glyph.style.color.rgb().unwrap_or([255; 3]);
+        let tint = palette.rgb(glyph.style.color).unwrap_or([255; 3]);
         // Sheet glyphs are drawn scaled into their bounds, so sample the source nearest-texel.
         let mut bounds = glyph.bounds_64.map(|value| value as f32 / 64.0);
         bounds[1] -= top as f32;
@@ -276,6 +287,36 @@ mod tests {
                     .copy_from_slice(&rectangle.rgba8[source..source + width as usize * 4]);
             }
         }
+    }
+
+    #[test]
+    fn palette_change_rerasterizes_retained_name_lines() {
+        let font = super::super::tests::fixture_font();
+        let mut layouts = TextLayoutCache::new(8, 1 << 20);
+        let mut atlas = NametagAtlas::default();
+        let text = Arc::from("§2Player");
+        let pages = |page| font_page(&font, page);
+        atlas.line(&text, &font, &mut layouts, &pages).unwrap();
+        let first = atlas.publish().0;
+        assert!(
+            first[0]
+                .rgba8
+                .chunks_exact(4)
+                .any(|pixel| pixel == [0, 170, 0, 255])
+        );
+        atlas.set_palette(ui::FormattingPalette::from_globals(|name| {
+            (name == "$2_color_format").then_some([0.976, 0.859, 0.427])
+        }));
+        atlas.line(&text, &font, &mut layouts, &pages).unwrap();
+        let changed = atlas.publish().0;
+        assert!(
+            changed[0]
+                .rgba8
+                .chunks_exact(4)
+                .any(|pixel| pixel == [249, 219, 109, 255])
+        );
+        assert_ne!(first[0].rgba8, changed[0].rgba8);
+        assert_eq!(first.len(), changed.len());
     }
 
     #[test]

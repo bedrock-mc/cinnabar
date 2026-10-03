@@ -9,6 +9,8 @@ mod containers;
 mod engine;
 mod experience;
 mod fallback;
+#[cfg(test)]
+mod formatting_tests;
 mod global_resources;
 mod hud;
 #[cfg(test)]
@@ -186,6 +188,8 @@ impl UiPresentationRuntime {
         } else {
             engine.set_server_pack(&pack.ui_layers);
         }
+        // Palette-only reloads can leave every cached text node unchanged.
+        self.last_menu = None;
         let atlas = server_pack::ServerAtlas::new(
             &pack.textures,
             pack.view.clone(),
@@ -320,6 +324,14 @@ impl UiPresentationRuntime {
             Some(pack) => self.set_server_ui_pack(&Arc::clone(pack)),
             None => self.set_server_ui_pack(&ServerUiPack::default()),
         }
+    }
+
+    /// The text color table resolved from the currently installed UI pack stack.
+    pub(super) fn formatting_palette(&self) -> Option<&ui::FormattingPalette> {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map(|engine| &engine.formatting_palette)
     }
 
     /// The sound the engine menu's control for `action` plays when pressed.

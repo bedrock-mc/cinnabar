@@ -456,6 +456,8 @@ impl UiPresentationRuntime {
 
     /// The world-space tag quads for this frame's anchors.
     fn nametag_scene(&mut self) -> render::NametagScene {
+        let palette = self.formatting_palette().copied().unwrap_or_default();
+        self.nametag_atlas.set_palette(palette);
         let (font, glyphs) = (&self.font, &self.session_glyphs);
         let dynamic_start = self.textures.dynamic_start();
         nametags::build_nametag_scene(
@@ -729,6 +731,7 @@ impl UiPresentationRuntime {
             .map_err(UiPresentationError::Tree)?;
         let draw_list = tree
             .build_draw_list_with(TextEffects {
+                palette: self.formatting_palette(),
                 obfuscation_seed: now_millis,
                 obfuscation: Some(&self.obfuscation),
             })

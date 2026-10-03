@@ -205,6 +205,11 @@ impl<'a> ActorAnimationVariables<'a> {
         self.life_tick
     }
 
+    /// The catalog that owns these retained rig script values.
+    pub(super) fn asset_catalog(self) -> Option<&'a RuntimeEntityAssets> {
+        self.assets
+    }
+
     pub(super) fn copy_to(
         self,
         assets: &RuntimeEntityAssets,

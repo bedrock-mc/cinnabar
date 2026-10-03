@@ -62,6 +62,24 @@ texture color-space equivalence and hardware MSAA coverage still require a match
 
 ## Cinnabar implementation
 
+The HUD keeps its controller clocks and Molang variables separately from the world and
+first-person hand evaluation. The native actor selects the UI animation component while
+UI rendering is active (`R:Actor:54619`–`:54644`), and the HUD sets
+`variable.is_first_person` to zero before drawing that same actor
+(`R:HudPlayerRenderer:709`–`:723`). Lens's source-backed `1.26.50.26`
+`Actor::setUIRendering`, RVA `01c0b040`, also names the separate UI animation component.
+The installed pack's `animation_controllers/player.animation_controllers.json` root
+starts in `first_person` and enters `third_person` when `!variable.is_first_person`.
+Retaining its state lets the keyframes in `animations/player.animation.json`,
+`animation.player.crawl`, advance after the transition.
+
+Live HUD geometry resolves from the catalog that owns the current rig, including a
+server-pack catalog's separate binding index space. Its cache includes the catalog's
+source digest so another session's rig at the same index cannot reuse old vertices.
+This follows the native HUD's lookup of the actor's renderer and ordinary actor draw
+(`R:HudPlayerRenderer:655`, `:720`–`:723`). The offline regression uses original
+one-cube server rigs with different dimensions and needs no installed carrier.
+
 `player_preview/geometry.rs` emits normalized JSON-UI triangle geometry from the shared biped
 base/overlay vertices and current native view transforms. The old virtual preview dimensions
 are only the retained node's coordinate basis: there is no small intermediate framebuffer.

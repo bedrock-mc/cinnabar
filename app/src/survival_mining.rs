@@ -1,5 +1,5 @@
 //! Hold-to-mine for every game mode: one destroy state-machine step per completed
-//! physics tick. Instant (Creative) destroys complete on their start tick.
+//! physics tick. Creative and zero-hardness destroys complete on their start tick.
 //!
 //! Completion, timed from the provisional destroy table, removes the block locally
 //! as vanilla's local destroy does; inbound block updates stay authoritative and
@@ -400,12 +400,18 @@ pub(crate) struct SurvivalMiningRuntime {
     latched_press: bool,
     position_authority: Option<(u64, u64)>,
     last_blocked_log_millis: Option<u64>,
+    break_cues: Vec<crate::audio::LocalBlockCue>,
 }
 
 impl SurvivalMiningRuntime {
     /// The block and face the local player is breaking, for hit particles.
     pub(crate) fn destroying_target(&self) -> Option<([i32; 3], u8)> {
         self.machine.destroying_target()
+    }
+
+    /// Takes local destroy effects after their block actions were attached to a tick.
+    pub(crate) fn take_break_cues(&mut self) -> Vec<crate::audio::LocalBlockCue> {
+        std::mem::take(&mut self.break_cues)
     }
 
     /// Steps every unsent tick once, attaching nonempty payloads to their
@@ -475,7 +481,13 @@ impl SurvivalMiningRuntime {
             }
             if ticker.attach_survival_mining(tick, payload) {
                 broken.into_iter().for_each(&mut predict_break);
-                if broken.is_some() {
+                if let Some(position) = broken {
+                    if let DestroyInput::Held(Some(target)) = input {
+                        self.break_cues.push(crate::audio::LocalBlockCue::Break {
+                            position,
+                            block_runtime_id: target.runtime_id as i32,
+                        });
+                    }
                     break;
                 }
             } else {
@@ -527,6 +539,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
+    block_cues: bevy::prelude::MessageWriter<'w, crate::audio::LocalBlockCue>,
 }
 
 /// Runs after committed world publication and before the movement flush.
@@ -624,6 +637,9 @@ pub(crate) fn produce_survival_mining(
     );
     for request_id in unsent {
         ui.cancel_mining_request(&mut player_runtime, request_id);
+    }
+    for cue in runtime.take_break_cues() {
+        context.block_cues.write(cue);
     }
 }
 

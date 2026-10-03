@@ -194,3 +194,112 @@ fn review_pointer_release_then_press_keeps_the_second_capture() {
     );
     assert!(runtime.server_forms().engine().view.pressed.is_some());
 }
+
+#[test]
+fn review_ui_release_applies_the_final_control_drag_position() {
+    let mut presentation = mini_engine_presentation();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut runtime = pack_harness::action_form(&mut player_runtime, "Drag", &["Move"]);
+    presentation
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let mut frame = presentation.form_engine_frame(identity).unwrap().clone();
+    let mut region = frame.hits[0].clone();
+    region.kind = HitKind::Draggable;
+    region.drag_axes = [true, false];
+    region.input.mappings.clear();
+    let key = region.key.clone();
+    let start = [region.rect.x + 1.0, region.rect.y + 1.0];
+    frame.hits = vec![region].into();
+    for (point, down) in [(start, true), ([start[0] + 20.0, start[1] + 10.0], false)] {
+        let cursor = UiPoint::new(
+            frame.origin[0] + point[0] as f32 * frame.scale,
+            frame.origin[1] + point[1] as f32 * frame.scale,
+        )
+        .unwrap();
+        drive(
+            &mut runtime,
+            &frame,
+            EngineInput {
+                cursor: Some(cursor),
+                keys: &ButtonInput::default(),
+                pointer: PointerButtons {
+                    pressed: down,
+                    released: !down,
+                    held: down,
+                },
+                pointer_edges: vec![down],
+                wheel: Vec::new(),
+                typed: Vec::new(),
+                now: 0.0,
+                animator: None,
+            },
+        );
+    }
+    let engine = runtime.server_forms().engine();
+    assert_eq!(engine.view.drags.get(&key), Some(&[20.0, 0.0]));
+    assert!(engine.drag.is_none());
+}
+
+#[test]
+fn review_ui_release_applies_the_final_scrollbar_position() {
+    let mut presentation = mini_engine_presentation();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut runtime = pack_harness::action_form(&mut player_runtime, "Scroll", &["Move"]);
+    presentation
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let mut frame = presentation.form_engine_frame(identity).unwrap().clone();
+    let key = "scroll".to_owned();
+    frame.report.scrolls.insert(
+        key.clone(),
+        json_ui::ScrollMetrics {
+            offset: 10.0,
+            content: 200.0,
+            viewport: 50.0,
+            track: Some([0.0, 0.0, 10.0, 100.0]),
+            ..Default::default()
+        },
+    );
+    runtime.server_forms_mut().engine_mut().drag =
+        Some(crate::ui_runtime::forms::values::FormDrag::ScrollBox {
+            view: key.clone(),
+            last: 20.0,
+        });
+    drive(
+        &mut runtime,
+        &frame,
+        EngineInput {
+            cursor: Some(
+                UiPoint::new(frame.origin[0], frame.origin[1] + 30.0 * frame.scale).unwrap(),
+            ),
+            keys: &ButtonInput::default(),
+            pointer: PointerButtons {
+                released: true,
+                ..Default::default()
+            },
+            pointer_edges: vec![false],
+            wheel: Vec::new(),
+            typed: Vec::new(),
+            now: 0.0,
+            animator: None,
+        },
+    );
+    let engine = runtime.server_forms().engine();
+    assert_eq!(engine.view.scroll.get(&key), Some(&30.0));
+    assert!(engine.drag.is_none());
+}

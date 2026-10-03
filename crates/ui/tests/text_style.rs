@@ -166,6 +166,7 @@ fn obfuscation_swaps_a_same_width_raster_and_animates_across_frames() {
             TextEffects {
                 obfuscation_seed: seed,
                 obfuscation: Some(&pool),
+                ..Default::default()
             },
         );
         // The scrambled cell keeps its two-texel width whichever raster is picked.
@@ -199,6 +200,7 @@ fn obfuscation_swaps_a_same_width_raster_and_animates_across_frames() {
         tree.build_draw_list_with(TextEffects {
             obfuscation_seed: 5,
             obfuscation: Some(&pool),
+            ..Default::default()
         })
         .unwrap()
     };
@@ -242,4 +244,26 @@ fn rotated_text_turns_glyphs_about_the_node_centre() {
         assert!((x - (20.0 - flat.position[0])).abs() < 1e-4);
         assert!((y - (20.0 - flat.position[1])).abs() < 1e-4);
     }
+}
+
+// Formatting palette changes must reuse geometry and still preserve the label alpha.
+#[test]
+fn pack_palette_changes_cached_text_tints() {
+    let font = font();
+    let text = layout("§2A§rB§wC", TextStyle::default(), &font);
+    let palette = ui::FormattingPalette::from_globals(|name| match name {
+        "$2_color_format" => Some([0.976, 0.859, 0.427]),
+        "$party_blue_color" => Some([0.549, 0.702, 1.0]),
+        _ => None,
+    });
+    let draw = draw_with(
+        text,
+        TextEffects {
+            palette: Some(&palette),
+            ..Default::default()
+        },
+    );
+    assert_eq!(draw.vertices[0].color, [249, 219, 109, 255]);
+    assert_eq!(draw.vertices[4].color, [255; 4]);
+    assert_eq!(draw.vertices[8].color, [140, 179, 255, 255]);
 }

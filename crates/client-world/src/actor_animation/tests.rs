@@ -845,7 +845,7 @@ fn arrow_target_yaw_uses_interpolated_absolute_rotation_not_the_latest_packet() 
 }
 
 #[test]
-fn hud_pose_keeps_the_full_body_when_the_camera_uses_first_person() {
+fn hud_pose_advances_crawling_animation_independently_of_first_person() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let entries = match std::fs::read_dir(&root) {
@@ -884,7 +884,12 @@ fn hud_pose_keeps_the_full_body_when_the_camera_uses_first_person() {
         Err(error) => panic!("read entity fixture {}: {error}", path.display()),
     };
     let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
-    let mut actor = actor_with_metadata(HashMap::new());
+    let mut actor = actor_with_metadata(HashMap::from([(
+        crate::actor_store::EXTENDED_FLAGS_METADATA_KEY,
+        ActorMetadataValue::FlagsExtended(
+            1 << (crate::actor_store::ACTOR_FLAG_CRAWLING - u64::BITS),
+        ),
+    )]));
     actor.kind = ActorKind::Player {
         uuid: [0; 16],
         username: "Offline".into(),
@@ -894,7 +899,8 @@ fn hud_pose_keeps_the_full_body_when_the_camera_uses_first_person() {
     first.insert(1, 0, &actor);
     third.insert(1, 0, &actor);
     let actors = HashMap::from([(actor.runtime_id, actor)]);
-    for _ in 0..4 {
+    let mut previous_hud = None;
+    for tick in 0..4 {
         first.advance_tick(&actors, None, Some(1), true, false, |_| ActorTickContext {
             is_local_first_person: true,
             ..Default::default()
@@ -902,6 +908,12 @@ fn hud_pose_keeps_the_full_body_when_the_camera_uses_first_person() {
         third.advance_tick(&actors, None, Some(1), true, false, |_| {
             ActorTickContext::default()
         });
+        let hud = first.ui_pose(1).expect("full body pose");
+        assert_eq!(hud, third.ui_pose(1).unwrap(), "HUD tick {tick}");
+        if let Some(previous) = previous_hud {
+            assert_ne!(hud, previous, "the crawling keyframes must advance");
+        }
+        previous_hud = Some(hud.to_vec());
     }
     let hud = first.ui_pose(1).expect("full body pose");
     assert!(!hud.is_empty());

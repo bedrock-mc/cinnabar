@@ -320,6 +320,8 @@ pub struct UiDrawList {
 /// same-width obfuscation pools and the frame seed that animates `§k` runs.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TextEffects<'a> {
+    /// The active pack's formatting table; geometry remains reusable across palette changes.
+    pub palette: Option<&'a crate::FormattingPalette>,
     pub obfuscation_seed: u64,
     pub obfuscation: Option<&'a crate::ObfuscationGlyphs>,
 }

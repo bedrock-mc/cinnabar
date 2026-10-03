@@ -486,11 +486,41 @@ fn a_failed_settings_save_remains_pending_until_storage_recovers() {
     menu.sync_user_settings(None);
     assert!(menu.settings_dirty);
     std::fs::remove_file(&blocked).unwrap();
+    menu.settings_retry_at = Some(std::time::Instant::now());
     menu.sync_user_settings(None);
     assert!(!menu.settings_dirty);
     assert_eq!(
         SettingsOptions::load(&blocked.join(SETTINGS_FILE)).value("gamma"),
         70
     );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
+    let root = std::env::temp_dir().join(format!(
+        "cinnabar-settings-backoff-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let path = root.join(SETTINGS_FILE);
+    std::fs::create_dir_all(&path).unwrap();
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".into());
+    menu.config_path = root.join("servers.json");
+    menu.set_option(index("gamma") as u16, 70);
+    menu.sync_user_settings(None);
+    assert!(menu.settings_dirty);
+    std::fs::remove_dir(&path).unwrap();
+    // Even recovered storage must wait: this frame must not perform another write.
+    menu.set_option(index("gamma") as u16, 80);
+    menu.sync_user_settings(None);
+    assert!(menu.settings_dirty);
+    assert!(!path.exists());
+    // Advance the retry deadline without sleeping, and persist the latest edit.
+    menu.settings_retry_at = Some(std::time::Instant::now());
+    menu.sync_user_settings(None);
+    assert!(!menu.settings_dirty);
+    assert!(menu.settings_retry_at.is_none());
+    assert_eq!(SettingsOptions::load(&path).value("gamma"), 80);
     std::fs::remove_dir_all(root).unwrap();
 }

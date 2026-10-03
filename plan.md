@@ -371,12 +371,22 @@ PNG written 226 ms after right-click and persists in the post-reply frame. The s
 grass item's hand, hotbar and open-inventory visuals also render. This is live functional
 acceptance of the reported bugs, not complete native placement parity.
 
+2026-10-03 instant block destroys: the pick registry now separates movement
+collision from source-backed visual bounds for grass, flowers, saplings, bushes,
+mushrooms, reeds, crops, nether sprouts and torches. A first-hit zero-hardness completion
+retains its block id for local break particles and sound; incoming effect echoes
+share the existing bounded echo ledger. The negotiated block-action/item-use
+routing and authoritative server correction remain in place. Focused offline
+regressions cover both runtime-id spaces, both breaking authorities, prediction,
+and completion effects. General pick-shape coverage (including vines and corals), cutout highlight masks and live visual parity remain incomplete; no
+visual or live-server parity gate is closed here.
+
 2026-10-02 block selection: gameplay picks now publish the native black wire box
 when Outline Selection is enabled and a brightened model overlay when it is off.
 This omission also exists at 199e0856; it is not a regression in the first-parent
 history since that commit. Offline GPU regressions cover both depth-tested passes
 and clearing a lost target. Native visual parity remains incomplete: the existing
-pick-shape coverage excludes non-colliding plants, and cutout texture masks are not
+pick-shape coverage is incomplete for non-colliding blocks, and cutout texture masks are not
 yet carried into the highlight overlay. No live visual gate is closed here.
 
 2026-09-30 block interaction: breaks (every game mode, both block-breaking
@@ -385,8 +395,8 @@ trapdoor/lever/button uses are predicted locally and replaced by the server's
 block updates; Build, Mine and DoorsAndSwitches/OpenContainers gate separately.
 Not live-accepted. Provisional, labeled incomplete: oriented, sized and merging
 placements and door/fence-gate uses are not predicted; the pick ray uses
-collision boxes, not vanilla selection shapes, so non-colliding plants cannot be
-targeted; Adventure CanDestroy/CanPlaceOn are not modelled; MineBlock requests
+collision boxes outside the source-backed plant and torch selection bindings;
+other non-colliding pick shapes remain incomplete; Adventure CanDestroy/CanPlaceOn are not modelled; MineBlock requests
 cover recognized tools only; the standalone CreativeDestroyBlock and
 DenyDestroyBlock PlayerActionPackets the reference appears to send are not sent
 until a capture confirms their routing.

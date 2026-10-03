@@ -294,7 +294,7 @@ fn emit_text(
             if is_empty(glyph_bounds) {
                 continue;
             }
-            let glyph_color = style_color(glyph.style.color, color);
+            let glyph_color = style_color(glyph.style.color, color, effects.palette);
             let glyph_color = if shadowed {
                 shadow_color(glyph_color)
             } else {
@@ -631,8 +631,13 @@ fn shadow_color(color: [u8; 4]) -> [u8; 4] {
     [color[0] >> 2, color[1] >> 2, color[2] >> 2, color[3]]
 }
 
-fn style_color(style: BedrockColor, base: [u8; 4]) -> [u8; 4] {
-    let Some(rgb) = style.rgb() else {
+/// Replaces RGB from the active formatting table while preserving the label alpha.
+fn style_color(
+    style: BedrockColor,
+    base: [u8; 4],
+    palette: Option<&crate::FormattingPalette>,
+) -> [u8; 4] {
+    let Some(rgb) = palette.map_or_else(|| style.rgb(), |palette| palette.rgb(style)) else {
         return base;
     };
     [rgb[0], rgb[1], rgb[2], base[3]]

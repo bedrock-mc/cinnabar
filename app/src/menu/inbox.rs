@@ -6,6 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 mod bulk_read;
 use bulk_read::BulkRead;
 
+#[cfg(test)]
+mod regressions;
+
 pub(crate) const CATEGORIES: [&str; 5] =
     ["News", "Realms", "Invites", "Marketplace Pass", "Feedback"];
 
@@ -45,7 +48,8 @@ impl InboxState {
 
     /// Applies local actions without treating their optimistic result as a service reply.
     fn apply(&mut self, home: &mut MenuHome) {
-        self.bulk_read.apply(home, &self.read, &self.deleted);
+        self.bulk_read
+            .apply(home, &self.service_counts, &self.read, &self.deleted);
         for item in &mut home.inbox {
             if item.unread
                 && (self.read.contains(&item.instance_id)

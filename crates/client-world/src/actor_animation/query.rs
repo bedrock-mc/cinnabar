@@ -17,7 +17,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("is_charged", 27),
     ("is_charging", 43),
     ("is_chested", 36),
-    ("is_crawling", 114),
+    ("is_crawling", crate::actor_store::ACTOR_FLAG_CRAWLING),
     ("is_croaking", 101),
     ("is_dancing", 51),
     ("is_delayed_attacking", 85),

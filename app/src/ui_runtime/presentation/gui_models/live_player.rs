@@ -4,9 +4,11 @@ use super::super::UiPresentationRuntime;
 use bevy::math::{Affine3A, Quat, Vec3, Vec4};
 use render::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
 
+type GeometryIdentity = (u32, Option<usize>, Option<[u8; 32]>);
+
 #[derive(Default)]
 pub(super) struct LivePlayer {
-    source: Option<(u32, Option<usize>)>,
+    source: Option<GeometryIdentity>,
     // Retain the allocation so its address cannot be reused as a cache identity.
     skin: Option<std::sync::Arc<assets::SkinGeometry>>,
     geometry: Option<ActorRigGeometry>,
@@ -58,23 +60,19 @@ impl UiPresentationRuntime {
                     Some(offset * actor_scale * basis * posed * rest.inverse() * basis);
             }
         }
+        let catalog = rig.geometry_source();
         let source = (
             rig.rig.0,
             rig.skin_geometry
                 .map(|skin| std::sync::Arc::as_ptr(skin) as usize),
+            catalog.map(|(assets, _)| assets.source_manifest_sha256()),
         );
         if live.source != Some(source) {
             live.geometry = if let Some(skin) = rig.skin_geometry {
                 render::skin_geometry(skin, EntityRigId(rig.rig.0)).ok()
             } else {
-                self.gui_models.entities.as_ref().and_then(|assets| {
-                    let binding = assets.rig_geometries().get(rig.rig.0 as usize)?;
-                    render::entity_geometry(
-                        assets,
-                        binding.geometry as usize,
-                        EntityRigId(rig.rig.0),
-                    )
-                    .ok()
+                catalog.and_then(|(assets, geometry)| {
+                    render::entity_geometry(assets, geometry, EntityRigId(rig.rig.0)).ok()
                 })
             };
             live.source = Some(source);
@@ -152,3 +150,6 @@ fn bone_matrix(bone: &client_world::BoneTransform) -> Option<Affine3A> {
         ),
     ))
 }
+
+#[cfg(test)]
+mod tests;

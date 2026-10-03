@@ -29,7 +29,6 @@ pub(super) struct GuiModels {
     pub(super) enabled: bool,
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) skin: Option<UiTexturePage>,
-    entities: Option<RuntimeEntityAssets>,
     live_player: live_player::LivePlayer,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
     textures: BTreeMap<atlas::TextureKey, IconRef>,
@@ -145,7 +144,6 @@ impl UiPresentationRuntime {
         self.gui_models.models = models;
         self.gui_models.textures = textures;
         self.gui_models.held = held;
-        self.gui_models.entities = Some(entities.clone());
         self.gui_models.enabled = true;
         self.rebuild_dynamic_textures();
         Ok(())

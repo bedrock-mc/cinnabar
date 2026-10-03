@@ -21,12 +21,16 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 type ImportedArchives = Vec<(InstalledPack, Vec<u8>)>;
 
+/// Pack archive extensions accepted by file-open, drag-and-drop, and native pickers.
+/// R:t/TextureHotReloader.cpp:474; Lens 1.26.50.26 ExternalContentManager::importContent, RVA 0x64b8e90.
+pub const PACK_IMPORT_EXTENSIONS: [&str; 3] = ["mcpack", "mcaddon", "zip"];
+
 /// Recognizes file-open and drop targets without attempting archive reads.
 pub fn is_pack_import_path(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
         .is_some_and(|extension| {
-            ["mcpack", "mcaddon", "zip"]
+            PACK_IMPORT_EXTENSIONS
                 .iter()
                 .any(|allowed| extension.eq_ignore_ascii_case(allowed))
         })

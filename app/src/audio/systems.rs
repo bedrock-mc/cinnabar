@@ -222,7 +222,7 @@ impl IngestState {
 /// Level sound events the client also voices itself: block events by cell, actor events by actor.
 const ECHOED_BLOCK_EVENTS: [&str; 2] = ["place", "break"];
 const ECHOED_ACTOR_EVENTS: [&str; 2] = ["hurt", "death"];
-pub(super) const BLOCK_ECHO_SECONDS: f64 = 0.6;
+pub(crate) const BLOCK_ECHO_SECONDS: f64 = 0.6;
 pub(super) const ACTOR_ECHO_SECONDS: f64 = 0.4;
 const RECORD_EVENT: i32 = 1006;
 /// Level sound event a jukebox sends when its record stops or is ejected.
