@@ -524,7 +524,7 @@ mod tests {
         })
         .expect("encode");
         assert_eq!(open, serde_json::json!({"id":"a","view_distance":12}));
-        let prefs = serde_json::to_value(&PrefsUpdate {
+        let prefs = serde_json::to_value(PrefsUpdate {
             docker_prompt_dismissed: Some(true),
             redetect: true,
         })
@@ -533,7 +533,7 @@ mod tests {
             prefs,
             serde_json::json!({"docker_prompt_dismissed":true,"redetect":true})
         );
-        let empty = serde_json::to_value(&PrefsUpdate::default()).expect("encode");
+        let empty = serde_json::to_value(PrefsUpdate::default()).expect("encode");
         assert_eq!(empty, serde_json::json!({}));
         let eula = serde_json::to_value(&EulaParams { accepted: true }).expect("encode");
         assert_eq!(eula, serde_json::json!({"accepted":true}));

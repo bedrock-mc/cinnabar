@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn request_is_the_exact_parameterless_status_v1_call() {
-        let encoded = serde_json::to_value(&status_request()).expect("encode request");
+        let encoded = serde_json::to_value(status_request()).expect("encode request");
         assert_eq!(
             encoded,
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"status.v1"})

@@ -608,17 +608,17 @@ mod tests {
             encoded,
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"connect.v1","params":{"kind":"realm","value":"42"}})
         );
-        let raknet = serde_json::to_value(&ConnectTarget::RakNet("a:1".into()).params());
+        let raknet = serde_json::to_value(ConnectTarget::RakNet("a:1".into()).params());
         assert_eq!(
             raknet.expect("encode"),
             serde_json::json!({"kind":"raknet","value":"a:1"})
         );
-        let friend = serde_json::to_value(&ConnectTarget::Friend("9".into()).params());
+        let friend = serde_json::to_value(ConnectTarget::Friend("9".into()).params());
         assert_eq!(
             friend.expect("encode"),
             serde_json::json!({"kind":"friend","value":"9"})
         );
-        let gathering = serde_json::to_value(&ConnectTarget::Gathering("e".into()).params());
+        let gathering = serde_json::to_value(ConnectTarget::Gathering("e".into()).params());
         assert_eq!(
             gathering.expect("encode"),
             serde_json::json!({"kind":"gathering","value":"e"})
