@@ -105,39 +105,61 @@ fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
 
 #[test]
 fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
-    let source = include_str!("blob_cache_telemetry.rs");
-    let telemetry = source
-        .split_once("fn emit_blob_cache_telemetry(stats: BlobCacheStats)")
-        .expect("blob-cache telemetry function")
-        .1
-        .split_once("fn emit_bounded_blob_cache_warning")
-        .expect("blob-cache telemetry function body")
-        .0;
-    let expected = [
-        "retained_cached_transactions",
-        "ordinary_ready_events",
-        "ordinary_ready_bytes",
-        "recovery_ready_events",
-        "recovery_ready_bytes",
-        "redundant_missing_requests",
-        "abandoned_cached_transactions",
-        "recovery_requests",
-        "ordinary_backpressure",
-        "cached_packet_transaction_pressure",
-        "cached_packet_pending_pressure",
-        "cached_packet_staged_pressure",
-        "cached_packet_reconstruction_pressure",
-        "cached_packet_ready_pressure",
-    ];
-    let missing = expected
-        .into_iter()
-        .filter(|field| !telemetry.contains(&format!("{field} = stats.{field},")))
-        .collect::<Vec<_>>();
-
-    assert!(
-        missing.is_empty(),
-        "blob-cache log line is missing pressure counters: {missing:?}"
-    );
+    let path = std::env::temp_dir().join(format!(
+        "cinnabar-blob-cache-log-{}-{:?}.txt",
+        std::process::id(),
+        std::thread::current().id(),
+    ));
+    let subscriber = bevy::log::tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(std::fs::File::create(&path).unwrap())
+        .finish();
+    let stats = BlobCacheStats {
+        retained_cached_transactions: 101,
+        ordinary_ready_events: 102,
+        ordinary_ready_bytes: 103,
+        recovery_ready_events: 104,
+        recovery_ready_bytes: 105,
+        redundant_missing_requests: 106,
+        abandoned_cached_transactions: 107,
+        recovery_requests: 108,
+        ordinary_backpressure: 109,
+        cached_packet_transaction_pressure: 110,
+        cached_packet_pending_pressure: 111,
+        cached_packet_staged_pressure: 112,
+        cached_packet_reconstruction_pressure: 113,
+        cached_packet_ready_pressure: 114,
+        ..Default::default()
+    };
+    bevy::log::tracing::subscriber::with_default(subscriber, || {
+        super::blob_cache_telemetry::emit_blob_cache_telemetry(stats);
+    });
+    let logged = std::fs::read_to_string(&path).unwrap();
+    std::fs::remove_file(path).unwrap();
+    let counters = logged
+        .split_whitespace()
+        .filter_map(|field| field.split_once('='))
+        .filter_map(|(name, value)| value.parse::<u64>().ok().map(|value| (name, value)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for (name, expected) in [
+        ("retained_cached_transactions", 101),
+        ("ordinary_ready_events", 102),
+        ("ordinary_ready_bytes", 103),
+        ("recovery_ready_events", 104),
+        ("recovery_ready_bytes", 105),
+        ("redundant_missing_requests", 106),
+        ("abandoned_cached_transactions", 107),
+        ("recovery_requests", 108),
+        ("ordinary_backpressure", 109),
+        ("cached_packet_transaction_pressure", 110),
+        ("cached_packet_pending_pressure", 111),
+        ("cached_packet_staged_pressure", 112),
+        ("cached_packet_reconstruction_pressure", 113),
+        ("cached_packet_ready_pressure", 114),
+    ] {
+        assert_eq!(counters.get(name), Some(&expected), "logged counter {name}");
+    }
 }
 
 #[test]
