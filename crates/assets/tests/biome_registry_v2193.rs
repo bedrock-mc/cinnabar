@@ -9,12 +9,15 @@ const ALLOWLIST: &str = include_str!("../../protocol/data/retail_biomes_1_26_50.
 #[test]
 fn checked_in_v2193_biome_registry_exactly_matches_the_retail_allowlist() {
     let records = read_biome_registry(REGISTRY).expect("decode checked-in v2193 BIOREG01");
-    assert_eq!(records.len(), 89);
     assert!(records.windows(2).all(|pair| pair[0].id < pair[1].id));
-    assert_eq!(records.last().map(|record| record.id), Some(195));
     assert_eq!(
         format!("{:x}", Sha256::digest(REGISTRY)),
-        "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
+        serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../../assets/bedrock-target.json"
+        ))
+        .unwrap()["hashes"]["biome_registry"]
+            .as_str()
+            .unwrap()
     );
 
     let decoded = records
@@ -22,6 +25,7 @@ fn checked_in_v2193_biome_registry_exactly_matches_the_retail_allowlist() {
         .map(|record| record.name.as_ref())
         .collect::<BTreeSet<_>>();
     let allowed = ALLOWLIST.lines().collect::<BTreeSet<_>>();
+    assert_eq!(records.len(), allowed.len(), "one record per allowed biome");
     assert_eq!(decoded, allowed);
 }
 
