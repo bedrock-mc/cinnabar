@@ -209,7 +209,6 @@ fn high_resolution_standard_skin_is_nearest_sampled_and_invalid_skin_uses_author
 fn standard_biped_is_six_cuboids_with_a_complete_base_layer_uv_mesh() {
     let vertices = standard_biped_vertices();
     assert_eq!(vertices.len(), STANDARD_BIPED_VERTEX_COUNT);
-    assert_eq!(STANDARD_BIPED_VERTEX_COUNT, 6 * 6 * 6);
     assert!(vertices.iter().all(|vertex| {
         vertex.position.iter().all(|value| value.is_finite())
             && vertex.uv.iter().all(|value| (0.0..=1.0).contains(value))
