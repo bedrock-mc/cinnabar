@@ -103,8 +103,19 @@ fn installed_vanilla_and_zeqa_palettes() {
         "{}/ui/_global_variables.json",
         assets::vanilla_source().installed_pack_dir("resource_pack")
     ));
-    let Ok(globals) = std::fs::read_to_string(vanilla) else {
-        return;
+    let globals = match std::fs::read_to_string(&vanilla) {
+        Ok(globals) => globals,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping installed palette test: missing vanilla fixture {}",
+                vanilla.display()
+            );
+            return;
+        }
+        Err(error) => panic!(
+            "read vanilla palette fixture {}: {error}",
+            vanilla.display()
+        ),
     };
     let mut catalog = json_ui::Catalog::default();
     catalog.overlay_globals_text(&globals);
@@ -115,12 +126,31 @@ fn installed_vanilla_and_zeqa_palettes() {
         base.rgb(ui::BedrockColor::MaterialDiamond),
         Some([95, 236, 255])
     );
-    let Ok(objects) = std::fs::read_dir(local("resource-packs/v1/objects")) else {
-        return;
+    let objects_root = local("resource-packs/v1/objects");
+    let objects = match std::fs::read_dir(&objects_root) {
+        Ok(objects) => objects,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping installed Zeqa UI palette fixture: missing {}",
+                objects_root.display()
+            );
+            return;
+        }
+        Err(error) => panic!(
+            "read installed pack directory {}: {error}",
+            objects_root.display()
+        ),
     };
     let mut checked = 0;
-    for object in objects.flatten() {
-        let path = object.path();
+    for object in objects {
+        let path = object
+            .unwrap_or_else(|error| {
+                panic!(
+                    "read installed pack entry under {}: {error}",
+                    objects_root.display()
+                )
+            })
+            .path();
         if path
             .extension()
             .is_none_or(|extension| extension != "mcpack")
@@ -170,7 +200,14 @@ fn installed_vanilla_and_zeqa_palettes() {
         );
         checked += 1;
     }
-    eprintln!("checked {checked} installed Zeqa UI palettes");
+    if checked == 0 {
+        eprintln!(
+            "skipping installed Zeqa UI palette fixture: no matching Mineville Zeqa [UI] mcpack under {}",
+            objects_root.display()
+        );
+    } else {
+        eprintln!("checked {checked} installed Zeqa UI palettes");
+    }
 }
 
 /// Publishes a catalog through the same engine installation used by pack reloads.
