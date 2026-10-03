@@ -802,9 +802,10 @@ fn compiler_emits_exact_checked_stained_glass_cube_models() {
 }
 
 #[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        return;
+        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
     };
     let all = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"

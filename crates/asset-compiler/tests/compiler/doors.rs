@@ -533,9 +533,10 @@ fn compiler_selects_the_exact_legacy_door_terrain_variant_for_each_material_fami
 }
 
 #[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_real_pinned_pack_has_zero_diagnostic_door_and_trapdoor_states_when_requested() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        return;
+        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
     };
     let mut records = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"

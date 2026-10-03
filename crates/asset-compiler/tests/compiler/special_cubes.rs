@@ -874,9 +874,10 @@ fn compiler_fails_closed_for_noncanonical_mushroom_variant_counts() {
 }
 
 #[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack"]
 fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge_mushrooms() {
     let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
-        return;
+        panic!("requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack");
     };
     let all = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"

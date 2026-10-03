@@ -318,12 +318,15 @@ fn legacy_sprite_only_accepts_valid_carrier_despite_many_missing_keys() {
 
 // Pinned-pack coverage: plants draw flat, sprite items beat their block routes; prints leftovers.
 #[test]
+#[ignore = "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack and PINNED_WORLD_CARRIER pointing at the compiled world carrier"]
 fn pinned_block_items_resolve_icons_when_requested() {
     let (Some(pack), Some(world)) = (
         std::env::var_os("PINNED_VANILLA_PACK"),
         std::env::var_os("PINNED_WORLD_CARRIER"),
     ) else {
-        return;
+        panic!(
+            "requires PINNED_VANILLA_PACK pointing at the pinned local vanilla pack and PINNED_WORLD_CARRIER pointing at the compiled world carrier"
+        );
     };
     let world = RuntimeAssets::decode(&fs::read(world).unwrap()).unwrap();
     let pack = fs::canonicalize(pack).unwrap();
