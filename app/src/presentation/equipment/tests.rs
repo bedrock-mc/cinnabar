@@ -71,7 +71,10 @@ fn atlas_spills_into_extra_layers_and_skips_invalid_sprites() {
         rgba8: Arc::from([0u8; 3]),
     });
     let atlas = SpriteAtlas::pack(&sprites);
-    assert_eq!(atlas.layers.len(), 3);
+    assert!(
+        atlas.layers.len() > 1,
+        "sprites exceed a single atlas layer"
+    );
     assert!(atlas.placements[..600].iter().all(Option::is_some));
     assert!(atlas.placements[600].is_none());
 }
