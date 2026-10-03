@@ -46,6 +46,9 @@ fn settings_help_uses_rating_prompt_and_licenses_scroll() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping settings_help_uses_rating_prompt_and_licenses_scroll: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut view = settings();
@@ -85,6 +88,9 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping settings_storage_has_real_categories_and_confirmed_cache_delete: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let layout = crate::install_layout::InstallLayout::scratch("storage-ui");

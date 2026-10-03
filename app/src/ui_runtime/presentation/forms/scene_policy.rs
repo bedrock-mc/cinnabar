@@ -93,6 +93,9 @@ mod tests {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
         let Some(mut presentation) = pack_harness::engine_presentation() else {
+            eprintln!(
+                "skipping java_chat_keeps_the_world_and_hud_but_absorbs_gameplay: fixture unavailable; requires installed local carriers (make assets)"
+            );
             return;
         };
         let mut runtime = UiRuntime::new(1);

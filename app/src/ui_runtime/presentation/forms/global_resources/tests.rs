@@ -42,6 +42,9 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping global_resources_screen_renders_actions_and_pack_settings: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut view = MenuRuntime::new(true, 2, "Steve".into()).view();
@@ -141,6 +144,9 @@ fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
 
     let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping live_hud_texture_and_definition_swap_reverts_without_session_change: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(7);

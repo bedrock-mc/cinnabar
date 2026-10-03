@@ -1,7 +1,6 @@
 //! Local-only: the engine HUD under real server resource packs, unpacked into
 //! the `:`-separated directories `CINNABAR_HUD_PACK_DIRS` names (each is its
-//! own session). Skips when unset or the UI carrier is absent; packs are never
-//! committed.
+//! own session). These checks name missing fixtures and skip when absent.
 
 use json_ui::{Draw, DrawNode};
 use protocol::{PlayerGameMode, ScoreIdentity as ProtocolScoreIdentity};
@@ -128,10 +127,16 @@ fn server_packs_restyle_the_engine_hud() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Ok(dirs) = std::env::var(PACK_ENV) else {
+        eprintln!(
+            "skipping server_packs_restyle_the_engine_hud: fixture unavailable; requires installed UI carrier (make assets) and CINNABAR_HUD_PACK_DIRS"
+        );
         return;
     };
     for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
         let Some(mut presentation) = engine_presentation() else {
+            eprintln!(
+                "skipping server_packs_restyle_the_engine_hud: fixture unavailable; requires installed UI carrier (make assets) and CINNABAR_HUD_PACK_DIRS"
+            );
             return;
         };
         presentation.set_server_ui_pack(&dir_pack(dir));
@@ -214,9 +219,15 @@ fn server_pack_stack_hud_dump() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Ok(stack) = std::env::var("CINNABAR_HUD_PACK_STACK") else {
+        eprintln!(
+            "skipping server_pack_stack_hud_dump: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_HUD_PACK_STACK"
+        );
         return;
     };
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping server_pack_stack_hud_dump: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_HUD_PACK_STACK"
+        );
         return;
     };
     presentation.set_server_ui_pack(&dir_pack(&stack));
@@ -269,9 +280,15 @@ fn zeqa_top_bar_snapshot() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Ok(stack) = std::env::var("CINNABAR_HUD_PACK_STACK") else {
+        eprintln!(
+            "skipping zeqa_top_bar_snapshot: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_HUD_PACK_STACK"
+        );
         return;
     };
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping zeqa_top_bar_snapshot: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_HUD_PACK_STACK"
+        );
         return;
     };
     presentation.set_server_ui_pack(&dir_pack(&stack));

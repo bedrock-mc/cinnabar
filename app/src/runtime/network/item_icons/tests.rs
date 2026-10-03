@@ -254,6 +254,9 @@ fn registry_items_named_after_custom_blocks_are_block_items() {
 #[test]
 fn packcache_item_icon_keys_resolve_when_requested() {
     let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        eprintln!(
+            "skipping packcache_item_icon_keys_resolve_when_requested: fixture unavailable; requires CINNABAR_PACKCACHE_DIR containing offline cached packs"
+        );
         return;
     };
     let (mut declared, mut resolved) = (0usize, 0usize);

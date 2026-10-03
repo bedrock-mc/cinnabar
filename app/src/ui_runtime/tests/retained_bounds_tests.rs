@@ -224,6 +224,9 @@ fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
     let Some(mut presentation) =
         crate::ui_runtime::presentation::tests::engine_hud_tests::engine_presentation()
     else {
+        eprintln!(
+            "skipping saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     presentation.hud_frame_mut().first_person = true;

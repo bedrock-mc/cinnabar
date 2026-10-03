@@ -77,6 +77,9 @@ fn local_pinned_bank_has_audible_grass_and_dirt_break_alternatives_when_present(
     let catalog_path = crate::asset_startup::audio_asset_path(&world);
     let bank_path = sound_bank_path(&world);
     if !catalog_path.is_file() || !bank_path.is_file() {
+        eprintln!(
+            "skipping local_pinned_bank_has_audible_grass_and_dirt_break_alternatives_when_present: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return; // Optional developer carriers; the synthetic regression always runs.
     }
     let catalog = RuntimeAudioCatalog::decode(&fs::read(catalog_path).unwrap()).unwrap();

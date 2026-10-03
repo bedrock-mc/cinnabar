@@ -59,6 +59,9 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(pack) = pack_harness::env_pack() else {
+        eprintln!(
+            "skipping zeqa_lazy_pages_survive_menu_join_reload_and_cancellation: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
@@ -136,6 +139,9 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping vanilla_loading_before_pack_arrival_survives_static_page_insertion: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let side = crate::ui_runtime::oreui_assets::OREUI_PAGE_SIDE as usize;

@@ -4,20 +4,27 @@ use crate::environment::{self, WeatherState, WorldClock};
 #[test]
 fn configured_time_changer_is_visual_only_offline() {
     let Some(path) = std::env::var_os(COMPONENT_ENV) else {
+        eprintln!(
+            "skipping configured_time_changer_is_visual_only_offline: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_MOD_COMPONENT"
+        );
         return;
     };
     let mut app = App::new();
-    let presentation = crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
-        .expect("real UI carrier required for selected time changer");
+    let Some(presentation) =
+        crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
+    else {
+        return;
+    };
     app.insert_resource(presentation)
         .insert_resource(UiRuntime::new(1))
         .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
         .insert_resource(ButtonInput::<KeyCode>::default());
     app.world_mut().spawn((Window::default(), PrimaryWindow));
     configure(&mut app, Some(Path::new(&path)));
-    if app.world().resource::<ModRuntime>().host.label() != Some("Time: Server") {
-        return;
-    }
+    assert_eq!(
+        app.world().resource::<ModRuntime>().host.label(),
+        Some("Time: Server")
+    );
     let (network, mut packets) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
     app.insert_resource(network);
     let mut clock = WorldClock::default();

@@ -23,6 +23,9 @@ fn sign_screen_shows_the_woods_art_and_the_lines_with_a_caret() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping sign_screen_shows_the_woods_art_and_the_lines_with_a_caret: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -73,6 +76,9 @@ fn sign_screen_snapshot() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping sign_screen_snapshot: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);

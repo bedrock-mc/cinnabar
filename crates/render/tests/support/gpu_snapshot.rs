@@ -32,17 +32,16 @@ fn finish<T>(future: impl Future<Output = T>) -> T {
 }
 
 impl Gpu {
-    /// Snapshot runs require a physical adapter; ordinary workspace tests may skip without one.
+    /// Creates a physical device for explicitly requested snapshot fixtures.
     pub fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()));
-        let Ok(adapter) = adapter else {
-            assert!(
-                std::env::var_os("CINNABAR_REVIEW_SNAPSHOT_DIR").is_none(),
-                "snapshot requires a GPU"
-            );
-            return None;
-        };
+        let adapter = adapter.expect("snapshot fixtures require a native GPU adapter");
+        assert_ne!(
+            adapter.get_info().backend,
+            wgpu::Backend::Noop,
+            "native GPU required"
+        );
         let (device, queue) =
             finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
         Some(Self { device, queue })

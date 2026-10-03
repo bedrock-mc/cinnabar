@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn requests_match_the_wire_contract() {
-        let params = serde_json::to_string(&WorldRequest {
+        let params = serde_json::to_value(&WorldRequest {
             jsonrpc: "2.0",
             id: 1,
             method: "world_open.v1",
@@ -414,36 +414,39 @@ mod tests {
         .expect("encode");
         assert_eq!(
             params,
-            r#"{"jsonrpc":"2.0","id":1,"method":"world_open.v1","params":{"id":"ab"}}"#
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"world_open.v1","params":{"id":"ab"}})
         );
-        let bare = serde_json::to_string(&WorldRequest::<()> {
+        let bare = serde_json::to_value(&WorldRequest::<()> {
             jsonrpc: "2.0",
             id: 1,
             method: "world_list.v1",
             params: None,
         })
         .expect("encode");
-        assert_eq!(bare, r#"{"jsonrpc":"2.0","id":1,"method":"world_list.v1"}"#);
+        assert_eq!(
+            bare,
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"world_list.v1"})
+        );
     }
 
     #[test]
     fn new_world_omits_random_seed_and_keeps_zero() {
-        let random = serde_json::to_string(&NewWorld {
+        let random = serde_json::to_value(&NewWorld {
             name: "a".into(),
             ..NewWorld::default()
         })
         .expect("encode");
         assert_eq!(
             random,
-            r#"{"name":"a","game_mode":"survival","generator":"normal","difficulty":"normal"}"#
+            serde_json::json!({"name":"a","game_mode":"survival","generator":"normal","difficulty":"normal"})
         );
-        let zero = serde_json::to_string(&NewWorld {
+        let zero = serde_json::to_value(&NewWorld {
             name: "a".into(),
             seed: Some(0),
             ..NewWorld::default()
         })
         .expect("encode");
-        assert!(zero.ends_with(r#""seed":0}"#));
+        assert_eq!(zero.get("seed"), Some(&serde_json::json!(0)));
     }
 
     #[test]
@@ -515,23 +518,26 @@ mod tests {
             parse_world_response(list).expect("list").worlds[0].backend,
             Backend::Dragonfly
         );
-        let open = serde_json::to_string(&OpenParams {
+        let open = serde_json::to_value(&OpenParams {
             id: "a",
             view_distance: Some(12),
         })
         .expect("encode");
-        assert_eq!(open, r#"{"id":"a","view_distance":12}"#);
-        let prefs = serde_json::to_string(&PrefsUpdate {
+        assert_eq!(open, serde_json::json!({"id":"a","view_distance":12}));
+        let prefs = serde_json::to_value(PrefsUpdate {
             docker_prompt_dismissed: Some(true),
             redetect: true,
         })
         .expect("encode");
-        assert_eq!(prefs, r#"{"docker_prompt_dismissed":true,"redetect":true}"#);
-        let empty = serde_json::to_string(&PrefsUpdate::default()).expect("encode");
-        assert_eq!(empty, "{}");
-        let eula = serde_json::to_string(&EulaParams { accepted: true }).expect("encode");
-        assert_eq!(eula, r#"{"accepted":true}"#);
-        let update = serde_json::to_string(&UpdateParams {
+        assert_eq!(
+            prefs,
+            serde_json::json!({"docker_prompt_dismissed":true,"redetect":true})
+        );
+        let empty = serde_json::to_value(PrefsUpdate::default()).expect("encode");
+        assert_eq!(empty, serde_json::json!({}));
+        let eula = serde_json::to_value(&EulaParams { accepted: true }).expect("encode");
+        assert_eq!(eula, serde_json::json!({"accepted":true}));
+        let update = serde_json::to_value(&UpdateParams {
             id: "a",
             update: &WorldUpdate {
                 difficulty: Some(Difficulty::Hard),
@@ -539,7 +545,7 @@ mod tests {
             },
         })
         .expect("encode");
-        assert_eq!(update, r#"{"id":"a","difficulty":"hard"}"#);
+        assert_eq!(update, serde_json::json!({"id":"a","difficulty":"hard"}));
     }
 
     #[test]

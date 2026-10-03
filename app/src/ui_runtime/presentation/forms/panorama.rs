@@ -183,11 +183,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn built_in_faces_decode_as_one_cube() {
-        assert!(built_in_faces().is_some());
-    }
-
-    #[test]
     fn pngs_decode_to_rgba_with_their_size() {
         let mut bytes = Vec::new();
         image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 40]))

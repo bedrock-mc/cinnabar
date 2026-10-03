@@ -660,7 +660,7 @@ mod tests {
 
     #[test]
     fn connect_params_match_the_wire_contract() {
-        let encoded = serde_json::to_string(&Request {
+        let encoded = serde_json::to_value(&Request {
             jsonrpc: "2.0",
             id: 1,
             method: "connect.v1",
@@ -669,19 +669,22 @@ mod tests {
         .expect("encode");
         assert_eq!(
             encoded,
-            r#"{"jsonrpc":"2.0","id":1,"method":"connect.v1","params":{"kind":"realm","value":"42"}}"#
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"connect.v1","params":{"kind":"realm","value":"42"}})
         );
-        let raknet = serde_json::to_string(&ConnectTarget::RakNet("a:1".into()).params());
+        let raknet = serde_json::to_value(ConnectTarget::RakNet("a:1".into()).params());
         assert_eq!(
             raknet.expect("encode"),
-            r#"{"kind":"raknet","value":"a:1"}"#
+            serde_json::json!({"kind":"raknet","value":"a:1"})
         );
-        let friend = serde_json::to_string(&ConnectTarget::Friend("9".into()).params());
-        assert_eq!(friend.expect("encode"), r#"{"kind":"friend","value":"9"}"#);
-        let gathering = serde_json::to_string(&ConnectTarget::Gathering("e".into()).params());
+        let friend = serde_json::to_value(ConnectTarget::Friend("9".into()).params());
+        assert_eq!(
+            friend.expect("encode"),
+            serde_json::json!({"kind":"friend","value":"9"})
+        );
+        let gathering = serde_json::to_value(ConnectTarget::Gathering("e".into()).params());
         assert_eq!(
             gathering.expect("encode"),
-            r#"{"kind":"gathering","value":"e"}"#
+            serde_json::json!({"kind":"gathering","value":"e"})
         );
     }
 
@@ -806,11 +809,11 @@ mod tests {
     #[test]
     fn ping_params_and_results_match_the_wire_contract() {
         let addresses = vec!["a.test:19132".to_owned()];
-        let encoded = serde_json::to_string(&PingParams {
+        let encoded = serde_json::to_value(&PingParams {
             addresses: &addresses,
         })
         .expect("encode");
-        assert_eq!(encoded, r#"{"addresses":["a.test:19132"]}"#);
+        assert_eq!(encoded, serde_json::json!({"addresses":["a.test:19132"]}));
         let reply = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
             {"address":"a.test:19132","online":true,"players":3,"max_players":20,"ping_ms":41}]}}"#;
         let body: PingBody = parse_response(reply).expect("ping");
@@ -834,8 +837,8 @@ mod tests {
             ..MessageEvent::default()
         };
         assert_eq!(
-            serde_json::to_string(&event).expect("encode"),
-            r#"{"event_type":"Impression","instance_id":"i"}"#
+            serde_json::to_value(&event).expect("encode"),
+            serde_json::json!({"event_type":"Impression","instance_id":"i"})
         );
     }
 

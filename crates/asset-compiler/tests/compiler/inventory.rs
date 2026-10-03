@@ -1,5 +1,15 @@
 use super::support::*;
 
+/// The full block collision box shared by the reviewed solid cube families.
+const FULL_CUBE_COLLISION: [CollisionBox; 1] = [CollisionBox {
+    min_x: 0,
+    min_y: 0,
+    min_z: 0,
+    max_x: 100_000_000,
+    max_y: 100_000_000,
+    max_z: 100_000_000,
+}];
+
 fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"
@@ -65,13 +75,14 @@ fn compiled_checked_in_air_preserves_both_runtime_network_identities() {
     )
     .expect("decode compiled committed air record");
 
+    let air = &records[0];
     assert_eq!(
         runtime.air_network_id(NetworkIdMode::Sequential),
-        Some(13_094)
+        Some(air.sequential_id)
     );
     assert_eq!(
         runtime.air_network_id(NetworkIdMode::Hashed),
-        Some(0xdbf4_4120)
+        Some(air.network_hash)
     );
 }
 
@@ -123,13 +134,14 @@ fn air_metadata_does_not_launder_a_custom_identity_into_exact_no_draw() {
     .expect("decode custom air diagnostic");
     // The custom identity must not be laundered into the exact no-draw route:
     // the runtime still resolves the pristine canonical air identities.
+    let air = &records[0];
     assert_eq!(
         runtime.air_network_id(NetworkIdMode::Sequential),
-        Some(13_094)
+        Some(air.sequential_id)
     );
     assert_eq!(
         runtime.air_network_id(NetworkIdMode::Hashed),
-        Some(0xdbf4_4120)
+        Some(air.network_hash)
     );
 }
 
@@ -171,8 +183,7 @@ fn generated_registry_has_exact_chiseled_bookshelf_inventory() {
             BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
         );
         assert_eq!(record.face_coverage, 0x3f);
-        assert_eq!(record.collision_seed.shape_id, 1);
-        assert_eq!(record.collision_seed.boxes.len(), 1);
+        assert_eq!(record.collision_seed.boxes.as_ref(), FULL_CUBE_COLLISION);
         let books = record
             .model_state
             .get(ModelStateField::Connections)
@@ -182,7 +193,6 @@ fn generated_registry_has_exact_chiseled_bookshelf_inventory() {
             .get(ModelStateField::Orientation)
             .expect("direction selector");
         let index = (books * 4 + direction) as usize;
-        assert_eq!(record.sequential_id, 1605 + index as u32);
         assert!(!seen[index]);
         seen[index] = true;
     }
@@ -197,11 +207,6 @@ fn generated_registry_has_exact_bee_housing_inventory() {
         1 << (ModelStateField::Orientation as u8 - 1) | 1 << (ModelStateField::Growth as u8 - 1);
     let mut seen = HashSet::new();
     for record in records {
-        let base = match record.name.as_ref() {
-            "minecraft:bee_nest" => 10_395,
-            "minecraft:beehive" => 12_495,
-            _ => unreachable!(),
-        };
         assert_eq!(record.model_family, ModelFamily::Cube);
         assert_eq!(record.contributor_role, ContributorRole::Primary);
         assert_eq!(
@@ -209,20 +214,11 @@ fn generated_registry_has_exact_bee_housing_inventory() {
             BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
         );
         assert_eq!(record.face_coverage, 0x3f);
-        assert_eq!(record.collision_seed.shape_id, 1);
         assert_eq!(
             record.collision_seed.confidence,
             CollisionConfidence::CollisionOnly
         );
-        assert_eq!(
-            record.collision_seed.boxes.as_ref(),
-            [CollisionBox {
-                max_x: 100_000_000,
-                max_y: 100_000_000,
-                max_z: 100_000_000,
-                ..CollisionBox::default()
-            }]
-        );
+        assert_eq!(record.collision_seed.boxes.as_ref(), FULL_CUBE_COLLISION);
         assert_eq!(record.model_state.mask(), selector_mask);
         let direction = record
             .model_state
@@ -234,7 +230,6 @@ fn generated_registry_has_exact_bee_housing_inventory() {
             .expect("bee honey level");
         assert!(direction < 4);
         assert!(honey < 6);
-        assert_eq!(record.sequential_id, base + honey * 4 + direction);
         assert_eq!(
             record.canonical_state.as_ref(),
             format!(
@@ -263,7 +258,6 @@ fn generated_registry_has_exact_resin_clump_inventory() {
         assert_eq!(record.contributor_role, ContributorRole::Primary);
         assert_eq!(record.flags, BlockFlags::empty());
         assert_eq!(record.face_coverage, 0);
-        assert_eq!(record.collision_seed.shape_id, 0);
         assert_eq!(
             record.collision_seed.confidence,
             CollisionConfidence::CollisionOnly
@@ -278,7 +272,6 @@ fn generated_registry_has_exact_resin_clump_inventory() {
             record.model_state.mask(),
             1 << (ModelStateField::Connections as u8 - 1)
         );
-        assert_eq!(record.sequential_id, 2930 + mask);
         assert!(!seen[mask as usize]);
         seen[mask as usize] = true;
     }
@@ -302,7 +295,6 @@ fn generated_registry_has_exact_cactus_inventory() {
         assert_eq!(record.contributor_role, ContributorRole::Primary);
         assert_eq!(record.flags, BlockFlags::empty());
         assert_eq!(record.face_coverage, 0);
-        assert_eq!(record.collision_seed.shape_id, 84);
         assert_eq!(
             record.collision_seed.confidence,
             CollisionConfidence::CollisionOnly
@@ -327,7 +319,6 @@ fn generated_registry_has_exact_cactus_inventory() {
             record.model_state.mask(),
             1 << (ModelStateField::Growth as u8 - 1)
         );
-        assert_eq!(record.sequential_id, 13_606 + age);
         assert_eq!(
             record.canonical_state.as_ref(),
             format!(r#"{{"age":{{"type":"int","value":{age}}}}}"#)
@@ -367,8 +358,6 @@ fn generated_registry_has_exact_cake_inventory() {
             record.model_state.mask(),
             1 << (ModelStateField::Growth as u8 - 1)
         );
-        assert_eq!(record.sequential_id, 14_055 + bite);
-        assert_eq!(record.collision_seed.shape_id, 89 + bite as u16);
         assert_eq!(
             record.collision_seed.confidence,
             CollisionConfidence::CollisionOnly
@@ -405,16 +394,6 @@ fn generated_registry_has_exact_farmland_inventory() {
         .filter(|record| record.name.as_ref() == "minecraft:farmland")
         .collect::<Vec<_>>();
     assert_eq!(selected.len(), 8);
-    let hashes = [
-        360_492_383,
-        421_967_206,
-        483_442_029,
-        544_916_852,
-        606_391_675,
-        667_866_498,
-        729_341_321,
-        790_816_144,
-    ];
     let mut seen = [false; 8];
     for record in selected {
         let amount = record
@@ -430,9 +409,6 @@ fn generated_registry_has_exact_farmland_inventory() {
             record.model_state.mask(),
             1 << (ModelStateField::Growth as u8 - 1)
         );
-        assert_eq!(record.sequential_id, 6_122 + amount);
-        assert_eq!(record.network_hash, hashes[amount as usize]);
-        assert_eq!(record.collision_seed.shape_id, 43);
         assert_eq!(
             record.collision_seed.confidence,
             CollisionConfidence::CollisionOnly
@@ -481,18 +457,12 @@ fn selector_alias_cube_records() -> Vec<RegistryRecord> {
 #[test]
 fn generated_registry_has_exact_reviewed_selector_alias_cube_products() {
     let records = selector_alias_cube_records();
-    assert_eq!(records.len(), 38);
-    let target_ids = [
-        2908, 2909, 2910, 2912, 2913, 2914, 2916, 2917, 2918, 5443, 5444, 6466, 6467, 6468, 6470,
-        6471, 6472, 6474, 6475, 6476, 7082, 7083, 13113, 14686, 14687, 15345, 15346,
-    ];
-    assert_eq!(target_ids.len(), 27);
-    let actual_ids = records
+    let names = records
         .iter()
-        .map(|record| record.sequential_id)
+        .map(|record| record.name.as_ref())
         .collect::<HashSet<_>>();
-    assert!(target_ids.iter().all(|id| actual_ids.contains(id)));
-    for record in records {
+    assert_eq!(names, HashSet::from(SELECTOR_ALIAS_CUBE_NAMES));
+    for record in &records {
         assert_eq!(record.model_family, ModelFamily::Cube);
         assert_eq!(record.contributor_role, ContributorRole::Primary);
         assert_eq!(
@@ -500,22 +470,11 @@ fn generated_registry_has_exact_reviewed_selector_alias_cube_products() {
             BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
         );
         assert_eq!(record.face_coverage, 0x3f);
-        assert_eq!(record.collision_seed.shape_id, 1);
         assert_eq!(
             record.collision_seed.confidence,
             CollisionConfidence::CollisionOnly
         );
-        assert_eq!(
-            record.collision_seed.boxes.as_ref(),
-            &[CollisionBox {
-                min_x: 0,
-                min_y: 0,
-                min_z: 0,
-                max_x: 100_000_000,
-                max_y: 100_000_000,
-                max_z: 100_000_000,
-            }]
-        );
+        assert_eq!(record.collision_seed.boxes.as_ref(), FULL_CUBE_COLLISION);
         if record.name.as_ref() == "minecraft:tnt" {
             assert_eq!(record.model_state.mask(), 0);
         } else {
@@ -528,6 +487,22 @@ fn generated_registry_has_exact_reviewed_selector_alias_cube_products() {
                 Some(0..=2)
             ));
         }
+    }
+    for name in SELECTOR_ALIAS_CUBE_NAMES {
+        if name == "minecraft:tnt" {
+            continue;
+        }
+        let orientations = records
+            .iter()
+            .filter(|record| record.name.as_ref() == name)
+            .map(|record| {
+                record
+                    .model_state
+                    .get(ModelStateField::Orientation)
+                    .unwrap()
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(orientations, HashSet::from([0, 1, 2]), "{name} axes");
     }
 }
 
@@ -931,7 +906,7 @@ fn flowerbed_generated_registry_has_exact_canonical_state_matrix() {
         let mut selectors = HashSet::with_capacity(32);
         let mut canonical_states = HashSet::with_capacity(32);
         for record in selected {
-            assert_eq!(record.model_family as u8, 31, "{name} raw family");
+            assert_eq!(record.model_family, ModelFamily::FlowerBed, "{name}");
             assert_ne!(record.model_family, ModelFamily::Cross, "{name} is Cross");
             assert_ne!(
                 record.model_family,

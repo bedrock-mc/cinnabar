@@ -169,6 +169,9 @@ fn installed_carriers_admit_geometry_and_keep_diagnostic_world_fallback() {
         std::fs::read(icon_asset_path(&world_path)),
     ) else {
         eprintln!("local GUI carrier regression skipped: runtime carriers absent");
+        eprintln!(
+            "skipping installed_carriers_admit_geometry_and_keep_diagnostic_world_fallback: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let world = RuntimeAssets::decode(&world).unwrap();

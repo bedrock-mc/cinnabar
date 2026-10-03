@@ -562,6 +562,9 @@ fn connecting_screen_reports_the_pack_download() {
         total_bytes: 20 * 1024 * 1024,
     }));
     let Some(texts) = screen_texts(&view) else {
+        eprintln!(
+            "skipping connecting_screen_reports_the_pack_download: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     for wanted in ["Downloading packs [1 / 3]", "[5.0MB / 20.0MB]", "Cancel"] {
@@ -580,6 +583,9 @@ fn realm_join_screen_reports_the_realm_lookup() {
     view.feeds.join = crate::menu::JoinProgress::new(crate::menu::JoinKind::Realm);
     view.feeds.join.observe(Some(crate::menu::JoinStage::Realm));
     let Some(texts) = screen_texts(&view) else {
+        eprintln!(
+            "skipping realm_join_screen_reports_the_realm_lookup: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     for wanted in ["Joining Realm...", "This may take a few moments"] {
@@ -600,6 +606,9 @@ fn local_world_loading_screen_names_the_stage() {
         detail: "50.0 / 100.0 MB".to_owned(),
     });
     let Some(texts) = screen_texts(&view) else {
+        eprintln!(
+            "skipping local_world_loading_screen_names_the_stage: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     assert!(
@@ -620,6 +629,9 @@ fn local_world_loading_screen_names_the_stage() {
 #[test]
 fn retail_settings_hide_debug_and_automation_sections() {
     let Some(carrier) = super::pack_harness::carrier() else {
+        eprintln!(
+            "skipping retail_settings_hide_debug_and_automation_sections: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let files = carrier.ui_files();
@@ -673,6 +685,9 @@ fn retail_settings_hide_debug_and_automation_sections() {
 #[test]
 fn retail_settings_keep_navigation_and_video_options_compact() {
     let Some(carrier) = super::pack_harness::carrier() else {
+        eprintln!(
+            "skipping retail_settings_keep_navigation_and_video_options_compact: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let catalog = json_ui::Catalog::from_files(

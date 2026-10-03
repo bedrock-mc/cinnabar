@@ -28,6 +28,9 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(path) = std::env::var_os("CINNABAR_LOBBY_CAPTURE") else {
+        eprintln!(
+            "skipping captured_hotbar_survives_network_registry_and_inventory_publication: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_LOBBY_CAPTURE, CINNABAR_RENDER_PACK"
+        );
         return;
     };
     let (mut presentation, mut stream) = harness().expect("installed UI, icon and entity carriers");

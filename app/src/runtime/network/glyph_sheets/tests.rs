@@ -98,10 +98,16 @@ fn the_last_applied_pack_wins_per_sheet() {
 fn a_real_server_pack_decodes_and_packs() {
     let Some(view) = crate::runtime::network::local_pack::local_pack_view("CINNABAR_SERVER_PACK")
     else {
+        eprintln!(
+            "skipping a_real_server_pack_decodes_and_packs: fixture unavailable; requires CINNABAR_SERVER_PACK naming an offline pack with glyph sheets"
+        );
         return;
     };
     let Some(sheets) = compile_session_glyphs(&view) else {
         eprintln!("no glyph sheets");
+        eprintln!(
+            "skipping a_real_server_pack_decodes_and_packs: fixture unavailable; requires CINNABAR_SERVER_PACK naming an offline pack with glyph sheets"
+        );
         return;
     };
     let atlas = assets::pack_cells(&sheets.cells, 0, 256, 8);

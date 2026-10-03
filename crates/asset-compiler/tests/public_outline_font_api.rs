@@ -179,7 +179,14 @@ fn pinned_font() -> Option<Vec<u8>> {
         "../../.local/assets/ui-font/",
         "e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9/Monocraft.ttf"
     ));
-    fs::read(path).ok()
+    if !path.exists() {
+        eprintln!(
+            "skipping local font fixture test: missing {}; run make font-assets",
+            path.display()
+        );
+        return None;
+    }
+    Some(fs::read(path).expect("read the pinned local font fixture"))
 }
 
 fn compile_pinned(advances: GlyphAdvances) -> Option<assets::RuntimeFontCatalog> {

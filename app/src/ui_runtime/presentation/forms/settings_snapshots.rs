@@ -29,6 +29,9 @@ fn selector(tree: &json_ui::LaidOut<'_>, name: &str) -> Option<json_ui::Rect> {
 #[test]
 fn settings_category_button_pitch_matches_vanilla_toggle_height() {
     let Some(carrier) = super::pack_harness::carrier() else {
+        eprintln!(
+            "skipping settings_category_button_pitch_matches_vanilla_toggle_height: fixture unavailable; requires installed UI carrier (make assets)"
+        );
         return;
     };
     let files = carrier.ui_files();
@@ -62,6 +65,9 @@ fn section(variable: &str) {
 
 /// Render a section after adjusting the menu view, such as opening a dropdown.
 fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu::MenuView)) {
+    if super::pack_harness::carrier().is_none() {
+        return;
+    }
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
     if variable == "storage_management_forced_index" {
@@ -83,33 +89,22 @@ fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu
 }
 
 #[test]
-fn settings_accessibility() {
-    section("accessibility_forced_index");
-}
-
-#[test]
-fn settings_keyboard_mouse() {
-    section("keyboard_and_mouse_forced_index");
-}
-
-#[test]
-fn settings_controller() {
-    section("controller_and_switch_forced_index");
-}
-
-#[test]
-fn settings_general() {
-    section("general_forced_index");
-}
-
-#[test]
-fn settings_profile() {
-    section("account_forced_index");
-}
-
-#[test]
-fn settings_video() {
-    section("video_forced_index");
+fn settings_sections_gallery() {
+    for section_name in [
+        "accessibility_forced_index",
+        "keyboard_and_mouse_forced_index",
+        "controller_and_switch_forced_index",
+        "general_forced_index",
+        "account_forced_index",
+        "video_forced_index",
+        "sound_forced_index",
+        "creator_forced_index",
+        "global_texture_pack_forced_index",
+        "storage_management_forced_index",
+        "language_forced_index",
+    ] {
+        section(section_name);
+    }
 }
 
 #[test]
@@ -125,37 +120,15 @@ fn settings_video_graphics_mode_open() {
     );
 }
 
-#[test]
-fn settings_audio() {
-    section("sound_forced_index");
-}
-
-#[test]
-fn settings_creator() {
-    section("creator_forced_index");
-}
-
-#[test]
-fn settings_global_resources() {
-    section("global_texture_pack_forced_index");
-}
-
-#[test]
-fn settings_storage() {
-    section("storage_management_forced_index");
-}
-
-#[test]
-fn settings_language() {
-    section("language_forced_index");
-}
-
 // Every row of an open settings dropdown is its own click target for its own choice.
 #[test]
 fn open_graphics_mode_rows_select_their_own_choice() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping open_graphics_mode_rows_select_their_own_choice: fixture unavailable; requires installed UI carrier (make assets)"
+        );
         return;
     };
     let index = crate::menu::settings_options::SETTINGS_OPTIONS
@@ -195,6 +168,9 @@ fn open_graphics_mode_rows_select_their_own_choice() {
 
 #[test]
 fn settings_video_graphics_options_pack_before() {
+    if super::pack_harness::carrier().is_none() {
+        return;
+    }
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
@@ -233,6 +209,9 @@ fn simple_graphics(view: &mut crate::menu::MenuView) {
 #[test]
 fn graphics_options_expander_uses_full_settings_button_height() {
     let Some(carrier) = super::pack_harness::carrier() else {
+        eprintln!(
+            "skipping graphics_options_expander_uses_full_settings_button_height: fixture unavailable; requires installed UI carrier (make assets)"
+        );
         return;
     };
     let files = carrier.ui_files();

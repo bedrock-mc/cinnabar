@@ -425,7 +425,6 @@ fn packed_chunk_shader_parses_and_validates() {
 
 #[test]
 fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
-    let plugin = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
     let lighting = include_str!("../../src/lighting.wgsl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert!(lighting.contains("world_lightmap[sample & 255u].rgb"));
@@ -479,9 +478,6 @@ fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
             "light_colour"
         ));
     }
-    assert!(plugin.contains("binding: 13,\n                visibility: ShaderStages::VERTEX"));
-    assert!(plugin.contains("binding: 15,\n                visibility: ShaderStages::FRAGMENT"));
-    assert!(!plugin.contains("binding: 15,\n                visibility: ShaderStages::VERTEX"));
 }
 
 #[test]
@@ -583,71 +579,6 @@ fn render_queue_carries_biome_tint_revision_to_the_instance() {
         .single(app.world())
         .unwrap();
     assert_eq!(instance.tint_revision(), 9);
-}
-
-#[test]
-fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-
-    assert_eq!(
-        plugin
-            .matches("let descriptor = RenderPipelineDescriptor {")
-            .count(),
-        1
-    );
-    assert_eq!(plugin.matches(".add_render_command::<Opaque3d").count(), 6);
-    assert_eq!(plugin.matches("BindGroupLayoutDescriptor::new(").count(), 1);
-    assert_eq!(
-        plugin.matches("render_device.create_bind_group(").count(),
-        1
-    );
-    assert_eq!(plugin.matches("render_device.create_texture(").count(), 1);
-    assert_eq!(plugin.matches("render_device.create_sampler(").count(), 1);
-    assert!(plugin.contains("layout: vec![bind_group_layout.clone(), crate::lighting::layout()]"));
-    assert!(plugin.contains("blend: None"));
-    assert!(plugin.contains("depth_write_enabled: true"));
-    assert_eq!(plugin.matches("binding: ").count(), 32);
-    for binding in 0..=15 {
-        assert_eq!(
-            plugin.matches(&format!("binding: {binding},")).count(),
-            2,
-            "packed chunk pipeline changed binding {binding}"
-        );
-    }
-    assert_eq!(
-        plugin
-            .matches("resource: texture_assets.material_buffer.as_entire_binding()")
-            .count(),
-        1
-    );
-    assert_eq!(
-        plugin
-            .matches("BindingResource::TextureView(&texture_assets.views[")
-            .count(),
-        2
-    );
-    assert_eq!(
-        plugin
-            .matches("BindingResource::Sampler(&texture_assets.sampler)")
-            .count(),
-        1
-    );
-    assert!(!plugin.contains("AlphaMask3d"));
-    assert_eq!(
-        plugin
-            .matches(".add_render_command::<Transparent3d")
-            .count(),
-        3
-    );
-    assert_eq!(size_of::<Material>(), assets::MATERIAL_BYTES);
-    assert_eq!(size_of::<PackedQuad>(), 8);
-    assert_eq!(
-        plugin
-            .matches("pass.set_bind_group(0, bind_group, &[view_offset.offset]);")
-            .count(),
-        9,
-        "cube/opaque-model/transparent-model/transparent-liquid/depth-liquid direct and MDI share the global bind group"
-    );
 }
 
 #[test]

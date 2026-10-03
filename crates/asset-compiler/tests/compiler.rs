@@ -1,3 +1,6 @@
+#[path = "support/fixture_input.rs"]
+mod fixture_input;
+
 #[path = "compiler/support.rs"]
 mod support;
 
@@ -66,9 +69,6 @@ mod mineral_cubes;
 
 #[path = "compiler/baseline.rs"]
 mod baseline;
-
-#[path = "compiler/architecture.rs"]
-mod architecture;
 
 #[path = "compiler/versioned_triple.rs"]
 mod versioned_triple;

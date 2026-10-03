@@ -61,6 +61,9 @@ fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = super::engine_hud_tests::engine_presentation() else {
+        eprintln!(
+            "skipping server_toast_slides_down_from_the_top_holds_then_yields_to_the_next: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -107,6 +110,9 @@ fn toast_screen_snapshot() {
     let Some(mut presentation) = super::engine_hud_tests::engine_presentation_with(
         super::super::forms::pack_harness::font(),
     ) else {
+        eprintln!(
+            "skipping toast_screen_snapshot: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);

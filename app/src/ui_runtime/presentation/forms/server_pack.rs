@@ -794,11 +794,11 @@ mod tests {
         assert!(atlas.sidecar("textures/ui/frame").is_none());
     }
 
-    // A burst of misses decodes partly inline and the rest on workers, each
-    // resident on a later frame; an evicted texture repacks from its pixels.
+    // Worker decodes become resident when collected by later frames and retain
+    // their pixels for reuse, regardless of how fast the local CPU decodes.
     #[test]
-    fn a_burst_of_misses_spills_to_workers() {
-        // Noise, so each decode costs real time.
+    fn worker_decodes_become_resident_and_keep_their_pixels() {
+        // Distinct pixels exercise independent decoded sources.
         let noise = |seed: u32| {
             let mut bytes = Vec::new();
             image::RgbaImage::from_fn(256, 256, |x, y| {
@@ -821,11 +821,11 @@ mod tests {
                 .filter(|key| atlas.placement(key).is_some())
                 .count()
         };
+        for key in &keys {
+            let source = atlas.image(key).unwrap();
+            assert!(atlas.decodes.get(key, &source, false).is_none());
+        }
         atlas.require(keys.iter().map(String::as_str));
-        assert!(
-            resident(&atlas) < keys.len(),
-            "not all decoded on one frame"
-        );
         let started = Instant::now();
         while resident(&atlas) < keys.len() {
             assert!(started.elapsed() < Duration::from_secs(10));

@@ -44,8 +44,8 @@ below is opt-in and off unless you, or the server you join, turn it on.
 
 | | What it is | Status |
 | --- | --- | --- |
-| **Cinnabar Experiences** | A Roblox-style engine. Servers ship sandboxed client code that can replace the UI, rendering, input and game logic, turning a server into an entirely different game. | Preview, off by default ([#34](https://github.com/bedrock-mc/cinnabar/pull/34)) |
-| **Video streaming** | Servers can stream video with its own synced audio onto in-world screens, blocks, entities and UI. Video loads over HTTPS from any static host or CDN, not through the game connection. It's built into the client, so no server code is needed. | Preview, off by default ([#34](https://github.com/bedrock-mc/cinnabar/pull/34)) |
+| **Cinnabar Experiences** | A Roblox-style engine. Servers ship sandboxed client code that can replace the UI, rendering, input and game logic, turning a server into an entirely different game. | Preview, off by default: [docs/server-experiences.md](docs/server-experiences.md) |
+| **Video streaming** | Servers can stream video with its own synced audio onto in-world screens, blocks, entities and UI. Video loads over HTTPS from any static host or CDN, not through the game connection. It's built into the client, so no server code is needed. | Preview, off by default: [docs/server-experiences.md](docs/server-experiences.md) |
 | **Mods** | Client mods as WebAssembly components with versioned, capability-scoped APIs. Each mod runs sandboxed with no file, network or account access, and hot-reloads. A crashing mod is disabled instead of taking down the client. | Developer preview: [docs/modding-spike.md](docs/modding-spike.md) |
 | **Mod marketplace** | Browse, install and update mods from inside Cinnabar. | Coming soon |
 | **Live resource packs** | Add, remove or reorder resource packs without leaving the world. | Available |
@@ -84,26 +84,33 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/assets` | Readers for pack sources and compiled carriers. |
 | `crates/bridge` | The local stream between the client and the Go core. |
 | `crates/client-world` | Client game state: actors, items, block entities and the packet stream. |
+| `crates/experience-runtime`, `crates/experience-sdk` | Runs a server Experience out of process; the guest SDK generated from `wit/server.wit`. |
 | `crates/input` | Device-independent input actions. |
+| `crates/inventory` | Engine-independent inventory authority, prediction, crafting and commands. |
 | `crates/json-ui` | Parser, resolver and layout engine for vanilla JSON-UI. |
 | `crates/meshing` | CPU geometry for chunks, liquids, biomes and clouds. |
 | `crates/mod-api` | Experimental guest SDK generated from the extension WIT contract. |
 | `crates/mod-host` | Opt-in WASM component spike with bounded HUD and input imports. |
 | `crates/protocol` | Bedrock packet definitions and codec. |
 | `crates/render` | Chunk and entity rendering on Bevy/wgpu. |
+| `crates/render-api` | Engine-independent contracts between world publication and rendering. |
 | `crates/resource-pack` | Admission and decryption of server resource packs. |
+| `crates/server-experience` | Opt-in Cinnabar extension negotiation; vanilla login and packet IDs are unchanged. |
 | `crates/sim` | Deterministic Bedrock movement simulation. |
 | `crates/ui` | Renderer-independent UI primitives and text layout. |
 | `crates/world` | Palette-native chunk and world model. |
 | `tools/architecture` | Architecture gate: line limits, dependency rules, markers. |
+| `tools/cxb` | Publisher tooling for server Experiences: seeds, `.cxb` bundles, cache seeding. |
 | `tools/jsonui-editor` | Browser JSON-UI editor on the client's own engine, live at <https://bedrock-mc.github.io/cinnabar/>. |
 | `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out, render and export packs. |
 | `tools/devtool` | `verify-affected`, which tests only what a change touches. |
 | `tools/dist` | Stages distributable bundles. |
 | `tools/phase2-evidence`, `tools/visualcoverage` | Frozen evidence replays from earlier milestones. |
 
-The [modding spike](docs/modding-spike.md) is a disabled-by-default Cinnabar extension.
-Its sample lives in `examples/mods/hello`; it does not change the Bedrock wire protocol.
+The [modding spike](docs/modding-spike.md) is a disabled-by-default Cinnabar extension; its
+samples are `examples/mods/hello` and `examples/mods/time-changer`, and `examples/experiences/probe`
+is the Experience runtime's test guest. None change the Bedrock wire protocol. The crate layering
+plan is in `docs/architecture/`.
 
 | Go package (`core/`) | What it does |
 | --- | --- |
@@ -133,15 +140,12 @@ stdio MCP server:
 
 ## Development
 
-Before pushing, run what CI runs:
+Work lands through pull requests into `dev`, whose CI runs the full matrix; `main` is the release
+line. Before pushing, check only what your change affects:
 
 ```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml
-cargo test --workspace --locked
-go test ./core/...
+cargo run -p devtool --locked -- verify-affected --base origin/dev
 ```
 
-`cargo run -p devtool --locked -- verify-affected --base origin/main` runs only the affected
-packages. Contributor and agent rules live in `AGENTS.md` and `docs/agents/`.
+It runs fmt, the architecture gate, clippy and tests for the affected crates. Contributor and
+agent rules live in `AGENTS.md` and `docs/agents/`.

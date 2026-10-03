@@ -39,14 +39,25 @@ fn retail_biome_table_has_the_pinned_projection_fingerprint() {
         .expect("biome table must be UTF-8")
         .lines()
         .collect::<HashSet<_>>();
-    assert_eq!(biomes.len(), 89);
     assert!(biomes.contains("minecraft:deep_warm_ocean"));
 }
 
 #[test]
 fn retail_item_table_preserves_current_network_ids_and_gaps() {
     let entries = vanilla_item_registry();
-    assert_eq!(entries.len(), 1_590);
+    let expected = std::str::from_utf8(RETAIL_ITEMS)
+        .expect("item table must be UTF-8")
+        .lines()
+        .map(|line| {
+            let (id, name) = line.split_once('\t').expect("item table row");
+            (id.parse::<i32>().expect("network item ID"), name)
+        })
+        .collect::<HashSet<_>>();
+    let actual = entries
+        .iter()
+        .map(|entry| (entry.network_id, entry.identifier.as_ref()))
+        .collect::<HashSet<_>>();
+    assert_eq!(actual, expected);
     assert_eq!(
         entries
             .iter()

@@ -345,6 +345,9 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
     use crate::ui_runtime::presentation::forms::{pack_harness, snapshot};
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
     let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping unadvertised_experience_preserves_input_and_rendered_menu: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let runtime = UiRuntime::new(1);

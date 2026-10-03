@@ -16,6 +16,9 @@ fn render_projectile_states() {
         std::env::var("CINNABAR_PROJECTILE_PACK"),
         std::env::var("CINNABAR_PROJECTILE_OUT"),
     ) else {
+        eprintln!(
+            "skipping render_projectile_states: fixture unavailable; offline image export; requires CINNABAR_PROJECTILE_PACK and CINNABAR_PROJECTILE_OUT"
+        );
         return;
     };
     let manifest = include_bytes!("../../../../../assets/vanilla-source.json");

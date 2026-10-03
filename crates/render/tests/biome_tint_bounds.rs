@@ -61,6 +61,7 @@ fn tint_table() -> [[u32; 8]; 2] {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         // FXC's unoptimized debug shader exceeds its temporary-register limit for the
@@ -69,14 +70,13 @@ fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
         flags: wgpu::InstanceFlags::debugging() & !wgpu::InstanceFlags::DEBUG,
         ..Default::default()
     });
-    let Ok(adapter) = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-    else {
-        eprintln!("biome tint bounds GPU fixture skipped: no physical adapter");
-        return;
-    };
-    if adapter.get_info().backend == wgpu::Backend::Noop {
-        return;
-    }
+    let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        .expect("this fixture requires a native GPU adapter");
+    assert_ne!(
+        adapter.get_info().backend,
+        wgpu::Backend::Noop,
+        "native GPU required"
+    );
     eprintln!("biome tint bounds GPU fixture: {:?}", adapter.get_info());
     let (device, queue) =
         finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();

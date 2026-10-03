@@ -393,8 +393,8 @@ mod tests {
         let pending = PendingPurchase::for_offer(&offer, &price).expect("priced");
         let confirmed = pending.confirm("0123456789abcdef".into());
         assert_eq!(
-            serde_json::to_string(&confirmed).expect("encode"),
-            r#"{"purchase_id":"0123456789abcdef","offer_id":"o1","store_id":"s1","currency":"mc","amount":"320","confirmed":true}"#
+            serde_json::to_value(&confirmed).expect("encode"),
+            serde_json::json!({"purchase_id":"0123456789abcdef","offer_id":"o1","store_id":"s1","currency":"mc","amount":"320","confirmed":true})
         );
         let free = StorePrice {
             currency: "mc".into(),
@@ -411,8 +411,8 @@ mod tests {
             ..StoreSearch::default()
         };
         assert_eq!(
-            serde_json::to_string(&search).expect("encode"),
-            r#"{"term":"castle","count":12}"#
+            serde_json::to_value(&search).expect("encode"),
+            serde_json::json!({"term":"castle","count":12})
         );
     }
 

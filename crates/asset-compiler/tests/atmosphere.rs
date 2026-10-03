@@ -1,3 +1,6 @@
+#[path = "support/fixture_input.rs"]
+mod fixture_input;
+
 use std::{
     collections::HashSet,
     fs,
@@ -31,13 +34,10 @@ const NATIVE_CLOUD_PIXELS_SHA256: &str =
 
 #[test]
 fn exact_native_cloud_override_replaces_only_clouds_and_retains_logical_provenance() {
-    let (Ok(pack), Ok(clouds_override)) = (
-        std::env::var("PINNED_VANILLA_PACK"),
-        std::env::var("CINNABAR_CLOUDS_PNG"),
+    let (Some(pack), Some(clouds_override)) = (
+        crate::fixture_input::env_path("PINNED_VANILLA_PACK"),
+        crate::fixture_input::env_path("CINNABAR_CLOUDS_PNG"),
     ) else {
-        eprintln!(
-            "skipping: PINNED_VANILLA_PACK and CINNABAR_CLOUDS_PNG must point at ignored local inputs"
-        );
         return;
     };
     let manifest = tracked_manifest();
@@ -79,7 +79,11 @@ fn exact_native_cloud_override_replaces_only_clouds_and_retains_logical_provenan
             .count(),
         13_356
     );
-    assert!(!cloud.source_path.contains(&clouds_override));
+    assert!(
+        !cloud
+            .source_path
+            .contains(clouds_override.to_string_lossy().as_ref())
+    );
 }
 
 #[test]
@@ -116,8 +120,7 @@ fn production_compiler_rejects_any_manifest_bytes_other_than_the_tracked_pin() {
 
 #[test]
 fn production_compiler_accepts_the_exact_pin_with_lf_or_crlf() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let lf = canonical_tracked_manifest();
@@ -137,8 +140,7 @@ fn production_compiler_accepts_the_exact_pin_with_lf_or_crlf() {
 
 #[test]
 fn production_compiler_rejects_each_modified_pinned_png() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let manifest = tracked_manifest();
@@ -164,8 +166,7 @@ fn production_compiler_rejects_each_modified_pinned_png() {
 
 #[test]
 fn compiler_carries_exact_sources_in_canonical_order_with_hashes() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let manifest = tracked_manifest();
@@ -398,8 +399,7 @@ fn blob_rejects_noncanonical_or_corrupt_envelopes() {
 
 #[test]
 fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let outputs = tempfile::tempdir().unwrap();
@@ -452,18 +452,15 @@ fn assetc_atmosphere_writes_deterministic_blob_and_provenance_report() {
             .is_some_and(|value| value.len() == 64)
     );
     let report_text = fs::read_to_string(first_report).unwrap();
-    assert!(!report_text.contains(&pack));
+    assert!(!report_text.contains(pack.to_string_lossy().as_ref()));
 }
 
 #[test]
 fn assetc_cloud_override_report_uses_only_canonical_logical_provenance() {
-    let (Ok(pack), Ok(clouds_override)) = (
-        std::env::var("PINNED_VANILLA_PACK"),
-        std::env::var("CINNABAR_CLOUDS_PNG"),
+    let (Some(pack), Some(clouds_override)) = (
+        crate::fixture_input::env_path("PINNED_VANILLA_PACK"),
+        crate::fixture_input::env_path("CINNABAR_CLOUDS_PNG"),
     ) else {
-        eprintln!(
-            "skipping: PINNED_VANILLA_PACK and CINNABAR_CLOUDS_PNG must point at ignored local inputs"
-        );
         return;
     };
     let outputs = tempfile::tempdir().unwrap();
@@ -505,13 +502,12 @@ fn assetc_cloud_override_report_uses_only_canonical_logical_provenance() {
         report["textures"][2]["pixels_sha256"],
         NATIVE_CLOUD_PIXELS_SHA256
     );
-    assert!(!report_text.contains(&clouds_override));
+    assert!(!report_text.contains(clouds_override.to_string_lossy().as_ref()));
 }
 
 #[test]
 fn assetc_atmosphere_preserves_existing_output_when_report_cannot_publish() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let outputs = tempfile::tempdir().unwrap();
@@ -545,9 +541,7 @@ fn assetc_atmosphere_preserves_existing_output_when_report_cannot_publish() {
 
 #[test]
 fn assetc_atmosphere_rejects_exact_and_lexically_normalized_output_aliases() {
-    let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
-        return;
-    };
+    let (pack, manifest_path, outputs) = cli_alias_fixture();
 
     let exact = outputs.path().join("exact.bin");
     fs::write(&exact, b"exact-marker").unwrap();
@@ -563,9 +557,7 @@ fn assetc_atmosphere_rejects_exact_and_lexically_normalized_output_aliases() {
 
 #[test]
 fn assetc_atmosphere_rejects_absent_case_variant_outputs_on_every_platform() {
-    let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
-        return;
-    };
+    let (pack, manifest_path, outputs) = cli_alias_fixture();
     let blob = outputs.path().join("ASSET.BIN");
     let report = outputs.path().join("asset.bin");
     let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
@@ -581,6 +573,11 @@ fn assetc_atmosphere_rejects_absent_case_variant_outputs_on_every_platform() {
         .unwrap();
 
     assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("distinct files"),
+        "wrong rejection: {stderr}"
+    );
     assert!(!blob.exists(), "blob was created before alias rejection");
     assert!(
         !report.exists(),
@@ -589,30 +586,8 @@ fn assetc_atmosphere_rejects_absent_case_variant_outputs_on_every_platform() {
 }
 
 #[test]
-fn assetc_case_variant_guard_is_not_platform_gated() {
-    let sources = [
-        include_str!("../src/bin/assetc.rs"),
-        include_str!("../src/bin/assetc/output_validation.rs"),
-    ];
-    assert_eq!(
-        sources
-            .iter()
-            .map(|source| source.matches("fn paths_alias(").count())
-            .sum::<usize>(),
-        1,
-        "case-fold alias comparison must have one platform-independent implementation"
-    );
-    for source in sources {
-        assert!(!source.contains("#[cfg(windows)]\nfn paths_alias"));
-        assert!(!source.contains("#[cfg(not(windows))]\nfn paths_alias"));
-    }
-}
-
-#[test]
 fn assetc_atmosphere_rejects_hardlink_output_aliases() {
-    let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
-        return;
-    };
+    let (pack, manifest_path, outputs) = cli_alias_fixture();
     let blob = outputs.path().join("hardlink-blob.bin");
     let report = outputs.path().join("hardlink-report.json");
     fs::write(&blob, b"hardlink-marker").unwrap();
@@ -623,9 +598,7 @@ fn assetc_atmosphere_rejects_hardlink_output_aliases() {
 
 #[test]
 fn assetc_atmosphere_rejects_symlink_output_aliases_when_supported() {
-    let Some((pack, manifest_path, outputs)) = pinned_cli_fixture() else {
-        return;
-    };
+    let (pack, manifest_path, outputs) = cli_alias_fixture();
     let (blob, report) = match symlink_alias_paths(outputs.path()) {
         Ok(paths) => paths,
         Err(error) => {
@@ -640,7 +613,7 @@ fn assetc_atmosphere_rejects_symlink_output_aliases_when_supported() {
 
 #[test]
 fn pinned_pack_atmosphere_sources_match_exact_provenance() {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let manifest_path =
@@ -652,11 +625,14 @@ fn pinned_pack_atmosphere_sources_match_exact_provenance() {
         <[u8; 32]>::from(Sha256::digest(canonical_tracked_manifest())),
         assets::vanilla_source_manifest_sha256()
     );
-    assert_eq!(blob.len(), 334_457);
+    let runtime = RuntimeAtmosphereAssets::decode(&blob).expect("decode pinned atmosphere carrier");
     assert_eq!(
-        format!("{:x}", Sha256::digest(&blob)),
-        "bd5c34eacfd995e3352f2541edfa2447935ae5ec2e63479fbdca74ee8ad0da40"
+        runtime.source_manifest_sha256(),
+        compiled.source_manifest_sha256
     );
+    assert_eq!(runtime.textures(), compiled.textures.as_ref());
+    assert_eq!(runtime.biome_profiles(), compiled.biome_profiles.as_ref());
+    assert_eq!(runtime.fog_profiles(), compiled.fog_profiles.as_ref());
     let expected = [
         (
             AtmosphereRole::Sun,
@@ -717,15 +693,16 @@ fn canonical_tracked_manifest() -> Vec<u8> {
         .into_bytes()
 }
 
-fn pinned_cli_fixture() -> Option<(String, std::path::PathBuf, TempDir)> {
-    let Ok(pack) = std::env::var("PINNED_VANILLA_PACK") else {
-        eprintln!("skipping: PINNED_VANILLA_PACK does not point at the ignored pinned pack");
-        return None;
-    };
+/// Uses absent asset inputs so an alias test also proves validation runs before compilation.
+fn cli_alias_fixture() -> (String, std::path::PathBuf, TempDir) {
     let outputs = tempfile::tempdir().unwrap();
-    let manifest_path = outputs.path().join("vanilla-source.json");
-    fs::write(&manifest_path, tracked_manifest()).unwrap();
-    Some((pack, manifest_path, outputs))
+    let pack = outputs
+        .path()
+        .join("missing-pack")
+        .to_string_lossy()
+        .into_owned();
+    let manifest_path = outputs.path().join("missing-manifest.json");
+    (pack, manifest_path, outputs)
 }
 
 fn assert_alias_rejected_without_write(
@@ -751,6 +728,11 @@ fn assert_alias_rejected_without_write(
         "aliased outputs were accepted: {} / {}",
         blob.display(),
         report.display()
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("distinct files"),
+        "wrong rejection: {stderr}"
     );
     assert_eq!(fs::read(blob).unwrap(), marker);
     assert_eq!(fs::read(report).unwrap(), marker);

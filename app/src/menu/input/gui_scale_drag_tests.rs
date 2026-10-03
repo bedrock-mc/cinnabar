@@ -104,6 +104,9 @@ fn relayout(app: &mut App) {
 #[test]
 fn gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases() {
     let Some(presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut menu = MenuRuntime::new(true, 2, "Player".into());

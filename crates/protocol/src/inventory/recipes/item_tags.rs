@@ -60,14 +60,16 @@ mod tests {
             .unwrap();
         let manifest = include_str!("../../../../../assets/block-data-sources.json");
         assert!(manifest.contains(&format!("\"sha256\": \"{source}\"")));
-        assert_eq!(tags().len(), 77);
-        assert_eq!(
-            tags()
-                .iter()
-                .map(|(_, members)| members.len())
-                .sum::<usize>(),
-            1201
-        );
+        for row in TABLE.lines().filter(|line| !line.starts_with('#')) {
+            let (tag, members) = row.split_once('\t').expect("item tag row");
+            for identifier in members.split_whitespace() {
+                assert_eq!(
+                    vanilla_tag_contains(tag, identifier),
+                    Some(true),
+                    "{tag}: {identifier}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -465,3 +465,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "cloud_pipeline_tests.rs"]
+mod pipeline_tests;

@@ -508,8 +508,15 @@ fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".into());
     menu.config_path = root.join("servers.json");
     menu.set_option(index("gamma") as u16, 70);
+    let attempted_at = std::time::Instant::now();
     menu.sync_user_settings(None);
     assert!(menu.settings_dirty);
+    let retry_at = menu
+        .settings_retry_at
+        .expect("a failed save schedules a retry");
+    assert!(retry_at > attempted_at);
+    // Hold the deadline ahead of this check even if the test thread is delayed.
+    menu.settings_retry_at = Some(retry_at + std::time::Duration::from_secs(60));
     std::fs::remove_dir(&path).unwrap();
     // Even recovered storage must wait: this frame must not perform another write.
     menu.set_option(index("gamma") as u16, 80);

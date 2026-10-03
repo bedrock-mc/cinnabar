@@ -49,6 +49,9 @@ mod tests {
         let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
         let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
+            eprintln!(
+                "skipping authored_section_reset_buttons_route_to_their_own_group: fixture unavailable; requires installed local carriers (make assets)"
+            );
             return;
         };
         for (section, group) in [

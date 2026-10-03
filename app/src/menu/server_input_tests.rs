@@ -371,6 +371,7 @@ fn real_carrier_server_fields_click_type_select_paste_save_and_play() {
 /// Replays the full input sequence at the requested physical-to-logical scale.
 fn exercise_server_fields(dpi: f32) {
     let Some(mut h) = Harness::new(dpi) else {
+        // The shared carrier loader names the missing fixture.
         return;
     };
     h.app

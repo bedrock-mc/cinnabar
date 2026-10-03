@@ -24,8 +24,19 @@ fn render_local_pack_entities() {
         std::env::var_os("CINNABAR_RENDER_OUT"),
         std::env::var("CINNABAR_RENDER_ACTORS").ok(),
     ) else {
+        eprintln!(
+            "skipping render_local_pack_entities: fixture unavailable; offline image export; requires CINNABAR_RENDER_PACK, CINNABAR_RENDER_OUT and CINNABAR_RENDER_ACTORS"
+        );
         return;
     };
+    assert!(!actors.trim().is_empty(), "fixture must name an actor");
+    if !Path::new(&pack).exists() {
+        eprintln!(
+            "skipping entity render fixture test: CINNABAR_RENDER_PACK names missing {}",
+            Path::new(&pack).display()
+        );
+        return;
+    }
     let LocalPack {
         entities,
         artwork,

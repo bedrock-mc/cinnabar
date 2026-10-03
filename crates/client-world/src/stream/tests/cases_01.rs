@@ -430,16 +430,6 @@ fn world_stream_classifier_uses_runtime_registry_air_for_each_network_mode() {
 }
 
 #[test]
-fn render_mesh_api_consumes_only_the_shared_world_neighbourhood() {
-    let _: for<'a, 'b, 'c, 'd> fn(
-        &'a BlockClassifier,
-        &'b RuntimeAssets,
-        NetworkIdMode,
-        &'c world::MeshNeighbourhood<'d>,
-    ) -> ::meshing::ChunkMesh = ::meshing::mesh_sub_chunk_in_neighbourhood;
-}
-
-#[test]
 fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
     let key = SubChunkKey::new(0, 3, 4, 5);
     let light = Arc::new(SubChunkLight::uniform(7, 3, 11).unwrap());

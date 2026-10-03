@@ -1,3 +1,6 @@
+#[path = "support/fixture_input.rs"]
+mod fixture_input;
+
 use asset_compiler::{compile_entity_assets, compile_icon_assets, compile_icon_assets_with_blocks};
 use assets::*;
 use sha2::{Digest, Sha256};
@@ -320,8 +323,8 @@ fn legacy_sprite_only_accepts_valid_carrier_despite_many_missing_keys() {
 #[test]
 fn pinned_block_items_resolve_icons_when_requested() {
     let (Some(pack), Some(world)) = (
-        std::env::var_os("PINNED_VANILLA_PACK"),
-        std::env::var_os("PINNED_WORLD_CARRIER"),
+        crate::fixture_input::env_path("PINNED_VANILLA_PACK"),
+        crate::fixture_input::env_path("PINNED_WORLD_CARRIER"),
     ) else {
         return;
     };

@@ -534,7 +534,7 @@ fn compiler_selects_the_exact_legacy_door_terrain_variant_for_each_material_fami
 
 #[test]
 fn compiler_real_pinned_pack_has_zero_diagnostic_door_and_trapdoor_states_when_requested() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let mut records = read_registry(include_bytes!(

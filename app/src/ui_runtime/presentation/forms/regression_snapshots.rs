@@ -9,6 +9,9 @@ fn populated_hotbar_snapshot() {
 
     use super::super::{IconRef, tests::engine_hud_tests};
     let Some(mut presentation) = engine_hud_tests::engine_presentation() else {
+        eprintln!(
+            "skipping populated_hotbar_snapshot: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     if let Some(pack) = pack_harness::env_pack() {
@@ -49,10 +52,18 @@ fn spirit_bundle_snapshot() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(runtime) = captured_form(&mut player_runtime) else {
+        eprintln!(
+            "skipping spirit_bundle_snapshot: fixture unavailable; requires installed UI carrier, CINNABAR_LOBBY_CAPTURE and CINNABAR_FORM_PACK_DIR"
+        );
         return;
     };
-    let mut presentation = pack_harness::engine_presentation().expect("installed UI carrier");
-    let pack = pack_harness::env_pack().expect("captured server UI pack");
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let Some(pack) = pack_harness::env_pack() else {
+        eprintln!("skipping captured form snapshot: missing CINNABAR_FORM_PACK_DIR fixture");
+        return;
+    };
     presentation.set_server_ui_pack(&pack);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
@@ -139,15 +150,23 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(runtime) = captured_form(&mut player_runtime) else {
+        eprintln!(
+            "skipping spirit_bundle_before_pack_has_stable_resident_pages_after_install: fixture unavailable; requires installed UI carrier, CINNABAR_LOBBY_CAPTURE and CINNABAR_FORM_PACK_DIR"
+        );
         return;
     };
-    let mut presentation = pack_harness::engine_presentation().expect("installed UI carrier");
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
     let dpi = DpiScale::new(1.0).unwrap();
     let cold = presentation
         .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
         .unwrap();
     super::snapshot::write(&cold, "spirit-bundle-before-pack");
-    let pack = pack_harness::env_pack().expect("captured server UI pack");
+    let Some(pack) = pack_harness::env_pack() else {
+        eprintln!("skipping captured form snapshot: missing CINNABAR_FORM_PACK_DIR fixture");
+        return;
+    };
     presentation.set_server_ui_pack(&pack);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
@@ -230,7 +249,18 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
 fn captured_form(
     player_runtime: &mut crate::player_runtime::PlayerRuntime,
 ) -> Option<crate::ui_runtime::UiRuntime> {
-    let bytes = std::fs::read(std::env::var_os("CINNABAR_LOBBY_CAPTURE")?).unwrap();
+    let path = std::path::PathBuf::from(std::env::var_os("CINNABAR_LOBBY_CAPTURE")?);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping captured form snapshot: missing {}",
+                path.display()
+            );
+            return None;
+        }
+        Err(error) => panic!("read captured form fixture {}: {error}", path.display()),
+    };
     let mut at = 0;
     while at + 8 <= bytes.len() {
         let id = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());

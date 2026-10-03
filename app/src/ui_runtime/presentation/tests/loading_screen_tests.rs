@@ -29,6 +29,9 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping loading_screen_names_the_join_stage_over_the_dimensions_backdrop: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let runtime = UiRuntime::new(1);
@@ -80,6 +83,9 @@ fn loading_screen_snapshot() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping loading_screen_snapshot: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_FORM_PACK_DIR"
+        );
         return;
     };
     // Vanilla art the carrier lacks (the dirt backdrop, the title) reads from
@@ -120,6 +126,9 @@ fn overworld_backdrop_draws_its_gradient() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping overworld_backdrop_draws_its_gradient: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
@@ -146,11 +155,17 @@ fn loading_screen_pack_snapshot() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(pack) = super::super::forms::pack_harness::env_pack() else {
+        eprintln!(
+            "skipping loading_screen_pack_snapshot: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping loading_screen_pack_snapshot: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     if let Ok(layout) = crate::install_layout::InstallLayout::discover() {

@@ -37,18 +37,36 @@ fn render_captured_scene() {
         "CINNABAR_RENDER_GLYPHS",
         "CINNABAR_RENDER_OUT",
     ]
-    .map(std::env::var);
+    .map(|name| match std::env::var(name) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => {
+            eprintln!("skipping captured-scene fixture test: {name} is not set");
+            None
+        }
+        Err(error) => panic!("read scene fixture setting {name}: {error}"),
+    });
     let [
-        Ok(pack),
-        Ok(scene),
-        Ok(camera),
-        Ok(font),
-        Ok(glyphs),
-        Ok(out),
+        Some(pack),
+        Some(scene),
+        Some(camera),
+        Some(font),
+        Some(glyphs),
+        Some(out),
     ] = vars
     else {
         return;
     };
+    for (name, path) in [
+        ("CINNABAR_RENDER_PACK", &pack),
+        ("CINNABAR_RENDER_SCENE", &scene),
+        ("CINNABAR_RENDER_FONT", &font),
+        ("CINNABAR_RENDER_GLYPHS", &glyphs),
+    ] {
+        if !Path::new(path).exists() {
+            eprintln!("skipping captured-scene fixture test: missing {name} fixture {path}");
+            return;
+        }
+    }
     let pack = compile_local_pack(Path::new(&pack));
     let camera: Vec<f32> = camera
         .split(',')

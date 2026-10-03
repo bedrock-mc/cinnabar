@@ -64,16 +64,21 @@ fn atlas_places_sprites_without_overlap_and_copies_their_pixels() {
 
 #[test]
 fn atlas_spills_into_extra_layers_and_skips_invalid_sprites() {
-    let mut sprites = (0..600).map(|_| sprite(32, 9)).collect::<Vec<_>>();
+    let size = ATLAS_SIDE.min(32);
+    let count = usize::from(ATLAS_SIDE).pow(2) / usize::from(size).pow(2) + 1;
+    let mut sprites = (0..count).map(|_| sprite(size, 9)).collect::<Vec<_>>();
     sprites.push(IconSprite {
         width: 4,
         height: 4,
         rgba8: Arc::from([0u8; 3]),
     });
     let atlas = SpriteAtlas::pack(&sprites);
-    assert_eq!(atlas.layers.len(), 3);
-    assert!(atlas.placements[..600].iter().all(Option::is_some));
-    assert!(atlas.placements[600].is_none());
+    assert!(
+        atlas.layers.len() > 1,
+        "sprites exceed a single atlas layer"
+    );
+    assert!(atlas.placements[..count].iter().all(Option::is_some));
+    assert!(atlas.placements[count].is_none());
 }
 
 #[test]
@@ -337,13 +342,22 @@ fn attachable_bone_sits_at_its_pivot_plus_the_mirrored_literal_offset() {
     assert!(attach(broken, [0.0; 3], channels).is_none());
 }
 
+/// Reads an installed equipment fixture, reporting a missing file without hiding other errors.
 fn local_carrier(name: &str) -> Option<Vec<u8>> {
-    std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../.local/assets/compiled")
-            .join(name),
-    )
-    .ok()
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local/assets/compiled")
+        .join(name);
+    match std::fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping local equipment fixture test: missing {}; make assets",
+                path.display()
+            );
+            None
+        }
+        Err(error) => panic!("read equipment fixture {}: {error}", path.display()),
+    }
 }
 
 // Local-only: which held items and armor pieces the real carriers can draw on a player body.
@@ -357,14 +371,9 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     ) else {
         return;
     };
-    // Carriers built by an older compiler are skipped like absent ones until `make assets`.
-    let (Ok(entities), Ok(icons), Ok(catalog)) = (
-        assets::RuntimeEntityAssets::decode(&entities),
-        assets::RuntimeIconCatalog::decode(&icons),
-        assets::RuntimeEquipmentCatalog::decode(&equipment),
-    ) else {
-        return;
-    };
+    let entities = assets::RuntimeEntityAssets::decode(&entities).unwrap();
+    let icons = assets::RuntimeIconCatalog::decode(&icons).unwrap();
+    let catalog = assets::RuntimeEquipmentCatalog::decode(&equipment).unwrap();
     let (entities, icons, catalog) = (Arc::new(entities), Arc::new(icons), Arc::new(catalog));
     let (mut runtime, _, _) = EquipmentRuntime::build(
         entities,

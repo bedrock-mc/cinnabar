@@ -204,7 +204,7 @@ fn compiler_compiles_all_vine_masks_as_exact_tinted_attachment_planes() {
 
 #[test]
 fn compiler_real_pinned_pack_has_zero_diagnostic_vine_states_when_requested() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let records = read_registry(include_bytes!(
@@ -434,7 +434,7 @@ fn compiler_compiles_glow_lichen_and_sculk_vein_as_distinct_exact_multiface_plan
 
 #[test]
 fn compiler_real_pinned_pack_has_zero_diagnostic_multiface_states_when_requested() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let records = read_registry(include_bytes!(

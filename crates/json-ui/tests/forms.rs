@@ -79,7 +79,6 @@ const ROOT: [f64; 2] = [512.0, 384.0];
 #[test]
 fn action_form_renders_a_button_per_entry_with_present_images_only() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let button = |text: &str, image: Option<&str>| {
@@ -135,7 +134,6 @@ fn action_form_renders_a_button_per_entry_with_present_images_only() {
 #[test]
 fn modal_form_renders_through_the_two_button_popup() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let model = FormModel::Modal(ModalForm {
@@ -169,7 +167,6 @@ fn modal_form_renders_through_the_two_button_popup() {
 #[test]
 fn action_form_buttons_report_their_collection_index() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let model = FormModel::Action(ActionForm {
@@ -207,7 +204,6 @@ fn action_form_buttons_report_their_collection_index() {
 #[test]
 fn hovering_a_button_swaps_its_state_child() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let model = FormModel::Action(ActionForm {
@@ -252,7 +248,6 @@ fn hovering_a_button_swaps_its_state_child() {
 #[test]
 fn custom_form_renders_elements_in_order_with_a_submit_button() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let model = FormModel::Custom(CustomForm {
@@ -325,7 +320,6 @@ fn custom_form_renders_elements_in_order_with_a_submit_button() {
 #[test]
 fn custom_form_hides_the_submit_button_when_not_visible() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let model = FormModel::Custom(CustomForm {
@@ -347,7 +341,6 @@ fn custom_form_hides_the_submit_button_when_not_visible() {
 #[test]
 fn scroll_content_height_grows_with_the_button_collection() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let height = |count: usize| {
@@ -380,7 +373,6 @@ fn scroll_content_height_grows_with_the_button_collection() {
 #[test]
 fn long_forms_report_a_scrollable_viewport() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let elements = (0..20)
@@ -417,7 +409,6 @@ fn long_forms_report_a_scrollable_viewport() {
 #[test]
 fn custom_toggle_reports_its_name_and_index() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let model = FormModel::Custom(CustomForm {

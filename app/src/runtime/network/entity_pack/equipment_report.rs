@@ -66,6 +66,9 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
         std::env::var_os("CINNABAR_PACKCACHE_DIR"),
         std::env::var_os("CINNABAR_CARRIER_DIR"),
     ) else {
+        eprintln!(
+            "skipping cached_pack_custom_armor_draws_in_its_wearable_slot: fixture unavailable; requires offline cached custom-armor packs and compiled carriers"
+        );
         return;
     };
     let carriers = std::path::PathBuf::from(carriers);
@@ -179,5 +182,6 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
     }
     eprintln!("custom armor drawn: {drawn}/{checked}");
     // Artwork page budgets can still drop a texture; most must draw.
+    assert!(checked > 0, "fixture must contain textured custom armor");
     assert!(drawn * 4 >= checked * 3, "{drawn}/{checked}");
 }

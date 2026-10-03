@@ -339,6 +339,9 @@ fn the_loading_bar_animates_over_its_cached_layout() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping the_loading_bar_animates_over_its_cached_layout: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let bar = "textures/ui/loading_bar";
@@ -415,6 +418,9 @@ fn the_disconnect_screen_has_a_way_back() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping the_disconnect_screen_has_a_way_back: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
@@ -451,6 +457,9 @@ fn the_server_list_scrolls_under_the_wheel() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping the_server_list_scrolls_under_the_wheel: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
@@ -503,6 +512,9 @@ fn the_settings_panes_take_the_wheel() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping the_settings_panes_take_the_wheel: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");

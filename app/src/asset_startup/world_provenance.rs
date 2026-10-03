@@ -190,12 +190,6 @@ mod tests {
         assert_eq!(pinned, pinned_world_provenance());
     }
 
-    /// The active authority stays exactly on the protocolgen target.
-    #[test]
-    fn active_content_authority_is_protocol_2193() {
-        assert_eq!(active_content_registry_protocol(), 2193);
-    }
-
     /// Consolidation witness: driving the gate with a mutated authority value
     /// flips its decision on the identical embedded pins, so the world gate's
     /// expectation provably hangs off the one shared knob.

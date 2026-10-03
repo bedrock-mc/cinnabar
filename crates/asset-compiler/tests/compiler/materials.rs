@@ -803,7 +803,7 @@ fn compiler_emits_exact_checked_stained_glass_cube_models() {
 
 #[test]
 fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
-    let Some(pack) = std::env::var_os("PINNED_VANILLA_PACK") else {
+    let Some(pack) = crate::fixture_input::env_path("PINNED_VANILLA_PACK") else {
         return;
     };
     let all = read_registry(include_bytes!(
@@ -857,9 +857,10 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned stained glass");
     let fixture_air = fixture_air_id(&records) as usize;
     for (id, visual) in compiled.visuals.iter().enumerate() {
-        if id == fixture_air {
-            assert_eq!(visual.kind, VisualKind::Invisible, "appended fixture air");
-        } else if id < ordinary_count {
+        // Vanilla gives invisible bedrock the never-tessellated shape (R:BlockGraphics:4781).
+        if id == fixture_air || records[id].name.as_ref() == "minecraft:invisible_bedrock" {
+            assert_eq!(visual.kind, VisualKind::Invisible, "invisible block");
+        } else if id < ordinary_count || records[id].name.as_ref() == "minecraft:slime" {
             assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
             assert_eq!(
                 compiled.model_templates[visual.model_template as usize].flags,
@@ -1073,7 +1074,7 @@ fn compiler_rejects_exact_copper_grate_with_flags_zero() {
 #[test]
 #[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
 fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
-    let pack = std::env::var_os("PINNED_VANILLA_PACK")
+    let pack = crate::fixture_input::env_path("PINNED_VANILLA_PACK")
         .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
     let all = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"

@@ -221,6 +221,9 @@ fn installed_shield_bound_root_stays_at_each_hand_not_above_head() {
         std::fs::read(equipment_asset_path(&world_path)),
     ) else {
         eprintln!("local shield grip regression skipped: runtime carriers absent");
+        eprintln!(
+            "skipping installed_shield_bound_root_stays_at_each_hand_not_above_head: fixture unavailable; requires installed entity and equipment carriers (make assets)"
+        );
         return;
     };
     let entities = RuntimeEntityAssets::decode(&entities).unwrap();

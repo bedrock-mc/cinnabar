@@ -76,16 +76,9 @@ fn enhanced_shaders_validate() {
 #[ignore = "Enhanced disabled after GPU faults and system freezes"]
 fn enhanced_pipelines_build_on_native_adapter() {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-    let Ok(adapter) =
+    let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-    else {
-        assert!(
-            std::env::var_os("CINNABAR_REQUIRE_ENHANCED_GPU").is_none(),
-            "native Enhanced GPU validation was required but no adapter is available"
-        );
-        eprintln!("Enhanced GPU smoke skipped: no native adapter; Naga validation still runs");
-        return;
-    };
+            .expect("this fixture requires a native GPU adapter");
     let (device, _) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("enhanced smoke"),
         required_limits: adapter.limits(),
@@ -164,13 +157,12 @@ fn enhanced_pipelines_build_on_native_adapter() {
 
 // Night and brightness darken the lightmap, never the open-sky gate on direct moonlight.
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-    let Ok(adapter) =
+    let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-    else {
-        return;
-    };
+            .expect("this fixture requires a native GPU adapter");
     let (device, queue) =
         bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
     let source = shader_source::composed(
@@ -250,10 +242,6 @@ fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
 #[test]
 fn single_sample_depth_system_resets_only_enhanced_cameras() {
     use bevy::prelude::*;
-    // The plugin installs nothing while the Enhanced kill switch is off.
-    if !super::ENHANCED_RENDERING_ENABLED {
-        return;
-    }
     let mut app = App::new();
     // Exercise the CPU system directly while the Enhanced plugin is disabled.
     app.add_systems(Last, super::enforce_single_sample_depth);

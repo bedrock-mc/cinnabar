@@ -456,53 +456,6 @@ struct View {
 }
 
 #[test]
-fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_writes() {
-    let source = include_str!("../src/atmosphere_render.rs");
-    assert!(source.contains("key.msaa.samples()"));
-    assert!(source.contains("depth_write_enabled: false"));
-    assert!(source.contains("depth_compare: CompareFunction::GreaterEqual"));
-    assert!(source.contains("CORE_3D_DEPTH_FORMAT"));
-    assert!(source.contains("BufferBindingType::Uniform"));
-    assert!(source.contains("BindingType::Texture"));
-    assert!(source.contains("BindingType::Sampler"));
-    assert_eq!(
-        source.matches("visibility: ShaderStages::FRAGMENT").count()
-            + source
-                .matches("visibility: ShaderStages::VERTEX_FRAGMENT")
-                .count(),
-        6,
-        "Metal requires every fragment-read atmosphere binding to declare fragment visibility"
-    );
-    assert!(source.contains("BufferBindingType::Storage { read_only: true }"));
-    assert!(source.contains("binding: 6,"));
-    assert!(source.contains("pass.draw(3..3 + gpu.into_inner().star_vertex_count, 0..1)"));
-}
-
-#[test]
-fn frame_updates_keep_asset_uploads_and_bind_groups_identity_stable() {
-    let atmosphere = include_str!("../src/atmosphere_render.rs");
-    let chunks = include_str!("../src/chunk/gpu/bind_groups.rs");
-    assert_eq!(
-        atmosphere.matches("create_buffer_with_data(").count(),
-        2,
-        "the atmosphere uniform and static star buffers are each allocated once at startup"
-    );
-    assert!(
-        atmosphere
-            .contains("render_queue.write_buffer(&gpu.buffer, 0, bytemuck::bytes_of(&*frame))")
-    );
-    assert!(chunks.contains("atmosphere: atmosphere.buffer.id()"));
-    assert!(chunks.contains("resource: atmosphere.buffer.as_entire_binding()"));
-    assert_eq!(
-        atmosphere.matches("create_texture_with_data(").count(),
-        1,
-        "one helper owns all three one-time atmosphere uploads"
-    );
-    assert!(atmosphere.contains("prepared.identity == requested.identity()"));
-    assert!(atmosphere.contains("gpu.bound_asset_identity == Some(prepared.identity)"));
-}
-
-#[test]
 fn every_world_shader_uses_the_shared_distance_fog_uniform() {
     for (name, shader) in [
         ("chunk", include_str!("../src/chunk.wgsl")),

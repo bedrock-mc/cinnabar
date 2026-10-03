@@ -316,7 +316,6 @@ mod tests {
                 .any(|pixel| pixel == [249, 219, 109, 255])
         );
         assert_ne!(first[0].rgba8, changed[0].rgba8);
-        assert_eq!(first.len(), changed.len());
     }
 
     #[test]

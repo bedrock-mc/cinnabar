@@ -60,6 +60,3 @@ impl UiRuntime {
         player_runtime.facts.local_abilities()
     }
 }
-
-#[cfg(test)]
-mod tests;

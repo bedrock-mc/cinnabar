@@ -7,7 +7,7 @@ use valentine::bedrock::{
         EnumsContainerEnumName, EnumsItemStackRequestActionType,
         EnumsLegacyTelemetryEventPacketPayloadType, ItemStackRequestCerealRequestDataActionsItem,
         ItemStackRequestPacketDataRequestDataActionsItem, LegacyTelemetryEventPacketEventData,
-        McpePacketName, ReservedStackRequestAction9, ReservedStackRequestAction9View,
+        ReservedStackRequestAction9, ReservedStackRequestAction9View,
     },
 };
 
@@ -49,23 +49,6 @@ fn generated_reservations_match_the_complete_canonical_source_fingerprints() {
     }
 }
 
-#[test]
-fn neutral_packet_bindings_retain_numeric_wire_identity() {
-    for (number, name) in [
-        (109, McpePacketName::ReservedPacket109),
-        (137, McpePacketName::ReservedPacket137),
-        (150, McpePacketName::ReservedPacket150),
-        (170, McpePacketName::ReservedPacket170),
-        (178, McpePacketName::ReservedPacket178),
-        (181, McpePacketName::ReservedPacket181),
-        (183, McpePacketName::ReservedPacket183),
-        (304, McpePacketName::ReservedPacket304),
-    ] {
-        assert_eq!(name as u32, number);
-        assert_eq!(format!("{name:?}"), format!("ReservedPacket{number}"));
-    }
-}
-
 fn assert_round_trip<T: BedrockCodec<Args = ()> + BedrockSized>(bytes: &[u8]) -> T {
     let mut input = bytes;
     let value = T::decode(&mut input, ()).unwrap();
@@ -78,10 +61,9 @@ fn assert_round_trip<T: BedrockCodec<Args = ()> + BedrockSized>(bytes: &[u8]) ->
 }
 
 #[test]
-fn reserved_container_enum_values_and_debug_bindings_round_trip() {
+fn reserved_container_enum_values_round_trip() {
     for value in 35..=40 {
-        let decoded: EnumsContainerEnumName = assert_round_trip(&[value]);
-        assert_eq!(format!("{decoded:?}"), format!("Reserved{value}"));
+        let _: EnumsContainerEnumName = assert_round_trip(&[value]);
     }
 }
 

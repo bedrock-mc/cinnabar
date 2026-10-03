@@ -83,8 +83,9 @@ fn frame_cost_bench_changing_hud_bind_layout() {
 #[ignore = "benchmark; needs the local vanilla UI templates and an unpacked server pack"]
 fn frame_cost_bench_server_pack_hud() {
     let Some(pack) = std::env::var_os("CINNABAR_HUD_PACK") else {
-        eprintln!("FRAME_COST server_pack_hud: skipped, CINNABAR_HUD_PACK is unset");
-        return;
+        panic!(
+            "requires the pinned local vanilla UI pack; fetch vanilla-assets first and CINNABAR_HUD_PACK"
+        );
     };
     run_hud_bench("server_pack_hud", Some(PathBuf::from(pack)));
 }
@@ -92,10 +93,10 @@ fn frame_cost_bench_server_pack_hud() {
 /// Time the original full-refresh workload, with optional incremental measurements.
 fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
     let vanilla = support::vanilla_pack().join("ui");
-    if !vanilla.is_dir() {
-        eprintln!("FRAME_COST {name}: skipped, no local vanilla templates");
-        return;
-    }
+    assert!(
+        vanilla.is_dir(),
+        "fetch vanilla-assets before running the HUD benchmark"
+    );
     let mut catalog = Catalog::load_dir(&vanilla).unwrap();
     let java = java_pack::files();
     catalog.apply_pack(

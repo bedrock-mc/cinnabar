@@ -666,6 +666,9 @@ fn vanilla_skin_geometry() -> Option<PlayerSkin> {
 #[test]
 fn a_local_swing_animates_the_vanilla_pack_arm() {
     let Some(entities) = vanilla_entities() else {
+        eprintln!(
+            "skipping a_local_swing_animates_the_vanilla_pack_arm: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let skins = [
@@ -725,6 +728,9 @@ fn a_local_swing_animates_the_vanilla_pack_arm() {
 fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
     use crate::melee::{ActorHit, Crosshair, MeleeRuntime, PressContext, SwingTracker};
     let Some(entities) = vanilla_entities() else {
+        eprintln!(
+            "skipping a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let empty = protocol::NetworkItemStack::empty();

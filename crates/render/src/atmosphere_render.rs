@@ -843,3 +843,7 @@ mod tests {
         assert_ne!(gpu.record_buffer.as_ref().unwrap().id(), first_buffer);
     }
 }
+
+#[cfg(test)]
+#[path = "atmosphere_pipeline_tests.rs"]
+mod pipeline_tests;

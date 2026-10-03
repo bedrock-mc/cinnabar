@@ -1,6 +1,6 @@
 //! Fixture tests that resolve real vanilla `ui/*.json` from `.local/` and assert
-//! the concrete tree. The assets are gitignored, so a missing pack skips (not
-//! fails) the test; when present, these lock in inheritance, substitution,
+//! the concrete tree. They explain missing fixtures and skip until the pack is fetched;
+//! they protect inheritance, substitution,
 //! `ignored` removal, and factory recording.
 
 mod support;
@@ -96,7 +96,6 @@ fn assert_dialog_skeleton(root: &ResolvedControl, base_form: &str) {
 #[test]
 fn long_form_resolves_full_dialog_tree() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let control = resolve(&catalog, "server_form.long_form", &Context::desktop())
@@ -120,7 +119,6 @@ fn long_form_resolves_full_dialog_tree() {
 #[test]
 fn custom_form_resolves_full_dialog_tree() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let control = resolve(&catalog, "server_form.custom_form", &Context::desktop())
@@ -144,7 +142,6 @@ fn custom_form_resolves_full_dialog_tree() {
 #[test]
 fn main_panel_no_buttons_standalone_leaves_child_control_unresolved() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let control = resolve(
@@ -182,7 +179,6 @@ fn main_panel_no_buttons_standalone_leaves_child_control_unresolved() {
 #[test]
 fn form_factory_records_control_ids() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let content = resolve(
@@ -212,7 +208,6 @@ fn form_factory_records_control_ids() {
 #[test]
 fn dynamic_buttons_panel_records_named_factory_and_collection() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let panel = resolve(
@@ -241,7 +236,6 @@ fn dynamic_buttons_panel_records_named_factory_and_collection() {
 #[test]
 fn generated_contents_records_custom_form_factory() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     let generated = resolve(
@@ -265,7 +259,6 @@ fn generated_contents_records_custom_form_factory() {
 #[test]
 fn catalog_loads_every_namespace_without_parse_errors() {
     let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
         return;
     };
     assert!(

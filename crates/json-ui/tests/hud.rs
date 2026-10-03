@@ -1,5 +1,5 @@
 //! The gameplay HUD against the real vanilla templates. The `.local` pack is
-//! gitignored, so each test skips (not fails) when it is absent.
+//! gitignored, so reference tests explain missing fixtures and skip until the pack is fetched.
 
 #[path = "support/java_pack.rs"]
 mod java_pack;
@@ -15,7 +15,7 @@ use json_ui::{
 
 fn pack() -> Option<PathBuf> {
     let dir = support::vanilla_pack();
-    dir.is_dir().then_some(dir)
+    dir.join("ui").is_dir().then_some(dir)
 }
 
 /// Six virtual px per character, nine per line.
@@ -469,92 +469,6 @@ fn java_pack_places_the_hud_where_java_does() {
     );
 }
 
-// Phase costs of one HUD frame, printed for profiling (HUD_TIMING=1).
-#[test]
-fn hud_phase_timing() {
-    if std::env::var_os("HUD_TIMING").is_none() {
-        return;
-    }
-    let Some(dir) = pack() else {
-        return;
-    };
-    let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
-    let files = java_pack::files();
-    catalog.apply_pack(
-        files
-            .iter()
-            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
-    );
-    let textures = PackTextures::new(dir);
-    let env = LayoutEnv {
-        text: &FixedText,
-        textures: &textures,
-    };
-    let context = hud_context(&Context::desktop());
-    let model = model();
-    let data = hud_data_source(&model);
-    let cache = json_ui::ResolveCache::default();
-    for round in 0..3 {
-        let started = std::time::Instant::now();
-        let root = json_ui::resolve(&catalog, HUD_SCREEN, &context)
-            .control
-            .unwrap();
-        let resolved = started.elapsed();
-        fn count(control: &json_ui::ResolvedControl) -> (usize, usize, usize) {
-            let scope = control
-                .properties
-                .get("factory_scope")
-                .map_or(0, |scope| scope.to_string().len());
-            control.children.iter().map(count).fold(
-                (
-                    1,
-                    serde_json::to_string(&control.properties).map_or(0, |text| text.len()),
-                    scope,
-                ),
-                |acc, (nodes, bytes, scope)| (acc.0 + nodes, acc.1 + bytes, acc.2 + scope),
-            )
-        }
-        if round == 0 {
-            eprintln!(
-                "resolved tree: {:?} (nodes, property bytes, scope bytes)",
-                count(&root)
-            );
-        }
-        let library = json_ui::CachedLibrary {
-            library: json_ui::CatalogLibrary {
-                catalog: &catalog,
-                context: &context,
-            },
-            cache: &cache,
-        };
-        let started = std::time::Instant::now();
-        let loops: usize = std::env::var("HUD_LOOP")
-            .ok()
-            .and_then(|n| n.parse().ok())
-            .unwrap_or(1);
-        let root = std::sync::Arc::new(root);
-        let mut bound = json_ui::bind_shared(&root, &data, &library);
-        for _ in 1..loops {
-            bound = json_ui::bind_shared(&root, &data, &library);
-        }
-        let bound_in = started.elapsed() / loops as u32;
-        let started = std::time::Instant::now();
-        let mut render =
-            json_ui::render_bound(bound.clone(), [480.0, 270.0], &env, &ViewState::default());
-        for _ in 1..loops {
-            render =
-                json_ui::render_bound(bound.clone(), [480.0, 270.0], &env, &ViewState::default());
-        }
-        let laid = started.elapsed() / loops as u32;
-        eprintln!(
-            "round {round}: resolve {resolved:?} bind {bound_in:?} layout+emit {laid:?} ({} nodes)",
-            render.nodes.len()
-        );
-    }
-}
-
-// A factory creates nothing from an ignored definition, and a collection flag
-// the screen does not answer hides its control.
 #[test]
 fn ignored_instances_and_unanswered_collection_flags_draw_nothing() {
     let globals = br#"{}"#;

@@ -503,7 +503,11 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
         pair("test:lucky_placer", "test:lucky"),
     ];
     let compiled = compiled();
-    assert_eq!(compiled.overlay.texture.as_ref().unwrap().mips[0].size, 32);
+    assert!(
+        compiled.overlay.texture.as_ref().unwrap().mips[0].size
+            > u32::from(assets::BLOCK_ITEM_FACE_SIDE),
+        "exercise a shared atlas tile larger than the block-item face"
+    );
     let blocks = CustomBlocks {
         blocks: vec![
             block("test:lucky", 1, CustomBlockVisuals::default()),
@@ -543,6 +547,9 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
 fn packcache_custom_block_items_draw_when_requested() {
     use super::super::item_icons::custom_block_icons;
     let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        eprintln!(
+            "skipping packcache_custom_block_items_draw_when_requested: fixture unavailable; requires CINNABAR_PACKCACHE_DIR containing offline cached packs"
+        );
         return;
     };
     let mut checked = 0usize;
@@ -626,6 +633,7 @@ fn packcache_custom_block_items_draw_when_requested() {
         );
         checked += icons.icons.len();
     }
+    assert!(checked > 0, "fixture must contain drawable custom blocks");
     eprintln!("{checked} packcache custom block item icons drawn");
 }
 

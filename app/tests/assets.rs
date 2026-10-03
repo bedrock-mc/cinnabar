@@ -1211,42 +1211,5 @@ fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
     );
 }
 
-#[test]
-fn startup_log_uses_the_font_selection_summary_instead_of_claiming_diagnostic_is_required() {
-    let source = include_str!("../src/app.rs");
-    assert!(source.contains("loaded_assets.fonts.startup_summary()"));
-    assert!(!source.contains("\"loaded required font assets from {}\""));
-}
-
 include!("assets/make_targets.rs");
 include!("assets/provenance_tests.rs");
-
-#[test]
-fn app_composition_layout_remains_split_by_runtime_and_acceptance_owner() {
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let main = fs::read_to_string(source_root.join("main.rs")).unwrap();
-    let library = fs::read_to_string(source_root.join("lib.rs")).unwrap();
-    let app = fs::read_to_string(source_root.join("app.rs")).unwrap();
-
-    assert!(library.contains("pub use app::run;"));
-    assert!(app.contains("pub fn run(args: args::ClientArgs) -> Result<()>"));
-    assert!(main.contains("run(*args)"));
-    assert!(!main.contains("add_systems"));
-
-    for relative in [
-        "runtime/endpoint.rs",
-        "runtime/shutdown.rs",
-        "runtime/network.rs",
-        "runtime/world.rs",
-        "runtime/visibility.rs",
-        "runtime/telemetry.rs",
-        "acceptance/world_ready.rs",
-        "acceptance/teleport.rs",
-        "acceptance/remesh.rs",
-        "acceptance/mutation.rs",
-        "acceptance/proofs.rs",
-        "acceptance/markers.rs",
-    ] {
-        assert!(source_root.join(relative).is_file(), "missing {relative}");
-    }
-}

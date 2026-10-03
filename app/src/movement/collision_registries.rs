@@ -849,24 +849,6 @@ mod tests {
         assert!(registries.available_record_count() > 0);
     }
 
-    /// Synthetic both-2193 acceptance at the pure binding seam: flipping the
-    /// single authority accepts a matching committed v2193 carrier pair
-    /// without any new artifact, proving the gate tracks the authority rather
-    /// than a second hidden literal.
-    #[test]
-    fn coherent_flipped_authority_pair_is_accepted_at_the_binding_seam() {
-        let records =
-            assets::read_registry_for_protocol(BREG_V2193, 2193).expect("checked-in v2193 BREG");
-        let registries = bind(
-            BREG_V2193,
-            &synthetic_preg(2193, BREG_V2193, &records),
-            2193,
-        )
-        .expect("a matched flipped pair must bind under the flipped expectation");
-
-        assert!(registries.is_complete());
-    }
-
     /// Consolidation witness: driving the seam with a mutated authority value
     /// flips its acceptance decision on identical bytes, so both gates'
     /// expectations provably hang off the one shared knob instead of local

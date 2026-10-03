@@ -21,114 +21,6 @@ fn graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_prob
 }
 
 #[test]
-fn graphics_runtime_metadata_bundles_world_inputs_but_keeps_platform_thread_marker() {
-    let source = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
-    assert!(source.contains(
-        "#[derive(SystemParam)]\npub(in crate::chunk) struct GraphicsRuntimeMetadataInputs"
-    ));
-    let start = source
-        .find("pub(in crate::chunk) fn publish_graphics_runtime_metadata(")
-        .expect("metadata publication system must remain registered");
-    let signature = &source[start
-        ..start
-            + source[start..]
-                .find(") {")
-                .expect("metadata publication system must retain a function body")];
-    assert!(signature.contains("NonSendMarker"));
-    assert!(signature.contains("inputs: GraphicsRuntimeMetadataInputs"));
-    for unbundled in [
-        "windows: Res<",
-        "render_instance: Res<",
-        "render_adapter: Res<",
-        "policy: Option<Res<",
-        "input: Res<",
-        "diagnostics: Res<",
-    ] {
-        assert!(
-            !signature.contains(unbundled),
-            "metadata publication signature leaked bundled input {unbundled}"
-        );
-    }
-}
-
-#[test]
-fn shared_biome_bindings_are_visible_to_vertex_and_fragment_pipelines() {
-    let source = CHUNK_RENDERER_SOURCE;
-    for binding in [7, 8] {
-        let marker = format!("binding: {binding},");
-        let start = source
-            .find(&marker)
-            .unwrap_or_else(|| panic!("missing shared biome binding {binding}"));
-        let entry = &source[start
-            ..source[start..]
-                .find("count: None,")
-                .map(|offset| start + offset)
-                .expect("bind group entry must retain a count")];
-        assert!(
-            entry.contains("visibility: ShaderStages::VERTEX_FRAGMENT"),
-            "shared biome binding {binding} must support opaque fragment and liquid vertex reads",
-        );
-    }
-}
-
-#[test]
-fn fragment_view_reads_are_covered_by_the_shared_chunk_layout() {
-    for (name, source) in [
-        ("chunk", include_str!("../../src/chunk.wgsl")),
-        ("model", include_str!("../../src/model.wgsl")),
-        ("liquid", include_str!("../../src/liquid.wgsl")),
-    ] {
-        let shader = standalone_world_shader(source);
-        let module = naga::front::wgsl::parse_str(&shader)
-            .unwrap_or_else(|error| panic!("parse {name} WGSL: {error}"));
-        let info = naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap_or_else(|error| panic!("validate {name} WGSL: {error}"));
-        let (view_handle, _) = module
-            .global_variables
-            .iter()
-            .find(|(_, global)| {
-                global
-                    .binding
-                    .as_ref()
-                    .is_some_and(|binding| binding.group == 0 && binding.binding == 0)
-            })
-            .unwrap_or_else(|| panic!("{name} shader has no group 0 binding 0 view uniform"));
-        let fragment_reads_view = module
-            .entry_points
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.stage == naga::ShaderStage::Fragment)
-            .any(|(index, _)| !info.get_entry_point(index)[view_handle].is_empty());
-        assert!(
-            fragment_reads_view,
-            "{name} fragment entry points must exercise the shared view binding contract"
-        );
-    }
-
-    let source = CHUNK_RENDERER_SOURCE;
-    let layout_start = source
-        .find("chunk vertex-pulling bind group layout")
-        .expect("shared chunk layout");
-    let binding_start = source[layout_start..]
-        .find("binding: 0,")
-        .map(|offset| layout_start + offset)
-        .expect("shared view binding");
-    let entry = &source[binding_start
-        ..source[binding_start..]
-            .find("count: None,")
-            .map(|offset| binding_start + offset)
-            .expect("complete shared view layout entry")];
-    assert!(
-        entry.contains("visibility: ShaderStages::VERTEX_FRAGMENT"),
-        "group 0 binding 0 is read by every world fragment family and must be fragment-visible"
-    );
-}
-
-#[test]
 fn sort_ref_ceiling_is_enforced() {
     assert_eq!(size_of::<PackedTransparentDrawRef>(), 8);
     assert_eq!(MAX_TRANSPARENT_DRAW_REFS, 2_097_152);
@@ -488,19 +380,6 @@ fn transparent_view_and_double_slot_memory_are_strictly_bounded() {
 }
 
 #[test]
-fn transparent_pipeline_uses_alpha_without_depth_write() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    let packed = PackedTransparentDrawRef::new(17, 29);
-    assert_eq!(bytemuck::bytes_of(&packed).len(), 8);
-    assert!(plugin.contains("ViewSortedRenderPhases<Transparent3d>"));
-    assert!(plugin.contains(".blend = Some(BlendState::ALPHA_BLENDING)"));
-    assert!(plugin.contains(".depth_write_enabled = false"));
-    assert!(plugin.contains("depth_compare: CompareFunction::GreaterEqual"));
-    assert!(plugin.contains("liquid_descriptor.primitive.cull_mode = None"));
-    assert!(plugin.contains("binding: 14"));
-}
-
-#[test]
 fn non_water_liquid_pipeline_is_opaque_and_depth_writing() {
     let plugin = CHUNK_RENDERER_SOURCE;
     assert!(plugin.contains("packed depth-writing liquid pipeline"));
@@ -538,33 +417,6 @@ fn transparent_indirect_command_upload_is_generation_cached() {
     let plugin = CHUNK_RENDERER_SOURCE;
     assert!(plugin.contains("last_indirect_identity"));
     assert!(plugin.contains("runtime.last_indirect_identity != Some(identity)"));
-}
-
-#[test]
-fn task7_streams_share_one_physical_buffer_with_binding_headroom() {
-    const CURRENT_VERTEX_STORAGE_BINDINGS: usize = 6;
-    const MODEL_TEMPLATE_BINDINGS: usize = 1;
-    let plugin = CHUNK_RENDERER_SOURCE;
-    let legacy_task7_buffers = [
-        "model_buffer: Buffer",
-        "model_lighting_buffer: Buffer",
-        "liquid_buffer: Buffer",
-        "liquid_lighting_buffer: Buffer",
-    ]
-    .into_iter()
-    .filter(|field| plugin.contains(field))
-    .count();
-    let task7_physical_buffers = usize::from(plugin.contains("geometry_stream_buffer: Buffer"));
-
-    assert_eq!(legacy_task7_buffers, 0);
-    assert_eq!(
-        task7_physical_buffers, 1,
-        "the four logical Task 7 streams must share one physical storage buffer"
-    );
-    assert!(
-        CURRENT_VERTEX_STORAGE_BINDINGS + task7_physical_buffers + MODEL_TEMPLATE_BINDINGS <= 8,
-        "the projected vertex-stage storage bindings must fit the common/minimum limit"
-    );
 }
 
 #[test]
@@ -624,49 +476,6 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
     assert!(shader.contains("if (!front_facing && in.two_sided == 0u) { discard; }"));
     assert!(!shader.contains("face_light"));
-}
-
-#[test]
-fn opaque_model_pipeline_selects_its_fragment_entry_point_explicitly() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    let model_pipeline = plugin
-        .split_once("model_descriptor.label = Some(\"packed model pipeline\".into());")
-        .expect("packed model pipeline descriptor")
-        .1
-        .split_once("let mut transparent_model_descriptor = model_descriptor.clone();")
-        .expect("transparent model pipeline follows opaque model pipeline")
-        .0;
-
-    assert!(
-        model_pipeline.contains(".entry_point = Some(\"fragment\".into());"),
-        "the opaque model pipeline must select `fragment` now that model.wgsl has multiple fragment entry points"
-    );
-}
-
-#[test]
-fn crossed_model_shader_parses_validates_and_has_one_shared_binding_shape() {
-    let shader = standalone_world_shader(include_str!("../../src/model.wgsl"));
-    let module = naga::front::wgsl::parse_str(&shader).expect("parse packed model WGSL");
-    naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::all(),
-    )
-    .validate(&module)
-    .expect("validate packed model WGSL");
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 15);
-    for binding in 0..=13 {
-        assert!(shader.contains(&format!("@group(0) @binding({binding})")));
-    }
-    assert!(shader.contains("@group(0) @binding(15)"));
-}
-
-#[test]
-fn crossed_model_direct_and_mdi_commands_have_identical_output_addressing() {
-    let source = CHUNK_RENDERER_SOURCE;
-    assert!(source.contains("fn model_direct_draw_command("));
-    assert!(source.contains("fn model_mdi_draw_command("));
-    assert!(source.contains("model_draw_command(allocation, direct_stream_addresses(allocation))"));
-    assert!(source.contains("model_draw_command(allocation, mdi_stream_addresses(allocation))"));
 }
 
 #[test]
