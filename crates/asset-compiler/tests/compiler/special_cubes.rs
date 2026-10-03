@@ -958,6 +958,7 @@ fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge
             || COPPER_GRATE_NAMES
                 .binary_search(&record.name.as_ref())
                 .is_ok()
+            || record.name.as_ref() == "minecraft:slime"
         {
             assert_eq!(
                 compiled.visuals[id].kind,

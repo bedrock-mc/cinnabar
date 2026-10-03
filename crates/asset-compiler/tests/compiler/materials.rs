@@ -860,7 +860,7 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
         // Vanilla gives invisible bedrock the never-tessellated shape (R:BlockGraphics:4781).
         if id == fixture_air || records[id].name.as_ref() == "minecraft:invisible_bedrock" {
             assert_eq!(visual.kind, VisualKind::Invisible, "invisible block");
-        } else if id < ordinary_count {
+        } else if id < ordinary_count || records[id].name.as_ref() == "minecraft:slime" {
             assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
             assert_eq!(
                 compiled.model_templates[visual.model_template as usize].flags,
