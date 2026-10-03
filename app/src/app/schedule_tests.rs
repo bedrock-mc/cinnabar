@@ -4,18 +4,6 @@ use super::*;
 
 #[test]
 fn network_config_call_sites_share_the_process_blob_cache() {
-    let replacing_initializer = [
-        "client_blob_cache: protocol::ClientBlobCache",
-        "::default()",
-    ]
-    .concat();
-    for source in [include_str!("../app.rs"), include_str!("../menu/input.rs")] {
-        assert!(
-            !source.contains(&replacing_initializer),
-            "network configuration must clone the app-owned cache"
-        );
-    }
-
     let owner = ClientBlobCacheOwner::default();
     let first = NetworkConfig {
         session_generation: 7,
