@@ -17,6 +17,8 @@ fn overlay(value: &[u8]) -> Arc<assets::ServerLangOverlay> {
 
 #[test]
 fn only_current_successful_bootstrap_can_install_or_retire_language() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(2);
+
     let mut runtime = UiRuntime::new(2);
     let old = overlay(b"item.stone.name=Old\n");
     let old_weak = Arc::downgrade(&old);
@@ -25,6 +27,7 @@ fn only_current_successful_bootstrap_can_install_or_retire_language() {
         BootstrapGenerationDisposition::Expected
     );
     let accepted = publish_bootstrap_inventory(
+        &mut player_runtime,
         &mut runtime,
         None,
         InventoryEvent::Authority(InventoryAuthority::Server),
@@ -32,7 +35,7 @@ fn only_current_successful_bootstrap_can_install_or_retire_language() {
     assert!(accepted);
     install_server_language(&mut runtime, 2, Some(old), accepted);
     assert_eq!(runtime.localized_item_name("minecraft:stone"), "Old");
-    runtime.begin_session(3);
+    runtime.begin_session(&mut player_runtime, 3);
     assert!(old_weak.upgrade().is_none());
     let current = overlay(b"item.stone.name=Current\n");
     install_server_language(&mut runtime, 3, Some(current), true);
@@ -48,6 +51,7 @@ fn only_current_successful_bootstrap_can_install_or_retire_language() {
     let failed = overlay(b"item.stone.name=Failed\n");
     let failed_weak = Arc::downgrade(&failed);
     let accepted = publish_bootstrap_inventory(
+        &mut player_runtime,
         &mut runtime,
         None,
         InventoryEvent::SelectedSlot(protocol::SelectedSlotEvent {

@@ -26,9 +26,9 @@ use ui::{
 use super::gameplay_hud_tests::RENDERABLE_EFFECT_IDS;
 use super::*;
 
-fn saturated_runtime() -> UiRuntime {
+fn saturated_runtime(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    runtime.publish_player_game_mode(player_runtime, protocol::PlayerGameMode::Survival);
     let mut sequence = 0u64;
     let mut next = || {
         sequence += 1;
@@ -49,17 +49,20 @@ fn saturated_runtime() -> UiRuntime {
 
     // A sidebar objective with a full presentation page of rows.
     runtime
-        .apply(envelope(
-            1,
-            next(),
-            UiEvent::Objective(ObjectiveEvent::Display {
-                display_slot: Arc::from("sidebar"),
-                objective_name: Arc::from("bench"),
-                display_name: Arc::from("Bench Board"),
-                criteria_name: Arc::from("dummy"),
-                sort_order: 1,
-            }),
-        ))
+        .apply(
+            player_runtime,
+            envelope(
+                1,
+                next(),
+                UiEvent::Objective(ObjectiveEvent::Display {
+                    display_slot: Arc::from("sidebar"),
+                    objective_name: Arc::from("bench"),
+                    display_name: Arc::from("Bench Board"),
+                    criteria_name: Arc::from("dummy"),
+                    sort_order: 1,
+                }),
+            ),
+        )
         .unwrap();
     let entries: Vec<ProtocolScoreEntry> = (0..64)
         .map(|index| ProtocolScoreEntry {
@@ -71,35 +74,41 @@ fn saturated_runtime() -> UiRuntime {
         })
         .collect();
     runtime
-        .apply(envelope(
-            1,
-            next(),
-            UiEvent::Score(ScoreEvent {
-                entries: entries.into(),
-            }),
-        ))
+        .apply(
+            player_runtime,
+            envelope(
+                1,
+                next(),
+                UiEvent::Score(ScoreEvent {
+                    entries: entries.into(),
+                }),
+            ),
+        )
         .unwrap();
 
     // Eight coexisting boss bars.
     for boss in 0..8i64 {
         runtime
-            .apply(envelope(
-                1,
-                next(),
-                UiEvent::Boss(BossEvent {
-                    target_entity_id: boss + 10,
-                    action: ProtocolBossAction::Show,
-                    title: Arc::from(format!("Boss {boss}")),
-                    filtered_title: Arc::from(""),
-                    progress: 0.75,
-                    style: ProtocolBossStyle {
-                        color: ProtocolBossColor::Red,
-                        overlay: ProtocolBossOverlay::Progress,
-                        darken_sky: None,
-                        create_world_fog: None,
-                    },
-                }),
-            ))
+            .apply(
+                player_runtime,
+                envelope(
+                    1,
+                    next(),
+                    UiEvent::Boss(BossEvent {
+                        target_entity_id: boss + 10,
+                        action: ProtocolBossAction::Show,
+                        title: Arc::from(format!("Boss {boss}")),
+                        filtered_title: Arc::from(""),
+                        progress: 0.75,
+                        style: ProtocolBossStyle {
+                            color: ProtocolBossColor::Red,
+                            overlay: ProtocolBossOverlay::Progress,
+                            darken_sky: None,
+                            create_world_fog: None,
+                        },
+                    }),
+                ),
+            )
             .unwrap();
     }
 
@@ -145,6 +154,7 @@ fn saturated_runtime() -> UiRuntime {
     let slots: Vec<NetworkItemStack> = (1..=36).map(stack).collect();
     runtime
         .enqueue_inventory_event(
+            player_runtime,
             1,
             1,
             InventoryEvent::Content(InventoryContentEvent {
@@ -158,7 +168,7 @@ fn saturated_runtime() -> UiRuntime {
             }),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(player_runtime);
     runtime.hud.set_title(Arc::from("§6Title"), next(), 0);
     runtime
         .hud
@@ -168,7 +178,9 @@ fn saturated_runtime() -> UiRuntime {
 
 #[test]
 fn retained_memory_stays_inside_documented_budgets_with_every_surface_active() {
-    let runtime = saturated_runtime();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let runtime = saturated_runtime(&mut player_runtime);
 
     assert_eq!(runtime.chat().messages().len(), MAX_CHAT_MESSAGES);
     assert!(runtime.chat().retained_bytes() <= MAX_CHAT_RETAINED_BYTES);
@@ -183,10 +195,13 @@ fn retained_memory_stays_inside_documented_budgets_with_every_surface_active() {
 
 #[test]
 fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
-    let mut runtime = saturated_runtime();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = saturated_runtime(&mut player_runtime);
     // First person with a fresh selected stack: the vanilla-alpha crosshair
     // quad and the selected-item label are part of the saturated frame.
     runtime.retain_local_selected_equipment(
+        &mut player_runtime,
         99,
         protocol::EquipmentEvent {
             actor_runtime_id: 7,
@@ -205,7 +220,7 @@ fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
             handedness: None,
         },
     );
-    runtime.observe_selected_item_identity(10_000);
+    runtime.observe_selected_item_identity(&player_runtime, 10_000);
     let Some(mut presentation) =
         crate::ui_runtime::presentation::tests::engine_hud_tests::engine_presentation()
     else {
@@ -216,6 +231,7 @@ fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
 
     let first = presentation
         .build(
+            &player_runtime,
             &runtime,
             10_000,
             [1920, 1080],
@@ -235,6 +251,7 @@ fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
     presentation.hud_frame_mut().selected_item_name = None;
     let unlabeled = presentation
         .build(
+            &player_runtime,
             &runtime,
             10_000,
             [1920, 1080],
@@ -253,6 +270,7 @@ fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
     for frame in 0..8u64 {
         presentation
             .build(
+                &player_runtime,
                 &runtime,
                 10_000 + frame,
                 [1920, 1080],

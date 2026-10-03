@@ -18,9 +18,13 @@ fn png(size: [u32; 2], color: [u8; 4]) -> Vec<u8> {
 }
 
 /// Builds an overworld loading frame with a fixed animation clock.
-fn frame(presentation: &mut UiPresentationRuntime) -> render::UiRenderInput {
+fn frame(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    presentation: &mut UiPresentationRuntime,
+) -> render::UiRenderInput {
     presentation
         .build(
+            player_runtime,
             &UiRuntime::new(1),
             0,
             [1280, 720],
@@ -31,6 +35,8 @@ fn frame(presentation: &mut UiPresentationRuntime) -> render::UiRenderInput {
 
 #[test]
 fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
@@ -40,9 +46,9 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
         ..Default::default()
     });
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
-    frame(&mut presentation);
+    frame(&player_runtime, &mut presentation);
     presentation.finish_menu_artwork();
-    let before = snapshot::rasterize(&frame(&mut presentation));
+    let before = snapshot::rasterize(&frame(&player_runtime, &mut presentation));
 
     // A completed worker atlas is installed while the next frame is being built.
     let path = std::env::temp_dir().join(format!("loading-repack-{}.png", std::process::id()));
@@ -52,7 +58,7 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
     presentation.menu_artwork_set = set.clone();
     presentation.menu_artwork_loader.request(set);
     presentation.menu_artwork_loader.wait();
-    let transition = frame(&mut presentation);
+    let transition = frame(&player_runtime, &mut presentation);
     snapshot::write(&transition, "artwork-transition");
     let after = snapshot::rasterize(&transition);
     std::fs::remove_file(path).unwrap();
@@ -65,7 +71,7 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
         textures: vec![(format!("{title}.png"), png([900, 300], [20, 30, 220, 255]))],
         ..Default::default()
     });
-    let replaced = snapshot::rasterize(&settled(&mut presentation));
+    let replaced = snapshot::rasterize(&settled(&player_runtime, &mut presentation));
     assert_eq!(
         *replaced.get_pixel(640, 170),
         image::Rgba([20, 30, 220, 255]),
@@ -74,10 +80,13 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
 }
 
 /// Waits for the loading textures, then installs their complete artwork atlas.
-fn settled(presentation: &mut UiPresentationRuntime) -> render::UiRenderInput {
+fn settled(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    presentation: &mut UiPresentationRuntime,
+) -> render::UiRenderInput {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        frame(presentation);
+        frame(player_runtime, presentation);
         let atlas = presentation
             .form_presentation
             .engine
@@ -98,7 +107,7 @@ fn settled(presentation: &mut UiPresentationRuntime) -> render::UiRenderInput {
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
     presentation.finish_menu_artwork();
-    frame(presentation)
+    frame(player_runtime, presentation)
 }
 
 /// Reads the pinned vanilla texture used as the pixel reference.
@@ -113,6 +122,8 @@ fn vanilla_image(path: &str) -> image::RgbaImage {
 
 #[test]
 fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(pack) = pack_harness::env_pack() else {
         return;
     };
@@ -124,13 +135,13 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
     );
     presentation.set_server_ui_pack(&pack);
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
-    let cold = frame(&mut presentation);
+    let cold = frame(&player_runtime, &mut presentation);
     let cold_pixels = snapshot::rasterize(&cold);
     assert!(
         cold_pixels.get_pixel(0, 0)[0] > 0,
         "cold frame lost its dirt backdrop"
     );
-    let before = settled(&mut presentation);
+    let before = settled(&player_runtime, &mut presentation);
     snapshot::write(&before, "zeqa-warm");
     let pixels = snapshot::rasterize(&before);
     let dirt = vanilla_image("textures/blocks/dirt");
@@ -186,14 +197,14 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
     presentation.menu_artwork_set = set.clone();
     presentation.menu_artwork_loader.request(set);
     presentation.menu_artwork_loader.wait();
-    let after = frame(&mut presentation);
+    let after = frame(&player_runtime, &mut presentation);
     snapshot::write(&after, "zeqa-after");
     assert!(
         pixels == snapshot::rasterize(&after),
         "repacking changed loading-screen pixels"
     );
     presentation.set_server_ui_pack(&pack);
-    let reloaded = settled(&mut presentation);
+    let reloaded = settled(&player_runtime, &mut presentation);
     assert!(
         pixels == snapshot::rasterize(&reloaded),
         "same pack reload changed loading-screen pixels"
@@ -203,6 +214,8 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
 
 #[test]
 fn zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut pack) = pack_harness::env_pack() else {
         return;
     };
@@ -212,7 +225,7 @@ fn zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden() {
     let mut presentation = pack_harness::engine_presentation().expect("real UI carrier required");
     presentation.set_server_ui_pack(&pack);
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
-    let first = settled(&mut presentation);
+    let first = settled(&player_runtime, &mut presentation);
     let pixels = snapshot::rasterize(&first);
     let bar = vanilla_image("textures/ui/loading_bar");
     let mut checked = 0;
@@ -236,6 +249,7 @@ fn zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden() {
     assert!(checked > 0);
     let animated = presentation
         .build(
+            &player_runtime,
             &UiRuntime::new(1),
             100,
             [1280, 720],

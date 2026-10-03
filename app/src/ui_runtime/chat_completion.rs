@@ -12,12 +12,16 @@ use super::UiRuntime;
 
 impl UiRuntime {
     /// Completes `request` against the catalog snapshot; false when it was stale or invalid.
-    pub fn complete_chat_autocomplete(&mut self, request: ChatAutocompleteRequest) -> bool {
+    pub fn complete_chat_autocomplete(
+        &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        request: ChatAutocompleteRequest,
+    ) -> bool {
         // UpdateSoftEnum and AvailableCommands arrive unsolicited without an editor request
         // identity, so the immutable catalog is queried locally and applied only through the
         // session/input/request correlation below.
         let command_permission = self
-            .local_abilities()
+            .local_abilities(player_runtime)
             .map(|update| update.command_permission);
         let context = CompletionContext {
             players: &self.known_player_names,

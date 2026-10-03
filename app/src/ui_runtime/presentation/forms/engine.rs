@@ -19,6 +19,7 @@ use super::super::player_preview::PreviewView;
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
 mod fill_renderers;
+mod formatting_colors;
 pub(crate) mod hud_renderers;
 mod item_renderer;
 mod menu_renderers;
@@ -43,6 +44,7 @@ pub(crate) struct FormEngine {
     /// Vanilla under the built-in Java HUD pack: the catalog with no server pack.
     base: Arc<Catalog>,
     catalog: Arc<Catalog>,
+    pub(super) formatting_palette: ui::FormattingPalette,
     context: Context,
     /// Where texture paths draw from, including the on-demand server atlas.
     pub(super) textures: TextureSet,
@@ -110,6 +112,7 @@ impl FormEngine {
             textures: TextureSet::new(first_page),
             assets,
             catalog: Arc::clone(&base),
+            formatting_palette: formatting_colors::from_catalog(&base),
             screens: screen_cache::ScreenCache::default(),
             vanilla,
             base,
@@ -215,9 +218,7 @@ impl FormEngine {
             self.install_pack_catalog(Arc::clone(&self.base));
             return;
         }
-        self.catalog = Arc::new(layer_pack_catalog(&self.vanilla, layers));
-        self.cache = None;
-        self.screens = screen_cache::ScreenCache::default();
+        self.install_pack_catalog(Arc::new(layer_pack_catalog(&self.vanilla, layers)));
     }
 
     /// Returns the original catalog used by background pack compilation.
@@ -227,6 +228,7 @@ impl FormEngine {
 
     /// Publishes a worker-resolved catalog and retires caches holding the previous one.
     pub(super) fn install_pack_catalog(&mut self, catalog: Arc<Catalog>) {
+        self.formatting_palette = formatting_colors::from_catalog(&catalog);
         self.catalog = catalog;
         self.cache = None;
         self.screens = screen_cache::ScreenCache::default();

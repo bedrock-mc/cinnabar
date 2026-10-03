@@ -313,6 +313,8 @@ pub(crate) struct MenuRuntime {
     storage: std::sync::Arc<settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
     settings_dirty: bool,
+    /// Failed writes wait until this deadline while retaining the newest edits.
+    settings_retry_at: Option<std::time::Instant>,
     settings_apply: bool,
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,

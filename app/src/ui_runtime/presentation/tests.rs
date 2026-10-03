@@ -39,20 +39,31 @@ mod toast_tests;
 
 #[test]
 fn missing_local_hud_carrier_never_falls_back_to_numeric_corner_text() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut runtime = UiRuntime::new(1);
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Hud(HudEvent::Health { health: 20 }),
-        })
+        .apply(
+            &mut player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Hud(HudEvent::Health { health: 20 }),
+            },
+        )
         .unwrap();
 
     let input = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     assert!(input.vertices.is_empty());
     assert!(input.indices.is_empty());

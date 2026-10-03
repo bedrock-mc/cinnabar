@@ -76,8 +76,9 @@ pub use interaction::{
     respawn_request_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
-    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle,
-    RecipeIngredientView, RecipeOutput, RecipeUpdate, decode_recipe_update, match_crafting_grid,
+    MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
+    RecipeHandle, RecipeIngredient, RecipeIngredientView, RecipeOutput, RecipeUpdate,
+    decode_recipe_update, empty_recipe_extra, recipe_binding_supported, vanilla_tag_contains,
 };
 pub use inventory::recipes::{
     MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
@@ -128,12 +129,8 @@ pub use inventory::{
 pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
-pub use inventory::{
-    ManualCraftCell, ManualCraftMatch, ManualCraftPreview, RecipeRegistryError,
-    RecipeRegistrySnapshot, match_manual_grid,
-};
-pub use inventory::{ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet};
 pub use inventory::{MineBlockRequest, MineBlockRequestError};
+pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemBook, ItemComponents, ItemDisplay, ItemPacketError,
@@ -149,6 +146,13 @@ pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
+
+/// The vendored wire crates, so no other manifest declares their pinned paths.
+#[cfg(feature = "wire-test-support")]
+pub mod wire {
+    pub use jolyne;
+    pub use valentine;
+}
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession, network_stack_latency_reply};
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,

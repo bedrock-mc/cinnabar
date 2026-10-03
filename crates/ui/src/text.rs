@@ -7,7 +7,10 @@ use crate::UiScale;
 
 mod invisible;
 mod layout;
+mod palette;
 mod parse;
+
+pub use palette::FormattingPalette;
 
 use layout::build_layout;
 pub use parse::parse_bedrock_text;
@@ -76,6 +79,7 @@ pub enum BedrockColor {
     MaterialLapis,
     MaterialAmethyst,
     MaterialResin,
+    PartyBlue,
 }
 
 impl BedrockColor {
@@ -113,6 +117,7 @@ impl BedrockColor {
             Self::MaterialLapis => [35, 98, 180],
             Self::MaterialAmethyst => [154, 92, 198],
             Self::MaterialResin => [237, 105, 52],
+            Self::PartyBlue => [140, 179, 255],
         })
     }
 }

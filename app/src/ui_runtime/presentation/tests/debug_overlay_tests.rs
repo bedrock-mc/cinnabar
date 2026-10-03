@@ -6,9 +6,19 @@ use super::fixture_font;
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::presentation::{DebugLines, UiPresentationRuntime};
 
-fn vertex_count(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime) -> usize {
+fn vertex_count(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    presentation: &mut UiPresentationRuntime,
+    runtime: &UiRuntime,
+) -> usize {
     presentation
-        .build(runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .build(
+            player_runtime,
+            runtime,
+            0,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap()
         .vertices
         .len()
@@ -16,17 +26,22 @@ fn vertex_count(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime) -
 
 #[test]
 fn debug_lines_add_geometry_and_clearing_them_restores_the_frame() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let runtime = UiRuntime::new(1);
-    let bare = vertex_count(&mut presentation, &runtime);
+    let bare = vertex_count(&player_runtime, &mut presentation, &runtime);
 
     presentation.set_debug_lines(Some(DebugLines {
         left: vec!["0 fps".to_owned(), "XYZ: 0 / 2 / 0".to_owned()],
         right: vec!["Targeted Block: 0, 0, 0".to_owned()],
     }));
-    let shown = vertex_count(&mut presentation, &runtime);
+    let shown = vertex_count(&player_runtime, &mut presentation, &runtime);
     assert!(shown > bare);
 
     presentation.set_debug_lines(None);
-    assert_eq!(vertex_count(&mut presentation, &runtime), bare);
+    assert_eq!(
+        vertex_count(&player_runtime, &mut presentation, &runtime),
+        bare
+    );
 }

@@ -20,6 +20,7 @@ fn settings_app(visible: bool, preference: Option<u8>) -> App {
     let presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
         .insert_resource(menu)
         .insert_resource(presentation)
         .add_systems(Update, apply_gui_scale_setting);
@@ -46,11 +47,20 @@ fn build_menu(app: &mut App, physical: [u32; 2], dpi: f32) -> render::UiRenderIn
     }
     app.update();
     let view = app.world().resource::<MenuRuntime>().view();
-    let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
-    presentation.set_menu_view(Some(view));
-    presentation
-        .build(&UiRuntime::new(1), 0, physical, DpiScale::new(dpi).unwrap())
-        .unwrap()
+    app.world_mut().resource_scope(
+        |world, mut presentation: bevy::prelude::Mut<UiPresentationRuntime>| {
+            presentation.set_menu_view(Some(view));
+            presentation
+                .build(
+                    world.resource::<crate::player_runtime::PlayerRuntime>(),
+                    &UiRuntime::new(1),
+                    0,
+                    physical,
+                    DpiScale::new(dpi).unwrap(),
+                )
+                .unwrap()
+        },
+    )
 }
 
 fn largest_font_quad_height(input: &render::UiRenderInput) -> f32 {
@@ -254,6 +264,8 @@ fn gui_scale_keeps_auto_responsive_and_clamps_saved_native_offset_after_resize()
 
 #[test]
 fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return; // The real JSON-UI carrier is local and never committed.
     };
@@ -266,20 +278,31 @@ fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
     app.update();
 
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    app.insert_resource(player_runtime);
     let physical = [1920, 1080];
     for (offset, physical_scale) in [(-2, 2), (0, 4)] {
         app.world_mut()
             .resource_mut::<MenuRuntime>()
             .activate(MenuAction::SettingsScale(offset));
         app.update();
-        let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
-        let passes = presentation.hud_passes();
-        let input = presentation
-            .build(&runtime, 0, physical, DpiScale::new(1.5).unwrap())
-            .unwrap();
-        assert_eq!(presentation.hud_passes(), passes + 1);
-        assert_crosshair_size(&input, physical, physical_scale);
+        app.world_mut().resource_scope(
+            |world, mut presentation: bevy::prelude::Mut<UiPresentationRuntime>| {
+                let player_runtime = world.resource::<crate::player_runtime::PlayerRuntime>();
+                let passes = presentation.hud_passes();
+                let input = presentation
+                    .build(
+                        player_runtime,
+                        &runtime,
+                        0,
+                        physical,
+                        DpiScale::new(1.5).unwrap(),
+                    )
+                    .unwrap();
+                assert_eq!(presentation.hud_passes(), passes + 1);
+                assert_crosshair_size(&input, physical, physical_scale);
+            },
+        );
     }
 }
 
@@ -317,6 +340,8 @@ fn assert_crosshair_size(input: &render::UiRenderInput, physical: [u32; 2], scal
 
 #[test]
 fn gui_scale_minimum_on_high_dpi_relayouts_cached_native_hud() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
@@ -337,18 +362,29 @@ fn gui_scale_minimum_on_high_dpi_relayouts_cached_native_hud() {
             .set_physical_resolution(physical[0], physical[1]);
     }
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    app.insert_resource(player_runtime);
     for (offset, scale) in [(0, 2), (-1, 1), (0, 2)] {
         app.world_mut()
             .resource_mut::<MenuRuntime>()
             .activate(MenuAction::SettingsScale(offset));
         app.update();
-        let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
-        let passes = presentation.hud_passes();
-        let input = presentation
-            .build(&runtime, 0, physical, DpiScale::new(2.0).unwrap())
-            .unwrap();
-        assert_eq!(presentation.hud_passes(), passes + 1);
-        assert_crosshair_size(&input, physical, scale);
+        app.world_mut().resource_scope(
+            |world, mut presentation: bevy::prelude::Mut<UiPresentationRuntime>| {
+                let player_runtime = world.resource::<crate::player_runtime::PlayerRuntime>();
+                let passes = presentation.hud_passes();
+                let input = presentation
+                    .build(
+                        player_runtime,
+                        &runtime,
+                        0,
+                        physical,
+                        DpiScale::new(2.0).unwrap(),
+                    )
+                    .unwrap();
+                assert_eq!(presentation.hud_passes(), passes + 1);
+                assert_crosshair_size(&input, physical, scale);
+            },
+        );
     }
 }

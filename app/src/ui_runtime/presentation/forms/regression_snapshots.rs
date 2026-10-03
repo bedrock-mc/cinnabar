@@ -5,6 +5,8 @@ use ui::DpiScale;
 
 #[test]
 fn populated_hotbar_snapshot() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use super::super::{IconRef, tests::engine_hud_tests};
     let Some(mut presentation) = engine_hud_tests::engine_presentation() else {
         return;
@@ -13,8 +15,8 @@ fn populated_hotbar_snapshot() {
         presentation.set_server_ui_pack(&pack);
     }
     let mut runtime = crate::ui_runtime::UiRuntime::new(1);
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
-    runtime.set_local_selected_slot(0);
+    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    player_runtime.inventory.set_local_selected_slot(0);
     let icon = IconRef {
         page: presentation.solid_texture_page,
         uv: [0, 0, 1, 1],
@@ -29,7 +31,13 @@ fn populated_hotbar_snapshot() {
         presentation.hud_frame.hotbar_icons[index] = Some(icon);
     }
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::snapshot::write(&input, "hotbar");
     let image = super::snapshot::rasterize(&input);
@@ -38,7 +46,9 @@ fn populated_hotbar_snapshot() {
 
 #[test]
 fn spirit_bundle_snapshot() {
-    let Some(runtime) = captured_form() else {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let Some(runtime) = captured_form(&mut player_runtime) else {
         return;
     };
     let mut presentation = pack_harness::engine_presentation().expect("installed UI carrier");
@@ -47,7 +57,13 @@ fn spirit_bundle_snapshot() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         presentation
-            .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         let engine = presentation.form_presentation.engine.as_ref().unwrap();
         if engine.drawn_sprites().1.is_empty() || std::time::Instant::now() >= deadline {
@@ -57,7 +73,13 @@ fn spirit_bundle_snapshot() {
     }
     presentation.finish_menu_artwork();
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::snapshot::write(&input, "spirit-bundle");
     eprintln!(
@@ -78,7 +100,13 @@ fn spirit_bundle_snapshot() {
     let passes = engine.passes;
     for _ in 0..5 {
         presentation
-            .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
     }
     assert_eq!(
@@ -108,18 +136,24 @@ fn spirit_bundle_snapshot() {
 
 #[test]
 fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
-    let Some(runtime) = captured_form() else {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let Some(runtime) = captured_form(&mut player_runtime) else {
         return;
     };
     let mut presentation = pack_harness::engine_presentation().expect("installed UI carrier");
     let dpi = DpiScale::new(1.0).unwrap();
-    let cold = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let cold = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     super::snapshot::write(&cold, "spirit-bundle-before-pack");
     let pack = pack_harness::env_pack().expect("captured server UI pack");
     presentation.set_server_ui_pack(&pack);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
-        presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .unwrap();
         let engine = presentation.form_presentation.engine.as_ref().unwrap();
         let atlas = engine.textures.lock();
         let resident = [
@@ -139,7 +173,9 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     presentation.finish_menu_artwork();
-    let settled = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let settled = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     super::snapshot::write(&settled, "spirit-bundle-after-pack");
     let pixels = super::snapshot::rasterize(&settled);
     assert!(
@@ -166,7 +202,9 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
         .map(render::UiTexturePage::identity)
         .collect();
     for now in 1..6 {
-        let frame = presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        let frame = presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
         assert_eq!(
             presentation
                 .form_presentation
@@ -189,7 +227,9 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
 }
 
 /// Replays the captured ModalFormRequest through the packet decoder and UI state.
-fn captured_form() -> Option<crate::ui_runtime::UiRuntime> {
+fn captured_form(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+) -> Option<crate::ui_runtime::UiRuntime> {
     let bytes = std::fs::read(std::env::var_os("CINNABAR_LOBBY_CAPTURE")?).unwrap();
     let mut at = 0;
     while at + 8 <= bytes.len() {
@@ -214,13 +254,16 @@ fn captured_form() -> Option<crate::ui_runtime::UiRuntime> {
         };
         let mut runtime = crate::ui_runtime::UiRuntime::new(1);
         runtime
-            .apply(crate::ui_runtime::SequencedUiEvent {
-                session_id: 1,
-                fifo_sequence: 1,
-                local_millis: 0,
-                server_tick: None,
-                event,
-            })
+            .apply(
+                player_runtime,
+                crate::ui_runtime::SequencedUiEvent {
+                    session_id: 1,
+                    fifo_sequence: 1,
+                    local_millis: 0,
+                    server_tick: None,
+                    event,
+                },
+            )
             .unwrap();
         return Some(runtime);
     }

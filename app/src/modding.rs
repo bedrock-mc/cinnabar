@@ -55,7 +55,12 @@ fn configure(app: &mut App, path: Option<&Path>) {
 }
 
 /// Runs the bounded guest and publishes only its validated presentation output.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Player authority is borrowed separately from UI state."
+)]
 fn drive_mod(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut extension: ResMut<ModRuntime>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -73,7 +78,12 @@ fn drive_mod(
     let focused = windows.single().is_ok_and(|window| window.focused);
     let pressed = keybind_allowed(
         focused,
-        crate::screen_policy::absorbs_input(Some(&ui), menu.as_deref(), Some(&presentation)),
+        crate::screen_policy::absorbs_input(
+            &player_runtime,
+            Some(&ui),
+            menu.as_deref(),
+            Some(&presentation),
+        ),
     ) && keys.just_pressed(DEMO_KEY);
     if extension.host.is_active()
         && let Err(error) = extension.host.frame(pressed)
@@ -123,6 +133,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(presentation)
             .insert_resource(UiRuntime::new(1))
+            .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
             .insert_resource(ButtonInput::<KeyCode>::default());
         let window = app
             .world_mut()
@@ -153,9 +164,14 @@ mod tests {
 
     /// Renders the adapter's retained state without a window or network session.
     fn sample_frame(app: &mut App) -> render::UiRenderInput {
+        let player_runtime = app
+            .world()
+            .resource::<crate::player_runtime::PlayerRuntime>()
+            .clone();
         app.world_mut()
             .resource_mut::<UiPresentationRuntime>()
             .build(
+                &player_runtime,
                 &UiRuntime::new(1),
                 0,
                 [1280, 720],

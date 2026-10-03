@@ -787,3 +787,73 @@ fn review_frozen_mining_target_completes_once_per_catchup_batch() {
     );
     assert_eq!(completions, 1);
 }
+
+/// First-hit destroys publish a local effect without an intermediate cracking frame.
+#[test]
+fn instant_plants_publish_the_carried_destroy_effect_once() {
+    for authority in [Server, Client] {
+        for name in [
+            "minecraft:short_grass",
+            "minecraft:tall_grass",
+            "minecraft:dandelion",
+            "minecraft:torch",
+        ] {
+            let mut runtime = SurvivalMiningRuntime::default();
+            let mut ticker = ticker_with_ticks(1);
+            let plant = target([1, 2, 3], name, None);
+            let payload = held(&mut DestroyMachine::default(), &plant, authority);
+            assert_eq!(payload.wear, None);
+            let (interactions, _) = payload.into_interactions([0.0; 3]);
+            match authority {
+                Server => {
+                    assert_eq!(
+                        interactions
+                            .block_actions
+                            .iter()
+                            .map(|action| action.kind)
+                            .collect::<Vec<_>>(),
+                        [StartDestroy, PredictDestroy]
+                    );
+                    assert!(interactions.block_interaction.is_none());
+                }
+                Client => {
+                    assert_eq!(
+                        interactions
+                            .block_actions
+                            .iter()
+                            .map(|action| action.kind)
+                            .collect::<Vec<_>>(),
+                        [StartDestroy, StopDestroy]
+                    );
+                    assert!(matches!(
+                        interactions.block_interaction,
+                        Some(protocol::BlockItemInteraction::Destroy(_))
+                    ));
+                }
+            }
+            let mut predictions = Vec::new();
+            runtime.step_ticks(
+                &mut ticker,
+                DestroyInput::Held(Some(&plant)),
+                authority,
+                |_| {},
+                |_, _| None,
+                |cell| predictions.push(cell),
+            );
+            assert_eq!(predictions, [[1, 2, 3]]);
+            assert_eq!(
+                runtime.destroying_target(),
+                None,
+                "no crack/hit interval for instant breaks"
+            );
+            assert_eq!(
+                runtime.take_break_cues(),
+                [crate::audio::LocalBlockCue::Break {
+                    position: [1, 2, 3],
+                    block_runtime_id: plant.runtime_id as i32,
+                }]
+            );
+            assert!(runtime.take_break_cues().is_empty());
+        }
+    }
+}

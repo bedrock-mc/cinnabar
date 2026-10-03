@@ -423,6 +423,7 @@ pub(crate) fn press_admission(
 /// Like vanilla's build-action handler, only an open screen or spectator mode ignores the
 /// press; everything else swings.
 pub(crate) fn produce_melee(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     context: MeleeContext,
     mut runtime: ResMut<MeleeRuntime>,
     mut swings: ResMut<SwingTracker>,
@@ -442,8 +443,8 @@ pub(crate) fn produce_melee(
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     if let Err(reason) = press_admission(
-        focused && !context.ui.ui_focused(),
-        context.ui.player_game_mode(),
+        focused && !context.ui.ui_focused(&player_runtime),
+        context.ui.player_game_mode(&player_runtime),
     ) {
         drop(reason);
         runtime.cancel();
@@ -459,10 +460,11 @@ pub(crate) fn produce_melee(
         runtime.defer(input.frame_sequence);
         return;
     }
-    let caps = context.ui.game_mode_capabilities();
+    let caps = context.ui.game_mode_capabilities(&player_runtime);
     let input_mode = protocol_input_mode(input.input_mode);
     let (Some(crosshair), Some(stream)) = (
         resolve_crosshair(
+            &player_runtime,
             &context,
             input_mode,
             caps.map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach),
@@ -486,7 +488,7 @@ pub(crate) fn produce_melee(
         player_position: sample.position,
         input_mode,
         local_runtime_id: stream.local_player_runtime_id(),
-        selection: hand_interaction_selection(&context.ui),
+        selection: hand_interaction_selection(&player_runtime, &context.ui),
         swing_duration: swing_duration(context.effects.mining_effects()),
         now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
     };
@@ -504,6 +506,7 @@ pub(crate) fn produce_melee(
 }
 
 fn resolve_crosshair(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     context: &MeleeContext,
     input_mode: PlayerInputMode,
     attack_reach: f64,
@@ -524,7 +527,7 @@ fn resolve_crosshair(
     let origin = ray.origin().to_array();
     // Vanilla picks against the world it holds, where unreadable space is empty; an
     // unreadable block ray therefore neither blocks the swing nor occludes a target.
-    let observed = hand_interaction_selection(&context.ui).and_then(|selection| {
+    let observed = hand_interaction_selection(player_runtime, &context.ui).and_then(|selection| {
         match observe_block_ray(
             &context.origin,
             &context.ui,

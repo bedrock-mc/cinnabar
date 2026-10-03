@@ -3,7 +3,8 @@ use std::sync::Arc;
 use assets::{NetworkIdMode, RuntimeIconCatalog};
 use bevy::camera::Projection;
 use bevy::prelude::{
-    App, IntoScheduleConfigs, Local, Query, Res, ResMut, Resource, Time, Transform, Update, With,
+    App, IntoScheduleConfigs, Local, MessageReader, Query, Res, ResMut, Resource, Time, Transform,
+    Update, With,
 };
 use client_world::{ActorStatusNotice, CommittedParticleEvent, WorldStream};
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
@@ -377,6 +378,8 @@ fn drive_particles(
     mining: Option<Res<SurvivalMiningRuntime>>,
     mut session: Local<(u64, i32)>,
     mut crack_timer: Local<f32>,
+    mut block_cues: MessageReader<crate::audio::LocalBlockCue>,
+    mut break_echoes: Local<crate::audio::EchoLedger>,
 ) {
     let Some(stream) = client_world.stream.as_ref() else {
         if system.emitter_count() > 0 {
@@ -384,6 +387,7 @@ fn drive_particles(
         }
         inbox.events.clear();
         inbox.notices.clear();
+        block_cues.clear();
         return;
     };
     let Ok((transform, projection)) = cameras.single() else {
@@ -392,6 +396,7 @@ fn drive_particles(
     let identity = (stream.actor_session_id(), stream.current_dimension());
     if *session != identity {
         *session = identity;
+        *break_echoes = crate::audio::EchoLedger::default();
         system.clear();
         inbox.events.retain(|event| event.dimension == identity.1);
     }
@@ -407,15 +412,49 @@ fn drive_particles(
     system.set_camera(view.position);
     system.daylight = atmosphere.daylight();
 
+    // R:CommonGameModeMessenger--e7656654e901:65 emits local destruction before a server echo.
+    // The cue carries the destroyed id because the world already predicts air.
+    for cue in block_cues.read() {
+        if let crate::audio::LocalBlockCue::Break {
+            position,
+            block_runtime_id,
+        } = *cue
+            && break_echoes.admit(
+                crate::audio::EchoOrigin::Client,
+                "break",
+                crate::audio::EchoSubject::Cell(position),
+                crate::audio::BLOCK_ECHO_SECONDS,
+                time.elapsed_secs_f64(),
+            )
+        {
+            spawn_block_break(&mut system, &routing, block_runtime_id, position);
+        }
+    }
     for committed in inbox.events.drain(..) {
         match &committed.event {
-            ParticleEvent::Level(level) => route_level_event(
-                &mut system,
-                &routing,
-                level.event_id,
-                level.position,
-                level.data,
-            ),
+            ParticleEvent::Level(level) => {
+                let breaking = matches!(
+                    classify_level_event(level.event_id, level.data),
+                    Some(LevelParticle::BlockBreak { .. })
+                );
+                if !breaking
+                    || break_echoes.admit(
+                        crate::audio::EchoOrigin::Packet,
+                        "break",
+                        crate::audio::EchoSubject::Cell(floor_cell(level.position)),
+                        crate::audio::BLOCK_ECHO_SECONDS,
+                        time.elapsed_secs_f64(),
+                    )
+                {
+                    route_level_event(
+                        &mut system,
+                        &routing,
+                        level.event_id,
+                        level.position,
+                        level.data,
+                    );
+                }
+            }
             ParticleEvent::Spawn(spawn) => spawn_spawn_packet(&mut system, stream, spawn),
             ParticleEvent::ActorCritical {
                 actor_runtime_id,

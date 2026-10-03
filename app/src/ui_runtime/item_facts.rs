@@ -478,6 +478,8 @@ mod tests {
     // Component names translate as keys or show literally; custom maxima drive the bar.
     #[test]
     fn session_components_name_and_bound_custom_items() {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let mut runtime = crate::ui_runtime::UiRuntime::new(1);
         let input = b"item.zeqa.blade.name=Zeqa Blade\n";
         runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
@@ -504,7 +506,7 @@ mod tests {
             runtime.item_max_durability(Some("minecraft:iron_sword")),
             Some(250)
         );
-        runtime.begin_session(2);
+        runtime.begin_session(&mut player_runtime, 2);
         assert_eq!(runtime.localized_item_name("zeqa:gem"), "Gem");
     }
 

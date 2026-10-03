@@ -41,46 +41,72 @@ fn text_node<'a>(nodes: &'a [DrawNode], wanted: &str) -> Option<&'a DrawNode> {
 }
 
 /// Add an authoritative chat message.
-fn chat(runtime: &mut UiRuntime, sequence: u64, message: &str) {
+fn chat(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    sequence: u64,
+    message: &str,
+) {
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: sequence,
-            local_millis: 0,
-            server_tick: None,
-            event: chat_event(message),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: sequence,
+                local_millis: 0,
+                server_tick: None,
+                event: chat_event(message),
+            },
+        )
         .unwrap();
 }
 
 /// Supply autocomplete results for a command.
-fn suggestions(runtime: &mut UiRuntime, count: usize) {
+fn suggestions(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    count: usize,
+) {
     runtime.insert_chat_text("/").unwrap();
     let request = runtime.take_chat_autocomplete_request().unwrap();
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 100,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::ChatAutocomplete(protocol::ChatAutocompleteEvent {
-                enum_name: Arc::from("commands"),
-                action: protocol::ChatAutocompleteAction::Replace,
-                suggestions: Arc::from(
-                    (0..count)
-                        .map(|index| Arc::from(format!("/give{index}")))
-                        .collect::<Vec<_>>(),
-                ),
-            }),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 100,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::ChatAutocomplete(protocol::ChatAutocompleteEvent {
+                    enum_name: Arc::from("commands"),
+                    action: protocol::ChatAutocompleteAction::Replace,
+                    suggestions: Arc::from(
+                        (0..count)
+                            .map(|index| Arc::from(format!("/give{index}")))
+                            .collect::<Vec<_>>(),
+                    ),
+                }),
+            },
+        )
         .unwrap();
-    assert!(runtime.complete_chat_autocomplete(request));
+    assert!(runtime.complete_chat_autocomplete(player_runtime, request));
 }
 
 /// Lay out one fixed-size gameplay frame.
-fn build(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime, now: u64) {
+fn build(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    presentation: &mut UiPresentationRuntime,
+    runtime: &UiRuntime,
+    now: u64,
+) {
     presentation
-        .build(runtime, now, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            player_runtime,
+            runtime,
+            now,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
 }
 
@@ -94,10 +120,11 @@ fn centre(bounds: ui::UiRect) -> UiPoint {
 }
 
 /// A survival session with an authoritative selected hotbar slot.
-fn gameplay_runtime() -> UiRuntime {
+fn gameplay_runtime(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    runtime.publish_player_game_mode(player_runtime, protocol::PlayerGameMode::Survival);
     runtime.retain_local_selected_equipment(
+        player_runtime,
         1,
         protocol::EquipmentEvent {
             actor_runtime_id: 42,
@@ -113,18 +140,25 @@ fn gameplay_runtime() -> UiRuntime {
 
 #[test]
 fn open_chat_draws_the_java_line_with_history_and_the_hud() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
-    let mut runtime = gameplay_runtime();
-    chat(&mut runtime, 1, "hello from the server");
-    build(&mut presentation, &runtime, 0);
+    let mut runtime = gameplay_runtime(&mut player_runtime);
+    chat(
+        &mut player_runtime,
+        &mut runtime,
+        1,
+        "hello from the server",
+    );
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let closed_history = text_node(presentation.hud_draw_nodes(), "hello from the server")
         .expect("HUD chat before opening")
         .dest;
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("typed").unwrap();
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let nodes = presentation.chat_draw_nodes();
     let shown = texts(nodes);
     assert!(shown.contains(&"hello from the server"), "{shown:?}");
@@ -148,7 +182,7 @@ fn open_chat_draws_the_java_line_with_history_and_the_hud() {
         text_node(presentation.hud_draw_nodes(), "hello from the server")
             .is_none_or(|node| node.alpha <= 0.0)
     );
-    build(&mut presentation, &runtime, 600);
+    build(&player_runtime, &mut presentation, &runtime, 600);
     assert!(
         texts(presentation.chat_draw_nodes()).contains(&"typed"),
         "caret blinks off"
@@ -157,14 +191,21 @@ fn open_chat_draws_the_java_line_with_history_and_the_hud() {
 
 #[test]
 fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    chat(&mut runtime, 1, "history with suggestions");
-    runtime.open_chat();
-    suggestions(&mut runtime, 4);
-    build(&mut presentation, &runtime, 0);
+    chat(
+        &mut player_runtime,
+        &mut runtime,
+        1,
+        "history with suggestions",
+    );
+    runtime.open_chat(&mut player_runtime);
+    suggestions(&mut player_runtime, &mut runtime, 4);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let nodes = presentation.chat_draw_nodes();
     let edit = text_node(nodes, "/|").expect("edit box text");
     assert!(texts(nodes).contains(&"history with suggestions"));
@@ -191,15 +232,22 @@ fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
 
 #[test]
 fn history_opens_on_the_newest_line_and_the_wheel_reveals_older_ones() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
     for sequence in 1..=80 {
-        chat(&mut runtime, sequence, &format!("line {sequence}"));
+        chat(
+            &mut player_runtime,
+            &mut runtime,
+            sequence,
+            &format!("line {sequence}"),
+        );
     }
-    runtime.open_chat();
-    build(&mut presentation, &runtime, 0);
+    runtime.open_chat(&mut player_runtime);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let visible = |presentation: &UiPresentationRuntime, wanted: &str| {
         text_node(presentation.chat_draw_nodes(), wanted)
             .is_some_and(|node| node.clip.h > 0.0 && node.dest.y + node.dest.h > node.clip.y)
@@ -213,17 +261,19 @@ fn history_opens_on_the_newest_line_and_the_wheel_reveals_older_ones() {
     assert!(visible(&presentation, "line 80"));
     assert!(!visible(&presentation, "line 1"));
     presentation.scroll_chat(1_000.0, false);
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(visible(&presentation, "line 1"));
     assert!(!visible(&presentation, "line 80"));
     // A new message jumps back to the newest line.
-    chat(&mut runtime, 81, "line 81");
-    build(&mut presentation, &runtime, 0);
+    chat(&mut player_runtime, &mut runtime, 81, "line 81");
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(visible(&presentation, "line 81"));
 }
 
 #[test]
 fn wheel_input_system_scrolls_the_open_chat() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use bevy::{
         input::mouse::AccumulatedMouseScroll, prelude::*, time::Real, window::PrimaryWindow,
     };
@@ -232,10 +282,15 @@ fn wheel_input_system_scrolls_the_open_chat() {
     };
     let mut runtime = UiRuntime::new(1);
     for sequence in 1..=80 {
-        chat(&mut runtime, sequence, &format!("line {sequence}"));
+        chat(
+            &mut player_runtime,
+            &mut runtime,
+            sequence,
+            &format!("line {sequence}"),
+        );
     }
-    runtime.open_chat();
-    build(&mut presentation, &runtime, 0);
+    runtime.open_chat(&mut player_runtime);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(text_node(presentation.chat_draw_nodes(), "line 1").is_none());
     let mut app = App::new();
     app.init_resource::<Time<Real>>()
@@ -250,6 +305,7 @@ fn wheel_input_system_scrolls_the_open_chat() {
             ..Default::default()
         })
         .insert_resource(runtime)
+        .insert_resource(player_runtime)
         .insert_resource(presentation)
         .add_systems(Update, crate::ui_runtime::drive_chat_ui_actions);
     app.world_mut().spawn((
@@ -260,12 +316,16 @@ fn wheel_input_system_scrolls_the_open_chat() {
         PrimaryWindow,
     ));
     app.update();
+    let player_runtime = app
+        .world_mut()
+        .remove_resource::<crate::player_runtime::PlayerRuntime>()
+        .unwrap();
     let runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
     let mut presentation = app
         .world_mut()
         .remove_resource::<UiPresentationRuntime>()
         .unwrap();
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let oldest = text_node(presentation.chat_draw_nodes(), "line 1").unwrap();
     assert!(oldest.dest.y + oldest.dest.h > oldest.clip.y);
     assert!(oldest.dest.y < oldest.clip.y + oldest.clip.h);
@@ -273,15 +333,17 @@ fn wheel_input_system_scrolls_the_open_chat() {
 
 #[test]
 fn closed_chat_draws_no_screen_and_hits_nothing() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
-    build(&mut presentation, &runtime, 0);
+    runtime.open_chat(&mut player_runtime);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(!presentation.chat_draw_nodes().is_empty());
     runtime.close_chat();
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(presentation.chat_hits().is_empty());
     assert_eq!(
         presentation.hit_test_chat(UiPoint::new(640.0, 700.0).unwrap()),
@@ -291,13 +353,15 @@ fn closed_chat_draws_no_screen_and_hits_nothing() {
 
 #[test]
 fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
         ui_layers: vec![vec![(
             "ui/chat_screen.json".into(),
@@ -308,32 +372,41 @@ fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
         )]],
         ..Default::default()
     });
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(texts(presentation.chat_draw_nodes()).contains(&"Server chat"));
     let menu = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
-    assert!(!presentation.renders_game_behind(&runtime, &menu));
+    assert!(!presentation.renders_game_behind(&player_runtime, &runtime, &menu));
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::super::forms::snapshot::write(&input, "server-chat");
     presentation.set_server_ui_pack(&Default::default());
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(!texts(presentation.chat_draw_nodes()).contains(&"Server chat"));
-    assert!(presentation.renders_game_behind(&runtime, &menu));
-    assert!(presentation.absorbs_gameplay_input(&runtime, &menu));
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
 }
 
 /// Local-only: writes `chat_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
 #[test]
 fn chat_screen_snapshot() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
         return;
     };
-    let mut runtime = gameplay_runtime();
+    let mut runtime = gameplay_runtime(&mut player_runtime);
     for sequence in 1..=12 {
         chat(
+            &mut player_runtime,
             &mut runtime,
             sequence,
             &format!("<Steve> message number {sequence}"),
@@ -346,22 +419,40 @@ fn chat_screen_snapshot() {
         )]],
         ..Default::default()
     });
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("hello world").unwrap();
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::super::forms::snapshot::write(&input, "before-chat_history");
     presentation.set_server_ui_pack(&Default::default());
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::super::forms::snapshot::write(&input, "chat_history");
     runtime.close_chat();
-    runtime.open_chat();
-    suggestions(&mut runtime, 3);
+    runtime.open_chat(&mut player_runtime);
+    suggestions(&mut player_runtime, &mut runtime, 3);
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::super::forms::snapshot::write(&input, "chat_screen");
 }
@@ -369,6 +460,8 @@ fn chat_screen_snapshot() {
 /// The real carrier supplies the gear, popup and persisted controls without a network session.
 #[test]
 fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::menu::{
         MenuAction,
         settings_options::{SETTINGS_OPTIONS, SettingsOptions},
@@ -385,13 +478,19 @@ fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
     {
         runtime.set_lang_catalog(Arc::new(lang));
     }
-    chat(&mut runtime, 1, "Visible chat history");
-    runtime.open_chat();
+    chat(&mut player_runtime, &mut runtime, 1, "Visible chat history");
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("Unsent draft").unwrap();
     let mut options = SettingsOptions::default();
     presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::super::forms::snapshot::write(&input, "settings-chat-before");
     assert!(
@@ -402,7 +501,13 @@ fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
     );
     presentation.set_chat_settings_open(true);
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::super::forms::snapshot::write(&input, "settings-chat-after");
     let hits = presentation.chat_hits();
@@ -424,19 +529,21 @@ fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
     options.set(mute, 1);
     presentation.set_chat_settings_snapshot((Arc::new(options), None));
     presentation.set_chat_settings_open(false);
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(!texts(presentation.chat_draw_nodes()).contains(&"Visible chat history"));
     assert_eq!(runtime.chat_editor().as_str(), "Unsent draft");
 }
 
 #[test]
 fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
     let Some(mut presentation) = native_chat_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
+    runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("draft").unwrap();
     let mut options = SettingsOptions::default();
     let coordinate_option = SETTINGS_OPTIONS
@@ -446,7 +553,7 @@ fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
     options.set(coordinate_option, 1);
     presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));
     presentation.set_chat_coordinates(Some([1.25, 64.0, -3.5]), Some([1, 63, -4]));
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let hits = presentation.chat_hits();
     for expected in [
         ChatHit::CopyCoordinates,
@@ -464,7 +571,7 @@ fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
         Some("1.25 64.00 -3.50")
     );
     presentation.select_chat_coordinates(None);
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     for expected in [
         ChatHit::CoordinateSource(false),
         ChatHit::CoordinateSource(true),
@@ -479,22 +586,28 @@ fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
         );
     }
     presentation.select_chat_coordinates(Some(true));
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert_eq!(
         presentation.chat_coordinate_text().as_deref(),
         Some("1 63 -4")
     );
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     super::super::forms::snapshot::write(&input, "settings-creator-coordinates");
     presentation.chat_coordinates_copied(10);
-    build(&mut presentation, &runtime, 10);
+    build(&player_runtime, &mut presentation, &runtime, 10);
     assert!(texts(presentation.chat_draw_nodes()).contains(&"chat.coordinateCopiedToast"));
-    build(&mut presentation, &runtime, 1000);
+    build(&player_runtime, &mut presentation, &runtime, 1000);
     assert!(!texts(presentation.chat_draw_nodes()).contains(&"chat.coordinateCopiedToast"));
     presentation.set_chat_coordinates(Some([1.25, 64.0, -3.5]), None);
-    build(&mut presentation, &runtime, 1000);
+    build(&player_runtime, &mut presentation, &runtime, 1000);
     assert_eq!(presentation.chat_coordinate_text(), None);
     assert!(
         !presentation
@@ -504,7 +617,7 @@ fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
     );
     options.set(coordinate_option, 0);
     presentation.set_chat_settings_snapshot((Arc::new(options), None));
-    build(&mut presentation, &runtime, 1000);
+    build(&player_runtime, &mut presentation, &runtime, 1000);
     assert!(!presentation.chat_hits().iter().any(|(hit, _)| matches!(
         hit,
         ChatHit::CopyCoordinates | ChatHit::Paste | ChatHit::CoordinateDropdown

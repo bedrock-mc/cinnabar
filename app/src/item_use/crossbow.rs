@@ -45,16 +45,29 @@ impl CrossbowPredictions {
         }
     }
 
-    pub(super) fn selected_projectile(&self, ui: &UiRuntime) -> Option<Option<&'static str>> {
-        let slot = ui.selected_hotbar_slot()?;
-        let stack = ui.selected_stack()?;
-        let revision = ui.inventory_ledger().authoritative_slot_revision(slot)?;
+    pub(super) fn selected_projectile(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        ui: &UiRuntime,
+    ) -> Option<Option<&'static str>> {
+        let slot = ui.selected_hotbar_slot(player_runtime)?;
+        let stack = ui.selected_stack(player_runtime)?;
+        let revision = ui
+            .inventory_ledger(player_runtime)
+            .authoritative_slot_revision(slot)?;
         self.projectile(slot, revision, |item| matches_stack(item, stack))
     }
 
-    pub(super) fn slot_projectile(&self, ui: &UiRuntime, slot: u8) -> Option<Option<&'static str>> {
-        let stack = ui.inventory_ledger().displayed_stack(slot)?;
-        let revision = ui.inventory_ledger().authoritative_slot_revision(slot)?;
+    pub(super) fn slot_projectile(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        ui: &UiRuntime,
+        slot: u8,
+    ) -> Option<Option<&'static str>> {
+        let stack = ui.inventory_ledger(player_runtime).displayed_stack(slot)?;
+        let revision = ui
+            .inventory_ledger(player_runtime)
+            .authoritative_slot_revision(slot)?;
         self.projectile(slot, revision, |item| matches_stack(item, stack))
     }
 
@@ -124,6 +137,7 @@ pub(super) const fn is_crossbow(air_use: Option<AirUse>) -> bool {
 /// `releaseUsing` checks the offhand for either projectile first, then inventory
 /// arrows, and synthesizes an arrow only in creative (09a157e0).
 pub(super) fn loading_projectile(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &client_world::WorldStream,
     ui: &UiRuntime,
     creative: bool,
@@ -142,7 +156,7 @@ pub(super) fn loading_projectile(
     }
     (creative
         || (0..protocol::PLAYER_INVENTORY_SLOTS)
-            .filter_map(|slot| ui.inventory_ledger().displayed_stack(slot))
+            .filter_map(|slot| ui.inventory_ledger(player_runtime).displayed_stack(slot))
             .filter_map(name)
             .any(|identifier| &*identifier == "minecraft:arrow"))
     .then_some("minecraft:arrow")

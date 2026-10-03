@@ -3,11 +3,14 @@ mod actor_animation;
 mod actor_store;
 mod block_entity_visuals;
 mod culling;
+pub mod game_mode_capabilities;
 mod item;
+mod local_player_facts;
 mod server_position;
 mod stream;
 
 pub use culling::CaveVisibilityScratch;
+pub use local_player_facts::{LocalPlayerFacts, LocalPlayerStat};
 pub use render_api::{
     CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE, expand_legacy_skin_rgba8,
 };

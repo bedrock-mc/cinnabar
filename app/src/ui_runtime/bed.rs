@@ -95,13 +95,15 @@ mod tests {
 
     #[test]
     fn sleeping_takes_ui_focus_and_wake_request_is_taken_once() {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let mut runtime = UiRuntime::new(1);
         runtime.request_wake();
         assert!(!runtime.take_wake_request());
 
         runtime.set_local_sleeping(true);
-        assert!(runtime.ui_focused() && !runtime.chat_focused());
-        runtime.open_chat();
+        assert!(runtime.ui_focused(&player_runtime) && !runtime.chat_focused());
+        runtime.open_chat(&mut player_runtime);
         runtime.request_wake();
         assert!(runtime.take_wake_request());
         assert!(!runtime.take_wake_request());

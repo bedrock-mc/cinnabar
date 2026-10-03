@@ -11,6 +11,8 @@ use crate::ui_runtime::presentation::UiPresentationRuntime;
 
 #[test]
 fn player_preview_only_renders_in_the_personal_inventory() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     presentation.set_player_preview_skin(None, Default::default());
     let preview = presentation
@@ -18,10 +20,12 @@ fn player_preview_only_renders_in_the_personal_inventory() {
         .expect("the fixture texture array has room for the player preview");
     presentation.hud_frame_mut().player_preview = Some(preview);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
 
-    let gameplay = build(&mut presentation, &runtime, 0);
+    let gameplay = build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(
         gameplay
             .batches
@@ -30,8 +34,8 @@ fn player_preview_only_renders_in_the_personal_inventory() {
         "ordinary gameplay has no persistent player preview"
     );
 
-    runtime.toggle_inventory();
-    let personal_inventory = build(&mut presentation, &runtime, 0);
+    runtime.toggle_inventory(&mut player_runtime);
+    let personal_inventory = build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(
         personal_inventory
             .batches
@@ -41,9 +45,11 @@ fn player_preview_only_renders_in_the_personal_inventory() {
     );
 
     for (window_id, slot_count) in [(7, 27), (8, 54)] {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
         let mut storage_runtime = UiRuntime::new(1);
         storage_runtime
             .enqueue_inventory_event(
+                &mut player_runtime,
                 1,
                 1,
                 InventoryEvent::Open(ContainerOpenEvent {
@@ -58,8 +64,8 @@ fn player_preview_only_renders_in_the_personal_inventory() {
                 }),
             )
             .unwrap();
-        storage_runtime.drain_pending_inventory();
-        let awaiting_content = build(&mut presentation, &storage_runtime, 0);
+        storage_runtime.drain_pending_inventory(&mut player_runtime);
+        let awaiting_content = build(&player_runtime, &mut presentation, &storage_runtime, 0);
         assert!(
             awaiting_content
                 .batches
@@ -70,6 +76,7 @@ fn player_preview_only_renders_in_the_personal_inventory() {
 
         storage_runtime
             .enqueue_inventory_event(
+                &mut player_runtime,
                 1,
                 2,
                 InventoryEvent::Content(InventoryContentEvent {
@@ -83,8 +90,8 @@ fn player_preview_only_renders_in_the_personal_inventory() {
                 }),
             )
             .unwrap();
-        storage_runtime.drain_pending_inventory();
-        let storage = build(&mut presentation, &storage_runtime, 0);
+        storage_runtime.drain_pending_inventory(&mut player_runtime);
+        let storage = build(&player_runtime, &mut presentation, &storage_runtime, 0);
         assert!(
             storage
                 .batches
@@ -96,12 +103,14 @@ fn player_preview_only_renders_in_the_personal_inventory() {
 }
 
 fn build(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     now_millis: u64,
 ) -> render::UiRenderInput {
     presentation
         .build(
+            player_runtime,
             runtime,
             now_millis,
             [1280, 720],

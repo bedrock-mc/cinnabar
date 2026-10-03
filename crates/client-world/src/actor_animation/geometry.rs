@@ -1,6 +1,20 @@
 use super::{evaluation::Evaluator, *};
 use assets::{EntityControllerAnimationTarget, EntityGeometryBone};
 
+impl<'a> ActorRigSnapshot<'a> {
+    /// Resolves the rig's geometry in its owning vanilla or session-pack catalog.
+    pub fn geometry_source(&self) -> Option<(&'a RuntimeEntityAssets, usize)> {
+        let assets = self.animation_variables.asset_catalog()?;
+        let binding = self
+            .rig
+            .0
+            .checked_sub(assets::PACK_RIG_ID_BASE)
+            .unwrap_or(self.rig.0);
+        let geometry = assets.rig_geometries().get(binding as usize)?.geometry;
+        Some((assets, geometry as usize))
+    }
+}
+
 pub(super) fn resolve_binding(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
@@ -93,6 +107,7 @@ pub(super) fn resolve_binding(
         controllers,
         previous: current.clone(),
         ui_pose: None,
+        ui_animation: None,
         rest: current.clone(),
         rest_completed_tick: 0,
         rest_reset_generation: 0,
@@ -367,6 +382,8 @@ pub(super) fn reselect_geometry(
     state.bones = bones;
     state.bone_names = bone_names;
     state.controllers = controllers;
+    state.ui_pose = None;
+    state.ui_animation = None;
     state.previous = pose.clone();
     state.rest = pose.clone();
     state.current = pose;

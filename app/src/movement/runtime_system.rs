@@ -2,8 +2,8 @@ use std::time::Instant;
 
 use crate::{
     acceptance::AcceptanceRun, camera::AutoFly, local_player::LocalViewPose,
-    runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot,
-    settings_runtime::RuntimeSettings, ui_runtime::UiRuntime,
+    player_runtime::PlayerRuntime, runtime::world::ClientWorld,
+    semantic_controls::SemanticInputSnapshot, settings_runtime::RuntimeSettings,
 };
 use bevy::{
     log::debug,
@@ -43,7 +43,7 @@ pub(crate) fn advance_local_physics(
     mut view: ResMut<LocalViewPose>,
     mut previous_blocker: Local<Option<String>>,
     settings: Option<Res<RuntimeSettings>>,
-    ui: Option<Res<UiRuntime>>,
+    player: Option<Res<PlayerRuntime>>,
     item_use: Option<Res<crate::item_use::ItemUseRuntime>>,
     mut locals: Local<LocomotionLocals>,
 ) {
@@ -76,7 +76,7 @@ pub(crate) fn advance_local_physics(
     let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
     let facts = local_facts::read(
-        ui.as_deref(),
+        player.as_deref(),
         stream,
         item_use
             .as_deref()

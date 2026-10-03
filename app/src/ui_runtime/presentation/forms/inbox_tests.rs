@@ -14,6 +14,7 @@ fn draw_inbox(
     presentation.set_menu_view(Some(view.clone()));
     presentation
         .build(
+            &crate::player_runtime::PlayerRuntime::new(1),
             &UiRuntime::new(1),
             0,
             [1280, 720],
@@ -70,6 +71,7 @@ fn inbox_categories_keep_independent_scroll_positions() {
 
 #[test]
 fn inbox_rows_ellipsize_titles_and_omit_the_body_summary() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
@@ -91,7 +93,13 @@ fn inbox_rows_ellipsize_titles_and_omit_the_body_summary() {
     for size in [[1280, 720], [800, 600]] {
         presentation.set_menu_view(Some(view.clone()));
         let frame = presentation
-            .build(&UiRuntime::new(1), 0, size, DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &UiRuntime::new(1),
+                0,
+                size,
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         let nodes = pack_harness::menu_nodes(&presentation);
         let mut rows = 0;

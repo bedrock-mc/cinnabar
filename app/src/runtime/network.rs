@@ -154,19 +154,21 @@ pub(crate) enum EquipmentIngress {
 }
 
 pub(crate) fn publish_equipment_identity(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     session_id: u64,
     runtime_id: u64,
 ) -> Result<Vec<EquipmentIngress>, InventoryRouterError> {
     let routes = runtime
-        .publish_local_runtime_id(session_id, runtime_id)?
+        .publish_local_runtime_id(player_runtime, session_id, runtime_id)?
         .into_iter()
-        .map(|route| consume_equipment_route(runtime, session_id, route))
+        .map(|route| consume_equipment_route(player_runtime, runtime, session_id, route))
         .collect();
     Ok(routes)
 }
 
 pub(crate) fn route_equipment_ingress(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     sequenced: session::SequencedWorldEvent,
 ) -> Result<EquipmentIngress, InventoryRouterError> {
@@ -174,15 +176,19 @@ pub(crate) fn route_equipment_ingress(
     let WorldEvent::Equipment(event) = sequenced.event else {
         unreachable!("equipment routing accepts only equipment world events")
     };
-    match runtime.route_equipment(session_id, sequenced.sequence, event)? {
+    match runtime.route_equipment(player_runtime, session_id, sequenced.sequence, event)? {
         EquipmentRouteResult::Buffered => Ok(EquipmentIngress::Buffered),
-        EquipmentRouteResult::Routed(route) => {
-            Ok(consume_equipment_route(runtime, session_id, route))
-        }
+        EquipmentRouteResult::Routed(route) => Ok(consume_equipment_route(
+            player_runtime,
+            runtime,
+            session_id,
+            route,
+        )),
     }
 }
 
 fn consume_equipment_route(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     session_generation: u64,
     route: EquipmentRoute,
@@ -192,7 +198,7 @@ fn consume_equipment_route(
             fifo_sequence,
             event,
         } => {
-            runtime.retain_local_selected_equipment(fifo_sequence, event);
+            runtime.retain_local_selected_equipment(player_runtime, fifo_sequence, event);
             EquipmentIngress::CommitOnly { fifo_sequence }
         }
         EquipmentRoute::ActorPresentation {
@@ -211,6 +217,7 @@ fn consume_equipment_route(
 // shared publication allowance into each newly created world stream.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_network_events(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut network: ResMut<NetworkHandle>,
     mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
     mut pack_reload: Option<ResMut<PackReload>>,
@@ -293,8 +300,8 @@ pub(crate) fn receive_network_events(
                     }
                 }
                 ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode();
-                ui_runtime.clear_local_abilities();
+                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
+                ui_runtime.clear_local_abilities(&mut player_runtime);
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
@@ -313,12 +320,17 @@ pub(crate) fn receive_network_events(
                     time.elapsed_secs_f64(),
                 );
                 bind_session_generation(&mut clock, &mut weather, session_generation);
-                ui_runtime.begin_session(session_generation);
+                ui_runtime.begin_session(&mut player_runtime, session_generation);
                 movement_effects.begin_session(session_generation);
                 movement_speed.begin_session(session_generation, bootstrap.dimension);
                 item_diagnostics::session_registry(item_registry.as_ref());
                 let world_item_registry = item_registry.clone();
-                if !publish_bootstrap_inventory(&mut ui_runtime, item_registry, inventory) {
+                if !publish_bootstrap_inventory(
+                    &mut player_runtime,
+                    &mut ui_runtime,
+                    item_registry,
+                    inventory,
+                ) {
                     record_fatal_error(
                         &mut client_world.fatal_error,
                         "StartGame inventory fanout was not an authority event".to_owned(),
@@ -331,6 +343,7 @@ pub(crate) fn receive_network_events(
                 resource_pack_admission.replace_for_generation(session_generation, packs.admission);
                 ui_runtime.experiences.marker = packs.extension_marker;
                 ui_runtime.publish_bootstrap_game_modes(
+                    &mut player_runtime,
                     player_game_mode,
                     world_default_game_mode,
                     player_game_mode_uses_world_default,
@@ -476,6 +489,7 @@ pub(crate) fn receive_network_events(
                 client_world.pending_surface_spawn = resolved.surface_anchor;
                 client_world.stream = Some(stream);
                 let routed = match publish_equipment_identity(
+                    &mut player_runtime,
                     &mut ui_runtime,
                     session_generation,
                     bootstrap.local_player_runtime_id,
@@ -539,12 +553,14 @@ pub(crate) fn receive_network_events(
                 );
                 crate::audio::publish_server_sounds(packs.server_sounds);
                 ui_runtime.install_block_breaking_mode(
+                    &mut player_runtime,
                     session_generation,
                     server_authoritative_block_breaking,
                     client_world.fatal_error.is_none(),
                 );
                 if let Some(stream) = client_world.stream.as_ref() {
                     ui_runtime.bind_local_abilities(
+                        &mut player_runtime,
                         session_generation,
                         stream.biome_tint_identity().stream(),
                         bootstrap.local_player_unique_id,
@@ -632,8 +648,8 @@ pub(crate) fn receive_network_events(
                     reload.end_session();
                 }
                 ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode();
-                ui_runtime.clear_local_abilities();
+                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
+                ui_runtime.clear_local_abilities(&mut player_runtime);
                 // Only a receive-side termination is a remote-initiated close;
                 // latch it while the ticker still reports the live session.
                 if origin == NetworkFailureOrigin::Receive {
@@ -660,8 +676,8 @@ pub(crate) fn receive_network_events(
                     reload.end_session();
                 }
                 ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode();
-                ui_runtime.clear_local_abilities();
+                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
+                ui_runtime.clear_local_abilities(&mut player_runtime);
                 // The client chose to end this session, so this is not a
                 // remote-initiated transport failure and must not latch the
                 // remote-close movement classification.
@@ -683,8 +699,8 @@ pub(crate) fn receive_network_events(
                     reload.end_session();
                 }
                 ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode();
-                ui_runtime.clear_local_abilities();
+                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
+                ui_runtime.clear_local_abilities(&mut player_runtime);
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
@@ -809,7 +825,7 @@ pub(crate) fn receive_network_events(
             continue;
         };
         let sequenced = if matches!(&sequenced.event, WorldEvent::Equipment(_)) {
-            match route_equipment_ingress(&mut ui_runtime, sequenced) {
+            match route_equipment_ingress(&mut player_runtime, &mut ui_runtime, sequenced) {
                 Ok(EquipmentIngress::ActorPresentation(sequenced)) => *sequenced,
                 Ok(EquipmentIngress::CommitOnly { fifo_sequence }) => {
                     if let Err(error) = stream.commit(fifo_sequence) {
@@ -830,16 +846,17 @@ pub(crate) fn receive_network_events(
                 }
             }
         } else if matches!(&sequenced.event, WorldEvent::Inventory(_)) {
-            let commit_sequence = match route_inventory_ingress(&mut ui_runtime, sequenced) {
-                Ok(sequence) => sequence,
-                Err(error) => {
-                    record_fatal_error(
-                        &mut client_world.fatal_error,
-                        format!("inventory ingress rejected: {error:?}"),
-                    );
-                    continue;
-                }
-            };
+            let commit_sequence =
+                match route_inventory_ingress(&mut player_runtime, &mut ui_runtime, sequenced) {
+                    Ok(sequence) => sequence,
+                    Err(error) => {
+                        record_fatal_error(
+                            &mut client_world.fatal_error,
+                            format!("inventory ingress rejected: {error:?}"),
+                        );
+                        continue;
+                    }
+                };
             if let Err(error) = stream.commit(commit_sequence) {
                 record_fatal_error(
                     &mut client_world.fatal_error,
@@ -851,7 +868,8 @@ pub(crate) fn receive_network_events(
             if matches!(
                 &sequenced.event,
                 WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(_))
-            ) && let Err(error) = route_item_registry_ingress(&mut ui_runtime, &sequenced)
+            ) && let Err(error) =
+                route_item_registry_ingress(&mut player_runtime, &mut ui_runtime, &sequenced)
             {
                 record_fatal_error(
                     &mut client_world.fatal_error,

@@ -424,6 +424,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
 }
 
 pub(crate) fn produce_block_use(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
@@ -432,11 +433,11 @@ pub(crate) fn produce_block_use(
     runtime.synchronize(movement.interaction_authority_identity());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
-    let game_mode = context.ui.player_game_mode();
-    let caps = context.ui.game_mode_capabilities();
+    let game_mode = context.ui.player_game_mode(&player_runtime);
+    let caps = context.ui.game_mode_capabilities(&player_runtime);
     let Some((input, caps)) = context.input.snapshot().zip(caps).filter(|(input, caps)| {
         focused
-            && !context.ui.ui_focused()
+            && !context.ui.ui_focused(&player_runtime)
             && caps.can_use_blocks()
             && input.input_mode != semantic_input::InputMode::Touch
             && movement.accepts_block_interactions()
@@ -478,6 +479,7 @@ pub(crate) fn produce_block_use(
     let input_mode = protocol_input_mode(input.input_mode);
     let (Some(observed), Some(stream)) = (
         observe_use_target(
+            &player_runtime,
             &context,
             input_mode,
             clock.survival,
@@ -767,6 +769,7 @@ fn use_surroundings(
 }
 
 fn observe_use_target(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     context: &BlockUseContext,
     input_mode: PlayerInputMode,
     survival: bool,
@@ -783,7 +786,7 @@ fn observe_use_target(
         &context.ui,
         &context.client_world,
         &context.collisions,
-        verified_use_selection(&context.ui)?,
+        verified_use_selection(player_runtime, &context.ui)?,
         (
             input_mode,
             reach,
@@ -795,15 +798,18 @@ fn observe_use_target(
 }
 
 /// The selected stack, only while no inventory request or hotbar change is in flight.
-pub(crate) fn verified_use_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
-    let ledger = ui.inventory_ledger();
+pub(crate) fn verified_use_selection(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    ui: &UiRuntime,
+) -> Option<FrozenMiningSelection> {
+    let ledger = ui.inventory_ledger(player_runtime);
     if ledger.pending_request_id().is_some()
         || ledger.resync_required()
-        || ui.pending_hotbar_selection().is_some()
+        || ui.pending_hotbar_selection(player_runtime).is_some()
     {
         return None;
     }
-    verified_selection(ui)
+    verified_selection(player_runtime, ui)
 }
 
 #[cfg(test)]

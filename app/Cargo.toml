@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+inventory = { path = "../crates/inventory" }
 bytes.workspace = true
 anyhow.workspace = true
 arboard = { version = "3", default-features = false }

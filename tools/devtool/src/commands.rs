@@ -50,14 +50,14 @@ pub fn verification_commands(
                     Selection::NoPackages => false,
                 }
         })
-        .flat_map(|package| ["-p".into(), package.name.clone()])
+        .flat_map(|package| ["-p".into(), package.cargo_id.clone()])
         .collect();
     let mut commands = vec![
         CommandSpec::cargo(&["fmt", "--all", "--", "--check"]),
         CommandSpec::cargo(&[
             "run",
             "-p",
-            "architecture",
+            package_spec("architecture", packages),
             "--locked",
             "--",
             "check",
@@ -82,10 +82,10 @@ pub fn verification_commands(
                 "warnings",
             ]));
         }
-        Selection::Packages(packages) => {
-            let mut filters = Vec::with_capacity(packages.len() * 2);
-            for package in packages {
-                filters.extend(["-p".into(), package.clone()]);
+        Selection::Packages(names) => {
+            let mut filters = Vec::with_capacity(names.len() * 2);
+            for name in names {
+                filters.extend(["-p".into(), package_spec(name, packages).to_owned()]);
             }
             let mut check = vec!["check".into(), "--locked".into()];
             check.extend(filters.clone());
@@ -109,6 +109,14 @@ pub fn verification_commands(
         }
     }
     commands
+}
+
+/// Uses Cargo's exact workspace identity so a registry package with the same name is unambiguous.
+fn package_spec<'a>(name: &'a str, packages: &'a [Package]) -> &'a str {
+    packages
+        .iter()
+        .find(|package| package.name == name)
+        .map_or(name, |package| package.cargo_id.as_str())
 }
 
 /// Adds the selected test runner and only the doctests enabled by package metadata.
@@ -210,6 +218,7 @@ mod tests {
             &Selection::Packages(vec!["world".into()]),
             TestRunner::Nextest,
             &[crate::Package::from_owned(
+                "world".into(),
                 "world".into(),
                 "crates/world".into(),
                 vec![],

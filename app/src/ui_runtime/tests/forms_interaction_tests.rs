@@ -108,10 +108,13 @@ fn production_system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M
         .unwrap()
 }
 
-fn app() -> (App, Entity) {
-    app_for(false)
+fn app(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> (App, Entity) {
+    app_for(player_runtime, false)
 }
-fn app_for(unsupported: bool) -> (App, Entity) {
+fn app_for(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    unsupported: bool,
+) -> (App, Entity) {
     let mut app = App::new();
     let mut menu = MenuRuntime::new(true, 2, "Test".into());
     menu.set_visible(false);
@@ -120,10 +123,16 @@ fn app_for(unsupported: bool) -> (App, Entity) {
     if unsupported && let protocol::UiEvent::Form(form) = &mut event.event {
         form.model = protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls);
     }
-    runtime.apply(event).unwrap();
+    runtime.apply(player_runtime, event).unwrap();
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     app.add_message::<KeyboardInput>()
         .add_message::<MouseWheel>()
@@ -134,6 +143,7 @@ fn app_for(unsupported: bool) -> (App, Entity) {
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<MenuClipboard>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .insert_resource(menu)
         .add_systems(
@@ -174,13 +184,15 @@ fn press(app: &mut App, entity: Entity, key: KeyCode) {
 
 #[test]
 fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     for (action, unsupported) in [
         (KeyCode::Enter, false),
         (KeyCode::Escape, false),
         (KeyCode::Enter, true),
         (KeyCode::Escape, true),
     ] {
-        let (mut app, entity) = app_for(unsupported);
+        let (mut app, entity) = app_for(&mut player_runtime, unsupported);
         for key in [KeyCode::KeyT, KeyCode::KeyE, KeyCode::KeyW, action] {
             press(&mut app, entity, key);
         }
@@ -190,7 +202,7 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
         app.update();
         let runtime = app.world().resource::<UiRuntime>();
         assert!(
-            runtime.ui_focused(),
+            runtime.ui_focused(&player_runtime),
             "transition-frame pending answer owns semantic context"
         );
         assert!(!runtime.chat_focused());
@@ -218,7 +230,11 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
         .unwrap();
         assert_eq!(packets.len(), 1);
         app.update(); // returns cursor ownership without replaying old messages
-        assert!(!app.world().resource::<UiRuntime>().ui_focused());
+        assert!(
+            !app.world()
+                .resource::<UiRuntime>()
+                .ui_focused(&player_runtime)
+        );
         assert!(!app.world().resource::<MenuRuntime>().is_visible());
         press(&mut app, entity, KeyCode::KeyT);
         app.update();
@@ -231,7 +247,9 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
 
 #[test]
 fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index() {
-    let (mut app, entity) = app();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let (mut app, entity) = app(&mut player_runtime);
     press(&mut app, entity, KeyCode::ArrowDown);
     app.update();
     assert_eq!(
@@ -266,8 +284,10 @@ fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index
 
 #[test]
 fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     for stale in [false, true] {
-        let (mut app, entity) = app();
+        let (mut app, entity) = app(&mut player_runtime);
         let point = ui::UiPoint::new(640.0, 156.0).unwrap();
         let hit = app
             .world()
@@ -278,7 +298,7 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
         if stale {
             app.world_mut()
                 .resource_mut::<UiRuntime>()
-                .apply(retained(7, 2))
+                .apply(&mut player_runtime, retained(7, 2))
                 .unwrap();
         }
         app.world_mut()
@@ -312,7 +332,9 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
 
 #[test]
 fn enter_reveals_a_hidden_button_before_it_can_submit() {
-    let (mut app, entity) = app();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let (mut app, entity) = app(&mut player_runtime);
     let mut event = retained(7, 2);
     if let protocol::UiEvent::Form(form) = &mut event.event
         && let protocol::ServerFormModel::TextMenu(menu) = &mut form.model
@@ -321,10 +343,16 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
         menu.omitted_images = 1;
     }
     let mut runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
-    runtime.apply(event).unwrap();
+    runtime.apply(&mut player_runtime, event).unwrap();
     app.world_mut()
         .resource_mut::<UiPresentationRuntime>()
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     assert!(
@@ -340,7 +368,13 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
     assert!(runtime.server_forms().scroll() > 0);
     app.world_mut()
         .resource_mut::<UiPresentationRuntime>()
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     assert!(
         app.world()
@@ -362,12 +396,16 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
 // index, on a HiDPI window whose cursor reports logical pixels.
 #[test]
 fn clicking_an_engine_drawn_button_answers_its_index() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::ui_runtime::presentation::forms::{pack_harness, tests::mini_engine_presentation};
     use bevy::input::mouse::MouseButtonInput;
-    let runtime = pack_harness::action_form("Menu", &["A", "B", "C"]);
+    let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let mut presentation = mini_engine_presentation();
     let (physical, dpi) = ([2560, 1440], ui::DpiScale::new(2.0).unwrap());
-    presentation.build(&runtime, 0, physical, dpi).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, physical, dpi)
+        .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap();
     let hit = frame
@@ -387,6 +425,7 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {
@@ -440,13 +479,16 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
 fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
     use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
-    let runtime = pack_harness::action_form("Menu", &["A", "B", "C"]);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     // Vanilla's form screen carries the real key mappings; skipped without the installed pack.
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
     let (physical, dpi) = ([2560, 1440], ui::DpiScale::new(2.0).unwrap());
-    presentation.build(&runtime, 0, physical, dpi).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, physical, dpi)
+        .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap();
     let hit = frame
@@ -466,6 +508,7 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime)
         .insert_resource(presentation)
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {
@@ -512,9 +555,12 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
-    let runtime = pack_harness::action_form("Menu", &["A", "B", "C"]);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let (physical, dpi) = ([1280, 720], ui::DpiScale::new(1.0).unwrap());
-    presentation.build(&runtime, 0, physical, dpi).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, physical, dpi)
+        .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap();
     let hit = frame
@@ -534,6 +580,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime)
         .insert_resource(presentation)
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {
@@ -577,34 +624,41 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     // The server's next page arrives while the button is still held.
     app.world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
+            let mut player_runtime = world
+                .remove_resource::<crate::player_runtime::PlayerRuntime>()
+                .unwrap();
             runtime
-                .apply(SequencedUiEvent {
-                    session_id: 1,
-                    fifo_sequence: 2,
-                    local_millis: 0,
-                    server_tick: None,
-                    event: UiEvent::Form(FormRequestEvent {
-                        form_id: 4,
-                        kind: FormKind::Menu,
-                        title: Some(Arc::from("Next")),
-                        json: Arc::from("{}"),
-                        model: ServerFormModel::TextMenu(TextMenuForm {
-                            title: Arc::from("Next"),
-                            content: Arc::from(""),
-                            buttons: ["A", "B", "C"]
-                                .iter()
-                                .map(|text| Arc::from(*text))
-                                .collect(),
-                            button_images: Vec::new().into(),
-                            omitted_images: 0,
+                .apply(
+                    &mut player_runtime,
+                    SequencedUiEvent {
+                        session_id: 1,
+                        fifo_sequence: 2,
+                        local_millis: 0,
+                        server_tick: None,
+                        event: UiEvent::Form(FormRequestEvent {
+                            form_id: 4,
+                            kind: FormKind::Menu,
+                            title: Some(Arc::from("Next")),
+                            json: Arc::from("{}"),
+                            model: ServerFormModel::TextMenu(TextMenuForm {
+                                title: Arc::from("Next"),
+                                content: Arc::from(""),
+                                buttons: ["A", "B", "C"]
+                                    .iter()
+                                    .map(|text| Arc::from(*text))
+                                    .collect(),
+                                button_images: Vec::new().into(),
+                                omitted_images: 0,
+                            }),
                         }),
-                    }),
-                })
+                    },
+                )
                 .unwrap();
             world
                 .resource_mut::<UiPresentationRuntime>()
-                .build(&runtime, 16, physical, dpi)
+                .build(&player_runtime, &runtime, 16, physical, dpi)
                 .unwrap();
+            world.insert_resource(player_runtime);
         });
     app.update();
     send(&mut app, ButtonState::Released);
@@ -618,12 +672,20 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
 // With no form open, a left click stays gameplay's: the form input system never swallows it.
 #[test]
 fn a_click_without_a_form_reaches_gameplay() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use bevy::input::mouse::MouseButtonInput;
     let mut app = App::new();
     let runtime = UiRuntime::new(1);
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     app.add_message::<KeyboardInput>()
         .add_message::<MouseWheel>()
@@ -632,6 +694,7 @@ fn a_click_without_a_form_reaches_gameplay() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .add_systems(Update, drive_server_form_input);
     let entity = app
@@ -665,6 +728,8 @@ fn a_click_without_a_form_reaches_gameplay() {
 // A custom form's toggle and edit box keep their values through the mapping dispatcher.
 #[test]
 fn custom_form_toggle_and_input_edit_their_values() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::ui_runtime::forms::FormValue;
     use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
@@ -676,39 +741,44 @@ fn custom_form_toggle_and_input_edit_their_values() {
     };
     let mut runtime = UiRuntime::new(1);
     runtime
-        .apply(crate::ui_runtime::SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Form(FormRequestEvent {
-                form_id: 3,
-                kind: protocol::FormKind::Custom,
-                title: Some(Arc::from("T")),
-                json: Arc::from("{}"),
-                model: ServerFormModel::Custom(CustomForm {
-                    title: Arc::from("T"),
-                    elements: vec![
-                        CustomFormElement::Toggle {
-                            text: Arc::from("On"),
-                            default: false,
-                            tooltip: None,
-                        },
-                        CustomFormElement::Input {
-                            text: Arc::from("Name"),
-                            placeholder: Arc::from(""),
-                            default: Arc::from(""),
-                            tooltip: None,
-                        },
-                    ]
-                    .into(),
-                    submit: None,
+        .apply(
+            &mut player_runtime,
+            crate::ui_runtime::SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Form(FormRequestEvent {
+                    form_id: 3,
+                    kind: protocol::FormKind::Custom,
+                    title: Some(Arc::from("T")),
+                    json: Arc::from("{}"),
+                    model: ServerFormModel::Custom(CustomForm {
+                        title: Arc::from("T"),
+                        elements: vec![
+                            CustomFormElement::Toggle {
+                                text: Arc::from("On"),
+                                default: false,
+                                tooltip: None,
+                            },
+                            CustomFormElement::Input {
+                                text: Arc::from("Name"),
+                                placeholder: Arc::from(""),
+                                default: Arc::from(""),
+                                tooltip: None,
+                            },
+                        ]
+                        .into(),
+                        submit: None,
+                    }),
                 }),
-            }),
-        })
+            },
+        )
         .unwrap();
     let (physical, dpi) = ([2560, 1440], ui::DpiScale::new(2.0).unwrap());
-    presentation.build(&runtime, 0, physical, dpi).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, physical, dpi)
+        .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap().clone();
     let centre = |kind: HitKind| {
@@ -726,6 +796,7 @@ fn custom_form_toggle_and_input_edit_their_values() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {

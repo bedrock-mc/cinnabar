@@ -62,6 +62,7 @@ fn section(variable: &str) {
 
 /// Render a section after adjusting the menu view, such as opening a dropdown.
 fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu::MenuView)) {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
     if variable == "storage_management_forced_index" {
         menu.activate(crate::menu::MenuAction::SettingsSection(
@@ -78,7 +79,7 @@ fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu
         .find_map(|(name, index)| (*name == variable).then_some(*index))
         .expect("known settings section");
     adjust(&mut view);
-    super::play_flow_snapshots::snapshot(&view, name);
+    super::play_flow_snapshots::snapshot(&player_runtime, &view, name);
 }
 
 #[test]
@@ -152,6 +153,8 @@ fn settings_language() {
 // Every row of an open settings dropdown is its own click target for its own choice.
 #[test]
 fn open_graphics_mode_rows_select_their_own_choice() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
         return;
     };
@@ -169,6 +172,7 @@ fn open_graphics_mode_rows_select_their_own_choice() {
     presentation.set_menu_view(Some(view));
     presentation
         .build(
+            &player_runtime,
             &crate::ui_runtime::UiRuntime::new(1),
             0,
             [1280, 720],
@@ -191,6 +195,8 @@ fn open_graphics_mode_rows_select_their_own_choice() {
 
 #[test]
 fn settings_video_graphics_options_pack_before() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
     view.screen = MenuScreen::Settings;
     view.settings_section = super::menu_screens::SETTINGS_SECTIONS
@@ -199,7 +205,11 @@ fn settings_video_graphics_options_pack_before() {
         .unwrap();
     simple_graphics(&mut view);
     view.settings_advanced_graphics = true;
-    super::play_flow_snapshots::snapshot_vanilla(&view, "settings-video-pack-before");
+    super::play_flow_snapshots::snapshot_vanilla(
+        &player_runtime,
+        &view,
+        "settings-video-pack-before",
+    );
 }
 
 #[test]

@@ -33,29 +33,31 @@ impl Default for StorageIcons {
 impl HudLayout<'_> {
     pub(super) fn inventory_screen(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> Result<(), UiPresentationError> {
-        let screen = InventoryScreen::of_runtime(runtime);
+        let screen = InventoryScreen::of_runtime(player_runtime, runtime);
         // The container-routing setting hands the screens the engine lays out to JSON-UI.
         if frame.engine_containers
-            && crate::ui_runtime::presentation::forms::engine_screen_for(runtime)
+            && crate::ui_runtime::presentation::forms::engine_screen_for(player_runtime, runtime)
         {
             return Ok(());
         }
         match screen {
             InventoryScreen::Window(kind, cells) => {
-                self.window_screen(runtime, frame, kind, cells)?
+                self.window_screen(player_runtime, runtime, frame, kind, cells)?
             }
-            InventoryScreen::Creative => self.creative_screen(runtime, frame)?,
+            InventoryScreen::Creative => self.creative_screen(player_runtime, runtime, frame)?,
             InventoryScreen::Book => return self.book_screen(runtime, frame),
-            _ => self.classic_screen(runtime, frame, screen)?,
+            _ => self.classic_screen(player_runtime, runtime, frame, screen)?,
         }
-        self.inventory_overlays(runtime, frame, screen)
+        self.inventory_overlays(player_runtime, runtime, frame, screen)
     }
 
     fn classic_screen(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         screen: InventoryScreen,
@@ -64,7 +66,7 @@ impl HudLayout<'_> {
             WORKBENCH_GRID, WORKBENCH_OUTPUT,
         };
         if let InventoryScreen::Storage(slot_count) = screen {
-            return self.storage_screen(runtime, frame, slot_count);
+            return self.storage_screen(player_runtime, runtime, frame, slot_count);
         }
         let g = self.geometry;
         self.solid_gui([0.0, 0.0], [g.gui_width, g.gui_height], [0, 0, 0, 150])?;
@@ -77,14 +79,22 @@ impl HudLayout<'_> {
         if screen == InventoryScreen::Workbench {
             let title = frame.window_text.title.as_deref().unwrap_or("Crafting");
             self.inventory_label(title, [origin[0] + 28.0, origin[1] + 6.0])?;
-            self.crafting_cells(runtime, frame, origin, WORKBENCH_GRID, 3, WORKBENCH_OUTPUT)?;
-            self.player_cells(runtime, frame, origin)?;
+            self.crafting_cells(
+                player_runtime,
+                runtime,
+                frame,
+                origin,
+                WORKBENCH_GRID,
+                3,
+                WORKBENCH_OUTPUT,
+            )?;
+            self.player_cells(player_runtime, runtime, frame, origin)?;
             self.recipe_book(runtime, frame, screen, origin)?;
-            return self.carried_item(runtime, frame);
+            return self.carried_item(player_runtime, runtime, frame);
         }
 
         // Armor, paper doll, offhand, and the 2x2 personal crafting grid.
-        let armor = runtime.local_armor();
+        let armor = runtime.local_armor(player_runtime);
         let worn = [
             &armor.helmet,
             &armor.chestplate,
@@ -104,7 +114,10 @@ impl HudLayout<'_> {
             }
         }
         self.player_box([origin[0] + 26.0, origin[1] + 8.0], [51.0, 72.0])?;
-        if runtime.inventory_ledger().storage_generation().is_none()
+        if runtime
+            .inventory_ledger(player_runtime)
+            .storage_generation()
+            .is_none()
             && let Some(preview) = frame.player_preview
         {
             self.inventory_preview(preview, [origin[0] + 30.0, origin[1] + 10.0])?;
@@ -126,15 +139,28 @@ impl HudLayout<'_> {
             )?;
         }
 
-        self.crafting_cells(runtime, frame, origin, [98.0, 18.0], 2, [152.0, 28.0])?;
-        self.player_cells(runtime, frame, origin)?;
+        self.crafting_cells(
+            player_runtime,
+            runtime,
+            frame,
+            origin,
+            [98.0, 18.0],
+            2,
+            [152.0, 28.0],
+        )?;
+        self.player_cells(player_runtime, runtime, frame, origin)?;
         self.recipe_book(runtime, frame, screen, origin)?;
-        self.carried_item(runtime, frame)
+        self.carried_item(player_runtime, runtime, frame)
     }
 
     /// One crafting grid, its arrow and the previewed output cell.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Player authority is borrowed separately from UI state."
+    )]
     fn crafting_cells(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         origin: [f32; 2],
@@ -152,7 +178,10 @@ impl HudLayout<'_> {
             let target = crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(
                 first_slot + index as u8,
             );
-            if let Some(stack) = runtime.inventory_ledger().target_stack(target) {
+            if let Some(stack) = runtime
+                .inventory_ledger(player_runtime)
+                .target_stack(target)
+            {
                 self.inventory_item(
                     frame.crafting.icons[index],
                     slot,
@@ -181,6 +210,7 @@ impl HudLayout<'_> {
 
     fn player_cells(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         origin: [f32; 2],
@@ -195,7 +225,7 @@ impl HudLayout<'_> {
                 ];
                 self.inventory_slot(slot)?;
                 if let Some(stack) = runtime
-                    .inventory_ledger()
+                    .inventory_ledger(player_runtime)
                     .displayed_stack(inventory_index as u8)
                 {
                     self.inventory_item(
@@ -206,7 +236,7 @@ impl HudLayout<'_> {
                     )?;
                 }
                 if runtime
-                    .inventory_ledger()
+                    .inventory_ledger(player_runtime)
                     .slot_pending(inventory_index as u8)
                 {
                     self.solid_gui(
@@ -223,7 +253,10 @@ impl HudLayout<'_> {
                 origin[1] + 142.0,
             ];
             self.inventory_slot(slot)?;
-            if let Some(stack) = runtime.inventory_ledger().displayed_stack(column as u8) {
+            if let Some(stack) = runtime
+                .inventory_ledger(player_runtime)
+                .displayed_stack(column as u8)
+            {
                 self.inventory_item(
                     frame.inventory_icons.0[column],
                     slot,
@@ -231,7 +264,10 @@ impl HudLayout<'_> {
                     frame.durability.player[column],
                 )?;
             }
-            if runtime.inventory_ledger().slot_pending(column as u8) {
+            if runtime
+                .inventory_ledger(player_runtime)
+                .slot_pending(column as u8)
+            {
                 self.solid_gui(
                     [slot[0] + 1.0, slot[1] + 1.0],
                     [16.0, 16.0],
@@ -245,11 +281,12 @@ impl HudLayout<'_> {
     /// Draws the carried stack over every crafting and recipe-book surface.
     fn carried_item(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> Result<(), UiPresentationError> {
         if let (Some(stack), Some(pointer)) = (
-            runtime.inventory_ledger().cursor_stack(),
+            runtime.inventory_ledger(player_runtime).cursor_stack(),
             runtime.inventory_pointer_gui(),
         ) {
             self.inventory_item(
@@ -264,6 +301,7 @@ impl HudLayout<'_> {
 
     fn storage_screen(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         slot_count: usize,
@@ -285,7 +323,10 @@ impl HudLayout<'_> {
                 origin[1] + 18.0 + (index / 9) as f32 * SLOT_SIZE,
             ];
             self.inventory_slot(slot)?;
-            if let Some(stack) = runtime.inventory_ledger().storage_stack(index as u8) {
+            if let Some(stack) = runtime
+                .inventory_ledger(player_runtime)
+                .storage_stack(index as u8)
+            {
                 self.inventory_item(
                     frame.storage_icons.0[index],
                     slot,
@@ -293,7 +334,10 @@ impl HudLayout<'_> {
                     frame.durability.storage[index],
                 )?;
             }
-            if runtime.inventory_ledger().storage_slot_pending(index as u8) {
+            if runtime
+                .inventory_ledger(player_runtime)
+                .storage_slot_pending(index as u8)
+            {
                 self.solid_gui(
                     [slot[0] + 1.0, slot[1] + 1.0],
                     [16.0, 16.0],
@@ -307,6 +351,7 @@ impl HudLayout<'_> {
             for column in 0..9 {
                 let index = 9 + row * 9 + column;
                 self.storage_player_slot(
+                    player_runtime,
                     runtime,
                     frame,
                     index,
@@ -319,6 +364,7 @@ impl HudLayout<'_> {
         }
         for column in 0..9 {
             self.storage_player_slot(
+                player_runtime,
                 runtime,
                 frame,
                 column,
@@ -326,7 +372,7 @@ impl HudLayout<'_> {
             )?;
         }
         if let (Some(stack), Some(pointer)) = (
-            runtime.inventory_ledger().cursor_stack(),
+            runtime.inventory_ledger(player_runtime).cursor_stack(),
             runtime.inventory_pointer_gui(),
         ) {
             self.inventory_item(
@@ -341,13 +387,17 @@ impl HudLayout<'_> {
 
     fn storage_player_slot(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         index: usize,
         slot: [f32; 2],
     ) -> Result<(), UiPresentationError> {
         self.inventory_slot(slot)?;
-        if let Some(stack) = runtime.inventory_ledger().displayed_stack(index as u8) {
+        if let Some(stack) = runtime
+            .inventory_ledger(player_runtime)
+            .displayed_stack(index as u8)
+        {
             self.inventory_item(
                 frame.inventory_icons.0[index],
                 slot,
@@ -355,7 +405,10 @@ impl HudLayout<'_> {
                 frame.durability.player[index],
             )?;
         }
-        if runtime.inventory_ledger().slot_pending(index as u8) {
+        if runtime
+            .inventory_ledger(player_runtime)
+            .slot_pending(index as u8)
+        {
             self.solid_gui(
                 [slot[0] + 1.0, slot[1] + 1.0],
                 [16.0, 16.0],

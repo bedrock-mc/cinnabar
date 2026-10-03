@@ -43,7 +43,11 @@ pub(crate) struct MenuSessionState<'w> {
 type BlobCache = crate::app::ClientBlobCacheOwner;
 
 impl MenuSessionState<'_> {
-    fn retire(&mut self, menu: &mut MenuRuntime) -> u64 {
+    fn retire(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        menu: &mut MenuRuntime,
+    ) -> u64 {
         *self.network = NetworkHandle::disconnected();
         // The directories go only once their core has exited.
         let directory = menu.session_directory.take();
@@ -51,7 +55,7 @@ impl MenuSessionState<'_> {
         self.guard.stop_detached(move || drop((join, directory)));
         let generation = menu.next_session_generation();
         self.resource_packs.begin_generation(generation);
-        self.runtime.begin_session(generation);
+        self.runtime.begin_session(player_runtime, generation);
         self.client_world.stream = None;
         self.client_world.pack_entities = None;
         self.client_world.prepared_actor_artwork = None;
@@ -98,6 +102,7 @@ enum JoinStage {
 /// generation for every attempt. A running launcher core takes the join
 /// instead: it selects the target over `connect.v1` and the session dials it.
 fn attempt_connect(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     menu: &mut MenuRuntime,
     session: &mut MenuSessionState<'_>,
     cache: &BlobCache,
@@ -108,7 +113,7 @@ fn attempt_connect(
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.mark_disconnected();
-    let generation = session.retire(menu);
+    let generation = session.retire(player_runtime, menu);
     session.runtime.experiences.select_destination(&address);
     menu.feeds.join =
         super::view::JoinProgress::new(super::launcher_core::join_kind(&address, local_world));
@@ -325,6 +330,7 @@ fn start_network(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_connection(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut commands: bevy::prelude::Commands,
     mut exits: MessageWriter<AppExit>,
     mut menu: ResMut<MenuRuntime>,
@@ -360,7 +366,7 @@ pub(crate) fn drive_menu_connection(
         menu.sync_local_worlds(worlds, in_session);
     }
     if menu.take_respawn_request()
-        && let Some(runtime_id) = session.runtime.local_runtime_id()
+        && let Some(runtime_id) = session.runtime.local_runtime_id(&player_runtime)
     {
         let generation = session.runtime.session_id();
         let packet = protocol::respawn_request_packet(runtime_id);
@@ -369,7 +375,7 @@ pub(crate) fn drive_menu_connection(
     if menu.take_exit_request() {
         // Exit stops the core inline, inside the shutdown watchdog's envelope.
         session.guard.stop();
-        session.retire(&mut menu);
+        session.retire(&mut player_runtime, &mut menu);
         exits.write(AppExit::Success);
         return;
     }
@@ -378,7 +384,7 @@ pub(crate) fn drive_menu_connection(
         let cancelled_join = menu.is_connecting();
         // Drop the old event receivers as well as stopping their worker: a
         // queued transfer must not undo this explicit disconnect later this frame.
-        session.retire(&mut menu);
+        session.retire(&mut player_runtime, &mut menu);
         menu.mark_disconnected();
         if cancelled_join {
             menu.pending_connect = None;
@@ -391,6 +397,7 @@ pub(crate) fn drive_menu_connection(
     }
     if let Some(pending) = menu.take_pending_connect() {
         attempt_connect(
+            &mut player_runtime,
             &mut menu,
             &mut session,
             &client_blob_cache,
@@ -408,6 +415,7 @@ pub(crate) fn drive_menu_connection(
 /// drained, which is after the menu's own systems, so recovery has to happen
 /// between that and the systems that exit on a fatal error.
 pub(crate) fn recover_menu_session_failure(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut menu: ResMut<MenuRuntime>,
     mut session: MenuSessionState,
 ) {
@@ -417,7 +425,7 @@ pub(crate) fn recover_menu_session_failure(
     if !menu.absorb_session_failure(&error) {
         return;
     }
-    session.retire(&mut menu);
+    session.retire(&mut player_runtime, &mut menu);
 }
 
 /// Consumes a latched server-transfer notice and performs the bounded
@@ -431,6 +439,7 @@ pub(crate) fn recover_menu_session_failure(
 /// a transfer loop ends in a visible menu state instead of reconnecting
 /// forever.
 pub(crate) fn follow_server_transfer(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut menu: ResMut<MenuRuntime>,
     client_blob_cache: Res<BlobCache>,
     mut session: MenuSessionState,
@@ -442,7 +451,7 @@ pub(crate) fn follow_server_transfer(
     if !menu.is_launcher() {
         // No launcher exists to re-enter, so the one-session run ends with
         // the server-directed move named explicitly instead of followed.
-        session.retire(&mut menu);
+        session.retire(&mut player_runtime, &mut menu);
         crate::runtime::shutdown::record_fatal_error(
             &mut session.client_world.fatal_error,
             format!(
@@ -455,6 +464,7 @@ pub(crate) fn follow_server_transfer(
     let Some((address, auth_cache)) = menu.transfer_handoff_target(&notice.host, notice.port)
     else {
         end_transfer_without_follow(
+            &mut player_runtime,
             &mut menu,
             &mut session,
             format!("server sent an unusable transfer target ({target})"),
@@ -463,6 +473,7 @@ pub(crate) fn follow_server_transfer(
     };
     if !menu.consume_transfer_chain_hop() {
         end_transfer_without_follow(
+            &mut player_runtime,
             &mut menu,
             &mut session,
             format!(
@@ -475,6 +486,7 @@ pub(crate) fn follow_server_transfer(
     // The shared replacement path tears down old transport and world/UI state
     // before provisioning, so every early failure leaves no stale session.
     attempt_connect(
+        &mut player_runtime,
         &mut menu,
         &mut session,
         &client_blob_cache,
@@ -491,11 +503,12 @@ pub(crate) fn follow_server_transfer(
 /// session is torn down exactly like a failure recovery and the menu names
 /// what happened instead of reconnecting again.
 fn end_transfer_without_follow(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     menu: &mut MenuRuntime,
     session: &mut MenuSessionState<'_>,
     reason: String,
 ) {
-    session.retire(menu);
+    session.retire(player_runtime, menu);
     menu.absorb_session_failure(&reason);
 }
 
@@ -656,7 +669,9 @@ mod transfer_follow_tests {
 
     #[test]
     fn failed_automatic_replacement_cannot_return_to_the_old_pause_menu() {
-        failed_automatic_replacement(true);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        failed_automatic_replacement(&mut player_runtime, true);
     }
 
     #[test]
@@ -702,7 +717,9 @@ mod transfer_follow_tests {
 
     #[test]
     fn failed_automatic_replacement_from_gameplay_reopens_the_launcher() {
-        failed_automatic_replacement(false);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        failed_automatic_replacement(&mut player_runtime, false);
     }
 
     #[test]
@@ -749,6 +766,7 @@ mod transfer_follow_tests {
             .insert_resource(ClientBlobCacheOwner::default())
             .insert_resource(ResourcePackAdmissionState::default())
             .insert_resource(UiRuntime::new(1))
+            .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
             .insert_resource(ClientWorld::default())
             .insert_resource(crate::movement::MovementTicker::default())
             .insert_resource(crate::movement::LocalPhysicsController::default())
@@ -800,6 +818,7 @@ mod transfer_follow_tests {
             .insert_resource(ClientBlobCacheOwner::default())
             .insert_resource(ResourcePackAdmissionState::default())
             .insert_resource(UiRuntime::new(1))
+            .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
             .insert_resource(ClientWorld::default())
             .insert_resource(crate::movement::MovementTicker::default())
             .insert_resource(crate::movement::LocalPhysicsController::default())
@@ -898,7 +917,10 @@ mod transfer_follow_tests {
         );
     }
 
-    fn failed_automatic_replacement(from_settings: bool) {
+    fn failed_automatic_replacement(
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        from_settings: bool,
+    ) {
         let root = TempRoot::new();
         let mut menu = MenuRuntime::new_with_layout(
             true,
@@ -931,7 +953,7 @@ mod transfer_follow_tests {
             ..ClientWorld::default()
         };
         let mut runtime = UiRuntime::new(old_generation);
-        let _ = runtime.open_chat();
+        let _ = runtime.open_chat(player_runtime);
         runtime.insert_chat_text("old session draft").unwrap();
 
         let mut app = App::new();
@@ -941,6 +963,7 @@ mod transfer_follow_tests {
             .insert_resource(ClientBlobCacheOwner::default())
             .insert_resource(ResourcePackAdmissionState::default())
             .insert_resource(runtime)
+            .insert_resource(player_runtime.clone())
             .insert_resource(client_world)
             .insert_resource(crate::movement::MovementTicker::default())
             .insert_resource(crate::movement::LocalPhysicsController::default())

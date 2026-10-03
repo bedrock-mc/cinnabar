@@ -57,6 +57,7 @@ impl PaperDoll {
 pub(super) fn observe(
     stream: &client_world::WorldStream,
     runtime: &crate::ui_runtime::UiRuntime,
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     physics: &crate::movement::LocalPhysicsController,
 ) -> Option<State> {
     use crate::ui_runtime::inventory_ledger::InventoryTarget;
@@ -83,7 +84,7 @@ pub(super) fn observe(
         emoting: flag(92),
         armor: std::array::from_fn(|slot| {
             runtime
-                .inventory_ledger()
+                .inventory_ledger(player_runtime)
                 .target_stack(InventoryTarget::Armor(slot as u8))
                 .map_or(0, |stack| stack.network_id)
         }),

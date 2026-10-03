@@ -165,9 +165,16 @@ mod tests {
             pack_harness, tests::mini_engine_presentation,
         };
         let mut presentation = mini_engine_presentation();
-        let mut runtime = pack_harness::action_form("Test", &["Button"]);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+        let mut runtime = pack_harness::action_form(&mut player_runtime, "Test", &["Button"]);
         presentation
-            .build(&runtime, 0, [800, 600], ui::DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         let identity = runtime.server_forms().active().unwrap().identity;
         let mut frame = presentation.form_engine_frame(identity).unwrap().clone();

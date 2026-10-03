@@ -77,6 +77,11 @@ const FOODS: &[&str] = &[
 /// A local block interaction the audio runtime should voice before the server confirms it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Message)]
 pub(crate) enum LocalBlockCue {
+    /// A locally completed destroy; preserve its id before prediction replaces it with air.
+    Break {
+        position: [i32; 3],
+        block_runtime_id: i32,
+    },
     /// A block item was placed at `position`; the id is the item's block runtime id.
     Place {
         position: [i32; 3],
@@ -136,11 +141,17 @@ pub(super) fn drive_block_cues(
     );
     let mut requests: Vec<(&'static str, Option<String>, [i32; 3])> = Vec::new();
     for cue in cues.read() {
-        let LocalBlockCue::Place {
-            position,
-            block_runtime_id,
-        } = *cue;
-        requests.push(("place", lookup(block_runtime_id as u32), position));
+        let (event, position, block_runtime_id) = match *cue {
+            LocalBlockCue::Place {
+                position,
+                block_runtime_id,
+            } => ("place", position, block_runtime_id),
+            LocalBlockCue::Break {
+                position,
+                block_runtime_id,
+            } => ("break", position, block_runtime_id),
+        };
+        requests.push((event, lookup(block_runtime_id as u32), position));
     }
     let target = survival
         .as_deref()
@@ -148,11 +159,6 @@ pub(super) fn drive_block_cues(
         .map(|(cell, _face)| cell);
     let previous = mining.target.as_ref().map(|(cell, _)| *cell);
     if target != previous {
-        if let Some((cell, identifier)) = mining.target.take()
-            && palette.is_air(cell).unwrap_or(false)
-        {
-            requests.push(("break", identifier, cell));
-        }
         mining.hit_timer = 0.0;
         mining.target = target.map(|cell| (cell, identifier_at(&palette, collisions, mode, cell)));
     }
@@ -250,6 +256,7 @@ impl ConsumeAudio {
 /// Voices eating and drinking while the server admits the held consumable in use, finishing
 /// food with a burp once its pack use duration elapses.
 pub(super) fn drive_consume_audio(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     time: Res<Time>,
     ui: Option<Res<UiRuntime>>,
     world: Res<ClientWorld>,
@@ -266,7 +273,7 @@ pub(super) fn drive_consume_audio(
         .filter(|_| using)
         .and_then(|(stream, ui)| {
             let identifier = stream
-                .canonical_item_stack(ui.selected_stack()?)?
+                .canonical_item_stack(ui.selected_stack(&player_runtime)?)?
                 .identifier?;
             let event = is_consumable(&identifier)?;
             Some((identifier, event))

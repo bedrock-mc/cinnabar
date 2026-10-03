@@ -60,17 +60,23 @@ impl InventoryScreen {
 
     /// The screen for the runtime's state: creative mode swaps the personal
     /// screen for the creative catalog.
-    pub(crate) fn of_runtime(runtime: &crate::ui_runtime::UiRuntime) -> Self {
+    pub(crate) fn of_runtime(
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        runtime: &crate::ui_runtime::UiRuntime,
+    ) -> Self {
         if runtime.screen_state().book.is_some() {
             return Self::Book;
         }
-        let screen = Self::of(runtime.inventory_ledger());
+        let screen = Self::of(runtime.inventory_ledger(player_runtime));
         let creative = runtime
-            .player_game_mode()
+            .player_game_mode(player_runtime)
             .is_some_and(|mode| mode == protocol::PlayerGameMode::Creative);
         if screen == Self::Personal
             && creative
-            && runtime.inventory_ledger().creative_catalog().is_some()
+            && runtime
+                .inventory_ledger(player_runtime)
+                .creative_catalog()
+                .is_some()
         {
             Self::Creative
         } else {

@@ -34,10 +34,15 @@ fn ledger_stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkIt
     }
 }
 
-fn publish_slot(runtime: &mut UiRuntime, slot: u8, stack: NetworkItemStack) {
-    admit_personal_inventory(runtime);
+fn publish_slot(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    slot: u8,
+    stack: NetworkItemStack,
+) {
+    admit_personal_inventory(player_runtime, runtime);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Slot(InventorySlotEvent {
             identity: SlotIdentity {
                 container: ContainerIdentity::window(0),
@@ -48,14 +53,28 @@ fn publish_slot(runtime: &mut UiRuntime, slot: u8, stack: NetworkItemStack) {
         }));
 }
 
-fn admit_personal_inventory(runtime: &mut UiRuntime) {
-    if runtime.inventory_ledger().personal_inventory_desired_open() {
+fn admit_personal_inventory(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+) {
+    if runtime
+        .inventory_ledger(player_runtime)
+        .personal_inventory_desired_open()
+    {
         return;
     }
-    assert!(runtime.inventory_ledger_mut().request_personal_open(42));
-    assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+    assert!(
+        runtime
+            .inventory_ledger_mut(player_runtime)
+            .request_personal_open(42)
+    );
+    assert!(
+        runtime
+            .inventory_ledger_mut(player_runtime)
+            .mark_transport_enqueued(0)
+    );
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
             container: ContainerIdentity::window(2),
             window_type: crate::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
@@ -126,6 +145,7 @@ fn accepted_response_containers(
 /// A successful answer updates backing cells explicitly. An empty success
 /// does not authorize replaying the predicted take or place into backing.
 fn accept_take(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     request_id: i32,
     source_type: u8,
@@ -134,7 +154,7 @@ fn accept_take(
     cursor: StackResponseSlot,
 ) {
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&accepted_response_containers(
             request_id,
             vec![
@@ -149,6 +169,7 @@ fn accept_take(
 }
 
 fn accept_place(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     request_id: i32,
     destination_type: u8,
@@ -156,7 +177,7 @@ fn accept_place(
     destination: StackResponseSlot,
 ) {
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&accepted_response_containers(
             request_id,
             vec![
@@ -172,15 +193,21 @@ fn accept_place(
 
 /// Drives one take/place gesture pair so an accepted response corrects the
 /// freshly placed stack in player-inventory slot 0.
-fn corrected_sword_in_slot_zero() -> UiRuntime {
+fn corrected_sword_in_slot_zero(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    publish_slot(&mut runtime, 1, ledger_stack(745, 13, 4));
-    publish_slot(&mut runtime, 0, NetworkItemStack::empty());
-    let take = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+    publish_slot(player_runtime, &mut runtime, 1, ledger_stack(745, 13, 4));
+    publish_slot(player_runtime, &mut runtime, 0, NetworkItemStack::empty());
+    let take = runtime
+        .inventory_ledger_mut(player_runtime)
+        .begin_click(1)
+        .unwrap();
     accept_take(
+        player_runtime,
         &mut runtime,
         take,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -188,8 +215,12 @@ fn corrected_sword_in_slot_zero() -> UiRuntime {
         1,
         correction(0, 4, 13, "", "", 0),
     );
-    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let place = runtime
+        .inventory_ledger_mut(player_runtime)
+        .begin_click(0)
+        .unwrap();
     accept_place(
+        player_runtime,
         &mut runtime,
         place,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -201,14 +232,19 @@ fn corrected_sword_in_slot_zero() -> UiRuntime {
 
 #[test]
 fn accepted_corrections_retain_names_and_durability_on_the_corrected_cell() {
-    let runtime = corrected_sword_in_slot_zero();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let displayed = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    let runtime = corrected_sword_in_slot_zero(&mut player_runtime);
+
+    let displayed = runtime
+        .inventory_ledger(&player_runtime)
+        .displayed_stack(0)
+        .unwrap();
     assert_eq!(displayed.network_id, 745);
     assert_eq!(displayed.count, 2);
     assert_eq!(displayed.stack_network_id, 99);
     let overlay = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .slot_overlay(0)
         .expect("overlay retained");
     assert_eq!(overlay.custom_name.as_deref(), Some("Renamed Blade"));
@@ -218,67 +254,101 @@ fn accepted_corrections_retain_names_and_durability_on_the_corrected_cell() {
     );
     assert_eq!(overlay.durability_correction, Some(125));
     // Cells the server did not correct carry no overlay.
-    assert_eq!(runtime.inventory_ledger().slot_overlay(1), None);
-    assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).slot_overlay(1),
+        None
+    );
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).cursor_overlay(),
+        None
+    );
 }
 
 #[test]
 fn authoritative_slot_replacement_clears_the_response_overlay() {
-    let mut runtime = corrected_sword_in_slot_zero();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     assert!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .slot_overlay(0)
             .is_some_and(|overlay| overlay.custom_name.as_deref() == Some("Renamed Blade"))
     );
 
-    publish_slot(&mut runtime, 0, ledger_stack(745, 41, 3));
+    publish_slot(
+        &mut player_runtime,
+        &mut runtime,
+        0,
+        ledger_stack(745, 41, 3),
+    );
 
-    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
-    let replaced = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).slot_overlay(0),
+        None
+    );
+    let replaced = runtime
+        .inventory_ledger(&player_runtime)
+        .displayed_stack(0)
+        .unwrap();
     assert_eq!(replaced.count, 3);
     assert_eq!(replaced.stack_network_id, 41);
 }
 
 #[test]
 fn full_inventory_content_replaces_overlays_of_every_rewritten_cell() {
-    let mut runtime = corrected_sword_in_slot_zero();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
 
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Content(InventoryContentEvent {
             container: ContainerIdentity::window(0),
             slots: Arc::from(vec![ledger_stack(745, 5, 1); PLAYER_INVENTORY_SLOT_COUNT]),
             storage_item: NetworkItemStack::empty(),
         }));
 
-    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
-    let replaced = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).slot_overlay(0),
+        None
+    );
+    let replaced = runtime
+        .inventory_ledger(&player_runtime)
+        .displayed_stack(0)
+        .unwrap();
     assert_eq!(replaced.stack_network_id, 5);
 }
 
 #[test]
 fn cursor_updates_clear_the_cursor_response_overlay() {
-    let mut runtime = corrected_sword_in_slot_zero();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     // Taking the corrected sword moves it to the cursor; the same accepted
     // response carries a cursor correction with its own authoritative names.
-    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
-        take,
-        Some(59),
-        None,
-        vec![correction(0, 2, 55, "Cursor Blade", "Cursor Blade", 60)],
-    ));
+    let take = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&accepted_response(
+            take,
+            Some(59),
+            None,
+            vec![correction(0, 2, 55, "Cursor Blade", "Cursor Blade", 60)],
+        ));
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .cursor_overlay()
             .and_then(|overlay| overlay.durability_correction),
         Some(60)
     );
 
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Slot(InventorySlotEvent {
             identity: SlotIdentity {
                 container: ContainerIdentity {
@@ -292,37 +362,68 @@ fn cursor_updates_clear_the_cursor_response_overlay() {
             storage_item: None,
         }));
 
-    assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).cursor_overlay(),
+        None
+    );
 }
 
 #[test]
 fn empty_cell_corrections_clear_the_overlay_with_the_stack() {
-    let mut runtime = corrected_sword_in_slot_zero();
-    assert!(runtime.inventory_ledger().slot_overlay(0).is_some());
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
-        take,
-        Some(12),
-        None,
-        vec![correction(0, 0, -1, "", "", 0)],
-    ));
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
+    assert!(
+        runtime
+            .inventory_ledger(&player_runtime)
+            .slot_overlay(0)
+            .is_some()
+    );
 
-    assert_eq!(runtime.inventory_ledger().displayed_stack(0), None);
-    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+    let take = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&accepted_response(
+            take,
+            Some(12),
+            None,
+            vec![correction(0, 0, -1, "", "", 0)],
+        ));
+
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).displayed_stack(0),
+        None
+    );
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).slot_overlay(0),
+        None
+    );
 }
 
 #[test]
 fn rejected_responses_rollback_without_writing_overlays() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    publish_slot(&mut runtime, 0, ledger_stack(745, 13, 4));
+    publish_slot(
+        &mut player_runtime,
+        &mut runtime,
+        0,
+        ledger_stack(745, 13, 4),
+    );
 
-    let request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let request_id = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Response(ItemStackResponseEvent {
             responses: Arc::from([StackResponse {
                 status: StackResponseStatus::Rejected,
@@ -331,32 +432,48 @@ fn rejected_responses_rollback_without_writing_overlays() {
             }]),
         }));
 
-    let restored = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    let restored = runtime
+        .inventory_ledger(&player_runtime)
+        .displayed_stack(0)
+        .unwrap();
     assert_eq!(restored.count, 4);
     assert_eq!(restored.stack_network_id, 13);
-    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).slot_overlay(0),
+        None
+    );
 }
 
 #[test]
 fn request_timeouts_keep_authoritative_overlays_with_the_prediction() {
-    let mut runtime = corrected_sword_in_slot_zero();
-    assert!(runtime.inventory_ledger().slot_overlay(0).is_some());
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    let _request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     assert!(
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger(&player_runtime)
+            .slot_overlay(0)
+            .is_some()
+    );
+
+    let _request_id = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
+    assert!(
+        runtime
+            .inventory_ledger_mut(&mut player_runtime)
             .mark_transport_enqueued(1_000)
     );
     assert!(
         !runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(&mut player_runtime)
             .poll_timeout(1_000 + INVENTORY_REQUEST_TIMEOUT_MILLIS)
     );
 
     // A timeout discards nothing: confirmed truth keeps its overlay and the
     // retained prediction carries it with the moved stack.
-    let ledger = runtime.inventory_ledger();
+    let ledger = runtime.inventory_ledger(&player_runtime);
     assert!(ledger.resync_required());
     assert!(ledger.slot_overlay(0).is_some());
     assert_eq!(ledger.presented_slot_overlay(0), None);
@@ -365,25 +482,40 @@ fn request_timeouts_keep_authoritative_overlays_with_the_prediction() {
 
 #[test]
 fn session_reset_discards_every_retained_overlay() {
-    let mut runtime = corrected_sword_in_slot_zero();
-    assert!(runtime.inventory_ledger().slot_overlay(0).is_some());
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    runtime.begin_session(2);
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
+    assert!(
+        runtime
+            .inventory_ledger(&player_runtime)
+            .slot_overlay(0)
+            .is_some()
+    );
 
-    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
-    assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
+    runtime.begin_session(&mut player_runtime, 2);
+
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).slot_overlay(0),
+        None
+    );
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).cursor_overlay(),
+        None
+    );
 }
 
 #[test]
 fn storage_corrections_retain_overrides_until_storage_replacement() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     const STORAGE_WINDOW_ID: i32 = 4;
     const STORAGE_DYNAMIC_ID: u32 = 9;
     let mut runtime = UiRuntime::new(1);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
             container: ContainerIdentity::window(STORAGE_WINDOW_ID),
             window_type: GENERIC_STORAGE_WINDOW_TYPE,
@@ -393,7 +525,7 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
     let mut contents = vec![NetworkItemStack::empty(); SMALL_STORAGE_SLOT_COUNT];
     contents[3] = ledger_stack(745, 13, 1);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Content(InventoryContentEvent {
             container: ContainerIdentity {
                 window_id: Some(STORAGE_WINDOW_ID),
@@ -405,10 +537,11 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
         }));
 
     let take = runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .begin_storage_click(3)
         .unwrap();
     accept_take(
+        &mut player_runtime,
         &mut runtime,
         take,
         GENERIC_STORAGE_SLOT_TYPE,
@@ -419,10 +552,11 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
     // Place the stack back; the server's return correction carries the
     // authoritative names and damage for the restored storage cell.
     let place = runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .begin_storage_click(3)
         .unwrap();
     accept_place(
+        &mut player_runtime,
         &mut runtime,
         place,
         GENERIC_STORAGE_SLOT_TYPE,
@@ -431,14 +565,14 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .storage_slot_overlay(3)
             .and_then(|overlay| overlay.durability_correction),
         Some(42)
     );
 
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Slot(InventorySlotEvent {
             identity: SlotIdentity {
                 container: ContainerIdentity {
@@ -451,36 +585,57 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
             stack: ledger_stack(745, 91, 1),
             storage_item: None,
         }));
-    assert_eq!(runtime.inventory_ledger().storage_slot_overlay(3), None);
-    let replaced = runtime.inventory_ledger().storage_stack(3).unwrap();
+    assert_eq!(
+        runtime
+            .inventory_ledger(&player_runtime)
+            .storage_slot_overlay(3),
+        None
+    );
+    let replaced = runtime
+        .inventory_ledger(&player_runtime)
+        .storage_stack(3)
+        .unwrap();
     assert_eq!(replaced.stack_network_id, 91);
 }
 
 #[test]
 fn selected_item_name_prefers_the_authoritative_custom_name() {
-    let mut runtime = corrected_sword_in_slot_zero();
-    runtime.set_local_selected_slot(0);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
+    player_runtime.inventory.set_local_selected_slot(0);
     assert_eq!(
         runtime
-            .selected_stack_custom_name()
+            .selected_stack_custom_name(&player_runtime)
             .map(|name| name.to_string()),
         Some("Renamed Blade".to_owned())
     );
 
     // Replacing the selected cell falls back to localized identifier naming.
-    publish_slot(&mut runtime, 0, ledger_stack(745, 41, 3));
-    assert_eq!(runtime.selected_stack_custom_name(), None);
+    publish_slot(
+        &mut player_runtime,
+        &mut runtime,
+        0,
+        ledger_stack(745, 41, 3),
+    );
+    assert_eq!(runtime.selected_stack_custom_name(&player_runtime), None);
 }
 
 #[test]
 fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
-    let mut runtime = corrected_sword_in_slot_zero();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
 
     // Cycling the corrected sword through the cursor and back, with a return
     // correction that states no names keeps those names. Zero durability is
     // an explicit repair, not an omitted field.
-    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let take = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
     accept_take(
+        &mut player_runtime,
         &mut runtime,
         take,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -488,8 +643,12 @@ fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
         0,
         correction(0, 2, 99, "", "", 125),
     );
-    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let place = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
     accept_place(
+        &mut player_runtime,
         &mut runtime,
         place,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -498,7 +657,7 @@ fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
     );
 
     let overlay = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .slot_overlay(0)
         .expect("overlay survives an omitting correction");
     assert_eq!(overlay.custom_name.as_deref(), Some("Renamed Blade"));
@@ -509,8 +668,12 @@ fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
     assert_eq!(overlay.durability_correction, Some(0));
 
     // An affirmative restatement replaces every stated field.
-    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let take = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
     accept_take(
+        &mut player_runtime,
         &mut runtime,
         take,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -518,8 +681,12 @@ fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
         0,
         correction(0, 2, 99, "", "", 0),
     );
-    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let place = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
     accept_place(
+        &mut player_runtime,
         &mut runtime,
         place,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -527,7 +694,7 @@ fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
         correction(0, 2, 99, "New Name", "New Filtered", 60),
     );
     let overlay = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .slot_overlay(0)
         .expect("overlay retained after the affirmative correction");
     assert_eq!(overlay.custom_name.as_deref(), Some("New Name"));
@@ -540,17 +707,33 @@ fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
 
 #[test]
 fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    publish_slot(&mut runtime, 0, ledger_stack(745, 13, 2));
-    publish_slot(&mut runtime, 1, ledger_stack(846, 24, 3));
+    publish_slot(
+        &mut player_runtime,
+        &mut runtime,
+        0,
+        ledger_stack(745, 13, 2),
+    );
+    publish_slot(
+        &mut player_runtime,
+        &mut runtime,
+        1,
+        ledger_stack(846, 24, 3),
+    );
 
     // Give beta authoritative facts through its own take/place pair. Native
     // responses cannot install an overlay on an unrelated, untouched cell.
-    let take_beta = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+    let take_beta = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(1)
+        .unwrap();
     accept_take(
+        &mut player_runtime,
         &mut runtime,
         take_beta,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -558,8 +741,12 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
         1,
         correction(0, 3, 24, "Beta Blade", "Filtered Beta", 200),
     );
-    let place_beta = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+    let place_beta = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(1)
+        .unwrap();
     accept_place(
+        &mut player_runtime,
         &mut runtime,
         place_beta,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -568,8 +755,12 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
     );
 
     // Alpha's take then corrects exactly its source and cursor cells.
-    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let take = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
     accept_take(
+        &mut player_runtime,
         &mut runtime,
         take,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -579,21 +770,21 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .cursor_stack()
             .map(|stack| stack.network_id),
         Some(745)
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .cursor_overlay()
             .and_then(|overlay| overlay.durability_correction),
         Some(100)
     );
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .slot_overlay(1)
             .and_then(|overlay| overlay.durability_correction),
         Some(200)
@@ -602,9 +793,12 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
     // Swapping the occupied slot with the cursor must move each retained
     // overlay with its own stack: the cursor receives beta's facts and slot 1
     // receives alpha's, while the vacated source cell keeps none.
-    let swap = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+    let swap = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(1)
+        .unwrap();
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&accepted_response_containers(
             swap,
             vec![
@@ -623,13 +817,13 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
 
     assert_eq!(
         runtime
-            .inventory_ledger()
+            .inventory_ledger(&player_runtime)
             .cursor_stack()
             .map(|stack| stack.network_id),
         Some(846)
     );
     let beta = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .cursor_overlay()
         .expect("beta's overlay travelled with beta");
     assert_eq!(beta.custom_name.as_deref(), Some("Beta Blade"));
@@ -637,12 +831,12 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
     assert_eq!(beta.durability_correction, Some(200));
 
     let landed = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .displayed_stack(1)
         .map(|s| s.network_id);
     assert_eq!(landed, Some(745));
     let alpha = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .slot_overlay(1)
         .expect("alpha's overlay travelled with alpha");
     assert_eq!(alpha.custom_name.as_deref(), Some("Alpha Blade"));
@@ -651,7 +845,10 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
         Some("Filtered Alpha")
     );
     assert_eq!(alpha.durability_correction, Some(100));
-    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
+    assert_eq!(
+        runtime.inventory_ledger(&player_runtime).slot_overlay(0),
+        None
+    );
 }
 
 const IRON_SWORD_NETWORK_ID: i32 = 309;
@@ -694,11 +891,13 @@ fn world_stream() -> client_world::WorldStream {
 
 /// Publishes one HUD frame and reads the selected hotbar cell's durability.
 fn presented_selected_durability(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     stream: &client_world::WorldStream,
 ) -> Option<f32> {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     refresh_hud_frame(
+        player_runtime,
         runtime,
         &mut presentation,
         Some(stream),
@@ -710,15 +909,22 @@ fn presented_selected_durability(
 
 /// Takes the selected sword onto the cursor and places it back through one
 /// accepted response whose only restatement is the given final correction.
-fn round_tripped_selected_sword(final_correction: StackResponseSlot) -> UiRuntime {
+fn round_tripped_selected_sword(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    final_correction: StackResponseSlot,
+) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    publish_slot(&mut runtime, 0, damaged_sword(125));
-    runtime.set_local_selected_slot(0);
-    let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    publish_slot(player_runtime, &mut runtime, 0, damaged_sword(125));
+    player_runtime.inventory.set_local_selected_slot(0);
+    let take = runtime
+        .inventory_ledger_mut(player_runtime)
+        .begin_click(0)
+        .unwrap();
     accept_take(
+        player_runtime,
         &mut runtime,
         take,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -726,8 +932,12 @@ fn round_tripped_selected_sword(final_correction: StackResponseSlot) -> UiRuntim
         0,
         correction(0, 1, 77, "", "", 125),
     );
-    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let place = runtime
+        .inventory_ledger_mut(player_runtime)
+        .begin_click(0)
+        .unwrap();
     accept_place(
+        player_runtime,
         &mut runtime,
         place,
         protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -739,11 +949,14 @@ fn round_tripped_selected_sword(final_correction: StackResponseSlot) -> UiRuntim
 
 #[test]
 fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
-    let mut runtime = round_tripped_selected_sword(correction(0, 1, 77, "", "", 0));
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime =
+        round_tripped_selected_sword(&mut player_runtime, correction(0, 1, 77, "", "", 0));
     let stream = world_stream();
 
     let overlay = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .slot_overlay(0)
         .expect("the corrected cell retains its response overlay");
     assert_eq!(
@@ -754,9 +967,12 @@ fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
     assert_eq!(overlay.custom_name.as_deref(), None);
     assert_eq!(overlay.filtered_custom_name.as_deref(), None);
 
-    let presented = presented_selected_durability(&mut runtime, &stream);
+    let presented = presented_selected_durability(&player_runtime, &mut runtime, &stream);
     let derived = item_facts::durability_fraction(
-        runtime.inventory_ledger().displayed_stack(0).unwrap(),
+        runtime
+            .inventory_ledger(&player_runtime)
+            .displayed_stack(0)
+            .unwrap(),
         item_facts::max_durability("minecraft:iron_sword"),
     );
     assert!(
@@ -771,12 +987,15 @@ fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
 
 #[test]
 fn stated_durability_corrections_override_the_local_damage_tag() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     // The local tag reads half-worn (125/250), but the accepted correction
     // restates fully damaged (250): presentation must follow the server.
-    let mut runtime = round_tripped_selected_sword(correction(0, 1, 77, "", "", 250));
+    let mut runtime =
+        round_tripped_selected_sword(&mut player_runtime, correction(0, 1, 77, "", "", 250));
     let stream = world_stream();
 
-    let presented = presented_selected_durability(&mut runtime, &stream);
+    let presented = presented_selected_durability(&player_runtime, &mut runtime, &stream);
     assert_eq!(
         presented,
         Some(0.0),
@@ -786,10 +1005,15 @@ fn stated_durability_corrections_override_the_local_damage_tag() {
 
 #[test]
 fn prior_retained_overlays_survive_a_rejected_response() {
-    let mut runtime = corrected_sword_in_slot_zero();
-    let request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
+    let request_id = runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .begin_click(0)
+        .unwrap();
     runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Response(ItemStackResponseEvent {
             responses: Arc::from([StackResponse {
                 status: StackResponseStatus::Rejected,
@@ -798,11 +1022,14 @@ fn prior_retained_overlays_survive_a_rejected_response() {
             }]),
         }));
 
-    let restored = runtime.inventory_ledger().displayed_stack(0).unwrap();
+    let restored = runtime
+        .inventory_ledger(&player_runtime)
+        .displayed_stack(0)
+        .unwrap();
     assert_eq!(restored.network_id, 745);
     assert_eq!(restored.count, 2);
     let overlay = runtime
-        .inventory_ledger()
+        .inventory_ledger(&player_runtime)
         .slot_overlay(0)
         .expect("the committed overlay survives rejection");
     assert_eq!(overlay.custom_name.as_deref(), Some("Renamed Blade"));
@@ -813,145 +1040,4 @@ fn prior_retained_overlays_survive_a_rejected_response() {
     assert_eq!(overlay.durability_correction, Some(125));
 }
 
-/// Drains one full window-0 content event through the production queue so
-/// both retained stores agree, then selects hotbar slot 0 so slot 3 stays a
-/// nonselected cell for every witness below.
-fn drained_inventory_runtime() -> UiRuntime {
-    let mut runtime = UiRuntime::new(1);
-    runtime.publish_inventory_authority(InventoryAuthority::Server);
-    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
-    slots[0] = ledger_stack(745, 13, 4);
-    slots[3] = ledger_stack(846, 24, 1);
-    runtime
-        .enqueue_inventory_event(
-            1,
-            1,
-            InventoryEvent::Content(InventoryContentEvent {
-                container: ContainerIdentity::window(0),
-                slots: Arc::from(slots),
-                storage_item: NetworkItemStack::empty(),
-            }),
-        )
-        .unwrap();
-    runtime.drain_pending_inventory();
-    admit_personal_inventory(&mut runtime);
-    runtime.set_local_selected_slot(0);
-    runtime
-}
-
-/// Publishes one HUD frame and returns its presented hotbar stacks.
-fn presented_hotbar_stacks(runtime: &mut UiRuntime) -> [Option<protocol::NetworkItemStack>; 9] {
-    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    refresh_hud_frame(
-        runtime,
-        &mut presentation,
-        Some(&world_stream()),
-        &CameraSettingsAuthority::default(),
-        1_000,
-    );
-    presentation.hud_frame().hotbar_stacks.clone()
-}
-
-fn cell_facts(stack: &protocol::NetworkItemStack) -> (u16, i32) {
-    (stack.count, stack.stack_network_id)
-}
-
-#[test]
-fn accepted_sparse_corrections_refresh_every_presented_nonselected_hotbar_consumer() {
-    let mut runtime = drained_inventory_runtime();
-
-    // Round-trip the nonselected sword through the cursor; the accepted place
-    // response explicitly clears the cursor and corrects slot 3: a server-side
-    // count change plus its authoritative identity correction.
-    let take = runtime.inventory_ledger_mut().begin_click(3).unwrap();
-    accept_take(
-        &mut runtime,
-        take,
-        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
-        None,
-        3,
-        correction(0, 1, 24, "", "", 0),
-    );
-    let place = runtime.inventory_ledger_mut().begin_click(3).unwrap();
-    accept_place(
-        &mut runtime,
-        place,
-        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
-        None,
-        correction(3, 2, 99, "Corrected Blade", "", 250),
-    );
-    let corrected = runtime
-        .inventory_ledger()
-        .displayed_stack(3)
-        .expect("the corrected cell stays present in the ledger");
-    assert_eq!(cell_facts(corrected), (2, 99));
-
-    // The presented nonselected cell and the HUD frame must show that exact
-    // ledger revision, not the stale pre-correction mirror.
-    assert_eq!(
-        runtime
-            .presented_hotbar_stack(3)
-            .map(cell_facts)
-            .expect("the corrected nonselected cell stays presented"),
-        (2, 99),
-        "the presented nonselected hotbar cell must follow the accepted correction",
-    );
-    let frame_stacks = presented_hotbar_stacks(&mut runtime);
-    let presented = frame_stacks[3]
-        .as_ref()
-        .expect("the corrected nonselected cell is presented");
-    assert_eq!(
-        cell_facts(presented),
-        (2, 99),
-        "the HUD frame must present the corrected ledger snapshot",
-    );
-    // The selected cell keeps presenting its own untouched authority.
-    assert_eq!(
-        frame_stacks[0].as_ref().map(cell_facts),
-        Some((4, 13)),
-        "an unrelated accepted correction must not disturb the selected cell",
-    );
-}
-
-#[test]
-fn rejected_nonselected_gestures_present_the_pre_gesture_cells_again() {
-    let mut runtime = drained_inventory_runtime();
-
-    // Mid-flight, the nonselected cell presents its predicted half exactly
-    // like the selected-cell authority already does.
-    let request_id = runtime.inventory_ledger_mut().begin_click(3).unwrap();
-    assert_eq!(runtime.presented_hotbar_stack(3), None);
-
-    runtime
-        .inventory_ledger_mut()
-        .apply(&InventoryEvent::Response(ItemStackResponseEvent {
-            responses: Arc::from([StackResponse {
-                status: StackResponseStatus::Rejected,
-                request_id,
-                containers: Arc::from([]),
-            }]),
-        }));
-
-    // Rejection restores every presented consumer to the exact pre-gesture
-    // facts; nothing else about the presented row moves.
-    let restored = presented_hotbar_stacks(&mut runtime);
-    assert_eq!(restored[3].as_ref().map(cell_facts), Some((1, 24)));
-    assert_eq!(restored[0].as_ref().map(cell_facts), Some((4, 13)));
-}
-
-#[test]
-fn session_reset_presents_no_hotbar_cells_from_either_store() {
-    let mut runtime = drained_inventory_runtime();
-    assert!(presented_hotbar_stacks(&mut runtime)[3].is_some());
-
-    runtime.begin_session(2);
-
-    let reset = presented_hotbar_stacks(&mut runtime);
-    assert!(
-        reset.iter().all(Option::is_none),
-        "a session reset must clear every presented hotbar cell"
-    );
-    for slot in 0..9u8 {
-        assert_eq!(runtime.presented_hotbar_stack(slot), None);
-    }
-}
+mod hotbar_tests;

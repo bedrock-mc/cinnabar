@@ -221,15 +221,19 @@ impl UiRuntime {
     }
 
     /// Opens the book in the selected hotbar slot; whether one was there.
-    pub(crate) fn open_held_book(&mut self) -> bool {
-        let Some(slot) = self.selected_hotbar_slot() else {
+    pub(crate) fn open_held_book(
+        &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+    ) -> bool {
+        let Some(slot) = self.selected_hotbar_slot(player_runtime) else {
             return false;
         };
-        let Some(stack) = self.inventory_ledger().displayed_stack(slot) else {
+        let Some(stack) = player_runtime.inventory.ledger().displayed_stack(slot) else {
             return false;
         };
-        let Some(entry) = self
-            .inventory_ledger()
+        let Some(entry) = player_runtime
+            .inventory
+            .ledger()
             .negotiated_item_entry(stack.network_id)
         else {
             return false;
@@ -293,22 +297,30 @@ impl UiRuntime {
     }
 
     /// Closes the book after all its edits have been retained for transport.
-    pub(crate) fn finish_book(&mut self, sign: bool) {
+    pub(crate) fn finish_book(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        sign: bool,
+    ) {
         if self.commit_book(sign) {
-            self.close_inventory();
+            self.close_inventory(player_runtime);
         }
     }
 
     /// Book navigation keys: arrows and page keys turn pages; Enter starts a
     /// new line, or signs the book from the title prompt. Whether the key was used.
-    pub(crate) fn book_key(&mut self, key: KeyCode) -> bool {
+    pub(crate) fn book_key(
+        &mut self,
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        key: KeyCode,
+    ) -> bool {
         let Some(book) = self.screen.book.as_mut() else {
             return false;
         };
         match key {
             KeyCode::Enter | KeyCode::NumpadEnter if book.editable => {
                 if book.signing {
-                    self.finish_book(true);
+                    self.finish_book(player_runtime, true);
                 } else {
                     book.type_text("\n");
                 }

@@ -26,13 +26,21 @@ fn has_sprite(presentation: &UiPresentationRuntime, wanted: &str) -> bool {
 
 #[test]
 fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let runtime = UiRuntime::new(1);
     presentation.set_loading_stage(Some(LoadingStage::Connecting));
     presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let shown = texts(&presentation);
     assert!(
@@ -48,7 +56,13 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     presentation.hud_frame_mut().dimension = 1;
     presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let shown = texts(&presentation);
     for wanted in ["Generating World", "Building terrain"] {
@@ -61,6 +75,8 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
 /// set, over `CINNABAR_FORM_PACK_DIR`'s server pack when that is set too.
 #[test]
 fn loading_screen_snapshot() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
@@ -78,6 +94,7 @@ fn loading_screen_snapshot() {
     let build = |presentation: &mut UiPresentationRuntime| {
         presentation
             .build(
+                &player_runtime,
                 &UiRuntime::new(1),
                 0,
                 [1280, 720],
@@ -100,12 +117,15 @@ fn loading_screen_snapshot() {
 // The overworld backdrop carries vanilla's darkening gradient and its colours.
 #[test]
 fn overworld_backdrop_draws_its_gradient() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     presentation
         .build(
+            &player_runtime,
             &UiRuntime::new(1),
             0,
             [1280, 720],
@@ -123,6 +143,8 @@ fn overworld_backdrop_draws_its_gradient() {
 /// Local-only: `loading_screen_pack.png` under the pack `CINNABAR_FORM_PACK_DIR` names.
 #[test]
 fn loading_screen_pack_snapshot() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(pack) = super::super::forms::pack_harness::env_pack() else {
         return;
     };
@@ -138,6 +160,7 @@ fn loading_screen_pack_snapshot() {
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     let input = presentation
         .build(
+            &player_runtime,
             &UiRuntime::new(1),
             0,
             [1280, 720],

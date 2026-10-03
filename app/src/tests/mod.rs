@@ -1,3 +1,4 @@
+use crate::player_runtime::PlayerRuntime;
 use assets::RuntimeAssets;
 use bevy::prelude::{
     App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
@@ -298,3 +299,17 @@ mod teleport;
 mod viewmodel_presentation;
 
 use core::{complete_world_stream_decodes, overworld_biome_payload, settled_world_snapshot};
+
+/// Runs a fixture command against the same player and UI resources used by scheduled systems.
+pub(crate) fn with_ui_player<T>(
+    app: &mut App,
+    command: impl FnOnce(&mut crate::ui_runtime::UiRuntime, &mut PlayerRuntime) -> T,
+) -> T {
+    app.world_mut()
+        .resource_scope(|world, mut player: bevy::prelude::Mut<PlayerRuntime>| {
+            command(
+                &mut world.resource_mut::<crate::ui_runtime::UiRuntime>(),
+                &mut player,
+            )
+        })
+}

@@ -8,7 +8,6 @@ use super::InventoryPacketError;
 mod actions;
 #[cfg(test)]
 mod batch_tests;
-pub(super) mod manual_craft;
 pub(super) mod mining;
 
 pub use actions::{

@@ -39,7 +39,7 @@ pub use state::BindState;
 
 use bag::Bag;
 use feed::{collection_name, is_collection_factory};
-use grid::{grid_capacity, grid_cell_index, grid_template, static_grid_columns};
+use grid::{grid_awaits_views, grid_capacity, grid_cell_index, grid_template, static_grid_columns};
 use native::Native;
 use source::Src;
 use spec::Binding;
@@ -352,6 +352,7 @@ impl<'a> Binder<'a> {
         let mut child_scope = scope;
         child_scope.parent_key = key;
         let visible = native.visible(control);
+        let awaits_views = grid_awaits_views(control, &bindings);
         // Only state a refresh cannot rebuild from literals is retained.
         let retained =
             !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
@@ -378,8 +379,9 @@ impl<'a> Binder<'a> {
             retained,
         };
         // A hidden control's subtree builds only once shown or named, so a
-        // pack's many title-selected layouts cost only the one on screen.
-        if !visible {
+        // pack's many title-selected layouts cost only the one on screen. A grid
+        // whose cell count a view may set builds once views settle.
+        if !visible || awaits_views {
             node.deferred = Some(child_scope);
         } else {
             node.children = self.children_of(&node, &child_scope);
@@ -482,7 +484,8 @@ impl<'a> Binder<'a> {
             }
         }
         if let Some(template) = grid_template(control) {
-            return self.expand_grid(src, &template, scope);
+            let src = native_grid(src.clone(), &node.native);
+            return self.expand_grid(&src, &template, scope);
         }
         self.literal_children(src, scope)
     }
@@ -549,19 +552,31 @@ impl<'a> Binder<'a> {
 
     /// Build deferred subtrees that are now shown under shown ancestors;
     /// `true` when any was built.
-    fn expand_deferred(&mut self, node: &mut Node, parent_visible: bool) -> bool {
-        if !parent_visible || !node.native.visible(node.src.get()) {
+    fn expand_deferred(&mut self, node: &mut Node, fresh: bool) -> bool {
+        if !node.native.visible(node.src.get()) {
             return false;
         }
         let mut expanded = false;
-        if let Some(scope) = node.deferred.take() {
-            node.children = self.children_of(node, &scope);
+        // A grid built this pass has yet to run the views its cell count reads.
+        let waits = fresh && grid_awaits_views(node.src.get(), &node.bindings);
+        if !waits && let Some(scope) = node.deferred.take() {
+            self.build_deferred(node, &scope);
             expanded = true;
         }
+        let fresh = fresh || expanded;
         for child in &mut node.children {
-            expanded |= self.expand_deferred(child, true);
+            expanded |= self.expand_deferred(child, fresh);
         }
         expanded
+    }
+
+    /// Builds a deferred subtree under the values its views have since settled.
+    fn build_deferred(&mut self, node: &mut Node, scope: &Scope) {
+        node.children = self.children_of(node, scope);
+        if let Some(capacity) = grid_capacity(&native_grid(node.src.clone(), &node.native)) {
+            node.own
+                .insert("#grid_number_size".to_owned(), Scalar::Int(capacity as i64));
+        }
     }
 
     /// The control a collection-less factory instantiates for the screen's id.

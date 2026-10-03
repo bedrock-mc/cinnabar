@@ -5,6 +5,7 @@ use super::*;
 /// Routes chat pointer actions while a settings modal owns its underlying controls.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_ui_actions(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     time: Res<Time<Real>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut menu: Option<ResMut<crate::menu::MenuRuntime>>,
@@ -30,7 +31,7 @@ pub(crate) fn drive_chat_ui_actions(
         match pointer.and_then(|position| presentation.hit_test_bed(position)) {
             Some(presentation::BedHit::LeaveBed) => runtime.request_wake(),
             Some(presentation::BedHit::OpenChat) => {
-                runtime.open_chat();
+                runtime.open_chat(&mut player_runtime);
             }
             None => {}
         }
@@ -41,7 +42,7 @@ pub(crate) fn drive_chat_ui_actions(
         return;
     }
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    coordinates.publish(&runtime, &mut presentation);
+    coordinates.publish(&player_runtime, &runtime, &mut presentation);
     presentation.set_chat_pointer(pointer);
     if let Some(wheel) = wheel.as_deref()
         && wheel.delta.y != 0.0

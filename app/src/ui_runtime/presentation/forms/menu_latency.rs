@@ -19,6 +19,7 @@ const DPI: f32 = 2.0;
 struct Bench {
     presentation: UiPresentationRuntime,
     runtime: UiRuntime,
+    player_runtime: crate::player_runtime::PlayerRuntime,
     view: MenuView,
     now_millis: u64,
 }
@@ -42,6 +43,7 @@ impl Bench {
         Some(Self {
             presentation,
             runtime,
+            player_runtime: crate::player_runtime::PlayerRuntime::new(1),
             view,
             now_millis: 0,
         })
@@ -56,6 +58,7 @@ impl Bench {
         self.presentation.set_menu_view(Some(self.view.clone()));
         self.presentation
             .build(
+                &self.player_runtime,
                 &self.runtime,
                 self.now_millis,
                 SIZE,

@@ -30,7 +30,6 @@ use crate::{
     named_audio::AudioDevice,
     particles::ParticleInbox,
     runtime::{audio::SequencedAudioEvent, world::ClientWorld},
-    ui_runtime::UiRuntime,
 };
 
 const PLAYER: &str = "minecraft:player";
@@ -223,7 +222,7 @@ impl IngestState {
 /// Level sound events the client also voices itself: block events by cell, actor events by actor.
 const ECHOED_BLOCK_EVENTS: [&str; 2] = ["place", "break"];
 const ECHOED_ACTOR_EVENTS: [&str; 2] = ["hurt", "death"];
-pub(super) const BLOCK_ECHO_SECONDS: f64 = 0.6;
+pub(crate) const BLOCK_ECHO_SECONDS: f64 = 0.6;
 pub(super) const ACTOR_ECHO_SECONDS: f64 = 0.4;
 const RECORD_EVENT: i32 = 1006;
 /// Level sound event a jukebox sends when its record stops or is ejected.
@@ -486,7 +485,7 @@ pub(super) fn drive_ambience(
     world: Res<ClientWorld>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     view: Res<LocalViewPose>,
-    ui: Option<Res<UiRuntime>>,
+    player_runtime: Option<Res<crate::player_runtime::PlayerRuntime>>,
     mut engine: ResMut<AudioEngine>,
     mut state: Local<AmbientState>,
 ) {
@@ -496,9 +495,9 @@ pub(super) fn drive_ambience(
     let dt = time.delta_secs();
     let stream = world.stream.as_ref();
     let dimension = stream.map_or(0, |stream| stream.current_dimension());
-    let creative = ui
+    let creative = player_runtime
         .as_deref()
-        .and_then(UiRuntime::player_game_mode)
+        .and_then(|player| player.facts.player_game_mode())
         .is_some_and(|mode| matches!(mode, protocol::PlayerGameMode::Creative));
 
     let eye = view.eye_translation();

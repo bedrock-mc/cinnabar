@@ -39,6 +39,8 @@ fn back_closes_pack_settings_before_leaving_global_resources() {
 
 #[test]
 fn global_resources_screen_renders_actions_and_pack_settings() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
@@ -67,7 +69,13 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
     }
     presentation.set_menu_view(Some(view.clone()));
     let input = presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     snapshot::write(&input, "global-resources");
     let mut nodes = Vec::new();
@@ -108,7 +116,13 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
     view.global_resources = Arc::new(state);
     presentation.set_menu_view(Some(view));
     let input = presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     snapshot::write(&input, "global-resource-settings");
 }
@@ -124,13 +138,17 @@ fn test_raster() -> Vec<u8> {
 
 #[test]
 fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
+
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(7);
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
     let dpi = ui::DpiScale::new(1.0).unwrap();
-    let before = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let before = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     let before_image = snapshot::rasterize(&before);
     snapshot::write(&before, "hud-before");
     let definition = br##"{"namespace":"hud","root_panel":{"modifications":[{"array_name":"controls","operation":"insert_back","value":[{"live_pack_marker":{"type":"image","texture":"textures/ui/cinnabar_live_marker","size":[96,32],"offset":[0,40],"anchor_from":"top_middle","anchor_to":"top_middle","layer":100}}]}]}}"##.to_vec();
@@ -152,7 +170,9 @@ fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
     .prepare_catalog(&presentation.pack_catalog_base().unwrap());
     let retired = Arc::downgrade(&pack);
     runtime.set_server_ui(Some(pack));
-    let after = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let after = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     snapshot::write(&after, "hud-after");
     assert!(
         presentation
@@ -167,7 +187,9 @@ fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
         "pack definition and raster must affect the HUD"
     );
     runtime.set_server_ui(None);
-    let removed = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let removed = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     snapshot::write(&removed, "hud-removed");
     assert_eq!(
         before_image,

@@ -10,11 +10,16 @@ use crate::ui_runtime::UiRuntime;
 use std::sync::Arc;
 
 /// Draws the retained menu twice and returns only its active hit actions.
-fn draw(presentation: &mut UiPresentationRuntime, view: &MenuView) -> Vec<MenuAction> {
+fn draw(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    presentation: &mut UiPresentationRuntime,
+    view: &MenuView,
+) -> Vec<MenuAction> {
     for _ in 0..2 {
         presentation.set_menu_view(Some(view.clone()));
         presentation
             .build(
+                player_runtime,
                 &UiRuntime::new(1),
                 0,
                 [1280, 720],
@@ -38,12 +43,14 @@ fn settings() -> MenuView {
 
 #[test]
 fn settings_help_uses_rating_prompt_and_licenses_scroll() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
         return;
     };
     let mut view = settings();
     view.dialog = Some(MenuDialog::SettingsSupport(SupportDialog::Help));
-    let actions = draw(&mut presentation, &view);
+    let actions = draw(&player_runtime, &mut presentation, &view);
     assert!(
         actions.contains(&MenuAction::SettingsSupport(SupportAction::Open(
             SupportLink::Help
@@ -52,10 +59,10 @@ fn settings_help_uses_rating_prompt_and_licenses_scroll() {
     );
     assert!(actions.contains(&MenuAction::DismissDialog));
     assert_eq!(actions.len(), 2, "modal must own input");
-    super::play_flow_snapshots::snapshot(&view, "settings-help-center");
+    super::play_flow_snapshots::snapshot(&player_runtime, &view, "settings-help-center");
     view.dialog = Some(MenuDialog::SettingsSupport(SupportDialog::FontLicense));
     assert!(
-        draw(&mut presentation, &view)
+        draw(&player_runtime, &mut presentation, &view)
             .iter()
             .all(|action| *action == MenuAction::DismissDialog)
     );
@@ -70,11 +77,13 @@ fn settings_help_uses_rating_prompt_and_licenses_scroll() {
             .values()
             .any(|offset| *offset > 0.0)
     );
-    super::play_flow_snapshots::snapshot(&view, "settings-font-license");
+    super::play_flow_snapshots::snapshot(&player_runtime, &view, "settings-font-license");
 }
 
 #[test]
 fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
         return;
     };
@@ -89,7 +98,7 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     view.settings_section = crate::menu::settings_storage::SECTION_INDEX;
     view.storage = Arc::new(StorageView::read(&layout));
     assert_eq!(view.storage.cached[0].bytes, 1024);
-    let actions = draw(&mut presentation, &view);
+    let actions = draw(&player_runtime, &mut presentation, &view);
     assert!(
         actions.contains(&MenuAction::SettingsStorage(StorageAction::RequestClear)),
         "{actions:?}"
@@ -100,14 +109,14 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
         )),
         "{actions:?}"
     );
-    super::play_flow_snapshots::snapshot(&view, "settings-storage-measured");
+    super::play_flow_snapshots::snapshot(&player_runtime, &view, "settings-storage-measured");
     view.dialog = Some(MenuDialog::StorageDelete);
-    let actions = draw(&mut presentation, &view);
+    let actions = draw(&player_runtime, &mut presentation, &view);
     assert!(
         actions.contains(&MenuAction::SettingsStorage(StorageAction::ConfirmDelete)),
         "{actions:?}"
     );
     assert!(actions.contains(&MenuAction::DismissDialog));
-    super::play_flow_snapshots::snapshot(&view, "settings-storage-delete");
+    super::play_flow_snapshots::snapshot(&player_runtime, &view, "settings-storage-delete");
     std::fs::remove_dir_all(layout.user_data_root.parent().unwrap()).unwrap();
 }

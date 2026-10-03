@@ -24,6 +24,7 @@ pub(crate) struct PreparedUiPublication(pub(super) Option<PendingUiPublication>)
 /// Publishes the captured UI without observing mutations from this frame's outbound actions.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
     mut prepared: ResMut<PreparedUiPublication>,
     mut presentation: ResMut<UiPresentationRuntime>,
@@ -58,14 +59,19 @@ pub(crate) fn publish_ui_runtime(
         menu.profile_icon = icon;
     }
     publish_item_viewmodels(&mut presentation, prepared.item_icons);
-    let input = match runtime.with_presentation_inventory(prepared.inventory, |runtime| {
-        presentation.build(
-            runtime,
-            prepared.now_millis,
-            prepared.physical_size,
-            prepared.dpi_scale,
-        )
-    }) {
+    let input = match runtime.with_presentation_inventory(
+        &mut player_runtime,
+        prepared.inventory,
+        |runtime, player_runtime| {
+            presentation.build(
+                player_runtime,
+                runtime,
+                prepared.now_millis,
+                prepared.physical_size,
+                prepared.dpi_scale,
+            )
+        },
+    ) {
         Ok(input) => input,
         Err(error) => {
             hand.clear();
@@ -106,6 +112,7 @@ fn publish_item_viewmodels(
 /// Runs both HUD phases together for offline witnesses.
 #[cfg(test)]
 pub(crate) fn refresh_hud_frame(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
     stream: Option<&client_world::WorldStream>,
@@ -113,6 +120,7 @@ pub(crate) fn refresh_hud_frame(
     now_millis: u64,
 ) {
     let icons = capture_hud_frame(
+        player_runtime,
         runtime,
         presentation,
         stream,

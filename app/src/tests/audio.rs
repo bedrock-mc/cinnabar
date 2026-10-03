@@ -1,3 +1,4 @@
+use crate::player_runtime::PlayerRuntime;
 use std::sync::Arc;
 
 use assets::{AudioAlternative, AudioDefinition, RuntimeAudioCatalog, encode_audio_catalog};
@@ -341,6 +342,7 @@ fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: 
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
+        .insert_resource(PlayerRuntime::new(1))
         .insert_resource(crate::movement::MovementTicker::default())
         .insert_resource(crate::movement::LocalPhysicsController::default())
         .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())

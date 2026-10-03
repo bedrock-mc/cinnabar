@@ -25,6 +25,8 @@ fn varint(out: &mut Vec<u8>, mut value: u64) {
 
 #[test]
 fn captured_hotbar_survives_network_registry_and_inventory_publication() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(path) = std::env::var_os("CINNABAR_LOBBY_CAPTURE") else {
         return;
     };
@@ -34,7 +36,7 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
     let bytes = std::fs::read(path).unwrap();
     let session = BedrockSession { shield_item_id: 0 };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
     let (mut at, mut sequence, mut contents) = (0, 0, 0);
     while at + 8 <= bytes.len() {
         let id = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
@@ -57,15 +59,17 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
                     if matches!(&event, InventoryEvent::Content(_)) {
                         contents += 1;
                     }
-                    runtime.enqueue_inventory_event(1, sequence, event).unwrap();
-                    runtime.drain_pending_inventory();
+                    runtime
+                        .enqueue_inventory_event(&mut player_runtime, 1, sequence, event)
+                        .unwrap();
+                    runtime.drain_pending_inventory(&mut player_runtime);
                 }
                 Some(WorldEvent::ItemActor(ItemActorEvent::Registry(event))) => {
                     assert!(stream.seed_item_registry(event.clone()));
                     runtime
-                        .enqueue_item_registry_event(1, sequence, event)
+                        .enqueue_item_registry_event(&mut player_runtime, 1, sequence, event)
                         .unwrap();
-                    runtime.drain_pending_inventory();
+                    runtime.drain_pending_inventory(&mut player_runtime);
                 }
                 _ => {}
             }
@@ -74,9 +78,16 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
     assert!(contents > 0, "capture contains no inventory contents");
     runtime.set_session_icons(compile_session_icons(&view, &[], BlockIcons::default()));
     presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     refresh_hud_frame(
+        &player_runtime,
         &mut runtime,
         &mut presentation,
         Some(&stream),
@@ -102,7 +113,13 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
         presentation.set_server_ui_pack(&pack);
     }
     let input = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     crate::ui_runtime::presentation::forms::snapshot::write(&input, "captured-hotbar");
     let icon_pages: std::collections::BTreeSet<_> = frame

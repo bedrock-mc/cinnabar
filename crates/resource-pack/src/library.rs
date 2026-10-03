@@ -89,7 +89,7 @@ pub enum LibraryError {
     Admission(#[from] AdmissionError),
     #[error("encrypted marketplace or password-protected packs are unsupported")]
     Encrypted,
-    #[error("open a .mcpack, .mcaddon or .zip file")]
+    #[error("open a supported resource-pack archive")]
     UnsupportedExtension,
     #[error("pack is not installed or not active")]
     UnknownPack,

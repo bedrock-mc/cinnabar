@@ -8,6 +8,7 @@ pub(super) struct ItemIconFrames([Option<u32>; protocol::HOTBAR_SLOT_COUNT as us
 
 impl ItemIconFrames {
     pub(super) fn capture(
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         item_use: Option<(&crate::item_use::ItemUseRuntime, u64)>,
         stream: Option<&client_world::WorldStream>,
         runtime: &UiRuntime,
@@ -16,7 +17,7 @@ impl ItemIconFrames {
             return Self::default();
         };
         Self(std::array::from_fn(|slot| {
-            item_use.inventory_animation_frame(stream, runtime, slot as u8, tick)
+            item_use.inventory_animation_frame(player_runtime, stream, runtime, slot as u8, tick)
         }))
     }
 

@@ -7,6 +7,7 @@ pub(super) struct BulkRead {
     counts: BTreeMap<usize, u32>,
     identities: BTreeSet<String>,
     unread: BTreeSet<String>,
+    fresh_unread: BTreeMap<String, usize>,
 }
 
 impl BulkRead {
@@ -39,9 +40,10 @@ impl BulkRead {
             .filter(|item| item.unread)
             .map(|item| item.instance_id.clone())
             .collect();
+        self.fresh_unread.clear();
     }
 
-    /// Retires a category's stale total once the service reports its read-state change.
+    /// Remembers newly unread service rows and retires caught-up category totals.
     pub(super) fn observe(&mut self, home: &MenuHome) {
         self.counts.retain(|category, baseline| {
             let mut covered = home
@@ -58,6 +60,14 @@ impl BulkRead {
                 .is_some_and(|count| count >= baseline)
                 && !caught_up
         });
+        self.fresh_unread = home
+            .inbox
+            .iter()
+            .filter(|item| item.unread && !self.identities.contains(&item.instance_id))
+            .filter_map(|item| {
+                category_index(&item.category).map(|category| (item.instance_id.clone(), category))
+            })
+            .collect();
     }
 
     /// Whether this category's local reads are already included in the bulk adjustment.
@@ -69,27 +79,29 @@ impl BulkRead {
     pub(super) fn apply(
         &self,
         home: &mut MenuHome,
+        service_counts: &BTreeMap<usize, u32>,
         read: &BTreeSet<String>,
         deleted: &BTreeSet<String>,
     ) {
         for (&category, &baseline) in &self.counts {
             let mut fresh = 0;
             let mut locally_read = 0;
-            for item in &home.inbox {
-                if category_index(&item.category) != Some(category)
-                    || !item.unread
-                    || self.identities.contains(&item.instance_id)
-                {
+            for (identity, &item_category) in &self.fresh_unread {
+                if item_category != category {
                     continue;
                 }
-                if read.contains(&item.instance_id) || deleted.contains(&item.instance_id) {
+                if read.contains(identity) || deleted.contains(identity) {
                     locally_read += 1;
                 } else {
                     fresh += 1;
                 }
             }
             if let Some(count) = home.inbox_counts.get_mut(&category) {
-                *count = count
+                // Reapply against the service reply, before any local read/delete mutations.
+                *count = service_counts
+                    .get(&category)
+                    .copied()
+                    .unwrap_or(baseline)
                     .saturating_sub(baseline)
                     .saturating_sub(locally_read)
                     .max(fresh);

@@ -450,6 +450,7 @@ impl ViewmodelPublish<'_, '_> {
     }
     pub(crate) fn observe(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         world: &ClientWorld,
         first_person: bool,
@@ -460,7 +461,15 @@ impl ViewmodelPublish<'_, '_> {
         // installing the optional GPU hand resources.
         if self.adapter.is_none() || self.scene.is_none() || self.gate.is_none() {
             self.clear();
-            self.record_observation(runtime, world, first_person, hidden, viewport, false);
+            self.record_observation(
+                player_runtime,
+                runtime,
+                world,
+                first_person,
+                hidden,
+                viewport,
+                false,
+            );
             return false;
         }
         let adapter = self.adapter.as_deref_mut().unwrap();
@@ -474,7 +483,14 @@ impl ViewmodelPublish<'_, '_> {
             adapter.cube_reason = 255;
             adapter.cube_observation = [0; 4];
         }
-        let result = self.publish(runtime, world, first_person, hidden, viewport);
+        let result = self.publish(
+            player_runtime,
+            runtime,
+            world,
+            first_person,
+            hidden,
+            viewport,
+        );
         let adapter = self.adapter.as_deref_mut().unwrap();
         let gate = self.gate.as_deref().unwrap();
         let completed = match result {
@@ -509,11 +525,24 @@ impl ViewmodelPublish<'_, '_> {
                 false
             }
         };
-        self.record_observation(runtime, world, first_person, hidden, viewport, completed);
+        self.record_observation(
+            player_runtime,
+            runtime,
+            world,
+            first_person,
+            hidden,
+            viewport,
+            completed,
+        );
         completed
     }
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Player authority is borrowed separately from UI state."
+    )]
     fn record_observation(
         &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         world: &ClientWorld,
         first_person: bool,
@@ -524,12 +553,24 @@ impl ViewmodelPublish<'_, '_> {
         if !ViewmodelCompletionGate::observation_enabled() {
             return;
         }
-        let (reason, values) =
-            self.diagnostic_snapshot(runtime, world, first_person, hidden, viewport, completed);
+        let (reason, values) = self.diagnostic_snapshot(
+            player_runtime,
+            runtime,
+            world,
+            first_person,
+            hidden,
+            viewport,
+            completed,
+        );
         ViewmodelCompletionGate::observe_main(reason, values);
     }
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Player authority is borrowed separately from UI state."
+    )]
     pub(crate) fn diagnostic_snapshot(
         &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         world: &ClientWorld,
         first_person: bool,
@@ -571,7 +612,7 @@ impl ViewmodelPublish<'_, '_> {
             };
             values[24] = i128::from(stream.actor_rig(stream.local_player_runtime_id()).is_some());
         }
-        if let Some(selected) = runtime.selected_stack_snapshot() {
+        if let Some(selected) = runtime.selected_stack_snapshot(player_runtime) {
             values[7] = i128::from(selected.slot);
             match selected.state {
                 crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown => {}
@@ -625,7 +666,7 @@ impl ViewmodelPublish<'_, '_> {
         values[27..32].copy_from_slice(&[
             i128::from(hidden),
             i128::from(first_person),
-            i128::from(runtime.ui_focused()),
+            i128::from(runtime.ui_focused(player_runtime)),
             i128::from(viewport[0]),
             i128::from(viewport[1]),
         ]);
@@ -633,6 +674,7 @@ impl ViewmodelPublish<'_, '_> {
     }
     fn publish(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         world: &ClientWorld,
         first_person: bool,
@@ -640,11 +682,16 @@ impl ViewmodelPublish<'_, '_> {
         viewport: [u32; 2],
     ) -> Result<ViewmodelToken, HandFallback> {
         if hidden
-            || !crate::screen_policy::renders_game(Some(runtime), self.menu.as_deref(), None)
+            || !crate::screen_policy::renders_game(
+                player_runtime,
+                Some(runtime),
+                self.menu.as_deref(),
+                None,
+            )
             || !first_person
-            || runtime.ui_focused()
+            || runtime.ui_focused(player_runtime)
             || runtime
-                .player_game_mode()
+                .player_game_mode(player_runtime)
                 .is_some_and(|mode| !mode.shows_hotbar())
         {
             return Err(HandFallback::Hidden);
@@ -652,7 +699,7 @@ impl ViewmodelPublish<'_, '_> {
         let stream = world.stream.as_ref().ok_or(HandFallback::Ownership)?;
         let actor = stream.actor(stream.local_player_runtime_id());
         if runtime.session_id() == 0
-            || runtime.local_runtime_id() != Some(stream.local_player_runtime_id())
+            || runtime.local_runtime_id(player_runtime) != Some(stream.local_player_runtime_id())
         {
             return Err(HandFallback::Ownership);
         }
@@ -684,7 +731,7 @@ impl ViewmodelPublish<'_, '_> {
             return Err(HandFallback::Geometry);
         }
         let selected = runtime
-            .selected_stack_snapshot()
+            .selected_stack_snapshot(player_runtime)
             .ok_or(HandFallback::ItemsUnknownOrHeld)?;
         if runtime.gameplay_hud().offhand_is_empty() != Some(true) {
             return Err(HandFallback::ItemsUnknownOrHeld);

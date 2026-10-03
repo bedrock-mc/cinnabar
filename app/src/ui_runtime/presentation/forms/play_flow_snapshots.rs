@@ -182,32 +182,52 @@ pub(super) fn fixture_view(dir: &std::path::Path) -> MenuView {
 }
 
 /// Captures a menu screen after its retained layout has settled.
-pub(super) fn snapshot(view: &MenuView, name: &str) {
-    snapshot_at(view, name, 0);
+pub(super) fn snapshot(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    view: &MenuView,
+    name: &str,
+) {
+    snapshot_at(player_runtime, view, name, 0);
 }
 
-fn snapshot_at(view: &MenuView, name: &str, now_millis: u64) {
-    snapshot_after(view, name, now_millis, 2);
+fn snapshot_at(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    view: &MenuView,
+    name: &str,
+    now_millis: u64,
+) {
+    snapshot_after(player_runtime, view, name, now_millis, 2);
 }
 
 /// `warm` frames first: a screen laid out off-thread needs a few to settle.
-fn snapshot_after(view: &MenuView, name: &str, now_millis: u64, warm: usize) {
-    snapshot_with_catalog(view, name, now_millis, warm, None);
+fn snapshot_after(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    view: &MenuView,
+    name: &str,
+    now_millis: u64,
+    warm: usize,
+) {
+    snapshot_with_catalog(player_runtime, view, name, now_millis, warm, None);
 }
 
 /// Captures the installed pack before Cinnabar's settings layout overrides.
-pub(super) fn snapshot_vanilla(view: &MenuView, name: &str) {
+pub(super) fn snapshot_vanilla(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    view: &MenuView,
+    name: &str,
+) {
     let Some(carrier) = super::pack_harness::carrier() else {
         return;
     };
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
-    snapshot_with_catalog(view, name, 0, 2, Some(Arc::new(catalog)));
+    snapshot_with_catalog(player_runtime, view, name, 0, 2, Some(Arc::new(catalog)));
 }
 
 /// Uses the usual offline rasterizer with an optional reference catalog.
 fn snapshot_with_catalog(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     view: &MenuView,
     name: &str,
     now_millis: u64,
@@ -241,7 +261,7 @@ fn snapshot_with_catalog(
     for _ in 0..warm {
         presentation.set_menu_view(Some(view.clone()));
         presentation
-            .build(&runtime, now_millis, [2560, 1440], dpi)
+            .build(player_runtime, &runtime, now_millis, [2560, 1440], dpi)
             .unwrap();
         if warm > 2 {
             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -249,7 +269,7 @@ fn snapshot_with_catalog(
     }
     presentation.set_menu_view(Some(view.clone()));
     let input = presentation
-        .build(&runtime, now_millis, [2560, 1440], dpi)
+        .build(player_runtime, &runtime, now_millis, [2560, 1440], dpi)
         .unwrap();
     super::snapshot::write(&input, name);
 }
@@ -257,6 +277,8 @@ fn snapshot_with_catalog(
 // Writes PNGs of each play-flow state (local only).
 #[test]
 fn snapshot_play_flow() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
     std::fs::create_dir_all(&dir).unwrap();
     let base = fixture_view(&dir);
@@ -265,53 +287,57 @@ fn snapshot_play_flow() {
         view.screen = screen;
         view
     };
-    snapshot(&at(MenuScreen::Home), "flow-home");
-    snapshot(&at(MenuScreen::Play), "flow-play-worlds");
-    snapshot(&at(MenuScreen::Social), "flow-play-realms");
+    snapshot(&player_runtime, &at(MenuScreen::Home), "flow-home");
+    snapshot(&player_runtime, &at(MenuScreen::Play), "flow-play-worlds");
+    snapshot(&player_runtime, &at(MenuScreen::Social), "flow-play-realms");
     let mut closed = at(MenuScreen::Social);
     closed.feeds.selected_realm = Some(1);
-    snapshot(&closed, "flow-play-realms-closed");
+    snapshot(&player_runtime, &closed, "flow-play-realms-closed");
     let mut servers = at(MenuScreen::Servers);
-    snapshot(&servers, "flow-play-servers");
+    snapshot(&player_runtime, &servers, "flow-play-servers");
     servers.feeds.selected_featured = Some(0);
-    snapshot(&servers, "flow-play-servers-featured");
+    snapshot(&player_runtime, &servers, "flow-play-servers-featured");
     servers.feeds.select_saved(0);
-    snapshot(&servers, "flow-play-servers-saved");
+    snapshot(&player_runtime, &servers, "flow-play-servers-saved");
     servers.dialog = Some(crate::menu::MenuDialog::RemoveSaved(0));
-    snapshot(&servers, "flow-remove-server");
-    snapshot(&at(MenuScreen::Friends), "flow-friends");
+    snapshot(&player_runtime, &servers, "flow-remove-server");
+    snapshot(&player_runtime, &at(MenuScreen::Friends), "flow-friends");
     let mut add = at(MenuScreen::AddServer);
     add.name = "Home server".to_owned();
     add.address = "192.168.1.20:19132".to_owned();
     add.editing = Some(0);
-    snapshot(&add, "flow-edit-server");
+    snapshot(&player_runtime, &add, "flow-edit-server");
 }
 
 // Writes PNGs of the settings screen, the signing-in start screen and two
 // frames of the connecting screen's loading bar (local only).
 #[test]
 fn snapshot_settings_signing_in_and_progress() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
     std::fs::create_dir_all(&dir).unwrap();
     let base = fixture_view(&dir);
     let mut settings = base.clone();
     settings.screen = MenuScreen::Settings;
-    snapshot(&settings, "flow-settings");
+    snapshot(&player_runtime, &settings, "flow-settings");
     let mut signing_in = base.clone();
     signing_in.screen = MenuScreen::Home;
     signing_in.auth_state = AuthState::Checking;
-    snapshot(&signing_in, "flow-home-signing-in");
+    snapshot(&player_runtime, &signing_in, "flow-home-signing-in");
     let mut connecting = base;
     connecting.connecting = true;
     connecting.message = Some("Connecting...".to_owned());
-    snapshot_at(&connecting, "flow-connecting-0", 1_000);
-    snapshot_at(&connecting, "flow-connecting-1", 1_350);
+    snapshot_at(&player_runtime, &connecting, "flow-connecting-0", 1_000);
+    snapshot_at(&player_runtime, &connecting, "flow-connecting-1", 1_350);
 }
 
 // The connecting screen's loading bar is a flip-book: later frames paint other
 // texels over the same cached layout.
 #[test]
 fn the_loading_bar_animates_over_its_cached_layout() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
@@ -335,7 +361,7 @@ fn the_loading_bar_animates_over_its_cached_layout() {
     let frame = |presentation: &mut super::super::UiPresentationRuntime, now_millis| {
         presentation.set_menu_view(Some(view.clone()));
         presentation
-            .build(&runtime, now_millis, [1280, 720], dpi)
+            .build(&player_runtime, &runtime, now_millis, [1280, 720], dpi)
             .unwrap()
     };
     // On-demand texture decodes may finish on workers after the inline budget.
@@ -386,6 +412,8 @@ fn the_loading_bar_animates_over_its_cached_layout() {
 // leaves it for the menu.
 #[test]
 fn the_disconnect_screen_has_a_way_back() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
@@ -395,7 +423,7 @@ fn the_disconnect_screen_has_a_way_back() {
     view.screen = MenuScreen::Play;
     view.disconnect_message =
         Some("network session failed: Bedrock session failed: Connection closed".to_owned());
-    snapshot(&view, "flow-disconnect");
+    snapshot(&player_runtime, &view, "flow-disconnect");
     presentation.set_menu_view(Some(view));
     let runtime = UiRuntime::new(1);
     let dpi = DpiScale::new(1.0).unwrap();
@@ -420,6 +448,8 @@ fn the_disconnect_screen_has_a_way_back() {
 // An overflowing server list scrolls under the wheel, bringing hidden rows into reach.
 #[test]
 fn the_server_list_scrolls_under_the_wheel() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
@@ -442,7 +472,9 @@ fn the_server_list_scrolls_under_the_wheel() {
     let dpi = DpiScale::new(1.0).unwrap();
     let frame = |presentation: &mut super::super::UiPresentationRuntime| {
         presentation.set_menu_view(Some(view.clone()));
-        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        let input = presentation
+            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .unwrap();
         (presentation.menu_hit_targets.clone(), input)
     };
     let row = |hits: &[(MenuAction, ui::UiRect)], index| {
@@ -468,6 +500,8 @@ fn the_server_list_scrolls_under_the_wheel() {
 // The settings screen's JSON-UI scroll views take the wheel like the OreUI lists.
 #[test]
 fn the_settings_panes_take_the_wheel() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
@@ -478,17 +512,23 @@ fn the_settings_panes_take_the_wheel() {
     let runtime = UiRuntime::new(1);
     let dpi = DpiScale::new(1.0).unwrap();
     presentation.set_menu_view(Some(view.clone()));
-    presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     let left = ui::UiPoint::new(200.0, 400.0).unwrap();
     assert!(presentation.scroll_menu(left, -40.0, false));
     presentation.set_menu_view(Some(view));
-    let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let input = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     super::snapshot::write(&input, "flow-settings-scrolled");
 }
 
 // Writes PNGs of the local-world screens driven through the module (local only).
 #[test]
 fn snapshot_local_worlds() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
     use protocol::world_control::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
@@ -513,7 +553,7 @@ fn snapshot_local_worlds() {
     let shot = |menu: &WorldsMenu, name: &str| {
         let mut view = base.clone();
         view.local = menu.view();
-        snapshot(&view, name);
+        snapshot(&player_runtime, &view, name);
     };
     let mut menu = WorldsMenu::default();
     menu.update(Input::Refresh);
@@ -562,7 +602,7 @@ fn snapshot_local_worlds() {
     )));
     let mut progress = base.clone();
     progress.local = menu.view();
-    snapshot_after(&progress, "local-progress-download", 0, 40);
+    snapshot_after(&player_runtime, &progress, "local-progress-download", 0, 40);
     menu.update(Input::Back);
     download.state = SetupState::Unsupported;
     menu.apply(Event::Prefs(

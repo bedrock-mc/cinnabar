@@ -220,17 +220,18 @@ impl<'a> HudLayout<'a> {
     /// screens for a container scene, else the sleep overlay and first-person hands.
     pub(super) fn append(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         container: bool,
     ) -> Result<(), UiPresentationError> {
         if container {
-            self.inventory_screen(runtime, frame)?;
+            self.inventory_screen(player_runtime, runtime, frame)?;
             return Ok(());
         }
         self.sleep_overlay(frame)?;
         let mode_allows_hotbar = runtime
-            .player_game_mode()
+            .player_game_mode(player_runtime)
             .is_none_or(|mode| mode.shows_hotbar());
         if frame.first_person && mode_allows_hotbar {
             self.held_items(frame)?;

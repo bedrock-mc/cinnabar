@@ -50,9 +50,13 @@ pub(super) enum ScreenLayout {
 
 impl ScreenLayout {
     /// `block_entity` is the open block entity's NBT `id`, which picks the chest variant.
-    pub(super) fn of(runtime: &UiRuntime, block_entity: Option<&str>) -> Option<Self> {
-        let book = super::recipe_book::recipe_book_shown(runtime);
-        Some(match InventoryScreen::of_runtime(runtime) {
+    pub(super) fn of(
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        runtime: &UiRuntime,
+        block_entity: Option<&str>,
+    ) -> Option<Self> {
+        let book = super::recipe_book::recipe_book_shown(player_runtime, runtime);
+        Some(match InventoryScreen::of_runtime(player_runtime, runtime) {
             InventoryScreen::Personal | InventoryScreen::Creative => Self::Personal { book },
             InventoryScreen::Workbench => Self::Workbench { book },
             InventoryScreen::Storage(slots) => Self::Station(storage_kind(slots, block_entity)),
@@ -87,6 +91,7 @@ impl UiPresentationRuntime {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn append_engine_container(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         previous: Option<&EngineFrame>,
         nodes: &mut Vec<UiNode>,
@@ -99,7 +104,9 @@ impl UiPresentationRuntime {
             return Ok(false);
         }
         let window_text = &self.hud_frame.window_text;
-        let Some(layout) = ScreenLayout::of(runtime, window_text.block_entity.as_deref()) else {
+        let Some(layout) =
+            ScreenLayout::of(player_runtime, runtime, window_text.block_entity.as_deref())
+        else {
             return Ok(false);
         };
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
@@ -134,6 +141,7 @@ impl UiPresentationRuntime {
         }
         let mut icons = Vec::new();
         let data = screen_data(
+            player_runtime,
             runtime,
             &self.hud_frame,
             layout,
@@ -167,13 +175,14 @@ impl UiPresentationRuntime {
             ..ViewState::default()
         };
         let overlay = held_stack(
-            runtime.inventory_ledger().cursor_stack(),
+            runtime.inventory_ledger(player_runtime).cursor_stack(),
             self.hud_frame.cursor_icon,
             pointer,
             &mut icons,
         );
-        let id_aux =
-            container_data::id_aux_icons(runtime, &self.hud_frame, |id| self.item_icon(id, 0));
+        let id_aux = container_data::id_aux_icons(player_runtime, runtime, &self.hud_frame, |id| {
+            self.item_icon(id, 0)
+        });
         // The hovered item's full tooltip (name, enchantments, lore) replaces its
         // bound name, so hovering changes no data.
         let tooltip = runtime
@@ -413,13 +422,19 @@ impl ScreenCache {
 }
 
 /// Whether the engine has a vanilla screen for the open inventory or window.
-pub(crate) fn engine_screen_for(runtime: &UiRuntime) -> bool {
-    ScreenLayout::of(runtime, None).is_some()
+pub(crate) fn engine_screen_for(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+) -> bool {
+    ScreenLayout::of(player_runtime, runtime, None).is_some()
 }
 
 /// The vanilla screen the open inventory or container draws.
-pub(crate) fn container_screen_reference(runtime: &UiRuntime) -> Option<&'static str> {
-    ScreenLayout::of(runtime, None).map(|layout| layout.screen().0)
+pub(crate) fn container_screen_reference(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+) -> Option<&'static str> {
+    ScreenLayout::of(player_runtime, runtime, None).map(|layout| layout.screen().0)
 }
 
 /// Whether a point lies on the engine-drawn container's `root_panel`.
@@ -488,6 +503,7 @@ impl Cells<'_> {
 }
 
 fn screen_data(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &UiRuntime,
     frame: &HudFrame,
     layout: ScreenLayout,
@@ -495,7 +511,7 @@ fn screen_data(
     icons: &mut Vec<IconRef>,
     book_cache: &mut Option<super::recipe_book::BookCache>,
 ) -> DataSource {
-    let ledger = runtime.inventory_ledger();
+    let ledger = runtime.inventory_ledger(player_runtime);
     let mut data = DataSource::new();
     // Bindings the controller does not answer read as false, as in vanilla.
     data.set_strict(true);
@@ -524,7 +540,15 @@ fn screen_data(
     survival_globals(&mut data, title);
     match layout {
         ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
-            super::recipe_book::book_data(&mut data, runtime, frame, cells.icons, book, book_cache);
+            super::recipe_book::book_data(
+                player_runtime,
+                &mut data,
+                runtime,
+                frame,
+                cells.icons,
+                book,
+                book_cache,
+            );
             let width = if matches!(layout, ScreenLayout::Workbench { .. }) {
                 3
             } else {
@@ -567,20 +591,32 @@ fn screen_data(
         }
         ScreenLayout::Station(kind) => {
             for (collection, addressed) in kind.collections {
-                let shown = container_data::collection_len(runtime, collection, addressed.len());
+                let shown = container_data::collection_len(
+                    player_runtime,
+                    runtime,
+                    collection,
+                    addressed.len(),
+                );
                 let items = addressed[..shown]
                     .iter()
                     .map(|cell| {
-                        let (stack, icon, durability) = station_cell(runtime, frame, *cell);
+                        let (stack, icon, durability) =
+                            station_cell(player_runtime, runtime, frame, *cell);
                         let item = cells.cell(stack, icon, durability);
-                        container_data::decorate(runtime, collection, stack.is_none(), item)
+                        container_data::decorate(
+                            player_runtime,
+                            runtime,
+                            collection,
+                            stack.is_none(),
+                            item,
+                        )
                     })
                     .collect();
                 data.set_collection(*collection, items);
             }
             if let Some(window) = ledger.window_kind() {
-                container_data::station_globals(&mut data, runtime, window);
-                container_data::station_controls(&mut data, runtime, frame, window);
+                container_data::station_globals(player_runtime, &mut data, runtime, window);
+                container_data::station_controls(player_runtime, &mut data, runtime, frame, window);
             }
         }
         ScreenLayout::Book => {
@@ -637,11 +673,12 @@ mod empty_cells_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(
+    player_runtime: &'a crate::player_runtime::PlayerRuntime,
     runtime: &'a UiRuntime,
     frame: &HudFrame,
     cell: Cell,
 ) -> (Option<&'a NetworkItemStack>, Option<IconRef>, Option<f32>) {
-    let ledger = runtime.inventory_ledger();
+    let ledger = runtime.inventory_ledger(player_runtime);
     match cell {
         Cell::Storage(slot) => {
             let index = usize::from(slot);

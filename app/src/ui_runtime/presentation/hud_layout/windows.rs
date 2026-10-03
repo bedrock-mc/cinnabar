@@ -109,8 +109,12 @@ pub(crate) struct WindowText {
     pub(crate) book_title: Option<String>,
 }
 
-fn stack_of(runtime: &UiRuntime, hit: InventoryCellHit) -> Option<&NetworkItemStack> {
-    let ledger = runtime.inventory_ledger();
+fn stack_of<'a>(
+    player_runtime: &'a crate::player_runtime::PlayerRuntime,
+    runtime: &UiRuntime,
+    hit: InventoryCellHit,
+) -> Option<&'a NetworkItemStack> {
+    let ledger = runtime.inventory_ledger(player_runtime);
     match hit {
         InventoryCellHit::Player(slot) => ledger.displayed_stack(slot),
         InventoryCellHit::Storage(slot) => ledger.storage_stack(slot),
@@ -239,6 +243,7 @@ impl HudLayout<'_> {
     /// One placed slot: frame, item, count and durability bar.
     fn placed_slot(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         origin: [f32; 2],
@@ -253,7 +258,7 @@ impl HudLayout<'_> {
             1.0
         };
         let cell = [position[0] + inset, position[1] + inset];
-        if let Some(stack) = stack_of(runtime, slot.hit) {
+        if let Some(stack) = stack_of(player_runtime, runtime, slot.hit) {
             let (icon, durability) = icon_and_durability(frame, slot.hit);
             if let Some(icon) = icon {
                 self.icon_gui(icon, cell)?;
@@ -300,11 +305,12 @@ impl HudLayout<'_> {
 
     fn held_item(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> Result<(), UiPresentationError> {
         if let (Some(stack), Some(pointer)) = (
-            runtime.inventory_ledger().cursor_stack(),
+            runtime.inventory_ledger(player_runtime).cursor_stack(),
             runtime.inventory_pointer_gui(),
         ) {
             if let Some(icon) = frame.cursor_icon {
@@ -317,6 +323,7 @@ impl HudLayout<'_> {
 
     pub(super) fn window_screen(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         kind: WindowKind,
@@ -347,12 +354,12 @@ impl HudLayout<'_> {
             label,
             [origin[0] + layout.label[0], origin[1] + layout.label[1]],
         )?;
-        self.progress_widgets(runtime, kind, origin)?;
+        self.progress_widgets(player_runtime, runtime, kind, origin)?;
         for slot in screens::screen_slots(screen) {
-            self.placed_slot(runtime, frame, origin, &slot)?;
+            self.placed_slot(player_runtime, runtime, frame, origin, &slot)?;
         }
-        self.window_widgets(runtime, frame, kind, origin)?;
-        self.held_item(runtime, frame)
+        self.window_widgets(player_runtime, runtime, frame, kind, origin)?;
+        self.held_item(player_runtime, runtime, frame)
     }
 
     pub(super) fn measure(&mut self, text: &str) -> Result<f32, UiPresentationError> {
@@ -395,11 +402,12 @@ impl HudLayout<'_> {
     /// Furnace flame and arrow, brewing bubbles and fuel bar from window data.
     fn progress_widgets(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         kind: WindowKind,
         origin: [f32; 2],
     ) -> Result<(), UiPresentationError> {
-        let ledger = runtime.inventory_ledger();
+        let ledger = runtime.inventory_ledger(player_runtime);
         let data = |property: i32| ledger.window_data(property).map(|value| value as f32);
         match kind {
             WindowKind::Furnace | WindowKind::BlastFurnace | WindowKind::Smoker => {
@@ -479,6 +487,7 @@ impl HudLayout<'_> {
     /// Enchant options, beacon effects, stonecutter recipes, loom patterns and the anvil name field.
     fn window_widgets(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         kind: WindowKind,
@@ -490,10 +499,12 @@ impl HudLayout<'_> {
         };
         let level = runtime.hud().experience().map_or(0, |xp| xp.level);
         let state = runtime.screen_state();
-        let stonecutter_choice = runtime.active_screen_recipe().map(|recipe| recipe.id);
+        let stonecutter_choice = runtime
+            .active_screen_recipe(player_runtime)
+            .map(|recipe| recipe.id);
         let stonecutter_ids: Vec<u32> = if kind == WindowKind::Stonecutter {
             runtime
-                .stonecutter_options()
+                .stonecutter_options(player_runtime)
                 .iter()
                 .map(|recipe| recipe.id)
                 .collect()
@@ -506,7 +517,7 @@ impl HudLayout<'_> {
             match widget {
                 Widget::EnchantOption(index) => {
                     let option = runtime
-                        .inventory_ledger()
+                        .inventory_ledger(player_runtime)
                         .enchant_options()
                         .and_then(|options| options.get(usize::from(index)));
                     let shade = match (option, hot) {
@@ -671,6 +682,7 @@ impl HudLayout<'_> {
 
     pub(super) fn creative_screen(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> Result<(), UiPresentationError> {
@@ -703,7 +715,7 @@ impl HudLayout<'_> {
             );
             self.ui_text(&text, [field[0] + 2.0, field[1] + 2.0], [255; 4], false)?;
         }
-        let entries = visible_creative_entries(runtime.inventory_ledger(), state);
+        let entries = visible_creative_entries(runtime.inventory_ledger(player_runtime), state);
         for slot in screens::creative_slots() {
             let position = [origin[0] + slot.pos[0], origin[1] + slot.pos[1]];
             self.slot_frame(position, SLOT_SIZE)?;
@@ -719,7 +731,7 @@ impl HudLayout<'_> {
                     }
                 }
                 hit => {
-                    if let Some(stack) = stack_of(runtime, hit) {
+                    if let Some(stack) = stack_of(player_runtime, runtime, hit) {
                         let (icon, durability) = icon_and_durability(frame, hit);
                         if let Some(icon) = icon {
                             self.icon_gui(icon, cell)?;
@@ -746,12 +758,13 @@ impl HudLayout<'_> {
             [12.0, 15.0],
             [198, 198, 198, 255],
         )?;
-        self.held_item(runtime, frame)
+        self.held_item(player_runtime, runtime, frame)
     }
 
     /// Hover highlight and the item tooltip, drawn over any inventory screen.
     pub(super) fn inventory_overlays(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         frame: &HudFrame,
         screen: InventoryScreen,
@@ -775,7 +788,10 @@ impl HudLayout<'_> {
                 [255, 255, 255, 128],
             )?;
         }
-        if runtime.inventory_ledger().cursor_stack().is_some()
+        if runtime
+            .inventory_ledger(player_runtime)
+            .cursor_stack()
+            .is_some()
             || frame.window_text.tooltip.is_empty()
         {
             return Ok(());

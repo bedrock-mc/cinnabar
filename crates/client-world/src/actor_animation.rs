@@ -196,6 +196,7 @@ struct ActorRigState {
     current: Vec<BoneTransform>,
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     ui_pose: Option<Vec<BoneTransform>>,
+    ui_animation: Option<hud::UiAnimationState>,
     rest: Vec<BoneTransform>,
     rest_completed_tick: u64,
     rest_reset_generation: u64,
@@ -588,22 +589,18 @@ impl ActorAnimationStore {
                     is_in_ui: true,
                     ..context.clone()
                 };
-                state.ui_pose = Some(
-                    evaluate_state(
-                        state_assets,
-                        state_layout,
-                        state,
-                        actor,
-                        &ui_context,
-                        self.completed_tick,
-                        &mut budget,
-                        None,
-                    )
-                    .map(|evaluated| evaluated.pose)
-                    .unwrap_or_default(),
+                hud::evaluate(
+                    state_assets,
+                    state_layout,
+                    state,
+                    actor,
+                    &ui_context,
+                    self.completed_tick,
+                    &mut budget,
                 );
             } else {
                 state.ui_pose = None;
+                state.ui_animation = None;
             }
             self.stats.evaluated_molang_ops = self
                 .stats
@@ -814,6 +811,7 @@ fn resolve_rig(
 mod attachable;
 mod evaluation;
 mod geometry;
+mod hud;
 mod motion;
 mod pose;
 mod query;

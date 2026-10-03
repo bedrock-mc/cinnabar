@@ -12,6 +12,34 @@ type stubScreens struct {
 	stubServices
 }
 
+type recordingScreens struct {
+	stubScreens
+	events []catalog.MessageEvent
+}
+
+// ReportMessage records the reports delivered by the control endpoint.
+func (s *recordingScreens) ReportMessage(_ context.Context, event catalog.MessageEvent) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func TestMessageEndpointForwardsBulkDeleteAndSubsequentReports(t *testing.T) {
+	screens := &recordingScreens{}
+	dir := startServices(t, NewStore(), screens)
+	for _, params := range []string{
+		`{"event_type":"DeleteAllRead"}`,
+		`{"event_type":"Click","instance_id":"next","report_id":"report"}`,
+	} {
+		if reply := rpc(t, dir, methodMessageEvent, params); reply.Error != nil {
+			t.Fatalf("message event %s was rejected: %+v", params, reply.Error)
+		}
+	}
+	if len(screens.events) != 2 || screens.events[0] != (catalog.MessageEvent{Type: "DeleteAllRead"}) ||
+		screens.events[1] != (catalog.MessageEvent{Type: "Click", InstanceID: "next", ReportID: "report"}) {
+		t.Fatalf("forwarded events = %+v", screens.events)
+	}
+}
+
 func (stubScreens) FeaturedServers(context.Context) ([]catalog.FeaturedServer, error) {
 	return []catalog.FeaturedServer{{Name: "Example", Address: "play.example.test:19132"}}, nil
 }

@@ -17,6 +17,7 @@ use thiserror::Error;
 mod connected;
 mod doors;
 mod scaffolding;
+mod selection;
 mod stairs;
 
 const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
@@ -197,6 +198,10 @@ impl PhysicsCollisionRegistries {
             };
             register(&mut sequential, record.sequential_id, boxes.clone())?;
             register(&mut hashed, record.network_hash, boxes)?;
+            if let Some(shape) = selection::shape(record) {
+                sequential.set_pick_shapes(record.sequential_id, [shape]);
+                hashed.set_pick_shapes(record.network_hash, [shape]);
+            }
             if let Some(door) = doors::state(record) {
                 sequential.set_door_state(record.sequential_id, door.clone());
                 hashed.set_door_state(record.network_hash, door);
@@ -597,6 +602,96 @@ mod tests {
             collision_box: None,
             selection: Default::default(),
             visual: Default::default(),
+        }
+    }
+
+    /// Non-colliding plants must still be targets for the first punch.
+    #[test]
+    fn noncolliding_plants_have_vanilla_pick_shapes_in_both_id_spaces() {
+        let protocol = active_content_registry_protocol();
+        let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+        let registries = bind(
+            BREG_V2193,
+            &synthetic_preg(protocol, BREG_V2193, &records),
+            protocol,
+        )
+        .unwrap();
+        for name in [
+            "minecraft:short_grass",
+            "minecraft:tall_grass",
+            "minecraft:dandelion",
+            "minecraft:poppy",
+            "minecraft:oak_sapling",
+            "minecraft:deadbush",
+            "minecraft:torch",
+            "minecraft:soul_torch",
+            "minecraft:redstone_torch",
+            "minecraft:unlit_redstone_torch",
+            "minecraft:short_dry_grass",
+            "minecraft:brown_mushroom",
+            "minecraft:red_mushroom",
+            "minecraft:nether_sprouts",
+            "minecraft:cactus_flower",
+            "minecraft:reeds",
+            "minecraft:wheat",
+            "minecraft:carrots",
+            "minecraft:potatoes",
+            "minecraft:beetroot",
+            "minecraft:nether_wart",
+        ] {
+            let matched = records
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+                .collect::<Vec<_>>();
+            assert!(!matched.is_empty(), "{name} must exist in the carrier");
+            for record in matched {
+                assert!(record.collision_seed.boxes.is_empty(), "{name} is passable");
+                for (mode, id) in [
+                    (assets::NetworkIdMode::Sequential, record.sequential_id),
+                    (assets::NetworkIdMode::Hashed, record.network_hash),
+                ] {
+                    assert!(
+                        !registries
+                            .registry(mode)
+                            .selection_shapes(id)
+                            .unwrap()
+                            .is_empty(),
+                        "{name} has a visual pick shape despite no movement collision"
+                    );
+                    let air_record = records
+                        .iter()
+                        .find(|record| record.name.as_ref() == "minecraft:air")
+                        .unwrap();
+                    let air = match mode {
+                        assets::NetworkIdMode::Sequential => air_record.sequential_id,
+                        assets::NetworkIdMode::Hashed => air_record.network_hash,
+                    };
+                    let mut store = world::ChunkStore::new();
+                    // The pick ray inspects a halo for connected/protruding shapes.
+                    for x in -1..=1 {
+                        for z in -1..=1 {
+                            store
+                                .mark_chunk_loaded(world::ChunkKey::new(0, x, z))
+                                .unwrap();
+                        }
+                    }
+                    let key = world::SubChunkKey::new(0, 0, 0, 0);
+                    store
+                        .update_block(key, world::BlockUpdate::new(0, 0, 2, 0, id), air)
+                        .unwrap();
+                    let shape = registries.registry(mode).selection_shapes(id).unwrap()[0];
+                    let origin = sim::Vec3::new(
+                        (shape.min.x + shape.max.x) * 0.5,
+                        (shape.min.y + shape.max.y) * 0.5,
+                        0.5,
+                    );
+                    let hit = sim::PaletteWorld::new(&store, registries.registry(mode), 0)
+                        .block_interaction_ray_current(origin, sim::Vec3::new(0.0, 0.0, 1.0), 3.0)
+                        .unwrap()
+                        .expect("a first punch can pick the plant");
+                    assert_eq!((hit.block_pos, hit.runtime_id), ([0, 0, 2], id));
+                }
+            }
         }
     }
 

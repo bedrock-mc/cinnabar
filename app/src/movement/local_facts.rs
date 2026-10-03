@@ -4,7 +4,7 @@ use crate::game_mode_capabilities::{ability_bit, resolved_layer};
 use protocol::AbilitiesUpdate;
 
 use super::control_modes::SPRINT_HUNGER_FLOOR;
-use crate::ui_runtime::UiRuntime;
+use crate::player_runtime::PlayerRuntime;
 
 const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
 /// Bedrock enchantment ids; provisional until checked against a native item.
@@ -27,23 +27,22 @@ pub(super) struct LocalMovementFacts {
 }
 
 pub(super) fn read(
-    ui: Option<&UiRuntime>,
+    player: Option<&PlayerRuntime>,
     stream: &client_world::WorldStream,
     item_in_use: bool,
 ) -> LocalMovementFacts {
-    let Some(ui) = ui else {
+    let Some(player) = player else {
         return LocalMovementFacts::default();
     };
-    let armor = ui.local_armor();
-    let elytra_ready = !armor.chestplate.is_empty()
+    let [_, chestplate, _, boots] = player.inventory.local_armor();
+    let elytra_ready = !chestplate.is_empty()
         && stream
-            .canonical_item_stack(&armor.chestplate)
+            .canonical_item_stack(&chestplate)
             .and_then(|stack| stack.identifier)
             .is_some_and(|identifier| &*identifier == ELYTRA_IDENTIFIER);
-    let capabilities = ui.game_mode_capabilities();
-    let boots_level =
-        |id| protocol::item_enchantment_level(&armor.boots.extra_data, id).unwrap_or(0);
-    let ride = ui.gameplay_hud().mount_unique_id().map(|unique| {
+    let capabilities = player.facts.game_mode_capabilities();
+    let boots_level = |id| protocol::item_enchantment_level(&boots.extra_data, id).unwrap_or(0);
+    let ride = player.facts.mount_unique_id().map(|unique| {
         stream
             .actor_by_unique_id(unique)
             .and_then(|actor| match &actor.kind {
@@ -61,10 +60,10 @@ pub(super) fn read(
             .map(|(position, _)| position),
         can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
         server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
-        fly_speed: ui.local_abilities().and_then(|update| {
+        fly_speed: player.facts.local_abilities().and_then(|update| {
             flight_speed(update, ability_bit::FLY_SPEED, |layer| layer.fly_speed_bits)
         }),
-        vertical_fly_speed: ui.local_abilities().and_then(|update| {
+        vertical_fly_speed: player.facts.local_abilities().and_then(|update| {
             flight_speed(update, ability_bit::VERTICAL_FLY_SPEED, |layer| {
                 layer.vertical_fly_speed_bits
             })
@@ -73,9 +72,9 @@ pub(super) fn read(
         elytra_ready,
         depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
         soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
-        sprint_blocked: (ui.survival_stats_visible()
-            && ui
-                .hud()
+        sprint_blocked: (player.facts.survival_stats_visible()
+            && player
+                .facts
                 .hunger()
                 .is_some_and(|hunger| hunger.current() <= SPRINT_HUNGER_FLOOR))
             || item_in_use,
@@ -181,3 +180,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod owner_tests;

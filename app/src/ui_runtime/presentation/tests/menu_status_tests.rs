@@ -10,6 +10,8 @@ const OBSERVED_KICK: &str = "server disconnected: Cinnabar launcher return check
 
 #[test]
 fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let runtime = UiRuntime::new(1);
     for (width, height, gui_scale) in [
         (1280, 720, 2),
@@ -28,7 +30,13 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
         presentation.set_gui_scale_preference(Some(gui_scale));
         presentation.set_menu_view(Some(view));
         let input = presentation
-            .build(&runtime, 0, [width, height], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [width, height],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         // Locate actual empty-card quads rather than repeating production's
         // origin formula. Headers are checked separately, including shadows.
@@ -188,6 +196,8 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
 
 #[test]
 fn measured_home_heading_never_moves_successful_featured_hits_below_the_viewport() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let runtime = UiRuntime::new(1);
     for (width, height, gui) in [(1280, 720, 3), (900, 360, 1)] {
         let mut view = MenuRuntime::new(true, gui, "Player".to_owned()).view();
@@ -206,7 +216,13 @@ fn measured_home_heading_never_moves_successful_featured_hits_below_the_viewport
         presentation.set_gui_scale_preference(Some(gui));
         presentation.set_menu_view(Some(view));
         presentation
-            .build(&runtime, 0, [width, height], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [width, height],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         let hits = presentation
             .menu_hit_targets
@@ -231,6 +247,7 @@ fn measured_home_heading_never_moves_successful_featured_hits_below_the_viewport
 }
 
 fn presented_message(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     physical_size: [u32; 2],
     safe_area: SafeArea,
     reason: &str,
@@ -244,21 +261,36 @@ fn presented_message(
     baseline_view.message = None;
     presentation.set_menu_view(Some(baseline_view));
     let baseline = presentation
-        .build(&runtime, 0, physical_size, DpiScale::new(1.0).unwrap())
+        .build(
+            player_runtime,
+            &runtime,
+            0,
+            physical_size,
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
 
     let mut view = menu.view();
     view.message = Some(reason.to_owned());
     presentation.set_menu_view(Some(view));
     let active = presentation
-        .build(&runtime, 0, physical_size, DpiScale::new(1.0).unwrap())
+        .build(
+            player_runtime,
+            &runtime,
+            0,
+            physical_size,
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     (active, baseline.vertices.len())
 }
 
 #[test]
 fn observed_launcher_disconnect_message_stays_inside_the_window() {
-    let (active, baseline_vertices) = presented_message([1280, 720], SafeArea::ZERO, OBSERVED_KICK);
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let (active, baseline_vertices) =
+        presented_message(&player_runtime, [1280, 720], SafeArea::ZERO, OBSERVED_KICK);
     let status = &active.vertices[baseline_vertices..];
 
     assert!(
@@ -285,9 +317,12 @@ fn observed_launcher_disconnect_message_stays_inside_the_window() {
 
 #[test]
 fn long_launcher_status_keeps_only_complete_rows_inside_a_narrow_safe_viewport() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let safe_area = SafeArea::new(18.0, 24.0, 22.0, 36.0).unwrap();
     let reason = "bounded launcher status row ".repeat(40);
-    let (active, baseline_vertices) = presented_message([420, 360], safe_area, &reason);
+    let (active, baseline_vertices) =
+        presented_message(&player_runtime, [420, 360], safe_area, &reason);
     let status = &active.vertices[baseline_vertices..];
     let safe_bottom = 360.0 - safe_area.bottom();
 

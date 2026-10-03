@@ -59,8 +59,15 @@ fn crossbow(projectile: Option<&str>) -> NetworkItemStack {
     }
 }
 
-fn publish(ui: &mut UiRuntime, sequence: u64, slot: u16, stack: NetworkItemStack) {
+fn publish(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    ui: &mut UiRuntime,
+    sequence: u64,
+    slot: u16,
+    stack: NetworkItemStack,
+) {
     ui.enqueue_inventory_event(
+        player_runtime,
         ui.session_id(),
         sequence,
         InventoryEvent::Slot(InventorySlotEvent {
@@ -73,7 +80,7 @@ fn publish(ui: &mut UiRuntime, sequence: u64, slot: u16, stack: NetworkItemStack
         }),
     )
     .unwrap();
-    ui.drain_pending_inventory();
+    ui.drain_pending_inventory(player_runtime);
 }
 
 fn stream() -> client_world::WorldStream {
@@ -92,17 +99,23 @@ fn stream() -> client_world::WorldStream {
     stream
 }
 
-fn charge_frame(ui: &UiRuntime, tick: u64) -> UseFrame {
+fn charge_frame(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    ui: &UiRuntime,
+    tick: u64,
+) -> UseFrame {
     UseFrame {
         tick,
         now_millis: tick * 50,
         position: [0.0; 3],
         held: true,
-        selection: crate::block_use::verified_use_selection(ui),
+        selection: crate::block_use::verified_use_selection(player_runtime, ui),
         air_use: classify("minecraft:crossbow", false, 0, None),
         ready: true,
         creative: false,
-        inventory_revision: ui.inventory_ledger().authoritative_slot_revision(2),
+        inventory_revision: ui
+            .inventory_ledger(player_runtime)
+            .authoritative_slot_revision(2),
         charge_projectile: Some("minecraft:arrow"),
         press_consumed: false,
     }
@@ -162,23 +175,35 @@ fn native_crossbow_icon_uses_loaded_nbt_and_frame_minus_one_not_damage() {
 
 #[test]
 fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_corrections() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = presentation();
     let stream = stream();
     let mut ui = UiRuntime::new(1);
-    ui.set_local_selected_slot(2);
-    publish(&mut ui, 1, 2, crossbow(None));
-    publish(&mut ui, 2, 12, crossbow(Some("minecraft:firework_rocket")));
+    player_runtime.inventory.set_local_selected_slot(2);
+    publish(&mut player_runtime, &mut ui, 1, 2, crossbow(None));
+    publish(
+        &mut player_runtime,
+        &mut ui,
+        2,
+        12,
+        crossbow(Some("minecraft:firework_rocket")),
+    );
     let mut item_use = ItemUseRuntime::default();
     item_use.observe_press(true);
-    let started = item_use.step(&charge_frame(&ui, 10));
+    let started = item_use.step(&charge_frame(&player_runtime, &ui, 10));
     assert!(started.started);
     let duration = match classify("minecraft:crossbow", false, 0, None).unwrap() {
         AirUse::Hold { max_ticks, .. } => u64::from(max_ticks),
         _ => unreachable!(),
     };
-    item_use.step(&charge_frame(&ui, 10 + duration));
-    let mut capture = |ui: &mut UiRuntime, item_use: &ItemUseRuntime, tick| {
+    item_use.step(&charge_frame(&player_runtime, &ui, 10 + duration));
+    let mut capture = |player_runtime: &crate::player_runtime::PlayerRuntime,
+                       ui: &mut UiRuntime,
+                       item_use: &ItemUseRuntime,
+                       tick| {
         super::super::capture_hud_frame(
+            player_runtime,
             ui,
             &mut presentation,
             Some(&stream),
@@ -190,28 +215,41 @@ fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_correctio
         assert_eq!(frame.hotbar_icons[2], frame.inventory_icons.0[2]);
         (frame.hotbar_icons[2], frame.inventory_icons.0[12])
     };
-    let loaded = capture(&mut ui, &item_use, 36);
-    ui.set_local_selected_slot(0);
-    assert_eq!(capture(&mut ui, &item_use, 37), loaded);
+    let loaded = capture(&player_runtime, &mut ui, &item_use, 36);
+    player_runtime.inventory.set_local_selected_slot(0);
+    assert_eq!(capture(&player_runtime, &mut ui, &item_use, 37), loaded);
     // A byte-identical authoritative rejection invalidates the local overlay.
-    publish(&mut ui, 3, 2, crossbow(None));
-    let corrected = capture(&mut ui, &item_use, 38);
+    publish(&mut player_runtime, &mut ui, 3, 2, crossbow(None));
+    let corrected = capture(&player_runtime, &mut ui, &item_use, 38);
     assert_ne!(corrected.0, loaded.0);
     assert_eq!(corrected.1, loaded.1);
-    publish(&mut ui, 4, 2, crossbow(Some("minecraft:arrow")));
-    assert_eq!(capture(&mut ui, &item_use, 39), loaded);
-    ui.set_local_selected_slot(2);
+    publish(
+        &mut player_runtime,
+        &mut ui,
+        4,
+        2,
+        crossbow(Some("minecraft:arrow")),
+    );
+    assert_eq!(capture(&player_runtime, &mut ui, &item_use, 39), loaded);
+    player_runtime.inventory.set_local_selected_slot(2);
     item_use.observe_press(true);
-    let mut fire = charge_frame(&ui, 40);
+    let mut fire = charge_frame(&player_runtime, &ui, 40);
     fire.air_use = Some(AirUse::Instant);
     assert!(!item_use.step(&fire).started);
-    assert_eq!(capture(&mut ui, &item_use, 40), corrected);
+    assert_eq!(capture(&player_runtime, &mut ui, &item_use, 40), corrected);
     assert_eq!(
-        protocol::item_charged_projectile(&ui.selected_stack().unwrap().extra_data).as_deref(),
+        protocol::item_charged_projectile(&ui.selected_stack(&player_runtime).unwrap().extra_data)
+            .as_deref(),
         Some("minecraft:arrow")
     );
-    publish(&mut ui, 5, 2, crossbow(Some("minecraft:firework_rocket")));
-    let rocket = capture(&mut ui, &item_use, 41);
+    publish(
+        &mut player_runtime,
+        &mut ui,
+        5,
+        2,
+        crossbow(Some("minecraft:firework_rocket")),
+    );
+    let rocket = capture(&player_runtime, &mut ui, &item_use, 41);
     assert_eq!(rocket.0, rocket.1);
     assert_ne!(rocket.0, loaded.0);
 }

@@ -112,11 +112,19 @@ fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
 
 #[test]
 fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
     let runtime = UiRuntime::new(1);
     presentation.set_nametag_anchors(vec![super::super::nametags::tests::anchor("A一A")]);
     let input = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     // The world glyphs now rasterize into the retained GPU line atlas, not HUD vertices.
     let scene = presentation.nametag_scene();
@@ -157,6 +165,8 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
 
 #[test]
 fn actual_producer_publish_and_extraction_keep_revision_and_publication_identity_joined() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use bevy::render::extract_resource::ExtractResource;
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
     let runtime = UiRuntime::new(1);
@@ -167,7 +177,13 @@ fn actual_producer_publish_and_extraction_keep_revision_and_publication_identity
         // Alternate sizes so every frame carries a changed payload.
         let size = [800 + frame % 2, 600];
         let input = presentation
-            .build(&runtime, 0, size, DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                size,
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         assert!(
             input.revision > previous_revision,
@@ -189,13 +205,21 @@ fn actual_producer_publish_and_extraction_keep_revision_and_publication_identity
 /// An unchanged frame must keep its revision and publication so the GPU upload fast path fires.
 #[test]
 fn unchanged_frames_keep_revision_and_accepted_publication() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
     let runtime = UiRuntime::new(1);
     let stats = UiRenderStats::default();
     let mut scene = UiRenderScene::default();
     let build = |presentation: &mut UiPresentationRuntime, size| {
         presentation
-            .build(&runtime, 0, size, DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                size,
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap()
     };
     let first = build(&mut presentation, [800, 600]);
@@ -217,6 +241,8 @@ fn unchanged_frames_keep_revision_and_accepted_publication() {
 
 #[test]
 fn actual_preview_updates_share_static_pages_and_retire_superseded_scenes() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
     presentation.set_player_preview_skin(None, player_preview::PlayerPreviewPose::default());
     let retained = Arc::clone(&presentation.textures);
@@ -239,7 +265,13 @@ fn actual_preview_updates_share_static_pages_and_retire_superseded_scenes() {
             static_pointer
         );
         let input = presentation
-            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [800, 600],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         main.publish(input, &stats).unwrap();
         // Same single-target replacement used by Bevy's ExtractResource.
@@ -305,20 +337,35 @@ fn hidden_preview_defers_pose_changes_until_shown() {
 
 #[test]
 fn resize_and_session_reset_do_not_reload_static_pixels_or_retain_dynamic_ownership() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
     let runtime = UiRuntime::new(1);
     presentation.set_player_preview_skin(None, player_preview::PlayerPreviewPose::default());
     let first = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [800, 600],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let static_pixel = first.textures.pages()[0].pixels().as_ptr();
     let resized = presentation
-        .build(&runtime, 0, [1200, 800], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1200, 800],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     assert!(Arc::ptr_eq(&first.textures, &resized.textures));
     assert!(resized.revision > first.revision);
     let reset = presentation
         .build(
+            &player_runtime,
             &UiRuntime::new(2),
             0,
             [1200, 800],

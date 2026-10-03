@@ -39,7 +39,7 @@ type homeResultV1 struct {
 
 // messageEventTypes are the reports a launcher may send.
 var messageEventTypes = map[string]bool{
-	"Click": true, "Dismiss": true, "Delete": true, "Impression": true, "ControlImpression": true, "ReadAll": true,
+	"Click": true, "Dismiss": true, "Delete": true, "Impression": true, "ControlImpression": true, "ReadAll": true, "DeleteAllRead": true,
 }
 
 type pingResultV1 struct {

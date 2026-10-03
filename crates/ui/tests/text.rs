@@ -57,6 +57,7 @@ fn pinned_bedrock_color_codes_include_resin() {
         ('t', BedrockColor::MaterialLapis),
         ('u', BedrockColor::MaterialAmethyst),
         ('v', BedrockColor::MaterialResin),
+        ('w', BedrockColor::PartyBlue),
     ];
     for (code, color) in expected {
         let text = format!("§{code}X");

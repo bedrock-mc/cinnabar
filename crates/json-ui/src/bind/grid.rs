@@ -7,6 +7,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::feed::collection_name;
+use super::spec::{Binding, Kind};
 use super::{Binder, Node, Scope, Src, with_index};
 use crate::layout::GRID_TEMPLATE_KEY;
 use crate::tree::{ControlRef, ResolvedControl};
@@ -125,6 +126,15 @@ pub(super) fn grid_capacity(src: &Src) -> Option<usize> {
             .map_or(0, |value| value.max(0) as usize)
     };
     Some(int(0).saturating_mul(int(1)))
+}
+
+/// Whether a templated grid's cell count waits on views, which settle only after
+/// the tree is built.
+pub(super) fn grid_awaits_views(control: &ResolvedControl, bindings: &[Binding]) -> bool {
+    grid_template(control).is_some()
+        && bindings
+            .iter()
+            .any(|binding| matches!(binding.kind, Kind::View { .. }))
 }
 
 /// The column count of a collection grid that lists its cells as children.

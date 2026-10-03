@@ -38,14 +38,26 @@ pub(super) fn lazy(mut pack: ServerUiPack) -> ServerUiPack {
 }
 
 /// Publishes the same runtime across menu, join, reload and cancellation frames.
-fn frame(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime) -> render::UiRenderInput {
+fn frame(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    presentation: &mut UiPresentationRuntime,
+    runtime: &UiRuntime,
+) -> render::UiRenderInput {
     presentation
-        .build(runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            player_runtime,
+            runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap()
 }
 
 #[test]
 fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(pack) = pack_harness::env_pack() else {
         return;
     };
@@ -56,12 +68,12 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
     let mut runtime = UiRuntime::new(1);
     presentation.set_menu_view(Some(view.clone()));
     presentation.sync_menu_artwork(paths.clone());
-    frame(&mut presentation, &runtime);
+    frame(&player_runtime, &mut presentation, &runtime);
     presentation.finish_menu_artwork();
-    frame(&mut presentation, &runtime);
+    frame(&player_runtime, &mut presentation, &runtime);
     presentation.set_menu_view(None);
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
-    runtime.begin_session(2);
+    runtime.begin_session(&mut player_runtime, 2);
     runtime.set_server_ui(Some(Arc::new(lazy(pack.clone()))));
     let glyphs = pack_harness::env_glyphs();
     runtime.set_session_glyphs(glyphs.clone());
@@ -76,7 +88,7 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
                     .collect();
                 presentation.sync_menu_artwork(subset);
             }
-            let input = frame(&mut presentation, &runtime);
+            let input = frame(&player_runtime, &mut presentation, &runtime);
             input.validate().unwrap();
             let pixels = snapshot::rasterize(&input);
             let dirt = image::open(
@@ -101,7 +113,7 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
             }
             if index == 39 {
                 presentation.finish_menu_artwork();
-                let input = frame(&mut presentation, &runtime);
+                let input = frame(&player_runtime, &mut presentation, &runtime);
                 let pixels = snapshot::rasterize(&input);
                 if let Some(warm) = &warm {
                     assert_eq!(warm, &pixels, "settled reload changed Zeqa pixels");
@@ -111,8 +123,8 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
             }
         }
         runtime.set_server_ui(None);
-        frame(&mut presentation, &runtime);
-        runtime.begin_session(phase + 3);
+        frame(&player_runtime, &mut presentation, &runtime);
+        runtime.begin_session(&mut player_runtime, phase + 3);
         runtime.set_server_ui(Some(Arc::new(lazy(pack.clone()))));
         runtime.set_session_glyphs(glyphs.clone());
     }
@@ -121,6 +133,8 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
 
 #[test]
 fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
@@ -134,7 +148,7 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
         .unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     let runtime = pack_harness::menu_runtime();
-    let input = frame(&mut presentation, &runtime);
+    let input = frame(&player_runtime, &mut presentation, &runtime);
     snapshot::write(&input, "loading-before-pack");
     let pixels = snapshot::rasterize(&input);
     let dirt = image::open(

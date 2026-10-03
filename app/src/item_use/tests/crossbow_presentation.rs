@@ -34,7 +34,7 @@ fn charged_stack() -> NetworkItemStack {
     }
 }
 
-fn fixture() -> (WorldStream, UiRuntime) {
+fn fixture(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> (WorldStream, UiRuntime) {
     let mut stream = WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -65,12 +65,20 @@ fn fixture() -> (WorldStream, UiRuntime) {
         })
     );
     let mut ui = UiRuntime::new(1);
-    ui.set_local_selected_slot(2);
-    publish(&mut ui, 1, ContainerIdentity::window(0), 2, stack(BOW));
+    player_runtime.inventory.set_local_selected_slot(2);
+    publish(
+        player_runtime,
+        &mut ui,
+        1,
+        ContainerIdentity::window(0),
+        2,
+        stack(BOW),
+    );
     (stream, ui)
 }
 
 fn publish(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     ui: &mut UiRuntime,
     sequence: u64,
     container: ContainerIdentity,
@@ -78,6 +86,7 @@ fn publish(
     stack: NetworkItemStack,
 ) {
     ui.enqueue_inventory_event(
+        player_runtime,
         1,
         sequence,
         InventoryEvent::Slot(InventorySlotEvent {
@@ -87,70 +96,118 @@ fn publish(
         }),
     )
     .unwrap();
-    ui.drain_pending_inventory();
+    ui.drain_pending_inventory(player_runtime);
 }
 
-fn use_frame(stream: &WorldStream, ui: &UiRuntime, tick: u64) -> UseFrame {
+fn use_frame(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    stream: &WorldStream,
+    ui: &UiRuntime,
+    tick: u64,
+) -> UseFrame {
     UseFrame {
-        selection: verified_use_selection(ui),
-        air_use: selected_air_use(stream, ui),
-        inventory_revision: ui.inventory_ledger().authoritative_slot_revision(2),
-        charge_projectile: native_crossbow::loading_projectile(stream, ui, true),
+        selection: verified_use_selection(player_runtime, ui),
+        air_use: selected_air_use(player_runtime, stream, ui),
+        inventory_revision: ui
+            .inventory_ledger(player_runtime)
+            .authoritative_slot_revision(2),
+        charge_projectile: native_crossbow::loading_projectile(player_runtime, stream, ui, true),
         ..frame(tick, true)
     }
 }
 
 #[test]
 fn presentation_load_fire_and_authoritative_nbt_share_one_charge_state() {
-    let (stream, mut ui) = fixture();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let (stream, mut ui) = fixture(&mut player_runtime);
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
-    runtime.step(&use_frame(&stream, &ui, 10));
-    runtime.step(&use_frame(&stream, &ui, 35));
-    let input = runtime.render_input(&stream, &ui, 36, 0.5);
+    runtime.step(&use_frame(&player_runtime, &stream, &ui, 10));
+    runtime.step(&use_frame(&player_runtime, &stream, &ui, 35));
+    let input = runtime.render_input(&player_runtime, &stream, &ui, 36, 0.5);
     assert!(input.hand_charged);
     assert_eq!(input.animation_frame, 4);
     assert_eq!(input.use_elapsed_ticks, None);
     assert_eq!(input.max_use_ticks, crossbow_duration());
-    assert_eq!(runtime.local_item_use(&stream, &ui), LocalItemUse::Idle);
+    assert_eq!(
+        runtime.local_item_use(&player_runtime, &stream, &ui),
+        LocalItemUse::Idle
+    );
 
     // Even an identical authoritative restatement rejects the local loaded state.
-    publish(&mut ui, 2, ContainerIdentity::window(0), 2, stack(BOW));
-    let input = runtime.render_input(&stream, &ui, 37, 0.0);
+    publish(
+        &mut player_runtime,
+        &mut ui,
+        2,
+        ContainerIdentity::window(0),
+        2,
+        stack(BOW),
+    );
+    let input = runtime.render_input(&player_runtime, &stream, &ui, 37, 0.0);
     assert!(!input.hand_charged);
     assert_eq!(input.animation_frame, 0);
-    publish(&mut ui, 3, ContainerIdentity::window(0), 2, charged_stack());
-    let input = runtime.render_input(&stream, &ui, 38, 0.0);
+    publish(
+        &mut player_runtime,
+        &mut ui,
+        3,
+        ContainerIdentity::window(0),
+        2,
+        charged_stack(),
+    );
+    let input = runtime.render_input(&player_runtime, &stream, &ui, 38, 0.0);
     assert!(input.hand_charged);
     assert_eq!(input.animation_frame, 4);
     assert_eq!(input.max_use_ticks, crossbow_duration());
-    assert_eq!(runtime.local_item_use(&stream, &ui), LocalItemUse::Idle);
+    assert_eq!(
+        runtime.local_item_use(&player_runtime, &stream, &ui),
+        LocalItemUse::Idle
+    );
 
     runtime.observe_press(true);
-    let fired = runtime.step(&use_frame(&stream, &ui, 39));
+    let fired = runtime.step(&use_frame(&player_runtime, &stream, &ui, 39));
     assert_eq!(kinds(&fired), ["use"]);
     assert!(!fired.started);
-    let input = runtime.render_input(&stream, &ui, 39, 0.0);
+    let input = runtime.render_input(&player_runtime, &stream, &ui, 39, 0.0);
     assert!(!input.hand_charged);
     assert_eq!(input.animation_frame, 0);
-    publish(&mut ui, 4, ContainerIdentity::window(0), 2, stack(BOW));
-    assert!(!runtime.render_input(&stream, &ui, 40, 0.0).hand_charged);
+    publish(
+        &mut player_runtime,
+        &mut ui,
+        4,
+        ContainerIdentity::window(0),
+        2,
+        stack(BOW),
+    );
+    assert!(
+        !runtime
+            .render_input(&player_runtime, &stream, &ui, 40, 0.0)
+            .hand_charged
+    );
 }
 
 #[test]
 fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
-    let (stream, mut ui) = fixture();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let (stream, mut ui) = fixture(&mut player_runtime);
     assert_eq!(
-        native_crossbow::loading_projectile(&stream, &ui, false),
+        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
         None
     );
     assert_eq!(
-        native_crossbow::loading_projectile(&stream, &ui, true),
+        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, true),
         Some("minecraft:arrow")
     );
-    publish(&mut ui, 2, ContainerIdentity::window(0), 5, stack(ARROW));
+    publish(
+        &mut player_runtime,
+        &mut ui,
+        2,
+        ContainerIdentity::window(0),
+        5,
+        stack(ARROW),
+    );
     assert_eq!(
-        native_crossbow::loading_projectile(&stream, &ui, false),
+        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
         Some("minecraft:arrow")
     );
     let offhand = ContainerIdentity {
@@ -158,30 +215,36 @@ fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
         slot_type: Some(protocol::CONTAINER_NAME_OFFHAND),
         dynamic_id: None,
     };
-    publish(&mut ui, 3, offhand, 0, stack(FIREWORK));
+    publish(&mut player_runtime, &mut ui, 3, offhand, 0, stack(FIREWORK));
     assert_eq!(
-        native_crossbow::loading_projectile(&stream, &ui, false),
+        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
         Some("minecraft:firework_rocket")
     );
     assert_eq!(
-        native_crossbow::loading_projectile(&stream, &ui, true),
+        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, true),
         Some("minecraft:firework_rocket")
     );
-    publish(&mut ui, 4, offhand, 0, stack(ARROW));
+    publish(&mut player_runtime, &mut ui, 4, offhand, 0, stack(ARROW));
     assert_eq!(
-        native_crossbow::loading_projectile(&stream, &ui, false),
+        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
         Some("minecraft:arrow")
     );
 }
 
 #[test]
 fn normal_transaction_clears_loaded_prediction_and_retains_charged_nbt_and_offhand() {
-    let (stream, mut ui) = fixture();
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+    let (stream, mut ui) = fixture(&mut player_runtime);
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
-    runtime.step(&use_frame(&stream, &ui, 10));
-    runtime.step(&use_frame(&stream, &ui, 35));
-    assert!(runtime.render_input(&stream, &ui, 36, 0.0).hand_charged);
+    runtime.step(&use_frame(&player_runtime, &stream, &ui, 10));
+    runtime.step(&use_frame(&player_runtime, &stream, &ui, 35));
+    assert!(
+        runtime
+            .render_input(&player_runtime, &stream, &ui, 36, 0.0)
+            .hand_charged
+    );
     let batch = |main, offhand| {
         InventoryEvent::Transaction(protocol::InventoryTransactionEvent {
             slots: Arc::from([
@@ -205,19 +268,33 @@ fn normal_transaction_clears_loaded_prediction_and_retains_charged_nbt_and_offha
             skipped_actions: 0,
         })
     };
-    ui.enqueue_inventory_event(1, 2, batch(stack(BOW), stack(FIREWORK)))
-        .unwrap();
-    ui.drain_pending_inventory();
-    assert!(!runtime.render_input(&stream, &ui, 37, 0.0).hand_charged);
+    ui.enqueue_inventory_event(
+        &mut player_runtime,
+        1,
+        2,
+        batch(stack(BOW), stack(FIREWORK)),
+    )
+    .unwrap();
+    ui.drain_pending_inventory(&mut player_runtime);
+    assert!(
+        !runtime
+            .render_input(&player_runtime, &stream, &ui, 37, 0.0)
+            .hand_charged
+    );
     assert_eq!(
-        native_crossbow::loading_projectile(&stream, &ui, false),
+        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
         Some("minecraft:firework_rocket")
     );
     assert_eq!(ui.gameplay_hud().offhand_stack(), Some(&stack(FIREWORK)));
-    ui.enqueue_inventory_event(1, 3, batch(charged_stack(), stack(ARROW)))
-        .unwrap();
-    ui.drain_pending_inventory();
-    let rendered = runtime.render_input(&stream, &ui, 38, 0.0);
+    ui.enqueue_inventory_event(
+        &mut player_runtime,
+        1,
+        3,
+        batch(charged_stack(), stack(ARROW)),
+    )
+    .unwrap();
+    ui.drain_pending_inventory(&mut player_runtime);
+    let rendered = runtime.render_input(&player_runtime, &stream, &ui, 38, 0.0);
     assert!(rendered.hand_charged);
     assert_eq!(rendered.animation_frame, 4);
     assert_eq!(ui.gameplay_hud().hotbar_stack(2), Some(&charged_stack()));

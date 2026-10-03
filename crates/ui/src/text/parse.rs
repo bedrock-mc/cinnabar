@@ -160,7 +160,7 @@ fn formatting_change(code: char) -> Option<FormattingChange> {
         'l' => Change::Bold,
         'o' => Change::Italic,
         'r' => Change::Reset,
-        'w' => Change::Color(Color::White),
+        'w' => Change::Color(Color::PartyBlue),
         _ => return None,
     })
 }

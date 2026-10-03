@@ -75,13 +75,14 @@ fn heart_rows(runtime: &UiRuntime) -> Option<HeartRows> {
 
 /// Capture the frame's native HUD art.
 pub(in super::super) fn capture(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &UiRuntime,
     frame: &HudFrame,
     sheet: Option<&HudTexturePages>,
 ) -> HudPaint {
     let now_tick = runtime.estimated_server_tick(frame.now_millis);
     let mode_allows_hotbar = runtime
-        .player_game_mode()
+        .player_game_mode(player_runtime)
         .is_none_or(|mode| mode.shows_hotbar());
     let mut paint = HudPaint {
         effects: effects(runtime, now_tick),
@@ -91,7 +92,7 @@ pub(in super::super) fn capture(
             .map(|sheet| sheet_sprite(sheet, HudTextureRole::Crosshair)),
         ..HudPaint::default()
     };
-    if !runtime.survival_stats_visible() {
+    if !runtime.survival_stats_visible(player_runtime) {
         return paint;
     }
     if let Some(rows) = heart_rows(runtime) {

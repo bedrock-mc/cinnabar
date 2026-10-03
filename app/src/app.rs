@@ -817,6 +817,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ui_runtime.set_active_language(active_lang);
         ui_runtime
     })
+    .insert_resource(crate::player_runtime::PlayerRuntime::new(0))
     .insert_resource(ui_presentation)
     .insert_resource(WorldClock::default())
     .insert_resource(WeatherState::default())

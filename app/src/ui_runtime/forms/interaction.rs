@@ -19,9 +19,12 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    (player_runtime, window): (
+        bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+        Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut motion: ResMut<AccumulatedMouseMotion>,
@@ -87,7 +90,7 @@ pub(crate) fn drive_server_form_input(
     if !runtime.server_forms().owns_input() {
         wheel.clear();
         keyboard.clear();
-        if *owned_last_frame && !runtime.ui_focused() && window.focused {
+        if *owned_last_frame && !runtime.ui_focused(&player_runtime) && window.focused {
             crate::ui_runtime::interaction::restore_gameplay_input_after_chat(
                 &mut cursor,
                 &mut keys,
@@ -208,6 +211,7 @@ pub(crate) fn drive_server_form_input(
     // Also retain ownership through the answer frame; pending enqueue owns
     // input until the later network phase accepts it or retires the session.
     crate::ui_runtime::interaction::suppress_gameplay_input_for_chat(
+        &player_runtime,
         &runtime,
         &mut cursor,
         &mut keys,

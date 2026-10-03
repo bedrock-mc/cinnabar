@@ -43,6 +43,8 @@ fn drain(runtime: &mut UiRuntime) -> Vec<Vec<u8>> {
 
 #[test]
 fn decoded_element_button_form_selects_index_one_and_cancels_without_duplicate_response() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let json = r#"{"type":"form","title":"Menu 世界","content":"Select α β","elements":[{"type":"button","text":"First ✓","image":null},{"type":"button","text":"第二","image":null}]}"#;
     let varuint = |mut value: usize, output: &mut Vec<u8>| {
         while value >= 128 {
@@ -70,7 +72,9 @@ fn decoded_element_button_form_selects_index_one_and_cancels_without_duplicate_r
         panic!("decoded form UI event")
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(envelope(1, 1, event.clone())).unwrap();
+    runtime
+        .apply(&mut player_runtime, envelope(1, 1, event.clone()))
+        .unwrap();
     let ServerFormModel::TextMenu(menu) = &runtime.server_forms().active().unwrap().model else {
         panic!("decoded element menu must retain actionable buttons")
     };
@@ -86,7 +90,9 @@ fn decoded_element_button_form_selects_index_one_and_cancels_without_duplicate_r
         ))]
     );
     assert!(drain(&mut runtime).is_empty());
-    runtime.apply(envelope(1, 2, event)).unwrap();
+    runtime
+        .apply(&mut player_runtime, envelope(1, 2, event))
+        .unwrap();
     runtime
         .respond_to_server_form(identity(&runtime), LocalFormAction::Dismiss)
         .unwrap();
@@ -99,10 +105,14 @@ fn decoded_element_button_form_selects_index_one_and_cancels_without_duplicate_r
 
 #[test]
 fn different_id_overlap_is_busy_not_fifo_display_and_queue_is_bounded() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(1, 1)).unwrap();
+    runtime.apply(&mut player_runtime, retained(1, 1)).unwrap();
     for id in 2..=11 {
-        runtime.apply(retained(id, u64::from(id))).unwrap();
+        runtime
+            .apply(&mut player_runtime, retained(id, u64::from(id)))
+            .unwrap();
     }
     assert_eq!(identity(&runtime).form_id, 1);
     assert_eq!(runtime.server_forms().entries().count(), 1);
@@ -119,8 +129,10 @@ fn different_id_overlap_is_busy_not_fifo_display_and_queue_is_bounded() {
 
 #[test]
 fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(7, 1)).unwrap();
+    runtime.apply(&mut player_runtime, retained(7, 1)).unwrap();
     let old = identity(&runtime);
     runtime
         .respond_to_server_form(old, LocalFormAction::SubmitButton(1))
@@ -129,7 +141,7 @@ fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
         flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
         Err(FormTransportError::Full)
     );
-    runtime.apply(retained(7, 2)).unwrap();
+    runtime.apply(&mut player_runtime, retained(7, 2)).unwrap();
     let new = identity(&runtime);
     assert_ne!(old, new);
     assert_eq!(
@@ -151,48 +163,54 @@ fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
 
 #[test]
 fn same_id_busy_reissue_removes_all_unsent_old_rejections() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(1, 1)).unwrap();
-    runtime.apply(retained(2, 2)).unwrap();
+    runtime.apply(&mut player_runtime, retained(1, 1)).unwrap();
+    runtime.apply(&mut player_runtime, retained(2, 2)).unwrap();
     assert_eq!(
         flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
         Err(FormTransportError::Full)
     );
-    runtime.apply(retained(2, 3)).unwrap();
+    runtime.apply(&mut player_runtime, retained(2, 3)).unwrap();
     assert_eq!(runtime.server_forms().queued_busy_count(), 1);
     runtime
         .respond_to_server_form(identity(&runtime), LocalFormAction::Dismiss)
         .unwrap();
     assert_eq!(drain(&mut runtime).len(), 2);
-    runtime.apply(retained(2, 4)).unwrap();
+    runtime.apply(&mut player_runtime, retained(2, 4)).unwrap();
     assert_eq!(identity(&runtime).revision, 4);
     assert!(drain(&mut runtime).is_empty());
 }
 
 #[test]
 fn accepted_answer_is_not_retried_or_retracted_by_id_reissue() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(7, 1)).unwrap();
+    runtime.apply(&mut player_runtime, retained(7, 1)).unwrap();
     runtime
         .respond_to_server_form(identity(&runtime), LocalFormAction::SubmitButton(1))
         .unwrap();
     assert_eq!(drain(&mut runtime).len(), 1);
-    runtime.apply(retained(7, 2)).unwrap();
+    runtime.apply(&mut player_runtime, retained(7, 2)).unwrap();
     assert!(drain(&mut runtime).is_empty());
     assert_eq!(identity(&runtime).revision, 2);
 }
 
 #[test]
 fn new_displayed_revision_invalidates_queued_same_id_busy_reply() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(1, 1)).unwrap();
-    runtime.apply(retained(2, 2)).unwrap();
+    runtime.apply(&mut player_runtime, retained(1, 1)).unwrap();
+    runtime.apply(&mut player_runtime, retained(2, 2)).unwrap();
     runtime
         .respond_to_server_form(identity(&runtime), LocalFormAction::Dismiss)
         .unwrap();
     assert!(flush_form_response(&mut runtime, |_| Ok(())).unwrap());
     assert_eq!(runtime.server_forms().queued_busy_count(), 1);
-    runtime.apply(retained(2, 3)).unwrap();
+    runtime.apply(&mut player_runtime, retained(2, 3)).unwrap();
     assert_eq!(identity(&runtime).form_id, 2);
     assert_eq!(runtime.server_forms().queued_busy_count(), 0);
     assert!(
@@ -203,8 +221,10 @@ fn new_displayed_revision_invalidates_queued_same_id_busy_reply() {
 
 #[test]
 fn single_flight_index_validation_and_closed_transport_fail_closed() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(7, 1)).unwrap();
+    runtime.apply(&mut player_runtime, retained(7, 1)).unwrap();
     let id = identity(&runtime);
     assert_eq!(
         runtime.respond_to_server_form(id, LocalFormAction::SubmitButton(2)),
@@ -217,20 +237,25 @@ fn single_flight_index_validation_and_closed_transport_fail_closed() {
         runtime.respond_to_server_form(id, LocalFormAction::Dismiss),
         Err(FormRespondError::PendingResponse)
     );
-    assert!(runtime.ui_focused(), "Full pending answers still own input");
+    assert!(
+        runtime.ui_focused(&player_runtime),
+        "Full pending answers still own input"
+    );
     assert_eq!(
         flush_form_response(&mut runtime, |_| Err(FormTransportError::Closed)),
         Err(FormTransportError::Closed)
     );
     assert!(drain(&mut runtime).is_empty());
-    assert!(!runtime.ui_focused());
+    assert!(!runtime.ui_focused(&player_runtime));
 }
 
 #[test]
 fn other_ui_busy_and_unsupported_cancel_are_honest() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
-    runtime.apply(retained(7, 1)).unwrap();
+    runtime.open_chat(&mut player_runtime);
+    runtime.apply(&mut player_runtime, retained(7, 1)).unwrap();
     assert!(runtime.server_forms().active().is_none());
     assert_eq!(
         drain(&mut runtime),
@@ -241,7 +266,7 @@ fn other_ui_busy_and_unsupported_cancel_are_honest() {
         form.model = ServerFormModel::Unsupported(UnsupportedForm::Controls);
     }
     runtime.close_chat();
-    runtime.apply(unsupported).unwrap();
+    runtime.apply(&mut player_runtime, unsupported).unwrap();
     let id = identity(&runtime);
     assert_eq!(
         runtime.respond_to_server_form(id, LocalFormAction::CustomElements),
@@ -262,11 +287,13 @@ fn other_ui_busy_and_unsupported_cancel_are_honest() {
 
 #[test]
 fn session_and_dimension_retirement_clear_every_unsent_response() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     for new_session in [false, true] {
         let mut runtime = UiRuntime::new(1);
         runtime.note_stream_dimension(0);
-        runtime.apply(retained(1, 1)).unwrap();
-        runtime.apply(retained(2, 2)).unwrap();
+        runtime.apply(&mut player_runtime, retained(1, 1)).unwrap();
+        runtime.apply(&mut player_runtime, retained(2, 2)).unwrap();
         runtime.note_stream_dimension(0);
         assert!(
             runtime.server_forms().active().is_some(),
@@ -277,11 +304,11 @@ fn session_and_dimension_retirement_clear_every_unsent_response() {
             .respond_to_server_form(old, LocalFormAction::Dismiss)
             .unwrap();
         if new_session {
-            runtime.begin_session(2);
+            runtime.begin_session(&mut player_runtime, 2);
         } else {
             runtime.note_stream_dimension(1);
         }
-        assert!(!runtime.ui_focused());
+        assert!(!runtime.ui_focused(&player_runtime));
         assert!(drain(&mut runtime).is_empty());
         assert_eq!(
             runtime.respond_to_server_form(old, LocalFormAction::Dismiss),
@@ -292,10 +319,12 @@ fn session_and_dimension_retirement_clear_every_unsent_response() {
 
 #[test]
 fn epoch_identity_clears_unsent_state_but_never_reuses_a_rendered_revision() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     runtime.server_forms_mut().synchronize_epoch(1, 0);
-    runtime.apply(retained(7, 1)).unwrap();
-    runtime.apply(retained(8, 2)).unwrap();
+    runtime.apply(&mut player_runtime, retained(7, 1)).unwrap();
+    runtime.apply(&mut player_runtime, retained(8, 2)).unwrap();
     let old = identity(&runtime);
     runtime.server_forms_mut().move_focus(1);
     runtime.server_forms_mut().set_scroll(5);
@@ -317,7 +346,7 @@ fn epoch_identity_clears_unsent_state_but_never_reuses_a_rendered_revision() {
     assert_eq!(runtime.server_forms().focus(), 0);
     assert_eq!(runtime.server_forms().scroll(), 0);
     assert!(drain(&mut runtime).is_empty());
-    runtime.apply(retained(7, 4)).unwrap();
+    runtime.apply(&mut player_runtime, retained(7, 4)).unwrap();
     assert!(identity(&runtime).revision > old.revision);
     assert_eq!(
         runtime.respond_to_server_form(old, LocalFormAction::Dismiss),

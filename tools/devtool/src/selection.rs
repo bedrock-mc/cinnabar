@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, VecDeque};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Package {
     pub(crate) name: String,
+    pub(crate) cargo_id: String,
     pub(crate) root: String,
     pub(crate) dependencies: Vec<String>,
     pub(crate) doctest: bool,
@@ -13,6 +14,7 @@ impl Package {
     pub fn new(name: &str, root: &str, dependencies: &[&str]) -> Self {
         Self {
             name: name.into(),
+            cargo_id: name.into(),
             root: normalize(root),
             dependencies: dependencies.iter().map(|name| (*name).into()).collect(),
             doctest: false,
@@ -20,6 +22,7 @@ impl Package {
     }
 
     pub(crate) fn from_owned(
+        cargo_id: String,
         name: String,
         root: String,
         dependencies: Vec<String>,
@@ -27,6 +30,7 @@ impl Package {
     ) -> Self {
         Self {
             name,
+            cargo_id,
             root: normalize(&root),
             dependencies,
             doctest,

@@ -37,52 +37,30 @@ use presentation::inventory_pointer::InventoryCellHit;
 /// Admits every ready inventory packet in queue order, stopping at the first
 /// transport refusal. Returns whether anything was admitted.
 pub fn flush_inventory_send<E>(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     now_millis: u64,
-    mut send: impl FnMut(Packet) -> Result<(), E>,
+    send: impl FnMut(Packet) -> Result<(), E>,
 ) -> Result<bool, E> {
-    runtime.poll_inventory_timeout(now_millis);
-    let mut admitted_any = false;
-    for _ in 0..MAX_INVENTORY_PACKETS_PER_FLUSH {
-        let Some((packet, entries)) = runtime
-            .inventory_ledger()
-            .pending_batch()
-            .expect("the ledger retains only validated protocol requests")
-        else {
-            break;
-        };
-        if let Err(error) = send(packet) {
-            runtime
-                .inventory_ledger_mut()
-                .note_transport_pressure(now_millis);
-            return Err(error);
-        }
-        for _ in 0..entries {
-            let admitted = runtime
-                .inventory_ledger_mut()
-                .mark_transport_enqueued(now_millis);
-            debug_assert!(admitted, "only an awaiting request can be transported");
-        }
-        admitted_any = true;
-    }
-    Ok(admitted_any)
+    runtime.poll_inventory_timeout(player_runtime, now_millis);
+    player_runtime
+        .inventory
+        .flush_pending_inventory_send(now_millis, send)
 }
 
-/// Bounds one frame's inventory transport work.
-const MAX_INVENTORY_PACKETS_PER_FLUSH: usize = 32;
-
 pub(crate) fn flush_inventory_network(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     time: Res<Time<Real>>,
     mut runtime: ResMut<UiRuntime>,
     network: Res<crate::runtime::network::NetworkHandle>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    match flush_inventory_send(&mut runtime, now_millis, |packet| {
+    match flush_inventory_send(&mut player_runtime, &mut runtime, now_millis, |packet| {
         network.send_inventory_packet(packet)
     }) {
         Ok(_) | Err(crate::runtime::network::PacketSendError::Full(_)) => {}
         Err(crate::runtime::network::PacketSendError::Closed(_)) => {
-            runtime.inventory_transport_closed();
+            runtime.inventory_transport_closed(&mut player_runtime);
         }
     }
     while let Some(packet) = runtime.take_client_packet() {
@@ -178,15 +156,16 @@ pub fn flush_chat_sends<E>(
 }
 
 pub(crate) fn flush_chat_network(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
     network: Res<crate::runtime::network::NetworkHandle>,
     mut client_world: ResMut<crate::runtime::world::ClientWorld>,
 ) {
-    runtime.service_pending_chat_autocomplete();
+    runtime.service_pending_chat_autocomplete(&player_runtime);
     if network.closed_command_has_pending_control() {
         return;
     }
-    let runtime_id = runtime.local_runtime_id();
+    let runtime_id = runtime.local_runtime_id(&player_runtime);
     runtime.flush_wake_request(runtime_id, |packet| network.send_inventory_packet(packet));
     match flush_chat_sends(
         &mut runtime,
@@ -264,6 +243,7 @@ impl InventoryKeys {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_inventory_ui_actions(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     time: Option<Res<Time<Real>>>,
     window: Single<&Window, With<PrimaryWindow>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
@@ -327,9 +307,12 @@ pub(crate) fn drive_inventory_ui_actions(
     // enough to resolve their cell, then clear every button before gameplay
     // systems can observe this frame.
     mouse_buttons.reset_all();
-    let generation = runtime.inventory_ledger().storage_generation();
+    let generation = runtime
+        .inventory_ledger(&player_runtime)
+        .storage_generation();
     runtime.screen_state_mut().observe_window(generation);
-    let screen = presentation::inventory_pointer::InventoryScreen::of_runtime(&runtime);
+    let screen =
+        presentation::inventory_pointer::InventoryScreen::of_runtime(&player_runtime, &runtime);
     if screen != presentation::inventory_pointer::InventoryScreen::Creative {
         runtime.screen_state_mut().search_focused = false;
     }
@@ -373,7 +356,7 @@ pub(crate) fn drive_inventory_ui_actions(
         scroll_container(&mut runtime, frame, gui, &notches);
     }
     for key in presses {
-        let _ = dispatch_inventory_key(runtime.as_mut(), hit, key, control);
+        let _ = dispatch_inventory_key(&mut player_runtime, runtime.as_mut(), hit, key, control);
     }
     let frame = super::inventory_drag::PointerFrame {
         primary_pressed,
@@ -381,13 +364,16 @@ pub(crate) fn drive_inventory_ui_actions(
         secondary_pressed,
         secondary_released,
         shift,
-        holding: runtime.inventory_ledger().cursor_stack().is_some(),
+        holding: runtime
+            .inventory_ledger(&player_runtime)
+            .cursor_stack()
+            .is_some(),
         hit,
         now_millis,
     };
     let actions = runtime.screen_state_mut().pointer.step(frame);
     for action in actions {
-        runtime.perform_pointer_action(action);
+        runtime.perform_pointer_action(&mut player_runtime, action);
     }
     if hit.is_none() {
         // A held stack released outside the panel is dropped: all of it on a
@@ -403,7 +389,7 @@ pub(crate) fn drive_inventory_ui_actions(
         if outside && (primary_pressed || secondary_pressed) {
             let amount = (!primary_pressed).then_some(1);
             let _ = runtime
-                .inventory_ledger_mut()
+                .inventory_ledger_mut(&mut player_runtime)
                 .begin_drop(DropSource::Cursor, amount);
         }
     }
@@ -451,7 +437,12 @@ fn scroll_container(
 
 /// In-world inventory keys: Q drops one item from the selected hotbar cell
 /// (Control+Q the whole stack) and a right-click with a book in hand opens it.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Player authority is borrowed separately from UI state."
+)]
 pub(crate) fn drive_world_inventory_keys(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     gamepads: Query<&Gamepad>,
     window: Single<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -465,27 +456,28 @@ pub(crate) fn drive_world_inventory_keys(
     let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse);
     if !window.focused
         || crate::screen_policy::absorbs_input(
+            &player_runtime,
             Some(&runtime),
             menu.as_deref(),
             presentation.as_deref(),
         )
         || !(drop || use_book)
         || runtime
-            .player_game_mode()
+            .player_game_mode(&player_runtime)
             .is_some_and(|mode| !mode.shows_hotbar())
     {
         return;
     }
     if use_book {
-        runtime.open_held_book();
+        runtime.open_held_book(&player_runtime);
         return;
     }
-    let Some(slot) = runtime.selected_hotbar_slot() else {
+    let Some(slot) = runtime.selected_hotbar_slot(&player_runtime) else {
         return;
     };
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     let _ = runtime
-        .inventory_ledger_mut()
+        .inventory_ledger_mut(&mut player_runtime)
         .begin_world_drop(slot, (!control).then_some(1));
 }
 
@@ -493,6 +485,7 @@ pub(crate) fn drive_world_inventory_keys(
 /// cell (or craft into it over the result), Q drops one item and Control+Q
 /// the whole stack; arrows scroll the creative grid.
 pub(crate) fn dispatch_inventory_key(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     hit: Option<InventoryCellHit>,
     key: KeyCode,
@@ -512,9 +505,9 @@ pub(crate) fn dispatch_inventory_key(
     .iter()
     .position(|digit| *digit == key);
     if let (Some(InventoryCellHit::CraftOutput), Some(slot)) = (hit, hotbar) {
-        return Some(runtime.craft_into_hotbar(slot as u8));
+        return Some(runtime.craft_into_hotbar(player_runtime, slot as u8));
     }
-    if runtime.screen_state().book.is_some() && runtime.book_key(key) {
+    if runtime.screen_state().book.is_some() && runtime.book_key(player_runtime, key) {
         return None;
     }
     let scroll = match key {
@@ -523,11 +516,11 @@ pub(crate) fn dispatch_inventory_key(
         _ => None,
     };
     if let Some(rows) = scroll
-        && presentation::inventory_pointer::InventoryScreen::of_runtime(runtime)
+        && presentation::inventory_pointer::InventoryScreen::of_runtime(player_runtime, runtime)
             == presentation::inventory_pointer::InventoryScreen::Creative
     {
         let total = super::inventory_actions::visible_creative_entries(
-            runtime.inventory_ledger(),
+            runtime.inventory_ledger(player_runtime),
             runtime.screen_state(),
         )
         .len();
@@ -535,7 +528,8 @@ pub(crate) fn dispatch_inventory_key(
         return None;
     }
     if let Some(rows) = scroll
-        && runtime.inventory_ledger().window_kind() == Some(protocol::WindowKind::Loom)
+        && runtime.inventory_ledger(player_runtime).window_kind()
+            == Some(protocol::WindowKind::Loom)
     {
         runtime
             .screen_state_mut()
@@ -543,7 +537,7 @@ pub(crate) fn dispatch_inventory_key(
         return None;
     }
     let target = super::inventory_actions::gesture_target(hit?)?;
-    let ledger = runtime.inventory_ledger_mut();
+    let ledger = runtime.inventory_ledger_mut(player_runtime);
     match (hotbar, key) {
         (Some(slot), _) => Some(ledger.begin_hotbar_swap(target, slot as u8)),
         (None, KeyCode::KeyQ) => {
@@ -557,15 +551,16 @@ pub(crate) fn dispatch_inventory_key(
 /// Routes one resolved pointer gesture; the output cell crafts once.
 #[cfg(test)]
 pub(crate) fn dispatch_inventory_click(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     hit: InventoryCellHit,
     gesture: CellGesture,
 ) -> Result<i32, InventoryGestureError> {
     match super::inventory_actions::gesture_target(hit) {
         Some(target) => runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(player_runtime)
             .begin_target_gesture(target, gesture),
-        None if gesture == CellGesture::Click => runtime.begin_crafting(),
+        None if gesture == CellGesture::Click => runtime.begin_crafting(player_runtime),
         None => Err(InventoryGestureError::InvalidRequest),
     }
 }
@@ -629,6 +624,7 @@ pub(crate) fn paste_chat_shortcut<C: ChatClipboard>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_keyboard_input(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     gamepads: Query<&Gamepad>,
     mut keyboard_messages: MessageReader<KeyboardInput>,
     time: Res<Time<Real>>,
@@ -647,7 +643,7 @@ pub(crate) fn drive_chat_keyboard_input(
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
         if runtime.inventory_open() {
-            runtime.close_inventory();
+            runtime.close_inventory(&mut player_runtime);
         }
         keyboard_messages.clear();
         // The menu system runs next and must see the original button state.
@@ -662,7 +658,7 @@ pub(crate) fn drive_chat_keyboard_input(
             runtime.close_chat();
         }
         if runtime.inventory_open() {
-            runtime.close_inventory();
+            runtime.close_inventory(&mut player_runtime);
         }
         return;
     }
@@ -673,24 +669,24 @@ pub(crate) fn drive_chat_keyboard_input(
     // system later in the production chain.
     let inventory_owned_pointer = runtime.inventory_open();
     let mut inventory_ownership_changed = false;
-    let mut consumed_gameplay = runtime.ui_focused();
+    let mut consumed_gameplay = runtime.ui_focused(&player_runtime);
     if !runtime.chat_focused() && !runtime.screen_state().text_focused() {
         if binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons)
             || binding_gamepad(menu.as_deref(), "key.inventory", &gamepads)
         {
-            runtime.toggle_inventory();
+            runtime.toggle_inventory(&mut player_runtime);
             inventory_ownership_changed = true;
             consumed_gameplay = true;
         } else if !runtime.inventory_open()
             && (binding_mouse(menu.as_deref(), "key.chat", &mouse_buttons)
                 || binding_gamepad(menu.as_deref(), "key.chat", &gamepads))
         {
-            runtime.open_chat();
+            runtime.open_chat(&mut player_runtime);
             consumed_gameplay = true;
         } else if !runtime.inventory_open()
             && binding_mouse(menu.as_deref(), "key.command", &mouse_buttons)
         {
-            runtime.open_chat();
+            runtime.open_chat(&mut player_runtime);
             let _ = runtime.insert_chat_text("/");
             consumed_gameplay = true;
         }
@@ -716,12 +712,12 @@ pub(crate) fn drive_chat_keyboard_input(
                 match input.key_code {
                     KeyCode::Escape => {
                         if runtime.commit_book(false) {
-                            runtime.close_inventory();
+                            runtime.close_inventory(&mut player_runtime);
                             inventory_ownership_changed = true;
                         }
                     }
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
-                    key if runtime.book_key(key) => {}
+                    key if runtime.book_key(&mut player_runtime, key) => {}
                     _ => {
                         let modified = keys.pressed(KeyCode::ControlLeft)
                             || keys.pressed(KeyCode::ControlRight)
@@ -738,11 +734,11 @@ pub(crate) fn drive_chat_keyboard_input(
             }
             match input.key_code {
                 key if binding_key(menu.as_deref(), "key.inventory", key) => {
-                    runtime.toggle_inventory();
+                    runtime.toggle_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
                 }
                 KeyCode::Escape => {
-                    runtime.close_inventory();
+                    runtime.close_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
                 }
                 key if binding_key(menu.as_deref(), "key.drop", key) => {
@@ -758,10 +754,10 @@ pub(crate) fn drive_chat_keyboard_input(
             match input.key_code {
                 KeyCode::Escape => runtime.request_wake(),
                 key if binding_key(menu.as_deref(), "key.chat", key) => {
-                    runtime.open_chat();
+                    runtime.open_chat(&mut player_runtime);
                 }
                 key if binding_key(menu.as_deref(), "key.command", key) => {
-                    runtime.open_chat();
+                    runtime.open_chat(&mut player_runtime);
                     let _ = runtime.insert_chat_text("/");
                 }
                 _ => {}
@@ -771,16 +767,16 @@ pub(crate) fn drive_chat_keyboard_input(
         if !runtime.chat_focused() {
             match input.key_code {
                 key if binding_key(menu.as_deref(), "key.inventory", key) => {
-                    runtime.toggle_inventory();
+                    runtime.toggle_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }
                 key if binding_key(menu.as_deref(), "key.chat", key) => {
-                    runtime.open_chat();
+                    runtime.open_chat(&mut player_runtime);
                     consumed_gameplay = true;
                 }
                 key if binding_key(menu.as_deref(), "key.command", key) => {
-                    runtime.open_chat();
+                    runtime.open_chat(&mut player_runtime);
                     let _ = runtime.insert_chat_text("/");
                     consumed_gameplay = true;
                 }
@@ -871,6 +867,7 @@ pub(crate) fn drive_chat_keyboard_input(
             );
         } else {
             suppress_gameplay_input_for_chat(
+                &player_runtime,
                 &runtime,
                 &mut cursor,
                 &mut keys,
@@ -880,7 +877,7 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         // A send/cancel closes chat before suppression, but that same physical
         // key must still be consumed for the current frame.
-        if !runtime.ui_focused() {
+        if !runtime.ui_focused(&player_runtime) {
             restore_gameplay_input_after_chat(
                 &mut cursor,
                 &mut keys,
@@ -920,13 +917,14 @@ pub(crate) fn restore_gameplay_input_after_chat(
 }
 
 pub(crate) fn suppress_gameplay_input_for_chat(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &UiRuntime,
     cursor: &mut CursorOptions,
     keys: &mut ButtonInput<KeyCode>,
     mouse_buttons: &mut ButtonInput<MouseButton>,
     mouse_motion: &mut AccumulatedMouseMotion,
 ) {
-    if !runtime.ui_focused() {
+    if !runtime.ui_focused(player_runtime) {
         return;
     }
     cursor.grab_mode = CursorGrabMode::None;

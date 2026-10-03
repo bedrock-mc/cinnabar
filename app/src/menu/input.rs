@@ -297,7 +297,10 @@ fn max_bytes(field: MenuField) -> usize {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_input(
-    mut keyboard_messages: MessageReader<KeyboardInput>,
+    (player_runtime, mut keyboard_messages): (
+        bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+        MessageReader<KeyboardInput>,
+    ),
     wheel_messages: Option<Res<Messages<MouseWheel>>>,
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     window: Single<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -383,7 +386,11 @@ pub(crate) fn drive_menu_input(
             menu.note_player_alive();
         }
     }
-    if !menu.is_visible() && runtime.as_ref().is_none_or(|runtime| !runtime.ui_focused()) {
+    if !menu.is_visible()
+        && runtime
+            .as_ref()
+            .is_none_or(|runtime| !runtime.ui_focused(&player_runtime))
+    {
         // R:v/VanillaClientInputMappingFactory.cpp:10994,11010 uses fixed F1/F8 shortcuts.
         for (key, option) in [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")] {
             if keys.just_pressed(key) {

@@ -45,6 +45,7 @@ type PublishExtras<'w> = (
 /// Observes UI authority and captures inventory before outbound actions mutate it.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_ui_runtime(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut prepared: ResMut<PreparedUiPublication>,
@@ -185,43 +186,11 @@ pub(crate) fn prepare_ui_runtime(
         }
     }
     runtime.expire_gameplay_effects(now_millis);
-    // Off-world the launcher's paper doll wears the local skin.
-    let skin = match client_world.stream.as_ref() {
-        Some(stream) => stream
-            .actor_player_profile(stream.local_player_runtime_id())
-            .and_then(|profile| match &profile.skin {
-                protocol::PlayerSkin::Standard(skin) => Some(ActorSkinPixels {
-                    width: skin.width,
-                    height: skin.height,
-                    rgba8: Arc::clone(&skin.rgba8),
-                }),
-                _ => None,
-            }),
-        None => Some(ActorSkinPixels {
-            width: menu_runtime.player_skin().width,
-            height: menu_runtime.player_skin().height,
-            rgba8: Arc::clone(&menu_runtime.player_skin().rgba8),
-        }),
-    }
-    .and_then(|pixels| player_preview::validated_ui_skin(&pixels));
-    let pose = client_world
-        .stream
-        .as_ref()
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
-        .map_or_else(player_preview::PlayerPreviewPose::default, |actor| {
-            let sneaking = matches!(
-                actor.metadata.get(&0),
-                Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
-            );
-            player_preview::PlayerPreviewPose::new(
-                actor.body_yaw,
-                actor.head_yaw,
-                actor.pitch,
-                sneaking,
-            )
-        });
+    let stream = client_world.stream.as_ref();
+    let skin = player_preview::local_preview_skin(stream, menu_runtime.player_skin());
+    let pose = player_preview::PlayerPreviewPose::of_local_player(stream);
     // The model wears the local player's armor and held item.
-    presentation.dress_player_preview(&runtime, |stack| {
+    presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
         client_world
             .stream
             .as_ref()?
@@ -231,7 +200,7 @@ pub(crate) fn prepare_ui_runtime(
     let doll_state = client_world
         .stream
         .as_ref()
-        .and_then(|stream| super::paper_doll::observe(stream, &runtime, &physics));
+        .and_then(|stream| super::paper_doll::observe(stream, &runtime, &player_runtime, &physics));
     presentation.hud_frame.paper_doll_visible =
         presentation.paper_doll.update(now_millis, doll_state);
     let settings = menu_runtime.settings_snapshot().0;
@@ -257,12 +226,14 @@ pub(crate) fn prepare_ui_runtime(
         hands: first_person && !hide_hand && !hand_rig.is_active(),
     };
     super::forms::observe_station_block(
+        &player_runtime,
         &mut runtime,
         client_world.stream.as_ref(),
         collisions.as_deref(),
         now_millis,
     );
     let item_icons = capture_hud_frame(
+        &player_runtime,
         &mut runtime,
         &mut presentation,
         client_world.stream.as_ref(),
@@ -293,11 +264,12 @@ pub(crate) fn prepare_ui_runtime(
         hand.use_animated_rig();
     } else {
         hand.observe(
+            &player_runtime,
             &runtime,
             &client_world,
             presentation.hud_frame.first_person,
             hide_hand
-                || !presentation.renders_game_behind(&runtime, &menu_runtime)
+                || !presentation.renders_game_behind(&player_runtime, &runtime, &menu_runtime)
                 || presentation.loading_stage.is_some(),
             physical_size,
         );
@@ -350,7 +322,7 @@ pub(crate) fn prepare_ui_runtime(
         .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
     presentation.publish_scene_inputs(&mut runtime);
     prepared.0 = Some(PendingUiPublication {
-        inventory: runtime.capture_presentation_inventory(),
+        inventory: runtime.capture_presentation_inventory(&player_runtime),
         preview,
         item_icons,
         now_millis,
@@ -361,6 +333,7 @@ pub(crate) fn prepare_ui_runtime(
 
 /// Captures HUD display values and applies its required local authority observations.
 fn capture_hud_frame(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
     stream: Option<&client_world::WorldStream>,
@@ -368,11 +341,11 @@ fn capture_hud_frame(
     now_millis: u64,
     item_use: Option<(&crate::item_use::ItemUseRuntime, u64)>,
 ) -> (Option<IconRef>, Option<IconRef>) {
-    let icon_frames = ItemIconFrames::capture(item_use, stream, runtime);
+    let icon_frames = ItemIconFrames::capture(player_runtime, item_use, stream, runtime);
     let resolve_identifier = |stack: &protocol::NetworkItemStack| {
         stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
     };
-    let worn = runtime.local_armor();
+    let worn = runtime.local_armor(player_runtime);
     let worn = [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots];
     let identifiers = worn.map(|stack| {
         (!stack.is_empty())
@@ -392,7 +365,10 @@ fn capture_hud_frame(
     let mut logged_hotbar: [Option<(Arc<str>, bool)>; 9] = Default::default();
     let mut inventory_icons = super::hud_layout::InventoryIcons::default();
     for (slot, icon) in inventory_icons.0.iter_mut().enumerate() {
-        if let Some(stack) = runtime.inventory_ledger().displayed_stack(slot as u8) {
+        if let Some(stack) = runtime
+            .inventory_ledger(player_runtime)
+            .displayed_stack(slot as u8)
+        {
             *icon = resolve_identifier(stack).as_deref().and_then(|id| {
                 stack_icon(
                     runtime,
@@ -406,7 +382,10 @@ fn capture_hud_frame(
     }
     let mut storage_icons = super::hud_layout::StorageIcons::default();
     for (slot, icon) in storage_icons.0.iter_mut().enumerate() {
-        if let Some(stack) = runtime.inventory_ledger().storage_stack(slot as u8) {
+        if let Some(stack) = runtime
+            .inventory_ledger(player_runtime)
+            .storage_stack(slot as u8)
+        {
             *icon = resolve_identifier(stack)
                 .as_deref()
                 .and_then(|id| stack_icon(runtime, presentation, stack, id, None));
@@ -414,7 +393,7 @@ fn capture_hud_frame(
     }
     let mut crafting = super::hud_layout::CraftingFrame::default();
     if runtime.inventory_open() {
-        let ledger = runtime.inventory_ledger();
+        let ledger = runtime.inventory_ledger(player_runtime);
         for (icon, slot) in crafting
             .icons
             .iter_mut()
@@ -427,7 +406,7 @@ fn capture_hud_frame(
                     .and_then(|id| stack_icon(runtime, presentation, stack, id, None));
             }
         }
-        if let protocol::CraftGridMatch::Unique(recipe) = runtime.crafting_match() {
+        if let inventory::CraftGridMatch::Unique(recipe) = runtime.crafting_match(player_runtime) {
             let output = recipe.output();
             let stack = protocol::NetworkItemStack {
                 network_id: output.network_id,
@@ -444,7 +423,7 @@ fn capture_hud_frame(
     }
     // Hover names for the open container's cells (JSON-UI tooltips).
     let item_names = if runtime.inventory_open() {
-        let ledger = runtime.inventory_ledger();
+        let ledger = runtime.inventory_ledger(player_runtime);
         (0..36u8)
             .filter_map(|slot| ledger.displayed_stack(slot))
             .chain((0..54u8).filter_map(|slot| ledger.storage_stack(slot)))
@@ -472,7 +451,7 @@ fn capture_hud_frame(
     }
     {
         use crate::ui_runtime::inventory_ledger::InventoryTarget;
-        let ledger = runtime.inventory_ledger();
+        let ledger = runtime.inventory_ledger(player_runtime);
         let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
             let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
             item_facts::cell_durability_fraction(stack, maximum, correction)
@@ -507,9 +486,10 @@ fn capture_hud_frame(
         }
     }
     if runtime.inventory_open()
-        && runtime.inventory_ledger().window_kind() == Some(protocol::WindowKind::Lectern)
+        && runtime.inventory_ledger(player_runtime).window_kind()
+            == Some(protocol::WindowKind::Lectern)
         && runtime.screen_state().book.is_none()
-        && let Some(position) = runtime.inventory_ledger().window_position()
+        && let Some(position) = runtime.inventory_ledger(player_runtime).window_position()
         && let Some(nbt) = stream.and_then(|stream| stream.block_entity_compound(position))
     {
         let pages: Vec<String> = nbt
@@ -541,16 +521,17 @@ fn capture_hud_frame(
             .map_or(0, |page| page.min(state.pages.len() - 1));
         runtime.open_book(state);
     }
-    let inventory_screen = super::inventory_pointer::InventoryScreen::of_runtime(runtime);
+    let inventory_screen =
+        super::inventory_pointer::InventoryScreen::of_runtime(player_runtime, runtime);
     let mut window_text = super::hud_layout::WindowText::default();
     if runtime.inventory_open() {
         let stated_title = runtime
-            .inventory_ledger()
+            .inventory_ledger(player_runtime)
             .window_position()
             .and_then(|position| stream?.block_entity_custom_name(position));
         window_text.custom_title.clone_from(&stated_title);
         window_text.block_entity = runtime
-            .inventory_ledger()
+            .inventory_ledger(player_runtime)
             .window_position()
             .and_then(|position| stream?.block_entity_compound(position))
             .and_then(|nbt| nbt.string("id").map(str::to_owned));
@@ -620,17 +601,18 @@ fn capture_hud_frame(
             super::inventory_pointer::InventoryScreen::Personal
                 | super::inventory_pointer::InventoryScreen::Workbench
                 | super::inventory_pointer::InventoryScreen::Creative
-        ) && super::forms::recipe_book_shown(runtime)
+        ) && super::forms::recipe_book_shown(player_runtime, runtime)
         {
-            window_icons.book_entries = super::forms::recipe_book_icons(runtime, |stack| {
-                resolve_identifier(stack)
-                    .as_deref()
-                    .and_then(|id| presentation.item_icon(id, stack.metadata))
-            });
+            window_icons.book_entries =
+                super::forms::recipe_book_icons(player_runtime, runtime, |stack| {
+                    resolve_identifier(stack)
+                        .as_deref()
+                        .and_then(|id| presentation.item_icon(id, stack.metadata))
+                });
         }
         if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
             let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
-                runtime.inventory_ledger(),
+                runtime.inventory_ledger(player_runtime),
                 runtime.screen_state(),
             );
             let first = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS;
@@ -657,7 +639,7 @@ fn capture_hud_frame(
                 window_icons.creative_tabs[tab] = presentation.item_icon(id, 0);
             }
         }
-        if let Some(kind) = runtime.inventory_ledger().window_kind() {
+        if let Some(kind) = runtime.inventory_ledger(player_runtime).window_kind() {
             let output_stack = |output: protocol::RecipeOutput| protocol::NetworkItemStack {
                 network_id: output.network_id,
                 metadata: u32::from(output.aux),
@@ -667,7 +649,7 @@ fn capture_hud_frame(
             };
             if kind == protocol::WindowKind::Stonecutter {
                 let outputs: Vec<_> = runtime
-                    .stonecutter_options()
+                    .stonecutter_options(player_runtime)
                     .iter()
                     .take(super::screens::STONECUTTER_CELLS)
                     .map(|recipe| recipe.output)
@@ -681,8 +663,11 @@ fn capture_hud_frame(
                     }
                 }
             }
-            if runtime.inventory_ledger().created_output_stack().is_none()
-                && let Some(output) = runtime.predicted_screen_output()
+            if runtime
+                .inventory_ledger(player_runtime)
+                .created_output_stack()
+                .is_none()
+                && let Some(output) = runtime.predicted_screen_output(player_runtime)
             {
                 let stack = output_stack(output);
                 let icon = resolve_identifier(&stack)
@@ -702,7 +687,8 @@ fn capture_hud_frame(
                 .map(|text| text.to_string());
             if runtime.screen_state().book_open {
                 let first = runtime.screen_state().book_page * super::screens::BOOK_CELLS;
-                let page = runtime.book_recipes(first, super::screens::BOOK_CELLS + 1);
+                let page =
+                    runtime.book_recipes(player_runtime, first, super::screens::BOOK_CELLS + 1);
                 window_icons.book_more = page.len() > super::screens::BOOK_CELLS;
                 for (cell, recipe) in page.iter().take(super::screens::BOOK_CELLS).enumerate() {
                     let output = recipe.output();
@@ -722,7 +708,7 @@ fn capture_hud_frame(
         // The tooltip follows the hovered cell's stack.
         let hovered = runtime.screen_state().hover.and_then(|hit| {
             use super::inventory_pointer::InventoryCellHit as Hit;
-            let ledger = runtime.inventory_ledger();
+            let ledger = runtime.inventory_ledger(player_runtime);
             let (stack, name) = match hit {
                 Hit::Player(slot) => (
                     ledger.displayed_stack(slot),
@@ -764,7 +750,7 @@ fn capture_hud_frame(
                     let skip = runtime.screen_state().book_page * super::screens::BOOK_CELLS
                         + usize::from(index);
                     let output = runtime
-                        .book_recipes(skip, 1)
+                        .book_recipes(player_runtime, skip, 1)
                         .first()
                         .map(protocol::RecipeHandle::output);
                     return output.map(|output| {
@@ -778,7 +764,9 @@ fn capture_hud_frame(
                         (stack, None)
                     });
                 }
-                Hit::RecipeBook(index) => return super::forms::recipe_book_hover(runtime, index),
+                Hit::RecipeBook(index) => {
+                    return super::forms::recipe_book_hover(player_runtime, runtime, index);
+                }
                 Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
             };
             stack.map(|stack| (stack.clone(), name))
@@ -792,7 +780,7 @@ fn capture_hud_frame(
                 name.as_deref(),
             );
             if let Some(contents) = protocol::item_bundle_id(&stack.extra_data)
-                .and_then(|id| runtime.inventory_ledger().bundle_contents(id))
+                .and_then(|id| runtime.inventory_ledger(player_runtime).bundle_contents(id))
             {
                 for held in contents.iter().filter(|held| !held.is_empty()).take(8) {
                     let item_name = resolve_identifier(held)
@@ -805,12 +793,15 @@ fn capture_hud_frame(
             }
         }
     }
-    let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {
-        resolve_identifier(stack)
-            .as_deref()
-            .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
-    });
-    let selected_snapshot = runtime.selected_stack_snapshot();
+    let cursor_icon = runtime
+        .inventory_ledger(player_runtime)
+        .cursor_stack()
+        .and_then(|stack| {
+            resolve_identifier(stack)
+                .as_deref()
+                .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
+        });
+    let selected_snapshot = runtime.selected_stack_snapshot(player_runtime);
     let selected_slot = selected_snapshot.map(|snapshot| snapshot.slot);
     let selected_stack = selected_snapshot.and_then(|snapshot| match snapshot.state {
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => Some(stack),
@@ -822,7 +813,9 @@ fn capture_hud_frame(
         let stack = if selected_slot == Some(slot) {
             selected_stack
         } else {
-            runtime.inventory_ledger().displayed_stack(slot)
+            runtime
+                .inventory_ledger(player_runtime)
+                .displayed_stack(slot)
         };
         if let Some(stack) = stack {
             let identifier = resolve_identifier(stack);
@@ -831,7 +824,9 @@ fn capture_hud_frame(
             // overlay beside its predicted stack while a gesture is in
             // flight, otherwise the committed overlay. One accepted sparse
             // response therefore refreshes the whole presented row at once.
-            let overlay = runtime.inventory_ledger().presented_slot_overlay(slot);
+            let overlay = runtime
+                .inventory_ledger(player_runtime)
+                .presented_slot_overlay(slot);
             *durability = item_facts::cell_durability_fraction(
                 stack,
                 runtime.item_max_durability(identifier.as_deref()),
@@ -860,7 +855,7 @@ fn capture_hud_frame(
             .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
     });
     let armor_icons = {
-        let armor = runtime.local_armor();
+        let armor = runtime.local_armor(player_runtime);
         [
             &armor.helmet,
             &armor.chestplate,
@@ -884,19 +879,21 @@ fn capture_hud_frame(
             )
         })
     });
-    let selected_item_name = runtime.selected_stack_custom_name().or_else(|| {
-        selected_stack.and_then(|stack| {
-            let id = resolve_identifier(stack)?;
-            let name = runtime.localized_item_name(&id);
-            let format = runtime
-                .item_components(&id)
-                .and_then(item_facts::name_format);
-            Some(Arc::from(match format {
-                Some((code, _)) => format!("\u{a7}{code}{name}"),
-                None => name,
-            }))
-        })
-    });
+    let selected_item_name = runtime
+        .selected_stack_custom_name(player_runtime)
+        .or_else(|| {
+            selected_stack.and_then(|stack| {
+                let id = resolve_identifier(stack)?;
+                let name = runtime.localized_item_name(&id);
+                let format = runtime
+                    .item_components(&id)
+                    .and_then(item_facts::name_format);
+                Some(Arc::from(match format {
+                    Some((code, _)) => format!("\u{a7}{code}{name}"),
+                    None => name,
+                }))
+            })
+        });
     let selected_identity = selected_stack.map(|stack| (stack.network_id, stack.metadata));
     let holding_filled_map = selected_stack
         .and_then(resolve_identifier)

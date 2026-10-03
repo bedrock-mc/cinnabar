@@ -11,6 +11,7 @@ fn configured_time_changer_is_visual_only_offline() {
         .expect("real UI carrier required for selected time changer");
     app.insert_resource(presentation)
         .insert_resource(UiRuntime::new(1))
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
         .insert_resource(ButtonInput::<KeyCode>::default());
     app.world_mut().spawn((Window::default(), PrimaryWindow));
     configure(&mut app, Some(Path::new(&path)));

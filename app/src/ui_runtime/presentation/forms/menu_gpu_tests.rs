@@ -78,6 +78,8 @@ fn app() -> App {
 #[test]
 #[ignore = "offline native GPU menu timings and snapshots"]
 fn menu_frames_on_native_gpu() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let dir = pack_harness::scratch_dir("gpu-menu");
     let mut view = play_flow_snapshots::fixture_view(&dir);
@@ -99,8 +101,10 @@ fn menu_frames_on_native_gpu() {
     .collect();
     let mut app = app();
     let mut runtime = pack_harness::menu_runtime();
-    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
     let stats = app.world().resource::<render::UiRenderStats>().clone();
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
     let skin_pixels = image::open(
@@ -124,11 +128,11 @@ fn menu_frames_on_native_gpu() {
         ("loading", MenuScreen::Home),
     ] {
         if name == "inventory" {
-            runtime.toggle_inventory();
+            runtime.toggle_inventory(&mut player_runtime);
             assert!(runtime.inventory_open());
         }
         if name == "play" && runtime.inventory_open() {
-            runtime.toggle_inventory();
+            runtime.toggle_inventory(&mut player_runtime);
         }
         view.screen = screen;
         view.editing = (screen == MenuScreen::AddServer).then_some(0);
@@ -163,12 +167,21 @@ fn menu_frames_on_native_gpu() {
             let preview_done = Instant::now();
             if matches!(name, "paper-doll" | "inventory") {
                 presentation.set_menu_view(None);
-                runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+                runtime.publish_player_game_mode(
+                    &mut player_runtime,
+                    protocol::PlayerGameMode::Survival,
+                );
                 presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
                 presentation.hud_frame_mut().paper_doll_visible = true;
             }
             let input = presentation
-                .build(&runtime, frame * 16, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    frame * 16,
+                    SIZE,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             let paint_done = Instant::now();
             geometry = (input.vertices.len(), input.batches.len());
@@ -227,6 +240,8 @@ fn menu_frames_on_native_gpu() {
 #[test]
 #[ignore = "offline native GPU Zeqa page ordering"]
 fn zeqa_late_pages_match_the_published_frame_on_gpu() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let pack = pack_harness::env_pack().expect("CINNABAR_FORM_PACK_DIR");
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let mut runtime = pack_harness::menu_runtime();
@@ -241,7 +256,7 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
         if phase != 0 {
             presentation.set_menu_view(None);
             presentation.set_loading_stage(Some(super::LoadingStage::BuildingTerrain));
-            runtime.begin_session(phase + 1);
+            runtime.begin_session(&mut player_runtime, phase + 1);
             runtime.set_server_ui(Some(Arc::new(super::loading_sequence_tests::lazy(
                 pack.clone(),
             ))));
@@ -257,7 +272,13 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
             );
             presentation.sync_player_preview(None, Default::default(), phase == 0, false, 0.0);
             let input = presentation
-                .build(&runtime, 0, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    SIZE,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             let expected = (phase != 0).then(|| super::snapshot::rasterize(&input));
             app.world_mut()

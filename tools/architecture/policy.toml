@@ -91,6 +91,14 @@ name = "client-world"
 path = "crates/client-world"
 allowed_dependencies = ["assets", "meshing", "protocol", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
+
+[[crates]]
+name = "inventory"
+path = "crates/inventory"
+allowed_dependencies = ["protocol"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*", "client-world", "world"]
 
 [[crates]]
 name = "semantic-input"
@@ -117,7 +125,7 @@ forbidden_transitive_dependencies = ["client-world", "protocol"]
 name = "app"
 path = "app"
 # asset-compiler is allowed only for the session-time in-memory server-pack entity compile.
-allowed_dependencies = ["asset-compiler", "assets", "client-world", "json-ui", "meshing", "mod-host", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["asset-compiler", "assets", "client-world", "inventory", "json-ui", "meshing", "mod-host", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
 forbidden_dependencies = []
 
 [[crates]]
@@ -382,7 +390,7 @@ consumer = "app/src/ui_runtime/forms/shape_probe.rs"
 literal = "RUST_MCBE_CRAFT_OBSERVATION"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/ui_runtime/crafting_authority/observation.rs"
+consumer = "app/src/ui_runtime/crafting_observation.rs"
 
 [[markers]]
 literal = "RUST_MCBE_STAGE_PROFILE"
@@ -515,3 +523,17 @@ producer = "app/src/acceptance/markers.rs"
 literal = "RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY"
 kind = "harness_only"
 producer = "scripts/acceptance.ps1"
+
+# Gameplay receives facts and inventory directly; UI may only borrow authority.
+[[module_boundaries]]
+path = "app/src/movement"
+forbidden_modules = ["ui_runtime", "ui", "UiRuntime"]
+
+[[module_boundaries]]
+path = "app/src/ui_runtime"
+forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "AbilitiesUpdate", "PlayerRuntime"]
+
+[[module_boundaries.ownership_exceptions]]
+path = "app/src/ui_runtime/presentation_snapshot.rs"
+owner = "PresentationInventory"
+owned_type = "PlayerInventoryLedger"

@@ -68,6 +68,7 @@ impl UiPresentationRuntime {
     /// Draws the extension through JSON-UI only while the gameplay HUD owns focus.
     pub(in super::super) fn append_mod_hud(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
@@ -77,7 +78,7 @@ impl UiPresentationRuntime {
         let Some(hud) = self.form_presentation.mod_hud.as_mut() else {
             return;
         };
-        if runtime.ui_focused()
+        if runtime.ui_focused(player_runtime)
             || self.loading_stage.is_some()
             || !self.form_presentation.hud.hud.has_visible_content()
         {

@@ -58,8 +58,11 @@ pub(crate) fn mini_engine_presentation() -> UiPresentationRuntime {
 // A static form resolves and lays out once; hovering a button only repaints.
 #[test]
 fn static_form_resolves_once_and_hover_only_repaints() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = mini_engine_presentation();
-    let mut runtime = super::pack_harness::action_form("Menu", &["A", "B", "C"]);
+    let mut runtime =
+        super::pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let passes = |presentation: &UiPresentationRuntime| {
         presentation
             .form_presentation
@@ -70,7 +73,13 @@ fn static_form_resolves_once_and_hover_only_repaints() {
     };
     for _ in 0..3 {
         presentation
-            .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
     }
     let identity = runtime.server_forms().active().unwrap().identity;
@@ -83,7 +92,13 @@ fn static_form_resolves_once_and_hover_only_repaints() {
     runtime.server_forms_mut().engine_mut().view.hovered = Some(key);
     for _ in 0..2 {
         presentation
-            .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
     }
     assert_eq!(passes(&presentation), [1, 1]);
@@ -97,10 +112,14 @@ fn static_form_resolves_once_and_hover_only_repaints() {
 
 #[test]
 fn review_open_form_remeasures_after_a_late_font_swap() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = mini_engine_presentation();
-    let mut runtime = super::pack_harness::action_form("Menu", &["AAAA"]);
+    let mut runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["AAAA"]);
     let dpi = ui::DpiScale::new(1.0).unwrap();
-    let before = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let before = presentation
+        .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+        .unwrap();
     super::snapshot::write(&before, "late-font-before");
     runtime.set_session_glyphs(Some(Arc::new(super::super::SessionGlyphSheets {
         cells: vec![assets::CellGlyph {
@@ -113,7 +132,9 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
         }],
         ..Default::default()
     })));
-    let after = presentation.build(&runtime, 1, [1280, 720], dpi).unwrap();
+    let after = presentation
+        .build(&player_runtime, &runtime, 1, [1280, 720], dpi)
+        .unwrap();
     super::snapshot::write(&after, "late-font-after");
     let engine = presentation.form_presentation.engine.as_ref().unwrap();
     assert_eq!(
@@ -122,7 +143,9 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
         "new glyph metrics must remeasure an open form"
     );
     for now in 2..7 {
-        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
     }
     assert_eq!(
         presentation
@@ -134,7 +157,9 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
         [1, 2]
     );
     runtime.set_session_glyphs(None);
-    presentation.build(&runtime, 7, [1280, 720], dpi).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 7, [1280, 720], dpi)
+        .unwrap();
     assert_eq!(
         presentation
             .form_presentation
@@ -148,6 +173,8 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
 
 #[test]
 fn selected_edit_box_rebinds_only_when_its_visible_state_changes() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = mini_engine_presentation();
     presentation.set_server_ui_pack(&super::ServerUiPack {
         ui_layers: vec![vec![(
@@ -163,10 +190,16 @@ fn selected_edit_box_rebinds_only_when_its_visible_state_changes() {
         )]],
         ..Default::default()
     });
-    let mut runtime = super::pack_harness::action_form("Menu", &["A"]);
+    let mut runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["A"]);
     let render = |presentation: &mut UiPresentationRuntime, runtime: &UiRuntime| {
         presentation
-            .build(runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         presentation
             .form_presentation
@@ -225,6 +258,8 @@ fn selected_edit_box_rebinds_only_when_its_visible_state_changes() {
 
 #[test]
 fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     let session = runtime.session_id();
     runtime.server_forms_mut().admit(
@@ -251,7 +286,13 @@ fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
         ..Default::default()
     });
     presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     assert!(presentation.form_engine_frame(identity).is_none());
@@ -263,7 +304,10 @@ fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
 // of text inside the button, with format codes hidden.
 #[test]
 fn fallback_buttons_show_every_label_line() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let runtime = super::pack_harness::action_form(
+        &mut player_runtime,
         "Free For All§zfp0;",
         &["Updates In - 2m 24s\n§cKills - 7\nKillstreak - 1", "Duels"],
     );
@@ -294,6 +338,8 @@ fn fallback_buttons_show_every_label_line() {
 // acceptable to the renderer, which pins the static texture identity and plan.
 #[test]
 fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use render::{UiRenderScene, UiRenderStats};
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(16, 8, image::Rgba([9, 8, 7, 255]))
@@ -312,11 +358,13 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
         view: None,
     };
     let mut presentation = mini_engine_presentation();
-    let runtime = super::pack_harness::action_form("Menu", &["A"]);
+    let runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["A"]);
     let (mut scene, stats) = (UiRenderScene::default(), UiRenderStats::default());
     let dpi = ui::DpiScale::new(1.0).unwrap();
     let mut publish = |presentation: &mut UiPresentationRuntime| {
-        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        let input = presentation
+            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .unwrap();
         scene.publish(input, &stats).unwrap();
     };
     publish(&mut presentation);
@@ -364,6 +412,8 @@ fn sprite_pages(nodes: &[ui::UiNode]) -> Vec<(u16, [u16; 4])> {
 // texture, else from the local vanilla pack; a URL image shows once downloaded.
 #[test]
 fn path_and_url_button_images_resolve_like_vanilla() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use super::super::IconRef;
     use protocol::FormButtonImage::{Path, Url};
     let vanilla = std::env::temp_dir().join(format!("forms-vanilla-{}", std::process::id()));
@@ -388,6 +438,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
     engine.textures.set_fallbacks(icons, vanilla.clone());
     let remote = engine.textures.remote.clone();
     let runtime = super::pack_harness::image_form(
+        &mut player_runtime,
         "Images",
         &["Item", "Block", "Remote"],
         vec![
@@ -700,6 +751,8 @@ fn layout_section<'a, 'b>(
 // The Servers tab builds only the saved rows its list shows, however long the list.
 #[test]
 fn the_server_list_builds_only_visible_rows() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let drawn = |count: usize| {
         let mut presentation = mini_engine_presentation();
         let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned()).view();
@@ -715,6 +768,7 @@ fn the_server_list_builds_only_visible_rows() {
         presentation.set_menu_view(Some(view));
         let input = presentation
             .build(
+                &player_runtime,
                 &UiRuntime::new(1),
                 0,
                 [1280, 720],
@@ -843,7 +897,8 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
 
 #[test]
 fn fallback_form_preserves_host_owned_presentation_state() {
-    let runtime = super::pack_harness::action_form("Menu", &["A"]);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["A"]);
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation
         .set_experience_chrome(Some("Trusted status"), false)
@@ -857,12 +912,14 @@ fn fallback_form_preserves_host_owned_presentation_state() {
 #[test]
 fn review_failed_menu_modal_does_not_expose_underlying_actions() {
     use crate::menu::{MenuDialog, MenuRuntime, MenuScreen};
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let mut presentation = mini_engine_presentation();
     let mut view = MenuRuntime::new(true, 2, "Test".into()).view();
     view.screen = MenuScreen::Play;
     presentation.set_menu_view(Some(view.clone()));
     presentation
         .build(
+            &player_runtime,
             &UiRuntime::new(1),
             0,
             [1280, 720],
@@ -874,6 +931,7 @@ fn review_failed_menu_modal_does_not_expose_underlying_actions() {
     presentation.set_menu_view(Some(view));
     presentation
         .build(
+            &player_runtime,
             &UiRuntime::new(1),
             0,
             [1280, 720],

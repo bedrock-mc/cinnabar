@@ -1,3 +1,4 @@
+use crate::player_runtime::PlayerRuntime;
 #[test]
 fn local_avatar_publishes_only_frozen_visibility_without_owning_the_render_arena() {
     let mut presentation = LocalAvatarPresentation::default();
@@ -239,6 +240,8 @@ fn semantic_runtime_wires_context_bindings_authority_and_release_at_finalize() {
 
 #[test]
 fn semantic_authority_tracks_ui_settings_session_and_dimension_transitions_in_production_order() {
+    let mut player_runtime = PlayerRuntime::new(1);
+
     let mut runtime = SemanticInputRuntime::default();
     let mut ui = UiRuntime::new(1);
     let controls = ControlSettings::default();
@@ -263,7 +266,7 @@ fn semantic_authority_tracks_ui_settings_session_and_dimension_transitions_in_pr
         .unwrap();
     assert!(runtime.route_and_finalize(held_jump()).unwrap().phases[Action::Jump as usize].held);
 
-    let ui_transition = ui.open_chat();
+    let ui_transition = ui.open_chat(&mut player_runtime);
     runtime
         .synchronize_authority(authority(ui_transition.requested_input_context(), 1, 1, 0))
         .unwrap();

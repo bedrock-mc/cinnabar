@@ -218,6 +218,8 @@ fn block_crack_production_dimension_round_trip_does_not_resurrect_start() {
 
 #[test]
 fn block_crack_projection_disconnect_and_session_reset_preserve_identity_rules() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(9);
+
     let mut stream = stream();
     let mut ui = UiRuntime::new(9);
     committed_column(&mut stream, 1, 0, 1);
@@ -233,7 +235,7 @@ fn block_crack_projection_disconnect_and_session_reset_preserve_identity_rules()
         consume_committed_block_crack(&mut ui, 9, 2, 0, event([0, -64, 0], start(7))),
         Err(UiRuntimeError::StaleBlockCrackSequence { .. })
     ));
-    ui.begin_session(10);
+    ui.begin_session(&mut player_runtime, 10);
     assert_eq!(ui.block_cracks_status(), BlockCrackStatus::default());
     assert!(matches!(
         consume_committed_block_crack(&mut ui, 9, 3, 0, event([0, -64, 0], start(7))),

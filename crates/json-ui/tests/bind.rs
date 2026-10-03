@@ -695,3 +695,83 @@ fn review_templated_grid_creation_checks_the_node_budget() {
         assert!(bound.children.len() < 5000);
     }
 }
+
+// A rescaling grid whose item cap a view computes from another control's value
+// creates its cells once views settle, also inside a layout a view reveals.
+#[test]
+fn grid_cap_from_a_view_on_another_control_creates_its_cells() {
+    let template = ctrl("cell", Some("panel"), json!({}));
+    let library = StubLibrary(BTreeMap::from([("a.cell".to_owned(), template)]));
+    let title_view = |target: &str| {
+        json!({
+            "binding_type": "view",
+            "source_control_name": "form_title",
+            "source_property_name": "#ft",
+            "target_property_name": target
+        })
+    };
+    for revealed in [false, true] {
+        let title = ctrl(
+            "form_title",
+            Some("label"),
+            json!({ "property_bag": { "#ft": "Free For All§zfp0;" } }),
+        );
+        let grid = ctrl(
+            "main_grid",
+            Some("grid"),
+            json!({
+                "grid_item_template": "a.cell",
+                "grid_rescaling_type": "horizontal",
+                "collection_name": "form_buttons",
+                "bindings": [
+                    title_view("#t"),
+                    {
+                        "binding_type": "view",
+                        "source_property_name": "(1 * (5 - (not ((#t - 'fp0;') = #t))))",
+                        "target_property_name": "#maximum_grid_items"
+                    }
+                ]
+            }),
+        );
+        let grid = if revealed {
+            ctrl_children(
+                "layout",
+                Some("panel"),
+                json!({
+                    "visible": false,
+                    "bindings": [
+                        title_view("#t"),
+                        {
+                            "binding_type": "view",
+                            "source_property_name": "(not ((#t - 'fp0;') = #t))",
+                            "target_property_name": "#visible"
+                        }
+                    ]
+                }),
+                vec![grid],
+            )
+        } else {
+            grid
+        };
+        let root = ctrl_children("root", Some("panel"), json!({}), vec![title, grid]);
+        let mut data = DataSource::default();
+        data.set_collection(
+            "form_buttons",
+            (0..5)
+                .map(|index| CollectionItem::new(index.to_string()))
+                .collect(),
+        );
+        let bound = bind(&root, &data, &library);
+        let grid = if revealed {
+            &bound.children[1].children[0]
+        } else {
+            &bound.children[1]
+        };
+        let cells = grid
+            .children
+            .iter()
+            .filter(|cell| cell.properties.get("collection_index").is_some())
+            .count();
+        assert_eq!(cells, 4, "revealed {revealed}");
+    }
+}

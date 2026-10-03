@@ -1,4 +1,5 @@
 //! A left click during gameplay must reach the attack producers through the production input chain.
+use crate::player_runtime::PlayerRuntime;
 use bevy::{
     input::{ButtonInput, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion, touch::Touches},
     prelude::{App, MouseButton},
@@ -31,6 +32,7 @@ use crate::{
 };
 
 fn gameplay_app(menu_visible: bool) -> App {
+    let mut player_runtime = PlayerRuntime::new(1);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     // The production RawInput/SemanticSample/UiAuthority/SemanticFinalize registrations.
@@ -67,7 +69,9 @@ fn gameplay_app(menu_visible: bool) -> App {
             finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
         );
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
     app.init_resource::<Time<Real>>()
         .init_resource::<Time>()
         .init_resource::<ButtonInput<bevy::input::keyboard::KeyCode>>()
@@ -86,6 +90,7 @@ fn gameplay_app(menu_visible: bool) -> App {
         .init_resource::<crate::local_player::InteractionOriginSnapshot>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .insert_resource(MenuRuntime::new(menu_visible, 2, "Tester".to_owned()));
     app.world_mut().spawn((

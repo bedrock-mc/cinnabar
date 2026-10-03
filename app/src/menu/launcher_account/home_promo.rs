@@ -24,6 +24,8 @@ fn home_feed_preserves_promo_and_fallback_label() {
 
 #[test]
 fn snapshot_core_home_promo() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) =
         crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
     else {
@@ -63,7 +65,9 @@ fn snapshot_core_home_promo() {
     let runtime = crate::ui_runtime::UiRuntime::new(1);
     let dpi = ui::DpiScale::new(2.0).unwrap();
     presentation.set_menu_view(Some(view.clone()));
-    let before = presentation.build(&runtime, 0, [2560, 1440], dpi).unwrap();
+    let before = presentation
+        .build(&player_runtime, &runtime, 0, [2560, 1440], dpi)
+        .unwrap();
     let before_frame = crate::ui_runtime::presentation::forms::snapshot::rasterize(&before);
     assert!(
         !before_frame
@@ -74,10 +78,14 @@ fn snapshot_core_home_promo() {
     view.feeds.home = menu_home(&home, 0);
     for _ in 0..3 {
         presentation.set_menu_view(Some(view.clone()));
-        presentation.build(&runtime, 0, [2560, 1440], dpi).unwrap();
+        presentation
+            .build(&player_runtime, &runtime, 0, [2560, 1440], dpi)
+            .unwrap();
     }
     presentation.set_menu_view(Some(view));
-    let input = presentation.build(&runtime, 0, [2560, 1440], dpi).unwrap();
+    let input = presentation
+        .build(&player_runtime, &runtime, 0, [2560, 1440], dpi)
+        .unwrap();
     let frame = crate::ui_runtime::presentation::forms::snapshot::rasterize(&input);
     assert!(
         frame

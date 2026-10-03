@@ -5,7 +5,6 @@ mod crafting;
 mod decode;
 mod grammar;
 mod item_tags;
-mod matching;
 pub(super) mod model;
 mod observation;
 mod reader;
@@ -13,11 +12,13 @@ mod screen;
 
 pub use budget::RECIPE_OWNED_BYTES;
 pub use catalog::RecipeCatalog;
-pub use crafting::{
-    CraftGridItem, CraftGridMatch, RecipeIngredientView, RecipeOutput, match_crafting_grid,
+pub use crafting::{RecipeIngredientView, RecipeOutput};
+pub use item_tags::vanilla_tag_contains;
+pub use model::{
+    ANY_AUX as RECIPE_ANY_AUX, Ingredient as RecipeIngredient,
+    MAX_INGREDIENTS as MAX_RECIPE_INGREDIENTS, Recipe as RecipeDefinition, RecipeHandle,
+    RecipeUpdate,
 };
-pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
-pub use model::{RecipeHandle, RecipeUpdate};
 pub use observation::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
@@ -27,10 +28,14 @@ pub fn decode_recipe_update(body: &[u8]) -> Result<RecipeUpdate, super::Inventor
     decode::decode(body)
 }
 
-pub(in crate::inventory) fn valid_identifier(value: &str) -> bool {
-    value.len() <= 16384 && grammar::identifier(value)
+/// Whether a registry entry has the plain descriptor admitted by recipe wire observations.
+pub fn recipe_binding_supported(entry: &crate::ItemRegistryEntry) -> bool {
+    (!entry.component_based || entry.canonical_empty_component_data)
+        && entry.identifier.len() <= 16384
+        && grammar::identifier(&entry.identifier)
 }
-pub(in crate::inventory) fn empty_extra(extra: &[u8]) -> bool {
+/// Whether the user-data bytes are the canonical empty recipe envelope.
+pub fn empty_recipe_extra(extra: &[u8]) -> bool {
     canonical_empty_extra(extra)
 }
 

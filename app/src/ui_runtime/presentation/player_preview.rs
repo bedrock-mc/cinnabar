@@ -18,7 +18,7 @@ pub(crate) use equipment::{
     PreviewEquipment, PreviewHandItem, PreviewHeldModel, PreviewHeldPlacement, PreviewTexture,
 };
 use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
-pub(crate) use skin::validated_ui_skin;
+pub(crate) use skin::local_preview_skin;
 
 impl UiPresentationRuntime {
     /// Retain the CPU quad. Only exact current-render coverage may omit it in
@@ -63,11 +63,12 @@ impl UiPresentationRuntime {
     /// stack's item through `identify`.
     pub(crate) fn dress_player_preview(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &crate::ui_runtime::UiRuntime,
         identify: impl Fn(&protocol::NetworkItemStack) -> Option<Arc<str>>,
     ) {
         use crate::ui_runtime::inventory_ledger::InventoryTarget;
-        let ledger = runtime.inventory_ledger();
+        let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
             stack.and_then(|stack| Some((identify(stack)?, stack.clone())))
         };
@@ -76,7 +77,7 @@ impl UiPresentationRuntime {
         });
         let held = named(
             runtime
-                .selected_hotbar_slot()
+                .selected_hotbar_slot(player_runtime)
                 .and_then(|slot| ledger.displayed_stack(slot)),
         );
         self.set_player_preview_gear(
@@ -292,6 +293,19 @@ impl PlayerPreviewPose {
             pitch_degrees,
             sneaking,
         }
+    }
+
+    /// The local actor's pose; the default stance off-world.
+    pub(crate) fn of_local_player(stream: Option<&client_world::WorldStream>) -> Self {
+        let Some(actor) = stream.and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        else {
+            return Self::default();
+        };
+        let sneaking = matches!(
+            actor.metadata.get(&0),
+            Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
+        );
+        Self::new(actor.body_yaw, actor.head_yaw, actor.pitch, sneaking)
     }
 }
 

@@ -104,13 +104,6 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: Eng
         }
     }
     engine_scroll::step(runtime, frame);
-    if let Some(point) = point
-        && input.pointer.held
-    {
-        engine_scroll::drag(runtime, frame, point);
-    }
-    // Each release answers only for the control its press went down on.
-    let mut releases = Vec::new();
     let edges = if input.pointer_edges.is_empty() {
         [
             input.pointer.pressed.then_some(true),
@@ -122,6 +115,16 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: Eng
     } else {
         std::mem::take(&mut input.pointer_edges)
     };
+    // R:InputComponent:1238 sends pointer deltas to active components;
+    // R:ScrollViewComponent:944 consumes them while capture is still down.
+    // Move the existing capture once before any release, even when the final state is up.
+    if let Some(point) = point
+        && (input.pointer.held || edges.contains(&false))
+    {
+        engine_scroll::drag(runtime, frame, point);
+    }
+    // Each release answers only for the control its press went down on.
+    let mut releases = Vec::new();
     for down in edges {
         if down {
             if let Some(point) = point {

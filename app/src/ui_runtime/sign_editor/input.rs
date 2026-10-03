@@ -21,6 +21,7 @@ use crate::{
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_sign_editor(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -74,7 +75,7 @@ pub(crate) fn drive_sign_editor(
     }
     if !runtime.sign_editor().is_open() {
         keyboard.clear();
-        if *owned_last_frame && !runtime.ui_focused() && window.focused {
+        if *owned_last_frame && !runtime.ui_focused(&player_runtime) && window.focused {
             restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
         }
         *owned_last_frame = false;
@@ -144,7 +145,7 @@ pub(crate) fn drive_sign_editor(
     }) {
         return;
     }
-    if !runtime.ui_focused() {
+    if !runtime.ui_focused(&player_runtime) {
         restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
         *owned_last_frame = false;
     }

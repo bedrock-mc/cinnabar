@@ -20,6 +20,7 @@ members = [
     "crates/server-experience",
     "crates/render",
     "crates/render-api",
+    "crates/inventory",
     "crates/sim",
     "crates/ui",
     "crates/world",

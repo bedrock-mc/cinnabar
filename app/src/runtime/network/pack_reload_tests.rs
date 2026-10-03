@@ -65,6 +65,7 @@ pub(super) fn app_with_assets(assets: Arc<assets::RuntimeAssets>) -> App {
     let mut app = App::new();
     app.insert_resource(world)
         .insert_resource(UiRuntime::new(0))
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(0))
         .insert_resource(render::ChunkTextureAssets::with_revision(assets, 0))
         .init_resource::<PackReload>()
         .add_systems(Update, reload_resource_packs);

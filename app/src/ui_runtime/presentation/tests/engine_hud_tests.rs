@@ -81,7 +81,11 @@ fn effect(effect_id: i32) -> ActorEffectEvent {
 }
 
 /// Authoritative full 20/20 health and hunger; stats are never fabricated.
-fn full_stats(runtime: &mut UiRuntime, sequence: u64) {
+fn full_stats(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    sequence: u64,
+) {
     let attribute = |name: &str| protocol::ActorAttribute {
         name: Arc::from(name),
         min: 0.0,
@@ -91,17 +95,20 @@ fn full_stats(runtime: &mut UiRuntime, sequence: u64) {
         modifiers: Arc::from([]),
     };
     runtime
-        .apply_local_attributes(crate::ui_runtime::SequencedLocalAttributes {
-            session_id: 1,
-            fifo_sequence: sequence,
-            local_millis: sequence * 10,
-            server_tick: sequence,
-            attributes: vec![
-                attribute("minecraft:health"),
-                attribute("minecraft:player.hunger"),
-            ]
-            .into(),
-        })
+        .apply_local_attributes(
+            player_runtime,
+            crate::ui_runtime::SequencedLocalAttributes {
+                session_id: 1,
+                fifo_sequence: sequence,
+                local_millis: sequence * 10,
+                server_tick: sequence,
+                attributes: vec![
+                    attribute("minecraft:health"),
+                    attribute("minecraft:player.hunger"),
+                ]
+                .into(),
+            },
+        )
         .unwrap();
 }
 
@@ -113,6 +120,7 @@ fn first_person() -> HudFrame {
 }
 
 fn build_at(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     now: u64,
@@ -120,16 +128,23 @@ fn build_at(
     dpi: f32,
 ) -> render::UiRenderInput {
     presentation
-        .build(runtime, now, physical, DpiScale::new(dpi).unwrap())
+        .build(
+            player_runtime,
+            runtime,
+            now,
+            physical,
+            DpiScale::new(dpi).unwrap(),
+        )
         .unwrap()
 }
 
 fn build(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     now: u64,
 ) -> render::UiRenderInput {
-    build_at(presentation, runtime, now, [1280, 720], 1.0)
+    build_at(player_runtime, presentation, runtime, now, [1280, 720], 1.0)
 }
 
 fn quad_bounds(quad: &[render::UiRenderVertex]) -> [f32; 4] {
@@ -163,8 +178,9 @@ fn crosshair(input: &render::UiRenderInput, side: f32) -> Option<[f32; 4]> {
         })
 }
 
-fn select_slot(runtime: &mut UiRuntime) {
+fn select_slot(player_runtime: &mut crate::player_runtime::PlayerRuntime, runtime: &mut UiRuntime) {
     runtime.retain_local_selected_equipment(
+        player_runtime,
         7,
         protocol::EquipmentEvent {
             actor_runtime_id: 42,
@@ -180,6 +196,8 @@ fn select_slot(runtime: &mut UiRuntime) {
 // The crosshair spans 15 GUI px and centres exactly on the (safe) viewport.
 #[test]
 fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     for (physical, dpi, preference, k, safe) in [
         ([1280u32, 720u32], 1.0f32, None, 2.0f32, SafeArea::ZERO),
         ([1920, 1080], 1.0, None, 4.0, SafeArea::ZERO),
@@ -208,8 +226,15 @@ fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
         presentation.set_safe_area(safe);
         *presentation.hud_frame_mut() = first_person();
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_player_game_mode(PlayerGameMode::Survival);
-        let input = build_at(&mut presentation, &runtime, 0, physical, dpi);
+        runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+        let input = build_at(
+            &player_runtime,
+            &mut presentation,
+            &runtime,
+            0,
+            physical,
+            dpi,
+        );
         let bounds =
             crosshair(&input, 15.0 * k).unwrap_or_else(|| panic!("crosshair at {physical:?}"));
         let logical = [physical[0] as f32 / dpi, physical[1] as f32 / dpi];
@@ -231,30 +256,51 @@ fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
 // First person only, kept while chatting, and gone in spectator.
 #[test]
 fn crosshair_is_first_person_only_and_mode_gated() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    let paint = |presentation: &UiPresentationRuntime, runtime: &UiRuntime| {
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    let paint = |player_runtime: &crate::player_runtime::PlayerRuntime,
+                 presentation: &UiPresentationRuntime,
+                 runtime: &UiRuntime| {
         hud_layout::capture_hud_paint(
+            player_runtime,
             runtime,
             presentation.hud_frame(),
             presentation.hud_textures.as_ref(),
         )
     };
     assert!(
-        paint(&presentation, &runtime).crosshair.is_none(),
+        paint(&player_runtime, &presentation, &runtime)
+            .crosshair
+            .is_none(),
         "third person"
     );
     *presentation.hud_frame_mut() = first_person();
-    assert!(crosshair(&build(&mut presentation, &runtime, 0), 30.0).is_some());
-    runtime.open_chat();
-    assert!(crosshair(&build(&mut presentation, &runtime, 0), 30.0).is_some());
-    runtime.close_chat();
-    runtime.publish_player_game_mode(PlayerGameMode::Spectator);
     assert!(
-        paint(&presentation, &runtime).crosshair.is_none(),
+        crosshair(
+            &build(&player_runtime, &mut presentation, &runtime, 0),
+            30.0
+        )
+        .is_some()
+    );
+    runtime.open_chat(&mut player_runtime);
+    assert!(
+        crosshair(
+            &build(&player_runtime, &mut presentation, &runtime, 0),
+            30.0
+        )
+        .is_some()
+    );
+    runtime.close_chat();
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Spectator);
+    assert!(
+        paint(&player_runtime, &presentation, &runtime)
+            .crosshair
+            .is_none(),
         "spectator"
     );
 }
@@ -262,6 +308,8 @@ fn crosshair_is_first_person_only_and_mode_gated() {
 // Hotbar, status rows, and effects follow the authoritative game mode.
 #[test]
 fn game_mode_matrix_gates_each_surface_exactly() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     for (mode, hotbar, stats) in [
         (PlayerGameMode::Survival, true, true),
         (PlayerGameMode::Adventure, true, true),
@@ -272,12 +320,12 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             return;
         };
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_player_game_mode(mode);
-        runtime.set_local_selected_slot(2);
-        full_stats(&mut runtime, 1);
+        runtime.publish_player_game_mode(&mut player_runtime, mode);
+        player_runtime.inventory.set_local_selected_slot(2);
+        full_stats(&mut player_runtime, &mut runtime, 1);
         runtime.apply_local_effect(1, 2, effect(1), 0).unwrap();
         *presentation.hud_frame_mut() = first_person();
-        build(&mut presentation, &runtime, 0);
+        build(&player_runtime, &mut presentation, &runtime, 0);
         let nodes = presentation.hud_draw_nodes();
         assert_eq!(
             customs(nodes, "hotbar_renderer").len(),
@@ -295,7 +343,12 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             "{mode:?}"
         );
         assert_eq!(customs(nodes, "mob_effects_renderer").len(), 1, "{mode:?}");
-        let paint = hud_layout::capture_hud_paint(&runtime, presentation.hud_frame(), None);
+        let paint = hud_layout::capture_hud_paint(
+            &player_runtime,
+            &runtime,
+            presentation.hud_frame(),
+            None,
+        );
         // Background plus icon for the one effect.
         assert_eq!(paint.effects.len(), 2, "{mode:?}");
         assert_eq!(paint.hearts.len(), if stats { 20 } else { 0 }, "{mode:?}");
@@ -305,30 +358,39 @@ fn game_mode_matrix_gates_each_surface_exactly() {
 // A retained slot prediction never keeps the hotbar once the mode is spectator.
 #[test]
 fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    runtime.set_local_selected_slot(2);
-    build(&mut presentation, &runtime, 0);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime.inventory.set_local_selected_slot(2);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert_eq!(
         customs(presentation.hud_draw_nodes(), "hotbar_renderer").len(),
         9
     );
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::GameMode(protocol::GameModeEvent {
-                update: protocol::GameModeUpdate::Explicit(PlayerGameMode::Spectator),
-            }),
-        })
+        .apply(
+            &mut player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::GameMode(protocol::GameModeEvent {
+                    update: protocol::GameModeUpdate::Explicit(PlayerGameMode::Spectator),
+                }),
+            },
+        )
         .unwrap();
-    assert_eq!(runtime.selected_hotbar_slot(), Some(2), "slot retained");
-    build(&mut presentation, &runtime, 0);
+    assert_eq!(
+        runtime.selected_hotbar_slot(&player_runtime),
+        Some(2),
+        "slot retained"
+    );
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(customs(presentation.hud_draw_nodes(), "hotbar_renderer").is_empty());
 }
 
@@ -336,15 +398,24 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
 // status rows from H-39, the XP bar at H-29 with its green level at H-35.
 #[test]
 fn java_pack_geometry_on_a_real_viewport() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    select_slot(&mut runtime);
-    full_stats(&mut runtime, 1);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    select_slot(&mut player_runtime, &mut runtime);
+    full_stats(&mut player_runtime, &mut runtime, 1);
     runtime.hud.set_experience(7, 0.4);
-    let input = build_at(&mut presentation, &runtime, 0, [1280, 750], 1.5);
+    let input = build_at(
+        &player_runtime,
+        &mut presentation,
+        &runtime,
+        0,
+        [1280, 750],
+        1.5,
+    );
     let nodes = presentation.hud_draw_nodes();
     // 1280x750 at scale 3: a 426.67x250 GUI-px screen.
     let centre = 1280.0 / 3.0 / 2.0;
@@ -388,13 +459,22 @@ fn java_pack_geometry_on_a_real_viewport() {
 // The hotbar keeps 182 GUI px at every auto scale, centred.
 #[test]
 fn hotbar_stays_bottom_centred_and_tracks_the_auto_scale() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     for (physical, scale) in [([1280u32, 720u32], 2.0f64), ([2560, 1344], 5.0)] {
         let Some(mut presentation) = engine_presentation() else {
             return;
         };
         let mut runtime = UiRuntime::new(1);
-        select_slot(&mut runtime);
-        build_at(&mut presentation, &runtime, 0, physical, 1.5);
+        select_slot(&mut player_runtime, &mut runtime);
+        build_at(
+            &player_runtime,
+            &mut presentation,
+            &runtime,
+            0,
+            physical,
+            1.5,
+        );
         let nodes = presentation.hud_draw_nodes();
         let caps = named(nodes, "start_cap_image");
         let ends = named(nodes, "end_cap_image");
@@ -416,12 +496,15 @@ fn hotbar_stays_bottom_centred_and_tracks_the_auto_scale() {
 // points are derived, and mount hearts replace hunger.
 #[test]
 fn heart_variants_mount_rows_air_and_armor_follow_authoritative_state() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    full_stats(&mut runtime, 1);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    full_stats(&mut player_runtime, &mut runtime, 1);
     let frame = first_person();
-    let paint =
-        |runtime: &UiRuntime, frame: &HudFrame| hud_layout::capture_hud_paint(runtime, frame, None);
+    let paint = |runtime: &UiRuntime, frame: &HudFrame| {
+        hud_layout::capture_hud_paint(&player_runtime, runtime, frame, None)
+    };
     let baseline = paint(&runtime, &frame);
     assert!(
         baseline
@@ -479,9 +562,12 @@ fn heart_variants_mount_rows_air_and_armor_follow_authoritative_state() {
 // 30/30 half-hearts stack fifteen hearts over two rows 10 px apart.
 #[test]
 fn nonstandard_health_maximum_renders_stacked_rows_like_the_reference() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
     runtime.hud.set_health(BoundedStat::new(30, 30));
-    let paint = hud_layout::capture_hud_paint(&runtime, &HudFrame::default(), None);
+    let paint =
+        hud_layout::capture_hud_paint(&player_runtime, &runtime, &HudFrame::default(), None);
     let rows: std::collections::BTreeSet<i64> =
         paint.hearts.iter().map(|cell| cell.at[1] as i64).collect();
     assert_eq!(paint.hearts.len(), 30);
@@ -492,15 +578,18 @@ fn nonstandard_health_maximum_renders_stacked_rows_like_the_reference() {
 // after its two-second window.
 #[test]
 fn selected_item_label_counts_and_durability_render_and_fade() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
     let mut slots = vec![NetworkItemStack::empty(); 36];
     slots[0] = item(5, 16);
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             1,
             InventoryEvent::Content(InventoryContentEvent {
@@ -514,16 +603,16 @@ fn selected_item_label_counts_and_durability_render_and_fade() {
             }),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
-    runtime.set_local_selected_slot(0);
-    runtime.observe_selected_item_identity(1_000);
+    runtime.drain_pending_inventory(&mut player_runtime);
+    player_runtime.inventory.set_local_selected_slot(0);
+    runtime.observe_selected_item_identity(&player_runtime, 1_000);
     let mut frame = first_person();
     frame.selected_item_name = Some(Arc::from("Emerald"));
     frame.hotbar_stacks[0] = Some(item(5, 16));
     frame.hotbar_durability[0] = Some(0.5);
     *presentation.hud_frame_mut() = frame;
 
-    build(&mut presentation, &runtime, 1_500);
+    build(&player_runtime, &mut presentation, &runtime, 1_500);
     let nodes = presentation.hud_draw_nodes();
     assert!(texts(nodes).contains(&"Emerald"));
     assert!(texts(nodes).contains(&"16"));
@@ -537,7 +626,7 @@ fn selected_item_label_counts_and_durability_render_and_fade() {
     assert_eq!(presentation.hud_fade(name, 1.5), 1.0);
     assert!(presentation.hud_fade(name, 2.75) < 1.0);
 
-    build(&mut presentation, &runtime, 3_100);
+    build(&player_runtime, &mut presentation, &runtime, 3_100);
     let nodes = presentation.hud_draw_nodes();
     assert!(!texts(nodes).contains(&"Emerald"));
     assert!(texts(nodes).contains(&"16"));
@@ -546,29 +635,36 @@ fn selected_item_label_counts_and_durability_render_and_fade() {
 // Boss bars and chat stay visible in spectator.
 #[test]
 fn spectator_still_presents_boss_bars_and_chat() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Spectator);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Spectator);
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: boss_event(
-                ProtocolBossAction::Show,
-                9,
-                "Guardian",
-                1.0,
-                ProtocolBossColor::White,
-                ProtocolBossOverlay::Progress,
-            ),
-        })
+        .apply(
+            &mut player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: boss_event(
+                    ProtocolBossAction::Show,
+                    9,
+                    "Guardian",
+                    1.0,
+                    ProtocolBossColor::White,
+                    ProtocolBossOverlay::Progress,
+                ),
+            },
+        )
         .unwrap();
-    runtime.apply(chat_line(2, "hello")).unwrap();
-    build(&mut presentation, &runtime, 0);
+    runtime
+        .apply(&mut player_runtime, chat_line(2, "hello"))
+        .unwrap();
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let nodes = presentation.hud_draw_nodes();
     assert!(texts(nodes).contains(&"Guardian"));
     assert!(texts(nodes).contains(&"hello"));
@@ -577,19 +673,24 @@ fn spectator_still_presents_boss_bars_and_chat() {
 // Riding hides the XP bar for the jump bar, drawn from the HUD sheet.
 #[test]
 fn mount_jump_bar_replaces_the_experience_row_while_riding() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    full_stats(&mut runtime, 1);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    full_stats(&mut player_runtime, &mut runtime, 1);
     runtime.hud.set_experience(3, 0.5);
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(!named(presentation.hud_draw_nodes(), "full_progress_bar").is_empty());
     presentation.hud_frame_mut().mount_jump = Some(0.5);
-    let base = build(&mut presentation, &runtime, 0).vertices.len();
+    let base = build(&player_runtime, &mut presentation, &runtime, 0)
+        .vertices
+        .len();
     assert!(named(presentation.hud_draw_nodes(), "full_progress_bar").is_empty());
     let paint = hud_layout::capture_hud_paint(
+        &player_runtime,
         &runtime,
         presentation.hud_frame(),
         presentation.hud_textures.as_ref(),
@@ -598,7 +699,9 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
     assert_eq!(filled, 91.0);
     presentation.hud_frame_mut().mount_jump = Some(0.0);
     assert_eq!(
-        build(&mut presentation, &runtime, 0).vertices.len(),
+        build(&player_runtime, &mut presentation, &runtime, 0)
+            .vertices
+            .len(),
         base - 4
     );
 }
@@ -606,6 +709,8 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
 // Boss bars stack, tinted by their colour; an emptied bar draws no fill.
 #[test]
 fn boss_bars_render_titled_tinted_tracks_and_updates() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
@@ -625,12 +730,18 @@ fn boss_bars_render_titled_tinted_tracks_and_updates() {
         ),
     };
     runtime
-        .apply(show(1, 7, "Boss", 0.5, ProtocolBossColor::Purple))
+        .apply(
+            &mut player_runtime,
+            show(1, 7, "Boss", 0.5, ProtocolBossColor::Purple),
+        )
         .unwrap();
     runtime
-        .apply(show(2, 8, "Other", 1.0, ProtocolBossColor::Red))
+        .apply(
+            &mut player_runtime,
+            show(2, 8, "Other", 1.0, ProtocolBossColor::Red),
+        )
         .unwrap();
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let nodes = presentation.hud_draw_nodes();
     let fills = named(nodes, "filled_progress_bar_for_collections");
     let tint = |color: [u8; 4]| {
@@ -651,22 +762,25 @@ fn boss_bars_render_titled_tinted_tracks_and_updates() {
         .collect();
     assert_eq!(names, [3.0, 22.0], "Java stacks bars 19 GUI px apart");
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 3,
-            local_millis: 0,
-            server_tick: None,
-            event: boss_event(
-                ProtocolBossAction::SetProgress,
-                7,
-                "",
-                0.0,
-                ProtocolBossColor::Purple,
-                ProtocolBossOverlay::Progress,
-            ),
-        })
+        .apply(
+            &mut player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 3,
+                local_millis: 0,
+                server_tick: None,
+                event: boss_event(
+                    ProtocolBossAction::SetProgress,
+                    7,
+                    "",
+                    0.0,
+                    ProtocolBossColor::Purple,
+                    ProtocolBossOverlay::Progress,
+                ),
+            },
+        )
         .unwrap();
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let nodes = presentation.hud_draw_nodes();
     assert!(
         !named(nodes, "filled_progress_bar_for_collections")
@@ -678,11 +792,14 @@ fn boss_bars_render_titled_tinted_tracks_and_updates() {
 // Sidebar rows resolve player, entity, and fake owners, with red Java scores.
 #[test]
 fn sidebar_resolves_owned_actor_names_and_draws_java_scores() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
     super::retained_hud_tests::install_mixed_scoreboard_slot(
+        &mut player_runtime,
         &mut runtime,
         "sidebar",
         &[
@@ -693,7 +810,7 @@ fn sidebar_resolves_owned_actor_names_and_draws_java_scores() {
     );
     presentation
         .set_scoreboard_owner_names([(17, Arc::from("Alex")), (23, Arc::from("Beeatrice"))]);
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let nodes = presentation.hud_draw_nodes();
     for name in ["Objective", "Alex", "Beeatrice", "Server"] {
         assert!(texts(nodes).contains(&name), "{name}");
@@ -717,6 +834,8 @@ fn sidebar_resolves_owned_actor_names_and_draws_java_scores() {
 // Titles fade in, hold, and out on the server's timing; chat fades after 10 s.
 #[test]
 fn titles_and_chat_carry_their_fades() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
@@ -725,8 +844,10 @@ fn titles_and_chat_carry_their_fades() {
         .hud
         .set_durations(ui::TitleDurations::from_wire(10, 70, 20).unwrap());
     runtime.hud.set_title(Arc::from("Victory"), 1, 1_000);
-    runtime.apply(chat_line(2, "gg")).unwrap();
-    build(&mut presentation, &runtime, 1_200);
+    runtime
+        .apply(&mut player_runtime, chat_line(2, "gg"))
+        .unwrap();
+    build(&player_runtime, &mut presentation, &runtime, 1_200);
     let nodes = presentation.hud_draw_nodes();
     let title = text(nodes, "Victory").unwrap();
     // 0.5 s fade in from its start at 1 s, 3.5 s hold, 1 s out.
@@ -740,7 +861,7 @@ fn titles_and_chat_carry_their_fades() {
     // A re-sent title restarts its fade without re-binding the screen.
     let passes = presentation.hud_passes();
     runtime.hud.set_title(Arc::from("Victory"), 3, 2_000);
-    build(&mut presentation, &runtime, 2_100);
+    build(&player_runtime, &mut presentation, &runtime, 2_100);
     assert_eq!(presentation.hud_passes(), passes);
     let title = text(presentation.hud_draw_nodes(), "Victory").unwrap();
     assert!((presentation.hud_fade(title, 2.25) - 0.5).abs() < 1e-3);
@@ -749,17 +870,19 @@ fn titles_and_chat_carry_their_fades() {
 // A steady HUD repaints from cache; a changed binding re-binds once.
 #[test]
 fn unchanged_hud_reuses_its_layout_across_frames() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    select_slot(&mut runtime);
-    full_stats(&mut runtime, 1);
-    build(&mut presentation, &runtime, 0);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    select_slot(&mut player_runtime, &mut runtime);
+    full_stats(&mut player_runtime, &mut runtime, 1);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let first = presentation.hud_passes();
     for now in [16, 33, 50, 66] {
-        build(&mut presentation, &runtime, now);
+        build(&player_runtime, &mut presentation, &runtime, now);
     }
     assert_eq!(
         presentation.hud_passes(),
@@ -767,20 +890,22 @@ fn unchanged_hud_reuses_its_layout_across_frames() {
         "no re-bind while nothing changed"
     );
     runtime.hud.set_experience(4, 0.1);
-    build(&mut presentation, &runtime, 80);
+    build(&player_runtime, &mut presentation, &runtime, 80);
     assert_eq!(presentation.hud_passes(), first + 1);
 }
 
 // The position line follows the world rule or a held map; days follow theirs.
 #[test]
 fn world_rules_raise_the_position_and_days_lines() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
     presentation.hud_frame_mut().player_block = Some([12, 64, -7]);
     presentation.hud_frame_mut().world_time = Some(24_000.0 * 3.0 + 5.0);
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     let shown = |presentation: &UiPresentationRuntime, wanted: &str| {
         text(presentation.hud_draw_nodes(), wanted).is_some()
     };
@@ -792,7 +917,7 @@ fn world_rules_raise_the_position_and_days_lines() {
         show_coordinates: Some(true),
         show_days_played: Some(true),
     });
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(shown(&presentation, "Position: 12, 64, -7"));
     assert!(shown(&presentation, "Days played: 3"));
     runtime.apply_hud_rules(protocol::HudRules {
@@ -800,7 +925,7 @@ fn world_rules_raise_the_position_and_days_lines() {
         show_days_played: None,
     });
     presentation.hud_frame_mut().holding_filled_map = true;
-    build(&mut presentation, &runtime, 0);
+    build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(
         shown(&presentation, "Position: 12, 64, -7"),
         "a held map shows it"
@@ -811,7 +936,7 @@ fn world_rules_raise_the_position_and_days_lines() {
     );
     if let Some(mut real) = engine_presentation_with(super::super::forms::pack_harness::font()) {
         *real.hud_frame_mut() = presentation.hud_frame().clone();
-        let input = build(&mut real, &runtime, 0);
+        let input = build(&player_runtime, &mut real, &runtime, 0);
         super::super::forms::snapshot::write(&input, "hud_coordinates");
     }
 }
@@ -828,10 +953,10 @@ fn chat_line(sequence: u64, message: &str) -> SequencedUiEvent {
 
 /// A busy survival session: stats, XP, hotbar, a ten-row sidebar, a boss bar,
 /// five chat lines, and a title.
-fn busy_session() -> UiRuntime {
+fn busy_session(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    select_slot(&mut runtime);
+    runtime.publish_player_game_mode(player_runtime, PlayerGameMode::Survival);
+    select_slot(player_runtime, &mut runtime);
     runtime.hud.set_experience(12, 0.4);
     let rows: Vec<_> = (0..10)
         .map(|row| {
@@ -842,36 +967,49 @@ fn busy_session() -> UiRuntime {
             )
         })
         .collect();
-    super::retained_hud_tests::install_mixed_scoreboard_slot(&mut runtime, "sidebar", &rows);
+    super::retained_hud_tests::install_mixed_scoreboard_slot(
+        player_runtime,
+        &mut runtime,
+        "sidebar",
+        &rows,
+    );
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 30,
-            local_millis: 0,
-            server_tick: None,
-            event: boss_event(
-                ProtocolBossAction::Show,
-                9,
-                "Boss",
-                0.5,
-                ProtocolBossColor::Red,
-                ProtocolBossOverlay::Progress,
-            ),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 30,
+                local_millis: 0,
+                server_tick: None,
+                event: boss_event(
+                    ProtocolBossAction::Show,
+                    9,
+                    "Boss",
+                    0.5,
+                    ProtocolBossColor::Red,
+                    ProtocolBossOverlay::Progress,
+                ),
+            },
+        )
         .unwrap();
     for line in 0..5 {
         runtime
-            .apply(chat_line(40 + line, &format!("chat line {line}")))
+            .apply(
+                player_runtime,
+                chat_line(40 + line, &format!("chat line {line}")),
+            )
             .unwrap();
     }
     runtime.hud.set_title(Arc::from("Round 1"), 50, 0);
-    full_stats(&mut runtime, 60);
+    full_stats(player_runtime, &mut runtime, 60);
     runtime
 }
 
 // Steady and changing-data frame costs, printed for profiling (HUD_TIMING=1).
 #[test]
 fn hud_frame_timing() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     if std::env::var_os("HUD_TIMING").is_none() {
         return;
     }
@@ -879,15 +1017,23 @@ fn hud_frame_timing() {
         return;
     };
     *presentation.hud_frame_mut() = first_person();
-    let mut runtime = busy_session();
+    let mut runtime = busy_session(&mut player_runtime);
     let frames: u32 = std::env::var("HUD_FRAMES")
         .ok()
         .and_then(|n| n.parse().ok())
         .unwrap_or(240);
-    build_at(&mut presentation, &runtime, 100, [1920, 1080], 1.0);
+    build_at(
+        &player_runtime,
+        &mut presentation,
+        &runtime,
+        100,
+        [1920, 1080],
+        1.0,
+    );
     let started = std::time::Instant::now();
     for frame in 0..frames {
         build_at(
+            &player_runtime,
             &mut presentation,
             &runtime,
             100 + u64::from(frame),
@@ -900,6 +1046,7 @@ fn hud_frame_timing() {
     for frame in 0..frames {
         runtime.hud.set_experience(12, frame as f32 / frames as f32);
         build_at(
+            &player_runtime,
             &mut presentation,
             &runtime,
             100 + u64::from(frame),
@@ -915,25 +1062,34 @@ fn hud_frame_timing() {
 #[test]
 fn notched_boss_overlays_draw_their_dividers() {
     let quads = |overlay| {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
         let mut presentation = engine_presentation()?;
         let mut runtime = UiRuntime::new(1);
         runtime
-            .apply(SequencedUiEvent {
-                session_id: 1,
-                fifo_sequence: 1,
-                local_millis: 0,
-                server_tick: None,
-                event: boss_event(
-                    ProtocolBossAction::Show,
-                    9,
-                    "",
-                    1.0,
-                    ProtocolBossColor::Red,
-                    overlay,
-                ),
-            })
+            .apply(
+                &mut player_runtime,
+                SequencedUiEvent {
+                    session_id: 1,
+                    fifo_sequence: 1,
+                    local_millis: 0,
+                    server_tick: None,
+                    event: boss_event(
+                        ProtocolBossAction::Show,
+                        9,
+                        "",
+                        1.0,
+                        ProtocolBossColor::Red,
+                        overlay,
+                    ),
+                },
+            )
             .unwrap();
-        Some(build(&mut presentation, &runtime, 0).vertices.len() / 4)
+        Some(
+            build(&player_runtime, &mut presentation, &runtime, 0)
+                .vertices
+                .len()
+                / 4,
+        )
     };
     let Some(plain) = quads(ProtocolBossOverlay::Progress) else {
         return;
@@ -945,14 +1101,16 @@ fn notched_boss_overlays_draw_their_dividers() {
 /// A saved visibility edit changes the emitted HUD and restores it without a reload.
 #[test]
 fn settings_hide_hud_suppresses_the_rendered_overlay() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    runtime.set_local_selected_slot(0);
-    let shown = build(&mut presentation, &runtime, 0);
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime.inventory.set_local_selected_slot(0);
+    let shown = build(&player_runtime, &mut presentation, &runtime, 0);
     let mut options = SettingsOptions::default();
     let index = SETTINGS_OPTIONS
         .iter()
@@ -960,10 +1118,10 @@ fn settings_hide_hud_suppresses_the_rendered_overlay() {
         .unwrap();
     options.set(index, 1);
     presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));
-    let hidden = build(&mut presentation, &runtime, 0);
+    let hidden = build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(hidden.vertices.len() < shown.vertices.len());
     options.set(index, 0);
     presentation.set_chat_settings_snapshot((Arc::new(options), None));
-    let restored = build(&mut presentation, &runtime, 0);
+    let restored = build(&player_runtime, &mut presentation, &runtime, 0);
     assert_eq!(restored.vertices.len(), shown.vertices.len());
 }

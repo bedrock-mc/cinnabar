@@ -62,6 +62,7 @@ fn flying_from_abilities(update: &AbilitiesUpdate) -> bool {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn collect_screen_effect_facts(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     time: Res<bevy::prelude::Time>,
     view: Res<LocalViewPose>,
     item_use: Option<Res<ItemUseRuntime>>,
@@ -100,7 +101,7 @@ pub(super) fn collect_screen_effect_facts(
     };
 
     let selected = ui.as_deref().and_then(|ui| {
-        let stack = ui.selected_stack()?;
+        let stack = ui.selected_stack(&player_runtime)?;
         stream?.canonical_item_stack(stack)?.identifier
     });
     let use_held = item_use.as_deref().is_some_and(ItemUseRuntime::is_using);
@@ -111,7 +112,7 @@ pub(super) fn collect_screen_effect_facts(
     fov.spyglass_scoping = using(SPYGLASS_IDENTIFIER);
     fov.flying = ui
         .as_deref()
-        .and_then(|ui| ui.local_abilities())
+        .and_then(|ui| ui.local_abilities(&player_runtime))
         .is_some_and(flying_from_abilities);
 }
 

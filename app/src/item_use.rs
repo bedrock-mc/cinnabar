@@ -116,6 +116,7 @@ impl ItemUseRuntime {
     /// Native attachables read remaining ticks, not the actor animation's elapsed seconds.
     pub(crate) fn render_input(
         &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         stream: &WorldStream,
         ui: &UiRuntime,
         tick: u64,
@@ -124,7 +125,7 @@ impl ItemUseRuntime {
         let max_use_ticks = self.active.as_ref().map_or_else(
             // Native CrossbowItem::getMaxUseDuration remains its charge duration
             // when loaded; Instant describes the next action, not that query.
-            || match selected_air_use_with_projectile(stream, ui, Some(None)) {
+            || match selected_air_use_with_projectile(player_runtime, stream, ui, Some(None)) {
                 Some(AirUse::Hold { max_ticks, .. }) => max_ticks,
                 _ => 0,
             },
@@ -135,13 +136,16 @@ impl ItemUseRuntime {
                 .min(u64::from(active.max_ticks)) as u32
         });
         let selected = ui
-            .selected_stack()
+            .selected_stack(player_runtime)
             .and_then(|stack| stream.canonical_item_stack(stack));
-        let projectile = self.crossbows.selected_projectile(ui).unwrap_or_else(|| {
-            selected
-                .as_ref()
-                .and_then(|item| item.charged_projectile.as_deref())
-        });
+        let projectile = self
+            .crossbows
+            .selected_projectile(player_runtime, ui)
+            .unwrap_or_else(|| {
+                selected
+                    .as_ref()
+                    .and_then(|item| item.charged_projectile.as_deref())
+            });
         let charged = projectile.is_some();
         let animation_frame = if selected
             .as_ref()
@@ -178,22 +182,26 @@ impl ItemUseRuntime {
     /// The same native frame used by the attachable, for a player-inventory cell.
     pub(crate) fn inventory_animation_frame(
         &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         stream: &WorldStream,
         ui: &UiRuntime,
         slot: u8,
         tick: u64,
     ) -> Option<u32> {
-        let stack = ui.inventory_ledger().displayed_stack(slot)?;
+        let stack = ui.inventory_ledger(player_runtime).displayed_stack(slot)?;
         let canonical = stream.canonical_item_stack(stack)?;
         if canonical.identifier.as_deref() != Some("minecraft:crossbow") {
             return None;
         }
-        if ui.selected_hotbar_slot() == Some(slot) {
-            return Some(self.render_input(stream, ui, tick, 0.0).animation_frame);
+        if ui.selected_hotbar_slot(player_runtime) == Some(slot) {
+            return Some(
+                self.render_input(player_runtime, stream, ui, tick, 0.0)
+                    .animation_frame,
+            );
         }
         let projectile = self
             .crossbows
-            .slot_projectile(ui, slot)
+            .slot_projectile(player_runtime, ui, slot)
             .unwrap_or(canonical.charged_projectile.as_deref());
         Some(crossbow_animation_frame(None, 0, projectile, false))
     }
@@ -440,11 +448,21 @@ impl ItemUseRuntime {
     }
 
     /// The local rig's use flag: set while a use runs, cleared while a held-use item idles.
-    pub(crate) fn local_item_use(&self, stream: &WorldStream, ui: &UiRuntime) -> LocalItemUse {
+    pub(crate) fn local_item_use(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        stream: &WorldStream,
+        ui: &UiRuntime,
+    ) -> LocalItemUse {
         if self.active.is_some() {
             return LocalItemUse::Using;
         }
-        match selected_air_use_with_projectile(stream, ui, self.crossbows.selected_projectile(ui)) {
+        match selected_air_use_with_projectile(
+            player_runtime,
+            stream,
+            ui,
+            self.crossbows.selected_projectile(player_runtime, ui),
+        ) {
             Some(AirUse::Hold { .. } | AirUse::Instant) => LocalItemUse::Idle,
             Some(AirUse::Throw { .. }) | None => LocalItemUse::Unpredicted,
         }
@@ -498,16 +516,21 @@ fn held_request(selection: &FrozenMiningSelection, frame: &UseFrame) -> HeldItem
 }
 
 /// The selected stack's authoritative air use, if supported.
-pub(crate) fn selected_air_use(stream: &WorldStream, ui: &UiRuntime) -> Option<AirUse> {
-    selected_air_use_with_projectile(stream, ui, None)
+pub(crate) fn selected_air_use(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    stream: &WorldStream,
+    ui: &UiRuntime,
+) -> Option<AirUse> {
+    selected_air_use_with_projectile(player_runtime, stream, ui, None)
 }
 
 fn selected_air_use_with_projectile(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &WorldStream,
     ui: &UiRuntime,
     projectile_override: Option<Option<&str>>,
 ) -> Option<AirUse> {
-    let stack = ui.selected_stack()?;
+    let stack = ui.selected_stack(player_runtime)?;
     let canonical = stream.canonical_item_stack(stack)?;
     let identifier = canonical.identifier.as_deref()?;
     let quick_charge =
@@ -527,9 +550,13 @@ fn selected_air_use_with_projectile(
 }
 
 /// The use duration of the selected stack when vanilla animates its use as eating or drinking.
-pub(crate) fn consume_ticks(stream: &WorldStream, ui: &UiRuntime) -> Option<u32> {
-    let canonical = stream.canonical_item_stack(ui.selected_stack()?)?;
-    match selected_air_use(stream, ui)? {
+pub(crate) fn consume_ticks(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    stream: &WorldStream,
+    ui: &UiRuntime,
+) -> Option<u32> {
+    let canonical = stream.canonical_item_stack(ui.selected_stack(player_runtime)?)?;
+    match selected_air_use(player_runtime, stream, ui)? {
         AirUse::Hold { max_ticks, .. }
             if classify::is_consumed(canonical.identifier.as_deref()?) =>
         {
@@ -540,7 +567,12 @@ pub(crate) fn consume_ticks(stream: &WorldStream, ui: &UiRuntime) -> Option<u32>
 }
 
 /// Whether the known state meets `needs`.
-fn needs_met(stream: &WorldStream, ui: &UiRuntime, needs: Needs) -> bool {
+fn needs_met(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
+    stream: &WorldStream,
+    ui: &UiRuntime,
+    needs: Needs,
+) -> bool {
     let is = |stack: &protocol::NetworkItemStack, identifier: &str| {
         !stack.is_empty()
             && stream
@@ -548,7 +580,7 @@ fn needs_met(stream: &WorldStream, ui: &UiRuntime, needs: Needs) -> bool {
                 .is_some_and(|name| &*name == identifier)
     };
     let arrow_in_inventory = || {
-        let ledger = ui.inventory_ledger();
+        let ledger = ui.inventory_ledger(player_runtime);
         (0..protocol::PLAYER_INVENTORY_SLOTS)
             .filter_map(|slot| ledger.displayed_stack(slot))
             .chain(ui.gameplay_hud().offhand_stack())
@@ -588,6 +620,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
 
 /// Runs after block use so a press that interacted with a block starts no item use.
 pub(crate) fn produce_item_use(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     context: ItemUseContext,
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
@@ -599,14 +632,14 @@ pub(crate) fn produce_item_use(
     let use_phase = context.input.phase(Action::Use);
     let admitted = if context.input.snapshot().is_none() {
         false
-    } else if !focused || context.ui.ui_focused() {
+    } else if !focused || context.ui.ui_focused(&player_runtime) {
         use_phase
             .pressed
             .then(|| crate::movement::note_click_drop("use", "screen_open"));
         false
     } else if context
         .ui
-        .game_mode_capabilities()
+        .game_mode_capabilities(&player_runtime)
         .is_some_and(|caps| !caps.can_use_items)
     {
         use_phase
@@ -633,30 +666,43 @@ pub(crate) fn produce_item_use(
     };
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let air_use = selected_air_use_with_projectile(
+        &player_runtime,
         stream,
         &context.ui,
-        runtime.crossbows.selected_projectile(&context.ui),
+        runtime
+            .crossbows
+            .selected_projectile(&player_runtime, &context.ui),
     );
-    let creative = context.ui.player_game_mode() == Some(PlayerGameMode::Creative);
+    let creative = context.ui.player_game_mode(&player_runtime) == Some(PlayerGameMode::Creative);
     let frame = UseFrame {
         tick: sample.tick,
         now_millis,
         position: sample.position,
         held,
-        selection: verified_use_selection(&context.ui),
+        selection: verified_use_selection(&player_runtime, &context.ui),
         air_use,
         ready: match air_use {
-            Some(AirUse::Hold { needs, .. }) => creative || needs_met(stream, &context.ui, needs),
+            Some(AirUse::Hold { needs, .. }) => {
+                creative || needs_met(&player_runtime, stream, &context.ui, needs)
+            }
             _ => false,
         },
         creative,
-        inventory_revision: context.ui.selected_hotbar_slot().and_then(|slot| {
-            context
-                .ui
-                .inventory_ledger()
-                .authoritative_slot_revision(slot)
-        }),
-        charge_projectile: crossbow::loading_projectile(stream, &context.ui, creative),
+        inventory_revision: context
+            .ui
+            .selected_hotbar_slot(&player_runtime)
+            .and_then(|slot| {
+                context
+                    .ui
+                    .inventory_ledger(&player_runtime)
+                    .authoritative_slot_revision(slot)
+            }),
+        charge_projectile: crossbow::loading_projectile(
+            &player_runtime,
+            stream,
+            &context.ui,
+            creative,
+        ),
         press_consumed: context.melee.blocks_use_at(now_millis)
             || context.block_use.interacted_at(sample.tick),
     };

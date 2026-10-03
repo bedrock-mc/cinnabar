@@ -2,6 +2,34 @@
 
 use std::sync::Arc;
 
+use render::ActorSkinPixels;
+
+/// The local player's validated skin; off-world the launcher's paper doll wears the menu skin.
+pub(crate) fn local_preview_skin(
+    stream: Option<&client_world::WorldStream>,
+    menu_skin: &crate::player_skin::LocalPlayerSkin,
+) -> Option<Arc<[u8]>> {
+    let pixels = match stream {
+        Some(stream) => match &stream
+            .actor_player_profile(stream.local_player_runtime_id())?
+            .skin
+        {
+            protocol::PlayerSkin::Standard(skin) => ActorSkinPixels {
+                width: skin.width,
+                height: skin.height,
+                rgba8: Arc::clone(&skin.rgba8),
+            },
+            _ => return None,
+        },
+        None => ActorSkinPixels {
+            width: menu_skin.width,
+            height: menu_skin.height,
+            rgba8: Arc::clone(&menu_skin.rgba8),
+        },
+    };
+    validated_ui_skin(&pixels)
+}
+
 /// Native model UVs address the supplied skin's texels directly. Square HD
 /// skins retain their dimensions and allocation; legacy half-height skins use
 /// the shared Bedrock limb expansion, still at the original texel density.

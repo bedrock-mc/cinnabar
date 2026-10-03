@@ -182,7 +182,10 @@ pub(crate) struct ActorFramePublication<'w, 's> {
 }
 
 /// Captures this frame's actor inputs before outbound interactions can change them.
-pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
+pub(crate) fn prepare_actor_render_frame(
+    player_runtime: Res<crate::player_runtime::PlayerRuntime>,
+    params: ActorFramePublication,
+) {
     let ActorFramePublication {
         mut client_world,
         time,
@@ -310,7 +313,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         .zip(ui.as_deref())
         .zip(item_use.as_deref())
         .map_or(LocalItemUse::Unpredicted, |((stream, ui), item_use)| {
-            item_use.local_item_use(stream, ui)
+            item_use.local_item_use(&player_runtime, stream, ui)
         });
     let mut local_feed = build_local_player_feed(
         &local_physics,
@@ -321,7 +324,12 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
     );
     if let (Some(feed), Some(stream)) = (local_feed.as_mut(), client_world.stream.as_ref()) {
         // The local player's held items are client-owned; the rig's item queries read them here.
-        let input = local_input(stream, ui.as_deref(), stream.local_player_runtime_id());
+        let input = local_input(
+            &player_runtime,
+            stream,
+            ui.as_deref(),
+            stream.local_player_runtime_id(),
+        );
         feed.main_hand = input.main.map(|item| item.identifier);
         feed.off_hand = input.off.map(|item| item.identifier);
     }
@@ -511,6 +519,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
     // (an undrawable item) leaves the CPU viewmodel in charge.
     let hand_source: Option<HandSource> = if first_person
         && crate::screen_policy::renders_game(
+            &player_runtime,
             ui.as_deref(),
             menu.as_deref(),
             ui_presentation.as_deref(),
@@ -518,10 +527,10 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         canonical_local.clone().and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;
-            let input = local_input(stream, ui.as_deref(), local_runtime_id);
+            let input = local_input(&player_runtime, stream, ui.as_deref(), local_runtime_id);
             let consume_ticks = ui
                 .as_deref()
-                .and_then(|ui| crate::item_use::consume_ticks(stream, ui));
+                .and_then(|ui| crate::item_use::consume_ticks(&player_runtime, stream, ui));
             let hand = stream.actor_rig(local_runtime_id).map_or(
                 FirstPersonHand {
                     swing: 0.0,
@@ -540,6 +549,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
                         .and_then(|(use_runtime, ui)| {
                             let render_input = use_runtime
                                 .render_input(
+                                    &player_runtime,
                                     stream,
                                     ui,
                                     movement_tick
@@ -674,7 +684,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         for body in &bodies {
             let runtime_id = body.input.identity.runtime_id;
             let input = if runtime_id == local_runtime_id {
-                local_input(stream, ui.as_deref(), runtime_id)
+                local_input(&player_runtime, stream, ui.as_deref(), runtime_id)
             } else {
                 remote_input(stream, runtime_id)
             };

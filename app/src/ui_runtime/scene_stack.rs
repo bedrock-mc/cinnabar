@@ -148,13 +148,18 @@ impl UiRuntime {
     }
 
     /// The screens up this frame, bottom first.
-    pub(crate) fn scenes(&self, host: SceneHost) -> SceneStack<Scene> {
-        self.scenes_in(host, &self.screen_settings)
+    pub(crate) fn scenes(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        host: SceneHost,
+    ) -> SceneStack<Scene> {
+        self.scenes_in(player_runtime, host, &self.screen_settings)
     }
 
     /// [`Self::scenes`] with `table`'s settings, for a caller holding a newer catalog's.
     pub(crate) fn scenes_in(
         &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         host: SceneHost,
         table: &ScreenSettingsTable,
     ) -> SceneStack<Scene> {
@@ -178,7 +183,8 @@ impl UiRuntime {
             stack.push(Scene::Bed, json(Some(BED_SCREEN)));
         }
         if self.inventory_open() {
-            let reference = super::presentation::forms::container_screen_reference(self);
+            let reference =
+                super::presentation::forms::container_screen_reference(player_runtime, self);
             stack.push(Scene::Container, json(reference));
         }
         if self.chat_focused() {
@@ -216,8 +222,12 @@ impl UiRuntime {
 
     /// Whether gameplay (attack, use, movement, look) receives input: no scene
     /// above it absorbs input. Before a world, the game takes what nothing absorbs.
-    pub(crate) fn gameplay_input(&self, menu: Option<&MenuRuntime>) -> bool {
-        self.scenes(SceneHost::of(menu, self))
+    pub(crate) fn gameplay_input(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        menu: Option<&MenuRuntime>,
+    ) -> bool {
+        self.scenes(player_runtime, SceneHost::of(menu, self))
             .scenes()
             .iter()
             .rev()
@@ -227,8 +237,12 @@ impl UiRuntime {
 
     /// Whether the top scene captures the mouse (`currentScreenShouldStealMouse`);
     /// with nothing up, the game underneath does.
-    pub(crate) fn steals_mouse(&self, menu: Option<&MenuRuntime>) -> bool {
-        self.scenes(SceneHost::of(menu, self))
+    pub(crate) fn steals_mouse(
+        &self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
+        menu: Option<&MenuRuntime>,
+    ) -> bool {
+        self.scenes(player_runtime, SceneHost::of(menu, self))
             .top()
             .is_none_or(|scene| scene.settings.should_steal_mouse)
     }
@@ -302,6 +316,7 @@ fn form_screen(entry: &super::ServerFormEntry) -> &'static str {
 
 /// Closes the top scene when the player is hurt and its screen asks for it.
 pub(crate) fn close_scenes_on_player_hurt(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     menu: Option<Res<MenuRuntime>>,
     mut runtime: ResMut<UiRuntime>,
 ) {
@@ -309,9 +324,9 @@ pub(crate) fn close_scenes_on_player_hurt(
         return;
     }
     let host = SceneHost::of(menu.as_deref(), &runtime);
-    match runtime.scenes(host).closes_on_hurt() {
+    match runtime.scenes(&player_runtime, host).closes_on_hurt() {
         Some(Scene::Container) => {
-            runtime.close_inventory();
+            runtime.close_inventory(&mut player_runtime);
         }
         Some(Scene::Chat) => {
             runtime.close_chat();

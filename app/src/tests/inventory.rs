@@ -1,3 +1,4 @@
+use crate::player_runtime::PlayerRuntime;
 use protocol::{
     CONTAINER_NAME_CURSOR, ContainerIdentity, ContainerOpenEvent, EquipmentEvent,
     InventoryAuthority, InventoryContentEvent, InventoryEvent, ItemActorEvent, ItemRegistryEntry,
@@ -29,6 +30,8 @@ fn equipment(actor_runtime_id: u64, selected_slot: u8) -> EquipmentEvent {
 
 #[test]
 fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
+    let mut player_runtime = PlayerRuntime::new(7);
+
     let mut runtime = UiRuntime::new(7);
     let registry = ItemRegistryEvent {
         entries: std::sync::Arc::from([ItemRegistryEntry {
@@ -43,6 +46,7 @@ fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
         }]),
     };
     assert!(publish_bootstrap_inventory(
+        &mut player_runtime,
         &mut runtime,
         Some(registry),
         InventoryEvent::Authority(InventoryAuthority::Server),
@@ -56,7 +60,7 @@ fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
     };
     let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
     slots[0] = stack(60, 60);
-    let ledger = runtime.inventory_ledger_mut();
+    let ledger = runtime.inventory_ledger_mut(&mut player_runtime);
     ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity::window(0),
         slots: slots.into(),
@@ -87,8 +91,11 @@ fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
 
 #[test]
 fn runtime_publishes_session_identity_and_routes_fifo_equipment_once() {
+    let mut player_runtime = PlayerRuntime::new(7);
+
     let mut runtime = UiRuntime::new(7);
     let buffered = route_equipment_ingress(
+        &mut player_runtime,
         &mut runtime,
         SequencedWorldEvent {
             session_generation: 7,
@@ -99,20 +106,21 @@ fn runtime_publishes_session_identity_and_routes_fifo_equipment_once() {
     .unwrap();
     assert_eq!(buffered, EquipmentIngress::Buffered);
 
-    let drained = publish_equipment_identity(&mut runtime, 7, 42).unwrap();
+    let drained = publish_equipment_identity(&mut player_runtime, &mut runtime, 7, 42).unwrap();
     assert_eq!(
         drained,
         vec![EquipmentIngress::CommitOnly { fifo_sequence: 10 }]
     );
     assert_eq!(
         runtime
-            .local_selected_equipment()
+            .local_selected_equipment(&player_runtime)
             .expect("local selected equipment")
             .fifo_sequence,
         10
     );
 
     let remote = route_equipment_ingress(
+        &mut player_runtime,
         &mut runtime,
         SequencedWorldEvent {
             session_generation: 7,
@@ -136,10 +144,13 @@ fn runtime_publishes_session_identity_and_routes_fifo_equipment_once() {
 
 #[test]
 fn session_replacement_clears_published_identity_and_local_selection() {
+    let mut player_runtime = PlayerRuntime::new(1);
+
     let mut runtime = UiRuntime::new(1);
-    publish_equipment_identity(&mut runtime, 1, 42).unwrap();
+    publish_equipment_identity(&mut player_runtime, &mut runtime, 1, 42).unwrap();
     assert_eq!(
         route_equipment_ingress(
+            &mut player_runtime,
             &mut runtime,
             SequencedWorldEvent {
                 session_generation: 1,
@@ -151,10 +162,11 @@ fn session_replacement_clears_published_identity_and_local_selection() {
         EquipmentIngress::CommitOnly { fifo_sequence: 1 }
     );
 
-    runtime.begin_session(2);
-    assert!(runtime.local_selected_equipment().is_none());
+    runtime.begin_session(&mut player_runtime, 2);
+    assert!(runtime.local_selected_equipment(&player_runtime).is_none());
     assert_eq!(
         route_equipment_ingress(
+            &mut player_runtime,
             &mut runtime,
             SequencedWorldEvent {
                 session_generation: 2,
@@ -169,9 +181,12 @@ fn session_replacement_clears_published_identity_and_local_selection() {
 
 #[test]
 fn consumed_local_equipment_commits_its_global_fifo_slot() {
+    let mut player_runtime = PlayerRuntime::new(7);
+
     let mut runtime = UiRuntime::new(7);
-    publish_equipment_identity(&mut runtime, 7, 42).unwrap();
+    publish_equipment_identity(&mut player_runtime, &mut runtime, 7, 42).unwrap();
     let ingress = route_equipment_ingress(
+        &mut player_runtime,
         &mut runtime,
         SequencedWorldEvent {
             session_generation: 7,
@@ -201,7 +216,7 @@ fn consumed_local_equipment_commits_its_global_fifo_slot() {
     assert_eq!(stream.stats().admitted_world_events, 0);
     assert_eq!(
         runtime
-            .local_selected_equipment()
+            .local_selected_equipment(&player_runtime)
             .expect("local equipment retained exactly once")
             .fifo_sequence,
         1
@@ -210,10 +225,13 @@ fn consumed_local_equipment_commits_its_global_fifo_slot() {
 
 #[test]
 fn inventory_handoff_is_bounded_session_scoped_and_fifo_ordered() {
+    let mut player_runtime = PlayerRuntime::new(7);
+
     let mut runtime = UiRuntime::new(7);
     for sequence in 1..=MAX_PENDING_INVENTORY_EVENTS as u64 {
         runtime
             .enqueue_inventory_event(
+                &mut player_runtime,
                 7,
                 sequence,
                 InventoryEvent::Authority(InventoryAuthority::Server),
@@ -223,6 +241,7 @@ fn inventory_handoff_is_bounded_session_scoped_and_fifo_ordered() {
     assert!(
         runtime
             .enqueue_inventory_event(
+                &mut player_runtime,
                 7,
                 MAX_PENDING_INVENTORY_EVENTS as u64 + 1,
                 InventoryEvent::Authority(InventoryAuthority::Server),
@@ -232,6 +251,7 @@ fn inventory_handoff_is_bounded_session_scoped_and_fifo_ordered() {
     assert!(
         runtime
             .enqueue_inventory_event(
+                &mut player_runtime,
                 6,
                 MAX_PENDING_INVENTORY_EVENTS as u64 + 2,
                 InventoryEvent::Authority(InventoryAuthority::Server),
@@ -240,24 +260,32 @@ fn inventory_handoff_is_bounded_session_scoped_and_fifo_ordered() {
     );
 
     let first = runtime
-        .pop_inventory_event()
+        .pop_inventory_event(&mut player_runtime)
         .expect("oldest inventory event");
     assert_eq!(first.session_generation, 7);
     assert_eq!(first.fifo_sequence, 1);
     assert!(
         runtime
-            .enqueue_inventory_event(7, 1, InventoryEvent::Authority(InventoryAuthority::Server),)
+            .enqueue_inventory_event(
+                &mut player_runtime,
+                7,
+                1,
+                InventoryEvent::Authority(InventoryAuthority::Server),
+            )
             .is_err()
     );
 
-    runtime.begin_session(8);
-    assert!(runtime.pop_inventory_event().is_none());
+    runtime.begin_session(&mut player_runtime, 8);
+    assert!(runtime.pop_inventory_event(&mut player_runtime).is_none());
 }
 
 #[test]
 fn inventory_ingress_is_retained_while_global_fifo_advances() {
+    let mut player_runtime = PlayerRuntime::new(7);
+
     let mut runtime = UiRuntime::new(7);
     let commit_sequence = route_inventory_ingress(
+        &mut player_runtime,
         &mut runtime,
         SequencedWorldEvent {
             session_generation: 7,
@@ -281,16 +309,25 @@ fn inventory_ingress_is_retained_while_global_fifo_advances() {
         .unwrap();
 
     assert_eq!(stream.stats().admitted_world_events, 0);
-    let retained = runtime.pop_inventory_event().expect("inventory handoff");
+    let retained = runtime
+        .pop_inventory_event(&mut player_runtime)
+        .expect("inventory handoff");
     assert_eq!(retained.session_generation, 7);
     assert_eq!(retained.fifo_sequence, 1);
 }
 
 #[test]
 fn item_registry_and_inventory_authority_share_one_bounded_fifo() {
+    let mut player_runtime = PlayerRuntime::new(7);
+
     let mut runtime = UiRuntime::new(7);
     runtime
-        .enqueue_inventory_event(7, 1, InventoryEvent::Authority(InventoryAuthority::Server))
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            7,
+            1,
+            InventoryEvent::Authority(InventoryAuthority::Server),
+        )
         .unwrap();
     let registry = ItemRegistryEvent {
         entries: std::sync::Arc::from([ItemRegistryEntry {
@@ -309,31 +346,48 @@ fn item_registry_and_inventory_authority_share_one_bounded_fifo() {
         sequence: 2,
         event: WorldEvent::ItemActor(ItemActorEvent::Registry(registry.clone())),
     };
-    route_item_registry_ingress(&mut runtime, &sequenced).unwrap();
+    route_item_registry_ingress(&mut player_runtime, &mut runtime, &sequenced).unwrap();
     runtime
-        .enqueue_inventory_event(7, 3, InventoryEvent::Authority(InventoryAuthority::Client))
+        .enqueue_inventory_event(
+            &mut player_runtime,
+            7,
+            3,
+            InventoryEvent::Authority(InventoryAuthority::Client),
+        )
         .unwrap();
 
     assert!(matches!(
-        runtime.pop_inventory_event().unwrap().event,
+        runtime
+            .pop_inventory_event(&mut player_runtime)
+            .unwrap()
+            .event,
         InventoryAuthorityEvent::Inventory(InventoryEvent::Authority(InventoryAuthority::Server))
     ));
     assert_eq!(
-        runtime.pop_inventory_event().unwrap().event,
+        runtime
+            .pop_inventory_event(&mut player_runtime)
+            .unwrap()
+            .event,
         InventoryAuthorityEvent::Registry(registry)
     );
     assert!(matches!(
-        runtime.pop_inventory_event().unwrap().event,
+        runtime
+            .pop_inventory_event(&mut player_runtime)
+            .unwrap()
+            .event,
         InventoryAuthorityEvent::Inventory(InventoryEvent::Authority(InventoryAuthority::Client))
     ));
 }
 
 #[test]
 fn stale_equipment_envelope_is_rejected_instead_of_relabelled() {
+    let mut player_runtime = PlayerRuntime::new(8);
+
     let mut runtime = UiRuntime::new(8);
-    publish_equipment_identity(&mut runtime, 8, 42).unwrap();
+    publish_equipment_identity(&mut player_runtime, &mut runtime, 8, 42).unwrap();
 
     let error = route_equipment_ingress(
+        &mut player_runtime,
         &mut runtime,
         SequencedWorldEvent {
             session_generation: 7,
@@ -350,7 +404,7 @@ fn stale_equipment_envelope_is_rejected_instead_of_relabelled() {
             actual: 7,
         }
     ));
-    assert!(runtime.local_selected_equipment().is_none());
+    assert!(runtime.local_selected_equipment(&player_runtime).is_none());
 }
 
 #[test]

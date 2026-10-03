@@ -101,6 +101,8 @@ fn registry_with_custom_item() -> ItemRegistryEvent {
 // report names the stage where each other stack stops.
 #[test]
 fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(Harness {
         mut presentation,
         mut stream,
@@ -125,10 +127,13 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         slots[slot] = stack(identifier, *metadata, *count);
     }
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_local_runtime_id(1, 1).unwrap();
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 1)
+        .unwrap();
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             1,
             InventoryEvent::Content(InventoryContentEvent {
@@ -142,9 +147,10 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
             }),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
-    runtime.set_local_selected_slot(0);
+    runtime.drain_pending_inventory(&mut player_runtime);
+    player_runtime.inventory.set_local_selected_slot(0);
     refresh_hud_frame(
+        &player_runtime,
         &mut runtime,
         &mut presentation,
         Some(&stream),
@@ -174,7 +180,13 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         .collect::<Vec<_>>();
     eprintln!("{report:#?}");
     presentation
-        .build(&runtime, 1_000, [1280, 720], DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            1_000,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let rendered = presentation
         .hud_draw_nodes()
@@ -208,6 +220,8 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
 // local rig's worn items.
 #[test]
 fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(Harness {
         mut presentation,
         mut stream,
@@ -217,8 +231,10 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
     };
     assert!(stream.seed_item_registry(registry_with_custom_item()));
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_local_runtime_id(1, 1).unwrap();
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 1)
+        .unwrap();
+    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
     let worn = [
         "minecraft:diamond_helmet",
         "minecraft:diamond_chestplate",
@@ -227,6 +243,7 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
     ];
     runtime
         .enqueue_inventory_event(
+            &mut player_runtime,
             1,
             1,
             InventoryEvent::Content(InventoryContentEvent {
@@ -240,12 +257,13 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
             }),
         )
         .unwrap();
-    runtime.drain_pending_inventory();
+    runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(
-        runtime.local_armor().chestplate.network_id,
+        runtime.local_armor(&player_runtime).chestplate.network_id,
         network_id("minecraft:diamond_chestplate")
     );
     refresh_hud_frame(
+        &player_runtime,
         &mut runtime,
         &mut presentation,
         Some(&stream),
@@ -261,7 +279,8 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
             .iter()
             .all(Option::is_some)
     );
-    let rig = crate::presentation::equipment::local_input(&stream, Some(&runtime), 1);
+    let rig =
+        crate::presentation::equipment::local_input(&player_runtime, &stream, Some(&runtime), 1);
     let rig_worn = rig
         .armor
         .map(|item| item.map(|item| item.identifier.to_string()));

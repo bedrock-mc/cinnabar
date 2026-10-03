@@ -9,6 +9,8 @@ mod containers;
 mod engine;
 mod experience;
 mod fallback;
+#[cfg(test)]
+mod formatting_tests;
 mod global_resources;
 mod hud;
 #[cfg(test)]
@@ -186,6 +188,8 @@ impl UiPresentationRuntime {
         } else {
             engine.set_server_pack(&pack.ui_layers);
         }
+        // Palette-only reloads can leave every cached text node unchanged.
+        self.last_menu = None;
         let atlas = server_pack::ServerAtlas::new(
             &pack.textures,
             pack.view.clone(),
@@ -322,6 +326,14 @@ impl UiPresentationRuntime {
         }
     }
 
+    /// The text color table resolved from the currently installed UI pack stack.
+    pub(super) fn formatting_palette(&self) -> Option<&ui::FormattingPalette> {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map(|engine| &engine.formatting_palette)
+    }
+
     /// The sound the engine menu's control for `action` plays when pressed.
     pub(crate) fn menu_sound(
         &self,
@@ -440,8 +452,13 @@ impl UiPresentationRuntime {
     }
 
     /// Draws the open container's engine screen.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Player authority is borrowed separately from UI state."
+    )]
     pub(super) fn append_container_scene(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &UiRuntime,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
@@ -451,6 +468,7 @@ impl UiPresentationRuntime {
     ) -> Result<(), UiPresentationError> {
         let previous = self.form_presentation.previous_container.take();
         self.append_engine_container(
+            player_runtime,
             runtime,
             previous.as_ref().map(|(frame, _)| frame),
             nodes,

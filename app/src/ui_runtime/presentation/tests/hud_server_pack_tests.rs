@@ -13,10 +13,13 @@ use crate::ui_runtime::presentation::forms::pack_harness::dir_pack;
 const PACK_ENV: &str = "CINNABAR_HUD_PACK_DIRS";
 
 /// A populated session: stats, hotbar, sidebar, boss bar, title, and chat.
-fn session(objective: &str) -> UiRuntime {
+fn session(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    objective: &str,
+) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    runtime.set_local_selected_slot(0);
+    runtime.publish_player_game_mode(player_runtime, PlayerGameMode::Survival);
+    player_runtime.inventory.set_local_selected_slot(0);
     runtime.hud.set_stats(
         BoundedStat::new(20, 20),
         BoundedStat::new(20, 20),
@@ -25,6 +28,7 @@ fn session(objective: &str) -> UiRuntime {
     );
     runtime.hud.set_experience(12, 0.3);
     super::retained_hud_tests::install_mixed_scoreboard_slot(
+        player_runtime,
         &mut runtime,
         "sidebar",
         &[
@@ -41,45 +45,54 @@ fn session(objective: &str) -> UiRuntime {
         ],
     );
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 10,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Objective(ObjectiveEvent::Display {
-                display_slot: Arc::from("sidebar"),
-                objective_name: Arc::from("objective"),
-                display_name: Arc::from(objective),
-                criteria_name: Arc::from("dummy"),
-                sort_order: 1,
-            }),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 10,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Objective(ObjectiveEvent::Display {
+                    display_slot: Arc::from("sidebar"),
+                    objective_name: Arc::from("objective"),
+                    display_name: Arc::from(objective),
+                    criteria_name: Arc::from("dummy"),
+                    sort_order: 1,
+                }),
+            },
+        )
         .unwrap();
     runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 11,
-            local_millis: 0,
-            server_tick: None,
-            event: boss_event(
-                ProtocolBossAction::Show,
-                9,
-                "Dragon",
-                0.6,
-                ProtocolBossColor::Pink,
-                ProtocolBossOverlay::Progress,
-            ),
-        })
+        .apply(
+            player_runtime,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 11,
+                local_millis: 0,
+                server_tick: None,
+                event: boss_event(
+                    ProtocolBossAction::Show,
+                    9,
+                    "Dragon",
+                    0.6,
+                    ProtocolBossColor::Pink,
+                    ProtocolBossOverlay::Progress,
+                ),
+            },
+        )
         .unwrap();
     for (sequence, line) in [(12, "hello"), (13, "toast.Welcome back")] {
         runtime
-            .apply(SequencedUiEvent {
-                session_id: 1,
-                fifo_sequence: sequence,
-                local_millis: 0,
-                server_tick: None,
-                event: chat_event(line),
-            })
+            .apply(
+                player_runtime,
+                SequencedUiEvent {
+                    session_id: 1,
+                    fifo_sequence: sequence,
+                    local_millis: 0,
+                    server_tick: None,
+                    event: chat_event(line),
+                },
+            )
             .unwrap();
     }
     runtime.hud.set_title(Arc::from("Round 1"), 20, 0);
@@ -112,6 +125,8 @@ fn texts(nodes: &[DrawNode]) -> Vec<&str> {
 
 #[test]
 fn server_packs_restyle_the_engine_hud() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Ok(dirs) = std::env::var(PACK_ENV) else {
         return;
     };
@@ -129,15 +144,27 @@ fn server_packs_restyle_the_engine_hud() {
         } else {
             "Objective"
         };
-        let runtime = session(objective);
+        let runtime = session(&mut player_runtime, objective);
         let started = std::time::Instant::now();
         presentation
-            .build(&runtime, 500, [1920, 1080], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                500,
+                [1920, 1080],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         let first = started.elapsed();
         // The next frame draws what the first asked the server atlas for.
         presentation
-            .build(&runtime, 516, [1920, 1080], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                516,
+                [1920, 1080],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         // Oversized pack art (a 5142x706 watermark) stays out of the atlas.
         let missing = presentation.hud_unresolved_sprites();
@@ -184,6 +211,8 @@ fn server_packs_restyle_the_engine_hud() {
 /// `CINNABAR_HUD_PACK_STACK` names (`:`-separated layers, lowest first).
 #[test]
 fn server_pack_stack_hud_dump() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Ok(stack) = std::env::var("CINNABAR_HUD_PACK_STACK") else {
         return;
     };
@@ -191,10 +220,16 @@ fn server_pack_stack_hud_dump() {
         return;
     };
     presentation.set_server_ui_pack(&dir_pack(&stack));
-    let runtime = session("Objective");
+    let runtime = session(&mut player_runtime, "Objective");
     for now in [500, 516] {
         let input = presentation
-            .build(&runtime, now, [1920, 1080], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                now,
+                [1920, 1080],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         super::super::forms::snapshot::write(&input, "hud_pack_stack");
     }
@@ -231,6 +266,8 @@ fn server_pack_stack_hud_dump() {
 /// with that pack's `font/glyph_XX.png` sheets, painted to `zeqa_top_bar.png`.
 #[test]
 fn zeqa_top_bar_snapshot() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Ok(stack) = std::env::var("CINNABAR_HUD_PACK_STACK") else {
         return;
     };
@@ -277,10 +314,21 @@ fn zeqa_top_bar_snapshot() {
             )
         })
         .collect();
-    super::retained_hud_tests::install_mixed_scoreboard_slot(&mut runtime, "sidebar", &rows);
+    super::retained_hud_tests::install_mixed_scoreboard_slot(
+        &mut player_runtime,
+        &mut runtime,
+        "sidebar",
+        &rows,
+    );
     for now in [500, 516] {
         let input = presentation
-            .build(&runtime, now, [1920, 1080], DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &runtime,
+                now,
+                [1920, 1080],
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         super::super::forms::snapshot::write(&input, "zeqa_top_bar");
     }

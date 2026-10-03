@@ -3,7 +3,12 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use crate::{ArchitectureError, policy::Policy, read};
+use crate::{
+    ArchitectureError,
+    paths::{is_vendored, relative_slash},
+    policy::Policy,
+    read,
+};
 
 pub(super) fn check_dependencies(
     root: &Path,
@@ -12,10 +17,10 @@ pub(super) fn check_dependencies(
 ) -> Result<(), ArchitectureError> {
     check_workspace_members(root, policy, diagnostics)?;
     let workspace_dependencies = workspace_dependencies(root)?;
-    let rule_paths = policy
+    let mut rule_paths = policy
         .crate_rules
         .iter()
-        .map(|rule| (normal_path(&root.join(&rule.path)), rule.name.as_str()))
+        .map(|rule| (normal_path(&root.join(&rule.path)), rule.name.clone()))
         .collect::<BTreeMap<_, _>>();
     let mut graph = BTreeMap::new();
     for rule in &policy.crate_rules {
@@ -39,8 +44,17 @@ pub(super) fn check_dependencies(
             &workspace_dependencies,
             &["dev-dependencies"],
         ));
-        graph.insert(rule.name.as_str(), CrateDependencies { production, all });
+        graph.insert(rule.name.clone(), CrateDependencies { production, all });
     }
+    let declared_paths = rule_paths.clone();
+    load_vendored_dependencies(
+        root,
+        policy,
+        &workspace_dependencies,
+        &mut graph,
+        &mut rule_paths,
+        diagnostics,
+    )?;
     for rule in &policy.crate_rules {
         let dependencies = &graph[rule.name.as_str()].production;
         if rule.dependency_free {
@@ -61,10 +75,10 @@ pub(super) fn check_dependencies(
             );
         }
         for forbidden in &rule.forbidden_dependencies {
-            if dependencies
-                .iter()
-                .any(|dependency| dependency.key == *forbidden || dependency.package == *forbidden)
-            {
+            if dependencies.iter().any(|dependency| {
+                forbidden_package(forbidden, &dependency.key)
+                    || forbidden_package(forbidden, &dependency.package)
+            }) {
                 diagnostics.push(format!("{}: forbidden dependency `{forbidden}`", rule.name));
             }
         }
@@ -77,10 +91,10 @@ pub(super) fn check_dependencies(
             let Some(path) = &dependency.path else {
                 continue;
             };
-            let Some(local_name) = rule_paths.get(path) else {
+            let Some(local_name) = declared_paths.get(path) else {
                 continue;
             };
-            if !allowed.contains(local_name) {
+            if !allowed.contains(local_name.as_str()) {
                 diagnostics.push(format!(
                     "{}: local dependency `{local_name}` is absent from the allowlist",
                     rule.name,
@@ -89,6 +103,13 @@ pub(super) fn check_dependencies(
         }
     }
     Ok(())
+}
+
+/// Matches exact package names or an explicitly configured trailing-star prefix.
+fn forbidden_package(pattern: &str, package: &str) -> bool {
+    pattern
+        .strip_suffix('*')
+        .map_or(package == pattern, |prefix| package.starts_with(prefix))
 }
 
 struct CrateDependencies {
@@ -100,17 +121,17 @@ struct CrateDependencies {
 fn check_transitive_dependencies(
     origin: &str,
     forbidden: &[String],
-    graph: &BTreeMap<&str, CrateDependencies>,
-    rule_paths: &BTreeMap<PathBuf, &str>,
+    graph: &BTreeMap<String, CrateDependencies>,
+    rule_paths: &BTreeMap<PathBuf, String>,
     diagnostics: &mut Vec<String>,
 ) {
-    let mut pending = vec![(origin, vec![origin])];
+    let mut pending = vec![(origin.to_owned(), vec![origin.to_owned()])];
     let mut visited = BTreeSet::new();
     while let Some((name, chain)) = pending.pop() {
-        if !visited.insert(name) {
+        if !visited.insert(name.clone()) {
             continue;
         }
-        let dependencies = &graph[name];
+        let dependencies = &graph[&name];
         // Cargo builds the origin's tests, but does not inherit dependencies' tests.
         let dependencies = if name == origin {
             &dependencies.all
@@ -122,14 +143,20 @@ fn check_transitive_dependencies(
                 .path
                 .as_ref()
                 .and_then(|path| rule_paths.get(path))
-                .copied();
+                .cloned();
             let mut dependency_chain = chain.clone();
-            dependency_chain.push(local_name.unwrap_or(&dependency.package));
+            dependency_chain.push(
+                local_name
+                    .clone()
+                    .unwrap_or_else(|| dependency.package.clone()),
+            );
             let path = dependency_chain.join(" -> ");
             if forbidden.iter().any(|forbidden| {
-                dependency.key == *forbidden
-                    || dependency.package == *forbidden
-                    || local_name == Some(forbidden.as_str())
+                forbidden_package(forbidden, &dependency.key)
+                    || forbidden_package(forbidden, &dependency.package)
+                    || local_name
+                        .as_ref()
+                        .is_some_and(|name| forbidden_package(forbidden, name))
             }) {
                 diagnostics.push(format!("{origin}: forbidden dependency path `{path}`"));
             }
@@ -142,6 +169,68 @@ fn check_transitive_dependencies(
             }
         }
     }
+}
+
+/// Loads declared vendored path dependencies so transitive bans also cover their manifests.
+fn load_vendored_dependencies(
+    root: &Path,
+    policy: &Policy,
+    workspace: &BTreeMap<String, Dependency>,
+    graph: &mut BTreeMap<String, CrateDependencies>,
+    paths: &mut BTreeMap<PathBuf, String>,
+    diagnostics: &mut Vec<String>,
+) -> Result<(), ArchitectureError> {
+    let mut pending: Vec<_> = graph
+        .values()
+        .flat_map(|entry| &entry.all)
+        .filter_map(|dependency| dependency.path.clone())
+        .collect();
+    let mut visited = BTreeSet::new();
+    while let Some(path) = pending.pop() {
+        if paths.contains_key(&path)
+            || !visited.insert(path.clone())
+            || !is_vendored(&relative_slash(root, &path), policy)
+        {
+            continue;
+        }
+        let manifest = path.join("Cargo.toml");
+        let source = read(&manifest)?;
+        let value: toml::Value =
+            toml::from_str(&source).map_err(|source| ArchitectureError::Policy {
+                path: manifest,
+                source,
+            })?;
+        let name = value
+            .get("package")
+            .and_then(|package| package.get("name"))
+            .and_then(toml::Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        if name.is_empty() || graph.contains_key(&name) {
+            diagnostics.push(format!(
+                "{}: missing or duplicate local package name; cannot verify boundary",
+                relative_slash(root, &path)
+            ));
+            continue;
+        }
+        let production = manifest_dependencies(
+            &value,
+            &path,
+            workspace,
+            &["dependencies", "build-dependencies"],
+        );
+        let mut all = production.clone();
+        all.extend(manifest_dependencies(
+            &value,
+            &path,
+            workspace,
+            &["dev-dependencies"],
+        ));
+        pending.extend(all.iter().filter_map(|dependency| dependency.path.clone()));
+        paths.insert(path, name.clone());
+        graph.insert(name, CrateDependencies { production, all });
+    }
+    Ok(())
 }
 
 fn check_workspace_members(
