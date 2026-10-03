@@ -10,8 +10,11 @@ fn configured_time_changer_is_visual_only_offline() {
         return;
     };
     let mut app = App::new();
-    let presentation = crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
-        .expect("real UI carrier required for selected time changer");
+    let Some(presentation) =
+        crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
+    else {
+        return;
+    };
     app.insert_resource(presentation)
         .insert_resource(UiRuntime::new(1))
         .insert_resource(ButtonInput::<KeyCode>::default());

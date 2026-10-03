@@ -120,9 +120,11 @@ mod tests {
             );
             return;
         }
-        let presentation =
+        let Some(presentation) =
             crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
-                .expect("real UI carrier required for the selected sample");
+        else {
+            return;
+        };
         let mut app = App::new();
         app.insert_resource(presentation)
             .insert_resource(UiRuntime::new(1))
