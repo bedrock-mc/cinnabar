@@ -24,7 +24,7 @@ pub enum Phase3EvidenceIdentityError {
     #[error("Phase 3 evidence build is missing {environment}")]
     MissingBuildCommit { environment: &'static str },
     #[error(
-        "Phase 3 evidence build was not compiled with {environment}=false from an explicitly clean source tree"
+        "Phase 3 evidence run was not launched with {environment}=false from an explicitly clean source tree"
     )]
     DirtyOrUnattributedBuild { environment: &'static str },
     #[error("Phase 3 evidence run is missing or has invalid {environment}")]
@@ -46,7 +46,7 @@ impl Phase3TargetLabel for &'static str {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Phase3EvidenceIdentity {
-    build_commit: &'static str,
+    build_commit: String,
     target: &'static str,
     session_generation: u64,
     preg_sha256: [u8; 32],
@@ -67,7 +67,7 @@ impl Phase3EvidenceIdentity {
     }
 
     pub fn new(
-        build_commit: &'static str,
+        build_commit: impl Into<String>,
         target: impl Phase3TargetLabel,
         session_generation: u64,
         preg_sha256: [u8; 32],
@@ -75,6 +75,7 @@ impl Phase3EvidenceIdentity {
         candidate_physics: bool,
     ) -> Result<Self, Phase3EvidenceIdentityError> {
         let target = target.evidence_label();
+        let build_commit = build_commit.into();
         if build_commit.len() != 40
             || !build_commit
                 .bytes()
@@ -155,7 +156,7 @@ impl Phase3EvidenceIdentity {
 
 #[derive(Resource, Debug, Clone)]
 pub struct Phase3EvidenceIdentitySource {
-    build_commit: &'static str,
+    build_commit: String,
     target: &'static str,
     preg_sha256: [u8; 32],
     breg_sha256: [u8; 32],
@@ -168,26 +169,28 @@ pub struct Phase3EvidenceIdentitySource {
 }
 
 impl Phase3EvidenceIdentitySource {
+    /// Reads the commit and clean-source flag from the launch environment so commits never
+    /// rebuild the client; the launcher builds, hashes and starts that exact binary.
     pub fn from_build(
         target: &'static str,
         candidate_physics: bool,
         preg_sha256: [u8; 32],
         breg_sha256: [u8; 32],
     ) -> Result<Self, Phase3EvidenceIdentityError> {
-        let build_commit = option_env!("RUST_MCBE_BUILD_COMMIT").ok_or(
+        let build_commit = std::env::var(markers::BUILD_COMMIT).map_err(|_| {
             Phase3EvidenceIdentityError::MissingBuildCommit {
                 environment: markers::BUILD_COMMIT,
-            },
-        )?;
+            }
+        })?;
         Phase3EvidenceIdentity::new(
-            build_commit,
+            build_commit.as_str(),
             target,
             1,
             preg_sha256,
             breg_sha256,
             candidate_physics,
         )?;
-        validate_phase3_build_source(option_env!("RUST_MCBE_SOURCE_DIRTY"))?;
+        validate_phase3_build_source(std::env::var(markers::SOURCE_DIRTY).ok().as_deref())?;
         let run_id = required_run_environment(markers::PHASE3_RUN_ID)?;
         let endpoint = required_run_environment(markers::PHASE3_ENDPOINT)?;
         let bridge_endpoint = required_run_environment(markers::PHASE3_BRIDGE_ENDPOINT)?;
@@ -225,7 +228,7 @@ impl Phase3EvidenceIdentitySource {
         session_generation: u64,
     ) -> Result<Phase3EvidenceIdentity, Phase3EvidenceIdentityError> {
         Phase3EvidenceIdentity::new(
-            self.build_commit,
+            self.build_commit.clone(),
             self.target,
             session_generation,
             self.preg_sha256,
