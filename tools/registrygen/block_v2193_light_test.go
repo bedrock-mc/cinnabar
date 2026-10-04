@@ -36,8 +36,8 @@ func TestRetailLightCorrectionsReplaceOnlyUnimplementedDefaults(t *testing.T) {
 	}
 }
 
-// Lens 1.26.50.26 TopSnowBlock 0a5c5fb0 sets dampening to zero; the
-// inherited 0365cdf0 getter and per-height component override do not change it.
+// 1.26.50.26 TopSnowBlock sets dampening to zero; the
+// inherited getter and per-height component override do not change it.
 func TestSnowLayerNativeLightDampening(t *testing.T) {
 	var records []Record
 	var properties []byte
@@ -77,7 +77,7 @@ func TestSnowLayerNativeLightDampening(t *testing.T) {
 	}
 }
 
-// Lens 1.26.50.26 0x4794430 selects emission by trial-spawner state, independent of ominous.
+// 1.26.50.26 selects emission by trial-spawner state, independent of ominous.
 func TestTrialSpawnerEmissionIsStateResolved(t *testing.T) {
 	for ominous := 0; ominous < 2; ominous++ {
 		for state, want := range []byte{0, 4, 8, 8, 8, 0} {
@@ -93,7 +93,7 @@ func TestTrialSpawnerEmissionIsStateResolved(t *testing.T) {
 	}
 }
 
-// Current Lens accessors and the pinned pack schema define these state vectors.
+// Current accessors and the pinned pack schema define these state vectors.
 func TestStateEmissionVectors(t *testing.T) {
 	cases := []struct {
 		name, key, state string

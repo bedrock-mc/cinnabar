@@ -1,6 +1,7 @@
 use super::*;
 use bevy::camera::CameraProjection;
 
+/// Builds the app camera adapter with a primary window of the requested size.
 fn camera_app(width: u32, height: u32) -> (App, Entity) {
     let mut app = App::new();
     app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
@@ -22,6 +23,7 @@ fn camera_app(width: u32, height: u32) -> (App, Entity) {
     (app, window)
 }
 
+/// Reads the live fly-camera projection after the scheduled presentation update.
 fn projection(app: &mut App) -> PerspectiveProjection {
     let projection = app
         .world_mut()
@@ -36,7 +38,7 @@ fn projection(app: &mut App) -> PerspectiveProjection {
 
 #[test]
 fn native_full_viewport_fov_sets_vertical_angle_and_aspect_only_scales_horizontal_axis() {
-    // Lens 26.30: getFov uses normalized viewport fractions; bx::mtxProjRh
+    // Vanilla getFov uses normalized viewport fractions; bx::mtxProjRh
     // stores cot(FOV/2) on Y and cot(FOV/2)/aspect on X.
     for degrees in [30.0_f32, 60.0, 90.0, 110.0, 120.0] {
         for aspect in [4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 9.0 / 16.0] {
@@ -112,4 +114,24 @@ fn resizing_the_window_preserves_vertical_fov_and_updates_horizontal_projection(
     let after_clip = after.get_clip_from_view();
     assert_eq!(before_clip.y_axis.y, after_clip.y_axis.y);
     assert!(after_clip.x_axis.x > before_clip.x_axis.x);
+}
+
+#[test]
+fn zero_height_window_preserves_fov_with_a_finite_projection() {
+    let (mut app, window) = camera_app(1600, 900);
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .resolution
+        .set_physical_resolution(1600, 0);
+    app.update();
+
+    let perspective = projection(&mut app);
+    let expected_fov = UserSettings::default()
+        .video
+        .horizontal_fov_degrees
+        .to_radians();
+    assert!((perspective.fov - expected_fov).abs() < 1.0e-6);
+    assert!(perspective.aspect_ratio.is_finite() && perspective.aspect_ratio > 0.0);
+    assert!(perspective.get_clip_from_view().is_finite());
 }

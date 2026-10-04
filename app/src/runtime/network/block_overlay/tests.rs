@@ -359,7 +359,7 @@ fn light_components_drive_state_light() {
                 geometry: Some("minecraft:geometry.full_block".into()),
                 materials: materials("lucky"),
                 light_emission: Some(13),
-                light_dampening: Some(2),
+                light_dampening: Some(0),
                 ..CustomVisualComponents::default()
             },
             ..CustomBlockVisuals::default()
@@ -383,7 +383,7 @@ fn light_components_drive_state_light() {
     };
     let compiled = compile_block_overlay(&view(), &blocks, false, None).expect("overlay");
     let light = &compiled.overlay.light_properties;
-    assert_eq!((light[0].emission(), light[0].filter()), (13, 2));
+    assert_eq!((light[0].emission(), light[0].filter()), (13, 0));
     assert_eq!(
         (light[1].emission(), light[1].filter()),
         (0, 15),

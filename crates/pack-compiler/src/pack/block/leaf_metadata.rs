@@ -46,7 +46,7 @@ impl BlockTextureMap {
 }
 
 fn encode_exponent(value: &Value) -> Option<u32> {
-    // Current native block-graphics parse (06.cpp:1708048) stores the f32 directly.
+    // Current native block-graphics parse stores the f32 directly.
     // Admit only values our compact carrier represents exactly; do not round
     // custom exponents or alias authored zero to the omitted default of one.
     let value = value.as_f64()? as f32;
@@ -65,7 +65,7 @@ fn encode_exponent(value: &Value) -> Option<u32> {
 }
 
 fn is_isotropic(value: Option<&Value>, face: BlockFace) -> bool {
-    // 1.26.50.26 0x064868d0: scalar bool selects all/none. A non-null side
+    // Vanilla scalar bool selects all/none. A non-null side
     // chooses the up/down/side map, otherwise the six explicit face names.
     // Unknown and non-boolean entries do not set bits; caller ignores the
     // helper's failure return, so preserve its admitted mask on odd objects.

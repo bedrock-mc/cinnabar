@@ -1156,7 +1156,7 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     assert_eq!(reset.interpolation_ticks_remaining, 0);
 }
 
-/// Lens 1.26.50.26 0x1c0e520 samples 0.66 of the authoritative body height.
+/// 1.26.50.26 samples 0.66 of the authoritative body height.
 #[test]
 fn brightness_sample_uses_interpolated_feet_and_body_height() {
     for height in [0.25, 1.8, 3.6] {

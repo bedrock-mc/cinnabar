@@ -232,7 +232,13 @@ pub(super) fn describe(
             open: 0.0,
         })),
         "Skull" => {
-            let kind = SkullKind::from_nbt(nbt.integer("SkullType")?)?;
+            // Current renderSkull selects the model from the backing block type;
+            // the unsplit legacy block still needs its retained SkullType.
+            let kind = SkullKind::from_block_identifier(block_name).or_else(|| {
+                (block_name == "minecraft:skull")
+                    .then(|| nbt.integer("SkullType").and_then(SkullKind::from_nbt))
+                    .flatten()
+            })?;
             let mount = match state
                 .int("facing_direction")
                 .and_then(Facing::from_facing_direction)
@@ -374,6 +380,50 @@ mod tests {
 
     fn state(json: &str) -> BlockState {
         BlockState::parse(json)
+    }
+
+    #[test]
+    fn current_player_head_identity_overrides_absent_or_stale_skull_type() {
+        for compound in [nbt(|_| {}), nbt(|out| int_tag(out, "SkullType", 0))] {
+            let template = describe(
+                "Skull",
+                "minecraft:player_head",
+                &BlockState::default(),
+                &compound,
+                [0; 3],
+            );
+            assert!(matches!(
+                template,
+                Some(Template::Static(BlockEntityKind::Skull(SkullModel {
+                    kind: SkullKind::Player,
+                    ..
+                })))
+            ));
+        }
+        let legacy = nbt(|out| int_tag(out, "SkullType", 6));
+        assert!(matches!(
+            describe(
+                "Skull",
+                "minecraft:skull",
+                &BlockState::default(),
+                &legacy,
+                [0; 3]
+            ),
+            Some(Template::Static(BlockEntityKind::Skull(SkullModel {
+                kind: SkullKind::Player,
+                ..
+            })))
+        ));
+        assert!(
+            describe(
+                "Skull",
+                "custom:player_head",
+                &BlockState::default(),
+                &legacy,
+                [0; 3]
+            )
+            .is_none()
+        );
     }
 
     #[test]

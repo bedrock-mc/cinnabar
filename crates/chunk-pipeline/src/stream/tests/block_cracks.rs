@@ -204,6 +204,7 @@ fn block_crack_requested_subchunks_retire_before_identical_reload() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [0, -4, 0],
                     result: SubChunkResult::AllAir,
                 }],
@@ -230,6 +231,7 @@ fn block_crack_requested_subchunks_retire_before_identical_reload() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [0, -4, 0],
                     result: SubChunkResult::Success {
                         payload: vec![9, 1, (-4_i8) as u8, 1, 0],

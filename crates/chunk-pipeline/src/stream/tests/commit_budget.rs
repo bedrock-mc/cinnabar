@@ -14,6 +14,7 @@ fn sliced_sub_chunk_commit_keeps_order_and_inventory_frontier() {
                 dimension: key.dimension,
                 entries: (0..3)
                     .map(|offset| PreparedSubChunk {
+                        diagnostics: None,
                         position: [key.x, key.y + offset, key.z],
                         result: PreparedSubChunkResult::AllAir,
                     })

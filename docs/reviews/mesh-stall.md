@@ -28,25 +28,16 @@ into the existing counter, not a measurement of 42,238 separately queued meshes.
 
 ## Vanilla evidence
 
-- Lens, reconstructed client **1.26.50.26**, artifact 6, RVA **0x01ee9ca0**:
-  the brightness callback visits sub-chunks intersecting the changed block's one-cell
-  halo and sets their dirty flag. RVA **0x01f14990** looks up the coordinate first and
-  returns an existing entry before allocating. The coordinator vtable at
-  **0x1500dfb80**, slot 5, points to the callback. Its identity is corroborated by
-  `R:r/RenderChunkCoordinator.cpp:917` (`onBrightnessChanged`), rather than invented
-  from the unnamed current function.
-- Lens artifact 6, RVA **0x01ef8770**, `RenderChunkShared::startRebuild`, asserts that
-  there is no build in progress. RVA **0x04fb7530**, `LevelBuilder::tryRebuild`, tests
-  dirty/build state and the radius-16 column-readiness gate before admitting work.
-  Its existing-geometry path also compares two recorded ticks plus 20 and plus 60,
-  with a flag bypass for the former. These are not evidence for a universal
-  fixed-duration lighting debounce, nor for waiting until all world lighting stops.
-- `R:r/RenderChunkCoordinator.cpp:762` uses one dirty-map entry per sub-chunk and
-  combines flags. `R:r/RenderChunkShared.cpp:392` forbids overlapping rebuilds;
-  `R:l/LevelBuilder.cpp:6041` contains the reference rebuild eligibility checks.
-- `R:m/MinecraftWorkerPool.cpp:25` and `:43` distinguish worker counts and OS
-  priorities. They do not authorize treating every Cinnabar background task as
-  real-time work or equating queue admission with CPU reservations.
+- The brightness callback visits sub-chunks intersecting the changed block's
+  one-cell halo and sets their dirty flag. Coordinate lookup returns an existing
+  entry before allocating.
+- Rebuild start requires no build in progress. Admission checks dirty/build state
+  and the radius-16 column-readiness gate. The existing-geometry path compares two
+  recorded ticks plus 20 and plus 60, with a flag bypass for the former. These are
+  not evidence for a universal lighting debounce or waiting for all world lighting.
+- One dirty-map entry per sub-chunk combines flags; rebuilds cannot overlap.
+- Worker counts and OS priorities are distinct. This does not make every Cinnabar
+  background task real-time or equate queue admission with CPU reservations.
 - The read-only vanilla pack at
   `bedrock-samples/v1.26.50.4/full/resource_pack/texts/en_US.lang:7010` describes
   smooth-lighting transitions. `blocks.json` provides visual definitions, not thread

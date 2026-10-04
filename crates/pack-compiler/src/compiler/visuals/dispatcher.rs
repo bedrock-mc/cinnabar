@@ -105,7 +105,7 @@ fn diagnostic_for_unmatched_record(
 struct VisualCompiler {
     model_templates: Vec<ModelTemplate>,
     model_quads: Vec<ModelQuad>,
-    cross_templates: BTreeMap<[u32; 2], u32>,
+    cross_templates: BTreeMap<([u32; 2], bool), u32>,
     kelp_templates: BTreeMap<[u32; 6], u32>,
     transparent_cube_templates: BTreeMap<[u32; 6], u32>,
     flowerbed_templates: BTreeMap<[u32; 4], u32>,

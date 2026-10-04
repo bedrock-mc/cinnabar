@@ -1,7 +1,7 @@
 # Vanilla-parity gap tracker
 
-Consolidated 2026-09-28 from a read-only audit against the 26.30 client (Lens +
-mcsrc-1.26.50 reconstruction + pinned bedrock-samples). Target: version-matched
+Consolidated 2026-09-28 from a read-only audit against the 26.30 client and
+pinned bedrock-samples. Target: version-matched
 vanilla Bedrock, except the in-game HUD, which targets Java Edition by owner
 decision — chat and scoreboard styling there are intentional and not gaps.
 Values marked *(measure)* may now be taken directly from the client references (owner decision).
@@ -78,7 +78,7 @@ profile (OreUI in 26.30, no `ui/*.json` screen) and first-run progress (it compl
 window opens) stay programmatic, and the programmatic launcher remains only for a missing
 carrier or a failed render. Launcher screens sit on the vanilla panorama, a render pass that ray-casts the
 carrier's full-resolution cube faces (FOV 85°, 2°/s turn, 25±5° tilt follow the title-screen
-cube; the reconstruction keeps the real values as unnamed data, so they need measurement).
+cube; the real values remain unresolved and need measurement).
 The Servers tab lists featured servers then gatherings with the vanilla info panel (description,
 news, screenshots, games; artwork up to 512 px, read-more toggles, selected-row highlight,
 RakNet player counts and ping icons with provisional 150/300 ms thresholds); Realms split
@@ -126,8 +126,7 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   `first_person_rotation_factor`. Haste and fatigue do not yet change the rig's 6-tick swing.
 - **Held item placement:** third-person sprites/tools/cubes follow the 26.30 reference's
   held-item/default transforms on `rightItem`. Ordinary first-person icons use the current
-  reconstruction's camera stack (RVA `0x04fa7e50`) and default icon transform
-  (`0x04f9a2e0`), with numeric globals verified in the matching Lens catalog binary.
+  client camera stack and default icon transform.
   Swing/equip inputs are sampled at fixed ticks and interpolated before nonlinear evaluation;
   they do not inherit avatar bones or model scale. Provisional: item-use/mirrored-art branches,
   custom render offsets and native sine-table rounding are missing; the hand-equipped item
@@ -169,7 +168,7 @@ animated rig remotes use. All three below flow from that.
   the shared rig + motion model.
 - First-person hand+item: flat CPU sprite / static `EmptyHandNeutralStaticFallback`; no
   bob/swing/equip/sway/lighting/held item. Implement via first-person render controller +
-  `animation.player.first_person.*` (public samples) + `ItemInHandRenderer` transforms (Lens).
+  `animation.player.first_person.*` (public samples) + `ItemInHandRenderer` transforms.
 - Top-left mini player: no vanilla counterpart → remove if a standalone overlay; keep the
   inventory/menu paperdoll.
 

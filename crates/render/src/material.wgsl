@@ -34,7 +34,7 @@ fn material_position_random(position: vec3<i32>) -> u32 {
     return (h * 0x0285b825u + 11u) * h;
 }
 
-// Current cube tessellation 06a0d430..06a180d0 applies this only to faces
+// Current cube tessellation applies this only to faces
 // enabled by BlockGraphics' pack-authored isotropic mask.
 fn material_leaf_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
     if ((flags & MATERIAL_LEAF_ISOTROPIC_FLAG) == 0u || (flags & 3u) != 0u) {
@@ -45,7 +45,7 @@ fn material_leaf_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
     return flags | select(native_code, native_code ^ 1u, native_code >= 2u);
 }
 
-// AmbientOcclusionCalculator 069e5200 raises the four-sample average * face
+// AmbientOcclusionCalculator raises the four-sample average * face
 // coefficient to the source block's exponent before vertex interpolation.
 fn material_leaf_shade(ao_face: f32, flags: u32) -> f32 {
     let encoded = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;
@@ -53,7 +53,7 @@ fn material_leaf_shade(ao_face: f32, flags: u32) -> f32 {
     return pow(ao_face, f32(encoded) / MATERIAL_LEAF_AO_EXPONENT_SCALE);
 }
 
-// Lens 1.26.50.26 0x6a02170: wrapping coordinates, subtractive weights, last fallback.
+// Vanilla uses wrapping coordinates, subtractive weights, last fallback.
 fn positional_material(id: u32, position: vec3<i32>) -> MaterialGpu {
     let base = materials[id];
     if (base.variation_count == 0u) { return base; }

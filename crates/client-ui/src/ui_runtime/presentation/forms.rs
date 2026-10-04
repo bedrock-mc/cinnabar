@@ -5,6 +5,7 @@ pub mod chat_coordinates;
 pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
+mod debug_overlay;
 pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
 pub mod engine;

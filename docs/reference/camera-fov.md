@@ -1,22 +1,16 @@
 # Camera FOV projection
 
-The full-window camera contract was inspected through Lens against the pinned
-26.30 client. Cinnabar independently implements that contract; native source
-is not copied.
-
-`LevelRendererPlayer::getFov` (`0x1043a8820`) and `getFovWithoutGameplay`
-(`0x1043a8bb0`) scale the configured angle by
-`min(normalized_viewport.y / normalized_viewport.x, 1)`. The virtual method at
-ClientInstance slot `0x630` is `ClientInstance::getNormalizedViewportSize`
-(`0x102341790`): each viewport dimension is divided by the corresponding
+`LevelRendererPlayer::getFov` and `getFovWithoutGameplay`
+scale the configured angle by
+`min(normalized_viewport.y / normalized_viewport.x, 1)`. `ClientInstance::getNormalizedViewportSize` divides each viewport dimension by the corresponding
 full-screen dimension from `GuiData::ScreenSizeData`. The values are `(1, 1)`
 for a full-window viewport at any display aspect ratio. This scale adjusts
 partial viewports, such as split screen; it is not pixel height divided by
 pixel width.
 
-`CameraAPI::tryGetFOV` (`0x1007f8220`) converts that angle to radians.
-`dragon::rendering::Camera::createPerspective` (`0x10c0c6500`) supplies the
-viewport width/height separately to `bx::mtxProjRh` (`0x100344300`). That
+`CameraAPI::tryGetFOV` converts that angle to radians.
+`dragon::rendering::Camera::createPerspective` supplies the
+viewport width/height separately to `bx::mtxProjRh`. That
 projection places `cot(FOV / 2)` on the vertical axis and divides it by aspect
 on the horizontal axis. The full-window setting therefore defines the
 vertical FOV. A setting of 110 degrees stays 110 degrees vertically, about

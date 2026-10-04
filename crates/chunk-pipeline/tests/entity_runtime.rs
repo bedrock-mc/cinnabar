@@ -150,6 +150,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             channel_count: 1,
             source: 1,
             override_previous: false,
+            anim_time_update: None,
             geometry: None,
         }]
         .into_boxed_slice(),
@@ -158,6 +159,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             property: EntityAnimationProperty::Translation,
             first_keyframe: 0,
             keyframe_count: 2,
+            rotation_relative_to_entity: false,
         }]
         .into_boxed_slice(),
         animation_keyframes: vec![
@@ -518,8 +520,11 @@ fn animation_time_is_lifetime_relative_and_looped() {
     stream.advance_actor_interpolation_ticks(19);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
-        0.0
+        -2.0,
+        "native keeps the loop endpoint at exact equality"
     );
+    stream.advance_actor_interpolation_ticks(1);
+    assert!((stream.actor_rig(42).unwrap().current[1].translation_scale[0] + 1.0).abs() < 1e-5);
 }
 
 #[test]
@@ -865,6 +870,8 @@ fn world_budget_starvation_rotates_so_the_same_actors_do_not_always_freeze() {
     }
 }
 
+#[path = "entity_runtime/clip_clock.rs"]
+mod clip_clock;
 #[path = "entity_runtime/frame_advance.rs"]
 mod frame_advance;
 

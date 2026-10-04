@@ -6,7 +6,6 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions},
 };
 
-use crate::diagnostic_markers::FAST_TRANSFER_ACTION;
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, UiAction};
 
@@ -37,33 +36,7 @@ pub enum ChatFlushError<E> {
     SessionChanged { expected: u64, actual: u64 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FastTransferAction {
-    TransferSm3,
-}
-
-impl FastTransferAction {
-    fn classify(message: &str) -> Option<Self> {
-        (message == "/transfer sm3").then_some(Self::TransferSm3)
-    }
-
-    pub fn marker(self, session_generation: u64, action_ordinal: u64, sent_unix_ms: u64) -> String {
-        let command = match self {
-            Self::TransferSm3 => "/transfer sm3",
-        };
-        format!(
-            "{FAST_TRANSFER_ACTION}={}",
-            serde_json::json!({
-                "schema": "rust-mcbe-fast-transfer-action-v1",
-                "kind": "command_sent",
-                "session_generation": session_generation,
-                "action_ordinal": action_ordinal,
-                "command": command,
-                "sent_unix_ms": sent_unix_ms,
-            })
-        )
-    }
-}
+pub use protocol::FastTransferAction;
 
 pub fn flush_chat_sends<E>(
     runtime: &mut UiRuntime,

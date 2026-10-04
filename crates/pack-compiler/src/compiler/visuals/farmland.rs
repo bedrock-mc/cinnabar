@@ -68,6 +68,8 @@ pub(in crate::compiler) fn farmland_inventory_is_exact(records: &[RegistryRecord
         return false;
     }
     let mut seen = [false; 8];
+    let mut sequential_ids = BTreeSet::new();
+    let mut network_hashes = BTreeSet::new();
     for record in selected {
         if !is_farmland_record(record) {
             return false;
@@ -75,7 +77,12 @@ pub(in crate::compiler) fn farmland_inventory_is_exact(records: &[RegistryRecord
         let Some(amount) = exact_farmland_moisture(record) else {
             return false;
         };
-        if record.sequential_id != 6_122 + amount || seen[amount as usize] {
+        // Registry ordering changes between versions. The typed state and
+        // geometry identify farmland; its network identities come from BREG.
+        if !sequential_ids.insert(record.sequential_id)
+            || !network_hashes.insert(record.network_hash)
+            || seen[amount as usize]
+        {
             return false;
         }
         seen[amount as usize] = true;

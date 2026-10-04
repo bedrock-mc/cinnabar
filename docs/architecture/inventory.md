@@ -77,18 +77,16 @@ resolution. Regression fixtures cover these boundaries, dependency kinds, vendor
 cycles, alias ownership and test exclusions.
 
 This migration adds no new vanilla behavior or parity claim. The ownership and
-projection roles are consistent with these version-matched references:
+projection roles retain the following behavior.
 
-- Lens 1.26.50.26, artifact 6, source-backed raw function at RVA `0x511c250`,
-  `MinecraftScreenModel::getPlayerAbilities`, found with source search for
-  `LayeredAbilities`: the screen model retrieves the local actor's abilities.
-- **R:MinecraftScreenModel:16423** and **R:LayeredAbilities:465** in the 26.30
-  reconstruction: local-actor ability access and layer precedence.
-- **R:LocalPlayer:11306**: equipment is updated before the UI notification.
-- **R:ContainerScreenController:8564**, **R:ItemStackNetManagerClient:1028** and
-  **R:ItemStackNetManagerClient:4278**: screen commands and request reconciliation
-  have distinct roles. Reference root:
-  `~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src/by-owner`.
+## Vanilla rules
+
+| Rule | Behaviour |
+| --- | --- |
+| Abilities | The screen model retrieves the local actor's abilities with layer precedence. |
+| Equipment | Equipment is updated before the UI notification. |
+| Inventory commands | Screen commands and request reconciliation have distinct roles. |
+
 - Installed vanilla pack
   `.local/assets/bedrock-samples/v1.26.50.4/full/resource_pack/ui/hud_screen.json:570`:
   the hunger renderer is gated by the survival-UI projection.

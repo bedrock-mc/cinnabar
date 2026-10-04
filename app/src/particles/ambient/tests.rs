@@ -10,7 +10,7 @@ use crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
 #[test]
 fn native_ambient_mt_matches_the_reference_stream_across_twist_boundaries() {
     // Current native state/temper contracts identify MT19937; independently
-    // generated with libc++ std::mt19937 at the native fallback seed (0028fb80).
+    // generated with libc++ std::mt19937 at the native fallback seed.
     let witnesses = [
         (0, 3_499_211_612),
         (1, 581_869_302),

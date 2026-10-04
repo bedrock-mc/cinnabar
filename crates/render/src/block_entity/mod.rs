@@ -51,7 +51,7 @@ pub use mesh::{
 pub use mob::SPAWNER_MOBS;
 pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
-    BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
+    BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityLight, BlockEntityScene,
     BlockEntitySubmission, CrackInstance, SceneClock,
 };
 pub use selection::{BlockSelectionFrame, BlockSelectionTarget};

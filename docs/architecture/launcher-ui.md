@@ -93,14 +93,8 @@ still match the actual runtime for both visible and hidden menus.
 The screen-policy witnesses retain the vanilla pack's settings, including the
 HUD's `should_steal_mouse: true` and `absorbs_input: false` at
 `.local/assets/bedrock-samples/v1.26.50.4/full/resource_pack/ui/hud_screen.json:3576`.
-The reconstruction's delegation of mouse ownership to the current screen is
-`R:ClientInstance:36217` (26.30 by-owner source, RVA `0x0234cc50`). Existing HUD and
-item-icon source annotations retain their Lens references, including
-`HudPlayerRenderer::update` (`0x09c78c70`) and
-`CrossbowItem::getAnimationFrame` (`0x09a137a0`). During this migration, source-first
-Lens searches for the 1.26.50.26 screen mouse policy returned no match and the
-subsequent function read reported that the analysis service was unavailable; no
-new current-version parity conclusion relies on that unavailable read.
+Mouse ownership is delegated to the current screen. Current-version screen mouse
+policy remains unverified; this migration makes no new parity claim.
 
 See [UI-edit executable build measurements](../evidence/launcher-ui-build-timings.md).
 No game server or client session is used for validation.

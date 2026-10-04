@@ -5,11 +5,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
-use aes::Aes256;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use bytes::{Bytes, BytesMut};
-use ctr::cipher::{KeyIvInit, StreamCipher};
 use flate2::Compression;
 use flate2::write::DeflateEncoder;
 use jolyne::batch::decode_batch;
@@ -37,8 +35,6 @@ use sha2::{Digest, Sha256};
 use valentine::bedrock::codec::BedrockCodec;
 use valentine::protocol::wire;
 
-type Aes256Ctr = ctr::Ctr32BE<Aes256>;
-
 #[path = "login_state/camera_instructions.rs"]
 mod camera_instructions;
 #[path = "login_state/disconnect_reason.rs"]
@@ -49,10 +45,13 @@ mod item_registry;
 mod level_chunk_wire_failure;
 #[path = "login_state/modal_forms.rs"]
 mod modal_forms;
+#[path = "login_state/script_crypto.rs"]
+mod script_crypto;
 use disconnect_reason::{
     PlayEpilogue, boundary_epilogue_packets, camera_instruction_epilogue_packets,
     truncated_epilogue_wire,
 };
+use script_crypto::ScriptCrypto;
 
 const RUNTIME_ID: u64 = 0x1234_5678;
 const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
@@ -163,6 +162,12 @@ impl ScriptTransport {
             ))),
         }
     }
+
+    /// Answers Login with LoginSuccess directly, as the core's private listener does.
+    fn without_encryption(self) -> Self {
+        self.script.lock().expect("script lock").skip_encryption = true;
+        self
+    }
 }
 
 impl Transport for ScriptTransport {
@@ -210,6 +215,7 @@ struct ServerScript {
     stage: u8,
     inbound: VecDeque<Bytes>,
     crypto: Option<ScriptCrypto>,
+    skip_encryption: bool,
 }
 
 impl ServerScript {
@@ -232,6 +238,7 @@ impl ServerScript {
             stage: 0,
             inbound: VecDeque::new(),
             crypto: None,
+            skip_encryption: false,
         }
     }
 
@@ -269,6 +276,16 @@ impl ServerScript {
                     ] => login,
                     other => panic!("expected Login, got {other:?}"),
                 };
+                if self.skip_encryption {
+                    self.enqueue_encrypted(&[
+                        McpePacket::from(PlayStatusPacket {
+                            status: PlayStatusPacketStatus::Loginsuccess,
+                        }),
+                        McpePacket::from(ResourcePacksInfoPacket::default()),
+                    ]);
+                    self.stage = 3;
+                    return;
+                }
                 let client_public_key =
                     login_public_key(&identity_chain(&login.connection_request));
                 let (handshake, crypto) = server_handshake(client_public_key);
@@ -640,13 +657,7 @@ impl ServerScript {
                         ..
                     }]
                 ));
-                let malformed = Bytes::from_static(&[0xfe, 0x7f]);
-                let encrypted = self
-                    .crypto
-                    .as_mut()
-                    .expect("crypto")
-                    .encrypt_server(malformed);
-                self.inbound.push_back(encrypted);
+                self.enqueue_session_frame(Bytes::from_static(&[0xfe, 0x7f]));
                 self.stage = 9;
             }
             other => panic!("unexpected client frame in server stage {other}"),
@@ -660,77 +671,32 @@ impl ServerScript {
         ));
     }
 
+    // The `encrypted` helpers stay clear when the script skipped the handshake.
     fn enqueue_encrypted(&mut self, packets: &[McpePacket]) {
         let clear = encode_server_batch(packets, Some(self.mode));
-        let encrypted = self.crypto.as_mut().expect("crypto").encrypt_server(clear);
-        self.inbound.push_back(encrypted);
+        self.enqueue_session_frame(clear);
     }
 
     fn enqueue_encrypted_raw_packet(&mut self, id: McpePacketName, body: &[u8]) {
         let clear = encode_server_raw_packet(id, body, self.mode);
-        let encrypted = self.crypto.as_mut().expect("crypto").encrypt_server(clear);
-        self.inbound.push_back(encrypted);
+        self.enqueue_session_frame(clear);
+    }
+
+    fn enqueue_session_frame(&mut self, clear: Bytes) {
+        let frame = match self.crypto.as_mut() {
+            Some(crypto) => crypto.encrypt_server(clear),
+            None => clear,
+        };
+        self.inbound.push_back(frame);
     }
 
     fn decode_encrypted_client(&mut self, frame: Bytes) -> Vec<McpePacket> {
-        let clear = self.crypto.as_mut().expect("crypto").decrypt_client(frame);
+        let clear = match self.crypto.as_mut() {
+            Some(crypto) => crypto.decrypt_client(frame),
+            None => frame,
+        };
         decode_clear(clear, true)
     }
-}
-
-struct ScriptCrypto {
-    key: [u8; 32],
-    decrypt_client: Aes256Ctr,
-    encrypt_server: Aes256Ctr,
-    client_counter: u64,
-    server_counter: u64,
-}
-
-impl ScriptCrypto {
-    fn new(key: [u8; 32]) -> Self {
-        let mut iv = [0u8; 16];
-        iv[..12].copy_from_slice(&key[..12]);
-        iv[15] = 2;
-        Self {
-            key,
-            decrypt_client: Aes256Ctr::new_from_slices(&key, &iv).expect("fixed key and IV"),
-            encrypt_server: Aes256Ctr::new_from_slices(&key, &iv).expect("fixed key and IV"),
-            client_counter: 0,
-            server_counter: 0,
-        }
-    }
-
-    fn decrypt_client(&mut self, frame: Bytes) -> Bytes {
-        let mut frame = BytesMut::from(frame.as_ref());
-        assert_eq!(frame.first().copied(), Some(0xfe));
-        self.decrypt_client.apply_keystream(&mut frame[1..]);
-        assert!(frame.len() >= 9);
-        let checksum_at = frame.len() - 8;
-        let expected = checksum(self.client_counter, &frame[1..checksum_at], &self.key);
-        assert_eq!(&frame[checksum_at..], &expected);
-        self.client_counter += 1;
-        frame.truncate(checksum_at);
-        frame.freeze()
-    }
-
-    fn encrypt_server(&mut self, frame: Bytes) -> Bytes {
-        let mut frame = BytesMut::from(frame.as_ref());
-        assert_eq!(frame.first().copied(), Some(0xfe));
-        let sum = checksum(self.server_counter, &frame[1..], &self.key);
-        self.server_counter += 1;
-        frame.extend_from_slice(&sum);
-        self.encrypt_server.apply_keystream(&mut frame[1..]);
-        frame.freeze()
-    }
-}
-
-fn checksum(counter: u64, data: &[u8], key: &[u8; 32]) -> [u8; 8] {
-    let mut digest = Sha256::new();
-    digest.update(counter.to_le_bytes());
-    digest.update(data);
-    digest.update(key);
-    let digest = digest.finalize();
-    digest[..8].try_into().expect("eight bytes")
 }
 
 fn decode_clear(mut frame: Bytes, compressed: bool) -> Vec<McpePacket> {
@@ -908,7 +874,10 @@ fn item_registry() -> McpePacket {
 }
 
 async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
-    let transport = ScriptTransport::new(mode, order, false);
+    assert_transport_success(ScriptTransport::new(mode, order, false)).await;
+}
+
+async fn assert_transport_success(transport: ScriptTransport) {
     let (mut session, game_data) = LoginSequence::connect_transport(transport, "RustClient")
         .await
         .expect("scripted login");
@@ -1024,6 +993,16 @@ async fn snappy_login_waits_for_spawn_then_radius_and_emits_encrypted_snappy_ack
 #[tokio::test]
 async fn no_compression_login_uses_the_uncompressed_batch_marker() {
     assert_success(CompressionMode::None, SpawnOrder::RadiusThenSpawn).await;
+}
+
+/// The core's private listener never sends ServerToClientHandshake; login must still reach Play.
+#[tokio::test]
+async fn login_without_server_handshake_stays_clear_and_enters_play() {
+    assert_transport_success(
+        ScriptTransport::new(CompressionMode::None, SpawnOrder::RadiusThenSpawn, false)
+            .without_encryption(),
+    )
+    .await;
 }
 
 #[tokio::test]

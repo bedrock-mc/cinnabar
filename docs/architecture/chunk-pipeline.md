@@ -25,7 +25,7 @@ the captured session and registry identities, to every decode job. Registry
 provenance logging stays beside remap updates. The pipeline dispatches those jobs
 without keeping a second registry or diagnostic budget. The bounded sampling and
 unknown-ID air fallback retain the behavior and references documented in the
-[Lifeboat investigation](../evidence/lifeboat-offline.md#vanilla-references).
+[Lifeboat investigation](../evidence/lifeboat-offline.md#vanilla-rules).
 
 The coordinator still decides relevance and mutation order. It applies each
 accepted mutation synchronously before invalidating lighting, mesh or block-entity
@@ -84,22 +84,17 @@ when they only need authority. This adapter owns no duplicate state.
 ## References and verification scope
 
 This is an ownership migration, with no new vanilla behavior or parity claim.
-The original behavior and reference comments move with their owners. Scheduling
-and completion roles are consistent with these identified references:
+The original behavior comments move with their owners.
 
-- Lens reconstructed client `1.26.50.26`, artifact 6: source search followed by
-  source-backed raw reads of `RenderChunkShared::startRebuild` (RVA `0x1ef8770`)
-  and `RenderChunkShared::endRebuild` (RVA `0x1ef96f0`). They identify main-thread
-  rebuild setup, exclusive in-progress geometry and completion prerequisites.
-- **R:RenderChunkShared:383**, **R:RenderChunkShared:390** and
-  **R:RenderChunkShared:628** identify main-thread setup and completion.
-  **R:RenderChunkShared:637–657** describes completion prerequisites/order.
-- **R:RenderChunkCoordinator:878–907** handles loaded subchunks and dirty work;
-  **R:NetworkChunkSubscriber:75–99** moves the retained view as its center changes;
-  **R:ChunkViewSource:1147** invokes grid movement. Reference root:
-  `~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src/by-owner`.
-- Pack inputs and their vanilla source references are recorded in
-  [the pack migration](pack-compiler.md#references-and-parity-scope).
+## Vanilla rules
+
+| Rule | Behaviour |
+| --- | --- |
+| Rebuild ownership | Setup and completion run on the main thread, with exclusive in-progress geometry and ordered completion prerequisites. |
+| Dirty work | Loaded subchunks and dirty work are coordinated together. |
+| Retained view | The subscribed view moves its grid when its center changes. |
+
+Pack inputs are recorded in [the pack migration](pack-compiler.md#references-and-parity-scope).
 
 The numeric queue and work budgets remain Cinnabar's existing bounds; this work
 does not claim they are vanilla constants. Moved tests cover ordering, admission,

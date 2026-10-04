@@ -210,9 +210,9 @@ fn player_column_witness_uses_subject_not_third_person_camera_boom() {
 fn serialized_phase2_path_reads_the_frozen_local_subject_column() {
     let source = include_str!("../runtime/telemetry.rs");
     let record = source
-        .split("pub(crate) fn record_metrics_and_title")
+        .split("pub(crate) fn record_metrics(")
         .nth(1)
-        .expect("record_metrics_and_title source")
+        .expect("record_metrics source")
         .split_once("\n    if client_world.stream.is_some()")
         .expect("phase-2 evidence ends before gameplay visibility counters")
         .0;
@@ -409,11 +409,11 @@ fn phase2_key_manifest_identity_does_not_change_with_observation_frame() {
 fn phase2_frame_metrics_observe_the_real_clock() {
     let source = include_str!("../runtime/telemetry.rs");
     let function = source
-        .split_once("pub(crate) fn record_metrics_and_title(")
-        .expect("record_metrics_and_title definition")
+        .split_once("pub(crate) fn record_metrics(")
+        .expect("record_metrics definition")
         .1
         .split_once(") {")
-        .expect("record_metrics_and_title signature")
+        .expect("record_metrics signature")
         .0;
     assert!(
         function.contains("time: Res<Time<Real>>"),

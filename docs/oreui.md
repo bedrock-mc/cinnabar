@@ -12,9 +12,7 @@ deviation). A dev-only mode can load the install's originals for comparison (bel
 The client picks a tech stack per screen (`ScreenTechStackSelector::getTechStackForScreen`): a
 non-zero dev override wins (1 OreUI, 2 JSON-UI), then a preference option, then the screen's
 `isSelected() && isSupported()`. Treatment toggles are true only when the service's treatment list
-names them, so they default off. Evidence: the 26.30 reconstruction
-(`ScreenTechStackSelectorInitializer`, `TreatmentFlightingToggles`, `DisconnectionRequestHandler`,
-`OreUIGameplayUtils`) and the local install's `routes.json`.
+names them, so they default off. The local install's `routes.json` lists screen routes.
 
 | Screen | Route | Default | Cinnabar |
 | --- | --- | --- | --- |
@@ -54,7 +52,7 @@ widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.
 - Bed: text colour and secondary-button theme colours (unrecovered).
 - Death: the radial vignette (drawn as nested bands), title and button placement, the missing
   death message and hardcore variant.
-- Profile: the source-backed card, Overview and Stats layout is implemented. Matched vanilla
+- Profile: the vanilla card, Overview and Stats layout is implemented. Matched vanilla
   captures, full navigation, screenshot persistence, privacy/offline distinctions and achievement
   reward/progress metadata remain incomplete; see `profile-parity.md` and `../plan.md`.
 - Inbox: category menu, card layout, the Recent/History split.

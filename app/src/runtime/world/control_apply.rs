@@ -1,5 +1,5 @@
-use bevy::log::{debug, info};
-use client_world::{CommittedControlEvent, WorldStream};
+use bevy::log::info;
+use client_world::CommittedControlEvent;
 
 use crate::camera::CameraSettingsAuthority;
 use crate::local_player::LocalViewPose;
@@ -71,30 +71,4 @@ pub(crate) fn apply_committed_control(
     };
     view.set_eye_translation(bevy::prelude::Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;
-}
-
-/// Replays prediction after a timeline edit at `rewind`; false when the replay
-/// failed and the edit only reaches live state.
-pub(super) fn replay_timeline_edit(
-    movement: &mut crate::movement::MovementTicker,
-    physics: &mut crate::movement::LocalPhysicsController,
-    stream: &WorldStream,
-    collisions: &crate::movement::PhysicsCollisionRegistries,
-    rewind: u64,
-) -> bool {
-    let world = sim::PaletteWorld::new(
-        stream.collision_store(),
-        collisions.registry(stream.network_id_mode()),
-        stream.current_dimension(),
-    );
-    match crate::movement::reconcile_timeline_rewind(movement, physics, rewind, &world) {
-        Ok(_) => true,
-        Err(fault) => {
-            debug!(
-                ?fault,
-                rewind, "timeline replay failed; the edit applies live only"
-            );
-            false
-        }
-    }
 }

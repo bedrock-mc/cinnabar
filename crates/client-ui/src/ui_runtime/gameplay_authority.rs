@@ -280,15 +280,15 @@ impl UiRuntime {
         self.last_health_drop_millis
     }
 
-    /// Millis timestamp when the selected stack's item identity last changed,
-    /// for the Java-style selected-item label fade.
+    /// Millis timestamp when the selected slot or item identity last changed,
+    /// for the selected-item label fade.
     pub const fn selected_item_changed_millis(&self) -> Option<u64> {
         self.last_selected_identity_change_millis
     }
 
     /// Refreshes the selected-item identity clock. Runs before presentation so
-    /// the label timer starts when the authoritative selection (slot or
-    /// contents) changes, exactly like the Java reference behavior.
+    /// the label timer starts when the selection or item identity changes.
+    /// Bedrock's GuiData tick notices slot changes even between identical items.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn observe_selected_item_identity(
         &mut self,
@@ -296,15 +296,20 @@ impl UiRuntime {
         now_millis: u64,
     ) {
         let identity = self
-            .selected_stack(player_runtime)
-            .map(|stack| (stack.network_id, stack.metadata));
+            .selected_stack_snapshot(player_runtime)
+            .and_then(|snapshot| match snapshot.state {
+                super::inventory_ledger::PlayerInventorySlot::Present(stack) => {
+                    Some((snapshot.slot, stack.network_id, stack.metadata))
+                }
+                _ => None,
+            });
         self.observe_selected_item_identity_value(identity, now_millis);
     }
 
     /// Updates the selected-item clock from an already-sampled frame identity.
     pub fn observe_selected_item_identity_value(
         &mut self,
-        identity: Option<(i32, u32)>,
+        identity: Option<(u8, i32, u32)>,
         now_millis: u64,
     ) {
         if identity != self.last_selected_identity {

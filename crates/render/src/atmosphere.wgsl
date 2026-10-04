@@ -20,8 +20,9 @@ struct AtmosphereUniform {
 @group(0) @binding(5) var end_sky_texture: texture_2d<f32>;
 @group(0) @binding(6) var<storage, read> stars: array<vec4<f32>>;
 
-// Target 1.26.50.26 directional-light builder04e47ed0 passes these angular
-// diameters to04e99330, which scales the ±.5 quad by2*distance*tan(diameter/2).
+// Target 1.26.50.26 directional-light builder passes these angular
+// diameters to the orbital transform, which scales the ±.5 quad by
+// 2*distance*tan(diameter/2).
 const SUN_HALF_EXTENT: f32 = tan(28.08 * 0.0174532924 * 0.5);
 const MOON_HALF_EXTENT: f32 = tan(18.924 * 0.0174532924 * 0.5);
 // Vanilla dims the End sky texture to roughly this fraction of its stored brightness.
@@ -39,7 +40,7 @@ fn atmosphere_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
         let angle = atmosphere.sky_extra.y * 6.283185307;
         let cosine = cos(angle);
         let sine = sin(angle);
-        // R:l/LevelRendererCamera.cpp:6765 rotates the star mesh around +Z.
+        // LevelRendererCamera rotates the star mesh around +Z.
         let sky = vec3(star.x * cosine - star.y * sine, star.y * cosine + star.x * sine, star.z);
         var clip = view.clip_from_world * vec4(sky + view.world_position, 1.0);
         clip.z = 0.0;
@@ -60,8 +61,8 @@ fn view_ray(position: vec2<f32>) -> vec3<f32> {
     return normalize((view.world_from_view * vec4(view_direction, 0.0)).xyz);
 }
 
-// Current 1.26.50.26 buildSkyMesh (04ea6ea0) has red0 at its centre and
-// red1 at this decagon rim. renderSky (04e34e40) places its plane at Y256
+// Current 1.26.50.26 buildSkyMesh has red0 at its centre and
+// red1 at this decagon rim. renderSky places its plane at Y256
 // and scales XZ by2000. Intersecting the view ray and evaluating the fan's
 // barycentrics reproduces its perspective-interpolated vertex red without
 // allocating or drawing another mesh. Beyond its rim the fog colour remains.
@@ -95,8 +96,8 @@ fn native_sky_fog_weight(ray: vec3<f32>) -> f32 {
     return 1.0;
 }
 
-// The stock orbital transform04e99330 keeps local-X on−Z through the whole
-// orbit. buildSunAndMoonQuad04ea88d0 maps−X→u1 and−Z→v0, hence fixed+Z
+// The stock orbital transform keeps local-X on−Z through the whole
+// orbit. buildSunAndMoonQuad maps−X→u1 and−Z→v0, hence fixed+Z
 // image-right and this rotating image-down basis. A world-up cross product
 // instead flips both texture axes as the celestial body crosses the zenith.
 fn celestial_uv(ray: vec3<f32>, direction: vec3<f32>, half_extent: f32) -> vec3<f32> {
@@ -109,16 +110,16 @@ fn celestial_uv(ray: vec3<f32>, direction: vec3<f32>, half_extent: f32) -> vec3<
     return vec3(local * 0.5 + vec2(0.5), coverage);
 }
 
-// Current orbital source02606860→04e99330 stores the eased day angle in
-// degrees (moon offset180). Ordinary renderSunAndMoon04e3a330 admits the
-// sprite through105/255, without any horizon-height alpha interpolation.
+// Current orbital calculation stores the eased day angle in
+// degrees (moon offset 180). Ordinary renderSunAndMoon admits the
+// sprite through 105/255, without any horizon-height alpha interpolation.
 fn celestial_visibility(phase_offset: f32) -> f32 {
     let half_angle = atmosphere.sky_extra.y * 3.141592741;
     let degrees = ((half_angle + half_angle) * 57.2957763671875 + phase_offset) % 360.0;
     return select(0.0, 1.0, degrees <= 105.0 || degrees >= 255.0);
 }
 
-// Target renderSunAndMoon04e3a330 scales the stock celestial alpha by
+// Target renderSunAndMoon scales the stock celestial alpha by
 // clamp(1−2*interpolatedRain,0,1). SunMoon's fragment shader multiplies
 // colour by the sampled RGBA, and its material blends SourceAlpha→One.
 fn celestial_weather_alpha() -> f32 {

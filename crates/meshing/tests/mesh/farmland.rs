@@ -2,6 +2,7 @@ struct CompiledFarmlandFixture {
     assets: RuntimeAssets,
     air: NetworkValues,
     farmland: [NetworkValues; 8],
+    wheat: [NetworkValues; 8],
     cube: NetworkValues,
     water: NetworkValues,
 }
@@ -14,6 +15,7 @@ fn write_farmland_render_pack(root: &Path, cube_name: &str) {
             r#"{{
                 "farmland":{{"textures":{{"down":"farmland_side","side":"farmland_side","up":"farmland"}}}},
                 "water":{{"textures":"water"}},
+                "wheat":{{"textures":"wheat"}},
                 "{cube_name}":{{"textures":"cube"}}
             }}"#
         ),
@@ -25,17 +27,24 @@ fn write_farmland_render_pack(root: &Path, cube_name: &str) {
             "farmland_side":{"textures":"textures/blocks/dirt"},
             "farmland":{"textures":["textures/blocks/farmland_wet","textures/blocks/farmland_dry"]},
             "water":{"textures":"textures/blocks/water"},
-            "cube":{"textures":"textures/blocks/cube"}
+            "cube":{"textures":"textures/blocks/cube"},
+            "wheat":{"textures":[
+                "textures/blocks/wheat0","textures/blocks/wheat1",
+                "textures/blocks/wheat2","textures/blocks/wheat3",
+                "textures/blocks/wheat4","textures/blocks/wheat5",
+                "textures/blocks/wheat6","textures/blocks/wheat7"
+            ]}
         }}"#,
     )
     .expect("write farmland terrain routing");
     fs::write(root.join("textures/flipbook_textures.json"), "[]")
         .expect("write farmland empty flipbooks");
-    for (index, name) in ["dirt", "farmland_wet", "farmland_dry", "water", "cube"]
+    for (index, name) in ["dirt", "farmland_wet", "farmland_dry", "water", "cube",
+        "wheat0", "wheat1", "wheat2", "wheat3", "wheat4", "wheat5", "wheat6", "wheat7"]
         .into_iter()
         .enumerate()
     {
-        let rgba = vec![25 + index as u8 * 30, 70, 110, 255]
+        let rgba = vec![25 + index as u8 * 15, 70, 110, 255]
             .into_iter()
             .cycle()
             .take(16 * 16 * 4)
@@ -52,8 +61,19 @@ fn write_farmland_render_pack(root: &Path, cube_name: &str) {
 fn compiled_farmland_fixture() -> &'static CompiledFarmlandFixture {
     static FIXTURE: OnceLock<CompiledFarmlandFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
-            .expect("decode farmland registry");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let target: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(root.join("assets/bedrock-target.json"))
+                .expect("read target manifest"),
+        )
+        .expect("decode target manifest");
+        let bytes = fs::read(root.join(target["artifacts"]["block_registry"].as_str().unwrap()))
+            .expect("read target registry");
+        let records = assets::read_registry_for_protocol(
+            &bytes,
+            target["wire_protocol"].as_u64().unwrap() as u32,
+        )
+        .expect("decode farmland registry");
         let air = records
             .iter()
             .find(|record| record.name.as_ref() == "minecraft:air")
@@ -97,7 +117,6 @@ fn compiled_farmland_fixture() -> &'static CompiledFarmlandFixture {
                 farmland[amount].model_state.get(ModelStateField::Growth),
                 Some(amount as u32)
             );
-            assert_eq!(farmland[amount].sequential_id, 6_122 + amount as u32);
             values(&farmland[amount])
         });
         let air_values = values(&air);
@@ -106,11 +125,17 @@ fn compiled_farmland_fixture() -> &'static CompiledFarmlandFixture {
         let cube_name = cube.name.strip_prefix("minecraft:").unwrap();
         let directory = tempfile::tempdir().expect("farmland fixture directory");
         write_farmland_render_pack(directory.path(), cube_name);
-        let mut selected = Vec::with_capacity(11);
+        let mut wheat = records.iter().filter(|record| record.name.as_ref() == "minecraft:wheat")
+            .cloned().collect::<Vec<_>>();
+        wheat.sort_unstable_by_key(|record| record.model_state.get(ModelStateField::Growth).unwrap());
+        assert_eq!(wheat.len(), 8);
+        let wheat_values = std::array::from_fn(|stage| values(&wheat[stage]));
+        let mut selected = Vec::with_capacity(19);
         selected.push(air);
         selected.extend(farmland);
         selected.push(cube);
         selected.push(water);
+        selected.extend(wheat);
         let compiled = compile_pack(directory.path(), &selected).expect("compile farmland fixture");
         let assets =
             RuntimeAssets::decode(&encode_blob(&compiled).expect("encode farmland fixture"))
@@ -134,6 +159,7 @@ fn compiled_farmland_fixture() -> &'static CompiledFarmlandFixture {
             assets,
             air: air_values,
             farmland: farmland_values,
+            wheat: wheat_values,
             cube: cube_values,
             water: water_values,
         }
@@ -235,6 +261,51 @@ fn compiled_farmland_meshes_equivalently_by_sequential_id_and_hash() {
                 assert_eq!(&streams, expected, "mode={mode:?} amount={amount}");
             } else {
                 witness = Some(streams);
+            }
+        }
+    }
+}
+
+#[test]
+fn compiled_wheat_rows_touch_farmland_inside_and_across_subchunks() {
+    let fixture = compiled_farmland_fixture();
+    for stage in 0..8 {
+        for position in [[7, 8, 9], [7, 0, 9], [0, 0, 0], [15, 15, 15]] {
+            let mut witness = None;
+            for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+                let [x, y, z] = position;
+                let mut placements = vec![(position, fixture.wheat[stage])];
+                let below = farmland_sub_chunk(mode, &[([x, 15, z], fixture.farmland[7])], &[]);
+                let neighbours = if y == 0 {
+                    neighbourhood_for(Face::NegativeY, &below)
+                } else {
+                    placements.push(([x, y - 1, z], fixture.farmland[7]));
+                    Neighbourhood::empty()
+                };
+                let mesh = mesh_farmland(mode, &placements, &[], &neighbours);
+                assert!(mesh.cube_quads().is_empty());
+                assert!(mesh.transparent_model_draw_refs().is_empty());
+                let template = fixture.assets.resolve(mode, fixture.wheat[stage].for_mode(mode))
+                    .model_template().unwrap();
+                let model = mesh.model_refs().iter().find(|model| model.words()[1] == template).unwrap();
+                assert_eq!(model.words()[0], u32::from(x) | (u32::from(y) << 4) | (u32::from(z) << 8));
+                assert_eq!(model.words()[3], 0xf);
+                let expected_quads = if y == 0 { 4 } else { 10 };
+                assert_eq!(mesh.model_draw_refs().len(), expected_quads);
+                assert_eq!(mesh.model_lighting().len(), expected_quads);
+                let descriptor = fixture.assets.model_templates()[template as usize];
+                let quads = &fixture.assets.model_quads()[descriptor.quad_start as usize..(descriptor.quad_start + descriptor.quad_count) as usize];
+                assert_eq!(quads.len(), 4);
+                let soil_top = (i16::from(y) - 1) * 256 + 240;
+                for quad in quads {
+                    assert_eq!(quad.positions.iter().map(|p| i16::from(y) * 256 + p[1]).min(), Some(soil_top));
+                }
+                let streams = (mesh.model_refs().to_vec(), mesh.model_draw_refs().to_vec(), mesh.model_lighting().to_vec());
+                if let Some(expected) = &witness {
+                    assert_eq!(&streams, expected);
+                } else {
+                    witness = Some(streams);
+                }
             }
         }
     }

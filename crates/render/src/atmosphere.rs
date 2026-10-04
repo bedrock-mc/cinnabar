@@ -166,7 +166,7 @@ pub fn cloud_colour(celestial_angle: f32, rain: f32, thunder: f32, sunrise: [f32
 }
 
 fn cloud_base_colour(angle: f32, rain: f32, thunder: f32) -> [f32; 3] {
-    // Current DimensionClientUtils06c320c0, classic non-custom branch:
+    // Current DimensionClientUtils, classic non-custom branch:
     // rain first, then day RGB multipliers, then thunder's luminance pull.
     let angle = if angle.is_finite() { angle } else { 0.0 };
     let rain = bounded_level(rain) * WEATHER_COLOUR_CONTRIBUTION;
@@ -708,7 +708,7 @@ impl AtmosphereFrame {
         -self.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD as f32
     }
 
-    /// LevelRenderer::tick (04fd5020) drives clouds even while daylight is paused.
+    /// LevelRenderer::tick drives clouds even while daylight is paused.
     #[must_use]
     pub fn with_cloud_renderer_ticks(mut self, ticks: f64) -> Self {
         self.fog_end_time.z = if ticks.is_finite() {
@@ -764,7 +764,7 @@ fn overworld_zenith(angle: f32, temperature: f32, thunder: f32) -> [f32; 3] {
 }
 
 fn native_sky_colour(base: [f32; 3], thunder: f32) -> [f32; 3] {
-    // getInterpolatedSkyColor06c326f0 also mixes precipitation fog before thunder.
+    // getInterpolatedSkyColor also mixes precipitation fog before thunder.
     // That stage waits for Weather+0x4c/current-rain view inputs after profile resolution.
     // with_camera_environment restores its equivalent ordering before camera glare.
     // Outdoor ambient is 1; native culler-list camera exposure is a separate gate.

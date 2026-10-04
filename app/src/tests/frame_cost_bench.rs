@@ -99,7 +99,7 @@ fn frame_cost_bench_block_entity_scene_400_static() {
     let chests: Vec<BlockEntitySubmission> = (0..400)
         .map(|index| BlockEntitySubmission {
             block: [index % 20, 64, index / 20],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::Chest(render::ChestModel {
                 variant: render::ChestVariant::Normal,
                 facing: render::Facing::North,
@@ -114,7 +114,7 @@ fn frame_cost_bench_block_entity_scene_400_static() {
         let frame: Vec<_> = chests
             .iter()
             .map(|chest| BlockEntitySubmission {
-                light,
+                light: light.into(),
                 ..chest.clone()
             })
             .collect();

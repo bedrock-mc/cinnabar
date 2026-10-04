@@ -1,9 +1,5 @@
 //! Bounded ingress drains shared by the network runtime and acceptance tests.
 
-pub(crate) fn acceptance_surface_anchor(position: [f32; 3]) -> [i32; 2] {
-    [position[0].floor() as i32, position[2].floor() as i32]
-}
-
 pub(crate) fn drain_network_controls<T>(
     receiver: &mut tokio::sync::mpsc::Receiver<T>,
     budget: usize,

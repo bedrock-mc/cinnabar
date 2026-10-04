@@ -4,7 +4,7 @@ use crate::AssetError;
 /// Builds the native legacy terrain atlas's byte-space, unassociated RGBA mips.
 /// Each level averages the original pixels independently, not the previous mip.
 ///
-/// TextureAtlas::updateTextureAtUVs (1.26.50.26 RVA 0x08119570) samples a
+/// TextureAtlas::updateTextureAtUVs samples a
 /// `2^level` square, normalizes bytes, averages all four channels equally and
 /// truncates the final byte. It neither linearizes RGB nor rescales cutout alpha.
 /// The compiler uses separate world-leaf layers so carried/shared art retains

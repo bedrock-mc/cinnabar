@@ -44,7 +44,7 @@ pub(super) fn extract(value: &mut Value) -> Result<Vec<WeightedPath>, AssetError
             .or_else(|| alternative.get("path").and_then(Value::as_str))
             .ok_or_else(|| invalid("variation path is missing"))?;
         validate_texture_path(path)?;
-        // Lens 1.26.50.26 0x1a2ce10 clamps weights before 0x6487680 normalizes them.
+        // Vanilla clamps weights before normalizing them.
         let weight = if alternative.is_string() {
             1.0
         } else {

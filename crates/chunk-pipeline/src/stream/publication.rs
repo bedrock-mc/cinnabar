@@ -166,7 +166,6 @@ impl WorldStream {
         self.authority.advance_actor_interpolation_ticks(ticks)
     }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
-    /// Bedrock 1.26.50.26: AnimationComponent RVAs 0x1e019a0 and 0x1e13940.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
         self.authority.advance_actor_interpolation_frame(ticks)
     }
@@ -178,10 +177,10 @@ impl WorldStream {
     pub fn take_equipment_notices(&mut self) -> Vec<crate::EquipmentNotice> {
         self.authority.take_equipment_notices()
     }
-    /// Feet position of every tracked actor, for [`Self::set_actor_fluids`] sampling.
+    /// Body boxes for the native liquid probes backing [`Self::set_actor_fluids`].
     #[must_use]
-    pub fn actor_fluid_sample_points(&self) -> Vec<(u64, [f32; 3])> {
-        self.authority.actor_fluid_sample_points()
+    pub fn actor_fluid_probes(&self) -> Vec<client_world::ActorFluidProbe> {
+        self.authority.actor_fluid_probes()
     }
     /// Installs the per-mount seat layouts riders fall back to when the server streams no offset.
     pub fn set_actor_seat_defaults(&mut self, defaults: std::sync::Arc<crate::SeatDefaults>) {

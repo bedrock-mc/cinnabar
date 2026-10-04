@@ -107,6 +107,8 @@ pub struct SubChunkEntryEvent {
     /// Absolute sub-chunk coordinates in X/Y/Z order.
     pub position: [i32; 3],
     pub result: SubChunkResult,
+    /// Wire metadata, absent only for inputs without packet provenance.
+    pub diagnostics: Option<super::SubChunkDiagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -408,6 +410,8 @@ pub struct ActorPropertySyncEvent {
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
+    /// Advertised vertical bounds retained for diagnostics, without changing world limits.
+    DimensionHeights(Vec<super::DimensionHeightDiagnostic>),
     Experience(crate::ExperienceMessage),
     Abilities(crate::AbilitiesUpdate),
     BiomeDefinitions(BiomeDefinitionsEvent),

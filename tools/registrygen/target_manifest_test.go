@@ -230,12 +230,11 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 		}
 	}
 	consumers := map[string][]string{
-		"Makefile": {"assets/bedrock-target.json", target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "block-physics-v2193", "vanilla-v2193.mcbea"},
-		"app/src/asset_startup/world_provenance.rs":   {"block-registry-v2193.bin", "block-light-registry-v2193.bin", "biome-registry-v2193.bin", "bedrock-target.json"},
+		"Makefile":                                    {"assets/bedrock-target.json", target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "block-physics-v2193", "vanilla-v2193.mcbea"},
+		"crates/assets/src/pinned_content.rs":         {"block-registry-v2193.bin", "block-light-registry-v2193.bin", "biome-registry-v2193.bin", "bedrock-target.json"},
 		"app/src/install_layout.rs":                   {"launcher::install_layout"},
 		"crates/launcher/src/install_layout.rs":       {"block-physics-v2193.bin", "vanilla-v2193.mcbea"},
 		"tools/dist/src/layout.rs":                    {"block-physics-v2193.bin", "vanilla-v2193.mcbea"},
-		"app/src/metrics/diagnostics.rs":              {"block-registry-v2193.bin"},
 		"crates/pack-compiler/src/entity/item.rs":     {"block-registry-v2193.bin", "block-item-routes-v2193.json"},
 		"crates/asset-compiler/src/bin/assetc/cli.rs": {"vanilla-v2193.mcbea"},
 		"crates/protocol/Cargo.toml":                  {target.CodecFeature},

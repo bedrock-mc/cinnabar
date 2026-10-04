@@ -178,8 +178,7 @@ impl WindowKind {
     #[must_use]
     pub const fn open_cells(self) -> Option<OpenCells> {
         Some(match self {
-            // Native chest models use the reported container size (26.30
-            // ChestContainerManagerModel::_postInit, Lens @0x100e89ed0).
+            // Vanilla chest models use the reported container size.
             Self::Storage => OpenCells::Generic(&[9, 18, 27, 36, 45, 54]),
             Self::Dispenser | Self::Dropper => OpenCells::Generic(&[9]),
             Self::Hopper => OpenCells::Generic(&[5]),

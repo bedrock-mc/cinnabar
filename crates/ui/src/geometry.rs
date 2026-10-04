@@ -225,7 +225,7 @@ fn finite_in_range(value: f32, min: f32, max: f32) -> Result<f32, GeometryError>
     Ok(value)
 }
 
-/// `GuiData::GUI_SCALE_VALUES`, verified through Lens in Bedrock 26.30.
+/// Vanilla desktop GUI scale values.
 const DESKTOP_GUI_SCALE_VALUES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 /// Physical pixels per GUI pixel: Bedrock's desktop rule
@@ -245,9 +245,7 @@ pub fn gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 {
 }
 
 /// Desktop settings use a signed modifier relative to the optimal scale,
-/// rather than an absolute scale. Lens references:
-/// `GeneralSettingsScreenController::_getGUIScaleValues` and
-/// `GuiData::calculateGuiScale`. Desktop optimal and maximum scale share the
+/// rather than an absolute scale. Desktop optimal and maximum scale share the
 /// same 376-by-250 minimum viewport, with settings offering the upper half
 /// of the supported physical scale range.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

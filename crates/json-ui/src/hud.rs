@@ -2,8 +2,7 @@
 //! mapped onto the `#bindings`, collections, and factory-created controls the
 //! vanilla `hud_screen.json`, `scoreboards.json`, and `hud_crosshair_overlay.json`
 //! read, as the client's HUD and scoreboard screen controllers feed them.
-//! Binding and property-bag names are read from those files and the 26.30
-//! reconstruction of the HUD screen controller.
+//! Binding and property-bag names match those files and the vanilla HUD controller.
 
 use serde_json::Value;
 
@@ -199,6 +198,7 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
                 FactoryItem::new("item_text", 0.0)
                     .clocked(ITEM_NAME_CLOCK)
                     .named("item_name_text")
+                    .var("localize", Value::Bool(false))
                     .var("show_survival_padding", Value::Bool(model.survival_ui))
                     .var("show_text_background", Value::Bool(false))
                     .var("item_text_background_alpha", Value::from(0.0)),

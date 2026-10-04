@@ -2,8 +2,7 @@
 //!
 //! The last `ResourcePackStack` entry wins: the client builds its stack in list
 //! order (a pack's dependencies first) and resolves a resource from the highest
-//! index down. Behavior taken from the 26.30 Bedrock reconstruction; confirm
-//! with a live two-pack capture.
+//! index down. Confirm this vanilla behavior with a live two-pack capture.
 
 use std::{collections::BTreeSet, sync::Arc};
 

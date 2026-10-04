@@ -58,7 +58,7 @@ pub(in crate::compiler) fn compile_rule(
     Ok(CompileRuleResult::Compiled(visual))
 }
 
-/// Current native step/inner-piece helpers (1.26.50.26 RVAs 0a5b5090/0a5b5460)
+/// Current native step/inner-piece helpers
 /// read `minecraft:corner` directly. Cornerless legacy registries retain their
 /// neighbour-dependent template group; never silently treat an odd modern state
 /// as legacy.

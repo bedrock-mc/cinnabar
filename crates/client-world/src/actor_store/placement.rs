@@ -253,11 +253,18 @@ impl ActorStore {
         }
     }
 
-    /// Feet position of every tracked actor, for the caller's fluid sampling.
-    pub(crate) fn fluid_sample_points(&self) -> Vec<(u64, [f32; 3])> {
+    /// Authoritative body boxes for the caller's native liquid-contact sampling.
+    pub(crate) fn fluid_probes(&self) -> Vec<ActorFluidProbe> {
         self.actors
             .values()
-            .map(|actor| (actor.runtime_id, actor.position))
+            .filter_map(|actor| {
+                let (min, max) = actor.bounding_box()?;
+                Some(ActorFluidProbe {
+                    runtime_id: actor.runtime_id,
+                    min,
+                    max,
+                })
+            })
             .collect()
     }
 
@@ -319,6 +326,14 @@ impl ActorStore {
     }
 }
 
+/// Feet-anchored body bounds from retained collision metadata, for fluid animation queries.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorFluidProbe {
+    pub runtime_id: u64,
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -328,6 +343,30 @@ mod tests {
     use super::{FLAG_SADDLED, RideSeat, SeatDefaults, SeatRequirement, seat_world_offset};
     use crate::{ActorPose, ActorSnapshot};
     use protocol::ActorKind;
+
+    #[test]
+    fn actor_fluid_probes_use_the_streamed_body_bounds() {
+        use crate::actor_store::{
+            ActorStore, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
+            tests::spawn,
+        };
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn(7, 70));
+        let actor = store.actors.get_mut(&7).unwrap();
+        actor.metadata.insert(
+            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            ActorMetadataValue::Float(0.4),
+        );
+        actor.metadata.insert(
+            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            ActorMetadataValue::Float(0.4),
+        );
+        let probes = store.fluid_probes();
+        assert_eq!(probes.len(), 1);
+        assert_eq!(probes[0].runtime_id, 7);
+        assert_eq!(probes[0].min, [0.8, 2.0, 2.8]);
+        assert_eq!(probes[0].max, [1.2, 2.4, 3.2]);
+    }
 
     fn mount(flags: u64) -> ActorSnapshot {
         let pose = ActorPose {

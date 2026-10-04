@@ -33,6 +33,7 @@ fn block_entity_visual_diagnostics_follow_request_eviction_and_dimension_lifecyc
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [0, -4, 0],
                     result: SubChunkResult::Success { payload },
                 }],
@@ -285,6 +286,7 @@ fn inline_and_sub_chunk_ingestion_commit_sparse_block_entity_tails() {
         SubChunkBatchEvent {
             dimension: 0,
             entries: vec![SubChunkEntryEvent {
+                diagnostics: None,
                 position: [sub_chunk.x, sub_chunk.y, sub_chunk.z],
                 result: SubChunkResult::Success { payload },
             }],

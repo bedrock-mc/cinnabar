@@ -1,7 +1,6 @@
 # View-bobbing preference and the hand rig
 
-Lens's reconstructed Bedrock 1.26.50.26 client indexes the hand-render function
-at RVA `0x502150`, including its assignment to `variable.bob_animation`.
+The vanilla hand renderer assigns `variable.bob_animation`.
 Cinnabar's authored player animations consume that Molang variable separately
 from the camera's bob transform. Disabling only the camera transform leaves the
 hand's authored movement running.

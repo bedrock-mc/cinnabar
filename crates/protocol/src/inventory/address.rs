@@ -1,8 +1,7 @@
 //! The one canonical container-address projection.
 //!
-//! The vanilla client routes inventory traffic by two rules, established from
-//! the 26.30 client's InventoryContent and InventorySlot handlers (Lens RVA
-//! 0x10356ed50 and 0x10356d350). `InventoryContent`/`InventorySlot` carry a
+//! The vanilla client routes inventory traffic by two rules.
+//! `InventoryContent`/`InventorySlot` carry a
 //! legacy window id and route by it alone — window 0 fills the player
 //! inventory, the offhand and armor legacy windows their surfaces, and other
 //! windows the open or dynamic container — consulting the packet's

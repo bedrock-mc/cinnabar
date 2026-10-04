@@ -10,17 +10,15 @@ Cold texture misses decode in increasing source area, with a stable key tie-brea
 The decode budget starts after source lookup. This lets small backdrops and animation
 strips become resident before a large logo consumes the inline budget.
 
-## Vanilla references
+## Vanilla rules
 
-- Lens `L:1.26.50.26:0x4d571c0` reads `tiled_scale` and identifies
-  `SpriteComponent::setTiledScale`; `L:1.26.50.26:0x4d56ee0` reads gradient
-  direction and its two colors. `L:1.26.50.26:0x4d33810` identifies
-  `UIAnimationComponent::_createAnimation` and reads flip-book frame parameters.
-  The analysis service was unavailable; these were read through the source-backed
-  artifact catalog after an `analysis_batch` attempt.
-- mcsrc `R:s/SpriteComponent.cpp:3357` multiplies tile dimensions by the tile scale;
-  `R:g/GradientRenderer.cpp:112` selects vertical or horizontal gradient drawing.
-  `R:w/WorldGenerationProgressHandler.cpp:253` selects the building-terrain message.
+| Rule | Behaviour |
+| --- | --- |
+| Tiled sprites | Read `tiled_scale` and multiply tile dimensions by it. |
+| Gradients | Read direction and two colors; select vertical or horizontal drawing. |
+| Flip books | Read frame parameters when creating the animation. |
+| Loading text | Select the building-terrain message during world generation. |
+
 - The pinned vanilla pack's `ui/progress_screen.json:1215` declares the 2× tiled
   overworld dirt backdrop and black gradient alpha 0.5 to 0.7.
   `ui/ui_common.json:2244` supplies the tiled image base. The flip-book at
@@ -77,11 +75,9 @@ An isolated cancellation soak replaces one 64x64 texture 2,000 times. Baseline
 path without waiting for final packing. Harnesses and logs are under
 `/private/tmp/cinnabar-growth/`.
 
-The Lens 1.26.50.26 `mce::TextureGroup::enableLRUCache` at `0x1035f5230` installs a
-bounded cache with a texture eviction callback; the same reconstruction is
-`R:t/TextureGroup--d5096247264e.cpp:4823`. Texture replacement/unload is also explicit
-at `R:t/TextureGroup--d5096247264e.cpp:1294`. These support resource lifetime
-management, not an assertion that vanilla uses Cinnabar's 160-entry budget.
+Vanilla uses a bounded texture cache with an eviction callback and explicit
+texture replacement/unload. This supports resource lifetime management, not an
+assertion that vanilla uses Cinnabar's 160-entry budget.
 The pinned vanilla 1.26.50.4 pack's `ui/hud_screen.json:949` destroys completed
 chat factory controls, and `ui/server_form.json:25` creates form controls through
 its factory. Cache eviction changes neither those control lifetimes nor screen
@@ -101,9 +97,8 @@ and Rayon versions. Sampled peak RSS is 430,816 KiB on `199e0856`, 923,888 KiB o
 `18f3509a`, and 134,752 KiB after serializing decoding. Sampled process thread
 counts are 14, 14 and 2 respectively. All three produce eight images totaling
 33,423,488 pixel bytes. These are isolated decoder process measurements, not
-whole-client thread counts or proof of a GPU-driver hang. The reconstruction's
-texture image cache is resource-location keyed
-(`R:t/TextureGroupImageCache.cpp:41`); no authored UI or texture selection changes.
+whole-client thread counts or proof of a GPU-driver hang. The vanilla
+texture image cache is resource-location keyed; no authored UI or texture selection changes.
 
 ## Startup page insertion and live-order replay
 

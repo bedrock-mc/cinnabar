@@ -1766,6 +1766,42 @@ mod tests {
         }
     }
 
+    /// The core serves local packs at the receiver's chunk cap, so that size must reassemble.
+    #[tokio::test]
+    async fn pack_handoff_accepts_chunks_at_the_size_cap() {
+        let id = Uuid::new_v4();
+        let data: Vec<u8> = (0..MAX_RESOURCE_PACK_CHUNK_BYTES as usize * 5 / 2)
+            .map(|index| (index * 31 % 251) as u8)
+            .collect();
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: vec![test_pack_info(id, &data, "", "bounded-key")],
+            ..Default::default()
+        });
+        let mut inbound = vec![uncompressed_frame(&[info])];
+        inbound.extend(
+            test_pack_packets(id, &data, MAX_RESOURCE_PACK_CHUNK_BYTES)
+                .into_iter()
+                .map(|packet| uncompressed_frame(&[packet])),
+        );
+        inbound.push(uncompressed_frame(&[McpePacket::from(
+            crate::valentine::ResourcePackStackPacket {
+                texture_pack_list: vec![crate::valentine::PackInstanceId {
+                    pack_id: id.to_string(),
+                    version: "1.0.0".into(),
+                    sub_pack_name: String::new(),
+                }],
+                ..Default::default()
+            },
+        )]));
+        let start = resource_pack_stream(inbound)
+            .handle_packs()
+            .await
+            .expect("cap-sized chunks must download");
+        let archives = start.state.resource_pack_handoff.unwrap().into_archives();
+        assert_eq!(archives.len(), 1);
+        assert_eq!(archives[0].archive, data);
+    }
+
     #[tokio::test]
     async fn optional_offer_with_required_stack_hands_off_required() {
         let id = Uuid::new_v4();
@@ -2340,8 +2376,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                         unreachable!("packet ID and decoded variant must agree")
                     };
                     tracing::debug!(items = %registry.item_data.len(), "ItemRegistry received");
-                    // Native ItemRegistry::matchServerItemIds (1.26.50 RVA
-                    // 0x03984630) initializes once. A later empty/custom-only
+                    // Native ItemRegistry::matchServerItemIds initializes once. A later empty/custom-only
                     // packet must not replace the first table or shield ID.
                     if item_registry.is_some() {
                         continue;

@@ -72,19 +72,19 @@ pub(super) fn enchantment_name(runtime: &UiRuntime, id: i16, level: u8) -> Strin
     format!("{label} {}", level_text(runtime, level))
 }
 
-/// The tooltip for one stack; a server-stated name wins over the item's own.
-pub(super) fn tooltip_lines(
+/// The stack's name for both the selected-item HUD and inventory tooltip.
+/// Response corrections override retained `display.Name`, which overrides the
+/// localized item identity. A present, empty NBT name remains a custom name.
+pub(super) fn name_line(
     runtime: &UiRuntime,
-    stack: &NetworkItemStack,
     identifier: Option<&str>,
     stated_name: Option<&str>,
-) -> Vec<TooltipLine> {
-    let display = item_display(&stack.extra_data);
-    let mut name = stated_name
+    display: &protocol::ItemDisplay,
+) -> Option<TooltipLine> {
+    let custom_name = stated_name.or(display.name.as_deref());
+    let mut name = custom_name
         .map(str::to_owned)
-        .or_else(|| display.name.as_deref().map(str::to_owned))
-        .or_else(|| identifier.map(|id| runtime.localized_item_name(id)))
-        .unwrap_or_else(|| "Unknown Item".to_owned());
+        .or_else(|| identifier.map(|id| runtime.localized_item_name(id)))?;
     let formatting = identifier
         .and_then(|id| runtime.item_components(id))
         .and_then(crate::ui_runtime::item_facts::name_format);
@@ -95,7 +95,27 @@ pub(super) fn tooltip_lines(
         name.insert(0, code);
         name.insert(0, '§');
     }
-    let mut lines = vec![TooltipLine { text: name, color }];
+    if custom_name.is_some() {
+        name.insert_str(0, "§o");
+    }
+    name.push_str("§r");
+    Some(TooltipLine { text: name, color })
+}
+
+/// The tooltip for one stack; a server-stated name wins over the item's own.
+pub(super) fn tooltip_lines(
+    runtime: &UiRuntime,
+    stack: &NetworkItemStack,
+    identifier: Option<&str>,
+    stated_name: Option<&str>,
+) -> Vec<TooltipLine> {
+    let display = item_display(&stack.extra_data);
+    let mut lines = vec![
+        name_line(runtime, identifier, stated_name, &display).unwrap_or_else(|| TooltipLine {
+            text: "Unknown Item".to_owned(),
+            color: NAME_COLOR,
+        }),
+    ];
     for (id, level) in &display.enchantments {
         lines.push(TooltipLine {
             text: enchantment_name(runtime, *id, *level),

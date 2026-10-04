@@ -1,7 +1,6 @@
 //! Ice and water share vanilla terrain-blend layer 3, including its face order.
 //!
-//! Current source: ordinary Ice ctor RVA 0x071305c0, water ctors 0x0395a220 /
-//! 0x0395eea0 and perspective sorter 0x01efa4a0. Separate GPU encodings remain,
+//! Separate GPU encodings remain,
 //! but one phase item emits their combined order with existing pipelines.
 use crate::chunk::*;
 use bevy::render::render_resource::CachedRenderPipelineId;

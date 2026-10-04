@@ -1,5 +1,4 @@
-//! Function-key client tools: screenshot capture (F2) and, behind
-//! `--dev-debug-overlay`, the non-vanilla F3 developer overlay.
+//! Function-key client tools: screenshot capture (F2) and the F3 debug overlay.
 
 mod debug_overlay;
 mod screenshot;

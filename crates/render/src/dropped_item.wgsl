@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}
+#import cinnabar::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear}
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var sprites: texture_2d_array<f32>;
@@ -63,13 +63,12 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = textureSample(sprites, sprite_sampler, input.uv, i32(input.layer)) * input.color;
+    let color = tint_to_gamma(textureSample(sprites, sprite_sampler, input.uv, i32(input.layer))) * input.color;
     if (color.a < 0.1) {
         discard;
     }
-    let lit = lit_colour(
-        color.rgb * input.shade,
-        light_colour(input.levels.x | (input.levels.y << 4u)),
-    );
-    return vec4(world_distance_fog(mix(lit, input.overlay.rgb, input.overlay.a), input.world_position, view.world_position), color.a);
+    // Native item materials compose gamma RGB with the actor /16 lightmap
+    // lookup. Transfer the completed product once for Bevy's sRGB target.
+    let lit = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.shade * actor_light_colour(input.levels.x | (input.levels.y << 4u));
+    return tint_to_linear(vec4(actor_distance_fog(lit, input.world_position, view.world_position), color.a));
 }

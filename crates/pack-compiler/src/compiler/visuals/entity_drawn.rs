@@ -15,6 +15,9 @@ const ENCHANTING_TABLE_HEIGHT: i16 = 12 * 16;
 
 /// Whether the block entity renderer draws this whole block, with no terrain part.
 pub(in crate::compiler) fn is_entity_drawn_name(name: &str) -> bool {
+    if assets::vanilla_skull_type(name).is_some() {
+        return true;
+    }
     let Some(name) = name.strip_prefix("minecraft:") else {
         return false;
     };
@@ -91,6 +94,13 @@ mod tests {
             "minecraft:standing_banner",
             "minecraft:wall_banner",
             "minecraft:skull",
+            "minecraft:skeleton_skull",
+            "minecraft:wither_skeleton_skull",
+            "minecraft:zombie_head",
+            "minecraft:player_head",
+            "minecraft:creeper_head",
+            "minecraft:dragon_head",
+            "minecraft:piglin_head",
             "minecraft:undyed_shulker_box",
             "minecraft:silver_shulker_box",
             "minecraft:bell",

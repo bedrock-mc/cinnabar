@@ -1,6 +1,7 @@
 #[path = "../src/nametag.rs"]
 pub mod nametag;
 #[path = "../src/shader_safety.rs"]
+#[allow(dead_code, reason = "shared checked shader constructors")]
 mod shader_safety;
 #[path = "../src/ui.rs"]
 pub mod ui;

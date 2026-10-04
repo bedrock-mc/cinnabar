@@ -881,7 +881,7 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned stained glass");
     let fixture_air = fixture_air_id(&records) as usize;
     for (id, visual) in compiled.visuals.iter().enumerate() {
-        // Vanilla gives invisible bedrock the never-tessellated shape (R:BlockGraphics:4781).
+        // Vanilla gives invisible bedrock the never-tessellated shape (BlockGraphics).
         if id == fixture_air || records[id].name.as_ref() == "minecraft:invisible_bedrock" {
             assert_eq!(visual.kind, VisualKind::Invisible, "invisible block");
         } else if id < ordinary_count || records[id].name.as_ref() == "minecraft:slime" {

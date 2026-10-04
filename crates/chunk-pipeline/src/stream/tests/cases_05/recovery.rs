@@ -20,6 +20,7 @@ fn reply_from_already_sent_retry_is_not_unexpected_after_first_attempt_completes
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: key.dimension,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [key.x, key.y, key.z],
                     result: SubChunkResult::AllAir,
                 }],
@@ -35,6 +36,7 @@ fn reply_from_already_sent_retry_is_not_unexpected_after_first_attempt_completes
                 dimension: key.dimension,
 
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [key.x, key.y, key.z],
                     result: SubChunkResult::AllAir,
                 }],
@@ -203,6 +205,7 @@ fn reconstructed_subchunk_after_original_deadline_commits_without_stale_classifi
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: key.dimension,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [key.x, key.y, key.z],
                     result: SubChunkResult::AllAir,
                 }],
@@ -240,6 +243,7 @@ fn timely_sub_chunk_admission_disarms_and_cancels_before_decode_or_expiry() {
                 entries: keys
                     .iter()
                     .map(|key| SubChunkEntryEvent {
+                        diagnostics: None,
                         position: [key.x, key.y, key.z],
                         result: SubChunkResult::AllAir,
                     })

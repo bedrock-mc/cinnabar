@@ -1,6 +1,5 @@
 //! Narrow access to the chunk arena for Enhanced shadow drawing.
 
-pub(crate) use crate::chunk::pipeline::layouts::chunk_bind_group_layout;
 use crate::chunk::*;
 use crate::enhanced::CascadeBounds;
 use bevy::shader::Shader;

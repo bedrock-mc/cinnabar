@@ -1,0 +1,28 @@
+[package]
+name = "gameplay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+test-support = []
+
+[dependencies]
+assets = { path = "../assets" }
+client-world = { path = "../client-world" }
+inventory = { path = "../inventory" }
+player-state = { path = "../player-state" }
+protocol = { path = "../protocol" }
+semantic-input = { path = "../input" }
+sim = { path = "../sim" }
+world = { path = "../world" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing = "0.1"
+
+[dev-dependencies]
+protocol = { path = "../protocol", features = ["wire-test-support"] }

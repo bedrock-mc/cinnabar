@@ -25,11 +25,10 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
-    app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
+    app.add_plugins(client_presentation::ClientPresentationPlugin)
+        .add_message::<crate::runtime::audio::SequencedAudioEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<WorldStreamFramePoll>()
-        .init_resource::<crate::runtime::network::ActorFramePartialTick>()
-        .init_resource::<crate::runtime::network::PreparedActorPublication>()
         .init_resource::<crate::ui_runtime::presentation::PreparedUiPublication>()
         .add_systems(
             Update,

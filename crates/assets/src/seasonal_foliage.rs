@@ -1,10 +1,10 @@
 //! Native seasonal foliage palette, independent of GPU colour packing.
 //!
-//! 1.26.50.26 `SeasonsRenderer` palette generation (RVA 0x04ea9540)
+//! 1.26.50.26 `SeasonsRenderer` palette generation
 //! creates covered evergreen/birch/default columns, then their exposed
 //! counterparts. Snow blending precedes the half-intensity RGBA8 storage;
 //! the world material doubles stored RGB without clipping before multiplying
-//! the texture. The CPU particle consumer instead clamps it (RVA 0x04ea8cc0).
+//! the texture. The CPU particle consumer instead clamps it.
 
 use crate::{
     BLOCK_VISUAL_VARIANT_TOP_SNOW, BlockFlags, MATERIAL_FLAG_BIRCH_FOLIAGE,
@@ -16,7 +16,7 @@ pub const SEASONAL_FOLIAGE_EXPOSED_OFFSET: usize = 3;
 pub const SEASONAL_FOLIAGE_COUNT: usize = SEASONAL_FOLIAGE_EXPOSED_OFFSET * 2;
 const COVERED_MAPS: [TintMapId; SEASONAL_FOLIAGE_EXPOSED_OFFSET] =
     [TintMapId::Evergreen, TintMapId::Birch, TintMapId::Foliage];
-/// LeavesBlock::getRenderLayer cold limit (1.26.50.26 RVA 0x07139b00).
+/// LeavesBlock::getRenderLayer cold limit.
 pub const SEASONAL_FOLIAGE_COLD_THRESHOLD: f32 = 0.15;
 pub const SEASONAL_FOLIAGE_SNOW_RGB: f32 = 1.8;
 
@@ -70,9 +70,9 @@ impl From<ResolvedBlock> for SeasonalFoliageBlock {
     }
 }
 
-/// Native ClientLeavesSeasonColorUtils (1.26.50.26 RVA 0x01df9eb0)
+/// Native ClientLeavesSeasonColorUtils
 /// skips the main block's air/leaves properties before canBeBuiltOver.
-/// TopSnow's override (RVA 0x0a5c7fd0) delegates to a non-air extra block
+/// TopSnow's override delegates to a non-air extra block
 /// first; only with air extra does its height decide replaceability.
 ///
 /// `None` main means unavailable and conservatively shelters. `None` extra

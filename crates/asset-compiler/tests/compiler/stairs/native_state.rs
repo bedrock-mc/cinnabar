@@ -39,7 +39,7 @@ fn native_stair_corner_state_and_raw_direction_select_all_occupied_quadrants() {
     native_stair_pack(directory.path());
     let compiled = compile_pack(directory.path(), &records).unwrap();
     // Native step + optional inner-piece AABBs, bits x + 2*z. These are
-    // independent witnesses from 0a5b5090/0a5b5460, not the compiler selector.
+    // independent vanilla step and inner-piece witnesses, not the compiler selector.
     let occupied = [
         [10_u8, 11, 14, 2, 8],
         [5, 13, 7, 4, 1],

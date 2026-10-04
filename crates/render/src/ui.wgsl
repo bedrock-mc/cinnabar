@@ -104,7 +104,7 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let alpha = sample.a * straight_color.a;
     var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a * input.model_light;
     if (input.style_flags & STYLE_GLINT) != 0u {
-        // L:1.26.50.26:0x213ce90 scales glint RGB without changing alpha.
+        // Vanilla scales glint RGB without changing alpha.
         premultiplied_rgb += glint(input.clip_position.xy) * viewport.glint_strength * alpha;
     }
     return vec4<f32>(premultiplied_rgb, alpha);

@@ -124,9 +124,9 @@ fn explicit_deny_overrides_the_mode_default() {
     assert!(!GameModeCapabilities::resolve(Survival, Some(&deny)).can_mine);
 }
 
-/// Fly, instant-build, invulnerable and no-clip bits refine their fields.
+/// Flight, invulnerability and collision remain independent ability grants.
 #[test]
-fn ability_bits_refine_flight_instant_break_and_collision() {
+fn ability_bits_refine_flight_and_collision_without_creative_mining() {
     let bits = ability_bit::MAY_FLY
         | ability_bit::FLYING
         | ability_bit::INSTANT_BUILD
@@ -134,8 +134,27 @@ fn ability_bits_refine_flight_instant_break_and_collision() {
         | ability_bit::NO_CLIP;
     let all = update(vec![layer(bits, bits)]);
     let caps = GameModeCapabilities::resolve(Survival, Some(&all));
-    assert!(caps.can_fly && caps.flying && caps.instant_break && caps.invulnerable);
+    assert!(caps.can_fly && caps.flying && caps.invulnerable);
+    assert!(
+        !caps.instant_break,
+        "Instabuild does not select creative destruction"
+    );
     assert!(!caps.has_collision, "no-clip removes collision");
+}
+
+/// The native creative route is selected by game type, not Instabuild.
+#[test]
+fn instant_destruction_follows_mode_even_when_instabuild_disagrees() {
+    for values in [0, ability_bit::INSTANT_BUILD] {
+        let abilities = update(vec![layer(ability_bit::INSTANT_BUILD, values)]);
+        for mode in [Survival, Adventure, Spectator, Unknown, Creative] {
+            assert_eq!(
+                GameModeCapabilities::resolve(mode, Some(&abilities)).instant_break,
+                mode == Creative,
+                "mode={mode:?}, Instabuild={values}"
+            );
+        }
+    }
 }
 
 /// Layers apply in received order; the last one that defines a bit wins.

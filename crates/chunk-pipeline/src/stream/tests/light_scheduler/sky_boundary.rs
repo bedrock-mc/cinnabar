@@ -1,6 +1,108 @@
 use super::*;
 
 #[test]
+fn omitted_inline_upper_sub_chunks_carry_sky_to_open_air() {
+    let mut stream = lit_stream(0);
+    stream.submit(1, inline_air_event(0)).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    settle_light(&mut stream, [8.0, 69.0, 8.0]);
+    let range = vanilla_dimension_range(0).unwrap();
+    for offset in 0..range.sub_chunk_count {
+        let key = SubChunkKey::new(0, 0, range.base_sub_chunk_y + offset as i32, 0);
+        assert!(stream.light_is_current(key), "{key:?}");
+        assert_eq!(
+            stream
+                .light_store
+                .light(key)
+                .unwrap()
+                .get(LightChannel::Sky, 8, 8, 8),
+            Some(15),
+            "{key:?}"
+        );
+        assert!(stream.direct_sky[&key].mask.get(8, 8, 8), "{key:?}");
+    }
+}
+
+#[test]
+fn omitted_inline_upper_sub_chunks_carry_sky_above_terrain() {
+    let mut stream = lit_stream(0);
+    let range = vanilla_dimension_range(0).unwrap();
+    let mut payload = vec![9, 1, range.base_sub_chunk_y as i8 as u8, 1, 4];
+    payload.extend(biome_payload(0, 1));
+    stream
+        .submit(
+            1,
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: LevelChunkMode::Inline { count: 1 },
+                payload,
+            }),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    settle_light(&mut stream, [8.0, 69.0, 8.0]);
+    for offset in 1..range.sub_chunk_count {
+        let key = SubChunkKey::new(0, 0, range.base_sub_chunk_y + offset as i32, 0);
+        assert!(stream.light_is_current(key), "{key:?}");
+        assert_eq!(
+            stream
+                .light_store
+                .light(key)
+                .unwrap()
+                .get(LightChannel::Sky, 8, 8, 8),
+            Some(15),
+            "{key:?}"
+        );
+        assert!(stream.direct_sky[&key].mask.get(8, 8, 8), "{key:?}");
+    }
+}
+
+#[test]
+fn request_empty_upper_sub_chunks_carry_sky_to_open_air() {
+    for limited in [false, true] {
+        for empty in 0..3 {
+            let mut stream = lit_stream(0);
+            let range = vanilla_dimension_range(0).unwrap();
+            let count = if limited { 1 } else { range.sub_chunk_count };
+            let mode = if limited {
+                LevelChunkMode::LimitedRequests {
+                    highest: count as u16,
+                }
+            } else {
+                LevelChunkMode::LimitlessRequests
+            };
+            stream
+                .submit(1, request_level_chunk_event(0, 0, 0, mode, 1))
+                .unwrap();
+            complete_pending_decode_jobs(&mut stream);
+            for offset in 0..count {
+                let key = SubChunkKey::new(0, 0, range.base_sub_chunk_y + offset as i32, 0);
+                let result = match empty {
+                    0 => PreparedSubChunkResult::AllAir,
+                    1 => PreparedSubChunkResult::Decoded(world::DecodedSubChunk::decode(
+                        key,
+                        &[],
+                        &world::RawBlockIds { air: 0 },
+                    )),
+                    _ => {
+                        PreparedSubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds)
+                    }
+                };
+                apply_sub_chunk_result(&mut stream, key, result);
+            }
+            settle_light(&mut stream, [8.0, 69.0, 8.0]);
+            assert_eq!(
+                stream.solved_light_at([8.0, 69.0, 8.0]),
+                Some((0, 15)),
+                "limited={limited} empty={empty}"
+            );
+        }
+    }
+}
+
+#[test]
 fn transparent_occupied_top_cell_receives_sky_and_opaque_top_cell_filters_it() {
     for (runtime_id, expected) in [(3, 15), (2, 0)] {
         let mut stream = lit_stream(0);

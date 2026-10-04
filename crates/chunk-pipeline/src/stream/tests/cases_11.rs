@@ -158,6 +158,7 @@ fn request_and_subchunk_completion_use_confirmed_player_grid_interest() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: key.dimension,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [sub_chunk.x, sub_chunk.y, sub_chunk.z],
                     result: SubChunkResult::AllAir,
                 }],

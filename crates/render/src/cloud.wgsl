@@ -63,13 +63,13 @@ fn corner_uv(corner_index: u32) -> vec2<f32> {
 }
 
 fn face_corner_uv(face: u32, corner_index: u32) -> vec2<f32> {
-    // GlobalQuadIndexBuffer05309550 triangulates native four-vertex quads.
+    // GlobalQuadIndexBuffer triangulates native four-vertex quads.
     let quad_vertex = array<u32, 6>(1u, 2u, 0u, 0u, 2u, 3u)[corner_index];
     let corner = array<vec2<f32>, 4>(
         vec2(0.0, 0.0), vec2(1.0, 0.0),
         vec2(1.0, 1.0), vec2(0.0, 1.0),
     )[quad_vertex];
-    // TextureTessellator064a0e80's exact face sequences preserve both outward
+    // TextureTessellator's exact face sequences preserve both outward
     // winding and the diagonal over which native vertex fade interpolates.
     if (face == FACE_DOWN) {
         return vec2(1.0 - corner.y, corner.x);

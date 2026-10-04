@@ -103,8 +103,8 @@ pub(crate) fn derive_profiled_atmosphere_frame(
         return (base, EnvironmentProfileRoute::default());
     };
     let resolve = |requested: FogMedium| {
-        // Air fog profiles use camera+414, which equals adjusted+5e0 in the
-        // ordinary above-water route (04e40a10/04e429e0), not the raw packet.
+        // Air fog profiles use the adjusted render distance in the
+        // ordinary above-water route, not the raw packet.
         // The separate native submerged distance admission remains incomplete.
         let render_distance =
             render::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
@@ -251,8 +251,8 @@ pub(crate) fn update_atmosphere_frame(
         };
     }
     lighting.0 = render::LightmapInputs {
-        // Ordinary native renderer04fe3f20 supplies flag1 to update07083390.
-        // buildImage07080cd0 uses it for both ambient stages around gamma;
+        // Ordinary native renderer supplies flag1 to update.
+        // buildImage uses it for both ambient stages around gamma;
         // omitting it crushes shaded terrain at night, despite matching gamma.
         ambient_adjustment: true,
         sky_darken: render::lightmap_sky_darken(

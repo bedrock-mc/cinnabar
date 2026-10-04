@@ -29,8 +29,7 @@ eligible poll, including stationary views whose queue priorities are already cur
 CN-02/03/11/12 do not show a consistent initial/teleport regression here. CN-10's byte
 reservations remain enabled. Its small initial difference is accompanied by a faster
 teleport and does not establish another consistent regression. CN-13 produces the exact
-same client-world test executable as CN-10 (SHA-256
-`8c15e20ea66c1029a24a4ccae59d7bc9144f555aaa80dca8bab23032d001eb9a`).
+same client-world test executable as CN-10.
 The fixture does not execute pack fingerprinting or blob-cache miss resolution; it cannot
 attribute performance of those separate paths. Their changes and bounds are retained.
 
@@ -99,33 +98,25 @@ in [the original investigation](mesh-stall.md). Neither it nor this replay prove
 
 ## Vanilla and platform references
 
-- Lens reconstructed client **1.26.50.26**, artifact 6, RVA **0x006f2b60**,
-  source-backed `MinecraftWorkerPool::createSingletons`: distinct Streaming, Rendering,
-  IO and other worker pools. This establishes separation, not a portable CPU reservation.
-- `R:m/MinecraftWorkerPool.cpp:25` and `:43` distinguish worker counts and OS priorities.
-  Cinnabar's pool sizes and platform mappings are implementation choices, not claimed native
-  constants. Exact native scheduling parity remains open.
-- `R:r/RenderChunkCoordinator.cpp:762` coalesces dirty coordinates;
-  `R:r/RenderChunkCoordinator.cpp:917` handles brightness invalidation.
-  `R:r/RenderChunkShared.cpp:392` forbids overlapping builds. The existing current-light
-  and stale-snapshot checks are retained; this patch does not publish partially lit geometry.
-- `R:r/RenderChunkShared.cpp:331` gives empty centres fully connected visibility.
-  Empty geometry has no neighbour face samples; its own source invalidation remains active.
-  The current Lens empty-visibility symbol search returned no match, so that specific
-  representation is an older-reference cross-check rather than a closed current-client gate.
-- Lens **1.26.50.26**, artifact 6, RVA **0x04fb7530**, source-backed
-  `LevelBuilder::tryRebuild`, checks that the region has the chunk before scheduling
-  a rebuild; `R:l/LevelBuilder.cpp:6041` corroborates that region guard. Explicit data
-  arrivals and eviction still invalidate their own slots.
-- `R:n/NetworkChunkSubscriber.cpp:48` moves the subscribed region; overlapping data is retained.
+- Vanilla uses distinct Streaming, Rendering, IO and other worker pools.
+  Separation is not a portable CPU reservation. Worker counts and OS priorities
+  are distinct; Cinnabar's sizes and platform mappings are implementation choices.
+  Exact native scheduling parity remains open.
+- Dirty coordinates coalesce, brightness invalidates geometry, and builds cannot
+  overlap. Current-light and stale-snapshot checks remain; partially lit geometry
+  is not published.
+- Empty centres have fully connected visibility and no neighbour face samples;
+  their own source invalidation remains active. This older representation does
+  not close the current-client gate.
+- A rebuild requires the region to contain the chunk. Explicit arrivals and
+  eviction still invalidate their own slots.
+- Moving the subscribed region retains overlapping data.
 - Read-only vanilla **1.26.50.4** pack, `texts/en_US.lang:7009-7010`, describes smooth
   lighting's brightness/shadow transitions. It supplies no scheduler, pool-size or debounce
   constant. No resource-pack asset is copied into the repository.
 - [Apple QoS](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/EnergyGuide-iOS/PrioritizeWorkWithQoS.html)
   and [Windows scheduling priorities](https://learn.microsoft.com/en-us/windows/win32/procthread/scheduling-priorities)
   document the platform priority hints. They are not real-time guarantees.
-
-The `R:` paths are relative to the supplied 26.30 `src/by-owner/` reconstruction tree.
 
 ## Raw evidence
 

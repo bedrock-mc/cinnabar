@@ -15,6 +15,7 @@ fn queue(state: &mut OrderedCommitState, sequence: u64, event: PreparedWorldEven
 /// Builds one decoded all-air slot without installed assets or worker execution.
 fn air_slot(y: i32) -> PreparedSubChunk {
     PreparedSubChunk {
+        diagnostics: None,
         position: [0, y, 0],
         result: PreparedSubChunkResult::AllAir,
     }
@@ -238,10 +239,28 @@ fn worker_decode_preserves_air_unavailable_and_sequence_without_assets() {
             dimension: 0,
             entries: vec![
                 SubChunkEntryEvent {
+                    diagnostics: Some(protocol::SubChunkDiagnostic {
+                        payload_present: false,
+                        heightmap: protocol::HeightmapDiagnostic {
+                            kind: 2,
+                            payload_present: false,
+                            sample_count: 0,
+                            min: None,
+                            max: None,
+                        },
+                        render_heightmap: protocol::HeightmapDiagnostic {
+                            kind: 4,
+                            payload_present: false,
+                            sample_count: 0,
+                            min: None,
+                            max: None,
+                        },
+                    }),
                     position: [2, 3, 4],
                     result: SubChunkResult::AllAir,
                 },
                 SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [5, 6, 7],
                     result: SubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds),
                 },
@@ -270,6 +289,13 @@ fn worker_decode_preserves_air_unavailable_and_sequence_without_assets() {
     assert_eq!(dimension, 0);
     assert_eq!(entries[0].position, [2, 3, 4]);
     assert!(matches!(entries[0].result, PreparedSubChunkResult::AllAir));
+    let diagnostics = entries[0]
+        .diagnostics
+        .expect("wire metadata survives preparation");
+    assert!(!diagnostics.payload_present);
+    assert_eq!(diagnostics.heightmap.kind, 2);
+    assert_eq!(diagnostics.render_heightmap.kind, 4);
+    assert_eq!(entries[1].diagnostics, None);
     assert_eq!(entries[1].position, [5, 6, 7]);
     assert!(matches!(
         entries[1].result,

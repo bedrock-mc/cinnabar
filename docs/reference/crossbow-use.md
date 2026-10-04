@@ -1,50 +1,37 @@
 # Native crossbow use state
 
-Reference: current `1.26.50.26` mcsrc revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`. Function names for fallback bodies
-below are identified by their matching control flow in the named 26.30 reference,
-not claimed to be authoritative symbols in the current reconstruction.
-
 ## Charge, load, fire
 
-The current crossbow constructor is `__unmapped/09.cpp`, RVA `0x09a12ee0`.
-`getMaxUseDuration` at `0x09a16340` is 25 ticks minus five ticks per Quick Charge
-level; loading does not change that duration query to zero. `use` at `0x09a13ba0`
+`getMaxUseDuration` is 25 ticks minus five ticks per Quick Charge
+level; loading does not change that duration query to zero. `use`
 checks the stack's cached charged projectile. An uncharged item starts use; a
 charged item fires and then removes `chargedItem` and its cached projectile.
 
-`releaseUsing` at `0x09a157e0` computes normalized draw power from duration minus
+`releaseUsing` computes normalized draw power from duration minus
 remaining ticks. Only full power loads a projectile. It checks offhand arrows or
 fireworks first, then inventory arrows; creative can synthesize an arrow when no
-projectile is present. The compound mutation is `0x02785b90` calling
-`0x027960e0` in `__unmapped/02.cpp`: it writes the serialized projectile into
+projectile is present. The compound mutation writes the serialized projectile into
 `chargedItem` and retains a cached item stack. The crossbow's duration-depleted
-virtual implementation at `0x09a157a0` dispatches release with zero remaining
+virtual implementation dispatches release with zero remaining
 ticks. A short release clears rather than loads the projectile.
 
-`Player::completeUsingItem` is current `__unmapped/00.cpp`, `0x001fb570`.
-After its item-complete gameplay event, it checks `Level::isClientSide` and
-skips the transaction/depletion branch on the client. The matching PE calls
-Level vtable offset `0x9e8` at `0x001fb865`; Level constructor `0x012de020`
-assigns vtable `0x1500af5c0`, whose `+0x9e8` entry is `0x0130e960`, reading
-the client-side byte at `Level+0x238`. Its next entry `0x0130e970` reads the
-sub-client id at `+0x239`. These match the named 26.30 `isClientSide` and
-`getSubClientId` pair at `0x0a588b00`/`0x0a588b10` (`+0x218`/`+0x219`).
+After its item-complete gameplay event, `Player::completeUsingItem` checks
+`Level::isClientSide` and skips the transaction/depletion branch on the client.
+The sub-client id is a separate field.
 
 Only the server-side branch constructs an `ItemReleaseInventoryTransaction`:
-lambda `0x00231950` fills selected slot, player position and action `Use` (1),
+the transaction fills selected slot, player position and action `Use` (1),
 invokes `useTimeDepleted` and writes the mutated stack. That branch also records
 inventory actions and `CompletedUsingItem`. It does not justify sending a
 client completion transaction or a second click-air request. Ordinary early
-button release still sends a release transaction. `getAnimationFrame` at
-`0x09a137a0` selects frame 4 for loaded arrows and frame 5 for fireworks
+button release still sends a release transaction. `getAnimationFrame` selects frame 4 for loaded arrows and frame 5 for fireworks
 independently of whether the use button is still held.
 
 ## HUD and inventory icons
 
-The current `setIcon` override at `0x09a132e0` registers five icon records from
+The current `setIcon` override registers five icon records from
 the `crossbow_pulling` atlas key, in variants zero through four. The
-`getIconInfo` override at `0x09a13640` uses the ordinary standby icon for frame
+`getIconInfo` override uses the ordinary standby icon for frame
 zero; nonzero animation frame N addresses registered record N minus one.
 The pinned pack's `textures/item_texture.json` orders those variants as
 pulling 0, pulling 1, pulling 2, loaded arrow, and loaded firework. Thus damage
@@ -61,7 +48,7 @@ counts, network identities, or outgoing descriptors to select an icon.
 The focused icon tests cover the frame-to-variant crosswalk, arrow/firework
 NBT, malformed NBT, damage independence, charge persistence after reselection,
 fire, and both identical and changed authoritative corrections. This closes
-the tested source contract, not visual acceptance; a live vanilla-BDS rendered
+the tested behavior contract, not visual acceptance; a live vanilla-BDS rendered
 frame is required. Stateful icon overrides in arbitrary server packs remain a
 separate incomplete path: the existing session icon carrier retains one icon
 per canonical item, not a complete atlas-variant table.
@@ -74,8 +61,7 @@ record that run; the arrow count changes from 64 to 63. This is live functional
 and rendering evidence, not a version-matched native frame comparison.
 
 The October 2 UTC follow-up repeats loading against offline vanilla BDS with
-the canonical client SHA-256
-`b51eb853c4b7f04ba555c0dd0b76e5667addcbbae2ab40711483afce5f75e25f`.
+the canonical client.
 At 01:04:09 the server restates arrow count 63 and the loaded crossbow with a
 new stack ID. The inspected `2026-10-02_01.04.10.png` HUD and, after selecting
 another slot and returning, `2026-10-02_01.06.48.png` open-inventory frame show
@@ -103,7 +89,7 @@ truth, ammunition, damage, projectile entities and outgoing verified descriptors
 are not rewritten by this local state layer.
 
 Incomplete: local loaded-pose prediction is a revision-scoped overlay, not a
-complete reconstruction of the client's item gameplay-event and inventory
+complete implementation of the client's item gameplay-event and inventory
 observer path. Server-side `chargedItem` serialization, associated inventory
 actions and `CompletedUsingItem` are not fabricated on the client wire. The
 current change covers local loaded-state persistence and action classification,

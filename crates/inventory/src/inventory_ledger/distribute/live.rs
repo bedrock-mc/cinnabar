@@ -1,5 +1,5 @@
-//! Incremental splitting, following ContainerManagerController::_handleSplitMultiple
-//! (named 26.30 RVA 09fc20d0): rebalance the contributions, never the pre-existing
+//! Incremental splitting, following ContainerManagerController::_handleSplitMultiple;
+//! rebalance the contributions, never the pre-existing
 //! destination stacks, on entry into each new slot. The cursor keeps the remainder.
 
 use protocol::NetworkItemStack;
@@ -38,7 +38,7 @@ fn same_item(a: &NetworkItemStack, b: &NetworkItemStack) -> bool {
 
 impl PlayerInventoryLedger {
     /// Updates the real predicted ledger before mouse release. Each atomic
-    /// transfer has its own request scope, as native `_transfer` (09fbce90),
+    /// transfer has its own request scope, as in vanilla,
     /// so subsequent transfers name the sparse cell, not a cloned donor ID.
     pub fn advance_distribute(
         &mut self,

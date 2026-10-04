@@ -40,7 +40,7 @@ pub(in crate::chunk) struct ChunkPipeline {
 
 impl FromWorld for ChunkPipeline {
     fn from_world(_world: &mut World) -> Self {
-        let bind_group_layout = crate::chunk::enhanced::chunk_bind_group_layout();
+        let bind_group_layout = chunk_bind_group_layout();
         let descriptor = RenderPipelineDescriptor {
             label: Some("packed chunk pipeline".into()),
             layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
@@ -176,13 +176,12 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
             .unwrap()
             .format = if key.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
+        } else if native_gamma {
+            TextureFormat::bevy_default().remove_srgb_suffix()
         } else {
-            if native_gamma {
-                TextureFormat::bevy_default().remove_srgb_suffix()
-            } else {
-                TextureFormat::bevy_default()
-            }
+            TextureFormat::bevy_default()
         };
+        #[cfg(feature = "enhanced")]
         if crate::ENHANCED_RENDERING_ENABLED && key.enhanced {
             descriptor
                 .layout

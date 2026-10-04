@@ -84,7 +84,7 @@ fn paint(vertex: &ItemVertex, layer: u32, color: u32) -> ItemMeshVertex {
 
 /// The ordinary dropped-item slab after the native default pixel-frame transform, before
 /// its 1.5 scale. Unlike a static placement, it has a floor origin, mirrored rear art and
-/// pixel depth `max(side)/16` (TextureTessellator 064a0e80, default transform 04f9a2e0).
+/// pixel depth `max(side)/16`.
 #[must_use]
 pub fn native_dropped_sprite_mesh(
     width: u32,

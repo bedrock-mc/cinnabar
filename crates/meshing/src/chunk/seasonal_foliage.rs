@@ -1,6 +1,6 @@
 //! Column shelter selection for native seasonal leaf materials.
 //!
-//! ClientLeavesSeasonColorUtils (1.26.50.26 RVA 0x01df9eb0) scans upward
+//! ClientLeavesSeasonColorUtils scans upward
 //! to the height map, skipping air/leaves and native exempt blocks. TopSnow
 //! delegates to a non-air extra layer, otherwise only the full-height state
 //! shelters leaves. Assets owns the shared predicate used by particle colours.

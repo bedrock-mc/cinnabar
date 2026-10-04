@@ -13,8 +13,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 )
 
-// The names and order come from PlayerStatisticsFacet (26.30, lines 330-377),
-// also present in Lens 1.26.50.26, RVA 0x5eac00. The Xbox SDK REST contract is
+// The names and order match vanilla profile statistics. The Xbox SDK REST contract is
 // https://github.com/microsoft/xbox-live-api/blob/main/Source/Services/Stats/user_statistics_service.cpp.
 var profileStatisticNames = [...]string{"MinutesPlayed", "BlockBrokenTotal", "MobKilled.IsMonster.1", "DistanceTravelled"}
 

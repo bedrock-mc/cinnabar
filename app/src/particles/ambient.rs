@@ -1,4 +1,4 @@
-//! Native fixed-tick leaf animation triggers (current 26.50 RVAs 07139d70/09a4e1a0).
+//! Native fixed-tick leaf animation triggers.
 //! Other block animateTick callbacks and unclassified native materials remain unsupported.
 
 use std::time::{Duration, Instant};
@@ -38,7 +38,7 @@ impl AmbientParticles {
         self.diagnostics = diagnostics::Diagnostics::default();
     }
 
-    /// Vanilla LevelRenderer::tick (RVA 04fd5020) calls animateTick once per
+    /// Vanilla LevelRenderer::tick calls animateTick once per
     /// world tick, not once per rendered frame. This clock must not depend on
     /// movement packet admission. Reuse the world tick duration and app catch-up bound.
     pub(super) fn drive(
@@ -167,9 +167,9 @@ fn valid_view(view: &ParticleView) -> bool {
         .all(|component| component.is_finite())
 }
 
-/// Current Material::_setupMaterials (0379bed0): air(0) and plant(8)
-/// are neither solid nor liquid. TallGrass(0a5bd3a0), Flower(087131f0),
-/// Mushroom(07986b50) use plant; do not infer this from collision/Cross shape.
+/// Material::_setupMaterials: air(0) and plant(8)
+/// are neither solid nor liquid. TallGrass, Flower,
+/// Mushroom use plant; do not infer this from collision/Cross shape.
 fn material_allows_leaf(flags: BlockFlags, identifier: Option<&str>) -> bool {
     flags.contains(BlockFlags::AIR)
         || matches!(

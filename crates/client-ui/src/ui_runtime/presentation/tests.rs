@@ -23,6 +23,7 @@ mod forms_tests;
 mod hud_matrix_tests;
 mod hud_server_pack_tests;
 mod inventory_count_tests;
+mod item_name_tests;
 mod loading_screen_tests;
 mod menu_status_tests;
 mod paper_doll_tests;

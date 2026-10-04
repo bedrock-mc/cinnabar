@@ -38,7 +38,7 @@ const LIQUID_BASE_UV: array<vec2<f32>, 24> = array(
     vec2(0.0, 0.0), vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 0.0),
     vec2(0.0, 0.0), vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 0.0),
 );
-// Native 0395e4d0 angle and 06a1b960 UVs, expressed in our NW/NE/SE/SW order.
+// Native angle and UVs, expressed in our NW/NE/SE/SW order.
 const FLOW_ANGLE_DIRECTION: f32 = -1.0;
 const FLOW_ANGLE_OFFSET: f32 = 1.5707963267948966;
 const SIDE_HEIGHT_BIAS: f32 = 1.0;
@@ -120,7 +120,7 @@ fn liquid_corner(geometry: u32, height_word: u32, corner: u32, packed_material: 
     );
     var height = f32((height_word >> (corner * 8u)) & 255u) / 255.0;
     var xz = LIQUID_FACE_XZ[face * 4u + corner];
-    // 06a1b960 lowers exposed tops in-place; side upper vertices reuse them.
+    // Vanilla lowers exposed tops in-place; side upper vertices reuse them.
     // Covered tops retain their heights. The ordinary bottom face is untouched.
     if ((packed_material & LIQUID_TOP_INSET_BIT) != 0u && face != 2u && (face == 3u || corner == 1u || corner == 2u)) {
         height -= LIQUID_FACE_INSET;
@@ -314,7 +314,7 @@ fn native_liquid_colour(sampled_gamma: vec3<f32>, tint_linear: vec3<f32>, in: Ve
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
     if (in.depth_write_route != 0u) { discard; }
-    // Native 01ee0990 duplicates only faces marked by the liquid tessellator.
+    // Vanilla duplicates only faces marked by the liquid tessellator.
     // In particular, the bottom never has a reverse face at the ice surface.
     if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);

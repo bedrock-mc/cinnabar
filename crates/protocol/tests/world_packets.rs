@@ -1,4 +1,6 @@
 use bytes::{Buf, Bytes, BytesMut};
+#[path = "world_packets/lighting_diagnostics.rs"]
+mod lighting_diagnostics;
 #[path = "world_packets/weather_cycle.rs"]
 mod weather_cycle;
 #[path = "world_packets/world_clocks.rs"]

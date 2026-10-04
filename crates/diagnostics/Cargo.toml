@@ -1,0 +1,20 @@
+[package]
+name = "diagnostics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+assets = { path = "../assets" }
+bevy.workspace = true
+client-world = { package = "chunk-pipeline", path = "../chunk-pipeline" }
+meshing = { path = "../meshing" }
+protocol = { path = "../protocol" }
+render = { path = "../render" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+world = { path = "../world" }
+
+[dev-dependencies]
+client-ui = { path = "../client-ui" }

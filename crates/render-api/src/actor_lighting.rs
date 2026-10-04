@@ -1,7 +1,7 @@
 //! Ordinary native Fancy actor shading shared by UI previews and world shaders.
 
 /// Y, squared X/Z, ambient, and hurt-alpha coefficients, in evaluation order.
-/// Installed ordinary Actor/Entity shaders; current actor constants `0213d220`.
+/// Lighting constants used by the ordinary Actor/Entity shaders.
 pub const ACTOR_SHADE_COEFFICIENTS: [f32; 5] = [0.275, -0.1, 0.1, 0.45, 0.35];
 
 /// The caller supplies a normalized posed world normal and dimension-adjusted Y.

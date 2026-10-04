@@ -32,9 +32,9 @@ pub(super) fn linear_to_srgb(c: f32) -> f32 {
 }
 
 /// Native terrain particles use the bottom material, not a tint-based top/side heuristic.
-/// `BlockDestructionParticlesComponent::getTextureInfo` (26.50 RVA 0a6706c0)
-/// resolves `down`, then `*`; the built-in texture fallback at 04e95920 uses
-/// texture group zero, populated from `down` by 069e9fc0.
+/// `BlockDestructionParticlesComponent::getTextureInfo`
+/// resolves `down`, then `*`; the built-in texture fallback uses
+/// texture group zero, populated from `down`.
 pub(super) fn block_tile(
     stream: &WorldStream,
     mode: NetworkIdMode,

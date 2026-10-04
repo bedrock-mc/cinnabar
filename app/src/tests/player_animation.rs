@@ -309,6 +309,67 @@ fn head_faces_the_reported_head_yaw_and_pitch_in_the_world() {
 }
 
 #[test]
+fn sneaking_keeps_the_heads_entity_relative_look_direction() {
+    let entities = entities();
+    for (yaw, pitch) in [(0.0, 0.0), (40.0, 20.0), (-35.0, -25.0)] {
+        let mut world = stream(Arc::clone(&entities));
+        world.submit(1, spawn_player()).unwrap();
+        world.submit(2, move_player(0.0, yaw, pitch, 1)).unwrap();
+        world.advance_actor_interpolation_ticks(3);
+        let standing_head = bone(&world, &entities, "head");
+        let world_direction = |world: &WorldStream, rotation, direction| {
+            let rig = world.actor_rig(42).unwrap();
+            let model =
+                crate::presentation::actors::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
+            let vector = rotate(rotation, direction);
+            std::array::from_fn::<f32, 3, _>(|row| {
+                (0..3).map(|axis| model[row][axis] * vector[axis]).sum()
+            })
+        };
+        let directions = [[0.0, 0.0, -1.0], [0.0, 1.0, 0.0]];
+        let standing_directions =
+            directions.map(|direction| world_direction(&world, standing_head.rotation, direction));
+        for (revision, flags) in [(3, 1 << 1), (4, 0)] {
+            world
+                .submit(
+                    revision,
+                    WorldEvent::Actor(ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 42,
+                        metadata: Arc::from([ActorMetadata {
+                            key: 0,
+                            value: ActorMetadataValue::Flags(flags),
+                        }]),
+                        properties: Arc::from([]),
+                        tick: revision,
+                    })),
+                )
+                .unwrap();
+            world.advance_actor_interpolation_ticks(1);
+            let head = bone(&world, &entities, "head");
+            for (direction, expected) in directions.into_iter().zip(standing_directions) {
+                let actual = world_direction(&world, head.rotation, direction);
+                for axis in 0..3 {
+                    assert!(
+                        (actual[axis] - expected[axis]).abs() < 1.0e-3,
+                        "yaw {yaw}, pitch {pitch}, flags {flags}: {actual:?} vs {expected:?}"
+                    );
+                }
+            }
+            if flags != 0 {
+                assert!(turned(bone(&world, &entities, "root")));
+                assert!(
+                    head.translation_scale[1] < standing_head.translation_scale[1],
+                    "the head pivot still follows the crouching root"
+                );
+            } else {
+                assert!(!turned(bone(&world, &entities, "root")));
+            }
+        }
+    }
+}
+
+#[test]
 fn rig_frame_front_faces_the_yaw_and_its_right_side_faces_the_models_right() {
     let at = |yaw: f32, vector: [f32; 3]| {
         let model = crate::presentation::actors::rig_world_from_actor([0.0; 3], yaw, 2.0);

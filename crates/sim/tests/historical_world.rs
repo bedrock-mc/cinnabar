@@ -73,6 +73,8 @@ fn snapshot_keeps_collision_identity_and_geometry_after_live_replacement() {
     let query = Aabb::new(Vec3::new(8.0, 8.0, 8.0), Vec3::new(9.0, 9.0, 9.0));
     let original = PaletteWorld::new(&store, &registry, 0);
     let expected = original.collision_boxes_with_provenance(query).unwrap();
+    let expected_material = original.primary_is_air([8, 8, 8]).unwrap().unwrap();
+    assert!(!expected_material.value);
     let snapshot = original.snapshot().unwrap();
     store
         .update_block(key, BlockUpdate::new(8, 8, 8, 0, 0), 0)
@@ -86,5 +88,15 @@ fn snapshot_keeps_collision_identity_and_geometry_after_live_replacement() {
     assert_eq!(
         snapshot.collision_boxes_with_provenance(query).unwrap(),
         expected
+    );
+    let live_material = PaletteWorld::new(&store, &registry, 0)
+        .primary_is_air([8, 8, 8])
+        .unwrap()
+        .unwrap();
+    assert!(live_material.value);
+    assert_ne!(live_material.identity, expected_material.identity);
+    assert_eq!(
+        snapshot.primary_is_air([8, 8, 8]).unwrap().unwrap(),
+        expected_material
     );
 }

@@ -10,7 +10,7 @@ use crate::particles::{
 
 impl ParticleSystem {
     /// Emits one biome-tinted particle at a block center. Vanilla 26.50's
-    /// `LevelRendererPlayer::addBiomeTintedParticleEffect` (RVA 04e97cb0) caches
+    /// `LevelRendererPlayer::addBiomeTintedParticleEffect` caches
     /// the emitter by effect name and colour compared as RGBA8, then requests
     /// one particle at each origin. The pack, not this route, controls its motion.
     pub fn spawn_biome_tinted(
@@ -23,8 +23,7 @@ impl ParticleSystem {
             self.dropped_spawns += 1;
             return None;
         }
-        // Final manual emission at 04e97cb0 adds DAT_14fec3380 (= .5 in
-        // the version-matched PE) to each BlockPos component before the pack's shape.
+        // Final manual emission adds .5 to each BlockPos component before the pack's shape.
         let position = block.map(|component| component as f32 + 0.5);
         let color = color.map(|component| component.clamp(0.0, 1.0));
         let key = color.map(|component| (component * 255.0) as u8);

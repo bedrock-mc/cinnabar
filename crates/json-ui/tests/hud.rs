@@ -352,6 +352,8 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
         let last = slots.last().expect("hotbar end");
         let hotbar_bottom = first.dest.y + first.dest.h;
         let root = descendant(&render.bound, "item_name_text").expect("spawned item-name root");
+        let label = descendant(root, "item_text_label").expect("native item-name label");
+        assert_eq!(label.properties["localize"], serde_json::Value::Bool(false));
         let dy = root.properties["offset"][1]
             .as_f64()
             .expect("authored root offset");

@@ -20,7 +20,7 @@ fn light_colour(sample: u32) -> vec3<f32> {
     return world_lightmap[sample & 255u].rgb;
 }
 
-// Current classic builder 07080cd0 stores Color::toABGR (02965e80), which
+// Current classic builder stores Color::toABGR, which
 // truncates RGB to bytes before LightTexture::getColorForUV reads them.
 fn native_light_texel(sample: u32) -> vec3<f32> {
     return floor(clamp(light_colour(sample), vec3(0.0), vec3(1.0)) * 255.0) / 255.0;
@@ -49,8 +49,8 @@ fn terrain_light_colour(levels: vec2<f32>) -> vec3<f32> {
     );
 }
 
-// Actor constants 0213d220 use (sky, block)/16, without a half-texel bias.
-// Native 07083ac0 clamps 16*uv-.5 then interpolates the byte table in gamma.
+// Actor constants use (sky, block)/16, without a half-texel bias.
+// Vanilla clamps 16*uv-.5 then interpolates the byte table in gamma.
 // Our shared table is transposed: block in the low nibble, sky in the high.
 fn actor_light_colour(sample: u32) -> vec3<f32> {
     let block = sample & 15u;
@@ -66,7 +66,7 @@ fn actor_light_colour(sample: u32) -> vec3<f32> {
 
 // Ordinary Fancy Actor/Entity materials shade posed world normals in the
 // vertex stage, not with terrain's face coefficients. Overworld TileLightColor
-// W is +1 (current 0213d220); other dimension signs remain a separate gate.
+// W is +1; other dimension signs remain a separate gate.
 fn actor_lighting(sample: u32, normal: vec3<f32>, overlay_alpha: f32) -> vec3<f32> {
     if ((sample & 0x80000000u) == 0u) { return vec3(1.0); }
     let shade = (((1.0 + normal.y) * ACTOR_SHADE[0] + normal.x * normal.x * ACTOR_SHADE[1]) + normal.z * normal.z * ACTOR_SHADE[2]) + ACTOR_SHADE[3] + overlay_alpha * ACTOR_SHADE[4];
@@ -83,7 +83,7 @@ fn lit_colour(colour: vec3<f32>, lighting: vec3<f32>) -> vec3<f32> {
     return colour * lighting;
 }
 
-// Lens 1.26.50.26 0x6a07d80: ordinary and emitting face coefficients.
+// Vanilla ordinary and emitting face coefficients.
 fn face_shade(normal: vec3<f32>, emitting: bool) -> f32 {
     if normal.y < -0.5 { return select(0.5, 0.875, emitting); }
     if abs(normal.x) > 0.5 { return select(0.6, 0.9, emitting); }

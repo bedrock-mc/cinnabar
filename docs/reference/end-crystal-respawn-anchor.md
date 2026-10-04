@@ -1,8 +1,7 @@
 # End crystal rendering and respawn anchor use
 
 The pack reference is the install fetched from `assets/vanilla-source.json`, read
-through this worktree's `.local`. No pack art or reconstructed source is shipped.
-Reconstruction citations below name files under the 26.30 `src/by-owner` tree.
+through this worktree’s `.local`. No pack art is shipped.
 
 ## End crystals
 
@@ -30,15 +29,14 @@ installed carriers with `make assets` before playing with this change; tests
 compile scratch fixtures without writing the shared install.
 
 The beam is separate native additional rendering, not part of the pack rig.
-`R:EnderCrystal:52` defines metadata key 47 as a BlockPos with the zero sentinel.
-`R:DataDrivenRenderer_tempComponent_EnderCrystalAdditionalRendering:417` reads
+Metadata key 47 is a BlockPos with the zero sentinel.
+Beam rendering reads
 that target, skips zero, adds one to its Y coordinate and connects it to the
-interpolated actor origin (445–467). Its tessellator (158–226) makes eight tapered
-sides, black at the target and white at the crystal. Lens data reads resolve the
-native globals: crystal radius 0.75, target radius ratio 0.2, eight sides and
+interpolated actor origin. Its tessellator makes eight tapered
+sides, black at the target and white at the crystal. The constants are crystal radius 0.75, target radius ratio 0.2, eight sides and
 normalization threshold 0.0001. The shader UV offset uses actor age plus partial
-tick, times 0.01 (477–485). The target offset vector is `[0,1,0,0]`.
-The installed material's `entity_beam` (824–852) uses vertex colour, alpha test,
+tick, times 0.01. The target offset vector is `[0,1,0,0]`.
+The installed material's `entity_beam` uses vertex colour, alpha test,
 repeat wrapping and UV animation, matching the existing solid effect pass.
 
 The client now publishes this metadata-driven beam into the existing textured
@@ -47,8 +45,7 @@ and UV scroll. Session/dimension transitions use the actor store's existing
 lifetime clearing. No separate retained beam lifetime is introduced.
 
 Beam submission shares the non-player body's camera-centred candidate-cube
-admission (`R:LevelRendererCamera:14149`–`:14156`,
-`R:ActorRenderCandidates:32`–`:67`). It uses the interpolated crystal endpoint
+admission. It uses the interpolated crystal endpoint
 and the same render camera, including third-person camera displacement. A target
 near the camera cannot admit an out-of-range crystal. Rejected beams consume no
 effect submission capacity and generate no animated mesh or upload. Regression
@@ -61,14 +58,14 @@ The fixed block-interaction list omitted respawn anchors. A held glowstone block
 therefore selected placement and predicted an adjacent block instead of using
 the clicked anchor.
 
-`R:RespawnAnchorBlock:137`–`:150` checks the selected block item for glowstone.
+Anchor interaction checks the selected block item for glowstone.
 Below full charge it succeeds in every dimension, but consuming glowstone and
 bumping charge occur only on the server. At full charge it proceeds to charged
 activation, without consuming glowstone or increasing charge. Charged activation
-sets the spawn in the Nether (189–207), without consuming charge; outside the
-Nether it explodes on the server (345–499). Non-glowstone use of an uncharged
+sets the spawn in the Nether, without consuming charge; outside the
+Nether it explodes on the server. Non-glowstone use of an uncharged
 anchor falls through to ordinary item use. Sneaking with a held item bypasses
-block interaction (`R:GameMode:3132`–`:3213`).
+block interaction.
 
 Local interaction selection now uses the held block identifier and anchor charge.
 Glowstone selects interaction at every charge. Charged anchors also select
@@ -76,14 +73,13 @@ interaction for other items or an empty hand. No adjacent placement, charge,
 inventory consumption or explosion is predicted; authoritative updates supply
 those changes.
 
-`R:GameMode:1735`–`:1737`, `:1810`–`:1814`, `:1844`, and `:1903`–`:1905` send
+Block use sends
 the ordinary standalone ItemUse InventoryTransaction for block use. The client
 uses click-block action 0 (named `Place` by the wire enum), Success prediction,
 the clicked anchor position/runtime ID, original held glowstone descriptor and
 input/repeat trigger. It does not send a special charging packet.
 
-Incomplete: non-glowstone use of an already-selected Nether spawn can fail
-(`R:RespawnAnchorBlock:189`–`:195`, then `:158`–`:185`). The client does not yet
+Incomplete: non-glowstone use of an already-selected Nether spawn can fail. The client does not yet
 retain spawn-block authority to predict that fallback. Glowstone still succeeds
 on that path. The server remains authoritative for spawn and explosions.
 

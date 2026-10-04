@@ -39,7 +39,8 @@ pub use v4::{
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 6;
+/// Includes authored clip clocks; invalidates catalogs compiled before `anim_time_update` support.
+pub const ENTITY_BLOB_VERSION: u32 = 8;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).
@@ -167,7 +168,7 @@ pub struct EntityGeometryCube {
 
 impl EntityGeometryCube {
     /// Native Geometry cube rotations use the uninflated box center when no pivot is authored.
-    /// Geometry::_parseBones (26.30 RVA 02e39370) and the geometry 1.21 schema agree.
+    /// Geometry::_parseBones and the geometry 1.21 schema agree.
     #[must_use]
     pub fn default_rotation_pivot(
         origin: [EntityGeometryScalar; 3],

@@ -494,17 +494,6 @@ impl UiPresentationRuntime {
         .append(player_runtime, runtime, &frame, container)
     }
 
-    /// Diagnostics drawn with the gameplay scene; scores join the world name tags.
-    fn append_gameplay_overlays(
-        &mut self,
-        nodes: &mut Vec<UiNode>,
-        next_id: &mut u32,
-        metrics: TextMetrics,
-        content: [f32; 2],
-    ) -> Result<(), UiPresentationError> {
-        self.append_debug_overlay(nodes, next_id, metrics, content[0])
-    }
-
     /// Builds the frame from its retained UI authority.
     pub fn build(
         &mut self,
@@ -572,7 +561,6 @@ impl UiPresentationRuntime {
                         now_millis,
                         false,
                     )?;
-                    self.append_gameplay_overlays(nodes, next, metrics, content)?;
                 }
                 Scene::Crosshair | Scene::Hud => {
                     let crosshair = *scene == Scene::Crosshair;
@@ -689,6 +677,14 @@ impl UiPresentationRuntime {
             metrics,
             [content_width, content_height],
         );
+        if scenes.contains(&Scene::Gameplay)
+            && stack
+                .scenes()
+                .iter()
+                .all(|scene| matches!(scene.key, Scene::Gameplay | Scene::Crosshair | Scene::Hud))
+        {
+            self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content)?;
+        }
         // Every screen has painted: retire animation state nothing touched.
         self.end_animation_frame();
         self.apply_gui_models(&mut nodes);

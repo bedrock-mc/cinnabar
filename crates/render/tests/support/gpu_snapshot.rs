@@ -11,6 +11,8 @@ use std::{
 };
 use wgpu::util::DeviceExt;
 
+pub const SNAPSHOT_SIDE: u32 = 256;
+
 pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -125,8 +127,8 @@ impl Gpu {
                 source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
             });
         let size = wgpu::Extent3d {
-            width: 256,
-            height: 256,
+            width: SNAPSHOT_SIDE,
+            height: SNAPSHOT_SIDE,
             depth_or_array_layers: 1,
         };
         let texture = |format, usage| {
@@ -232,7 +234,7 @@ impl Gpu {
         }
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 256 * 256 * 4,
+            size: u64::from(SNAPSHOT_SIDE) * u64::from(SNAPSHOT_SIDE) * 4,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -247,8 +249,8 @@ impl Gpu {
                 buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(1024),
-                    rows_per_image: Some(256),
+                    bytes_per_row: Some(SNAPSHOT_SIDE * 4),
+                    rows_per_image: Some(SNAPSHOT_SIDE),
                 },
             },
             size,
@@ -272,8 +274,8 @@ pub fn save(name: &str, pixels: &[u8]) {
         image::save_buffer(
             std::path::PathBuf::from(directory).join(format!("{name}.png")),
             pixels,
-            256,
-            256,
+            SNAPSHOT_SIDE,
+            SNAPSHOT_SIDE,
             image::ColorType::Rgba8,
         )
         .unwrap();
@@ -286,6 +288,15 @@ pub fn view(matrix: bevy::math::Mat4, eye: bevy::math::Vec3) -> Vec<f32> {
     for _ in 0..5 {
         words.extend(bevy::math::Mat4::IDENTITY.to_cols_array());
     }
-    words.extend([eye.x, eye.y, eye.z, 1.0, 0.0, 0.0, 256.0, 256.0]);
+    words.extend([
+        eye.x,
+        eye.y,
+        eye.z,
+        1.0,
+        0.0,
+        0.0,
+        SNAPSHOT_SIDE as f32,
+        SNAPSHOT_SIDE as f32,
+    ]);
     words
 }

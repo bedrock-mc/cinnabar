@@ -26,7 +26,7 @@ impl Aabb {
     /// Player box with a pose-dependent height (sneaking, swimming, crawling).
     #[must_use]
     pub fn player_with_height_at(feet: Vec3, height: f64) -> Self {
-        // 1.26.50.26: 0x04b047e0 builds full-width faces; 0x09000dc0 keeps them.
+        // Vanilla builds and retains full-width faces.
         let half_width = PLAYER_WIDTH as f32 * 0.5;
         let [x, y, z] = [feet.x as f32, feet.y as f32, feet.z as f32];
         Self::new(

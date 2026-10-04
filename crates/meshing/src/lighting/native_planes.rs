@@ -1,5 +1,5 @@
-// Current AmbientOcclusionCalculator::calculateWithCache (1.26.50.26,
-// 0x069e5200): only the center's solid-render bit moves center light outwards;
+// Ambient occlusion moves center light outwards only when the center's
+// solid-render bit is set;
 // the independent boundary flag moves the tangential AO/light sampling plane.
 use super::{LightingInputs, MeshLightSample, bake_quad_with};
 use crate::Face;

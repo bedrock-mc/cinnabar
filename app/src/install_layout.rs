@@ -1,7 +1,9 @@
 //! Host compatibility exports for the launcher installation model.
+pub use launcher::install_layout::InstallLayout;
+#[cfg(test)]
+pub use launcher::install_layout::vanilla_pack_relative;
 #[cfg(test)]
 pub(crate) use launcher::install_layout::{InstallEnvironment, Platform};
-pub use launcher::install_layout::{InstallLayout, vanilla_pack_relative};
 
 /// Creates an isolated installation tree for app tests that own local files.
 #[cfg(test)]

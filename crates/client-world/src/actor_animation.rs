@@ -192,6 +192,7 @@ struct ActorRigState {
     /// Skeletons of the geometries render controllers draw instead of the rig's, by geometry.
     layer_skeletons: BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
     controllers: Vec<ControllerState>,
+    clip_clocks: clock::ClipClocks,
     previous: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
@@ -283,6 +284,7 @@ struct EvaluatedState {
     render: Option<Vec<RenderTextureLayer>>,
     scale: Option<[f32; 4]>,
     controllers: Vec<ControllerState>,
+    clip_clocks: clock::ClipClocks,
     variables: MolangVariables,
 }
 
@@ -612,6 +614,7 @@ impl ActorAnimationStore {
                     // A rig back in view starts from its new pose, not the one it held.
                     let resumed = std::mem::take(&mut state.culled);
                     state.controllers = evaluated.controllers;
+                    state.clip_clocks = evaluated.clip_clocks;
                     state.scale = evaluated.scale;
                     state.variables = evaluated.variables;
                     skin_layers::carry(
@@ -809,8 +812,10 @@ fn resolve_rig(
 }
 
 mod attachable;
+mod clock;
 mod evaluation;
 mod geometry;
+mod horse;
 mod hud;
 mod motion;
 mod pose;

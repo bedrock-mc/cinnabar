@@ -51,6 +51,7 @@ pub struct PreparedBlockMutations {
 pub struct PreparedSubChunk {
     pub position: [i32; 3],
     pub result: PreparedSubChunkResult,
+    pub diagnostics: Option<protocol::SubChunkDiagnostic>,
 }
 
 #[derive(Debug)]

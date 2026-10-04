@@ -200,7 +200,7 @@ fn live_biomes_resolve_to_one_fallback_prefixed_dense_table() {
     );
     assert_eq!(resolved.records[1].raw_id, 7);
     assert_eq!(resolved.records[1].flags, 1);
-    // Lens 0x1dcd030 shades the palette red to packed RGB 0x931a05.
+    // Vanilla shades the palette red to packed RGB 0x931a05.
     let shaded = [0x93_u8, 0x1a, 0x05, 0xff].map(|channel| {
         let c = f32::from(channel) / 255.0;
         if c <= 0.04045 {

@@ -1,27 +1,15 @@
 # Native carried block textures
 
-Reference: `HashimTheArab/mcsrc-1.26.50`, revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`, current view
-`current/1.26.50.26/src/`. Matching Lens executable SHA-256:
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`.
-This is our own implementation from identified native contracts, not copied C++.
+## Vanilla rules
 
-## Identified contracts
-
-- `__recovered/TextureJSONParser.cpp:560–579`, RVA `0x01a2ce10`: hexadecimal
-  overlay colors keep the low 24 RGB bits, normalize by 255 and force alpha to one.
-- `__unmapped/08.cpp:212905–212914`, RVA `0x08119570`: texture-atlas overlay uses
-  source alpha as a color mask. For normalized source color `C`, source alpha `a`
-  and overlay `T`, `mask = a*T.a` and `RGB = C*(1-mask) + T.rgb*C*mask`.
-  Positive overlay alpha makes the resulting face opaque.
-- `08.cpp:212921–212927`: normalized output is multiplied by 255 and truncated.
-- `06.cpp:838952–838961`, `839487–839488`, RVAs `0x0648e1a0` / `0x064c4fa0`:
-  parsed overlay reaches tile offset `0x30`; atlas mip construction passes that
-  value as overlay argument 15 (`06.cpp:878087`, `878509–878513`).
-- `__recovered/TextureAtlas.cpp:39–46`, RVA `0x08119420`: sampling retains RGBA order.
-- Pinned pack `blocks.json:2748–2753` declares grass's carried faces;
-  `textures/terrain_texture.json:61–70` selects a precolored grass top, dirt bottom
-  and the grass side with an authored overlay color. No biome tint is borrowed.
+| Rule | Behaviour |
+| --- | --- |
+| Overlay colors | Keep the low 24 RGB bits, normalize by 255 and force alpha to one. |
+| Overlay mask | For normalized source color `C`, source alpha `a` and overlay `T`, use `mask = a*T.a` and `RGB = C*(1-mask) + T.rgb*C*mask`. Positive overlay alpha makes the face opaque. |
+| Output quantization | Multiply normalized output by 255 and truncate. |
+| Mip construction | Pass the parsed overlay from tile offset `0x30` to atlas mip construction as overlay argument 15. |
+| Sampling | Retain RGBA channel order. |
+| Carried grass | Pinned `blocks.json:2748–2753` declares carried faces; `textures/terrain_texture.json:61–70` selects a precolored grass top, dirt bottom and side with authored overlay. Do not borrow biome tint. |
 
 ## Correction and verification
 

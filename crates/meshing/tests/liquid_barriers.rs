@@ -1,4 +1,4 @@
-//! Transparent cubes obstruct native flow/height sampling, not face visibility.
+//! Ice blocks flow and height sampling and hides contacting water side faces.
 
 use std::{fs, sync::OnceLock};
 
@@ -166,10 +166,8 @@ fn top_at(mesh: &meshing::ChunkMesh, block: [u8; 3]) -> PackedLiquidQuad {
         .unwrap()
 }
 
-/// Current getFlow (RVA 0x0395d2f0) only samples the lower neighbour through a
-/// non-motion-blocking cell. Ice over water must not turn a calm source into a
-/// downhill stream. Current getWaterHeight (0x06a9cf80) skips the ice sample;
-/// it does not average ice as empty space and slope the touching water top.
+/// Ice over water must not turn a calm source into a downhill stream or slope
+/// its top. Classic water hides the side touching ice but keeps sides facing air.
 #[test]
 fn compiled_ice_over_water_preserves_still_source_and_flat_top() {
     let fixture = fixture();
@@ -207,10 +205,17 @@ fn compiled_ice_over_water_preserves_still_source_and_flat_top() {
             source.face(assets::BlockFace::Up).material_id()
         );
         assert!(
-            mesh.liquid_quads()
+            !mesh
+                .liquid_quads()
                 .iter()
                 .any(|quad| { quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX }),
-            "transparent ice must retain the touching liquid face"
+            "classic water must omit the side touching primary ice"
+        );
+        assert!(
+            mesh.liquid_quads()
+                .iter()
+                .any(|quad| { quad.origin() == [9, 8, 7] && quad.face() == Face::PositiveX }),
+            "classic water must retain sides facing primary air"
         );
         assert_eq!(mesh.model_refs().len(), 1, "ice remains a real cube model");
         assert_eq!(mesh.transparent_model_draw_refs().len(), 6);

@@ -1,6 +1,5 @@
 //! Normal complex transactions write their final descriptors on the client.
-//! Current native receive 014f3120 -> 02996d00 -> execute 029bb710/029bba60/
-//! 029bb780/029bb810. Client verification does not reject a stale fromItem.
+//! Vanilla client verification does not reject a stale fromItem.
 
 use std::sync::Arc;
 

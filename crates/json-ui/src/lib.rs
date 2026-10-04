@@ -128,8 +128,7 @@ impl Context {
     }
 
     /// The desktop context plus the globals a retail, full-game, non-edu desktop
-    /// client computes in code (1.26.50 `VanillaSceneFactory::createGlobalVars`,
-    /// RVA 0x076bf510), false ones included.
+    /// client computes in code, false ones included.
     pub fn retail(macos: bool) -> Self {
         let platform: &[(&str, bool)] = &[
             ("win10_edition", !macos),

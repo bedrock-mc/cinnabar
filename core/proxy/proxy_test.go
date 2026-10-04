@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1410,6 +1411,57 @@ func TestLocalListenerNegotiatesNoCompression(t *testing.T) {
 	_ = conn.Close()
 	if got := <-settings; got != packet.CompressionAlgorithmNone {
 		t.Fatalf("local NetworkSettings compression = %#x, want none (%#x)", got, packet.CompressionAlgorithmNone)
+	}
+}
+
+// The private listener skips the encryption handshake and serves packs in client-maximum chunks.
+func TestLocalListenerSkipsEncryptionAndServesLargePackChunks(t *testing.T) {
+	archive := admissionPackArchiveWithID(t, "00112233-4455-6677-8899-aabbccddeeff")
+	pack, err := resource.ReadBytes(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
+	config := localListenConfig(func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, false)
+	})
+	config.ErrorLog = slog.New(slog.DiscardHandler)
+	listener, err := config.ListenNetwork(network, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			_ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1})
+		}
+	}()
+	var handshakes atomic.Int32
+	chunkSizes := make(chan uint32, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "Local"},
+		PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
+			switch header.PacketID {
+			case packet.IDServerToClientHandshake:
+				handshakes.Add(1)
+			case packet.IDResourcePackDataInfo:
+				var pk packet.ResourcePackDataInfo
+				pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
+				chunkSizes <- pk.DataChunkSize
+			}
+		},
+	}.DialContextNetwork(ctx, network, "")
+	if err != nil {
+		t.Fatalf("dial local listener: %v", err)
+	}
+	_ = conn.Close()
+	if n := handshakes.Load(); n != 0 {
+		t.Fatalf("local listener sent %d ServerToClientHandshake packets, want none", n)
+	}
+	if got := <-chunkSizes; got != localResourcePackChunkSize {
+		t.Fatalf("local pack chunk size = %d, want %d", got, localResourcePackChunkSize)
 	}
 }
 

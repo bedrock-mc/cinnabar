@@ -21,6 +21,18 @@ pub(crate) fn from_actor_wgsl(source: &str, path: impl Into<String>, words: usiz
     )
 }
 
+/// Block entities share one packed Rust vertex layout across models and overlays.
+pub(crate) fn from_block_entity_wgsl(
+    source: &str,
+    path: impl Into<String>,
+    words: usize,
+) -> Shader {
+    from_wgsl(
+        source.replace("BLOCK_ENTITY_VERTEX_WORDS", &format!("{words}u")),
+        path,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

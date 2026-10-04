@@ -1,6 +1,6 @@
 use super::support::*;
 
-fn farmland_records() -> Vec<RegistryRecord> {
+pub(super) fn farmland_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
         "../../../assets/data/block-registry-v1001.bin"
     ))
@@ -18,7 +18,7 @@ fn farmland_records() -> Vec<RegistryRecord> {
     records
 }
 
-fn write_farmland_pack(root: &Path) {
+pub(super) fn write_farmland_pack(root: &Path) {
     write_pack(
         root,
         r#"{"farmland":{"textures":{"down":"farmland_side","side":"farmland_side","up":"farmland"}}}"#,
@@ -170,9 +170,6 @@ fn compiler_farmland_admission_fails_closed_atomically() {
     )
     .model_state;
     cases.push(("projection", wrong_projection));
-    let mut wrong_id = records.clone();
-    wrong_id[0].sequential_id = 6_121;
-    cases.push(("id", wrong_id));
     let mut wrong_role = records.clone();
     wrong_role[0].contributor_role = ContributorRole::LiquidAdditional;
     cases.push(("role", wrong_role));

@@ -1,0 +1,192 @@
+//! Local movement frame coordination before ordered interaction admission.
+use super::control_modes::{ControlModes, ControlObservation, DoubleTap};
+use super::local_facts::LocalMovementFacts;
+use super::physics_authority_fault_for_frame;
+use super::{
+    LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController, ModeIntent,
+    MovementTicker, PhysicsSampleContext, physics_movement_input,
+};
+use semantic_input::ActionPhase;
+use std::time::Duration;
+use tracing::debug;
+
+/// Immutable input and modifier facts sampled at the existing physics phase.
+pub struct PhysicsFrameInput {
+    pub delta: Duration,
+    pub now: Duration,
+    pub active: bool,
+    pub movement: [f32; 2],
+    pub raw_movement: [f32; 2],
+    pub analogue_movement: [f32; 2],
+    pub yaw: f32,
+    pub pitch: f32,
+    pub camera_orientation: [f32; 3],
+    pub input_mode: protocol::PlayerInputMode,
+    pub jump: ActionPhase,
+    pub sprint: ActionPhase,
+    pub sneak: ActionPhase,
+    pub toggle_sprint: bool,
+    pub toggle_sneak: bool,
+    pub facts: LocalMovementFacts,
+    pub item_use_modifier: Option<f64>,
+}
+
+/// Persistent movement-mode input latches and collision-blocker diagnostics.
+#[derive(Default)]
+pub struct LocomotionState {
+    controls: ControlModes,
+    fly_tap: DoubleTap,
+    previous_blocker: Option<String>,
+}
+
+impl LocomotionState {
+    /// Clears input latches when local prediction is inactive.
+    pub fn reset(&mut self) {
+        self.controls.reset();
+        self.fly_tap.reset();
+    }
+
+    /// Runs each fixed tick and admits its sample before any interaction producers run.
+    pub fn advance(
+        &mut self,
+        frame: PhysicsFrameInput,
+        physics: &mut LocalPhysicsController,
+        movement_ticker: &mut MovementTicker,
+        movement_effects: &mut LocalMovementEffectTimeline,
+        movement_speed: &mut LocalMovementSpeedAuthority,
+        world: &impl sim::CollisionWorld,
+    ) -> bool {
+        let PhysicsFrameInput {
+            now,
+            active,
+            movement,
+            raw_movement,
+            analogue_movement,
+            yaw,
+            input_mode,
+            jump,
+            sprint,
+            sneak,
+            facts,
+            ..
+        } = frame;
+        if !active {
+            self.controls.reset();
+        }
+        let fly_toggle = jump.pressed && self.fly_tap.press(now);
+        if let Some(server) = physics.take_server_control_flags() {
+            movement_speed.adopt_server_sprinting(server.sprinting);
+            self.controls
+                .adopt_server_flags(server.sprinting, server.sneaking);
+        }
+        let retain_sprint = physics
+            .retains_swim_sprint(world)
+            .unwrap_or_else(|_| physics.mode() == sim::MovementMode::Swimming);
+        let controlled = self.controls.update(ControlObservation {
+            now,
+            forward: movement[1],
+            sprint_pressed: sprint.pressed,
+            sprint_held: sprint.held,
+            sneak_pressed: sneak.pressed,
+            sneak_held: sneak.held,
+            toggle_sprint: frame.toggle_sprint,
+            toggle_sneak: frame.toggle_sneak,
+            sprint_blocked: facts.sprint_blocked,
+            flying: physics.mode() == sim::MovementMode::Flying,
+            retain_sprint,
+        });
+        let mut input = physics_movement_input(
+            movement,
+            yaw,
+            active,
+            jump.held,
+            controlled.sneaking,
+            controlled.sprint_request,
+            frame.item_use_modifier,
+        );
+        if retain_sprint {
+            input.sprinting = controlled.sprint_request;
+        }
+        movement_speed.set_sprinting(input.sprinting);
+        input.movement_speed = movement_speed.prediction_speed();
+        let frame = physics.advance_with_context_and_effects(
+            frame.delta,
+            input,
+            PhysicsSampleContext {
+                pitch: frame.pitch,
+                head_yaw: yaw,
+                camera_orientation: frame.camera_orientation,
+                input_mode,
+                raw_move_vector: raw_movement,
+                analogue_move_vector: analogue_movement,
+                mode_intent: ModeIntent {
+                    ride: facts.ride,
+                    ride_seat: facts.ride_seat,
+                    can_fly: facts.can_fly,
+                    server_flying: facts.server_flying,
+                    fly_toggle,
+                    fly_speed: facts.fly_speed,
+                    vertical_fly_speed: facts.vertical_fly_speed,
+                    creative_flight: facts.creative_flight,
+                    elytra_ready: facts.elytra_ready,
+                    depth_strider: facts.depth_strider,
+                    soul_speed: facts.soul_speed,
+                    swim_hunger_blocked: facts.swim_hunger_blocked,
+                },
+                sneak_button: active && sneak.held,
+            },
+            world,
+            movement_effects,
+        );
+        if let Some(sample) = frame.samples.last() {
+            self.controls
+                .adopt_tick_sprinting(sample.processed.sprinting);
+            movement_speed.set_sprinting(sample.processed.sprinting);
+        }
+        super::control_trace::trace_physics_frame(
+            movement_ticker.session_generation,
+            now,
+            input.movement_speed,
+            movement_speed.current(),
+            &frame,
+        );
+        let blocker = frame.blocked.as_ref().map(ToString::to_string);
+        if frame.dropped_ticks != 0 {
+            // Time starvation keeps the retained samples contiguous and monotonic,
+            // so the outbound stream remains a valid 20 Hz sequence and the server
+            // can still reconcile it. Record the stall instead of permanently
+            // revoking authority over a load symptom; a live Venity session died
+            // exactly here when join-time streaming stalls dropped seven of
+            // fifteen due ticks.
+            debug!(
+                due = frame.due_ticks,
+                dropped = frame.dropped_ticks,
+                "local physics dropped excess catch-up ticks"
+            );
+        }
+        let authority_fault = physics_authority_fault_for_frame(&frame);
+        if blocker != self.previous_blocker {
+            if authority_fault.is_none()
+                && let Some(blocker) = blocker.as_deref()
+            {
+                debug!(%blocker, "local physics is waiting for authoritative collision data");
+            }
+            self.previous_blocker = blocker;
+        }
+        if let Some(fault) = authority_fault
+            && movement_ticker.physics_is_authorized()
+        {
+            movement_ticker.record_physics_fault(fault);
+            physics.deactivate();
+            return false;
+        }
+        for sample in frame.samples {
+            if let Err(fault) = movement_ticker.enqueue_completed_physics(sample) {
+                debug!(?fault, "local Physics movement authority failed closed");
+                physics.deactivate();
+                return false;
+            }
+        }
+        true
+    }
+}

@@ -5,43 +5,37 @@ resolution. Enlarging a pre-rendered 96×112 image loses geometric coverage and 
 point sampling cannot restore them. Minecraft's intentionally coarse skin artwork is separate
 from this extra silhouette/downsampling artifact.
 
-## Identified native references
+## Vanilla rules
 
-The local `mcsrc-1.26.50` checkout is revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`. Named reconstruction leaves are used to identify
-functions; current `1.26.50.26` bodies and its matching Windows PE corroborate the behavior.
-
-| Behavior | Named 26.30 reference | Current 1.26.50.26 reference |
-| --- | --- | --- |
-| Inventory live model | `LivePlayerRenderer::render`, RVA `020d1850` | RVA `09c85da0`, `__unmapped/09.cpp` |
-| Cursor offset in GUI coordinates | `LivePlayerRenderer::_getMousePosition`, RVA `020d3480` | RVA `09c88840`, `__unmapped/09.cpp` |
-| Static/rotating paper doll | `PaperDollRenderer::_render`, RVA `020d6bc0` | RVA `09c8cd20`, `__unmapped/09.cpp` |
-| Actor UI shading uniforms | `ActorRenderData::_UI_setupShading`, RVA `0370b780` | RVA `01fb92a0`, `__unmapped/01.cpp` |
-| Ordinary model rendering dispatch | `ActorRenderDispatcher::render` | RVA `01fb3460`, `__unmapped/01.cpp` |
+| Rule | Behaviour |
+| --- | --- |
+| Inventory live model | Render actor geometry at the control’s physical framebuffer resolution using the live model scale and pointer-driven pose below. |
+| Cursor coordinates | Measure pointer offset in GUI coordinates. |
+| Paper doll | Use the authored starting rotation and camera tilt with the paper-doll scale below. |
+| UI shading | Force white color/light vectors and clear world overlay/fog values. |
+| Actor dispatch | Set UI-rendering state and dispatch the actual actor geometry. |
 
 Current live rendering takes `min(control_width, control_height)` as the model scale, translates
 to the control's center, and applies the actor's eye offset. The pointer offset is measured in
 GUI coordinates. Its body yaw is `atan(dx / 40) * 20` degrees, head yaw
 `atan(dx / 40) * 40`, and head/model pitch `atan(dy / 40) * -20`.
 The paper doll uses `min(width / 20, height / 39)` per model pixel, with the renderer's
-`starting_rotation` and `camera_tilt_degrees` properties. The matching PE gives the literal
-values 20, 39, 40 and -20 at the corresponding constant addresses; these are not Java guesses.
+`starting_rotation` and `camera_tilt_degrees` properties.
 
 The live path builds a screen-context alpha override, creates an actor render context, sets
 UI-rendering state, and dispatches the actual actor geometry. The ordinary paper-doll path
 similarly uses its screen context; offscreen capture is a distinct optional request, not a
 mandatory small fixed-resolution inventory image.
 
-The current data-driven model render at `__unmapped/01.cpp` chooses `01fb92a0` when the actor
-render data's UI byte at `+0x2e` is set. UI shading forces white color/light vectors and clears
-world overlay/fog values, instead of evaluating the world-light branch (`01fb94d0`). This
+When actor render data selects UI rendering, shading forces white color/light vectors and clears
+world overlay/fog values, instead of evaluating the world-light branch. This
 does not justify the old software raster's invented `0.62 + max(dot(N, light), 0) * 0.38` shader.
 
 ## Texture and shader corroboration
 
 The install-fetched player pack selects `entity_alphatest` and model scale `0.9375`.
 Installed PlayCover material and GLSL files are a near-patch corroborating reference
-(internal version `1.26.51.01`), not a substitute for the matched current PE:
+(internal version `1.26.51.01`), not a substitute for a version-matched material comparison:
 
 - `data/resource_packs/vanilla/materials/entity.material`: entity geometry uses point sampling,
   the `entity_alphatest` family enables alpha test and disables culling, and MSAA is supported.
@@ -64,11 +58,8 @@ texture color-space equivalence and hardware MSAA coverage still require a match
 
 The HUD keeps its controller clocks and Molang variables separately from the world and
 first-person hand evaluation. The native actor selects the UI animation component while
-UI rendering is active (`R:Actor:54619`–`:54644`), and the HUD sets
-`variable.is_first_person` to zero before drawing that same actor
-(`R:HudPlayerRenderer:709`–`:723`). Lens's source-backed `1.26.50.26`
-`Actor::setUIRendering`, RVA `01c0b040`, also names the separate UI animation component.
-The installed pack's `animation_controllers/player.animation_controllers.json` root
+UI rendering is active, and the HUD sets
+`variable.is_first_person` to zero before drawing that same actor. The installed pack's `animation_controllers/player.animation_controllers.json` root
 starts in `first_person` and enters `third_person` when `!variable.is_first_person`.
 Retaining its state lets the keyframes in `animations/player.animation.json`,
 `animation.player.crawl`, advance after the transition.
@@ -76,8 +67,7 @@ Retaining its state lets the keyframes in `animations/player.animation.json`,
 Live HUD geometry resolves from the catalog that owns the current rig, including a
 server-pack catalog's separate binding index space. Its cache includes the catalog's
 source digest so another session's rig at the same index cannot reuse old vertices.
-This follows the native HUD's lookup of the actor's renderer and ordinary actor draw
-(`R:HudPlayerRenderer:655`, `:720`–`:723`). The offline regression uses original
+This follows the native HUD's lookup of the actor's renderer and ordinary actor draw. The offline regression uses original
 one-cube server rigs with different dimensions and needs no installed carrier.
 
 `player_preview/geometry.rs` emits normalized JSON-UI triangle geometry from the shared biped
@@ -103,20 +93,17 @@ stack identity, metadata and charged-projectile state. The factory resolves `rig
 `leftItem` origins from the actual player rig binding and named geometry pivots; it does not
 invent a hardcoded hand offset when a source bone is absent.
 
-The current main legacy sprite branch is RVA `05e2c980`, corresponding to named 26.30
-`037312e0`. For ordinary flat sprites its grip is
+For ordinary flat sprites its grip is
 `T(.3125,.1875,-.1875)*S(.375)*Rz(60)*Rx(-90)*Rz(20)`; hand-equipped sprites use
 `Ry(180)*T(.1,.265,0)*S(.625)*Rx(80)*Ry(45)`. These precede the common item default
 transform, and are shared with Cinnabar's world equipment renderer instead of duplicated.
-Current offhand RVA `05e2f7b0` first adds `T(-.125,0,0)` in the reference hand-bone frame;
+Current offhand first adds `T(-.125,0,0)` in the reference hand-bone frame;
 its hand-equipped translation is `T(0,.265,0)`, not the main-hand `.1` X translation.
 Ordinary flat sprites otherwise retain the same grip. There is no mirror-main-hand shortcut.
 
-Legacy cube display RVA `05e33490` supplies
+Legacy cube display supplies
 `T(0,.1875,-.3125)*Rx(200)*Ry(225)*S(.375)`. Offhand ordinary cube rendering reaches that
-same helper after its independent hand-frame offset. `_rebuildItem` (`04f95030`) reaches
-`04fa6570`, `07069320` and `07066750` with mesh offset `(-.5,-.5,-.5)`, corroborating the
-centered cube basis. Native special-shape/custom presentation branches remain distinct.
+same helper after its independent hand-frame offset. `_rebuildItem` uses mesh offset `(-.5,-.5,-.5)`, centering the cube basis. Native special-shape/custom presentation branches remain distinct.
 
 Single-bone authored Shield/Trident previews retain actual attachable geometry, bind pivot,
 texture and literal pack channels. Bound-root channels are composed with the owning item
@@ -124,7 +111,7 @@ bone and the authored bind pivot is removed exactly once. They receive neither a
 sprite grip nor a GUI-item projection. See [held attachables](held-attachables.md) for the
 native parent/binding contract. Item normals follow the same bone, arm and view transforms
 before the native float FANCY formula; they are not guessed from projected icon triangles.
-For expression-bound roots, `01e61dd0`/`01e772b0`, `01e7fae0` and `01e13940` retain
+Expression-bound roots retain
 the authored default root origin with Y pivot minus the shared ModelPart height.
 `PreviewHeldPlacement::authored` applies that origin adjustment once, retaining the original
 mesh bind pivot; it does not rotate an invented screen offset into the model. The player
@@ -135,9 +122,9 @@ installed-carrier regression now exercises the actual Shield geometry, both auth
 poses and actual player item-bone pivots, checking bounds at the hand instead of above the head.
 The native mirrored actor-rig frame converts once into the standard preview biped's front
 frame before its arm/owner projection, keeping the item seated as the live model turns.
-Current `DataDrivenRenderer::render` (`05e36990`, `__unmapped/05.cpp` around 2402737)
+`DataDrivenRenderer::render`
 uses Y rotation `wrap(180-body_yaw)` and then negates the first two matrix columns.
-The live UI outer fixed rotation (`09c85da0`) is Z rotation by pi: its contiguous axis
+The live UI outer fixed rotation is Z rotation by pi: its contiguous axis
 is `(0,0,1)`, not `(0,1,0)`. The neutral outer/actor X/Y sign rotations cancel, leaving
 the actor's fixed facing half-turn; that establishes the held producer's front-frame
 conversion. It is not a GUI thumbnail mirror or a second authored binding transform.
@@ -146,8 +133,7 @@ The software raster remains a compatibility/test and empty-hand fallback. It is 
 quality path for the inventory's live player or paper-doll model.
 
 GPU pose/view angles and native idle bob are continuous, not CPU-cache quarter/half-degree
-steps. `animation.player.bob` uses `cos(life_time*103.2)*2.865+2.865` in degrees. The named
-`PaperDollRenderer` constructor (`020d5ff0`) sets `variable.is_paperdoll=1`; the install-fetched
+steps. `animation.player.bob` uses `cos(life_time*103.2)*2.865+2.865` in degrees. The `PaperDollRenderer` constructor sets `variable.is_paperdoll=1`; the install-fetched
 player controller's paperdoll state omits bob, holding and sneak animations, so that renderer
 does not inherit the live model's idle arm/crouch/holding modifiers.
 
@@ -164,8 +150,6 @@ Moving geometry to the physical-resolution UI draw path does not by itself close
 
 The canonical `target/debug/bedrock-client` was rebuilt and launched on macOS 26.3,
 Apple M3 Pro / Metal, at 1280×720 logical / 2560×1440 physical (Retina 2).
-The tested executable SHA-256 was
-`a4d1224b54710368254dad510370eeed164fe6e3ac804fc8af6542842bf41acd`.
 The existing offline loopback official BDS test session was retained; only the Rust
 client restarted, with ordinary server-given fixture stacks and real inventory moves.
 
@@ -195,10 +179,7 @@ this setup, not the incomplete native frame/material/animation gates above.
 ### Upstream-integrated rerun
 
 After integrating `dev` through `0979ff223974b9752a6fe9535fcb787d90fe8ade`,
-the canonical client and core were rebuilt. Their executable SHA-256 values were
-`c5b60e6b43df2a4d276d96466650af1325998ee4da5c90054967282de33dd926`
-and `3dbefc985a612b7c3d2c321168da9a79f15fbe14c2406f9231f28035c16442d9`,
-respectively. This rerun used the same macOS/Metal Retina-2 configuration and the
+the canonical client and core were rebuilt. This rerun used the same macOS/Metal Retina-2 configuration and the
 existing world reopened through the local-world manager, not a regenerated world.
 The manifest-pinned official BDS ran on `127.0.0.1:56399`; core logs confirmed
 offline authentication and BDS reported an empty XUID.
@@ -235,7 +216,6 @@ the repository architecture check, `go test ./...` and `go vet ./...`. The first
 workspace run rejected the old icon-pipeline assertion because it counted an
 explicit null as a drawable item; the corrected test checks numeric drawable
 bindings and null clear answers independently. The complete rerun passed.
-The final normal launch rebuild reproduced the same client hash above. After
-relaunch, `2026-10-02_04.24.12.png` again shows Dirt/offhand Shield and the Grass
+After the final normal launch rebuild and relaunch, `2026-10-02_04.24.12.png` again shows Dirt/offhand Shield and the Grass
 Block tooltip; `04.24.25.png` shows a reopened inventory with the emptied cell
 blank in both views and no tooltip when hovering that empty cell.

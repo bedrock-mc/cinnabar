@@ -1,5 +1,5 @@
 //! ShieldRenderer GUI branch, not the first-person attachable animation or a flat UV sheet.
-//! Matched 1.26.50.26 RVA 0x05e588d0: T(8,10,-10) S(11) Rx(30) Ry(30), model unit 1/16.
+//! Vanilla transform: T(8,10,-10) S(11) Rx(30) Ry(30), model unit 1/16.
 
 use crate::entity::{EntityAssetCompilation, compile_equipment_textures};
 use assets::gui_item::{

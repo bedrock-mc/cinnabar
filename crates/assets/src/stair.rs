@@ -2,8 +2,7 @@
 
 /// `weirdo_direction` is not Bedrock's ordinary four-way direction encoding.
 ///
-/// Witness: 1.26.50.26 StairBlock step/inner-piece helpers, RVAs 0a5b5090 and
-/// 0a5b5460: direction zero occupies the +X half, one -X, two +Z, three -Z.
+/// Stair step and inner pieces: direction zero occupies the +X half, one -X, two +Z, three -Z.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StairDirection {
     East,

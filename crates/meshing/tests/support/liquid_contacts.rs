@@ -12,7 +12,7 @@ fn has_face(mesh: &ChunkMesh, face: Face) -> bool {
         .any(|quad| quad.origin() == ORIGIN && quad.face() == face)
 }
 
-// Current 06a1b960: classic WATER material 5 compares neighbouring primary
+// Vanilla classic WATER material 5 compares neighbouring primary
 // BlockType with Air, not its opacity. Deferred model 1 instead compares material;
 // non-water liquids do not enter this special gate. Top admission is separate.
 #[test]

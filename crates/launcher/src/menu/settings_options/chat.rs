@@ -92,7 +92,7 @@ impl SettingsOptions {
         f64::from(self.value("chat_line_spacing")) / 10.0 + 0.001
     }
 
-    /// Uses the seven legacy chat colors from the reconstructed controller's indexed palette.
+    /// Uses the seven legacy chat colors from the vanilla indexed palette.
     pub fn chat_color_code(&self) -> char {
         ['f', 'a', 'b', 'c', 'd', 'e', '6'][self.value("chat_color") as usize]
     }

@@ -43,6 +43,8 @@ pub struct ActorPickup {
 /// Client-derived damage and death presentation state, advanced per tick.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ActorStatus {
+    /// Native StateVector displacement per tick, distinct from query-derived movement speed.
+    pub(crate) native_velocity: [f32; 3],
     /// Ticks of hurt state remaining.
     pub hurt_time: u8,
     /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
@@ -59,7 +61,7 @@ pub struct ActorStatus {
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
     pub pickup: Option<ActorPickup>,
-    /// `(in_water, in_lava)` sampled from the block at the actor; `None` before the first sample.
+    /// Body water/lava contact; `None` before the first successful world sample.
     pub fluid: Option<(bool, bool)>,
     /// Bed orientation in degrees under a sleeping actor, sampled from the world.
     pub sleep_rotation: Option<f32>,
@@ -88,7 +90,7 @@ impl ActorStatus {
             pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
         }
         self.hurt_time = self.hurt_time.saturating_sub(1);
-        // Native Actor::baseTick (26.50 RVA 01c0f8c0) decrements only positive
+        // Native Actor::baseTick decrements only positive
         // shake values. Zero and well-formed negative server values stay unchanged.
         if self.shake_time > 0 {
             self.shake_time -= 1;
@@ -166,7 +168,7 @@ impl ActorStore {
                 }
             }
             ActorStatusKind::SpawnAlive => actor.status.revive(),
-            // Actor::handleEntityEvent (26.50 RVA 01c1cea0), case 0x27.
+            // Actor::handleEntityEvent, case 0x27.
             ActorStatusKind::Shake => actor.status.shake_time = event.data,
             // Particle-only kinds have no retained actor state.
             _ => {}

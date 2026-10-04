@@ -1,7 +1,7 @@
 # Zeqa movement correction audit — October 1, 2026
 
 The client had several independent packet and replay defects. The fixes below are
-supported by the reconstructed 1.26.50.26 client and Lens artifact 6. This audit
+based on vanilla 1.26.50.26 behavior. This audit
 **does not close vanilla parity**: the capture is insufficient to prove the first
 burst's collision geometry or the last burst's replay-fallback reason.
 
@@ -45,15 +45,15 @@ records the exact remote rcheck command, exit status and tested commit.
 
 ## Additional current-client rules
 
-Jumping: input update `0x07108cc0` carries held processed jump into MoveInput bit
-`0x10`; `fillInputPacket` `0x070fcfd0` maps it to wire bit 6. StartJumping:
-`0x0a5db340` checks canJump, performs the jump, then sets action `0x100`;
-`setFromComponent` `0x0435a250` maps that action to wire bit 31.
+Jumping: input update carries held processed jump into MoveInput bit
+`0x10`; `fillInputPacket` maps it to wire bit 6. StartJumping:
+Jump initiation checks canJump, performs the jump, then sets action `0x100`;
+`setFromComponent` maps that action to wire bit 31.
 
-MovePlayer mode 2: `Player::handleMovePlayerPacket` `0x00215860` sets action
-`0x40000000`; `setFromComponent` `0x0435a250` maps it to HandledTeleport bit 37.
-The current frame path `0x04b047e0` replaces position, motion, ground and AABB,
-without clearing physical input. The live teleport chain `0x00215860 → 0x04f347a0 → 0x001f2c00 → 0x01c1a210` resets spatial and fall state without resetting jump components; in-session snaps therefore preserve the cooldown.
+MovePlayer mode 2: `Player::handleMovePlayerPacket` sets action
+`0x40000000`; `setFromComponent` maps it to HandledTeleport bit 37.
+The current frame path replaces position, motion, ground and AABB,
+without clearing physical input. Live teleport handling resets spatial and fall state without resetting jump components; in-session snaps therefore preserve the cooldown.
 
 ## Required live retest
 
@@ -113,7 +113,7 @@ All 34 control-application log records are below; the old log does not distingui
 
 ## Interpretation
 
-- C (5 events): Client steps +0.5 at 31377 and31379 after the initial impulse, collides horizontally at 31382 (X 1974.700073), then descends. Server catches floor at network Y 103.62; client continues to network Y 102.62. Tick 31393 reaches a wall while the server advances farther. Its tiny diagnostic delta compares already-replayed prediction; its original packet is one block below the server. A verified geometry discrepancy is fixed: Cinnabar subtracted 1e-4 from each horizontal half extent; vanilla builds full-width faces (`0x04b047e0`) and passes them unchanged through ActorMoveSystem (`0x09f387f0`), SweptMovement (`0x09000dc0`) and clip (`0x0381c6c0`). At the logged X, the old box ends at 1974.999973; the full-width box reaches 1975.000073 (native f32: 1975.000122). A synthetic support-block regression now catches the lost contact. The actual Zeqa collision geometry and chunk revisions were not captured, so this fixes a proven discrepancy without claiming it definitively caused these five corrections. Remaining f32/f64 rounding differences require separate investigation.
+- C (5 events): Client steps +0.5 at 31377 and31379 after the initial impulse, collides horizontally at 31382 (X 1974.700073), then descends. Server catches floor at network Y 103.62; client continues to network Y 102.62. Tick 31393 reaches a wall while the server advances farther. Its tiny diagnostic delta compares already-replayed prediction; its original packet is one block below the server. A verified geometry discrepancy is fixed: Cinnabar subtracted 1e-4 from each horizontal half extent; vanilla builds full-width faces and passes them unchanged through ActorMoveSystem, SweptMovement and clip. At the logged X, the old box ends at 1974.999973; the full-width box reaches 1975.000073 (native f32: 1975.000122). A synthetic support-block regression now catches the lost contact. The actual Zeqa collision geometry and chunk revisions were not captured, so this fixes a proven discrepancy without claiming it definitively caused these five corrections. Remaining f32/f64 rounding differences require separate investigation.
 - K1 (8): Server Y at33147=sent33146Y+0.4, while sent33147Y uses falling velocity-0.390245. SetActorMotion is committed after33147 and applied33148. Hence initial vertical error0.790245=0.4-(-0.390245), not gravity-order drift. Server then follows0.3136,0.228928,0.145949,0.064630,... recurrence one tick ahead. Correction of33147 replays an overlay at33148 that applies0.4 again, so sent33153 is0.493164 too high until subsequent corrections fix it. Rotation also resets from50.7deg to0; original33153/54 movement thus points differently.
 - K2 (7): Server Y33332=sent33331Y+0.4; client33332 remains on ground. Motion is committed after33332, applied33333. The subsequent vertical error sequence .4,.3136,.228928,.145949,.064630,-.015062,-.093161 is exactly one tick of the same0.4 impulse arc. Horizontal differences also include a Right input beginning33333 and ground/air acceleration on different ticks. No evidence for jump or gravity constant error here.
 - K3 (6): Server33418Y=sent33417Y+0.4. Client33418 lands, moving-0.013699Y, then applies motion33419. Ground-vs-air acceleration amplifies horizontal discrepancy. Correction33418 replays the same motion at33419, making sent33423Y102.18682 instead of101.77176. Detailed33419 diagnostic shows retained .4 velocity where server has .3136, direct evidence of the double application.
@@ -131,71 +131,63 @@ The outbound trace has no correction delta/ground/rotation packet fields, no blo
 
 # Vanilla movement reference findings
 
-Reference: Lens artifact **6**, reconstructed **1.26.50.26 client**. Addresses below are RVAs unless labeled VA. Bodies were read through `artifact_function` with `source_backed=true`; local navigation used `/Users/hashim/Coding/Go/Lunar/refs/mcsrc-1.26.50/current/1.26.50.26`. Names inferred by comparison with the named 26.30 reference remain descriptive, not authoritative source names. No decompiled source was copied into Cinnabar.
-
 ## Confirmed packet fields
 
-- **`pos_delta` is state velocity, not resolved displacement.** `LocalPlayer::sendInput` equivalent **0x04f3b1a0** obtains `StateVectorComponent` using **0x002325e0**, copies position from offsets 0/8 and velocity from offsets 0x18/0x20 into the payload. There is no position subtraction. The named 26.30 counterpart is VA **0x103d27280**. End-of-tick simulation state is what is sent.
-- `fillInputPacket` **0x070fcfd0** copies analog move from `MoveInputComponent` offsets 4/8; processed move from 0x24/0x28; interaction rotation from 0x34/0x38; camera orientation from 0x54/0x58/0x5c. These are distinct carriers.
-- The sender **0x04f3b1a0** takes `head_yaw` from `ActorHeadRotationComponent`, tick from `CurrentTickComponent`, and collision flags from `HorizontalCollisionFlagComponent` / `VerticalCollisionFlagComponent`. `setFromComponent` **0x0435a250** takes pitch/yaw from `PlayerActionComponent` offsets 0x168/0x16c.
-- **Keyboard raw movement is normalized too.** In **0x070fcfd0**, when raw analog axes (`MoveInputComponent`+0x14/+0x18) are both zero, the sender calls **0x00480850** to derive a direction from digital buttons. That helper sums cardinal/diagonal directions and divides every nonzero vector by its length. W+D therefore produces magnitude-one components around 0.70710677 in `raw_move_vector`, not 1/1. When either analog raw axis is nonzero, those raw axes are copied unchanged. This is an explicit analog-versus-digital branch, not a generic normalization of every input device.
-- **No motion acknowledgement bit is required by this authoritative writer.** `ClientAckServerData` is present in enum reflection, but is not set by **0x070fcfd0**, **0x0435a250**, or **0x04f3b1a0**. The motion handler also does not set a player-input action. The repository's independent `refs/bedrock-docs/player-auth-input.md:305` says this is a legacy acknowledgement not sent in server-authoritative movement mode. Adding it on knockback would invent behavior.
+- **`pos_delta` is state velocity, not resolved displacement.** `LocalPlayer::sendInput` equivalent obtains `StateVectorComponent` and copies position from offsets 0/8 and velocity from offsets 0x18/0x20 into the payload. There is no position subtraction. End-of-tick simulation state is what is sent.
+- `fillInputPacket` copies analog move from `MoveInputComponent` offsets 4/8; processed move from 0x24/0x28; interaction rotation from 0x34/0x38; camera orientation from 0x54/0x58/0x5c. These are distinct carriers.
+- The sender takes `head_yaw` from `ActorHeadRotationComponent`, tick from `CurrentTickComponent`, and collision flags from `HorizontalCollisionFlagComponent` / `VerticalCollisionFlagComponent`. `setFromComponent` takes pitch/yaw from `PlayerActionComponent` offsets 0x168/0x16c.
+- **Keyboard raw movement is normalized too.** When raw analog axes (`MoveInputComponent`+0x14/+0x18) are both zero, the sender derives a direction from digital buttons. That helper sums cardinal/diagonal directions and divides every nonzero vector by its length. W+D therefore produces magnitude-one components around 0.70710677 in `raw_move_vector`, not 1/1. When either analog raw axis is nonzero, those raw axes are copied unchanged. This is an explicit analog-versus-digital branch, not a generic normalization of every input device.
+- **No motion acknowledgement bit is required by this authoritative writer.** `ClientAckServerData` is present in enum reflection, but is not set by the authoritative packet writer. The motion handler also does not set a player-input action. The repository's independent `refs/bedrock-docs/player-auth-input.md:305` says this is a legacy acknowledgement not sent in server-authoritative movement mode. Adding it on knockback would invent behavior.
 
-Jumping/start-jump/collision details are described above: current writer **0x070fcfd0**, action writer **0x0435a250**, input processing **0x07108cc0**, jump initiator **0x0a5db340**.
+Jumping/start-jump/collision details are described above.
 
 ## SetActorMotion: tagged replay versus immediate velocity
 
-Current `LegacyClientNetworkHandler::handle(SetActorMotionPacket)` **0x014ef100**:
+Current `LegacyClientNetworkHandler::handle(SetActorMotionPacket)`:
 
-1. For a local replay actor and a **nonzero packet tick**, creates a position-delta replay object using **0x04ae6fa0**, calls `ReplayStateComponent::applyFrameCorrection` **0x02c2a1f0** at that packet tick, and clears replay-state byte 1.
+1. For a local replay actor and a **nonzero packet tick**, creates a position-delta replay object, calls `ReplayStateComponent::applyFrameCorrection` at that packet tick, and clears replay-state byte 1.
 2. For **tick zero**, bypasses the replay object/history APIs and invokes the actor motion virtual immediately. It never substitutes a local receive tick.
 
-The immediate dispatch was checked against the actual current binary, rather than inferred from decompiler omissions:
-
-- `read_data`, artifact `6`, VA **0x1414ef600** has the load of vtable offset **0xb0** before the call.
-- Current LocalPlayer constructor **0x04f2a0e0** installs vtable VA **0x1501f20e0**.
-- `read_data` of that vtable shows slot 22 / offset 0xb0 points at VA **0x141c20b70**.
-- Function **0x01c20b70** writes only the incoming vector into the actor's StateVector velocity offsets 0x18/0x20; it has no calls, history writes, input flags, ground changes, or rotation writes. The named reference is 26.30 `Actor::lerpMotion`, VA **0x109968a90**.
+Immediate motion writes only the incoming vector to StateVector velocity offsets
+0x18/0x20. It does not call other functions or write history, input flags, ground
+state or rotation.
 
 Therefore a zero-tick motion replaces live velocity once and affects the next simulation step. Recording it as a replay overlay at a synthesized local receive tick is incorrect: a later prediction correction that already incorporates that impulse will replay the impulse again. This directly supports the zero-tick overlay fix. A nonzero server tick retains replay semantics.
 
 ## CorrectPlayerMovePrediction
 
-- Packet handler **0x04ae6670** selects the rewind actor and calls validity helper **0x04ae62d0**. That helper requires a nonzero packet tick, replay state with history, and tick at least the oldest retained history tick. It contains **no future upper bound** and **no latest-correction monotonic guard**.
-- Wrapper **0x04ae6100** passes the packet tick into `applyFrameCorrection` **0x02c2a1f0**. Its underlying `_applyCorrection` **0x02c29db0** attaches corrections to the next frame (`packet_tick + 1`) for replay. The corrected state is the server's state after the named tick; subsequent buffered inputs run from that state. This does not reset outgoing tick numbering.
-- `CorrectPlayerPredictionInput::advanceFrame` equivalent **0x04b044a0** sets on-ground, position, velocity, and AABB. It only changes rotation when prediction type is **1 (vehicle)**. Ordinary player correction therefore must preserve the player's view. The corresponding live-frame method is a no-op; the state changes are made through the replay frame path.
-- `getAdvanceFrameResult` equivalent **0x04b04300** requests replay if on-ground differs, squared position error exceeds the tolerance, or squared velocity error exceeds the same tolerance. Vehicle rotation has an additional comparison. The exact current float tolerance at VA **0x150079e60**, read through Lens `read_data` artifact `6`, is **9.999999747378752e-6** (float32 1e-5, bytes `ac c5 27 37`). It is a **squared** tolerance, not a 1e-5 per-axis distance.
+- The packet handler selects the rewind actor and calls the validity helper. That helper requires a nonzero packet tick, replay state with history, and tick at least the oldest retained history tick. It contains **no future upper bound** and **no latest-correction monotonic guard**.
+- Wrapper passes the packet tick into `applyFrameCorrection`. Its underlying `_applyCorrection` attaches corrections to the next frame (`packet_tick + 1`) for replay. The corrected state is the server's state after the named tick; subsequent buffered inputs run from that state. This does not reset outgoing tick numbering.
+- `CorrectPlayerPredictionInput::advanceFrame` equivalent sets on-ground, position, velocity, and AABB. It only changes rotation when prediction type is **1 (vehicle)**. Ordinary player correction therefore must preserve the player's view. The corresponding live-frame method is a no-op; the state changes are made through the replay frame path.
+- `getAdvanceFrameResult` equivalent requests replay if on-ground differs, squared position error exceeds the tolerance, or squared velocity error exceeds the same tolerance. Vehicle rotation has an additional comparison. The exact current float tolerance is **9.999999747378752e-6** (float32 1e-5, bytes `ac c5 27 37`). It is a **squared** tolerance, not a 1e-5 per-axis distance.
 - Thus a ~1e-4 position discrepancy alone does not establish why the server sent a correction, or whether vanilla would replay it. Velocity and on-ground are also compared. The log omits some of these server fields.
 
 ## Boundaries and unresolved points
 
 - Current vanilla does not unconditionally reject future correction ticks at the front door. `applyFrameCorrection` routes missing/future frames through `_applyCorrection`; its absent-frame path can attach the correction to the current history frame. Exact future-frame behavior was not fully transferred into a Cinnabar design or tested by this trace. Report Cinnabar's existing future/stale ordering policy as a remaining parity difference, not as a vanilla rule.
 - No evidence that the supplied corrections themselves legitimately reset player rotation; the player correction path does not apply packet rotation. A separate `MovePlayer` can legitimately set view, so the original log alone must still be checked for such a packet.
-- Teleport held-input/cooldown preservation follows the current chain cited above. Current relevant methods are `MovePlayerInput::advanceLiveFrame` **0x04b046c0**, `advanceFrame` **0x04b047e0**, and MovePlayer listener **0x04ae6740**.
+- Teleport held-input/cooldown preservation applies to both live and replayed frames, as described above.
 - Exact server correction causality cannot be recovered from missing inbound fields, collision geometry, or an unobserved anticheat decision. These reference findings establish client defects; they do not prove all 34 corrections disappear without a live comparison.
 
 ## Keyboard analogue source
 
-Current registration `0x073ce3d0` binds keyboard direction buttons to bits 13–16.
-Callbacks `0x04b03e30` / `0x04b03f50` only modify those bits; separate analogue
-callback `0x04ae6000` writes analogue axes. `0x07108cc0` preserves those axes and
-`0x070fcfd0` sends them unchanged. Pure keyboard input therefore sends zero
-analogue axes, while `0x00480850` normalizes the digital raw-vector fallback.
+Keyboard direction buttons bind to bits 13–16. Their callbacks only modify
+those bits; a separate analogue callback writes analogue axes. Input processing
+preserves those axes and sends them unchanged. Pure keyboard input therefore
+sends zero analogue axes, with a normalized digital raw-vector fallback.
 
 ## Latency probe reply
 
-Lens artifact 6: handler `0x014f94c0` copies the timestamp and from-server flag
-into its reply. Reader `0x043b62a0` multiplies the incoming timestamp by one
-million with fixed-width arithmetic; writer `0x042efda0` emits that stored value
+The latency handler copies the timestamp and from-server flag into its reply.
+The reader multiplies the incoming timestamp by one million with fixed-width
+arithmetic; the writer emits the stored value
 unchanged. Cinnabar incorrectly cleared the flag and saturated overflow. Neither
 latency packets nor their replies were present in the movement trace, so their
 contribution to Zeqa's correction decisions cannot be measured from this log.
 
-The current dispatch chain is `0x0189f780 → 0x018a00b0`: receive, decode and
-packet handler invocation complete before the next packet is dispatched. The
-latency packet factory `0x018b00d0` selects dispatcher `0x0192e2c0`, which calls
-handler slot `+0x2b0` (`0x014f94c0`); motion uses the same handler object's slot
-`+0x668` (`0x014ef100`). Consequently a preceding zero-tick motion write completes
+Receive, decode and packet handler invocation complete before the next packet
+is dispatched. Latency and motion use the same handler object, so a preceding
+zero-tick motion write completes
 before the subsequent latency reply. Cinnabar's receive-task echo could run before
 the app applied that motion. This is a confirmed ordering defect and a plausible
 source of the one-tick phase mismatch, not proof of Zeqa's anticheat logic.

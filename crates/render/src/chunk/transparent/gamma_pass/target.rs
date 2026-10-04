@@ -13,20 +13,24 @@ pub(super) fn admitted(hdr: bool, msaa: Msaa, enhanced: bool) -> bool {
     !hdr && msaa == Msaa::Off && !(crate::ENHANCED_RENDERING_ENABLED && enhanced)
 }
 
+type GammaTargetViews<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static ExtractedView,
+        &'static ViewTarget,
+        &'static Msaa,
+        Option<&'static crate::EnhancedRendering>,
+        Option<&'static GammaTarget>,
+    ),
+    With<Camera3d>,
+>;
+
 pub(super) fn prepare_gamma_targets(
     mut commands: Commands,
     device: Res<RenderDevice>,
-    views: Query<
-        (
-            Entity,
-            &ExtractedView,
-            &ViewTarget,
-            &Msaa,
-            Option<&crate::EnhancedRendering>,
-            Option<&GammaTarget>,
-        ),
-        With<Camera3d>,
-    >,
+    views: GammaTargetViews,
 ) {
     for (entity, view, target, msaa, enhanced, previous) in &views {
         if !admitted(view.hdr, *msaa, enhanced.is_some()) {

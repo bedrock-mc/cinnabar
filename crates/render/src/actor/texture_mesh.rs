@@ -1,4 +1,4 @@
-//! Native attachable raster extrusions (26.50 TextureMesh::compileQuads, RVA 01e693d0).
+//! Native attachable raster extrusions (TextureMesh::compileQuads).
 //!
 //! Unlike cubes, these meshes start in the image's X/Z plane with Y-down depth.
 

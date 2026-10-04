@@ -1,5 +1,5 @@
 //! Native HoverTextRenderer geometry, painted through retained JSON-UI nodes.
-//! See docs/reference/inventory-hover-tooltip.md for matched source evidence.
+//! See docs/reference/inventory-hover-tooltip.md for the vanilla rules.
 
 use std::collections::BTreeMap;
 
@@ -13,12 +13,12 @@ use super::{FONT_DESIGN_PIXEL_TEXELS, Painter, UiPresentationError};
 pub(super) const RENDERER: &str = "hover_text_renderer";
 pub(super) const BACKGROUND_TEXTURE: &str = "textures/ui/purpleBorder";
 
-// Current HoverTextRenderer::update (05e11010) and render (05e12ba0).
+// Vanilla tooltip mouse offset, padding and text inset.
 const MOUSE_OFFSET: [f32; 2] = [10.0, -10.0];
 const BOX_EXTRA: f32 = 8.0;
 const WIDTH_EXTRA: f32 = 1.0;
 const TEXT_OFFSET: f32 = 5.0;
-// BitmapFont::getWrapHeight (04c19060) returns default scale × 10.
+// BitmapFont::getWrapHeight returns default scale × 10.
 const TEXT_PITCH: u32 = 10;
 
 /// Current update takes a minimum first-line height, then adds wrap pitch for
@@ -33,7 +33,7 @@ fn text_height(font_scale: f32, wrap_height: f32, lines: u16) -> f32 {
 /// Native coordinates stay in virtual UI pixels until the final node emission.
 /// A too-wide box flips left, then centers above the pointer if neither side fits.
 fn box_rect(anchor: [f32; 2], text: [f32; 2], viewport: [f32; 2]) -> Rect {
-    // Font::getLineLength (04c2f5e0) rounds the widest line upward first.
+    // Font::getLineLength rounds the widest line upward first.
     let width = text[0].ceil() + WIDTH_EXTRA + BOX_EXTRA;
     let height = text[1].trunc() + BOX_EXTRA;
     let [mut dx, mut dy] = MOUSE_OFFSET;
@@ -74,7 +74,7 @@ impl Painter<'_> {
         ]);
         let max_width = data
             .get("hover_text_max_width")
-            // Constructor 05e10e10 accepts the integer JSON variant only.
+            // Constructor accepts the integer JSON variant only.
             .and_then(Value::as_i64)
             .filter(|width| *width > 0)
             .map_or(UNWRAPPED_LOGICAL, |width| width as f64 * f64::from(self.px));

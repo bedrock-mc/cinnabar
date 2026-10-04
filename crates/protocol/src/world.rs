@@ -41,6 +41,7 @@ mod biomes;
 mod block_side;
 mod clocks;
 mod custom_blocks;
+mod diagnostics;
 mod environment;
 mod events;
 mod game_mode;
@@ -56,6 +57,7 @@ pub use self::custom_blocks::{
     CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
     CustomTransformation, CustomVisualComponents, block_name_sort_key,
 };
+pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};
 pub use self::environment::WorldEnvironmentBootstrap;
 pub use self::events::{
     ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
@@ -627,6 +629,7 @@ pub fn into_world_event(
             ];
             let mut normalized = Vec::with_capacity(packet.sub_chunk_data.len());
             for entry in packet.sub_chunk_data {
+                let diagnostics = Some(SubChunkDiagnostic::from_entry(&entry));
                 let offset = [
                     entry.sub_chunk_pos_offset.subchunk_offset_x,
                     entry.sub_chunk_pos_offset.subchunk_offset_y,
@@ -668,12 +671,32 @@ pub fn into_world_event(
                         SubChunkResult::Unavailable(SubChunkUnavailable::Unknown(value))
                     }
                 };
-                normalized.push(SubChunkEntryEvent { position, result });
+                normalized.push(SubChunkEntryEvent {
+                    position,
+                    result,
+                    diagnostics,
+                });
             }
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: packet.dimension_type.value,
                 entries: normalized,
             })
+        }
+        McpePacketData::DimensionDataPacket(packet) => {
+            // Bound retained diagnostic metadata independently of advertised world height.
+            const MAX_DIMENSION_DIAGNOSTICS: usize = 64;
+            WorldEvent::DimensionHeights(
+                packet
+                    .definitions
+                    .into_iter()
+                    .take(MAX_DIMENSION_DIAGNOSTICS)
+                    .map(|entry| DimensionHeightDiagnostic {
+                        dimension: entry.value.dimension_type.value,
+                        minimum_y: entry.value.minimum_y,
+                        height_range: entry.value.height_range,
+                    })
+                    .collect(),
+            )
         }
         McpePacketData::UpdateBlockPacket(packet) => {
             let layer = normalize_layer(packet.layer)?;

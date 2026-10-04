@@ -43,9 +43,9 @@ pub(super) fn install(
             let material_count = SEASONAL_LEAF_MATERIAL_COUNT as usize;
             let mut selected = Vec::with_capacity(material_count);
             let mut selected_sources = Vec::with_capacity(material_count);
-            // LeavesBlock::getRenderLayer (1.26.50.26 0x07139b00) chooses an
+            // LeavesBlock::getRenderLayer chooses an
             // opaque deep material without changing getVariant's fancy texture.
-            // SeasonsAgnosticLeavesBlock::getRenderLayer (current 0x08f0cfc0)
+            // SeasonsAgnosticLeavesBlock::getRenderLayer
             // also chooses layer5/7 by depth, but never seasonal layer9/10.
             // Its exposure halves share one layout, without palette flags.
             let layers = [(false, false), (false, true), (true, false), (true, true)];
@@ -127,8 +127,8 @@ fn world_flags(original: u32, seasonal: u32, deep: bool) -> u32 {
 
 fn native_seasonal_replaceable(name: &str) -> bool {
     // Exact current BlockReplaceableDescription registration witnesses:
-    // short_grass 0x0ddf2ed3, fern 0x0ddf355c, water 0x0dc90f85,
-    // flowing_water 0x0dc915a1. Flowers/mushrooms are deliberately not
+    // short_grass, fern, water,
+    // flowing_water. Flowers/mushrooms are deliberately not
     // included: their crossed shape does not establish this component.
     matches!(
         name,

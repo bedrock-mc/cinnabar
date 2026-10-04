@@ -32,6 +32,9 @@ pub use pack::{PackRejection, ValidatedPack, ValidatedPackStack};
 pub use parser::validate_archive_bytes;
 pub use view::LayeredPackView;
 
+/// Maximum compressed source bytes decoded for one pack texture.
+pub const MAX_PACK_TEXTURE_BYTES: u64 = 4 * 1024 * 1024;
+
 pub const MAX_PACKS: usize = 32;
 pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_STACK_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;

@@ -11,8 +11,7 @@ overall inventory/native-parity gate. Behavior references and remaining gaps:
 ## Integrated BDS acceptance, 2026-10-02
 
 Canonical executable: `target/debug/bedrock-client`, built from `48038ec0` plus
-these corrections. SHA-256:
-`88a5c7f8eec6e228d568bca1d35eb262414057163d4202f9441b4f9dce979711`.
+these corrections.
 Test run: 09:03–09:10 UTC. macOS 26.3, Apple M3 Pro, Metal, debug profile,
 Retina display scale 2; logical gameplay area 1280×720, framebuffer 2048×1152.
 No performance acceptance is claimed.
@@ -106,8 +105,6 @@ Local logs: `.local/dev/inventory-synced-workspace-retry.log`,
 
 ## Rebuilt-client live witness after the first refresh
 
-Canonical binary SHA-256:
-`3eaca40933decd5a2549b21dde5ff76d6473228e20b0e7fb26b4b75f7ab10b9a`.
 Same platform, scale, world and BDS payload as above; the recovered container's
 endpoint is `127.0.0.1:61526`. Both actual `online-mode=false` and
 `allow-list=false` were read from its server properties, and the core recorded
@@ -155,8 +152,7 @@ ignored tests. Local logs share the prefix
 `architecture.log`, `go-tests.log`, `go-vet.log` and `build.log`.
 
 The canonical client was built after workspace verification, then launched
-against the same official offline BDS/world. Final binary SHA-256:
-`d85b45dee927031231f145e5eed4409e376013464b7fa0e6d3e173531c155cfe`.
+against the same official offline BDS/world.
 Fresh native discovery and capture established the new client window; the same
 focus integration failure required the guarded input helper. Platform, debug
 profile, display scale and endpoint are unchanged.

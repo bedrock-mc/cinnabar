@@ -501,7 +501,7 @@ fn build_chunk_texture_assets(
         &upload_plans[1],
         "global chunk texture page 1",
     );
-    // Current atlas upload retains RGBA8_UNORM (0x08118020/0x0cc45300).
+    // Current atlas upload retains RGBA8_UNORM.
     // A view of each existing allocation preserves gamma-space filtering for
     // world leaves without duplicating texture memory or changing other art.
     let native_leaf_views = [&texture_0, &texture_1].map(|texture| {

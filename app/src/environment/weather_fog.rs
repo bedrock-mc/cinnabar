@@ -1,4 +1,4 @@
-//! Native WeatherRenderer fog accumulator (current 04e30120, named 044006f0).
+//! Native WeatherRenderer fog accumulator.
 //!
 //! The native renderer accumulates separate rain/snow lattice counters before
 //! summing them. Their combined count gives the same target mathematically;
@@ -23,8 +23,7 @@ impl WeatherFog {
         self.precipitation_count = count.unwrap_or(0).min(PRECIPITATION_SAMPLE_OFFSETS.len());
     }
 
-    /// Weather constructor 037942d0 zeroes +0x4c; the WeatherRenderer built by
-    /// player constructor 04e58f50 clears +0x2bf8..+0x2d40, including its smoother.
+    /// Weather and the player’s weather renderer start with zeroed smoothing state.
     pub(super) fn reset_session(&mut self) {
         self.smoothed = 0.0;
     }
@@ -33,7 +32,7 @@ impl WeatherFog {
     /// gated by doWeatherCycle. Native doRainUpdate reads Weather rain at alpha
     /// zero (the previous tick), multiplies by .5, then accumulates each cell.
     pub(super) fn tick(&mut self, previous_rain: f32, dimension: i32) {
-        // Native built-in Overworld ctor 0e046650 admits weather via byte +100.
+        // The built-in Overworld admits weather.
         // Custom dimension weather admission is not represented by our protocol.
         let rain = if dimension == 0 && previous_rain.is_finite() {
             previous_rain.clamp(0.0, 1.0) * RAIN_SAMPLE_WEIGHT

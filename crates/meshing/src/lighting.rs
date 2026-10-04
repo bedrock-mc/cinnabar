@@ -185,7 +185,7 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
             .filter(|&id| !self.classifier.is_air(id))
             .is_some_and(|id| {
                 let visual = self.assets.resolve(self.network_id_mode, id);
-                // BlockType::getShadeBrightness (1.26.50.26 0x0365c200):
+                // BlockType::getShadeBrightness:
                 // property 0x20 and Block+0x71, independently of Block+0xa3.
                 visual.flags().contains(assets::BlockFlags::LEAF_MODEL)
                     || visual.light_properties().emission() > 0
@@ -300,7 +300,7 @@ pub(crate) fn bake_quad<I: LightingInputs + ?Sized>(
     bake_quad_with(inputs, block, face, positions, false, emitting_block)
 }
 
-/// Current liquid tessellation (1.26.50.26 0x06a1b960) never applies terrain AO;
+/// Current liquid tessellation never applies terrain AO;
 /// sides and the bottom repeat one outward-cell sample across the whole face.
 pub(crate) fn bake_liquid_quad<I: LightingInputs + ?Sized>(
     inputs: &I,
@@ -361,7 +361,7 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
                 position >= 0.9995
             }
         });
-    // Native 0x069e5200 moves only the center light sample when the OWN block's
+    // Vanilla moves only the center light sample when the OWN block's
     // cached solid bit is set. Tangential AO/light samples follow boundary alone.
     let light_origin = if boundary && (liquid_outward_center || inputs.occludes(block)) {
         outward
@@ -369,7 +369,7 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
         block
     };
     let plane_normal = if boundary { normal } else { [0; 3] };
-    // Native AO/flat tessellation (0x06a07d80/0x06a0b950) reads Block+a4
+    // Native AO/flat tessellation reads the rendered block’s emission
     // from the rendered contributor, not the union of colocated storage layers.
     // Solved light samples still include every contributor's physical emission.
     let emitter = u16::from(emitting_block) << 11;
@@ -389,7 +389,7 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
         let solid_a = inputs.occludes(side_a);
         let solid_b = inputs.occludes(side_b);
         let blocked_diagonal = solid_a && solid_b;
-        // AmbientOcclusionCalculator::calculateWithCache (0x069e5200)
+        // AmbientOcclusionCalculator::calculateWithCache
         // averages four independent 0.2/1 shade samples. Its diagonal fallback
         // uses the solid-render bits, not those shade samples: two leaves may
         // darken the vertex while still admitting the diagonal's light.
@@ -475,7 +475,7 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     let start = template.quad_start as usize;
     let end = start.checked_add(template.quad_count as usize)?;
     let quads = assets.model_quads().get(start..end)?;
-    // Current lily tessellator 06a33800 reads 069e6110 at the pad's own cell.
+    // Current lily tessellator reads light at the pad's own cell.
     // Neither neighbor AO nor terrain's underside face coefficient is applied.
     if template.flags & assets::MODEL_TEMPLATE_FLAG_LILY_PAD != 0 {
         return Some(vec![lighting_at(inputs.sample(block)); quads.len()]);
@@ -575,7 +575,7 @@ fn sample_solid_render(
                     return false;
                 }
                 let visual = assets.resolve(network_id_mode, network_value);
-                // TopSnow's constructor (0x0a5c5fb0) clears solid-render for
+                // TopSnow's constructor clears solid-render for
                 // every height. Its height-7 face coverage still culls geometry.
                 visual.variant() != assets::BLOCK_VISUAL_VARIANT_TOP_SNOW
                     && visual

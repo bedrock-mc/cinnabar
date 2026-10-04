@@ -45,27 +45,19 @@ The first-person hand samples solved light at the authoritative eye position
 terrain and the hand. The screenshots alone do not establish an atmosphere or
 lightmap defect; no speculative lighting adjustment was made.
 
-## Vanilla references
+## Vanilla rules
 
-Lens source-backed searches in the reconstructed 1.26.50.26 client identify
-`FUN_143197c60` (RVA `0x3197c60`, sequential lookup) and `FUN_143197a70`
-(RVA `0x3197a70`, hashed lookup), both with the unknown-ID air fallback. The
-owner's reconstruction provides readable corroboration:
+| Rule | Behaviour |
+| --- | --- |
+| Unknown runtime ID | Sequential and hashed lookup resolve to default air with a palette-disagreement diagnostic. Cinnabar retains these lenient semantics. |
+| In-range runtime ID | Index the palette directly. |
+| Palette insertion | Assign the sequential network index. |
+| Hash mode | The world retains the block-network-ID hash mode. |
+| Brightness | Sample spatial brightness and compose sky/block light. |
 
-- `R:BlockPalette:97-105`: an unknown runtime ID resolves to default air, with a
-  palette-disagreement diagnostic. `R:BlockPalette:120-125`: an in-range ID indexes
-  the palette directly. Cinnabar retains these lenient semantics.
-- `R:BlockPalette:16-19` and `R:BlockPalette:215-220`: palette insertion assigns
-  the sequential network index.
-- `R:Level:35879-35885`: the world retains the block-network-ID hash mode.
-- `R:Actor:18725-18743`: spatial brightness sampling.
-  `R:BaseLightTextureImageBuilder:270-304`: sky/block light composition.
 - The installed vanilla pack's `blocks.json`, entry `mushroom_stem`, names six
   terrain face keys. `textures/terrain_texture.json:5210-5261` supplies their
   texture routes. Pack content is read at runtime and is not committed here.
-
-`R` denotes the by-owner files under the owner's
-`mcsrc-1.26.50/reference/26.30/src/by-owner` reconstruction, not pasted code.
 
 ## Changes and next-session evidence
 

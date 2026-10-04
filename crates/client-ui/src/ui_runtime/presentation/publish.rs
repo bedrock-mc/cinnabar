@@ -560,22 +560,21 @@ pub fn capture_hud_frame(
             )
         })
     });
-    let selected_item_name = runtime
-        .selected_stack_custom_name(player_runtime)
-        .or_else(|| {
-            selected_stack.and_then(|stack| {
-                let id = resolve_identifier(stack)?;
-                let name = runtime.localized_item_name(&id);
-                let format = runtime
-                    .item_components(&id)
-                    .and_then(item_facts::name_format);
-                Some(Arc::from(match format {
-                    Some((code, _)) => format!("\u{a7}{code}{name}"),
-                    None => name,
-                }))
-            })
-        });
-    let selected_identity = selected_stack.map(|stack| (stack.network_id, stack.metadata));
+    let selected_item_name = selected_stack.and_then(|stack| {
+        let identifier = resolve_identifier(stack);
+        let stated_name = runtime.selected_stack_custom_name(player_runtime);
+        let display = protocol::item_display(&stack.extra_data);
+        super::inventory_tooltip::name_line(
+            runtime,
+            identifier.as_deref(),
+            stated_name.as_deref(),
+            &display,
+        )
+        .map(|line| Arc::from(line.text))
+    });
+    let selected_identity = selected_stack
+        .zip(selected_slot)
+        .map(|(stack, slot)| (slot, stack.network_id, stack.metadata));
     let holding_filled_map = selected_stack
         .and_then(resolve_identifier)
         .is_some_and(|id| &*id == "minecraft:filled_map");

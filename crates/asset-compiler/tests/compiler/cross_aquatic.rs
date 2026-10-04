@@ -132,8 +132,13 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
     for (index, visual) in compiled.visuals[..records.len()].iter().enumerate() {
         let template = compiled.model_templates[visual.model_template as usize];
         assert_eq!(
-            template.quad_count, 2,
-            "visual {index} did not use one crossed pair"
+            template.quad_count,
+            if records[index].name.as_ref() == "minecraft:wheat" {
+                4
+            } else {
+                2
+            },
+            "visual {index} has the wrong plant geometry"
         );
         assert!(template.quad_count <= 32);
         let quads = &compiled.model_quads

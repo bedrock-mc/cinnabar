@@ -1,7 +1,7 @@
 //! Non-walking locomotion: ability flight, pose-swimming and elytra gliding.
 //!
-//! Coefficients follow the public movement-physics notes' BedSim candidates (flight
-//! damping, swim steering, glide equations); none is oracle-validated against 1.26.30.
+//! Flight controls and liquid movement follow the current mcsrc client systems.
+//! The glide equations remain provisional; see the locomotion gate in plan.md.
 
 use crate::{
     CollisionWorld, Vec3,
@@ -14,23 +14,6 @@ use super::{
     collision::resolve_motion, controls, effects, environment::SampledEnvironment,
     scaffolding::ScaffoldingView,
 };
-
-const DEFAULT_FLY_SPEED: f64 = 0.05;
-const DEFAULT_VERTICAL_FLY_SPEED: f64 = 1.0;
-const FLY_SPRINT_MULTIPLIER: f64 = 2.0;
-const FLY_ASCEND: f64 = 0.15;
-const FLY_DESCEND: f64 = 0.22;
-const FLY_FRICTION: f64 = 0.91;
-const FLY_HOVER_INPUT_THRESHOLD: f64 = 0.01;
-const FLY_HOVER_FRICTION_CREATIVE: f64 = 0.375;
-const FLY_HOVER_FRICTION_OTHER: f64 = 0.75;
-const FLY_HOVER_VERTICAL_CREATIVE: f64 = 0.375;
-
-const SWIM_HORIZONTAL_DRAG: f64 = 0.9;
-const SWIM_VERTICAL_DRAG: f64 = 0.8;
-const SWIM_STEER_RATE: f64 = 0.06;
-const SWIM_STEER_DIVE_RATE: f64 = 0.085;
-const SWIM_DIVE_THRESHOLD: f64 = -0.2;
 
 const GLIDE_LIFT_SCALE: f64 = 0.75;
 const GLIDE_FALL_CONVERSION: f64 = 0.1;
@@ -45,7 +28,7 @@ pub(super) fn tick_mode(
     state: &mut PlayerState,
     input: MovementInput,
     controls: controls::ProcessedControls,
-    sampled: SampledEnvironment,
+    mut sampled: SampledEnvironment,
     grounded_at_start: bool,
     world: &impl CollisionWorld,
 ) -> Result<ControlledTickResult, SimulationError> {
@@ -73,6 +56,15 @@ pub(super) fn tick_mode(
     }
     let mut controls = controls;
     let in_water = sampled.movement.in_water;
+    let mut identity = sampled.identity.clone();
+    let flight_ground_friction = if input.mode == MovementMode::Flying && grounded_at_start {
+        let ground =
+            super::flight::sample_ground_friction(world, next.position, sampled.block_samples)?;
+        identity = identity.merge(&ground.identity)?;
+        ground.value
+    } else {
+        1.0
+    };
     match input.mode {
         MovementMode::Flying => {
             // Sneak descends while flying instead of slowing the walk.
@@ -80,34 +72,14 @@ pub(super) fn tick_mode(
                 sneaking: false,
                 ..input
             });
-            let base = input.fly_speed.unwrap_or(DEFAULT_FLY_SPEED);
-            let speed = if input.sprinting {
-                base * FLY_SPRINT_MULTIPLIER
-            } else {
-                base
-            };
             apply_relative_movement(
                 &mut next.velocity,
                 super::movement_impulse(controls.move_vector[0]),
                 super::movement_impulse(controls.move_vector[1]),
                 input.yaw_degrees,
-                speed,
+                super::flight::horizontal_speed(&input),
             );
-            let vertical_speed = input
-                .vertical_fly_speed
-                .unwrap_or(DEFAULT_VERTICAL_FLY_SPEED);
-            if input.jumping && input.sneaking {
-                next.velocity.y = 0.0;
-            } else {
-                let direction = if input.jumping {
-                    FLY_ASCEND
-                } else if input.sneaking {
-                    -FLY_DESCEND
-                } else {
-                    0.0
-                };
-                next.velocity.y += vertical_speed * direction;
-            }
+            super::flight::apply_vertical_control(&mut next.velocity, &input, controls.move_vector);
         }
         MovementMode::Swimming if in_water => {
             apply_relative_movement(
@@ -121,13 +93,25 @@ pub(super) fn tick_mode(
                     super::depth_strider_level(input.depth_strider, grounded_at_start),
                 ),
             );
-            let target = -minecraft_sin(input.pitch_degrees.to_radians());
-            let rate = if target < SWIM_DIVE_THRESHOLD {
-                SWIM_STEER_DIVE_RATE
-            } else {
-                SWIM_STEER_RATE
-            };
-            next.velocity.y += (target - next.velocity.y) * rate;
+            let attach = (!input.jumping)
+                .then_some(input.liquid_attach_height)
+                .flatten()
+                .map(|height| {
+                    super::water::sample_attach(world, next.position, height, sampled.block_samples)
+                })
+                .transpose()?;
+            if let Some(attach) = &attach {
+                identity = identity.merge(&attach.identity)?;
+                sampled.block_samples += 1;
+            }
+            super::water::steer(
+                &mut next.velocity.y,
+                &input,
+                attach.map(|sample| sample.value),
+            );
+            if input.sneaking {
+                super::water::sink(&mut next.velocity.y);
+            }
         }
         MovementMode::Gliding => {
             next.velocity = glide_velocity(next.velocity, input);
@@ -148,7 +132,7 @@ pub(super) fn tick_mode(
         grounded_at_start,
         height,
     )?;
-    let identity = sampled.identity.merge(&motion.identity)?;
+    let mut identity = identity.merge(&motion.identity)?;
     let pre_collision_velocity = next.velocity;
     next.position = motion.position;
     next.on_ground = motion.stepped
@@ -170,32 +154,19 @@ pub(super) fn tick_mode(
 
     match input.mode {
         MovementMode::Flying => {
-            let horizontal_input = controls.move_vector[0]
-                .abs()
-                .max(controls.move_vector[1].abs());
-            let hovering = horizontal_input < FLY_HOVER_INPUT_THRESHOLD;
-            let modifier = match (hovering, input.creative_flight) {
-                (false, _) => 1.0,
-                (true, true) => FLY_HOVER_FRICTION_CREATIVE,
-                (true, false) => FLY_HOVER_FRICTION_OTHER,
-            };
-            if hovering && input.creative_flight && !input.jumping && !input.sneaking {
-                next.velocity.y *= FLY_HOVER_VERTICAL_CREATIVE;
-            }
-            let retention = FLY_FRICTION * modifier;
-            next.velocity.x *= retention;
-            next.velocity.z *= retention;
-            next.velocity.y *= retention;
+            super::flight::apply_drag(
+                &mut next.velocity,
+                &input,
+                controls.move_vector,
+                flight_ground_friction,
+            );
         }
         MovementMode::Swimming if in_water => {
-            let horizontal = if input.sprinting {
-                SWIM_HORIZONTAL_DRAG
-            } else {
-                super::WATER_DRAG
-            };
-            next.velocity.x *= horizontal;
-            next.velocity.z *= horizontal;
-            next.velocity.y *= SWIM_VERTICAL_DRAG;
+            super::water::apply_drag(
+                &mut next.velocity,
+                &input,
+                super::depth_strider_level(input.depth_strider, grounded_at_start),
+            );
             effects::apply_vertical(&mut next.velocity.y, input.effects, 0.0, 1.0);
         }
         MovementMode::Gliding => {}
@@ -209,6 +180,26 @@ pub(super) fn tick_mode(
             next.velocity.x *= super::DEFAULT_AIR_FRICTION;
             next.velocity.z *= super::DEFAULT_AIR_FRICTION;
         }
+    }
+    if input.mode == MovementMode::Swimming
+        && in_water
+        && (motion.collisions.x || motion.collisions.z)
+    {
+        if motion.collisions.x {
+            next.movement.x = 0.0;
+        }
+        if motion.collisions.z {
+            next.movement.z = 0.0;
+        }
+        let exit = super::water::climb_out(
+            world,
+            motion.aabb,
+            state.position.y,
+            next.position.y,
+            &mut next.velocity,
+            sampled.block_samples,
+        )?;
+        identity = identity.merge(&exit.identity)?;
     }
     next.jump_delay = next.jump_delay.saturating_sub(1);
     next.collisions = motion.collisions;

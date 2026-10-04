@@ -31,16 +31,15 @@ source or carrier is absent. Scratch output remains outside the installed pack.
 This changes ownership only and closes no vanilla behavior or visual parity gate.
 The existing compilation behavior and its source comments are retained.
 
-- Lens source search for `terrain_texture.json` in reconstructed client
-  `1.26.50.26` returned derived-source matches at RVAs `0xade020` and `0x7f5ba0`.
-  The subsequent batched function reads reported that the analysis service was
-  unavailable; the search results are discovery evidence, not a new verification
-  of those functions' behavior.
-- **R:ResourcePackManager:488** in the 26.30 reconstruction loads a resource from
-  the selected pack stack. **R:TextureAtlas:908** loads atlas metadata and
-  **R:TextureAtlas:1839** reads its `texture_data` entries. These older references
-  explain the input roles; they are not current-version parity proof. Reference
-  root: `~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src/by-owner`.
+## Vanilla rules
+
+| Rule | Behaviour |
+| --- | --- |
+| Resource lookup | Load a resource from the selected pack stack. |
+| Atlas metadata | Load atlas metadata and read its `texture_data` entries. |
+
+These input roles are not a new current-version parity claim.
+
 - The installed vanilla pack was read through the worktree's `.local` symlink:
   `.local/assets/bedrock-samples/v1.26.50.4/full/resource_pack/textures/terrain_texture.json:3`
   identifies `vanilla`, `atlas.terrain`, and the `texture_data` table. No pack

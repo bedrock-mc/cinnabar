@@ -31,7 +31,7 @@ fn fixture(root: &Path, appearance: &str) {
 
 #[test]
 fn missing_water_opacity_keeps_native_alpha_not_opaque() {
-    // Current getWaterColor 01dda1e0 reads the default RGBA at 1502b26c0.
+    // Current getWaterColor reads the default RGBA.
     // Frozen river authors only RGB, exactly as in the reported ocean scene.
     for (appearance, expected) in [
         ("{}", 166.0 / 255.0),

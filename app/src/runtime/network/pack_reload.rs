@@ -12,14 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Session facts needed to compile visuals again without another StartGame.
-#[derive(Clone, Debug, Default)]
-pub(super) struct PackInputs {
-    pub(super) blocks: protocol::CustomBlocks,
-    pub(super) icons: Vec<(Arc<str>, Arc<str>)>,
-    pub(super) block_items: Vec<(Arc<str>, Arc<str>)>,
-    pub(super) hashed: bool,
-}
+pub(super) use client_session::PackInputs;
 
 struct Prepared {
     revision: u64,

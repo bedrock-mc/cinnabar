@@ -22,8 +22,8 @@ pub(crate) struct CubeMaterialResolver<'refs, 'assets, 'chunks> {
 }
 
 impl CubeMaterialResolver<'_, '_, '_> {
-    /// GrassBlock::calcVariant samples only the block directly above (1.26.50.26
-    /// RVA 0x0712a5e0): every TopSnow height, Snow, or PowderSnow selects its snowy
+    /// GrassBlock::calcVariant samples only the block directly above:
+    /// every TopSnow height, Snow, or PowderSnow selects its snowy
     /// side. The carried face table and the top/bottom materials stay unchanged.
     pub(crate) fn face_material(
         &self,

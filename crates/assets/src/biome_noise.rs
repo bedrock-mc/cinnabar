@@ -1,4 +1,4 @@
-//! Bedrock grass-noise permutation (Lens 1.26.50.26: 0x6c08620, 0x6c08740).
+//! Bedrock grass-noise permutation.
 
 const MT_WORDS: usize = 624;
 const PERMUTATION_SIZE: usize = 256;

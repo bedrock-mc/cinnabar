@@ -55,6 +55,7 @@ pub mod ui_runtime;
 mod acceptance;
 mod app;
 mod presentation;
+mod presentation_observations;
 mod runtime;
 
 pub use app::run;

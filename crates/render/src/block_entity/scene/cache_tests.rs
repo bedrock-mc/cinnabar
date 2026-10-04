@@ -43,7 +43,7 @@ fn scene() -> BlockEntityScene {
 fn chest(index: i32, light: f32) -> BlockEntitySubmission {
     BlockEntitySubmission {
         block: [index % 20, 64, index / 20],
-        light,
+        light: light.into(),
         kind: BlockEntityKind::Chest(ChestModel {
             variant: ChestVariant::Normal,
             facing: Facing::North,
@@ -57,7 +57,7 @@ fn chest(index: i32, light: f32) -> BlockEntitySubmission {
 fn portal(index: i32) -> BlockEntitySubmission {
     BlockEntitySubmission {
         block: [index, 63, 0],
-        light: 1.0,
+        light: 1.0.into(),
         kind: BlockEntityKind::EndPortal,
     }
 }
@@ -73,7 +73,7 @@ fn reference_frame(
     let text = scene.text.as_ref().unwrap();
     let mut builder = MeshBuilder::new(atlas.size());
     for submission in submissions {
-        builder.light = submission.light.clamp(0.0, 1.0);
+        submission.light.apply(&mut builder);
         emit_submission(
             &mut builder,
             atlas,
@@ -82,7 +82,7 @@ fn reference_frame(
             clock,
         );
     }
-    builder.light = 1.0;
+    BlockEntityLight::Scalar(1.0).apply(&mut builder);
     for crack in cracks {
         emit_crack(&mut builder, atlas, crack);
     }
@@ -136,7 +136,7 @@ fn mixed_scenes_build_static_models_once_and_preserve_every_draw_layer() {
         chest(2, 0.25),
         BlockEntitySubmission {
             block: [3, 64, 0],
-            light: 0.5,
+            light: 0.5.into(),
             kind: BlockEntityKind::Beacon(BeaconModel {
                 height: 24,
                 tint: [0.25, 0.5, 1.0],
@@ -167,7 +167,7 @@ fn reordered_removed_and_changed_submissions_rebuild_only_the_affected_slots() {
     submissions.swap(0, 2);
     assert_matches_reference(&mut scene, 1.0, &[], &submissions);
     assert_eq!(scene.static_rebuilds, 4);
-    submissions[0].light = 0.75;
+    submissions[0].light = 0.75.into();
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
     assert_eq!(scene.static_rebuilds, 5);
     let BlockEntityKind::Chest(model) = &mut submissions[2].kind else {
@@ -207,7 +207,7 @@ fn dynamic_atlas_updates_keep_static_meshes_and_asset_installs_invalidate_them()
     let mut scene = scene();
     let sign = BlockEntitySubmission {
         block: [4, 64, 0],
-        light: 0.5,
+        light: 0.5.into(),
         kind: BlockEntityKind::Sign(SignModel {
             mount: SignMount::Wall(Facing::North),
             front: Some(SignFace {
@@ -323,7 +323,7 @@ fn review_render_static_gateway_reuses_geometry_across_ticks() {
     let mut scene = scene();
     let gateway = BlockEntitySubmission {
         block: [0; 3],
-        light: 1.0,
+        light: 1.0.into(),
         kind: BlockEntityKind::EndGateway,
     };
     scene.update(

@@ -74,8 +74,8 @@ fn native_liquid_faces_admit_only_their_original_and_marked_reverse_windings() {
     let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
     let mut failures = Vec::new();
     for face in Face::ALL {
-        // 06a1b960: ordinary top duplicates its reverse; sides do so only
-        // beside primary air. 06a0d430 never duplicates the bottom.
+        // The ordinary top duplicates its reverse; sides do so only
+        // beside primary air. Vanilla never duplicates the bottom.
         let side_admission: &[bool] = match face {
             Face::NegativeY => &[false],
             Face::PositiveY => &[true],

@@ -103,7 +103,7 @@ fn append_cube_vertices(
     let cube_rotation = cube.rotation.map(|value| value.get());
     let bind_rotation = bind.map_or([0.0; 3], |(_, rotation)| rotation);
     let rotation: [f32; 3] = std::array::from_fn(|axis| cube_rotation[axis] + bind_rotation[axis]);
-    // Native ModelPart cube setup (26.50.26 01e62d50) adds the bind Euler angles
+    // Native ModelPart cube setup adds the bind Euler angles
     // to the cube's angles and rotates its pivot about the part's pivot separately.
     let bind_offset = match bind {
         None => [0.0; 3],
@@ -273,7 +273,7 @@ fn face_uv_quad(
     face.map(|face| {
         quad(
             face.uv.map(|value| value.get()),
-            // Geometry::_parseBoxFaceUV (26.50 RVA 06af9220) first copies the cube's
+            // Geometry::_parseBoxFaceUV first copies the cube's
             // face dimensions, then optionally replaces them with authored uv_size.
             face.uv_size
                 .map_or(dimensions, |size| size.map(|value| value.get())),

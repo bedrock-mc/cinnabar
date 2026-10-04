@@ -565,11 +565,7 @@ fn corner_light_uses_independent_channel_maxima() {
         Face::PositiveY,
         [[256, 256, 256]; 4],
     );
-    assert_eq!(
-        baked.samples(),
-        [0x00ff; 4],
-        "Lens 1.26.50.26 0x69e6360: MAX per nibble"
-    );
+    assert_eq!(baked.samples(), [0x00ff; 4], "MAX per nibble");
 }
 
 #[test]
@@ -588,7 +584,7 @@ fn two_solid_sides_exclude_the_bright_diagonal() {
     );
     assert!(
         baked.samples().into_iter().all(|sample| sample & 15 == 2),
-        "Lens 0x69e6360: the diagonal is replaced by a side"
+        "the diagonal is replaced by a side"
     );
 }
 
@@ -636,10 +632,6 @@ fn inset_face_samples_its_own_plane() {
             0,
         )
         .unwrap();
-        assert_eq!(
-            baked[0].samples(),
-            [11; 4],
-            "inset y={height}; Lens 0x6a07d80"
-        );
+        assert_eq!(baked[0].samples(), [11; 4], "inset y={height}");
     }
 }

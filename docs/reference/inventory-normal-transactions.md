@@ -1,31 +1,16 @@
 # Server normal inventory transactions
 
-This implementation is independently written from the local `mcsrc-1.26.50`
-reconstruction revision `da728f0ce4d7a5ae0be443b8abe03119858d923e` and Lens.
-Current evidence is Windows client `1.26.50.26`, matching PE SHA-256
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`.
-The named 26.30 reference identifies the functions; the current decompile and
-matching PE callback tables independently corroborate their actual contracts.
+## Vanilla rules
 
-## Source chain
-
-| Contract | Named 26.30 RVA | Current RVA |
-| --- | --- | --- |
-| Legacy client receives `InventoryTransaction`, postloads descriptors, calls the complex transaction with client mode enabled, refreshes UI | `03570600` | `014f3120` |
-| Normal complex transaction verifies its actions, then executes their final stacks; balancing/recalculation is server-only | `0a5c7c90` | `02996d00` |
-| Player-source verification ignores a mismatched previous stack when client mode is enabled | `0a5fc780` | `029bab20` |
-| Source 0/window 0 writes `toItem` to the player inventory | `0a5fdc70` | `029bb710` |
-| Source 0/armor writes `toItem` to the selected armor cell | `0a5fddf0` | `029bb780` |
-| Source 0/UI writes `toItem`; cursor also updates the carried instance; output 50 is specially deferred | `0a5fdfa0` | `029bb810` |
-| Source 0/offhand writes `toItem` to its sole cell | `0a5fe4c0` | `029bba60` |
-
-Current `__unmapped/01.cpp` contains receive `014f3120`;
-`__unmapped/02.cpp` contains the normal transaction and execute callbacks.
-The matching PE complex-transaction vtable `14ffd3f00 + 0x20` resolves to
-`02996d00`. Its player/offhand/armor/UI execute tables (`15013d610`,
-`15013d6a0`, `15013d640`, `15013d670`) resolve through their `+0x10`
-function-object operator entries to the callbacks above. These are current-code
-witnesses, not an assumption that every old reference address remains valid.
+| Rule | Behaviour |
+| --- | --- |
+| Receive | Postload `InventoryTransaction` descriptors, call the complex transaction with client mode enabled, and refresh UI. |
+| Execution | Verify normal transaction actions, then execute their final stacks; balancing/recalculation is server-only. |
+| Client verification | Ignore mismatched previous player stacks when client mode is enabled. |
+| Player inventory | Source 0/window 0 writes `toItem` to the player inventory. |
+| Armor | Source 0/armor writes `toItem` to the selected armor cell. |
+| UI | Source 0/UI writes `toItem`; cursor also updates the carried instance; output 50 is specially deferred. |
+| Offhand | Source 0/offhand writes `toItem` to its sole cell. |
 
 ## Observed failure and correction
 
@@ -74,8 +59,7 @@ receive path.
 
 On 2026-10-02 UTC the canonical macOS/Metal client, Retina scale 2, connected
 to offline loopback vanilla BDS; version and image come from
-`assets/bedrock-target.json`. Tested executable SHA-256:
-`b51eb853c4b7f04ba555c0dd0b76e5667addcbbae2ab40711483afce5f75e25f`.
+`assets/bedrock-target.json`.
 No Xbox login or synthetic pickup accounting was used.
 
 - Dirt 64/id 82: Drop -3 Accepted at 00:56:24 gave 63; pickup at 00:56:49

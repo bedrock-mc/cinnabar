@@ -28,7 +28,7 @@ fn native_liquid_planes_and_replicated_flow_uvs_execute_on_gpu() {
             };
             let quad =
                 PackedLiquidQuad::try_pack([3, 4, 5], face, heights, 7, 0, [0, 0], false).unwrap();
-            for corner in 0..4 {
+            for (corner, &height) in heights.iter().enumerate() {
                 let mut packed = quad.words();
                 if top_emitted {
                     packed[2] |= LIQUID_TOP_INSET_BIT;
@@ -41,12 +41,7 @@ fn native_liquid_planes_and_replicated_flow_uvs_execute_on_gpu() {
                     Face::NegativeZ => [[1., 0.], [1., 0.], [0., 0.], [0., 0.]],
                     Face::PositiveZ => [[0., 1.], [0., 1.], [1., 1.], [1., 1.]],
                 }[corner];
-                let mut expected = [
-                    3. + xz[0],
-                    4. + f32::from(heights[corner]) / 255.,
-                    5. + xz[1],
-                    0.,
-                ];
+                let mut expected = [3. + xz[0], 4. + f32::from(height) / 255., 5. + xz[1], 0.];
                 match face {
                     Face::NegativeX => expected[0] += LIQUID_FACE_INSET,
                     Face::PositiveX => expected[0] -= LIQUID_FACE_INSET,
@@ -71,7 +66,7 @@ fn native_liquid_planes_and_replicated_flow_uvs_execute_on_gpu() {
                     [
                         face as u32 as f32,
                         corner as f32,
-                        f32::from(heights[corner]) / 255.,
+                        f32::from(height) / 255.,
                         0.5,
                     ],
                     [0., 0., 0., 0.],

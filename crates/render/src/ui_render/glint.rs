@@ -21,7 +21,6 @@ impl Default for UiGlintSettings {
 impl UiGlintSettings {
     /// Applies speed to total time before the shader computes its scrolling phases.
     pub(super) fn animation_seconds(self, elapsed: f32) -> f32 {
-        // L:1.26.50.26:0x213ce90; R:a/ActorShaderManager.cpp:1515–1517.
         (elapsed * self.speed) % 3600.0
     }
 }

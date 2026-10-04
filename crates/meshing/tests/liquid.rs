@@ -226,7 +226,7 @@ fn alpha_glass_enclosure_culls_water_sides_and_bottom_but_preserves_top_admissio
 
 #[test]
 fn only_emitted_liquid_tops_lower_shared_top_and_side_heights_after_lighting_repack() {
-    // Native 06a1b960 mutates the four heights during top emission, then reuses
+    // Vanilla mutates the four heights during top emission, then reuses
     // them for sides. Bottom geometry never receives that height mutation.
     let exposed = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8])]));
     for quad in exposed.liquid_quads() {
@@ -253,9 +253,9 @@ fn only_emitted_liquid_tops_lower_shared_top_and_side_heights_after_lighting_rep
 
 #[test]
 fn native_liquid_winding_admission_survives_lighting_repack() {
-    // Native 06a1b960 + Tessellator face metadata: the ordinary exposed top
+    // Vanilla tessellator face metadata: the ordinary exposed top
     // admits opposite winding, only primary-Air side neighbours do, and the
-    // ordinary bottom helper06a0d430 never requests a secondary face.
+    // ordinary bottom helper never requests a secondary face.
     let exposed = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8])]));
     for quad in exposed.liquid_quads() {
         assert_eq!(quad.is_two_sided(), quad.face() != Face::NegativeY);
@@ -1082,9 +1082,7 @@ fn mesh_mixed(chunks: &[SubChunk]) -> meshing::ChunkMesh {
     )
 }
 
-/// Cube-shaped transparent barriers are excluded from the native height sample
-/// (0x06a9cf80), and their motion-blocking material stops downhill flow
-/// (0x0395d2f0). Face transparency must not turn glass into an air sample.
+/// Cube-shaped transparent barriers are excluded from the native height sample, and their motion-blocking material stops downhill flow. Face transparency must not turn glass into an air sample.
 #[test]
 fn transparent_cube_over_water_is_not_an_open_flow_neighbour() {
     let mut placements = Vec::new();
@@ -1138,7 +1136,7 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
 
 /// Layer conflicts must resolve to the same diagnostic/primary/liquid winners.
 /// Diagnostic terrain cubes with non-solid source winners use their own center
-/// light (native terrain 0x069e5200); liquids use native inset flags and no-AO lighting.
+/// light; liquids use native inset flags and no-AO lighting.
 #[test]
 fn conflicting_layer_mesh_output_is_golden() {
     let mut state = 0x9e37_79b9_7f4a_7c15_u64;

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use assets::{ActorArtworkBinding, ActorTexture, RuntimeEntityAssets, RuntimeEquipmentCatalog};
+use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
 use resource_pack::LayeredPackView;
 
 mod collect;
@@ -11,22 +11,8 @@ use collect::collect_files;
 
 use super::resource_packs::{StackFingerprint, parse_pack_json};
 
-/// The pack's entity catalog with the artwork of its eligible rigs.
-#[derive(Debug)]
-pub(crate) struct SessionEntityPack {
-    pub(crate) assets: Arc<RuntimeEntityAssets>,
-    pub(crate) textures: Arc<[ActorTexture]>,
-    pub(crate) bindings: Arc<[ActorArtworkBinding]>,
-    /// The pack's attachable bindings and rasters for held and worn items.
-    pub(crate) equipment: Option<Arc<assets::RuntimeEquipmentCatalog>>,
-}
-
-/// StartGame item components and pack item icons the equipment layer draws custom items from.
-#[derive(Debug)]
-pub(crate) struct SessionItems {
-    pub(crate) components: Arc<crate::ui_runtime::item_facts::SessionItemComponents>,
-    pub(crate) icons: Option<Arc<crate::ui_runtime::presentation::SessionIcons>>,
-}
+pub(crate) use assets::SessionEntityPack;
+pub(crate) use client_presentation::session_assets::SessionItems;
 
 /// Vanilla definitions server-pack entities may reference, set once at startup when the
 /// sidecar loads.
@@ -241,3 +227,6 @@ mod scene_report;
 
 #[cfg(test)]
 mod projectile_report;
+
+#[cfg(test)]
+mod mob_motion_report;

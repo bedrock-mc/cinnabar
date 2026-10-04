@@ -22,8 +22,8 @@ impl LightBlockAccess for WaterColumn {
     }
 }
 
-/// 0dc90eef/0dc90ef1: current BaseGameVersion makes water filter one.
-/// 0dc9150f: flowing_water retains filter two. Ordinary Fancy seeds from the
+/// The current BaseGameVersion makes water filter one.
+/// flowing_water retains filter two. Ordinary Fancy seeds from the
 /// water-including heightmap and then subtracts that filter at every depth.
 #[test]
 fn shipped_water_retains_native_skylight_at_the_ocean_floor() {

@@ -10,6 +10,70 @@ use tempfile::TempDir;
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
 #[test]
+fn entity_rotation_frames_survive_position_only_and_frame_only_bones() {
+    let pack = animation_pack(false);
+    let original = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert!(
+        original
+            .animation_channels
+            .iter()
+            .all(|channel| !channel.rotation_relative_to_entity)
+    );
+    let path = pack.path().join("animations/test.animation.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let root = &mut value["animations"]["animation.test.walk"]["bones"]["root"];
+    root["relative_to"] = serde_json::json!({"rotation":"entity"});
+    // No angle channel: the translated bone still switches to entity axes.
+    let compiled = compile_entity_assets_after_write(pack.path(), &path, &value);
+    let root_channels: Vec<_> = compiled
+        .animation_channels
+        .iter()
+        .filter(|channel| channel.bone == 0)
+        .collect();
+    assert!(
+        root_channels
+            .iter()
+            .any(|channel| channel.property == EntityAnimationProperty::Translation)
+    );
+    assert!(
+        root_channels
+            .iter()
+            .all(|channel| channel.rotation_relative_to_entity)
+    );
+    assert!(
+        compiled
+            .animation_channels
+            .iter()
+            .filter(|channel| channel.bone != 0)
+            .all(|channel| !channel.rotation_relative_to_entity)
+    );
+    value["animations"]["animation.test.walk"]["bones"]["root"] =
+        serde_json::json!({"relative_to":{"rotation":"entity"}});
+    let compiled = compile_entity_assets_after_write(pack.path(), &path, &value);
+    let frame = compiled
+        .animation_channels
+        .iter()
+        .find(|channel| channel.bone == 0)
+        .unwrap();
+    assert!(frame.rotation_relative_to_entity);
+    let runtime =
+        assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+    assert_eq!(
+        runtime.animation_channels(),
+        compiled.animation_channels.as_ref()
+    );
+}
+
+fn compile_entity_assets_after_write(
+    root: &Path,
+    path: &Path,
+    value: &serde_json::Value,
+) -> assets::CompiledEntityAssets {
+    fs::write(path, serde_json::to_vec(value).unwrap()).unwrap();
+    compile_entity_assets(root, MANIFEST).unwrap()
+}
+
+#[test]
 fn modern_player_scripts_activate_only_animate_roots_and_compile_rig_scripts() {
     let pack = animation_pack(false);
     let path = pack.path().join("entity/test.entity.json");
@@ -206,6 +270,100 @@ fn animation_pack(reverse: bool) -> TempDir {
         write(temporary.path(), path, bytes);
     }
     temporary
+}
+
+fn set_walk_time_update(pack: &Path, clock: serde_json::Value) {
+    let path = pack.join("animations/test.animation.json");
+    let mut animations: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    animations["animations"]["animation.test.walk"]["anim_time_update"] = clock;
+    fs::write(path, serde_json::to_vec(&animations).unwrap()).unwrap();
+}
+
+#[test]
+fn compiles_authored_distance_clock_and_preserves_it_in_entity_carrier() {
+    let pack = animation_pack(false);
+    set_walk_time_update(
+        pack.path(),
+        serde_json::json!("query.modified_distance_moved"),
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let walk = compiled
+        .animation_clips
+        .iter()
+        .find(|clip| {
+            compiled.symbols[clip.symbol as usize].identifier.as_ref() == "animation.test.walk"
+        })
+        .unwrap();
+    let clock = compiled.molang_expressions[walk.anim_time_update.unwrap() as usize];
+    let distance_query = compiled
+        .molang_symbols
+        .iter()
+        .position(|symbol| {
+            symbol.kind == MolangSymbolKind::Query
+                && symbol.identifier.as_ref() == "query.modified_distance_moved"
+        })
+        .unwrap() as u32;
+    assert_eq!(
+        &compiled.molang_ops
+            [clock.first_op as usize..(clock.first_op + u32::from(clock.op_count)) as usize],
+        &[MolangOp::LoadQuery(distance_query)]
+    );
+    assert!(
+        compiled
+            .animation_clips
+            .iter()
+            .any(|clip| clip.anim_time_update.is_none())
+    );
+    let blob = encode_entity_blob(&compiled).unwrap();
+    let runtime = assets::RuntimeEntityAssets::decode(&blob).unwrap();
+    assert_eq!(runtime.animation_clips(), compiled.animation_clips.as_ref());
+    assert_eq!(runtime.encode().unwrap(), blob);
+}
+
+#[test]
+fn animation_time_update_accepts_general_molang_and_numeric_constants() {
+    for (authored, expected_ops) in [
+        (serde_json::json!(0.75), 1),
+        (serde_json::json!("query.anim_time + query.delta_time"), 3),
+    ] {
+        let pack = animation_pack(false);
+        set_walk_time_update(pack.path(), authored.clone());
+        let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+        let clock = compiled
+            .animation_clips
+            .iter()
+            .find_map(|clip| clip.anim_time_update)
+            .unwrap();
+        let clock = compiled.molang_expressions[clock as usize];
+        assert_eq!(clock.op_count, expected_ops, "authored clock {authored}");
+        if authored.is_number() {
+            assert_eq!(
+                compiled.molang_ops[clock.first_op as usize],
+                MolangOp::Push(assets::EntityGeometryScalar::new(0.75).unwrap())
+            );
+        }
+    }
+}
+
+#[test]
+fn rejects_malformed_or_unsupported_animation_time_updates() {
+    for authored in [
+        serde_json::json!(null),
+        serde_json::json!(true),
+        serde_json::json!([]),
+        serde_json::json!({}),
+        serde_json::json!("query.modified_distance_moved +"),
+        serde_json::json!("query.unreviewed_time"),
+    ] {
+        let pack = animation_pack(false);
+        set_walk_time_update(pack.path(), authored.clone());
+        let error = compile_entity_assets(pack.path(), MANIFEST).unwrap_err();
+        assert!(
+            error.to_string().contains("anim_time_update"),
+            "{authored}: {error}"
+        );
+    }
 }
 
 #[test]

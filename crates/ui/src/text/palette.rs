@@ -1,8 +1,7 @@
 //! Formatting colors loaded from the active JSON-UI global variables.
 //!
 //! Vanilla UIDefRepository::_applyGlobalColorFormat reads RGB triples and updates
-//! ColorFormat's shared table (R:UIDefRepository:3031-4150). The reconstructed
-//! 1.26.50.26 client has the same path at Lens artifact 6, RVA 0x42eae0.
+//! ColorFormat's shared table.
 
 use super::BedrockColor;
 

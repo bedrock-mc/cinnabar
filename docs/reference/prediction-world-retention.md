@@ -47,10 +47,6 @@ immutability across changes and unloads. The simulation crate's historical-world
 replay tests still exercise corrections after a chunk is evicted and its live
 registry is changed.
 
-The Lens 1.26.50.26 `PredictedMovementComponent::HistoryCache::addHistory`
-(`0x104eb63d0`) and `_addHistoryItem` (`0x104eb6790`) retain shared movement history
-items. The corresponding reconstruction is
-`R:h/HistoryCache--51380a50480a.cpp:119` and
-`R:h/HistoryCache--51380a50480a.cpp:254`. These are actor prediction references,
-not an assertion that vanilla uses Cinnabar's history capacities or world
-snapshots. No movement formula or history capacity changes in this fix.
+Vanilla actor prediction retains shared movement history items. This does not
+assert that vanilla uses Cinnabar’s history capacities or world snapshots.
+No movement formula or history capacity changes in this fix.

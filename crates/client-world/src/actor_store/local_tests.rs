@@ -94,6 +94,7 @@ fn local_player_sync_spawns_a_client_owned_player_actor_then_updates_it() {
     let actor = store.get(1).expect("local actor retained");
     assert_eq!(actor.received_pose.position, [9.0, 64.0, 0.0]);
     assert_eq!(actor.velocity, [1.5, 0.0, 0.0]);
+    assert_eq!(actor.native_velocity(), [1.5, 0.0, 0.0]);
     assert_eq!(actor.on_ground, Some(false));
     assert!(actor.movement_revision > first_revision);
 }

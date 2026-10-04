@@ -36,6 +36,20 @@ pub struct MovementInput {
     /// Look pitch, degrees positive downward. Read only by swimming and gliding.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub pitch_degrees: f64,
+    /// Tick-captured height of native attach location 7 above the feet. The
+    /// caller retains its pose-offset transition in prediction input; absence
+    /// leaves the swimming surface guard unspecified for legacy traces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquid_attach_height: Option<f64>,
+    /// Height of the preceding collision pose at this tick's current feet.
+    /// Native liquid sensing runs before pose selection; replay retains this
+    /// height while resampling water/lava at the corrected position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquid_contact_height: Option<f64>,
+    /// Flow policy is sensed before this tick's flight trigger. Retaining its
+    /// preceding flying state keeps toggle ticks and correction replay aligned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquid_flow_enabled: Option<bool>,
     /// Depth Strider level on the boots; scales water travel toward ground travel.
     #[serde(default, skip_serializing_if = "is_zero_level")]
     pub depth_strider: u8,
@@ -75,6 +89,20 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
         if !value.is_finite() {
             return Err(SimulationError::NonFiniteInput { field });
         }
+    }
+    if input
+        .liquid_attach_height
+        .is_some_and(|height| !height.is_finite())
+    {
+        return Err(SimulationError::NonFiniteInput {
+            field: "liquid_attach_height",
+        });
+    }
+    if input
+        .liquid_contact_height
+        .is_some_and(|height| !height.is_finite() || height <= 0.0)
+    {
+        return Err(SimulationError::InvalidLiquidContactHeight);
     }
     if input
         .item_use_movement_modifier

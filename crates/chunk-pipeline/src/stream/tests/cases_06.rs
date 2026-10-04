@@ -931,6 +931,7 @@ fn explicit_all_air_result_is_counted_as_a_resident_graph_node() {
     stream.apply_prepared(super::PreparedWorldEvent::SubChunks {
         dimension: key.dimension,
         entries: vec![super::PreparedSubChunk {
+            diagnostics: None,
             position: [key.x, key.y, key.z],
             result: super::PreparedSubChunkResult::AllAir,
         }],

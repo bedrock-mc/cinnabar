@@ -95,6 +95,7 @@ fn compiled_fixture() -> CompiledEntityAssets {
             channel_count: 1,
             source: 0,
             override_previous: false,
+            anim_time_update: None,
             geometry: Some(0),
         }]
         .into_boxed_slice(),
@@ -103,6 +104,7 @@ fn compiled_fixture() -> CompiledEntityAssets {
             property: EntityAnimationProperty::Translation,
             first_keyframe: 0,
             keyframe_count: 1,
+            rotation_relative_to_entity: false,
         }]
         .into_boxed_slice(),
         animation_keyframes: vec![EntityAnimationKeyframe {
@@ -498,6 +500,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
                     input: &input,
                     context,
                     anim_tick: 2,
+                    anim_time: None,
                     life_tick: 10,
                     finished: (false, false),
                     bones: &[],

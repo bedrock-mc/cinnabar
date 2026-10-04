@@ -9,8 +9,7 @@ use std::{
     io::Cursor,
 };
 
-// The reconstruction keeps these tuning values as unnamed data; they follow the
-// title-screen cube convention and need native measurement.
+// These tuning values follow the title-screen cube convention and need native measurement.
 /// Vertical field of view of the panorama camera.
 const VERTICAL_FOV: f32 = 85.0 * PI / 180.0;
 /// Turn rate: 0.1 degrees per 20 Hz tick, turning left.

@@ -107,14 +107,10 @@ frames do not format strings, write traces or take aggregate-sample locks.
 
 ## Reference contracts
 
-- Lens was searched source-first in reconstructed client 1.26.50.26. Its verified
-  source-backed brightness callback, artifact 6 / RVA `0x01ee9ca0`, dirties the
-  changed block's ±1 halo. This agrees with `R:r/RenderChunkCoordinator.cpp:914–968`
-  in the supplied 26.30 by-owner reconstruction. Valid light invalidation was
-  preserved.
-- `R:d/DataBindingComponent.cpp:553–638` identifies conditional controller binding
-  and retained binding state. The vanilla pack's `ui/hud_screen.json` supplies the
-  authored HUD bindings and factories used by the offline UI runs.
+- The brightness callback dirties the changed block's ±1 halo. Valid light
+  invalidation was preserved.
+- Controller bindings are conditional and retain state. The vanilla pack's
+  `ui/hud_screen.json` supplies authored HUD bindings and factories used offline.
 - The pinned vanilla pack's `entity/player.entity.json:16–43` selects
   `geometry.humanoid.custom`, initialization, pre-animation and the player root
   animation controller. The synthetic actor witness uses these installed

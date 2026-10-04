@@ -184,7 +184,7 @@ pub struct UiRuntime {
     book_packets: VecDeque<protocol::Packet>,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
-    last_selected_identity: Option<(i32, u32)>,
+    last_selected_identity: Option<(u8, i32, u32)>,
     /// Local millis at which the held jump began charging the mounted jump
     /// bar; `None` while jump is released or no mount is ridden.
     mount_jump_hold_started_millis: Option<u64>,

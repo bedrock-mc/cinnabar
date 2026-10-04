@@ -1,26 +1,14 @@
 # Native block placement prediction
 
-Reference: `HashimTheArab/mcsrc-1.26.50`, revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`, current view
-`current/1.26.50.26/src/__unmapped/`. Matching Lens executable SHA-256:
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`.
-This is our own implementation from the reference, not pasted reconstructed C++.
+## Vanilla rules
 
-## Identified native contracts
-
-- `09.cpp`, RVA `0x09cc4aa0`: placement position uses the clicked block's replacement
-  predicate; a nonreplaceable clicked block offsets along its face even when its type
-  matches the held cube. Identifier equality is not a blanket placement veto.
-- `09.cpp`, RVA `0x09cc3660`: after place-position/state resolution and placement checks,
-  the client synchronously sets the local block with flags `3`, layer `0`, before local
-  consume/sound/placement effects. It does not wait for server acceptance.
-- `03.cpp`, RVA `0x0319e5f0`: the local set mutates the loaded chunk and notifies change
-  listeners. Missing chunks and out-of-bounds positions fail.
-- `09.cpp`, RVA `0x09cc4df0`: the block item descriptor retains all 32 network-ID bits;
-  `-1` is an uninitialized sentinel, not a general negative-hash rejection rule.
-- `02.cpp`, RVAs `0x0299e8e0` / `0x0299dce0`: failed server transactions resend blocks
-  around the clicked and face-neighbor positions, alongside player/inventory correction.
-  Subsequent authoritative block updates replace local predictions.
+| Rule | Behaviour |
+| --- | --- |
+| Placement position | Use the clicked block’s replacement predicate. Offset a nonreplaceable block along its face even when its type matches the held cube; identifier equality is not a blanket veto. |
+| Local prediction | After resolving placement position/state and checks, synchronously set the local block with flags `3`, layer `0`, before local consume/sound/placement effects. Do not wait for server acceptance. |
+| World mutation | Mutate the loaded chunk and notify listeners; missing chunks and out-of-bounds positions fail. |
+| Block identity | Retain all 32 network-ID bits; `-1` is an uninitialized sentinel, not a general negative-hash rejection rule. |
+| Server correction | Failed transactions resend blocks around the clicked and face-neighbor positions along with player/inventory correction. Later authoritative updates replace predictions. |
 
 ## Cinnabar correction and verification
 

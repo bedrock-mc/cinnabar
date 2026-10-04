@@ -13,9 +13,9 @@ pub const TINT_MAP_SIZE: u32 = 256;
 pub const TINT_MAP_COUNT: usize = 8;
 pub const TINT_MAP_BYTES: usize = TINT_MAP_COUNT * 256 * 256 * 3;
 pub const BIOME_RULE_FLAG_GRASS_SHADED: u16 = 1;
-// Current getWaterColor 01dda1e0: default RGBA at VA 1502b26c0. The
-// water-appearance component's constructor 01df7dd0 separately defaults its
-// surfaceOpacity to .65; loader 01dd3ca0 replaces alpha with that value.
+// The default water RGBA is independent of the water-appearance component,
+// whose constructor defaults surfaceOpacity to .65. Loading that component
+// replaces alpha with its surfaceOpacity.
 pub const DEFAULT_WATER_RGB: u32 = 0x60_b7ff;
 pub const DEFAULT_WATER_OPACITY: f32 = 166.0 / 255.0;
 pub const DEFAULT_WATER_APPEARANCE_OPACITY: f32 = 0.65;
@@ -441,10 +441,10 @@ impl CompiledBiomeAssets {
         if rule.flags & BIOME_RULE_FLAG_GRASS_SHADED != 0
             && rule.grass.map_id() == Some(TintMapId::Grass)
         {
-            // Lens 1.26.50.26 0x1dcd030: shade bytes before color-space conversion.
+            // Vanilla shades bytes before color-space conversion.
             grass = ((grass & 0x00fe_fefe) + 0x0028_340a) >> 1;
         }
-        // Native LeavesBlock::getRenderLayer (1.26.50.26 RVA 0x07139b00):
+        // Native LeavesBlock::getRenderLayer:
         // snow eligibility and palette blend strength are independent. The
         // remaining altitude/regional temperature path is tracked in plan.md.
         let seasonal = max_snow_accumulation.is_some_and(|maximum| maximum > 0.0)

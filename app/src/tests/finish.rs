@@ -1139,22 +1139,6 @@ fn camera_sub_chunk_key_uses_floor_and_euclidean_chunks() {
 }
 
 #[test]
-fn status_title_exposes_live_input_coordinates_for_acceptance() {
-    let transform = Transform {
-        translation: Vec3::new(1.25, 72.0, -8.5),
-        rotation: Quat::from_rotation_y(0.5),
-        ..Default::default()
-    };
-    let title = status_title(&transform, 42, 37, true, 59.94);
-
-    assert!(title.contains("59.9 FPS"));
-    assert!(title.contains("pos 1.25 72.00 -8.50"));
-    assert!(title.contains("yaw 0.50"));
-    assert!(title.contains("chunks 37/42"));
-    assert!(title.contains("captured"));
-}
-
-#[test]
 fn biome_blend_marker_is_acceptance_only_render_committed_and_deduplicated() {
     let disabled = AcceptanceRun::new(None, None, false, false);
     let enabled = AcceptanceRun::new(Some(60), None, false, false);

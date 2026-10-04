@@ -1,4 +1,5 @@
 #[path = "../src/shader_safety.rs"]
+#[allow(dead_code, reason = "shared checked shader constructors")]
 mod shader_safety;
 #[path = "support/shader_source.rs"]
 mod shader_source;

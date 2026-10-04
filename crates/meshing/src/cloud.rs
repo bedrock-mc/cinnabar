@@ -14,7 +14,7 @@ pub const CLOUD_TOP_Y: f32 = CLOUD_UNDERSIDE_Y + CLOUD_THICKNESS_BLOCKS;
 pub const MAX_CLOUD_QUADS: usize = (CLOUD_MASK_SIZE as usize * CLOUD_MASK_SIZE as usize / 2) * 6;
 pub const MAX_CLOUD_BYTES: usize = MAX_CLOUD_QUADS * size_of::<PackedCloudQuad>();
 
-/// Current native TextureTessellator colour bake (064a41e0), before conversion
+/// Current native TextureTessellator colour bake, before conversion
 /// to RGBA8. Keep the separate native additions: their f32 rounding is observable
 /// when the tessellator truncates the shaded channel back to a byte.
 #[must_use]

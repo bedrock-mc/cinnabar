@@ -48,7 +48,7 @@ impl TerrainTextureMap {
 }
 
 fn literal_rgb(source: &str) -> Option<[u8; 3]> {
-    // TextureJSONParser 01a2ce10 delegates to colour parsing 006d7150:
+    // TextureJSONParser delegates to colour parsing:
     // hexadecimal strings select their low RGB bytes, with alpha one.
     let hex = source.strip_prefix('#')?;
     if !matches!(hex.len(), 6 | 8) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {

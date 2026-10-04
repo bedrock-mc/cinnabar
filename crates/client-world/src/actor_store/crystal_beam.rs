@@ -4,7 +4,7 @@ use protocol::{ActorKind, ActorMetadataValue};
 
 use super::ActorStore;
 
-// R:EnderCrystal:52-53 defines this BlockPos with the zero position as its sentinel.
+// EnderCrystal defines this BlockPos with the zero position as its sentinel.
 const CRYSTAL_TARGET_METADATA_KEY: u32 = 47;
 
 /// End crystal beam endpoints and animation age, in world blocks and game ticks.
@@ -30,8 +30,8 @@ impl ActorStore {
             if *target == [0; 3] {
                 return None;
             }
-            // R:DataDrivenRenderer_tempComponent_EnderCrystalAdditionalRendering:445-467
-            // offsets only the target Y by one, and ends at the interpolated actor origin.
+            // Vanilla beam rendering offsets only the target Y by one
+            // and ends at the interpolated actor origin.
             Some(CrystalBeamView {
                 runtime_id: actor.runtime_id,
                 target: [target[0] as f32, target[1] as f32 + 1.0, target[2] as f32],

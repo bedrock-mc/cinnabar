@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 /// World size of one font pixel on a tag (vanilla scales the tag by 1.6 / 60).
 pub const NAMETAG_BLOCKS_PER_FONT_PIXEL: f32 = 1.6 * (1.0 / 60.0);
-// Matched billboard RVA 0x021a6110 and environmental-text RVA 0x0682c9cf.
 pub(crate) const NAMETAG_ACOS_LINEAR: f32 = 0.87266463;
 pub(crate) const NAMETAG_ACOS_CUBIC: f32 = -0.698_131_7;
 pub(crate) const NAMETAG_HORIZONTAL_ZERO: f32 = 0.0001;

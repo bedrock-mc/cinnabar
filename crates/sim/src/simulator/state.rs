@@ -12,6 +12,14 @@ pub struct PlayerState {
     pub movement: Vec3,
     pub on_ground: bool,
     pub jump_delay: u8,
+    /// Native SwimAmountComponent blend retained across ticks and replay. Both
+    /// the swimming and crawling flags advance it before the jump system.
+    #[serde(default)]
+    pub swim_amount: f32,
+    /// Retained native swimming-or-crawling flag observed by SwimAmount before
+    /// this tick's local swim/pose trigger applies its new choice.
+    #[serde(default)]
+    pub swim_pose_active: bool,
     /// Axis collisions resolved by the previous tick. Bedrock reads these one
     /// tick late — `bedsim v0.1.3` `simulateMovement` consults `state.CollideX`
     /// and `state.CollideZ` before the current tick resolves motion — so they
@@ -31,6 +39,8 @@ impl PlayerState {
             movement: Vec3::ZERO,
             on_ground: false,
             jump_delay: 0,
+            swim_amount: 0.0,
+            swim_pose_active: false,
             collisions: AxisCollisions {
                 x: false,
                 y: false,
@@ -99,6 +109,10 @@ pub enum SimulationError {
     NonFiniteInput { field: &'static str },
     #[error("movement speed authority must be finite and nonnegative")]
     InvalidMovementSpeed,
+    #[error("swim amount must be finite and within [0, 1]")]
+    InvalidSwimAmount,
+    #[error("liquid contact height must be finite and positive")]
+    InvalidLiquidContactHeight,
     #[error("item-use movement modifier must be finite and within [0, 1]")]
     InvalidItemUseMovementModifier,
     #[error(transparent)]
@@ -108,6 +122,9 @@ pub enum SimulationError {
 }
 
 pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
+    if !state.swim_amount.is_finite() || !(0.0..=1.0).contains(&state.swim_amount) {
+        return Err(SimulationError::InvalidSwimAmount);
+    }
     for (field, value) in [
         ("position", state.position),
         ("velocity", state.velocity),

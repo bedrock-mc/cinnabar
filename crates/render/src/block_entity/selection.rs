@@ -3,7 +3,6 @@ use super::{BlockEntityVertex, CrackShape, crack::FACE_OFFSET};
 use bevy::{math::Vec3, prelude::Resource, render::extract_resource::ExtractResource};
 use std::sync::Arc;
 
-// R:l/LevelRendererPlayer.cpp:11653,11827,12038; Lens data 0x10dd71d9c/0x10dd71ec0.
 const OUTLINE_ANGULAR_WIDTH: f32 = 0.003;
 const HIGHLIGHT_COLOR: [f32; 4] = [0.65, 0.65, 0.65, 1.0];
 // Negative UV selects the untextured overlay branch, outside any atlas coordinates.
@@ -166,6 +165,7 @@ fn quad(output: &mut Vec<BlockEntityVertex>, corners: [Vec3; 4], color: [f32; 4]
         position: corners[index].to_array(),
         uv: UNTEXTURED_UV,
         color,
+        ..Default::default()
     }));
 }
 

@@ -155,6 +155,7 @@ impl ActorStore {
             }
             actor.received_pose = pose;
             actor.velocity = feed.velocity;
+            actor.status.native_velocity = feed.velocity;
             actor.on_ground = Some(feed.on_ground);
             actor.movement_revision = revision;
             actor.teleported = feed.teleported;

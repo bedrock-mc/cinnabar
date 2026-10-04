@@ -1,0 +1,120 @@
+use super::{LocalMovementSpeedAuthority, preserve_effective_speed};
+
+/// Starts one authority with an admitted server attribute update.
+fn started(current: f32) -> LocalMovementSpeedAuthority {
+    let mut authority = LocalMovementSpeedAuthority::default();
+    authority.begin_session(7, 0);
+    assert!(authority.apply(7, 1, 0, f64::from(current), None));
+    authority
+}
+
+#[test]
+fn server_effective_sprint_without_modifiers_is_never_boosted_twice() {
+    let mut authority = started(0.1);
+    authority.set_sprinting(true);
+    assert!(authority.apply(7, 2, 0, f64::from(0.13_f32), None));
+    authority.adopt_server_sprinting(Some(true));
+    for _ in 0..20 {
+        authority.set_sprinting(true);
+    }
+    assert_eq!(authority.current(), Some(f64::from(0.13_f32)));
+    assert_eq!(
+        authority.prediction_speed(),
+        Some(f64::from(0.13_f32 / sim::SPRINT_SPEED_MULTIPLIER as f32))
+    );
+
+    // The packet removed the local modifier: native sprint stop cannot remove it again.
+    authority.set_sprinting(false);
+    assert_eq!(authority.current(), Some(f64::from(0.13_f32)));
+    assert!(authority.apply(7, 3, 0, f64::from(0.1_f32), None));
+    assert_eq!(authority.prediction_speed(), Some(f64::from(0.1_f32)));
+}
+
+#[test]
+fn local_edges_preserve_custom_speed_and_remove_only_installed_modifier() {
+    let mut authority = started(0.12);
+    let base = authority.current().unwrap() as f32;
+    authority.set_sprinting(true);
+    let boosted = base * sim::SPRINT_SPEED_MULTIPLIER as f32;
+    assert_eq!(authority.current(), Some(f64::from(boosted)));
+    authority.set_sprinting(true);
+    assert_eq!(authority.current(), Some(f64::from(boosted)));
+    authority.set_sprinting(false);
+    assert_eq!(
+        authority.current(),
+        Some(f64::from(boosted / sim::SPRINT_SPEED_MULTIPLIER as f32))
+    );
+
+    authority.adopt_server_sprinting(Some(true));
+    assert!(authority.apply(7, 2, 0, f64::from(0.18_f32), Some(1.5)));
+    authority.set_sprinting(false);
+    assert_eq!(authority.current(), Some(f64::from(0.18_f32 / 1.5)));
+}
+
+#[test]
+fn metadata_adopts_sprint_without_modifying_attribute() {
+    let mut authority = started(0.12);
+    authority.adopt_server_sprinting(Some(true));
+    authority.set_sprinting(true);
+    assert_eq!(authority.current(), Some(f64::from(0.12_f32)));
+    authority.adopt_server_sprinting(Some(false));
+    authority.set_sprinting(false);
+    assert_eq!(authority.current(), Some(f64::from(0.12_f32)));
+}
+
+#[test]
+fn authority_obeys_session_fifo_dimension_and_replacement_ordering() {
+    let mut authority = started(0.25);
+    assert!(!authority.apply(6, 3, 0, 0.5, None));
+    assert!(!authority.apply(7, 1, 0, 0.5, None));
+    assert!(!authority.apply(7, 3, 1, 0.5, None));
+    assert_eq!(authority.current(), Some(0.25));
+    authority.set_sprinting(true);
+    authority.replace_dimension(7, 1);
+    assert_eq!(authority.current(), None);
+    assert!(!authority.apply(7, 1, 0, 0.75, None));
+    assert!(authority.apply(7, 1, 1, 0.0, None));
+    authority.set_sprinting(false);
+    assert_eq!(authority.current(), Some(0.0));
+    authority.begin_session(8, -1);
+    assert_eq!(authority.current(), None);
+    assert!(!authority.apply(7, 2, -1, 1.0, None));
+    assert!(authority.apply(8, 1, -1, 0.1, None));
+}
+
+#[test]
+fn invalid_updates_are_consumed_without_overwriting_last_valid_authority() {
+    let mut authority = started(0.2);
+    for (sequence, value) in [(2, f64::NAN), (3, f64::INFINITY), (4, -0.1), (5, 1.0e6)] {
+        assert!(!authority.apply(7, sequence, 0, value, None));
+        assert_eq!(authority.current(), Some(f64::from(0.2_f32)));
+    }
+    assert!(!authority.apply(7, 5, 0, 0.9, None));
+    for (sequence, factor) in [
+        (6, 0.0),
+        (7, f32::NAN),
+        (8, f32::INFINITY),
+        (9, 1.0 + (-0.999_999_94_f32)),
+    ] {
+        assert!(!authority.apply(7, sequence, 0, 0.3, Some(factor)));
+        assert_eq!(authority.current(), Some(f64::from(0.2_f32)));
+    }
+}
+
+#[test]
+fn processed_sprint_rewrites_keep_the_effective_attribute() {
+    let mut input = sim::MovementInput {
+        sprinting: true,
+        movement_speed: Some(f64::from(0.13_f32 / sim::SPRINT_SPEED_MULTIPLIER as f32)),
+        ..sim::MovementInput::default()
+    };
+    input.sprinting = false;
+    preserve_effective_speed(&mut input, true);
+    assert_eq!(input.movement_speed, Some(f64::from(0.13_f32)));
+    input.sprinting = true;
+    preserve_effective_speed(&mut input, false);
+    assert_eq!(
+        input.movement_speed,
+        Some(f64::from(0.13_f32 / sim::SPRINT_SPEED_MULTIPLIER as f32))
+    );
+}

@@ -4,8 +4,7 @@ use super::context::{
 };
 use super::dispatcher::CompileRuleResult;
 
-// Current BlockTessellator 06a33800, verified in its machine-code vertex
-// arguments: VA1501edd6c is 1/64 block. Collision thickness is not art height.
+// Vanilla draws the plane at 1/64 block. Collision thickness is not art height.
 const PLANE_HEIGHT: i16 = 4;
 
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {

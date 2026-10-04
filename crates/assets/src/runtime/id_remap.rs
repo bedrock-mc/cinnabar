@@ -59,6 +59,28 @@ impl SequentialIdRemap {
             wire - segment.shifted
         }
     }
+
+    /// Recovers the wire id of a resolved internal state for diagnostics.
+    #[must_use]
+    pub fn to_wire(&self, internal: u32) -> u32 {
+        for segment in &self.segments {
+            if let Some(offset) = internal.checked_sub(segment.internal_start)
+                && offset < segment.len
+            {
+                return segment.wire_start.saturating_add(offset);
+            }
+        }
+        let after = self.segments.partition_point(|segment| {
+            segment
+                .wire_start
+                .saturating_sub(segment.shifted - segment.len)
+                <= internal
+        });
+        let shifted = after
+            .checked_sub(1)
+            .map_or(0, |index| self.segments[index].shifted);
+        internal.saturating_add(shifted)
+    }
 }
 
 #[cfg(test)]
@@ -75,5 +97,14 @@ mod tests {
         assert_eq!(internal, [0, 1, 2, 10, 11, 3, 4, 5, 6, 12, 7, 8, 9]);
         assert!(SequentialIdRemap::default().is_identity());
         assert_eq!(SequentialIdRemap::default().to_internal(7), 7);
+    }
+
+    #[test]
+    fn resolved_ids_recover_wire_ids_across_custom_runs() {
+        let remap = SequentialIdRemap::new([(9, 1, 12), (3, 2, 10)]);
+        for wire in 0..13 {
+            assert_eq!(remap.to_wire(remap.to_internal(wire)), wire);
+        }
+        assert_eq!(SequentialIdRemap::default().to_wire(7), 7);
     }
 }

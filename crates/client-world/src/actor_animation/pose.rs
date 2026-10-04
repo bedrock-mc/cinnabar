@@ -2,8 +2,8 @@ use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
 use super::{tick::WeightedClip, *};
 
-// ModelPart loader 26.50.26 RVA 01e61dd0 uses DAT_14ffa90d8 (24), then the model
-// constructor RVA 01e772b0 negates native Y into BoneOrientation default position.
+// ModelPart loader uses 24, then the model
+// constructor negates native Y into BoneOrientation default position.
 pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
 #[derive(Clone, Copy)]
@@ -11,6 +11,7 @@ pub(super) struct LocalDelta {
     pub(super) translation: [f32; 3],
     pub(super) rotation: [f32; 3],
     pub(super) scale: [f32; 3],
+    pub(super) rotation_relative_to_entity: bool,
 }
 
 impl Default for LocalDelta {
@@ -19,6 +20,7 @@ impl Default for LocalDelta {
             translation: [0.0; 3],
             rotation: [0.0; 3],
             scale: [1.0; 3],
+            rotation_relative_to_entity: false,
         }
     }
 }
@@ -47,6 +49,9 @@ pub(super) fn sample_clips(
     for weighted in clips {
         budget.charge_work()?;
         let weight = weighted.weight;
+        if weight < f32::EPSILON {
+            continue;
+        }
         let clip = assets
             .animation_clips()
             .get(weighted.clip)
@@ -56,22 +61,13 @@ pub(super) fn sample_clips(
         let clip_tick = evaluator.anim_tick.saturating_sub(weighted.started_tick);
         let evaluator = &Evaluator {
             anim_tick: clip_tick,
+            anim_time: Some(weighted.time),
             ..*evaluator
         };
-        let frame_alpha = evaluator
-            .context
-            .attachable
-            .map_or(0.0, |input| input.frame_alpha);
-        let raw_time = (clip_tick as f32 + frame_alpha) * ACTOR_TICK_DURATION.as_secs_f32();
-        let time = match clip.loop_mode {
-            EntityAnimationLoop::Loop if length > 0.0 => raw_time.rem_euclid(length),
-            // A finished one-shot stops contributing; only hold keeps its last frame.
-            EntityAnimationLoop::Once if raw_time > length => continue,
-            EntityAnimationLoop::Once | EntityAnimationLoop::HoldOnLastFrame => {
-                raw_time.clamp(0.0, length)
-            }
-            EntityAnimationLoop::Loop => 0.0,
-        };
+        if clip.loop_mode == EntityAnimationLoop::Once && weighted.time > length {
+            continue;
+        }
+        let time = weighted.time;
         let first = clip.first_channel as usize;
         let end = first
             .checked_add(clip.channel_count as usize)
@@ -93,10 +89,11 @@ pub(super) fn sample_clips(
             let bone = local
                 .get_mut(channel.bone as usize)
                 .ok_or(EvalError::Invalid)?;
+            // Native blending retains the greatest frame setting across active clips.
+            bone.rotation_relative_to_entity |= channel.rotation_relative_to_entity;
             let current = bone.property(channel.property);
             // `this` reads BoneOrientation, not an animation-only delta. ModelPart's
-            // defaults are copied into that orientation before channels add their values
-            // (26.50.26 model constructor 01e772b0; KeyFrameTransform 26.30 09e85520).
+            // defaults are copied into that orientation before channels add their values.
             let defaults = default_channel(bones, channel.bone as usize, channel.property)
                 .ok_or(EvalError::Invalid)?;
             let this = std::array::from_fn(|axis| match channel.property {
@@ -297,9 +294,18 @@ fn compose_bone(
         let rotated = rotate_vector(parent.rotation, scaled);
         // A non-uniform parent scale under a rotated child would shear; the child keeps the
         // componentwise product, exact only for a uniform parent scale or an unturned child.
-        let scale = std::array::from_fn(|axis| parent_scale[axis] * delta.scale[axis]);
+        // Entity-relative rotation resets the inherited basis after translating the pivot.
+        // This removes both parent rotation and scale; descendants inherit our new basis.
+        let (rotation, scale) = if delta.rotation_relative_to_entity {
+            (rotation, delta.scale)
+        } else {
+            (
+                quat_multiply(parent.rotation, rotation),
+                std::array::from_fn(|axis| parent_scale[axis] * delta.scale[axis]),
+            )
+        };
         with_scale(
-            quat_multiply(parent.rotation, rotation),
+            rotation,
             std::array::from_fn(|axis| parent.translation_scale[axis] + rotated[axis]),
             scale,
         )

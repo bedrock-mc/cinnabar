@@ -1,4 +1,20 @@
-//! Compatibility names still used by vanilla `blocks.json`.
+//! Shared vanilla block identities and compatibility names.
+
+/// Current SkullBlock identities mapped to the legacy `SkullType` ordinal.
+/// Native placed-head rendering selects its model from the backing block type.
+#[must_use]
+pub fn vanilla_skull_type(identifier: &str) -> Option<u8> {
+    Some(match identifier {
+        "minecraft:skeleton_skull" => 0,
+        "minecraft:wither_skeleton_skull" => 1,
+        "minecraft:zombie_head" => 2,
+        "minecraft:player_head" => 3,
+        "minecraft:creeper_head" => 4,
+        "minecraft:dragon_head" => 5,
+        "minecraft:piglin_head" => 6,
+        _ => return None,
+    })
+}
 
 /// The older resource-pack key for a canonical vanilla block identifier.
 ///

@@ -100,7 +100,7 @@ pub use block_entity::{
     MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_KEY_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
     RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
 };
-pub use block_names::legacy_resource_pack_block_alias;
+pub use block_names::{legacy_resource_pack_block_alias, vanilla_skull_type};
 pub use compiled::{
     BlockFace, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
     MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE,
@@ -260,3 +260,11 @@ pub use weather_textures::{
 
 mod biome_noise;
 pub use biome_noise::{ClientRandom, grass_noise_permutation};
+
+mod session_entities;
+pub use session_entities::SessionEntityPack;
+
+mod pinned_content;
+pub use pinned_content::{
+    active_content_registry_protocol, pinned_block_registry_bytes, pinned_world_provenance,
+};

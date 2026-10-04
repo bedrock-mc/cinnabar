@@ -101,10 +101,12 @@ fn malformed_sub_chunk_payload_completes_without_retry() {
                 dimension: 0,
                 entries: vec![
                     SubChunkEntryEvent {
+                        diagnostics: None,
                         position: [keys[0].x, keys[0].y, keys[0].z],
                         result: SubChunkResult::AllAir,
                     },
                     SubChunkEntryEvent {
+                        diagnostics: None,
                         position: [keys[1].x, keys[1].y, keys[1].z],
                         result: SubChunkResult::Success {
                             payload: vec![0xff],

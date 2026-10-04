@@ -1,26 +1,20 @@
 # Resource-pack continuation references
 
-`R:` paths are relative to the read-only 26.30 reconstruction's `src/by-owner/`.
 `V:` paths are relative to the pinned vanilla 1.26.50 resource pack.
-Lens entries below are source-backed canonical reads from client artifact 6,
-version 1.26.50.26. No reconstructed source is copied into Cinnabar.
 
 ## Device tiers and library settings
 
-Lens `FUN_140308da0`, RVA `0x308da0`, uses strict greater-than comparisons with
-2, 4, 6, 8 and 12 GiB of physical memory. The resulting tier is 0 through 5.
-`R:h/HardwareMemoryTierUtilImpl.cpp:10` corroborates every boundary.
-`R:r/ResourcePackStack.cpp:450` selects the highest supported subpack; equal
-tiers replace the candidate, so the last declared tie wins. Root resources
-remain the fallback if no declared subpack is supported.
+Device tiers use strict greater-than comparisons with 2, 4, 6, 8 and 12 GiB
+of physical memory, producing tiers 0 through 5. Select the highest supported
+subpack; equal tiers replace the candidate, so the last declared tie wins. Root
+resources remain the fallback if no declared subpack is supported.
 `V:ui/pack_settings_screen.json:89` binds the selected name; `:93` binds support;
 `:143` and `:146` bind slider value and steps; `:174` shows the unsupported warning.
 
 Pack thumbnails use `V:ui/resource_packs_screen.json:41` and `:49` (`#icon_path`).
-Lens `0x25a1270` and `0x1b49550` resolve pack icon paths; `0x1b93fe0` registers
-`pack_icon.png` and `bug_pack_icon.png`. These reads do not yet establish the
-retail missing-icon fallback. Cinnabar currently uses the pinned base pack icon;
-that fallback remains a provisional deviation.
+Pack icon lookup registers `pack_icon.png` and `bug_pack_icon.png`. The retail
+missing-icon fallback remains unverified. Cinnabar currently uses the pinned
+base pack icon; that fallback remains a provisional deviation.
 
 Immutable local import revisions and live Apply are Cinnabar extensions. Import
 never overwrites an applied archive. An acknowledgement persists the exact
@@ -29,15 +23,12 @@ are pruned only when the acknowledged selection is still the latest selection.
 
 ## Fonts and item routes
 
-`R:b/BitmapFont.cpp:1449` and `:1664` scan `ASCII_CHAR_INDICES`; the 256-cell table
-was read through Lens at reference address `0x10db2d21c` in the earlier handoff.
-It includes extended characters and differs from Latin-1 and CP437.
-`R:f/FontLoadingUtils.cpp:44` reads `ascii_font_file` and `unicode_file_prefix`;
-`:477` reads `font_file`, and `:490` reads `target_font_render_size`.
-`R:t/TrueTypeFont.cpp:175`–`:176` tries TTF and OTF extensions.
-Lens `0x177e1f0` reads version-one `font/font_metadata.json`, `font_format`,
-`font_name`, and dispatches bitmap, TrueType and TrueTypeMSDF constructors.
-Lens `0x4c3df00` reads `font_language_code` for alias selectors.
+Bitmap fonts scan the 256-cell `ASCII_CHAR_INDICES` table, which includes
+extended characters and differs from Latin-1 and CP437. Font loading reads
+`ascii_font_file`, `unicode_file_prefix`, `font_file` and `target_font_render_size`
+and tries TTF and OTF extensions. Version-one `font/font_metadata.json` supplies
+`font_format` and `font_name`, selecting bitmap, TrueType or TrueTypeMSDF
+constructors. Alias selectors read `font_language_code`.
 `V:ui/enchanting_screen.json:129` selects `font_type: rune`; the pinned pack's
 `texts/ja_JP/font/glyph_*.png` supplies language-scoped bitmap sheets.
 
@@ -52,8 +43,8 @@ path and `ItemTextureReference.variant`. Atlas arrays retain their original
 indices when a member is unreadable. Aliases sharing the same carrier route can
 redirect its texture through an overriding `textures/item_texture.json`.
 Context-dependent icon selection is not established by these static metadata
-routes. Lens `0x7fcc370`, `0x5056ee0` and `0x9c82630` expose the separate
-`#should_show_bundle_open_front` path; that contract remains open.
+routes. The separate
+`#should_show_bundle_open_front` path exists; that contract remains open.
 
 ## Publication and invalidation
 

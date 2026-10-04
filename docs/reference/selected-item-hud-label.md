@@ -4,7 +4,10 @@ The selected-item name uses Bedrock's JSON-UI factory and label template. Its
 placement is the repository's approved Java-look HUD exception, not a claimed
 native Bedrock pixel placement. Server HUD overrides retain their own templates.
 
-## Native references
+Stack-name precedence, custom formatting and slot-change refresh behavior are
+documented in [Stack display names](item-display-names.md).
+
+## Vanilla rules
 
 - The resource pack pinned by `assets/vanilla-source.json`, `ui/hud_screen.json`:
   `item_name_text_root` is a bottom-middle, child-measured panel. Its
@@ -12,17 +15,9 @@ native Bedrock pixel placement. Server HUD overrides retain their own templates.
   `survival_buffer`. The label owns its selected-item binding, center alignment,
   shadow and item-name animation. The classic item-name factory is under a
   positioned `item_text` panel rather than relying on the factory's geometry.
-- `HashimTheArab/mcsrc-1.26.50` revision
-  `da728f0ce4d7a5ae0be443b8abe03119858d923e`, current
-  `current/1.26.50.26/src/__unmapped/05.cpp`, function `056d6870`, lines
-  1164000–1164120: the HUD controller feeds the `item_text` role into
-  `item_text_factory`, with the item name's lifetime/background/interact/survival
-  creation variables. This supports retaining the native factory/template path;
-  no C++ renderer position is invented for the JSON-UI label.
-- The named older reconstruction,
-  `reference/26.30/src/by-owner/h/HudScreenController.cpp`, lines 6792–6895,
-  identifies the same property-bag/factory operation. Current pack geometry and
-  current reconstruction remain the active references.
+- The HUD controller feeds the `item_text` role into `item_text_factory`, with
+  the item name’s lifetime/background/interact/survival creation variables.
+Retain that factory/template path and the pack’s geometry for the JSON-UI label.
 
 ## Correction
 

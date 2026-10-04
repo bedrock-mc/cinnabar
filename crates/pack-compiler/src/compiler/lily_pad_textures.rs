@@ -112,7 +112,7 @@ fn copy_chain(
                 .get(start..start + bytes)
                 .ok_or_else(|| invalid("lily-pad source mip is truncated"))?
                 .to_vec();
-            // TextureAtlas::updateTextureAtUVs 08119570 multiplies RGB only.
+            // TextureAtlas::updateTextureAtUVs multiplies RGB only.
             // UNORM bytes are truncated after tinting; holes keep their alpha.
             for pixel in rgba8.chunks_exact_mut(4) {
                 multiply_rgb(pixel, tint);

@@ -1,4 +1,4 @@
-//! Current 1.26.50.26 ItemRenderer (05e537c0, 05e54ba0, 05e54570). Item-local
+//! Current 1.26.50.26 ItemRenderer. Item-local
 //! geometry already contains the default display correction; copies translate before actor scale.
 
 use super::dropped_item_transform;

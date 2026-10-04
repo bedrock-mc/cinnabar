@@ -54,7 +54,7 @@ pub fn daylight(angle: f32, rain: f32, thunder: f32) -> f32 {
     lerp(NIGHT_SKY_TRANSFER, 1.0, day_plateau(angle) * storm)
 }
 
-/// Ordinary Dimension::getSkyDarken02606a70, consumed by builder0707ffb0.
+/// Ordinary Dimension::getSkyDarken, consumed by builder.
 /// This uses cosf and a distinct twilight curve/floor, not the sky draw's transfer.
 #[must_use]
 pub fn lightmap_sky_darken(angle: f32, fog_weather: f32, thunder: f32) -> f32 {
@@ -77,7 +77,7 @@ pub(crate) fn rgb_to_gamma(rgb: [f32; 3]) -> [f32; 3] {
 /// Star alpha: zero by day, at most 0.5 at midnight, hidden by rain.
 #[must_use]
 pub fn star_brightness(angle: f32, rain: f32) -> f32 {
-    // DimensionClientUtils::getStarBrightness, 06c32c30: weather participates
+    // DimensionClientUtils::getStarBrightness: weather participates
     // before clamping and squaring; a third-strength rain already hides the stars.
     let weather = (1.0 - unit(rain) * 3.0).clamp(0.0, 1.0);
     let height = colour_cosine(angle);
@@ -93,7 +93,7 @@ pub fn sunrise_band(angle: f32, rain: f32) -> [f32; 4] {
     band
 }
 
-/// Current getSunriseColor06c32a50 does not read weather. The sky and cloud
+/// Current getSunriseColor does not read weather. The sky and cloud
 /// draw callers apply their different weather/composition policies separately.
 pub(crate) fn raw_sunrise_band(angle: f32) -> [f32; 4] {
     let height = colour_cosine(angle);
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn current_lightmap_sky_darken_has_its_own_floor_twilight_and_weather_curve() {
-        // Dimension02606a70: cosf; clamp(2*cos+.2); weather; .8*C+.2.
+        // Dimension: cosf; clamp(2*cos+.2); weather; .8*C+.2.
         for (angle, rain, thunder, expected) in [
             (0.0, 0.0, 0.0, 1.0),
             (0.5, 0.0, 0.0, 0.2),
@@ -277,7 +277,6 @@ mod tests {
 
     #[test]
     fn stars_use_native_horizon_bias_and_weather_before_squaring() {
-        // Current 1.26.50.26 DimensionClientUtils::getStarBrightness, 06c32c30.
         assert!((star_brightness(0.25, 0.0) - 0.03125).abs() < 1e-6);
         assert!((star_brightness(0.25, 0.2) - 0.005).abs() < 1e-6);
         assert!((star_brightness(0.5, 0.25) - 81.0 / 512.0).abs() < 1e-6);

@@ -5,7 +5,7 @@ impl EntityGeometryBone {
     /// A same-name child appends cubes to its inherited part; only explicit `reset: true`
     /// removes the inherited cubes. Bone properties are resolved separately by each caller.
     ///
-    /// Source: Geometry::_parseBones, named 26.30 reconstruction RVA 02e39370: reset rewinds
+    /// Reset rewinds
     /// the cube vector's end, then authored cubes append at its existing end. The pinned
     /// vanilla adult sheep uses this contract for the face beneath its wool overlay.
     /// `maximum` is the caller's remaining cube budget for this bone, including its existing

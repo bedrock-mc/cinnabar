@@ -12,8 +12,8 @@ pub(crate) fn chunk_atlas_views_fit(limits: &wgpu::Limits) -> bool {
         && limits.max_bindings_per_bind_group > NATIVE_LEAF_SAMPLER_BINDING
 }
 
-/// Current terrain atlas binding 068e09d0: Dragon 0x155 -> BGFX 0x16a.
-/// Sampler conversion 0db42940 and D3D creation 0f875fd0 establish point
+/// Current terrain atlas binding: Dragon 0x155 -> BGFX 0x16a.
+/// Sampler conversion and D3D creation establish point
 /// min/mag, linear mip, and clamp UVW. Keep non-leaf materials unchanged.
 pub(crate) fn native_leaf_sampler_descriptor() -> wgpu::SamplerDescriptor<'static> {
     wgpu::SamplerDescriptor {

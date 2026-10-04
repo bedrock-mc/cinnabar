@@ -2,14 +2,14 @@ use valentine::bedrock::version::v1_26_51::SyncWorldClocksPacketData;
 
 /// The vanilla clock consumed by Level::getTime and the atmosphere renderer.
 ///
-/// Native 1.26.50.26's initializer at RVA 0x05dc68a0 constructs this exact
-/// name; Level::getTime (0x01309240) uses the resulting hashed string.
+/// The vanilla initializer constructs this exact
+/// name; Level::getTime uses the resulting hashed string.
 pub const OVERWORLD_CLOCK_NAME: &str = "minecraft:overworld";
 
 /// Native HashedString key for the built-in daylight clock. The current
-/// initializer (0x05dc68a0) assigns this key alongside OVERWORLD_CLOCK_NAME;
-/// registerWorldClock (0x05d94880) pre-registers it and Level::getTime's
-/// lookup (0x05d96270) searches that ID directly, not packet string names.
+/// initializer assigns this key alongside OVERWORLD_CLOCK_NAME;
+/// registerWorldClock pre-registers it and Level::getTime's
+/// lookup searches that ID directly, not packet string names.
 pub const OVERWORLD_CLOCK_ID: u64 = 0x63d7_ede7_3c38_f916;
 
 /// One server-authored clock registration. Preserve the transmitted ID;
@@ -32,7 +32,7 @@ pub struct WorldClockState {
 /// The SyncWorldClocks payloads used by the client clock consumer.
 ///
 /// Native RegistryClient initialization upserts registrations; it does not
-/// clear clocks omitted by a later initialization payload (RVA 0x05d98890).
+/// clear clocks omitted by a later initialization payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldClockUpdateEvent {
     Initialize(WorldClockDefinition),
@@ -67,7 +67,7 @@ pub(super) fn normalize_world_clocks(
             .collect(),
         // Marker registration is decoded completely, but Cinnabar currently
         // has no world-clock event/script consumer. It does not change time
-        // or pause state in the native handlers (0x05d99340/0x05d99a50).
+        // or pause state in the native handlers.
         SyncWorldClocksPacketData::AddTimeMarkerData(_)
         | SyncWorldClocksPacketData::RemoveTimeMarkerData(_) => Vec::new(),
     }

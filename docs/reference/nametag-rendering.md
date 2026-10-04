@@ -1,27 +1,13 @@
-# Native name-tag rendering source record
+# Native name-tag rendering rules
 
-The implementation is our own Rust code based on the version-matched C++ reconstruction
-and its matching Lens binary, not pasted decompiled source or Java Edition behavior.
+## Vanilla rules
 
-Reference checkout: `HashimTheArab/mcsrc-1.26.50`, revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`.
-Current source view: `current/1.26.50.26/src/__unmapped/`.
-Lens client binary SHA-256:
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`.
-Names in parentheses below are inferred using the named 26.30 reference, not authoritative
-symbols in the current numeric reconstruction.
-
-| Current RVA | Role |
+| Rule | Behaviour |
 | --- | --- |
-| `0x04e77450` | Name extraction caller (`LevelRendererPlayer::extractNameTags`) |
-| `0x01fb7c60` | Actor anchor, render-distance culling, material selection (`ActorRenderDispatcher::extractRenderTextObjects`) |
-| `0x0215dec0` | Default/background colors and material selection (`BaseActorRenderer::extractRenderTextObjects`) |
-| `0x0215e3c0` | Line widths and background mesh (`BaseActorRenderer::_extractRenderTextObject`) |
-| `0x021a6110` | Billboard, world scale, multiline lift, centered text (`LevelNameTagRenderer::renderText`) |
-| `0x0215d210` | Constructor identifying the normal/depth-tested text and background materials |
-| `0x04c349d0` | Font text routes name-tag materials into environmental text |
-| `0x068a4100` | Material-pass depth test/write/comparison translation |
-| `0x0682c9cf`, `0x0682c9d9` | Environmental-text runtime depth-bias override, recovered from the matched binary |
+| Name extraction | Extract actor name tags, then apply anchor, render-distance culling and material selection. |
+| Text geometry | Measure line widths, build the background, and apply billboard rotation, world scale, multiline lift and centered text. |
+| Text materials | Select normal or depth-tested text and background materials and route name tags through environmental text. |
+| Depth state | Translate material depth test/write/comparison and apply the environmental-text runtime depth-bias override. |
 
 The original behavior was a screen-space/HUD approximation: quantized font scale clamped
 to the HUD's minimum/maximum, a one-line plate behind multiline text, a separate Java-style
@@ -35,20 +21,18 @@ glyphs do. Sneak tags additionally test world depth, while ordinary tags use Alw
 
 ## Verified geometry and constants
 
-All global addresses below are VAs in that exact Lens binary (image base `0x140000000`).
-
-| Meaning | Native witness | Value |
-| --- | --- | --- |
-| Ordinary black background | `DAT_150102660` | RGBA `(0, 0, 0, 0.25)` |
-| Head clearance above adjusted AABB height | `DAT_15005ea04` | `0.7` blocks |
-| Font world scale | `DAT_1500de2e0 * DAT_15006c0b0` | `1.6 * (1/60)` blocks/design pixel |
-| Line pitch | `DAT_14ffab650` | `10` design pixels |
-| Background top and horizontal padding | `DAT_14fee6588`, `DAT_14fea4060` | `-1`, `1` design pixels |
-| Extra world lift per additional line | `DAT_14ff1b14c` | `0.125` blocks |
-| Sneaking foreground alpha | `DAT_14ff1b14c` | `0.125` |
-| Billboard zero-horizontal fallback | `DAT_15005b1dc` | `0.0001` |
-| Cubic acos coefficients | `DAT_1500f2cec`, `DAT_1500f2ce8` | `0.87266463`, `-0.69813168` |
-| Below-name score distance squared | `DAT_14ffa2648` | `<100` blocks squared |
+| Rule | Behaviour |
+| --- | --- |
+| Ordinary black background | RGBA `(0, 0, 0, 0.25)` |
+| Head clearance above adjusted AABB height | `0.7` blocks |
+| Font world scale | `1.6 * (1/60)` blocks/design pixel |
+| Line pitch | `10` design pixels |
+| Background top and horizontal padding | `-1`, `1` design pixels |
+| Extra world lift per additional line | `0.125` blocks |
+| Sneaking foreground alpha | `0.125` |
+| Billboard zero-horizontal fallback | `0.0001` |
+| Cubic acos coefficients | `0.87266463`, `-0.69813168` |
+| Below-name score distance squared | `<100` blocks squared |
 
 For each nonempty LF-separated line the native font width is halved with integer truncation.
 Every line starts at its own negative half-width. The plate uses the maximum half-width,
@@ -71,7 +55,7 @@ The installed PlayCover app and the IPA named `Minecraft-1.26.50-for-iOS-mcpelif
 contain the definitions in `data/resource_packs/vanilla/materials/ui3D.material`, lines
 224–345, and readable Metal shaders in `data/renderer/materials/Nametag.material.bin`
 and `UIText.material.bin`. Their **internal version is 1.26.51.01**, not the filename's
-1.26.50; they corroborate the matched C++ but are not a version-matched shader-pack witness.
+1.26.50; they corroborate the material rules but are not a version-matched shader-pack witness.
 SHA-256 values: `ui3D.material`
 `2ca6efaa1e93d650c2476025cb4d6043a70a14516ae542ffcb4218dc8abeeaec`,
 `Nametag.material.bin`
@@ -87,14 +71,12 @@ sampled glyph alpha below 0.5 **before** multiplying text opacity, so sneak text
 0.125 opacity must survive. Text and background use different compiled shaders.
 
 Matched 1.26.50 pass translation confirms depth writing is material-write AND
-material-depth-test-enabled; Always is not DisableDepthTest. The omitted environmental
-text dispatcher was located through the FrameBuilder vtable and read-only binary
-inspection: variant 0 preserves depth test/write/comparison, forces RGBA color writes,
+material-depth-test-enabled; Always is not DisableDepthTest. The environmental
+text dispatcher’s variant 0 preserves depth test/write/comparison, forces RGBA color writes,
 then overrides depth bias to **-32, slope 0, clamp 0**. The inherited sign-text bias
 10/slope 2 is therefore not the final text state. Our reverse-Z tested text uses the
-corresponding +32 constant bias. Matched primary scene clear depth is 1.0 (RVA
-`0x068121a6`), and LessEqual passes unchanged to BGFX (`0x0cc1e1b0`), establishing
-the native standard-Z convention. Equal pixel displacement across GPU depth formats
+corresponding +32 constant bias. The primary scene clears depth to 1.0 and passes LessEqual unchanged to BGFX,
+using the standard-Z convention. Equal pixel displacement across GPU depth formats
 is not established. Pass extraction initializes bias to zero; the plate dispatcher
 leaves it zero, preserves material depth state, and clears target-alpha color writes.
 Our plate target-alpha masking, explicit
@@ -123,7 +105,7 @@ Proxy, and transferred pre-login to `pvp.inpvp.net`. Rendered frames confirm vis
 translucent multiline plates, individually centered colored lines, perspective-scaled
 text, and first-person/HUD coverage. Native window capture and client F2 frames are
 retained privately under `.local/screenshots/`; no game artwork is added to git.
-The exact tested executable hash and scenarios are in the ignored acceptance record.
+The tested scenarios are in the ignored acceptance record.
 
 Movement and different camera pitches rendered successfully, but the captures do not
 form a controlled same-actor near/far comparison: capture focus changes and concurrent

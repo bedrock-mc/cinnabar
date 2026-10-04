@@ -41,7 +41,7 @@ pub fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
     held_sprite_display_for_hand(hand_equipped, false)
 }
 
-/// Native `_renderOffHandItem` (05e2f7b0) has its own bone-frame offset and
+/// Native `_renderOffHandItem` has its own bone-frame offset and
 /// hand-equipped X translation, rather than reflecting the main-hand grip.
 pub fn held_sprite_display_for_hand(hand_equipped: bool, off_hand: bool) -> ItemDisplay {
     let grip = if hand_equipped {
@@ -106,8 +106,8 @@ pub fn attach_to_bone(
     bone.is_finite().then_some(bone)
 }
 
-/// Legacy block grip (current RVA 05e33490), applied to the centred cube emitted by
-/// `_rebuildItem` through 04fa6570/07069320/07066750's (-.5,-.5,-.5) mesh offset.
+/// Legacy block grip, applied to the centred cube emitted by
+/// `_rebuildItem` through the (-.5,-.5,-.5) mesh offset.
 pub fn held_block_display() -> ItemDisplay {
     held_block_display_for_hand(false)
 }

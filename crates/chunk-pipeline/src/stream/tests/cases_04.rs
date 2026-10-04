@@ -1030,10 +1030,12 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
         dimension: 0,
         entries: vec![
             super::PreparedSubChunk {
+                diagnostics: None,
                 position: [0, 0, 0],
                 result: super::PreparedSubChunkResult::AllAir,
             },
             super::PreparedSubChunk {
+                diagnostics: None,
                 position: [3, 0, 0],
                 result: super::PreparedSubChunkResult::AllAir,
             },

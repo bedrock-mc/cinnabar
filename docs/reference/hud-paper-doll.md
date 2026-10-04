@@ -1,28 +1,24 @@
 # HUD paper doll and menu follow-up
 
-## References
+Pack paths are relative to the install-fetched resource pack pinned by
+`assets/vanilla-source.json`.
 
-`R:` below names a line in `mcsrc-1.26.50/reference/26.30/src/by-owner/`.
-Those named bodies identify behavior; Lens artifact 6 is the reconstructed
-1.26.50.26 client used to corroborate the current implementation. Pack paths are
-relative to the install-fetched resource pack pinned by `assets/vanilla-source.json`.
-No reconstructed implementation or Mojang image is included in this change.
+## Vanilla rules
 
-| Behavior | Reference |
+| Rule | Behaviour |
 | --- | --- |
-| HUD control, visibility binding | `ui/hud_screen.json:8`: 15 by 15 custom `hud_player_renderer`, `#paper_doll_visible` |
-| Desktop placement | `ui/hud_screen.json:1372,3696`: top-left, offset `[15,15]`, inside the safe-zone GUI tree |
-| Pocket placement | `ui/hud_screen.json:1607`: the same native renderer in the pocket HUD |
-| Hold timer and trigger ordering | `R:h/HudPlayerRenderer.cpp:76`; Lens current RVA `09c78c70` |
-| HUD camera and actor dispatch | `R:h/HudPlayerRenderer.cpp:349`; Lens current RVA `09c793f0` |
-| Hide Paper Doll and spectator | `R:h/HudScreenController.cpp:16313`, `_showPaperDoll` |
-| Menu projection | `R:p/PaperDollRenderer.cpp:681`; Lens current RVA `09c8cd20` |
-| Inverse GUI scale | `R:p/PaperDollBaseActorRenderContext.cpp:74`; current wrapper RVA `09c8b5e0` |
-| Model origin and UI translation | `R:d/DataDrivenRenderer.cpp:2490,2555`; current model loader RVA `01e61dd0`, constructor `01e772b0` |
-| Inventory geometry | `ui/inventory_screen.json:987,1047,1114,1170`; `ui/ui_common.json:3794,5180` |
-| Pause dimming | `ui/pause_screen.json:1181`: full-screen background alpha 0.1, with an additional left panel |
-| Home player and Profile | `ui/start_screen.json`, `#is_paper_doll_visible` and `#profile_button_a_visible` |
-| Marketplace ribbon/color data | `R:m/MessageData.cpp:3662,3880`; `ui/start_screen.json:1626,2031` |
+| HUD control | `ui/hud_screen.json:8` defines a 15 by 15 custom `hud_player_renderer` with `#paper_doll_visible`. |
+| Desktop placement | `ui/hud_screen.json:1372,3696` places it top-left at `[15,15]` inside the safe-zone GUI tree. |
+| Pocket placement | `ui/hud_screen.json:1607` uses the same renderer in the pocket HUD. |
+| Hold timer | Movement, armor and emotes refresh the timer in the priority order and for the durations described below; expiry removes the model without fading. |
+| HUD actor | Use the resolved actor geometry and a separate full-body UI pose, preserving head rotation. |
+| Visibility | Respect Hide Paper Doll, Hide HUD/F1 and spectator. |
+| Menu projection | Use inverse GUI scale and `min(width/20,height/39)` with the authored model origin. |
+| Model origin | Retain the 24-pixel ModelPart origin scaled by the player model scale; swimming adds a 0.8 vertical adjustment. |
+| Inventory geometry | `ui/inventory_screen.json:987,1047,1114,1170` and `ui/ui_common.json:3794,5180` define inventory placement. |
+| Pause dimming | `ui/pause_screen.json:1181` defines full-screen background alpha 0.1 and an additional left panel. |
+| Home player and Profile | `ui/start_screen.json` uses `#is_paper_doll_visible` and `#profile_button_a_visible`. |
+| Marketplace ribbons | Preserve `messageText.bannerText`, artwork and RGB color data for `ui/start_screen.json:1626,2031`. |
 
 The supplied `inbox-vanilla.png` establishes the five categories and list layout.
 The installed PlayCover OreUI `index-168bae443ec79c00823c.js` corroborates the
@@ -51,7 +47,14 @@ bone pose, with a separate full-body UI evaluation independent of the world came
 The UI context sets `query.is_in_ui`, clears `variable.player_x_rotation` and
 leaves the head rotation queries intact. This prevents the first-person hand skeleton from becoming the
 HUD body. The fixed preview yaw corresponds to native body yaw -22.5 degrees;
-head movement remains in the evaluated pose. The HUD retains the native 24-pixel ModelPart origin, scaled by the player model scale; its control center is therefore not the body midpoint. Swimming applies the native 0.8
+head movement remains in the evaluated pose. Vanilla fixes both body-yaw samples
+at that angle and adjusts head yaw to `old_head - old_body - 22.5`.
+The preview's Y rotation already uses the native yaw direction; negating that
+fixed yaw again reversed the HUD body. It now faces screen-right, toward the
+player's left, while world turns leave its facing fixed and the head keeps its
+relative look animation. This changes the HUD view only. The HUD retains the
+native 24-pixel ModelPart origin, scaled by the player model scale; its control
+center is therefore not the body midpoint. Swimming applies the native 0.8
 vertical adjustment. Original skin texels are sampled at final pixel resolution.
 The existing UI lighting implementation is described in `player-preview-rendering.md`.
 
@@ -87,7 +90,7 @@ parity by themselves.
 
 Incomplete: frame interpolation, complete
 persona layer/material behavior, riding vehicle rendering and target-version
-matched animation captures. The menu framing is source-derived but
+matched animation captures. The menu framing is vanilla but
 still needs matched pause captures at identical GUI scale. The inbox's full
 settings/preferences route, rich message actions, runtime category artwork in
 ordinary installs and target-version pixel acceptance remain open. The open

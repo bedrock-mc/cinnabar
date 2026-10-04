@@ -9,7 +9,6 @@ use bevy::{
 use crate::{
     local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
     movement::{LocalPhysicsController, MovementTicker},
-    runtime::endpoint::bridge_endpoint_exists,
     runtime::{
         network::{NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
         world::ClientWorld,
@@ -71,27 +70,8 @@ impl MenuSessionState<'_> {
     }
 }
 
-/// A join still provisioning while the connecting screen shows; polled each frame.
-#[derive(Debug)]
-pub(super) struct JoinAttempt {
-    generation: u64,
-    address: String,
-    auth_cache: Option<PathBuf>,
-    local_world: bool,
-    stage: JoinStage,
-}
-
-#[derive(Debug)]
-enum JoinStage {
-    /// The launcher core selecting the target on a worker.
-    Launcher(crossbeam_channel::Receiver<Result<PathBuf, String>>),
-    /// A per-session core that must publish its endpoint by `deadline`.
-    Core {
-        socket_dir: PathBuf,
-        directory: SessionDirectoryGuard,
-        deadline: Instant,
-    },
-}
+pub(super) type JoinAttempt = client_session::connection::JoinAttempt<SessionDirectoryGuard>;
+type JoinStage = client_session::connection::JoinStage<SessionDirectoryGuard>;
 
 /// Starts provisioning a fresh core and network session for one address,
 /// replacing any previous session; [`poll_join`] finishes it on later frames.
@@ -205,91 +185,39 @@ fn poll_join(
     session: &mut MenuSessionState<'_>,
     cache: &BlobCache,
 ) {
-    let Some(mut attempt) = menu.join.take() else {
+    let Some(attempt) = menu.join.take() else {
         return;
     };
-    // A retired generation's attempt drops; `retire` already stopped its core.
-    if attempt.generation != menu.session_generation || !menu.connecting {
-        return;
-    }
-    let address = attempt.address.clone();
-    match attempt.stage {
-        JoinStage::Launcher(ref receiver) => {
-            let selected = match receiver.try_recv() {
-                Err(crossbeam_channel::TryRecvError::Empty) => {
+    use client_session::connection::JoinPoll;
+    match attempt.poll(menu.session_generation, menu.connecting, || {
+        session.guard.exited()
+    }) {
+        JoinPoll::Retired => {}
+        JoinPoll::Pending(attempt) => menu.join = Some(attempt),
+        JoinPoll::StartCore(mut attempt) => {
+            match start_core(
+                menu,
+                session,
+                cache,
+                &attempt.address,
+                attempt.auth_cache.as_deref(),
+                attempt.generation,
+            ) {
+                Ok(stage) => {
+                    attempt.stage = stage;
                     menu.join = Some(attempt);
-                    return;
                 }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    Err("the launcher core did not answer".to_owned())
-                }
-                Ok(selected) => selected,
-            };
-            match selected {
-                Ok(socket_dir) => {
-                    if let Err(error) = start_network(
-                        commands,
-                        menu,
-                        cache,
-                        socket_dir,
-                        session.actor_artwork.as_deref(),
-                    ) {
-                        fail_join(menu, format!("Could not connect: {error}"));
-                    }
-                }
-                Err(error) if attempt.local_world => {
-                    fail_join(menu, format!("Could not open {address}: {error}"));
-                }
-                // Otherwise a per-session core dials the address directly.
-                Err(_) => {
-                    let auth_cache = attempt.auth_cache.clone();
-                    match start_core(
-                        menu,
-                        session,
-                        cache,
-                        &address,
-                        auth_cache.as_deref(),
-                        attempt.generation,
-                    ) {
-                        Ok(stage) => {
-                            attempt.stage = stage;
-                            menu.join = Some(attempt);
-                        }
-                        Err(message) => fail_join(menu, message),
-                    }
-                }
+                Err(message) => fail_join(menu, message),
             }
         }
-        JoinStage::Core {
+        JoinPoll::Ready {
             socket_dir,
             directory,
-            deadline,
         } => {
-            if !bridge_endpoint_exists(&socket_dir) {
-                let error = if session.guard.exited() {
-                    "bedrock-core exited before publishing its endpoint"
-                } else if Instant::now() >= deadline {
-                    "bedrock-core did not publish its endpoint"
-                } else {
-                    attempt.stage = JoinStage::Core {
-                        socket_dir,
-                        directory,
-                        deadline,
-                    };
-                    menu.join = Some(attempt);
-                    return;
-                };
-                session.guard.stop_detached(move || drop(directory));
-                fail_join(
-                    menu,
-                    format!(
-                        "Could not start {address}: {error} at {}",
-                        socket_dir.display()
-                    ),
-                );
-                return;
+            let owned_core = directory.is_some();
+            if let Some(directory) = directory {
+                menu.bind_session_directory(directory);
             }
-            menu.bind_session_directory(directory);
             if let Err(error) = start_network(
                 commands,
                 menu,
@@ -297,10 +225,18 @@ fn poll_join(
                 socket_dir,
                 session.actor_artwork.as_deref(),
             ) {
-                let directory = menu.session_directory.take();
-                session.guard.stop_detached(move || drop(directory));
+                if owned_core {
+                    let directory = menu.session_directory.take();
+                    session.guard.stop_detached(move || drop(directory));
+                }
                 fail_join(menu, format!("Could not connect: {error}"));
             }
+        }
+        JoinPoll::Failed { message, directory } => {
+            if let Some(directory) = directory {
+                session.guard.stop_detached(move || drop(directory));
+            }
+            fail_join(menu, message);
         }
     }
 }

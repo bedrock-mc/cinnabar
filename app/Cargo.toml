@@ -5,7 +5,19 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+default = ["acceptance"]
+acceptance = ["dep:acceptance"]
+enhanced = ["render/enhanced"]
+# Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
+local-mods = ["mod-host/execution"]
+
 [dependencies]
+acceptance = { path = "../crates/acceptance", optional = true }
+diagnostics = { path = "../crates/diagnostics" }
+client-presentation = { path = "../crates/client-presentation" }
+gameplay = { path = "../crates/gameplay" }
+client-session = { path = "../crates/client-session" }
 client-ui = { path = "../crates/client-ui" }
 launcher = { path = "../crates/launcher" }
 player-state = { path = "../crates/player-state" }
@@ -14,31 +26,19 @@ bytes.workspace = true
 anyhow.workspace = true
 pack-compiler = { path = "../crates/pack-compiler" }
 assets = { path = "../crates/assets" }
-bevy = { workspace = true, default-features = false, features = [
-    "bevy_anti_alias",
-    "bevy_camera",
-    "bevy_image",
-    "bevy_winit",
-    "bevy_window",
-    "keyboard",
-    "mouse",
-    "std",
-    "bevy_post_process",
-] }
+bevy.workspace = true
 crossbeam-channel = "0.5"
-crossbeam-queue = "=0.3.13"
 ctrlc = { version = "3.4", features = ["termination"] }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline" }
-image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
+image.workspace = true
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
-mod-host = { path = "../crates/mod-host" }
+mod-host = { path = "../crates/mod-host", default-features = false }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
 server-experience = { path = "../crates/server-experience" }
 rayon.workspace = true
-rodio = { version = "=0.20.1", default-features = false }
 render = { path = "../crates/render" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 semantic-input = { path = "../crates/input" }
@@ -48,19 +48,21 @@ serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true
 url = "2"
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+tokio.workspace = true
 ui = { path = "../crates/ui" }
-wgpu = { version = "27.0.1", default-features = false, features = ["wgsl"] }
+wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
-
 [dev-dependencies]
+rodio = { version = "=0.20.1", default-features = false }
+acceptance = { path = "../crates/acceptance", features = ["test-support"] }
+client-presentation = { path = "../crates/client-presentation", features = ["test-support"] }
+gameplay = { path = "../crates/gameplay", features = ["test-support"] }
+client-session = { path = "../crates/client-session", features = ["test-support"] }
 client-ui = { path = "../crates/client-ui", features = ["test-support"] }
 protocol = { path = "../crates/protocol", features = ["wire-test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

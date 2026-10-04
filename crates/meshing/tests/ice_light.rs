@@ -26,7 +26,7 @@ impl LightBlockAccess for Shoreline {
     }
 }
 
-/// Final registrations 0dcae2a6 / 0dceb39c and getter 0365cdf0:
+/// Vanilla’s final registrations and light getter:
 /// transparent ice filters three sky levels, including sheltered sideways
 /// light; its background remains lit. Packed ice deliberately blocks both.
 #[test]

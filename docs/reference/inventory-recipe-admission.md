@@ -3,23 +3,16 @@
 The protocol catalog retains supported crafting shapes independently of their
 recipe-discovery metadata. It does not declare those recipes unlocked.
 
-## Source evidence
+## Vanilla rules
 
 - The pack pinned by `assets/vanilla-source.json`,
   `behavior_pack/recipes/oak_planks.json`, declares a shaped one-cell oak-log
   recipe producing four oak planks, with oak log as an unlock ingredient.
-- The matching reconstruction `HashimTheArab/mcsrc-1.26.50`, revision
-  `da728f0ce4d7a5ae0be443b8abe03119858d923e`, current
-  `current/1.26.50.26/src/__unmapped/03.cpp`, function `0390e530`, lines
-  1536470–1536570 (`CraftingContainerManagerController::_updateCraftingResultItem`):
-  unlocked-recipe state is consulted only behind game-rule conditions. Without
+- Unlocked-recipe state is consulted only behind game-rule conditions. Without
   those conditions, the state pointer remains null and candidate recipes still
   match/assemble the manual grid. Recipe discovery is not blanket admission.
-- The named older `reference/26.30/src/by-owner/c/ClientNetworkHandler.cpp`,
-  lines 12870–12923, registers advertised shaped/shapeless recipes rather than
-  discarding recipes that carry discovery requirements. Its crafting-controller
-  result method identifies the same conditional unlocked-state check; current
-  reconstruction supplies the active behavior evidence.
+- Advertised shaped/shapeless recipes are registered even when they carry
+  discovery requirements; the crafting controller checks unlocked state conditionally.
 - The pinned generated protocol schema's
   `CerealizerNetworkItemInstanceDescriptorSerializedData` encodes a recipe's
   block identity as signed ZigZag32, while inventory item descriptors retain

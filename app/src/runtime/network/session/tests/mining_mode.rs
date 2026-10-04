@@ -122,7 +122,7 @@ fn old_terminal_receiver_cannot_clear_new_mining_mode() {
     ] {
         let (mut handle, _) = NetworkHandle::stub();
         let (sender, receiver) = mpsc::channel(1);
-        handle.control_events = receiver;
+        *handle.control_events_mut() = receiver;
         sender.try_send(terminal).unwrap();
         drop(std::mem::replace(
             &mut handle,

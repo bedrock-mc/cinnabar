@@ -10,6 +10,8 @@ impl WorldAuthority {
         sequence: Option<u64>,
     ) -> Result<(), WorldEvent> {
         match event {
+            // Advertised bounds are diagnostic facts until custom dimension limits are supported.
+            WorldEvent::DimensionHeights(_) => {}
             WorldEvent::NetworkStackLatency(creation_time) => {
                 let sequence = sequence.expect("latency probes commit through submit");
                 self.push_committed_control(CommittedControlEvent::NetworkStackLatency {
@@ -208,8 +210,8 @@ impl WorldAuthority {
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
-                // Native ClientNetworkHandler::handle(UpdatePlayerGameType), 26.30
-                // RVA 03542aa0: only the matching local unique ID changes its UI mode.
+                // A game-mode update changes the UI only when its unique ID matches
+                // the local player.
                 let event = match event {
                     UiEvent::PlayerGameMode {
                         actor_unique_id,

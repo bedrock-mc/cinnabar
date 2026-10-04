@@ -1,26 +1,20 @@
 # Native sparse inventory prediction
 
-Reference: local `mcsrc-1.26.50`, reconstruction revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`, current Windows client
-`1.26.50.26`, matching PE SHA-256
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`.
-Our implementation is independently written from these contracts.
+## Vanilla rules
 
-## Identified native functions
-
-| Current RVA | Function | Contract |
-| --- | --- | --- |
-| `08942880` | `SparseContainer::getItem` | Return the absolute sparse item when the cell is predicted; otherwise return its backing item. |
-| `08942ce0` | `SparseContainer::setItem` | Save the new sparse item and invoke the set listener. |
-| `089457b0` | `SparseContainerSetListenerClient::postSetItem` | Stamp every changed item with the current typed request id, including an emptied item, and register its container with the request. |
-| `089442a0` | `SparseContainerClient::_networkUpdateItem` | Update the backing container without rebasing or subtracting an active prediction. |
-| `08934960` | `ItemStackRequestActionHandler::_validateRequestSlot` | Resolve odd-negative request references through request-id, container-runtime-id, and requested-slot assignments. A request id is not a globally unique item identity. |
-| `028d10d0` | `ItemStackNetManagerClient::handleItemStackResponse` | Find the issued request across retained screens; skip unknown ids. Process each answer immediately. |
-| `089446a0` | `SparseContainerClient::tryPushSlotPrediction` | Requested slot locates the sparse item; actual slot receives the correction. Validate amount/net-id pairing. A later owner selects the historic path. A missing sparse cell is skipped. |
-| `08944f90` | `SparseContainerClient::_pushHistoricPredictionItem` | Correct backing using the request's historic item without removing the newer active prediction. |
-| `08943e40` | `SparseContainerClient::clearAllPredictions` | Remove remaining active cells whose stamp is the answered request, not older or later owners. |
-| `028cfc20` | `ItemStackNetManagerClient::_clearPredictiveContainerRequest` | Remove the answered historic snapshot and clear that request's active sparse cells. |
-| `028c85a0` | `ItemStackNetManagerBase::onContainerScreenClose` | Retire the oldest retained screen after close acknowledgement. Its late replies no longer own a retained screen. |
+| Rule | Behaviour |
+| --- | --- |
+| `SparseContainer::getItem` | Return the absolute sparse item when the cell is predicted; otherwise return its backing item. |
+| `SparseContainer::setItem` | Save the new sparse item and invoke the set listener. |
+| `SparseContainerSetListenerClient::postSetItem` | Stamp every changed item with the current typed request id, including an emptied item, and register its container with the request. |
+| `SparseContainerClient::_networkUpdateItem` | Update the backing container without rebasing or subtracting an active prediction. |
+| `ItemStackRequestActionHandler::_validateRequestSlot` | Resolve odd-negative request references through request-id, container-runtime-id, and requested-slot assignments. A request id is not a globally unique item identity. |
+| `ItemStackNetManagerClient::handleItemStackResponse` | Find the issued request across retained screens; skip unknown ids. Process each answer immediately. |
+| `SparseContainerClient::tryPushSlotPrediction` | Requested slot locates the sparse item; actual slot receives the correction. Validate amount/net-id pairing. A later owner selects the historic path. A missing sparse cell is skipped. |
+| `SparseContainerClient::_pushHistoricPredictionItem` | Correct backing using the request's historic item without removing the newer active prediction. |
+| `SparseContainerClient::clearAllPredictions` | Remove remaining active cells whose stamp is the answered request, not older or later owners. |
+| `ItemStackNetManagerClient::_clearPredictiveContainerRequest` | Remove the answered historic snapshot and clear that request's active sparse cells. |
+| `ItemStackNetManagerBase::onContainerScreenClose` | Retire the oldest retained screen after close acknowledgement. Its late replies no longer own a retained screen. |
 
 The slot field formerly called `hotbar_slot` in our normalized response is the
 wire `requested_slot`; it is not a second hotbar address. Both addresses use the
@@ -56,7 +50,7 @@ unrelated gesture.
 
 ## Verification and remaining gates
 
-Focused source-contract tests cover drop push ordering, request-id/slot chaining,
+Focused behavior-contract tests cover drop push ordering, request-id/slot chaining,
 split halves, sparse empty ownership, historic replies, missing active cells,
 requested-to-actual slot remapping, backing replacement, invalid count/id pairs,
 and the offhand sequence. Existing inventory tests were migrated from the old
@@ -64,8 +58,7 @@ proxy delta contracts to the identified native contracts.
 
 Live acceptance on 2026-10-02 UTC used the canonical macOS/Metal build at
 Retina scale 2, offline loopback vanilla BDS (the server version pinned in
-`assets/bedrock-target.json`). Client executable SHA-256:
-`b51eb853c4b7f04ba555c0dd0b76e5667addcbbae2ab40711483afce5f75e25f`.
+`assets/bedrock-target.json`).
 At 00:58:46–49, shield offhand Take, cursor Place into inventory 13, Take back,
 Place into offhand, grass Take, and Place into inventory 9 all received Accepted
 answers (-7, -9, -11, -13, -15, -17). The offhand-empty content push preceded

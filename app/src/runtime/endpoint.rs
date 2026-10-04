@@ -33,14 +33,7 @@ pub(crate) fn resolve_socket_dir_from(
     current_candidate
 }
 
-pub(crate) fn bridge_endpoint_exists(directory: &Path) -> bool {
-    let endpoint = bridge_endpoint_path(directory);
-    if cfg!(windows) {
-        endpoint.is_file()
-    } else {
-        endpoint.exists()
-    }
-}
+pub(crate) use client_session::connection::bridge_endpoint_exists;
 
 pub(crate) fn bridge_endpoint_path(directory: &Path) -> PathBuf {
     protocol::bridge_endpoint_path(directory)

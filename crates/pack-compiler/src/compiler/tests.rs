@@ -289,6 +289,34 @@ fn every_current_registry_button_has_a_supported_name() {
     assert!(unsupported.is_empty(), "{unsupported:?}");
 }
 
+#[test]
+fn current_heads_never_emit_terrain_geometry_over_the_block_actor() {
+    let bytes = include_bytes!("../../../assets/data/block-registry-v2193.bin");
+    let protocol = assets::registry_header_protocol(bytes).unwrap();
+    let records = assets::read_registry_for_protocol(bytes, protocol).unwrap();
+    let fallback = super::visuals::fallback::inventory(protocol).unwrap();
+    let (visuals, _, _, _) = super::visuals::dispatcher::compile_visuals(
+        &records,
+        &empty_pack_sources(),
+        &BTreeMap::new(),
+        0,
+        fallback,
+        no_exact_admissions(),
+    )
+    .unwrap();
+    let heads: Vec<_> = records
+        .iter()
+        .filter(|record| assets::vanilla_skull_type(&record.name).is_some())
+        .collect();
+    assert!(!heads.is_empty());
+    for record in heads {
+        let visual = &visuals[record.sequential_id as usize];
+        assert_eq!(visual.kind, VisualKind::Invisible, "{}", record.name);
+        assert_eq!(visual.support, VisualSupport::Exact);
+        assert_eq!(visual.model_template, assets::NO_MODEL_TEMPLATE);
+    }
+}
+
 /// The v2193 fallback inventory carries cube envelopes for these blocks; they must not win.
 #[test]
 fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {

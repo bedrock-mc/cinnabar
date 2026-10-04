@@ -6,7 +6,7 @@ use assets::{
 };
 
 // Native grass_side's final variant (installed native vanilla base pack), selected
-// by GrassBlock::calcVariant: 1.26.50.26 RVA 0x0712a5e0; named 26.30 0x0aaf9700.
+// by GrassBlock::calcVariant.
 // The samples' flattened grass_side retains only its newer overlay entry, but
 // its mycelium_side array still exposes the same literal snowy sprite.
 const GRASS_SIDE_KEY: &str = "grass_side";

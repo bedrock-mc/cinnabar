@@ -1,7 +1,7 @@
 # Marketplace services
 
 Behaviour reference for the 26.30 client's store. Control surface: `docs/control-channel.md` (`store_*.v1`); Go: `core/store`.
-Status per row: **ref** = read from the 26.30 client reconstruction, **doc** = public PlayFab documentation, **guess** = inferred,
+Status per row: **ref** = vanilla client behavior, **doc** = public PlayFab documentation, **guess** = inferred,
 needs one live capture against a sandbox account before it is relied on.
 
 ## Auth chain

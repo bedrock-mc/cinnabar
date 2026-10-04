@@ -1,6 +1,5 @@
 //! Native name-tag extraction and font-pixel records for the retained GPU atlas.
-//! 1.26.50.26 RVAs: actor dispatcher 0x01fb7c60, base renderer 0x0215e3c0,
-//! and world billboard renderer 0x021a6110; see docs/reference/nametag-rendering.md.
+//! See docs/reference/nametag-rendering.md for the vanilla rules.
 
 use std::sync::Arc;
 

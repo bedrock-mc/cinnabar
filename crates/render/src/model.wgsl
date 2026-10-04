@@ -131,7 +131,7 @@ fn rotate_cross(position: vec3<f32>, transform: u32) -> vec3<f32> {
     return rotated + vec3(0.5, 0.0, 0.5);
 }
 
-// Current lily-pad tessellator 06a33800: unsigned wrapping position hash.
+// Current lily-pad tessellator: unsigned wrapping position hash.
 fn lily_pad_rotation(position: vec3<i32>) -> u32 {
     let h = (bitcast<u32>(position.z) * 0x6ebfff5u) ^
         (bitcast<u32>(position.x) * 0x2fc20fu) ^ bitcast<u32>(position.y);
@@ -241,7 +241,7 @@ fn vertex(
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.visible = is_visible;
-    // Native 06a33800 uses white top vertices and RGB 0x0f on the reverse
+    // Vanilla uses white top vertices and RGB 0x0f on the reverse
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
     let terrain_shade = select(light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u), pad_shade, is_lily_pad);
@@ -328,8 +328,8 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
 }
 
 #ifndef ENHANCED
-// Current TopSnow tessellator 06a1b810 -> ordinary terrain 06a07800 ->
-// AO/flat 06a07d80/06a0b950. A bounded world model is not an entity material:
+// Current TopSnow tessellator -> ordinary terrain ->
+// AO/flat lighting. A bounded world model is not an entity material:
 // RenderChunk multiplies atlas/palette, vertex AO and lightmap in gamma RGB.
 // Encode only at our existing Bevy sRGB framebuffer boundary.
 fn ordinary_world_model_gamma_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> vec4<f32> {

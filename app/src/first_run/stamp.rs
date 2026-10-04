@@ -153,6 +153,20 @@ fn identity(
     }
     let key = key.context("assetc step names no output")?;
     hasher.update(carrier_format(&key));
+    let (magic, _) = carrier_type(&key);
+    if magic == assets::ACTOR_CARRIER_MAGIC.as_slice()
+        || magic == assets::EQUIPMENT_CARRIER_MAGIC.as_slice()
+    {
+        // These compilers rebuild the entity catalog internally and embed its identity.
+        let (_, entity_identity) = earlier
+            .iter()
+            .find(|(dependency, _)| {
+                carrier_type(dependency).0 == assets::ENTITY_BLOB_MAGIC.as_slice()
+            })
+            .context("actor and equipment preparation requires an earlier entity catalog")?;
+        hasher.update(assets::ENTITY_BLOB_MAGIC);
+        hasher.update(entity_identity.as_bytes());
+    }
     Ok((key, format!("{:x}", hasher.finalize())))
 }
 
@@ -165,7 +179,18 @@ fn file_name(arg: &str) -> String {
 
 /// The magic and version the runtime decoder checks, so a format bump rebuilds that carrier.
 fn carrier_format(key: &str) -> Vec<u8> {
-    let (magic, version): (&[u8], u32) = match key.rsplit('.').next().unwrap_or(key) {
+    let (magic, version) = carrier_type(key);
+    // The world carrier's sidecar is read beside it; its schema rebuilds the carrier too.
+    let sidecar = if magic == assets::BLOB_MAGIC.as_slice() {
+        assets::MATERIAL_KEYS_SCHEMA
+    } else {
+        0
+    };
+    [magic, &version.to_le_bytes(), &sidecar.to_le_bytes()].concat()
+}
+
+fn carrier_type(key: &str) -> (&'static [u8], u32) {
+    match key.rsplit('.').next().unwrap_or(key) {
         "mcbea" => (&assets::BLOB_MAGIC, assets::BLOB_VERSION),
         "mcbeatm" => (
             &assets::ATMOSPHERE_BLOB_MAGIC,
@@ -198,14 +223,7 @@ fn carrier_format(key: &str) -> Vec<u8> {
         ),
         "mcbehxt" => (&assets::HUD_EXTRAS_MAGIC, assets::HUD_EXTRAS_VERSION),
         _ => (b"", 0),
-    };
-    // The world carrier's sidecar is read beside it; its schema rebuilds the carrier too.
-    let sidecar = if magic == assets::BLOB_MAGIC.as_slice() {
-        assets::MATERIAL_KEYS_SCHEMA
-    } else {
-        0
-    };
-    [magic, &version.to_le_bytes(), &sidecar.to_le_bytes()].concat()
+    }
 }
 
 fn file_sha256(path: &Path) -> Result<String> {
@@ -358,5 +376,69 @@ mod tests {
             carrier_format("lang"),
             carrier_format("vanilla-v1.mcbelang")
         );
+    }
+
+    #[test]
+    fn changed_entity_identity_rebuilds_actor_and_equipment_only() {
+        let dir = Dir::new("stamp-entity-dependencies");
+        let kit = kit(&dir);
+        let steps = plan::steps(&kit).unwrap();
+        let prepared = dir.path().join("compiled");
+        prepare(&kit, &prepared);
+        let mut earlier = select(&steps, &kit, &prepared).unwrap().identities;
+        let entity_key = earlier
+            .keys()
+            .find(|key| carrier_type(key).0 == assets::ENTITY_BLOB_MAGIC.as_slice())
+            .unwrap()
+            .clone();
+        let mut changed = earlier.clone();
+        changed.insert(
+            entity_key.clone(),
+            "changed-entity-catalog-identity".to_owned(),
+        );
+        let pack_dir = plan::cache_dir(&kit).unwrap();
+        let pack = file_sha256(&kit.join(VANILLA_MANIFEST)).unwrap();
+        let compiler =
+            file_sha256(&kit.join("bin").join(super::super::runner::assetc_name())).unwrap();
+        let resolve = |arg: &str| super::super::runner::kit_file(&kit, arg);
+        let mut invalidated = 0;
+        for step in &steps {
+            let Action::Assetc(args) = &step.action else {
+                continue;
+            };
+            let (key, current) =
+                identity(args, &pack_dir, &pack, &compiler, &resolve, &earlier).unwrap();
+            let (_, updated) =
+                identity(args, &pack_dir, &pack, &compiler, &resolve, &changed).unwrap();
+            let (magic, _) = carrier_type(&key);
+            if magic == assets::ACTOR_CARRIER_MAGIC.as_slice()
+                || magic == assets::EQUIPMENT_CARRIER_MAGIC.as_slice()
+            {
+                assert_ne!(
+                    current, updated,
+                    "{} must follow the entity catalog",
+                    step.label
+                );
+                invalidated += 1;
+            } else {
+                assert_eq!(
+                    current, updated,
+                    "{} is independent of the entity catalog",
+                    step.label
+                );
+            }
+        }
+        assert_eq!(invalidated, 2);
+        earlier.remove(&entity_key);
+        let actor = steps
+            .iter()
+            .find_map(|step| match &step.action {
+                Action::Assetc(args) if args.first().is_some_and(|arg| arg == "actor-assets") => {
+                    Some(args)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(identity(actor, &pack_dir, &pack, &compiler, &resolve, &earlier).is_err());
     }
 }

@@ -63,7 +63,6 @@ impl FogTransition {
 }
 
 /// Blends the resolved initial fog into the target using the current client's two-stage timeline.
-/// Lens 1.26.50.26 0x4e429e0, computeFogScale and FogDistanceSetting::lerp branches.
 pub(crate) fn apply(
     values: [f32; 9],
     target: crate::ResolvedFog,

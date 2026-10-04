@@ -44,7 +44,11 @@ fn frame_advance_long_gap_bench() {
 }
 
 /// Appends one expression to the synthetic fixture.
-fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>, max_stack: u8) -> u32 {
+pub(super) fn expression(
+    compiled: &mut CompiledEntityAssets,
+    program: Vec<MolangOp>,
+    max_stack: u8,
+) -> u32 {
     let first_op = compiled.molang_ops.len() as u32;
     let op_count = program.len() as u16;
     let mut ops = std::mem::take(&mut compiled.molang_ops).into_vec();
@@ -131,6 +135,7 @@ fn scripted_stream() -> WorldStream {
         property: EntityAnimationProperty::Translation,
         first_keyframe: 1,
         keyframe_count: 1,
+        rotation_relative_to_entity: false,
     });
     compiled.animation_channels = channels.into_boxed_slice();
     compiled.animation_keyframes[0].expressions = [Some(calls), Some(delta), Some(elapsed)];

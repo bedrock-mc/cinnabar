@@ -9,11 +9,8 @@ launcher feedback uses those targets for the caret and selection.
 
 References:
 
-- Lens `TextEditComponent::updateCaretBlink` (`0x1024f98d0`) and
-  `TextEditComponent::selectControl` (`0x1024f99a0`) describe caret timing and selection.
-- `R:t/TextEditComponent.cpp:551`, `:595`, `:634` cover blink, selection and
-  `text_edit_selected`; `R:t/TextComponent.cpp:772` renders text using the
-  caret position returned at `:1201`.
+- The edit component owns caret blink timing, selection and
+  `text_edit_selected`; text rendering uses its caret position.
 - Vanilla pack `ui/ui_common.json:1371`, `:1415`, `:1428`, `:1539`, `:1620`
   define the label/edit relationship. Its `text_box_deselected` cancel mapping
   consumes the first Escape. `ui/add_external_server_screen.json:108` and

@@ -529,6 +529,7 @@ fn transport_ack_after_reply_admission_cannot_rearm_expiry_during_decode() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: key.dimension,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [key.x, key.y, key.z],
                     result: SubChunkResult::AllAir,
                 }],
@@ -804,6 +805,7 @@ fn unavailable_value_is_preserved_and_y_out_of_bounds_leaves_empty_slot_as_air()
         SubChunkBatchEvent {
             dimension: 0,
             entries: vec![SubChunkEntryEvent {
+                diagnostics: None,
                 position: [0, -4, 0],
                 result: SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
             }],

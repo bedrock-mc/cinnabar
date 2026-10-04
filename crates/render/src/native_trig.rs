@@ -1,4 +1,4 @@
-//! Current 1.26.50.26 Math table: initialization 0296ccd0, lookup in 06c32c30.
+//! Vanilla trigonometry table initialization and lookup.
 //! Evaluate only the addressed sample; no retained table or per-frame allocation.
 
 const INDEX_SCALE: f32 = 10_430.378;

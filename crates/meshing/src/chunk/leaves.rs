@@ -1,7 +1,7 @@
 //! Native leaf render-layer and shared-plane selection, using primary storage.
 //!
-//! LeavesBlock::_isDeep (1.26.50.26 0x07139b90) tests six neighbours;
-//! BlockOccluder::_updateRenderFace (0x06a043a0) retains only one of the
+//! LeavesBlock::_isDeep tests six neighbours;
+//! BlockOccluder::_updateRenderFace retains only one of the
 //! two coincident non-deep leaf faces, whose material disables backface culling.
 
 use std::cell::Cell;

@@ -1,11 +1,12 @@
 name: CI cache
 
-# Builds what CI compiles and saves it on dev, the base every pull request restores from.
+# Builds what CI compiles and saves it on dev, the base every pull request restores from, and
+# runs the Linux tests so direct pushes that break dev are flagged on the commit that did it.
 # Pull-request caches are private to that PR, so without this each PR compiled from scratch.
+# Runs at most every 30 minutes, and only when dev has changed since the last run.
 on:
-  push:
-    branches:
-      - dev
+  schedule:
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 # Queue rather than cancel: a cancelled run saves nothing.
@@ -18,8 +19,32 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
+  changed:
+    name: Check for new dev commits
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-cache.yml/runs?branch=dev&status=completed&per_page=20" \
+            --jq '[.workflow_runs[] | select(.id != ${{ github.run_id }})][0].head_sha // ""')
+          if [ "${{ github.event_name }}" = workflow_dispatch ] || [ "$last" != "${{ github.sha }}" ]; then
+            echo run=true >> "$GITHUB_OUTPUT"
+          else
+            echo run=false >> "$GITHUB_OUTPUT"
+          fi
+
   desktop:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
     name: Warm desktop (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
@@ -53,6 +78,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   windows-acceptance:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
     name: Warm Windows workspace
     runs-on: windows-latest
     timeout-minutes: 120
@@ -70,7 +97,9 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   verify:
-    name: Warm Linux verify
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    name: Warm and test Linux
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -87,6 +116,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libwayland-dev libasound2-dev
       - run: cargo build -p architecture --locked
-      - run: cargo test --workspace --locked --no-run
+      - name: Test Rust workspace
+        run: cargo test --workspace --locked --no-fail-fast
       - continue-on-error: true
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

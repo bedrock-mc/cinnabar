@@ -1,4 +1,5 @@
 #import bevy_render::view::View
+#import cinnabar::lighting::{actor_light_colour, tint_to_gamma, tint_to_linear}
 
 struct Particle {
     center_light: vec4<f32>,
@@ -40,14 +41,18 @@ fn particle_vertex(
         particle.uv.x + (corner.x * 0.5 + 0.5) * particle.uv.z,
         particle.uv.y + (0.5 - corner.y * 0.5) * particle.uv.w,
     );
-    out.color = vec4(particle.color.rgb * particle.center_light.w, particle.color.a);
+    var light = vec3(1.0);
+    if (particle.axis_y.w > 0.5) {
+        light = actor_light_colour(u32(particle.center_light.w));
+    }
+    out.color = vec4(particle.color.rgb * light, particle.color.a);
     out.alpha_test = particle.axis_x.w;
     return out;
 }
 
 @fragment
 fn particle_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let texel = textureSample(atlas, atlas_sampler, in.uv);
+    let texel = tint_to_gamma(textureSample(atlas, atlas_sampler, in.uv));
     var colour = texel * in.color;
     if (in.alpha_test > 0.5) {
         if (texel.a < 0.5) {
@@ -58,5 +63,5 @@ fn particle_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (colour.a < 0.01) {
         discard;
     }
-    return colour;
+    return tint_to_linear(colour);
 }

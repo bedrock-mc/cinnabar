@@ -15,13 +15,14 @@ cargo run -p mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/hello_mod.wasm /tmp/cinnabar-hello.wasm
 cargo run -p mod-host --locked -- probe /tmp/cinnabar-hello.wasm
 cargo run -p mod-host --locked -- bench /tmp/cinnabar-hello.wasm
-CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p bedrock-client --locked
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p bedrock-client --features local-mods --locked
 ```
 
 Route local builds through the shared limiter as required by
 `docs/agents/multi-agent-workflow.md`. No Go core or server is needed for `probe`,
 `bench` or the tests. Launching the client still requires its normal pinned carriers.
-No mod is loaded when the environment variable is absent.
+No mod is loaded when the environment variable is absent; builds without `local-mods`
+do not compile Wasmtime and ignore it with a warning.
 
 The last command opens the launcher. Select a server only in a separately
 authorized live session. To exercise the same startup switch, scheduled adapter,
@@ -29,7 +30,7 @@ window-focus check and F8 action entirely offline, run:
 
 ```sh
 CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm \
-  cargo test -p bedrock-client --lib configured_sample_drives_the_app_adapter_offline --locked
+  cargo test -p bedrock-client --features local-mods --lib configured_sample_drives_the_app_adapter_offline --locked
 ```
 
 During gameplay, F8 changes the label. UI focus and window focus suppress the
@@ -61,19 +62,17 @@ cargo build -p time-changer-mod --target wasm32-unknown-unknown --locked
 cargo run -p mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/time_changer_mod.wasm /tmp/cinnabar-time-changer.wasm
 cargo run -p mod-host --locked -- probe-environment /tmp/cinnabar-time-changer.wasm
-CINNABAR_MOD_COMPONENT=/tmp/cinnabar-time-changer.wasm cargo run -p bedrock-client --locked
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-time-changer.wasm cargo run -p bedrock-client --features local-mods --locked
 ```
 
 Use the shared build limiter for every cargo command, as for hello. The last
 command opens the launcher; the existing offline adapter and snapshot commands
 also accept this component. The dedicated offline cycle/no-packets test is
-`configured_time_changer_is_visual_only_offline` with `CINNABAR_MOD_COMPONENT` set.
+`configured_time_changer_is_visual_only_offline` with `CINNABAR_MOD_COMPONENT` set and
+`--features local-mods`.
 
-References: Lens client 1.26.50.26, artifact 6, `TimeCommand::_setTime` RVA
-`0xcab23f0` (raw source-backed view: preset lookup and modulo 24000),
-with `read_data` at VA `0x1503f5c18` confirming the six preset ticks;
-`R:d/Dimension.cpp:7531` (26.30 celestial time wrapping) and
-`R:t/TimeCommand.cpp:1704` (preset-table selection). The vanilla 1.26.50.4 pack's
+Vanilla time uses six presets, preset-table lookup and modulo 24000, including
+celestial time wrapping. The vanilla 1.26.50.4 pack's
 `texts/en_US.lang:3665–3671` identifies the time preset labels;
 `:1993–1995` describes freezing the daylight cycle. Existing atmosphere math remains
 subject to its current parity limits; this mod adds no native acceptance claim.
@@ -89,7 +88,7 @@ default, independently of the visual time grant. Explicitly opt in at startup:
 ```sh
 CINNABAR_MOD_COMPONENT=/tmp/my-mod.wasm \
 CINNABAR_MOD_PLAYERS=1 CINNABAR_MOD_CAMERA=1 \
-  cargo run -p bedrock-client --locked
+  cargo run -p bedrock-client --features local-mods --locked
 ```
 
 On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
@@ -160,7 +159,7 @@ or dependencies on gameplay state to the component host.
 
 ```sh
 cargo test -p mod-host --locked
-cargo test -p bedrock-client --lib modding --locked
+cargo test -p bedrock-client --features local-mods --lib modding --locked
 cargo test -p bedrock-client --lib mod_hud --locked
 ```
 

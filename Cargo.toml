@@ -1,10 +1,14 @@
 [workspace]
 members = [
     "app",
+    "crates/acceptance",
+    "crates/diagnostics",
     "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",
     "crates/client-world",
+    "crates/gameplay",
+    "crates/client-session",
     "crates/chunk-pipeline",
     "crates/pack-compiler",
     "crates/experience-sdk",
@@ -25,6 +29,7 @@ members = [
     "crates/inventory",
     "crates/launcher",
     "crates/client-ui",
+    "crates/client-presentation",
     "crates/player-state",
     "crates/sim",
     "crates/ui",
@@ -46,8 +51,34 @@ edition = "2024"
 rust-version = "1.93.1"
 
 [workspace.dependencies]
-bevy = { version = "=0.18.1", default-features = false }
-tokio = "1.52"
+# One feature set per heavy dependency: any per-crate difference rebuilds it and every dependent.
+# wayland/x11 only select winit backends on Linux; winit ignores them on other targets.
+bevy = { version = "=0.18.1", default-features = false, features = [
+    "bevy_anti_alias",
+    "bevy_asset",
+    "bevy_camera",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_image",
+    "bevy_log",
+    "bevy_mesh",
+    "bevy_post_process",
+    "bevy_render",
+    "bevy_shader",
+    "bevy_window",
+    "bevy_winit",
+    "gamepad",
+    "keyboard",
+    "mouse",
+    "multi_threaded",
+    "std",
+    "wayland",
+    "x11",
+] }
+# The noop backend only runs when an instance explicitly enables it (render tests).
+wgpu = { version = "27.0.1", default-features = false, features = ["noop", "wgsl"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
+tokio = { version = "1.52", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
 bytes = "1"
 futures = "0.3"

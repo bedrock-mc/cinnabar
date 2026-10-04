@@ -1075,20 +1075,42 @@ fn local_player_pipeline_orders_physics_camera_and_interaction_and_has_one_camer
             .map(|source| source.matches("&mut Transform").count())
             .sum::<usize>(),
         1,
-        "only the CameraPose publication system may mutate the camera Transform"
+        "only the CameraPose publication adapter may borrow the base camera Transform"
     );
 
     let local_player = include_str!("../local_player.rs");
-    let resolver = local_player
+    let adapter = local_player
         .split_once("pub(crate) fn resolve_camera_pose")
-        .expect("camera resolver exists")
+        .expect("camera resolver adapter exists")
         .1
-        .split_once("pub(crate) fn publish_interaction_origin")
-        .expect("camera resolver has a bounded body")
+        .split_once("pub(crate) fn publish_local_player_frame")
+        .expect("camera resolver adapter has a bounded body")
         .0;
+    assert_eq!(
+        adapter
+            .matches("client_presentation::local_player::resolve_camera_pose(")
+            .count(),
+        1,
+        "the production adapter must call the presentation camera writer once"
+    );
+    assert!(!adapter.contains("*camera_transform"));
+
+    let presentation = include_str!("../../../crates/client-presentation/src/local_player.rs");
+    assert_eq!(presentation.matches("&mut Transform").count(), 1);
+    let resolver = presentation
+        .split_once("pub fn resolve_camera_pose")
+        .expect("presentation camera resolver exists")
+        .1
+        .split_once("pub fn publish_local_player_frame")
+        .expect("presentation camera resolver has a bounded body")
+        .0;
+    assert_eq!(
+        resolver.matches("*camera_transform.1 = transform;").count(),
+        1
+    );
     assert!(
         resolver.contains("collision_safe_perspective_pose("),
-        "the sole production camera writer must use the swept collision solver"
+        "the base camera writer must use the swept collision solver"
     );
 }
 

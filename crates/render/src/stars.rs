@@ -1,4 +1,4 @@
-//! Star candidates from Lens 1.26.50.26 0x4ea6450; R:p/PrefabMeshGenerator.cpp:151.
+//! Vanilla star candidate generation.
 
 /// Builds tangent square triangles with the client's candidate and random-draw ordering.
 pub(crate) fn vertices() -> Vec<[f32; 4]> {

@@ -17,6 +17,7 @@ pub use ids::{DecodeIds, default_biome_id, dimension_slots};
 pub use jobs::{BlockMutationBatch, DecodeCompletion, DecodeJob, QueuedDecodeJob};
 pub use ordered::{CommitStep, DecodeCommit, OrderedCommitState};
 pub use prepare::{light_semantics_changed, prepare_block_mutations, prepare_sub_chunks};
+pub use protocol::{CustomBlocks, CustomStateValue};
 
 /// Maximum admitted world events, including retained committed consumers.
 pub const MAX_ADMITTED_WORLD_EVENTS: usize = 64;
@@ -31,9 +32,11 @@ pub use protocol::{
     ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockCrackAction, BlockCrackEvent, BlockEntityUpdateEvent,
     BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
-    DimensionRange, ItemRegistryEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE,
-    MapDataEvent, MovePlayerEvent, NetworkItemStack, OpenSignEvent, PLAYER_NETWORK_OFFSET, Packet,
-    ParticleEvent, PlayerMovementCorrectionEvent, RespawnEvent, SetTimeEvent, SubChunkBatchEvent,
-    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, UiEvent, WeatherUpdateEvent,
-    WorldBootstrap, WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    DimensionHeightDiagnostic, DimensionRange, HeightmapDiagnostic, ItemRegistryEvent,
+    LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MapDataEvent, MovePlayerEvent,
+    NetworkItemStack, OpenSignEvent, PLAYER_NETWORK_OFFSET, Packet, ParticleEvent,
+    PlayerMovementCorrectionEvent, RespawnEvent, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkDiagnostic, SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, UiEvent,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    vanilla_dimension_range,
 };

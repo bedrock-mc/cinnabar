@@ -88,6 +88,7 @@ impl WorldStream {
                 .map(floor_to_i32),
         );
         Self {
+            light_diagnostics: light_diagnostics::LightingDiagnostics::new(bootstrap.dimension),
             mesh_memory: meshing::memory::MeshMemoryBudget::new(authority.runtime_assets()),
             authority,
             order: client_world::ingestion::OrderedCommitState::new(first_sequence),

@@ -5,15 +5,25 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+default = ["execution"]
+# The Wasmtime component host (local mods and the server helper); clients spawning helpers opt out.
+execution = ["dep:mod-api", "dep:sha2", "dep:wasmtime", "dep:wit-component"]
+
+[[bin]]
+name = "mod-host"
+path = "src/main.rs"
+required-features = ["execution"]
+
 [dependencies]
-mod-api = { path = "../mod-api" }
+mod-api = { path = "../mod-api", optional = true }
 anyhow.workspace = true
-sha2.workspace = true
+sha2 = { workspace = true, optional = true }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 server-experience = { path = "../server-experience" }
-wasmtime.workspace = true
-wit-component.workspace = true
+wasmtime = { workspace = true, optional = true }
+wit-component = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3"

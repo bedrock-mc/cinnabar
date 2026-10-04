@@ -1,10 +1,8 @@
 //! The wolf-only native tail query; authored clips retain ownership of the final pose.
 use super::{ActorKind, ActorSnapshot, FLAG_ANGRY, FLAG_TAMED, actor_flag};
 
-// 1.26.50.26 query callback 025036b0 admits Wolf (type 0x530e), then calls
-// Wolf::getTailAngle 020e5b30 (named 26.30 0978b330). Exact retail PE constants:
-// 1500eb868 angry; 1500eb86c wild; 14feff2a0 health weight; 14ffab6c8 base;
-// 14feff2c0 PI. The result is radians, not a render-frame-interpolated angle.
+// The query admits Wolf (type 0x530e), then reads its tail angle.
+// The result is radians, not a render-frame-interpolated angle.
 const ANGRY_ANGLE: f32 = f32::from_bits(0x3fc5_0a6b);
 const WILD_ANGLE: f32 = f32::from_bits(0x3f20_d97c);
 const HEALTH_WEIGHT: f32 = 0.4;

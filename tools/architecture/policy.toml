@@ -122,6 +122,21 @@ path = "crates/player-state"
 allowed_dependencies = ["client-world", "inventory"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "launcher", "client-ui", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
+# Tick decisions and transport remain separate domains; app adapters compose them.
+[[crates]]
+name = "gameplay"
+path = "crates/gameplay"
+allowed_dependencies = ["assets", "client-world", "inventory", "player-state", "protocol", "semantic-input", "sim", "world"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-session", "client-runtime", "client-presentation", "acceptance", "launcher", "client-ui", "chunk-pipeline", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
+test_support_features = ["test-support"]
+
+[[crates]]
+name = "client-session"
+path = "crates/client-session"
+allowed_dependencies = ["assets", "pack-compiler", "protocol", "resource-pack", "server-experience", "world"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-runtime", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "bevy", "bevy_*", "wgpu*"]
+test_support_features = ["test-support"]
+
 [[crates]]
 name = "launcher"
 path = "crates/launcher"
@@ -136,6 +151,28 @@ allowed_dependencies = ["assets", "chunk-pipeline", "player-state", "launcher", 
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session"]
 test_support_features = ["test-support"]
+
+# Presentation borrows authoritative facts; transport/gameplay and evidence stay outside it.
+[[crates]]
+name = "client-presentation"
+path = "crates/client-presentation"
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience"]
+forbidden_dependencies = ["asset-compiler", "pack-compiler"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "acceptance", "asset-compiler"]
+test_support_features = ["test-support"]
+
+[[crates]]
+name = "diagnostics"
+path = "crates/diagnostics"
+allowed_dependencies = ["assets", "chunk-pipeline", "meshing", "protocol", "render", "world"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler"]
+
+[[crates]]
+name = "acceptance"
+path = "crates/acceptance"
+test_support_features = ["test-support"]
+allowed_dependencies = ["chunk-pipeline", "client-presentation", "diagnostics", "protocol", "render", "semantic-input", "world"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
 
 [[crates]]
 name = "semantic-input"
@@ -163,7 +200,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 name = "app"
 path = "app"
 # The client-world dependency key temporarily names the chunk-pipeline compatibility facade.
-allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "player-state", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "player-state", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -278,19 +315,19 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[markers]]
 literal = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_CAMERA_COMMITTED"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Proofs.ps1"
 
 [[markers]]
@@ -302,109 +339,109 @@ consumer = "scripts/acceptance/FastTransferWitnessValidation.ps1"
 [[markers]]
 literal = "RUST_MCBE_GALLERY_ANCHOR_READY"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_MODEL_WITNESS_COMPLETE"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_MOVE_PLAYER_INGRESS"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Proofs.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_MUTATION_COORDINATE"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Orchestration/Execute.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_EVENT"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE2_TIMING"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/FastTransferWitnessValidation.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_FRAME"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_IDENTITY"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_NETWORK_PUMP_TERMINAL"
 kind = "parsed"
-producer = "app/src/runtime/network/session.rs"
+producer = "crates/client-session/src/session.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_TERMINAL"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_VIOLATION"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_TARGET_MUTATION_ARMED"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Proofs.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_TELEPORT_SETTLED"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Proofs.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_TRANSPARENT_SORT_COMMITTED"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_TRANSPARENT_WITNESS_COMPLETE"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Markers.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_WORLD_READY"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "scripts/acceptance/Resources.ps1"
 
 [[markers]]
 literal = "RUST_MCBE_ASSETS"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "app/src/asset_startup.rs"
 
 [[markers]]
@@ -416,8 +453,8 @@ consumer = "crates/client-ui/src/ui_runtime/use_on_identity_evidence.rs"
 [[markers]]
 literal = "RUST_MCBE_AUDIO_WIRE_EVIDENCE"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/session_audio/wire_evidence.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/acceptance/src/audio_wire.rs"
 
 [[markers]]
 literal = "RUST_MCBE_FORM_SHAPE_PROBE"
@@ -434,84 +471,84 @@ consumer = "crates/client-ui/src/ui_runtime/crafting_observation.rs"
 [[markers]]
 literal = "RUST_MCBE_STAGE_PROFILE"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "app/src/app.rs"
 
 [[markers]]
 literal = "RUST_MCBE_STAGE_PROFILE_FRAMES"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 consumer = "app/src/app.rs"
 
 [[markers]]
 literal = "RUST_MCBE_MOVEMENT_TRACE"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/movement/trace.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "app/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_TELEPORT_ACK"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/movement/teleport_ack.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "app/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_ANCHOR_PROBE"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/movement/anchor_probe.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "app/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_BUILD_COMMIT"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/runtime/phase3_evidence.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/acceptance/src/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_SOURCE_DIRTY"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/runtime/phase3_evidence.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/acceptance/src/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_RUN_ID"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/runtime/phase3_evidence.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/acceptance/src/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_ENDPOINT"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/runtime/phase3_evidence.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/acceptance/src/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_CORE_SHA256"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/runtime/phase3_evidence.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/acceptance/src/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_CORE_PROCESS_ID"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/runtime/phase3_evidence.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/acceptance/src/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_PHASE3_BRIDGE_ENDPOINT"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/runtime/phase3_evidence.rs"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/acceptance/src/phase3_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_ERROR_COUNTERS"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_FAST_TRANSFER_PACKET_TRACE"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_LOADING_MILESTONE"
@@ -521,42 +558,42 @@ producer = "crates/client-ui/src/diagnostic_markers.rs"
 [[markers]]
 literal = "RUST_MCBE_SHUTDOWN_COMPLETED"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_SHUTDOWN_WATCHDOG_ARMED"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_SHUTDOWN_WATCHDOG_FIRED"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_TELEPORT_COHORT"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_TRANSPARENT_WITNESS_INCOMPLETE"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_TRANSPARENT_WITNESS_STAGE"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_VISIBILITY_SNAPSHOT"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY"
@@ -603,3 +640,40 @@ forbidden_owned_types = ["ChunkMesh", "PublicationPermit", "PublicationAllowance
 [[module_boundaries]]
 path = "crates/chunk-pipeline/src"
 forbidden_owned_types = ["ChunkStore", "ActorStore"]
+
+# Plugin code consumes explicit observations, never host modules or session/gameplay owners.
+[[module_boundaries]]
+path = "crates/client-presentation/src"
+forbidden_modules = ["bedrock_client", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController", "ItemUseRuntime", "MiningRuntime"]
+forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "melee", "menu", "acceptance", "asset_startup", "player_runtime", "semantic_controls", "settings_runtime", "screen_policy"]
+forbidden_owned_types = ["WorldStream", "PlayerState", "PlayerInventoryLedger", "InventorySession", "LocalPlayerFacts"]
+
+[[module_boundaries]]
+path = "crates/acceptance/src"
+forbidden_modules = ["bedrock_client", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController", "ClientWorld"]
+forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "menu", "asset_startup", "player_runtime"]
+forbidden_owned_types = ["WorldStream", "PlayerState", "PlayerInventoryLedger", "InventorySession", "LocalPlayerFacts"]
+
+[[module_boundaries]]
+path = "crates/diagnostics/src"
+forbidden_modules = ["bedrock_client", "gameplay", "client_session", "acceptance", "NetworkHandle", "ClientWorld"]
+forbidden_crate_modules = ["app", "runtime", "movement", "asset_startup"]
+
+# Lower domains cannot reach app adapters through rooted or renamed module paths.
+[[module_boundaries]]
+path = "crates/gameplay/src"
+forbidden_modules = ["bedrock_client", "bevy", "render", "client_ui", "client_session", "chunk_pipeline", "UiRuntime", "NetworkHandle"]
+forbidden_crate_modules = ["app", "runtime", "camera", "server_camera", "local_player", "semantic_controls", "settings_runtime", "acceptance", "audio", "session_audio", "presentation", "ui_runtime", "menu"]
+forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "PlayerState", "ChunkStore", "ActorStore", "WorldAuthority"]
+
+# This is sim::PlayerState (predicted position/velocity), not inventory/player authority.
+[[module_boundaries.ownership_exceptions]]
+path = "crates/gameplay/src/movement/physics.rs"
+owner = "LocalPhysicsController"
+owned_type = "PlayerState"
+
+[[module_boundaries]]
+path = "crates/client-session/src"
+forbidden_modules = ["bedrock_client", "bevy", "render", "client_ui", "gameplay", "chunk_pipeline", "UiRuntime", "MovementTicker"]
+forbidden_crate_modules = ["app", "runtime", "movement", "camera", "local_player", "acceptance", "audio", "session_audio", "presentation", "ui_runtime", "menu"]
+forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "PlayerState", "ChunkStore", "ActorStore", "WorldAuthority"]

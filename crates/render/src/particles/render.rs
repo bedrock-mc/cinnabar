@@ -136,6 +136,7 @@ pub struct ParticleRenderPlugin;
 
 impl Plugin for ParticleRenderPlugin {
     fn build(&self, app: &mut App) {
+        crate::lighting::install(app);
         app.init_resource::<ParticleSystem>()
             .init_resource::<ParticleGpuFrame>()
             .add_plugins(ExtractResourcePlugin::<ParticleGpuFrame>::default());
@@ -376,7 +377,7 @@ impl FromWorld for ParticlePipeline {
         );
         let descriptor = RenderPipelineDescriptor {
             label: Some("particle pipeline".into()),
-            layout: vec![bind_group_layout.clone()],
+            layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
             vertex: VertexState {
                 shader: PARTICLE_SHADER_HANDLE,
                 entry_point: Some("particle_vertex".into()),
@@ -563,6 +564,7 @@ fn queue_particles(
 type DrawParticles<const ADDITIVE: bool> = (
     SetItemPipeline,
     SetParticleBindGroup<0>,
+    crate::lighting::SetWorldLightmap,
     DrawParticleRange<ADDITIVE>,
 );
 

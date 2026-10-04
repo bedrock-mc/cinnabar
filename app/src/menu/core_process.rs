@@ -26,7 +26,7 @@ use crate::{
 /// into a watchdog `process::exit` that skips the stop.
 const CORE_GRACEFUL_STOP_DEADLINE: Duration = children::EXIT_GRACE;
 /// How long a freshly spawned core has to publish its bridge endpoint.
-pub(crate) const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) use client_session::connection::CORE_START_TIMEOUT;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CoreStopOutcome {

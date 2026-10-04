@@ -36,6 +36,13 @@ impl CollisionSnapshot {
 }
 
 impl CollisionWorld for CollisionSnapshot {
+    fn liquid_current(
+        &self,
+        previous_pose: Aabb,
+    ) -> Result<Option<CollisionQuery<Vec3>>, WorldQueryError> {
+        self.world().liquid_current(previous_pose)
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         self.world().collision_boxes(query)
     }
@@ -49,6 +56,13 @@ impl CollisionWorld for CollisionSnapshot {
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         self.world().block_physics(block)
+    }
+
+    fn primary_is_air(
+        &self,
+        block: [i32; 3],
+    ) -> Result<Option<CollisionQuery<bool>>, WorldQueryError> {
+        self.world().primary_is_air(block)
     }
 
     fn snapshot(&self) -> Option<CollisionSnapshot> {

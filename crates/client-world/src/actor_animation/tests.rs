@@ -91,6 +91,7 @@ fn read_with(
         input,
         context,
         anim_tick: 0,
+        anim_time: None,
         life_tick,
         finished: (false, false),
         bones: &[],
@@ -139,6 +140,57 @@ fn rotated_parent_uses_child_model_space_pivot_delta() {
     let pose = compose_pose(&bones, &[]).unwrap();
     assert!((pose[1].translation_scale[0] - 1.0).abs() < 1.0e-5);
     assert!((pose[1].translation_scale[1] - 2.0).abs() < 1.0e-5);
+}
+
+#[test]
+fn entity_relative_rotation_keeps_the_parented_pivot_and_resets_the_basis() {
+    let bones = [
+        RuntimeBone {
+            pivot: [1.0, 2.0, 0.0],
+            rotation: [28.0, 40.0, 15.0],
+            ..RuntimeBone::default()
+        },
+        RuntimeBone {
+            parent: Some(0),
+            pivot: [1.0, 4.0, 0.0],
+            rotation: [-20.0, 30.0, -10.0],
+            ..RuntimeBone::default()
+        },
+        RuntimeBone {
+            parent: Some(1),
+            pivot: [1.0, 5.0, 0.0],
+            ..RuntimeBone::default()
+        },
+    ];
+    let mut local = [
+        LocalDelta {
+            scale: [2.0; 3],
+            ..LocalDelta::default()
+        },
+        LocalDelta {
+            translation: [0.0, -1.0, 0.0],
+            scale: [3.0; 3],
+            ..LocalDelta::default()
+        },
+        LocalDelta::default(),
+    ];
+    let inherited = compose_pose(&bones, &local).unwrap();
+    local[1].rotation_relative_to_entity = true;
+    let relative = compose_pose(&bones, &local).unwrap();
+    assert_eq!(
+        relative[1].translation_scale[..3],
+        inherited[1].translation_scale[..3]
+    );
+    assert_eq!(relative[1].translation_scale[3], 3.0);
+    assert_eq!(relative[2].translation_scale[3], 3.0);
+    let unparented = RuntimeBone {
+        parent: None,
+        ..bones[1]
+    };
+    let own = compose_pose(&[unparented], &[local[1]]).unwrap();
+    assert_eq!(relative[1].rotation, own[0].rotation);
+    assert_eq!(relative[2].rotation, relative[1].rotation);
+    assert_ne!(relative[1].rotation, inherited[1].rotation);
 }
 
 #[test]
@@ -806,6 +858,7 @@ fn default_bone_pivot_reads_the_authored_rest_pivot() {
         input: &input,
         context: &context,
         anim_tick: 0,
+        anim_time: None,
         life_tick: 0,
         finished: (false, false),
         bones: &bones,
@@ -898,9 +951,12 @@ fn hud_pose_advances_crawling_animation_independently_of_first_person() {
     let mut third = ActorAnimationStore::with_assets(assets);
     first.insert(1, 0, &actor);
     third.insert(1, 0, &actor);
-    let actors = HashMap::from([(actor.runtime_id, actor)]);
+    let mut actors = HashMap::from([(actor.runtime_id, actor)]);
     let mut previous_hud = None;
     for tick in 0..4 {
+        // The pinned crawl clip advances from modified_distance_moved, so this
+        // fixture must move before comparing successive HUD keyframes.
+        actors.get_mut(&1).unwrap().position[0] = tick as f32 * 0.2;
         first.advance_tick(&actors, None, Some(1), true, false, |_| ActorTickContext {
             is_local_first_person: true,
             ..Default::default()

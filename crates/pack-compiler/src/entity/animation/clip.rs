@@ -36,6 +36,11 @@ pub(super) fn compile_clip_for_geometry(
         keyframes,
         molang,
     } = outputs;
+    let anim_time_update = definition
+        .get("anim_time_update")
+        .map(|value| compile_time_update(value, molang))
+        .transpose()
+        .map_err(ClipCompileError::Invalid)?;
     let mut dropped = 0;
     let mut uncompiled = 0;
     let mut bone_indices = BTreeMap::<Box<str>, u32>::new();
@@ -56,12 +61,24 @@ pub(super) fn compile_clip_for_geometry(
             let bone = bone.as_object().ok_or_else(|| {
                 ClipCompileError::Invalid(invalid("animation bone must be an object"))
             })?;
+            let rotation_relative_to_entity = bone
+                .get("relative_to")
+                .and_then(|relative| relative.get("rotation"))
+                .and_then(Value::as_str)
+                == Some("entity");
+            // A frame-only bone still changes its orientation frame, even without angles.
+            let neutral_rotation =
+                rotation_relative_to_entity.then(|| serde_json::json!([0.0, 0.0, 0.0]));
             for (field, property) in [
                 ("position", EntityAnimationProperty::Translation),
                 ("rotation", EntityAnimationProperty::Rotation),
                 ("scale", EntityAnimationProperty::Scale),
             ] {
-                let Some(value) = bone.get(field) else {
+                let Some(value) = bone.get(field).or_else(|| {
+                    neutral_rotation
+                        .as_ref()
+                        .filter(|_| property == EntityAnimationProperty::Rotation)
+                }) else {
                     continue;
                 };
                 let first_keyframe = local_keyframes.len() as u32;
@@ -96,6 +113,7 @@ pub(super) fn compile_clip_for_geometry(
                     property,
                     first_keyframe,
                     keyframe_count: local_keyframes.len() as u32 - first_keyframe,
+                    rotation_relative_to_entity,
                 });
             }
         }
@@ -139,8 +157,26 @@ pub(super) fn compile_clip_for_geometry(
             .and_then(Value::as_bool)
             .unwrap_or(false),
         geometry: Some(geometry),
+        anim_time_update,
     });
     Ok((clip, dropped + uncompiled))
+}
+
+fn compile_time_update(value: &Value, molang: &mut MolangCompiler) -> Result<u32, AssetError> {
+    let expression = match value {
+        Value::String(text) => text.clone(),
+        Value::Number(_) => parse_number(value)?.to_string(),
+        _ => {
+            return Err(invalid(
+                "animation anim_time_update must be a Molang string or number",
+            ));
+        }
+    };
+    molang.compile(&expression).map_err(|error| {
+        invalid(format!(
+            "invalid animation anim_time_update expression: {error}"
+        ))
+    })
 }
 
 enum ChannelError {

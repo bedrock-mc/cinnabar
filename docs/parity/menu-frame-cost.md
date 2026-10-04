@@ -42,8 +42,6 @@ The existing user's vsync setting/CLI policy is preserved. A release run with th
 owner's account, window and load is still required to close the FPS report.
 
 References: the existing source-texture contract is documented in
-`docs/reference/inventory-gui-geometry.md`. For resource lifetime, Lens
-`mce::TextureGroup::enableLRUCache` (`0x1035f5230`) and
-`R:t/TextureGroup--d5096247264e.cpp:4823` retain textures with explicit eviction.
+`docs/reference/inventory-gui-geometry.md`. Vanilla texture retention uses explicit eviction.
 The vanilla pack's `ui/progress_screen.json:1215` defines the backdrop used in the
 loading benchmark. Caching the digest changes no authored geometry or appearance.

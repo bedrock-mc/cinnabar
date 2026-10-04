@@ -269,6 +269,7 @@ impl Harness {
                     let y = request.base_sub_chunk_y + offset as i32;
                     let key = SubChunkKey::from_chunk(request.chunk, y);
                     SubChunkEntryEvent {
+                        diagnostics: None,
                         position: [key.x, y, key.z],
                         result: if let Some(payload) = self.payloads.get(&key) {
                             SubChunkResult::Success {

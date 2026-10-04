@@ -19,6 +19,8 @@ pub mod ability_bit {
     pub const INVULNERABLE: u32 = 1 << 8;
     pub const FLYING: u32 = 1 << 9;
     pub const MAY_FLY: u32 = 1 << 10;
+    // Retained wire evidence, not a mining gate. Native instant destruction uses
+    // Actor::isCreative, not the Instabuild ability (see game-mode-updates.md).
     pub const INSTANT_BUILD: u32 = 1 << 11;
     pub const NO_CLIP: u32 = 1 << 17;
     pub const FLY_SPEED: u32 = 1 << 13;
@@ -44,6 +46,7 @@ pub struct GameModeCapabilities {
     pub can_fly: bool,
     pub flying: bool,
     pub creative_inventory: bool,
+    /// Creative destruction route, independent of the Instabuild ability.
     pub instant_break: bool,
     pub invulnerable: bool,
     pub visible: bool,
@@ -160,9 +163,6 @@ impl GameModeCapabilities {
         }
         if let Some(flying) = resolved(ability_bit::FLYING) {
             caps.flying = flying;
-        }
-        if let Some(instant) = resolved(ability_bit::INSTANT_BUILD) {
-            caps.instant_break = instant;
         }
         if let Some(invulnerable) = resolved(ability_bit::INVULNERABLE) {
             caps.invulnerable = invulnerable;

@@ -1,4 +1,4 @@
-//! Classic RGB lightmap. Lens 1.26.50.26: 0x7080cd0 and 0x73d5480.
+//! Classic RGB lightmap.
 
 /// Inputs to the classic light texture builder, before material color conversion.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,7 +18,7 @@ pub struct LightmapInputs {
 impl Default for LightmapInputs {
     fn default() -> Self {
         Self {
-            // Current ramp0260c870, ordinary zero-ambient dispatch00093000.
+            // The ordinary zero-ambient light ramp follows this curve.
             // This curve matches its table apart from a few f32 ULPs.
             ramp: std::array::from_fn(|level| level as f32 / (60 - 3 * level) as f32),
             sky_darken: 1.0,
@@ -94,7 +94,7 @@ impl LightmapInputs {
     }
 }
 
-/// Interpolates the darkness strength and its current classic pulse (Lens 0x7080cd0).
+/// Interpolates the darkness strength and its current classic pulse.
 pub fn darkness_pulse(tick: f32, partial: f32, previous: f32, current: f32, amplitude: f32) -> f32 {
     let strength = previous + (current - previous) * partial;
     (((tick - partial) * 0.078_539_82).cos() * amplitude * strength).max(0.0)

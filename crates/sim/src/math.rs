@@ -62,7 +62,7 @@ const TRIG_INDEX_SCALE: f32 = 10_430.378;
 
 /// Samples the native float table, including float division during initialization.
 fn sine_table(index: i32) -> f64 {
-    // Lens 1.26.50.26 0x296ccd0; the divisor is also the lookup's index multiplier.
+    // The divisor is also the lookup's index multiplier.
     static TABLE: OnceLock<Box<[f32]>> = OnceLock::new();
     let table = TABLE.get_or_init(|| {
         (0..=u16::MAX)
@@ -80,6 +80,19 @@ pub(crate) fn minecraft_sin(value: f64) -> f64 {
 /// Applies the quarter-turn offset before truncating the native float index.
 pub(crate) fn minecraft_cos(value: f64) -> f64 {
     sine_table((value as f32 * TRIG_INDEX_SCALE + 16_384.0) as i32)
+}
+
+/// Native look vector used by the swimming trigger (current RVA 0x09fd25a0).
+#[must_use]
+pub fn view_direction(pitch_degrees: f32, yaw_degrees: f32) -> Vec3 {
+    let pitch = -pitch_degrees.to_radians();
+    let yaw = -yaw_degrees.to_radians() - std::f32::consts::PI;
+    let horizontal = -(minecraft_cos(f64::from(pitch)) as f32);
+    Vec3::new(
+        f64::from(minecraft_sin(f64::from(yaw)) as f32 * horizontal),
+        minecraft_sin(f64::from(pitch)),
+        f64::from(minecraft_cos(f64::from(yaw)) as f32 * horizontal),
+    )
 }
 
 impl Add for Vec3 {

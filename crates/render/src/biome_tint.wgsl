@@ -192,7 +192,7 @@ fn blended_biome_tint_gamma(
     return tint_to_gamma(blended_biome_tint(tint_kind, material_flags, record, local_position, world_origin));
 }
 
-// Lens 0xa772a80 and 0xa7b3fe0: float simplex coordinates and the 12-entry gradient order.
+// Vanilla uses float simplex coordinates and the 12-entry gradient order.
 fn grass_corner(cell: vec2<i32>, offset: vec2<f32>) -> f32 {
     let gradients = array<vec2<f32>, 12>(vec2(1.0,1.0),vec2(-1.0,1.0),vec2(1.0,-1.0),vec2(-1.0,-1.0),vec2(1.0,0.0),vec2(-1.0,0.0),vec2(1.0,0.0),vec2(-1.0,0.0),vec2(0.0,1.0),vec2(0.0,-1.0),vec2(0.0,1.0),vec2(0.0,-1.0));
     let hash = GRASS_PERMUTATION[(u32(cell.x) + GRASS_PERMUTATION[u32(cell.y) & GRASS_PERMUTATION_MASK]) & GRASS_PERMUTATION_MASK] % 12u;
@@ -201,7 +201,7 @@ fn grass_corner(cell: vec2<i32>, offset: vec2<f32>) -> f32 {
     return (offset.y * gradient.y + offset.x * gradient.x) * t * t * t * t;
 }
 
-// Lens 0x1dcd030 samples row 255 at clamp(int((noise + .6) * 255)).
+// Vanilla samples row 255 at clamp(int((noise + .6) * 255)).
 fn grass_palette_index(world_xz: vec2<i32>) -> u32 {
     let p = vec2<f32>(world_xz) * 0.0225;
     let skew = (p.x + p.y) * bitcast<f32>(0x3ebb67aeu);

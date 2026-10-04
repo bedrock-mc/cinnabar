@@ -22,6 +22,12 @@ pub enum SkullKind {
 }
 
 impl SkullKind {
+    /// Current native placed-head model selection follows the backing block type.
+    #[must_use]
+    pub fn from_block_identifier(identifier: &str) -> Option<Self> {
+        assets::vanilla_skull_type(identifier).and_then(|kind| Self::from_nbt(i64::from(kind)))
+    }
+
     /// The `SkullType` NBT byte.
     #[must_use]
     pub const fn from_nbt(value: i64) -> Option<Self> {

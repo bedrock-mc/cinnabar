@@ -55,8 +55,8 @@ fn output(app: &mut App) -> (AtmosphereFrame, WorldLighting) {
 
 #[test]
 fn ordinary_world_publisher_preserves_native_nighttime_ambient_floor() {
-    // Current ordinary renderer 04fe3f20 supplies flag1 to LightTexture
-    // update07083390; buildImage07080cd0 applies both ambient stages.
+    // Current ordinary renderer supplies flag1 to LightTexture
+    // update; buildImage applies both ambient stages.
     let mut app = atmosphere_app(false);
     app.world_mut().resource_mut::<VisualTimeOverride>().0 = Some(18_000);
     let (_, lighting) = output(&mut app);

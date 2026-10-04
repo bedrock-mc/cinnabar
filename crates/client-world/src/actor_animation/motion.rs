@@ -1,6 +1,6 @@
-//! Per-actor walk cycle, arm swing, and body rotation that vanilla animations read through
-//! queries. Tuning constants were observed in a client reconstruction and still need
-//! independent measurement against a running vanilla client.
+//! Per-actor walk cycle, arm swing, fish phase, and body rotation that vanilla animations read through
+//! queries. Ordinary walking and turning use vanilla constants;
+//! specialized hurt/fire/jump multipliers and render-time query sampling remain incomplete.
 use super::query::wrap_degrees;
 
 /// Ticks one arm swing takes without haste or fatigue.
@@ -23,6 +23,8 @@ const MOB_STABLE_TICKS: u32 = 10;
 const STRIDE_STEP_MIN: f32 = 0.05;
 const STRIDE_GAIN: f32 = 3.0;
 const STRIDE_READ_SCALE: f32 = 0.6;
+// FishAnimationSystem tick consumes StateVector velocity in blocks/tick.
+const FISH_PHASE_SPEED_GAIN: f32 = 0.1;
 
 /// One tick of actor state the motion model consumes.
 pub(super) struct MotionInput {
@@ -47,6 +49,9 @@ pub(super) struct MotionState {
     stable_ticks: u32,
     /// Stride accumulator behind `query.walk_distance`.
     stride: f32,
+    /// FishAnimationComponent survives geometry/controller resets for this actor lifetime.
+    fish_phase: [f32; 2],
+    pub(super) horse: super::horse::AnimationState,
 }
 
 impl MotionState {
@@ -79,6 +84,18 @@ impl MotionState {
         self.swing.map_or(0.0, |counter| {
             counter.max(0) as f32 / self.swing_ticks.max(1) as f32
         })
+    }
+
+    /// Current and previous native fish animation amounts, in that order.
+    pub(super) fn fish_phase(self) -> [f32; 2] {
+        self.fish_phase
+    }
+
+    pub(super) fn advance_fish(&mut self, velocity: [f32; 3]) {
+        self.fish_phase[1] = self.fish_phase[0];
+        let [x, y, z] = velocity;
+        let speed = (z * z + y * y + x * x).sqrt();
+        self.fish_phase[0] = (self.fish_phase[0] + 1.0) + speed * FISH_PHASE_SPEED_GAIN;
     }
 
     pub(super) fn advance(&mut self, input: &MotionInput) {

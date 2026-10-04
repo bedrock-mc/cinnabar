@@ -1,24 +1,12 @@
 # Personal inventory close response
 
-Reference: current mcsrc `1.26.50.26`, revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`, plus the named 26.30 reference.
+The server-initiated `ContainerClosePacket` branch invokes the local-player
+server-close path with the container type. The response branch instead calls the
+local item-stack manager without passing or comparing the response’s window id or type.
 
-`LegacyClientNetworkHandler::handle(ContainerClosePacket)` is current
-`__unmapped/01.cpp`, RVA `0x014f0450`; the named 26.30 handler is
-`0x0356cdc0`. The server-initiated branch invokes the local-player server-close
-path (current `0x04f32370`) with the container type. The response branch instead
-calls the local item-stack manager's virtual slot `+0x38`, without passing or
-comparing the response's window id or type. Matching-PE disassembly at
-`0x014f076c..0x014f07c6` verifies this call, rather than relying on the
-reconstruction's erased indirect-call target.
-
-The matching manager operation is `onContainerScreenClose`: current
-`__unmapped/02.cpp`, `0x028c85a0`, and named 26.30
-`ItemStackNetManagerBase::onContainerScreenClose`, `0x0a0f8410`. It removes the
-pending screen when the retained screen queue has more than its base entry.
-Current manager base destructor `0x028c7400` assigns vtable `0x150133010`; the
-matching PE's entry at `+0x38` is exactly `0x1428c85a0`. The response payload
-is not a screen-identity correlation token.
+`onContainerScreenClose` removes the pending screen when the retained screen queue
+has more than its base entry. The response payload is not a screen-identity
+correlation token.
 
 Cinnabar formerly required a response's id/type to match its personal window.
 An otherwise valid response with another type left the window closing; its
@@ -36,6 +24,5 @@ checks that a late timeout cannot poison a settled close. The October 2 UTC
 offline vanilla-BDS run performs three real E/Escape close/reopen cycles in one
 focus interval after the offhand and drop/pickup transactions. The inspected
 local `2026-10-02_01.01.27.png` macOS/Metal Retina scale-2 frame shows the
-subsequent open and correct final inventory/cursor state. Tested executable
-SHA-256: `b51eb853c4b7f04ba555c0dd0b76e5667addcbbae2ab40711483afce5f75e25f`.
+subsequent open and correct final inventory/cursor state.
 This is a live functional witness, not full screen-lifecycle parity.

@@ -3,41 +3,30 @@
 The inventory's `common.hover_text` custom control is rendered by retained JSON-UI
 nodes. It does not introduce a second UI renderer or embed Mojang artwork.
 
-## Matched sources
+The name line shares its resolution and native custom-name formatting with the
+selected-item HUD; see [Stack display names](item-display-names.md).
 
-The reference checkout is `HashimTheArab/mcsrc-1.26.50`, revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`.
+## Vanilla rules
 
-- Current `current/1.26.50.26/src/__unmapped/05.cpp`: constructor `05e10e10`,
-  clone `05e10f10`, update `05e11010`, render `05e12ba0`.
-- Current `0f.cpp`: the constructor's `0f91aa80` test accepts the integer
-  JSON variant only before `0f91a760` reads `hover_text_max_width`.
-- Current `04.cpp`: `04c18ff0` selects the bitmap font's default scale (one),
-  `04c19060` returns its wrap pitch, default scale multiplied by ten, and
-  `04c2f5e0` (`Font::getLineLength`) rounds the widest measured line upward.
-- Named older `reference/26.30/src/by-owner/h/HoverTextRenderer.cpp` establishes
-  those functions' identities. `BitmapFont.cpp` identifies `getScaleFactor`
-  and `getWrapHeight`; `Font.cpp` identifies the `drawCached` signature. The
-  older build is not used to invent current constants.
-- The pinned pack's `ui/ui_common.json`, `hover_text`, defines max-width zero
+The constructor accepts only an integer JSON value for `hover_text_max_width`.
+The bitmap font’s default scale is one and its wrap pitch is the default scale
+times ten; measured line length rounds the widest line upward.
+
+The pinned pack’s `ui/ui_common.json`, `hover_text`, defines max-width zero
   (no wrapping), custom renderer `hover_text_renderer`, layer five and
-  `allow_clipping: false`. The texture path is native renderer-owned,
+`allow_clipping: false`. The renderer-owned texture path is
   `textures/ui/purpleBorder`; its pinned JSON sidecar defines a 16×16 source
   with four-pixel nine-slice insets. Runtime server overrides still win.
 
-Numeric constants were read from the matching Lens
-`client-1.26.50.26/Minecraft.Windows.exe` (SHA-256
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`):
-
-| Address | Value | Use |
-| --- | --- | --- |
-| `14ffab650` / `14ffab654` | +10 / −10 | Mouse offset, bitmap wrap pitch |
-| `14ff9cdc4` | 8 | Added box width and height |
-| `14fea4060` | 1 | Added measured width and default font scale |
-| `14fee6588` / `14fec3380` | −1 / 0.5 | First-line minimum-height calculation |
-| `14ff666f0` | 5 | Text inset, both axes |
-| `14feff2e0` | −0.5 | Oversized-box horizontal centering |
-| `1500567d0` | 60 | Touch-mode bottom reservation, not mouse |
+| Rule | Behaviour |
+| --- | --- |
+| Mouse offset, bitmap wrap pitch | +10 / −10 |
+| Added box width and height | 8 |
+| Added measured width and default font scale | 1 |
+| First-line minimum-height calculation | −1 / 0.5 |
+| Text inset, both axes | 5 |
+| Oversized-box horizontal centering | −0.5 |
+| Touch-mode bottom reservation, not mouse | 60 |
 
 ## Implemented mouse path
 
@@ -100,10 +89,10 @@ was checked against the existing offline official BDS session. Fresh, unresample
 2560×1440 framebuffer captures were inspected:
 
 - `2026-10-02_03.22.44.png`: Grass Block uses the resident native purpleBorder
-  nine-slice, a dark fill, the source-derived mouse offset and text inset, and no
+  nine-slice, a dark fill, the vanilla mouse offset and text inset, and no
   inherited HUD text shadow.
 - `2026-10-02_03.23.38.png`: after BDS confirmed Sharpness III enchanting, Diamond
-  Sword and its gray enchantment line share the source-derived tooltip pitch and
+Sword and its gray enchantment line share the vanilla tooltip pitch and
   expanded box height. The box can extend past inventory control bounds without
   slot/container clipping, and is drawn above the slot icons.
 
@@ -113,7 +102,7 @@ blank lines, opacity, authored wrapping and nine-slice sizing. The accepted open
 font and unimplemented touch/gamepad modes remain the limitations above; this is
 not a version-matched native screenshot comparison.
 
-The upstream-integrated rerun uses the executable hashes and offline BDS session
+The upstream-integrated rerun uses the build and offline BDS session
 recorded in [the preview rerun](player-preview-rendering.md#upstream-integrated-rerun).
 `2026-10-02_04.09.46.png` verifies Grass Block's single-line native border/fill,
 inset and mouse placement. `2026-10-02_04.10.41.png` verifies Diamond Sword plus

@@ -53,6 +53,73 @@ fn item_sprite_plane_does_not_require_the_unused_box_uv_envelope() {
 }
 
 #[test]
+fn fish_fins_validate_drawable_uvs_instead_of_the_unused_box_layout() {
+    use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
+    // Authored cod dorsal fin, salmon side fin, pufferfish tail and tropical tail.
+    for (size, uv) in [
+        ([0.0, 1.0, 6.0], [20.0, -6.0]),
+        ([2.0, 0.0, 2.0], [-2.0, 0.0]),
+        ([3.0, 0.0, 3.0], [-3.0, 0.0]),
+        ([0.0, 3.0, 4.0], [24.0, -4.0]),
+    ] {
+        let mut model = geometry(
+            size,
+            EntityGeometryUv::Box(uv.map(|value| Scalar::new(value).unwrap())),
+        );
+        model.texture_width = 32;
+        model.texture_height = 32;
+        assert!(assets::neutral_actor_geometry_uvs_are_supported(
+            &[model],
+            0
+        ));
+    }
+}
+
+#[test]
+fn a_fish_fin_with_out_of_bounds_drawable_uvs_is_still_rejected() {
+    use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
+    for (size, uv) in [
+        ([0.0, 1.0, 3.0], [3.0, -3.0]), // Opposing side ends beyond texture width.
+        ([0.0, 1.0, 3.0], [2.0, -4.0]), // Both sides start above the texture.
+        ([3.0, 0.0, 3.0], [-4.0, 0.0]), // Top starts left of the texture.
+        ([3.0, 0.0, 3.0], [0.0, 0.0]),  // Opposing bottom ends beyond texture width.
+    ] {
+        let model = geometry(
+            size,
+            EntityGeometryUv::Box(uv.map(|value| Scalar::new(value).unwrap())),
+        );
+        assert!(!assets::neutral_actor_geometry_uvs_are_supported(
+            &[model],
+            0
+        ));
+    }
+}
+
+#[test]
+fn inflated_fins_validate_faces_that_gained_area() {
+    use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
+    for bone_inflate in [false, true] {
+        let mut model = geometry(
+            [0.0, 1.0, 3.0],
+            EntityGeometryUv::Box([Scalar::new(2.0).unwrap(), Scalar::new(-3.0).unwrap()]),
+        );
+        let mut bones = model.bones.to_vec();
+        if bone_inflate {
+            bones[0].inflate = Scalar::new(0.1);
+        } else {
+            let mut cubes = bones[0].cubes.to_vec();
+            cubes[0].inflate = Scalar::new(0.1).unwrap();
+            bones[0].cubes = cubes.into();
+        }
+        model.bones = bones.into();
+        assert!(!assets::neutral_actor_geometry_uvs_are_supported(
+            &[model],
+            0
+        ));
+    }
+}
+
+#[test]
 fn omitted_face_uv_size_uses_cube_dimensions_for_bounds() {
     use assets::{
         EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryScalar as Scalar,

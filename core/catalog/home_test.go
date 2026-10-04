@@ -9,7 +9,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/service/playermessaging"
 )
 
-// Authored to the reconstruction's field names; not a captured payload.
+// Authored to the vanilla field names; not a captured payload.
 const messagingFixture = `{"result":{
 	"continuationToken":"c2",
 	"messages":[

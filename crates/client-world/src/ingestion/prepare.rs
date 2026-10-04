@@ -60,6 +60,7 @@ pub fn prepare_sub_chunks(batch: SubChunkBatchEvent, ids: &DecodeIds) -> Vec<Pre
             );
             PreparedSubChunk {
                 position: entry.position,
+                diagnostics: entry.diagnostics,
                 result: match entry.result {
                     SubChunkResult::Success { payload } => {
                         PreparedSubChunkResult::Decoded(DecodedSubChunk::decode(key, &payload, ids))

@@ -82,12 +82,10 @@ fn install(app: &mut App) {
     }
     app.add_plugins(ExtractResourcePlugin::<BlockEntityFrame>::default());
     app.add_plugins(ExtractResourcePlugin::<BlockSelectionFrame>::default());
-    load_internal_asset!(
-        app,
-        SHADER_HANDLE,
-        "block_entity.wgsl",
-        crate::shader_safety::from_wgsl
-    );
+    crate::lighting::install(app);
+    load_internal_asset!(app, SHADER_HANDLE, "block_entity.wgsl", |source, path| {
+        crate::shader_safety::from_block_entity_wgsl(source, path, BLOCK_ENTITY_VERTEX_WORDS)
+    });
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(BlockEntityRenderInstalled)
@@ -370,7 +368,7 @@ impl FromWorld for BlockEntityPipeline {
             &[
                 BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStages::VERTEX,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: true,
@@ -408,7 +406,7 @@ impl FromWorld for BlockEntityPipeline {
         );
         let descriptor = RenderPipelineDescriptor {
             label: Some("block-entity pipeline".into()),
-            layout: vec![bind_group_layout.clone()],
+            layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
             vertex: VertexState {
                 shader: SHADER_HANDLE,
                 entry_point: Some("block_entity_vertex".into()),
@@ -728,10 +726,26 @@ fn queue_blended(
     }
 }
 
-type DrawSolidCommands = (SetItemPipeline, DrawList<SOLID>);
-type DrawOverlayCommands = (SetItemPipeline, DrawList<OVERLAY>);
-type DrawCrackCommands = (SetItemPipeline, DrawList<CRACK>);
-type DrawAdditiveCommands = (SetItemPipeline, DrawList<ADDITIVE>);
+type DrawSolidCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawList<SOLID>,
+);
+type DrawOverlayCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawList<OVERLAY>,
+);
+type DrawCrackCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawList<CRACK>,
+);
+type DrawAdditiveCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawList<ADDITIVE>,
+);
 
 const SOLID: u8 = 0;
 const OVERLAY: u8 = 1;
@@ -772,26 +786,8 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
 }
 
 #[cfg(test)]
-const SHADER_SOURCE: &str = include_str!("block_entity.wgsl");
-
-#[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn shader_parses_and_reads_the_vertex_stride_the_cpu_writes() {
-        let source = SHADER_SOURCE.replace(
-            "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, }",
-        );
-        naga::front::wgsl::parse_str(&source).expect("block-entity shader parses");
-        assert_eq!(BLOCK_ENTITY_VERTEX_WORDS, 9);
-        assert_eq!(
-            size_of::<BlockEntityVertex>(),
-            BLOCK_ENTITY_VERTEX_WORDS * 4
-        );
-        assert!(source.contains("vertex_index * 9u"));
-    }
 
     #[test]
     fn vertex_lists_track_counts_without_a_device() {

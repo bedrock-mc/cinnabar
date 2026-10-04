@@ -140,7 +140,7 @@ impl PlayerInventoryLedger {
             .map(|cell| {
                 let mut held = predicted.get(cell).cloned();
                 if let Some(held) = &mut held {
-                    // SparseContainerSetListenerClient::postSetItem (089457b0).
+                    // Stamp each changed prediction with the request that owns it.
                     held.stack.stack_network_id = request.request_id;
                 }
                 CellPrediction {
@@ -292,8 +292,8 @@ impl PlayerInventoryLedger {
             return;
         }
         if let Some(prediction) = prediction {
-            // Native tryPushSlotPrediction (089446a0) and the historic path
-            // (08944f90) use the requested slot's item, not the destination's.
+            // Native tryPushSlotPrediction and the historic path
+            // use the requested slot's item, not the destination's.
             let held = prediction
                 .held
                 .as_ref()

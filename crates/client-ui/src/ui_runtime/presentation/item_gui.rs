@@ -1,5 +1,4 @@
 //! Native inventory geometry, rasterized by the UI pass at the current framebuffer resolution.
-//! Matching 1.26.50.26: 05e5d460/06aab610/062faed0 (blocks), 05e588d0 (shields).
 
 use std::sync::Arc;
 

@@ -12,10 +12,8 @@ pub const EXTRA_KEYS: &[(&str, PhysicalControl)] = &[
     ("key.screenshot", PhysicalControl::KeyboardUsage(0x3b)),
     ("key.fullscreen", PhysicalControl::KeyboardUsage(0x44)),
 ];
-// R:v/VanillaClientInputMappingFactory.cpp:6217–6235.
 pub const SECONDARY_KEYS: &[(&str, PhysicalControl)] =
     &[("key.chat", PhysicalControl::KeyboardUsage(0x28))];
-// R:v/VanillaClientInputMappingFactory.cpp:710,802,1094,1204.
 pub const EXTRA_GAMEPAD: &[(&str, Option<PhysicalControl>)] = &[
     ("key.inventory", Some(PhysicalControl::GamepadButton(2))),
     ("key.chat", Some(PhysicalControl::GamepadButton(14))),

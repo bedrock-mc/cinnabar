@@ -4,6 +4,7 @@ use super::{AxisCollisions, COLLISION_EPSILON, STEP_HEIGHT};
 
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedMotion {
+    pub aabb: Aabb,
     pub resolved: Vec3,
     pub position: Vec3,
     pub collisions: AxisCollisions,
@@ -52,6 +53,7 @@ pub(super) fn resolve_motion(
         f64::from((resolved_box.min.z as f32 + resolved_box.max.z as f32) * 0.5),
     );
     Ok(ResolvedMotion {
+        aabb: resolved_box,
         resolved,
         position: end_position,
         collisions: AxisCollisions {

@@ -498,18 +498,21 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                 .chain(&transform.translation)
                 .all(|value| value.is_finite())
         });
-    let nibble = |key: &str| {
+    let nibble = |key: &str, field: &str| {
         components
             .field(key)
-            .and_then(Nbt::number)
+            // Native descriptions serialize a compound with a named byte field.
+            // Keep scalar definitions supported for servers using the JSON shape.
+            .and_then(|component| component.field(field).unwrap_or(component).number())
+            .filter(|value| value.is_finite())
             .map(|value| value.clamp(0.0, 15.0) as u8)
     };
     CustomVisualComponents {
         geometry,
         materials,
         transformation,
-        light_dampening: nibble("minecraft:light_dampening"),
-        light_emission: nibble("minecraft:light_emission"),
+        light_dampening: nibble("minecraft:light_dampening", "lightLevel"),
+        light_emission: nibble("minecraft:light_emission", "emission"),
     }
 }
 
@@ -655,6 +658,48 @@ mod tests {
         let mut bytes = named(8, name);
         bytes.extend(string(value));
         bytes
+    }
+
+    #[test]
+    fn network_light_descriptions_retain_zero_dampening_and_emission() {
+        // Native serialization uses byte tags; accept numeric server variants too.
+        for dampening_tag in [1, 3] {
+            let mut nbt = named(10, "");
+            nbt.extend(named(10, "components"));
+            for (component, field, tag, level) in [
+                (
+                    "minecraft:light_dampening",
+                    "lightLevel",
+                    dampening_tag,
+                    0_u8,
+                ),
+                ("minecraft:light_emission", "emission", 1, 13),
+            ] {
+                nbt.extend(named(10, component));
+                nbt.extend(named(tag, field));
+                nbt.extend([level, 0]); // Zero has the same byte/zigzag-int encoding.
+            }
+            nbt.extend([0, 0]);
+            let visual = parse_definition(&nbt).expect("network definition").visual;
+            assert_eq!(visual.base.light_dampening, Some(0));
+            assert_eq!(visual.base.light_emission, Some(13));
+        }
+    }
+
+    #[test]
+    fn scalar_light_components_remain_lenient_for_odd_values() {
+        use crate::nbt_tree::Nbt;
+        let components = |value| Nbt::Compound(vec![("minecraft:light_dampening".into(), value)]);
+        for (value, expected) in [
+            (Nbt::Int(0), Some(0)),
+            (Nbt::Int(30), Some(15)),
+            (Nbt::Int(-1), Some(0)),
+            (Nbt::Float(f64::NAN), None),
+            (Nbt::String("unknown".into()), None),
+        ] {
+            let visual = super::visual_components(Some(&components(value)));
+            assert_eq!(visual.light_dampening, expected);
+        }
     }
 
     #[test]

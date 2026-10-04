@@ -115,43 +115,8 @@ pub(super) struct BlockIcons {
     pub(super) misses: Vec<(Arc<str>, Box<str>)>,
 }
 
-/// Pairs each registry item that draws as a custom block with that block: the block's own
-/// item (a `BlockItem`, which vanilla always renders as its block), or a `block_placer` item
-/// declaring no icon of its own.
-pub(super) fn custom_block_items(
-    game_data: &protocol::GameData,
-    blocks: &protocol::CustomBlocks,
-) -> Box<[(Arc<str>, Arc<str>)]> {
-    let names = blocks
-        .blocks
-        .iter()
-        .map(|block| Arc::clone(&block.name))
-        .collect::<HashSet<_>>();
-    if names.is_empty() {
-        return Box::new([]);
-    }
-    let components = protocol::item_components(game_data);
-    let mut pairs = game_data
-        .item_registry
-        .item_data
-        .iter()
-        .filter_map(|item| names.get(item.item_name.as_str()).cloned())
-        .map(|block| (Arc::clone(&block), block))
-        .collect::<Vec<_>>();
-    for (identifier, facts) in components.iter() {
-        if facts.icon.is_some() || names.contains(identifier) {
-            continue;
-        }
-        if let Some(block) = facts
-            .block_placer
-            .as_deref()
-            .and_then(|block| names.get(block))
-        {
-            pairs.push((Arc::clone(identifier), Arc::clone(block)));
-        }
-    }
-    pairs.into_boxed_slice()
-}
+#[cfg(test)]
+use client_session::custom_block_items;
 
 /// Thumbnails of each block item's block in its default (first) state, whose overlay index is
 /// the block's first palette state, or first `hashed_states` entry in a hashed session. A plain

@@ -10,7 +10,7 @@ use crate::item::CanonicalItemStack;
 /// Most stacked copies drawn for one dropped stack.
 pub const MAX_DROPPED_ITEM_COPIES: usize = 4;
 
-// ItemRenderer::render, current 1.26.50.26 RVA 0x05e54ba0. The random phase belongs to
+// ItemRenderer::render, current 1.26.50.26. The random phase belongs to
 // vertical bob only, never spin; the half-tick subtraction is performed after the rate.
 const SPIN_RATE_PER_TICK: f32 = 0.05;
 const SPIN_HALF_TICK: f32 = SPIN_RATE_PER_TICK * 0.5;
@@ -71,7 +71,7 @@ fn copy_offsets(count: u8) -> [[f32; 3]; MAX_DROPPED_ITEM_COPIES] {
         .take(usize::from(count))
         .skip(1)
     {
-        // The renderer constructor (0x05e51fd0) owns this table, shared by all actors.
+        // The renderer constructor owns this table, shared by all actors.
         *offset = std::array::from_fn(|axis| {
             let unit = random_unit((index, axis, "item copies"));
             (unit + unit - 1.0) * COPY_SPREAD
@@ -110,7 +110,7 @@ impl ActorStore {
         }
         let ticks = actor.status.age_ticks as f32 + alpha;
         let mut position = actor.interpolated_position(alpha)?;
-        // Native ActorRenderDispatcher (01fb6fa0/01fb3460) uses StateVector origin,
+        // Native ActorRenderDispatcher uses StateVector origin,
         // whereas our actor store retains collision feet for boxes and brightness.
         position[1] += ITEM_ACTOR_NETWORK_OFFSET;
         let mut bob_multiplier = 1.0;

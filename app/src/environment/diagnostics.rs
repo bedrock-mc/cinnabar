@@ -13,6 +13,8 @@ const INTERVAL_SECONDS: f64 = 5.0;
 pub(crate) struct LightingLogState {
     identity: Option<(u64, i32)>,
     next_seconds: f64,
+    session: Option<u64>,
+    mode_mask: u8,
 }
 
 impl LightingLogState {
@@ -23,6 +25,26 @@ impl LightingLogState {
         }
         self.identity = Some(identity);
         self.next_seconds = seconds + INTERVAL_SECONDS;
+        true
+    }
+
+    /// Starts the two session-only facts again when the network session changes.
+    fn start_session(&mut self, session: u64) -> bool {
+        if self.session == Some(session) {
+            return false;
+        }
+        self.session = Some(session);
+        self.mode_mask = 0;
+        true
+    }
+
+    /// Logs a newly observed mode family once even if later headers repeat it.
+    fn observe_mode(&mut self, index: usize) -> bool {
+        let mask = 1 << index;
+        if self.mode_mask & mask != 0 {
+            return false;
+        }
+        self.mode_mask |= mask;
         true
     }
 }
@@ -50,24 +72,28 @@ pub(crate) fn log_world_lighting(
         return;
     }
     let eye = player.snapshot().map(|player| player.eye().to_array());
-    let solved_eye_light = eye.and_then(|eye| stream.solved_light_at(eye));
-    let below_eye_light = eye.map(|eye| {
-        [1.0, 2.0, 3.0, 4.0, 8.0, 12.0].map(|depth| {
-            let position = [eye[0], eye[1] - depth, eye[2]];
-            (
-                position,
-                stream.camera_medium(position),
-                stream.solved_light_at(position),
-            )
-        })
+    let session = clock.session_generation();
+    if state.start_session(session) {
+        bevy::log::info!(session_generation = session, facts = %stream.lighting_session_facts(), "WORLD_LIGHTING_SESSION");
+    }
+    for (index, mode) in stream.lighting_request_modes().into_iter().enumerate() {
+        if let Some(mode) = mode
+            && state.observe_mode(index)
+        {
+            bevy::log::info!(session_generation = session, %mode, "WORLD_LIGHTING_REQUEST_MODE");
+        }
+    }
+    let block_evidence = eye.map(|eye| {
+        let positions =
+            [0.0, 1.0, 2.0, 3.0, 4.0, 8.0, 12.0].map(|depth| [eye[0], eye[1] - depth, eye[2]]);
+        stream.lighting_diagnostic(&positions)
     });
     let table = light.0.build();
     bevy::log::info!(
         session_generation = clock.session_generation(),
         dimension = context.dimension,
         ?eye,
-        ?solved_eye_light,
-        ?below_eye_light,
+        block_evidence = %block_evidence.as_deref().unwrap_or("eye-unavailable"),
         medium = ?frame.camera_medium(),
         sky_kind = ?frame.sky_kind(),
         daylight = frame.daylight(),
@@ -102,5 +128,23 @@ mod tests {
         assert!(state.due((2, 0), INTERVAL_SECONDS));
         assert!(state.due((2, 1), INTERVAL_SECONDS));
         assert!(!state.due((2, 1), INTERVAL_SECONDS + 0.01));
+    }
+
+    #[test]
+    fn session_facts_and_each_request_mode_log_once_even_across_dimension_changes() {
+        let mut state = LightingLogState::default();
+        assert!(state.start_session(1));
+        for index in 0..3 {
+            assert!(state.observe_mode(index));
+        }
+        assert!(!state.start_session(1));
+        assert!(state.due((1, 1), 10.0));
+        for index in 0..3 {
+            assert!(!state.observe_mode(index));
+        }
+        assert!(state.start_session(2));
+        for index in 0..3 {
+            assert!(state.observe_mode(index));
+        }
     }
 }

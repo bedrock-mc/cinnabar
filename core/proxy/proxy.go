@@ -186,12 +186,18 @@ func localListenConfig(prepare func(context.Context, *minecraft.Conn) error) min
 		AcceptedProtocols:      []minecraft.Protocol{minecraft.DefaultProtocol},
 		AllowUnknownPackets:    true,
 		EnableBatchReading:     true,
-		// Same-machine traffic gains nothing from DEFLATE; the upstream server's compression is untouched.
-		Compression:              packet.NopCompression,
+		// Same-machine traffic gains nothing from DEFLATE or AES; the upstream leg keeps both.
+		Compression:             packet.NopCompression,
+		DisablePacketEncryption: true,
+		// The client requests one chunk at a time, so larger chunks cut loopback round trips.
+		ResourcePackDelivery:     minecraft.ResourcePackDeliveryConfig{ChunkSize: localResourcePackChunkSize},
 		ErrorLog:                 slog.Default().With("component", "local-listener"),
 		PrepareResourcePackOffer: prepare,
 	}
 }
+
+// localResourcePackChunkSize matches the Rust client's MAX_RESOURCE_PACK_CHUNK_BYTES cap.
+const localResourcePackChunkSize = 1 << 20
 
 type acceptedDownstreamSession interface {
 	downstreamSession

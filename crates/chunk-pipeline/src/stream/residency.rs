@@ -70,6 +70,7 @@ impl WorldStream {
             return;
         }
         for &column in &columns {
+            self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);
             self.loaded_columns.remove(&column);
             self.request_collision_failures.remove(&column);
@@ -169,6 +170,7 @@ impl WorldStream {
         }
     }
     pub(super) fn evict_all_resident(&mut self) {
+        self.light_diagnostics.columns.clear();
         self.unsent_column_deadlines.clear();
         self.arrival_cohort = None;
         let mut columns = self
@@ -210,6 +212,10 @@ impl WorldStream {
         let is_retained = |key: &ChunkKey| {
             key.dimension == current_dimension && chunk_in_view(radius, [key.x, key.z], center_xz)
         };
+        // Failed requests can leave diagnostic evidence without any resident terrain.
+        self.light_diagnostics
+            .columns
+            .retain(|key, _| is_retained(key));
         self.required_columns.retain(is_retained);
         self.unsent_column_deadlines
             .retain(|key, _| is_retained(key));

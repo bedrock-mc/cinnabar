@@ -11,7 +11,8 @@ use super::{
 };
 
 /// One particle quad. `axis_*` are half-extent edge vectors; `axis_x.w` is 1 for
-/// alpha-tested opaque particles; `center_light.w` scales the lit colour.
+/// alpha-tested opaque particles; `center_light.w` packs block/sky nibbles,
+/// and `axis_y.w` enables the shared world lightmap.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ParticleInstance {
@@ -20,7 +21,7 @@ pub struct ParticleInstance {
     pub axis_y: [f32; 4],
     /// Atlas `u0, v0, du, dv`.
     pub uv: [f32; 4],
-    /// Linear RGB plus alpha.
+    /// Native gamma RGB tint plus alpha.
     pub color: [f32; 4],
 }
 
@@ -44,27 +45,6 @@ pub struct DrawLists {
 
 pub const MAX_DRAW_DISTANCE: f32 = 128.0;
 
-const LIGHT_CURVE: [f32; 16] = [
-    0.0,
-    0.017_543_86,
-    0.037_037_037,
-    0.058_823_53,
-    0.083_333_336,
-    0.111_111_11,
-    0.142_857_15,
-    0.179_487_18,
-    0.222_222_22,
-    0.272_727_28,
-    0.333_333_34,
-    0.407_407_4,
-    0.5,
-    0.619_047_6,
-    0.777_777_8,
-    1.0,
-];
-const NIGHT_SKY_FLOOR: f32 = 0.2;
-const AMBIENT_FLOOR: f32 = 0.04;
-
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
@@ -84,15 +64,6 @@ fn unit(v: [f32; 3]) -> Option<[f32; 3]> {
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn srgb_to_linear(c: f32) -> f32 {
-    let c = c.clamp(0.0, 1.0);
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
 }
 
 /// Screen-plane axes for a facing mode; `direction` is the particle's travel direction.
@@ -240,18 +211,15 @@ fn uv_of(
     }
 }
 
-fn light_factor(world: &dyn ParticleWorld, cell: [i32; 3], daylight: f32) -> f32 {
+fn light_sample(world: &dyn ParticleWorld, cell: [i32; 3]) -> f32 {
     let (block, sky) = world.light(cell);
-    let block = LIGHT_CURVE[usize::from(block.min(15))];
-    let sky = LIGHT_CURVE[usize::from(sky.min(15))] * daylight.clamp(0.0, 1.0).max(NIGHT_SKY_FLOOR);
-    AMBIENT_FLOOR + (1.0 - AMBIENT_FLOOR) * block.max(sky)
+    f32::from(block.min(15) | (sky.min(15) << 4))
 }
 
 fn emit_emitter(
     emitter: &mut Emitter,
     view: &ParticleView,
     world: &dyn ParticleWorld,
-    daylight: f32,
     cos_limit: f32,
     out: &mut Vec<(f32, ParticleInstance, bool)>,
 ) {
@@ -338,29 +306,34 @@ fn emit_emitter(
             rng,
             &queries,
         );
-        let lit = if def.particle.lit {
-            light_factor(world, position.map(|c| c.floor() as i32), daylight)
+        let sample = if def.particle.lit {
+            light_sample(world, position.map(|c| c.floor() as i32))
         } else {
-            1.0
+            0.0
         };
         color[3] = color[3].clamp(0.0, 1.0);
         if color[3] <= 0.0 {
             continue;
         }
         let instance = ParticleInstance {
-            center_light: [position[0], position[1], position[2], lit],
+            center_light: [position[0], position[1], position[2], sample],
             axis_x: [
                 right[0] * size[0],
                 right[1] * size[0],
                 right[2] * size[0],
                 opaque,
             ],
-            axis_y: [up[0] * size[1], up[1] * size[1], up[2] * size[1], 0.0],
+            axis_y: [
+                up[0] * size[1],
+                up[1] * size[1],
+                up[2] * size[1],
+                f32::from(def.particle.lit),
+            ],
             uv,
             color: [
-                srgb_to_linear(color[0]),
-                srgb_to_linear(color[1]),
-                srgb_to_linear(color[2]),
+                color[0].clamp(0.0, 1.0),
+                color[1].clamp(0.0, 1.0),
+                color[2].clamp(0.0, 1.0),
                 color[3],
             ],
         };
@@ -371,11 +344,10 @@ fn emit_emitter(
 impl ParticleSystem {
     /// Builds the frame's draw lists against `view`, evaluating per-render expressions.
     pub fn build_draw(&mut self, view: &ParticleView, world: &dyn ParticleWorld) -> DrawLists {
-        let daylight = self.daylight;
         let cos_limit = (view.half_diagonal + 0.15).min(3.0).cos();
         let mut collected = Vec::new();
         for emitter in self.emitters_mut() {
-            emit_emitter(emitter, view, world, daylight, cos_limit, &mut collected);
+            emit_emitter(emitter, view, world, cos_limit, &mut collected);
         }
         collected.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
         let mut lists = DrawLists::default();
@@ -418,7 +390,6 @@ mod tests {
 
     fn system_with_particle(z: f32) -> ParticleSystem {
         let mut system = ParticleSystem::default();
-        system.daylight = 1.0;
         assert!(system.register_effect(EFFECT.as_bytes()));
         system.spawn(&SpawnRequest {
             effect: "minecraft:quad".into(),
@@ -438,8 +409,48 @@ mod tests {
         assert_eq!(instance.axis_x[0], 0.5);
         assert_eq!(instance.axis_y[1], 0.25);
         assert_eq!(instance.color[3], 0.5);
+        assert_eq!(instance.color[..3], [1.0, 0.5, 0.0]);
+        assert_eq!(
+            instance.axis_y[3], 0.0,
+            "unlit effect bypasses the lightmap"
+        );
         // Missing texture falls back to the 1x1 white texel: u origin is half of a 1px placement.
         assert!(instance.uv[2] > 0.0);
+    }
+
+    #[test]
+    fn lit_particles_publish_both_light_channels_without_a_brightness_floor() {
+        struct CellLight(u8, u8);
+        impl ParticleWorld for CellLight {
+            fn solid_boxes(&self, _: [f32; 3], _: [f32; 3], _: &mut Vec<[f32; 6]>) {}
+            fn light(&self, cell: [i32; 3]) -> (u8, u8) {
+                assert_eq!(cell, [0, 0, -5]);
+                (self.0, self.1)
+            }
+            fn fluid(&self, _: [i32; 3]) -> super::super::world::Fluid {
+                super::super::world::Fluid::None
+            }
+        }
+        let effect = EFFECT.replace(
+            "\"minecraft:particle_appearance_tinting\"",
+            "\"minecraft:particle_appearance_lighting\":{},\"minecraft:particle_appearance_tinting\"",
+        );
+        let mut system = ParticleSystem::default();
+        assert!(system.register_effect(effect.as_bytes()));
+        system.spawn(&SpawnRequest {
+            effect: "minecraft:quad".into(),
+            position: [0.0, 0.0, -5.0],
+            ..SpawnRequest::default()
+        });
+        system.tick(0.02, &EmptyWorld);
+        for (block, sky) in [(0, 0), (0, 15), (10, 0), (7, 12), (255, 255)] {
+            let instance = system.build_draw(&view(), &CellLight(block, sky)).blend[0];
+            assert_eq!(
+                instance.center_light[3],
+                f32::from(block.min(15) | (sky.min(15) << 4))
+            );
+            assert_eq!(instance.axis_y[3], 1.0);
+        }
     }
 
     #[test]

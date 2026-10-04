@@ -694,7 +694,7 @@ mod tests {
                 "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
             )
             .replace(
-                "#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}",
+                "#import cinnabar::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear}",
                 &lighting,
             );
         assert!(crate::shader_test_support::fragment_reads_binding(

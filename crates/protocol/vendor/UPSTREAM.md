@@ -77,7 +77,7 @@ allocation limits and errors; generated codecs are unchanged.
 
 Jolyne's StartGame handoff also retains the first decoded `ItemRegistry` and its
 shield ID. This matches the one-time initialization guard in the native
-1.26.50 `ItemRegistry::matchServerItemIds` at RVA `0x03984630`; later empty or
+1.26.50 `ItemRegistry::matchServerItemIds`; later empty or
 custom-only packets must not replace the startup table. The Cinnabar play
 ingress wire-decodes these repeats but does not publish replacement events.
 

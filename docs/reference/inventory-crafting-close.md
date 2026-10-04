@@ -1,22 +1,12 @@
 # Crafting and cursor return on screen close
 
-Reference: local `mcsrc-1.26.50` reconstruction revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`, current client `1.26.50.26`.
-Our implementation is independently written from the following contracts.
+## Vanilla rules
 
-## Native contracts
-
-- Current `__unmapped/03.cpp`, `ContainerManagerController::closeContainers`
-  `038f36b0` and `_closeContainers` `038f37b0` (around line 1522669): visit
-  each return-on-close controller and each of its slots, invoking
-  `_returnToPlayerOrDrop` `038e9c40`.
-- Named 26.30 `ContainerManagerController.cpp`: `_closeContainers` `09fc95f0`,
-  `_returnToPlayerOrDrop` `09fc11b0`, `_autoPlaceOrDrop` `09fc0f50`: auto-place
-  into the player's inventory, then Drop what cannot fit. Ingredients are real
-  inventory, not a disposable UI preview or an assumed server-side auto-return.
-- Named `ContainerFactory::createController` `0a27f760`: cursor and crafting
-  input controllers are marked return-on-close; the combined player inventory
-  is not. Both carried items and crafting inputs therefore need cleanup.
+| Rule | Behaviour |
+| --- | --- |
+| Return on close | Visit each return-on-close controller and each of its slots, returning the item to the player or dropping it. |
+| Overflow | Auto-place into the player inventory, then Drop what cannot fit. Ingredients are real inventory, not disposable UI previews or assumed server-side returns. |
+| Controller scope | Cursor and crafting input controllers return items on close; the combined player inventory does not. Both carried items and crafting inputs need cleanup. |
 
 ## Correction
 

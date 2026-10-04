@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-const APP_DIR: &str = "Cinnabar";
+const APP_DIR: &str = crate::PRODUCT_NAME;
 
 /// The pinned vanilla resource pack below a resource root, which mirrors `.local/`.
 pub fn vanilla_pack_relative() -> String {

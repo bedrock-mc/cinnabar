@@ -87,3 +87,52 @@ fn downloaded_pig_and_cow_body_cubes_match_native_model_space_bounds() {
         assert!(model.bones[body_index].rotation.is_none());
     }
 }
+
+#[test]
+#[ignore = "requires CINNABAR_ENTITY_CARRIER pointing to the compiled pinned entity carrier"]
+fn pinned_fox_cube_binds_keep_body_horizontal_and_tail_clear_of_the_floor() {
+    let bytes = std::fs::read(std::env::var_os("CINNABAR_ENTITY_CARRIER").unwrap()).unwrap();
+    let assets = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
+    let index = find_geometry_index(&assets, "geometry.fox").unwrap() as usize;
+    let bones = resolve_geometry_bones(&assets, index).unwrap();
+    let mesh = entity_geometry(&assets, index, EntityRigId(0)).unwrap();
+    let bone_vertices = |name: &str| {
+        let index = bones
+            .iter()
+            .position(|bone| bone.name.as_ref() == name)
+            .unwrap();
+        mesh.vertices
+            .iter()
+            .filter(|v| v.bone_index as usize == index)
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    assert_bounds(
+        bounds(&bone_vertices("body")),
+        [-3.0, 5.0, -3.0],
+        [3.0, 11.0, 8.0],
+    );
+    // Independently measured native bind results in authored pixels (X is mirrored).
+    assert_bounds(
+        bounds(&bone_vertices("tail")),
+        [-2.0, 4.047_701, 7.5940995],
+        [2.0, 10.534573, 17.32561],
+    );
+    assert_bounds(
+        bounds(&bone_vertices("head")),
+        [-4.0, 4.0, -12.0],
+        [4.0, 12.0, -3.0],
+    );
+    assert_bounds(
+        bounds(&bone_vertices("leg0")),
+        [1.005, 0.0, 5.0],
+        [3.005, 6.0, 7.0],
+    );
+    for bone in &bones {
+        assert!(
+            bone.rotation.is_none(),
+            "cube binds must not tilt {} or its children",
+            bone.name
+        );
+    }
+}

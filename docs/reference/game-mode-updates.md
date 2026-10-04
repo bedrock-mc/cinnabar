@@ -1,26 +1,20 @@
 # Server-confirmed player game modes
 
-Reference repository revision `da728f0ce4d7a5ae0be443b8abe03119858d923e`.
-The current reconstruction's packet description, RVA `0x040a24c0` in
-`current/1.26.50.26/src/__unmapped/04.cpp`, identifies `SetPlayerGameType` as
-the client's request and `UpdatePlayerGameType` as the server's confirmation.
-Current `UpdatePlayerGameType::getId`, RVA `0x03aaa170`, returns the same packet
+`SetPlayerGameType` is the client’s request and `UpdatePlayerGameType` is the server’s confirmation.
+Current `UpdatePlayerGameType::getId` returns the same packet
 ID as our generated `McpePacketName::UpdatePlayerGameTypePacket`; we use the enum,
 not a copied numeric ID. The generated packet preserves a game type, signed actor
 unique ID and unsigned player-input tick.
 
 ## Local identity and default mode
 
-Named 26.30 `ClientNetworkHandler::handle(UpdatePlayerGameTypePacket)`, RVA
-`0x03542aa0`, matches the packet target against player-list **unique IDs**. A
+`ClientNetworkHandler::handle(UpdatePlayerGameTypePacket)` matches the packet target against player-list **unique IDs**. A
 matching local player gets its mode changed and its UI publisher notified. A
 matching remote player follows the remote-actor setter instead. A runtime ID, zero
-or `-1` is not a wildcard target. The legacy `SetPlayerGameType` handler, RVA
-`0x035429a0`, already has an implicit local target.
+or `-1` is not a wildcard target. The legacy `SetPlayerGameType` handler already has an implicit local target.
 
-Named 26.30 `Player::getPlayerGameType`, RVA `0x0a1dde20`, resolves raw game type
-`5` through the level's default game type. `Player::setPlayerGameType`, RVA
-`0x0a1dd040`, retains that raw default binding while using the effective mode for
+`Player::getPlayerGameType` resolves raw game type
+`5` through the level's default game type. `Player::setPlayerGameType` retains that raw default binding while using the effective mode for
 its mode-change work. Cinnabar reuses its existing player/default-mode reducer:
 an explicit player mode is independent of later default changes, whereas a player
 bound to the world default follows those changes. Unknown well-formed game types
@@ -46,10 +40,37 @@ the intervening HUD captures show hearts/hunger returning in survival. The
 server console confirms each mode command. This closes the missing-packet
 functional regression, not historical replay or full native visual parity.
 
+## Creative destruction is mode-driven (2026-10-04)
+
+`GameMode::startDestroyBlock` and
+`continueDestroyBlock` select the creative
+destruction route through `Actor::isCreative`.
+That predicate reads only the game-type component: Creative, or world-default
+resolving to Creative. It does not inspect the Instabuild ability.
+`Player::getDestroyProgress` passes **Flying**
+into the destroy context. `PlayerDestroy::getDestroyProgress` and `getDestroySpeed`
+apply the speed, hardness,
+harvest and movement penalties; neither selects instant destruction from Instabuild.
+Current ability serialization independently distinguishes Flying
+at offset `+0x6c` from Instabuild at `+0x84`.
+
+Cinnabar previously let received Instabuild override `instant_break`, so survival
+could take the creative mining route after a mode change despite the correct HUD.
+The capability now follows the confirmed game mode only. Regressions cover
+Survival with Instabuild enabled, Creative with it disabled, and a committed
+Creative → Survival → Creative transition while retaining the same wire evidence.
+Other ability grants and the passive evidence owner are unchanged. Native mode-layer
+refresh is a separate incomplete gate; clearing all received layers
+would incorrectly discard higher-priority server grants.
+
+In the October 4 macOS/Metal scratch-BDS run, the console confirmed the local
+player's Creative-to-Survival transition. The user tested the rebuilt client and
+confirmed that breaking and dropped-item testing now work correctly. The
+capability matrix and retained-evidence transition regressions also pass.
+
 ## Incomplete historical replay
 
-Named 26.30 `ClientPlayerRewindListener::_onUpdatePlayerGameTypePacketReceived`,
-RVA `0x02dac230`, applies a tick-zero packet immediately. With a nonzero tick and
+`ClientPlayerRewindListener::_onUpdatePlayerGameTypePacketReceived` applies a tick-zero packet immediately. With a nonzero tick and
 an eligible replay timeline, it instead inserts `GameTypeReplay` at that tick and
 suppresses the immediate setter; otherwise it applies immediately. Cinnabar now
 decodes the tick, but applies accepted updates at receive FIFO commit rather than

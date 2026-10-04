@@ -10,9 +10,9 @@ use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog}
 use bevy::prelude::*;
 use render::{
     AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
-    BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape, SceneClock, SignFace,
-    SignModel, StaticItemPlacement, StaticItemPlacements, crack_shape_from_template,
-    item_frame_item_transform, matrix_rows,
+    BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape,
+    SceneClock, SignFace, SignModel, StaticItemPlacement, StaticItemPlacements,
+    crack_shape_from_template, item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
 use world::{BlockEntityKey, BlockEntityNbt, ChunkKey};
@@ -195,6 +195,16 @@ fn light_factor(block: u8, sky: u8, daylight: f32) -> f32 {
     let curve = |level: u8| LIGHT_CURVE[usize::from(level.min(15))];
     let transfer = daylight.clamp(0.0, 1.0).max(NIGHT_SKY_TRANSFER_FLOOR);
     curve(block).max(curve(sky) * transfer)
+}
+
+fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> BlockEntityLight {
+    // Current SkullBlockRenderer supplies BlockSource light at
+    // the skull's BlockPos to mob_head's ordinary entity material.
+    if matches!(kind, BlockEntityKind::Skull(_)) {
+        BlockEntityLight::Actor { block, sky }
+    } else {
+        light_factor(block, sky, daylight).into()
+    }
 }
 
 /// The surface a crack over `layers` should cover: the block model's faces, else a cube.
@@ -392,9 +402,10 @@ pub(crate) fn update_block_entity_scene(
                     )
                 };
                 if let Some(kind) = kind {
+                    let light = model_light(&kind, block_light, sky_light, daylight);
                     submissions.push(BlockEntitySubmission {
                         block: [x, y, z],
-                        light: light_factor(block_light, sky_light, daylight),
+                        light,
                         kind,
                     });
                 }
@@ -809,6 +820,28 @@ mod tests {
         assert!((light_factor(0, 15, 0.0) - NIGHT_SKY_TRANSFER_FLOOR).abs() < 1.0e-6);
         assert_eq!(light_factor(0, 0, 1.0), 0.0);
         assert!(light_factor(8, 0, 1.0) > light_factor(4, 0, 1.0));
+    }
+
+    #[test]
+    fn placed_player_skulls_keep_native_light_coordinates_for_the_environment_shader() {
+        let kind = BlockEntityKind::Skull(render::SkullModel {
+            kind: render::SkullKind::Player,
+            mount: render::SkullMount::Floor {
+                rotation_degrees: 0.0,
+            },
+        });
+        for (block, sky) in [(0, 0), (0, 15), (12, 0)] {
+            for daylight in [0.0, 1.0] {
+                assert_eq!(
+                    model_light(&kind, block, sky, daylight),
+                    BlockEntityLight::Actor { block, sky }
+                );
+            }
+        }
+        assert_eq!(
+            model_light(&BlockEntityKind::EndPortal, 0, 15, 1.0),
+            1.0.into()
+        );
     }
 
     #[test]

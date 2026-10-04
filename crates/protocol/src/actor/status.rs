@@ -88,7 +88,7 @@ pub(crate) fn normalize_add_item_actor(
         kind: ActorKind::Entity {
             identifier: Arc::from("minecraft:item"),
         },
-        // Named 26.30 ctor 05ad4a30/handler 035683d0 pass StateVector origin
+        // The vanilla constructor and handler pass StateVector origin
         // unchanged. Our store retains feet; dropped rendering restores it explicitly.
         position: [
             packet.position.x,

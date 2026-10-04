@@ -5,6 +5,7 @@ use super::*;
 #[derive(Debug)]
 pub(super) struct UiAnimationState {
     controllers: Vec<ControllerState>,
+    clip_clocks: clock::ClipClocks,
     variables: MolangVariables,
     initialized: bool,
 }
@@ -13,14 +14,15 @@ impl UiAnimationState {
     /// Lends the HUD's script state to the shared evaluator, preserving the world state.
     fn swap_with(&mut self, state: &mut ActorRigState) {
         std::mem::swap(&mut self.controllers, &mut state.controllers);
+        std::mem::swap(&mut self.clip_clocks, &mut state.clip_clocks);
         std::mem::swap(&mut self.variables, &mut state.variables);
         std::mem::swap(&mut self.initialized, &mut state.initialized);
     }
 }
 
 /// Evaluates the UI animation component and retains it independently of world rendering.
-/// Vanilla selects that separate component in R:Actor:54619-54644; the HUD forces
-/// third person before drawing the same actor in R:HudPlayerRenderer:709-723.
+/// Vanilla selects that separate component in Actor; the HUD forces
+/// third person before drawing the same actor in HudPlayerRenderer.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn evaluate(
     assets: &RuntimeEntityAssets,
@@ -36,6 +38,7 @@ pub(super) fn evaluate(
         .take()
         .unwrap_or_else(|| UiAnimationState {
             controllers: state.controllers.clone(),
+            clip_clocks: state.clip_clocks.clone(),
             variables: state.variables.clone(),
             initialized: state.initialized,
         });
@@ -45,6 +48,7 @@ pub(super) fn evaluate(
     state.ui_pose = Some(match result {
         Ok(evaluated) => {
             ui.controllers = evaluated.controllers;
+            ui.clip_clocks = evaluated.clip_clocks;
             ui.variables = evaluated.variables;
             ui.initialized = true;
             evaluated.pose

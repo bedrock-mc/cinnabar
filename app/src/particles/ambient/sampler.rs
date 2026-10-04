@@ -1,4 +1,4 @@
-//! Current 26.50 time-limited ambient sampler, RVAs 01314010/01314490/01314790.
+//! Vanilla time-limited ambient sampler.
 
 use std::time::Duration;
 
@@ -26,7 +26,7 @@ pub(super) struct Sampler {
 
 impl Default for Sampler {
     fn default() -> Self {
-        // Target-version LevelRendererPlayer constructor (RVA 04e58f50) starts
+        // Target-version LevelRendererPlayer constructor starts
         // mode 2 at 100 samples with its previous camera position zeroed.
         Self {
             sample_count: MIN_SAMPLES,

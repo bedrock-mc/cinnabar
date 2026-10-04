@@ -22,7 +22,6 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 type ImportedArchives = Vec<(InstalledPack, Vec<u8>)>;
 
 /// Pack archive extensions accepted by file-open, drag-and-drop, and native pickers.
-/// R:t/TextureHotReloader.cpp:474; Lens 1.26.50.26 ExternalContentManager::importContent, RVA 0x64b8e90.
 pub const PACK_IMPORT_EXTENSIONS: [&str; 3] = ["mcpack", "mcaddon", "zip"];
 
 /// Recognizes file-open and drop targets without attempting archive reads.
@@ -327,7 +326,7 @@ fn read_entry(
     Ok(bytes)
 }
 
-/// Resolves known English fallback keys; R:p/PackManifest.cpp:2550 and R:p/Pack.cpp:156 load pack localization.
+/// Resolves known English fallback keys; PackManifest and Pack load pack localization.
 fn localize_metadata(metadata: &mut InstalledPack, bytes: &[u8]) {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return;

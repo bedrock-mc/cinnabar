@@ -13,7 +13,7 @@ use super::{menu_caret::with_caret, play_screen};
 use crate::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
 
 /// Settings selector index vars as 1.26.50's `SettingsScreenController`
-/// assigns them (RVA 0x0550bab0).
+/// assigns them.
 pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("server_forced_index", 1),
     ("accessibility_forced_index", 2),
@@ -592,7 +592,7 @@ fn settings_context(context: Context) -> Context {
         // Set when "/settings" resolves to JSON UI, as retail does with the
         // `mc-new-settings-screen` flight off.
         ("include_migrated_json_ui_settings_tabs", true),
-        // The general sub-controller's vars (RVA 0x056c6120) on a desktop platform.
+        // The general sub-controller's vars on a desktop platform.
         ("show_fullscreen_toggle", true),
         ("supports_user_configured_safezone", true),
         ("feedback_visible", true),

@@ -93,7 +93,7 @@ fn flush(app: &mut App, millis: u64) {
 
 #[test]
 fn e_key_reopens_after_e_or_escape_and_response_payload_does_not_identify_the_screen() {
-    // The native response branch (RVA 014f0450) never inspects either payload
+    // The native response branch never inspects either payload
     // identifier. Include generic type/window0 (DF), an inventory type, a
     // sentinel and an odd but well-framed type, without asserting BDS's shape.
     for (response_window, response_type) in [

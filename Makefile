@@ -16,6 +16,7 @@ POWERSHELL ?= powershell
 SOCKET_DIR ?= .local/run-zeqa
 AUTH_CACHE ?= .local/auth/microsoft-token.json
 NO_VSYNC ?= 0
+# Passed to the client at launch only; it is never a compile input.
 RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_PLATFORM ?= $(if $(filter Windows_NT,$(OS)),windows,$(if $(findstring Darwin,$(shell uname -s)),macos,linux))
 DIST_CLIENT ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-client.exe,bedrock-client)

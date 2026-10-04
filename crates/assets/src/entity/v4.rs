@@ -104,6 +104,9 @@ pub struct EntityAnimationClip {
     /// Geometry whose bones the channels index; clips of one symbol are ordered by it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geometry: Option<u32>,
+    /// Molang expression that supplies the clip's animation time instead of elapsed time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anim_time_update: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -113,6 +116,9 @@ pub struct EntityAnimationChannel {
     pub property: EntityAnimationProperty,
     pub first_keyframe: u32,
     pub keyframe_count: u32,
+    /// This bone uses the entity's axes after its pivot follows the parent transform.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rotation_relative_to_entity: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -603,6 +609,9 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
             || clip
                 .geometry
                 .is_some_and(|geometry| geometry as usize >= compiled.geometries.len())
+            || clip
+                .anim_time_update
+                .is_some_and(|expression| expression as usize >= compiled.molang_expressions.len())
             || !range_in_bounds(
                 clip.first_channel,
                 clip.channel_count,

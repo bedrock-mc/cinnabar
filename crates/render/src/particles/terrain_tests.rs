@@ -39,7 +39,6 @@ fn destroy_tiles_keep_their_pixels_tint_size_and_quarter_region() {
         (2, [200, 200, 200, 255], [0.4, 0.7, 0.2, 1.0]),
     ] {
         let mut system = ParticleSystem::default();
-        system.daylight = 1.0;
         assert!(system.register_effect(EFFECT.as_bytes()));
         let tile = TileRequest {
             key,
@@ -93,7 +92,8 @@ fn destroy_tiles_keep_their_pixels_tint_size_and_quarter_region() {
                 .sum::<f32>()
                 .sqrt();
             assert!((0.0375..=0.075).contains(&half_extent));
-            assert_eq!(instance.center_light[3], 1.0);
+            assert_eq!(instance.center_light[3], f32::from(15_u8 << 4));
+            assert_eq!(instance.axis_y[3], 1.0);
             assert_eq!(instance.color[3], tint[3]);
             if key == 2 {
                 assert!(instance.color[1] > instance.color[0]);

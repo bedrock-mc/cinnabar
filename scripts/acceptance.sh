@@ -974,7 +974,7 @@ printf 'APP_COMMAND=%s\n' "$(format_command "${app_command[@]}")"
 write_command_manifest
 write_metadata building
 
-(cd "$project_root" && RUST_MCBE_BUILD_COMMIT="$repo_commit" cargo build --release -p bedrock-client --locked) >"$run_dir/build-app.log" 2>&1 || die "release app build failed (log: $run_dir/build-app.log)"
+(cd "$project_root" && cargo build --release -p bedrock-client --locked) >"$run_dir/build-app.log" 2>&1 || die "release app build failed (log: $run_dir/build-app.log)"
 (cd "$project_root" && go build -trimpath -o "$core_executable" ./core/cmd/bedrock-core) >"$run_dir/build-core.log" 2>&1 || die "release core build failed (log: $run_dir/build-core.log)"
 write_metadata launching
 
@@ -1017,7 +1017,7 @@ while [[ ! -S $endpoint ]]; do
     sleep 0.1
 done
 
-(cd "$project_root" && exec "${app_command[@]}" >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
+(cd "$project_root" && RUST_MCBE_BUILD_COMMIT="$repo_commit" exec "${app_command[@]}" >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
 app_pid=$!
 wait_for_marker "$run_dir/app.stdout.log" 'RUST_MCBE_MUTATION_COORDINATE=' 180 "$app_pid"
 wait_for_marker "$run_dir/app.stdout.log" 'RUST_MCBE_WORLD_READY ' 180 "$app_pid"

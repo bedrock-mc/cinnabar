@@ -16,8 +16,17 @@ impl<'a> ActorRigSnapshot<'a> {
 }
 
 #[cfg(test)]
+#[path = "geometry/fixtures.rs"]
+mod fixtures;
+#[cfg(test)]
+#[path = "geometry/horse_tests.rs"]
+mod horse_tests;
+#[cfg(test)]
 #[path = "geometry/inherited_cubes_tests.rs"]
 mod inherited_cubes_tests;
+#[cfg(test)]
+#[path = "geometry/pig_tests.rs"]
+mod pig_tests;
 #[cfg(test)]
 #[path = "geometry/pinned_baby_tests.rs"]
 mod pinned_baby_tests;
@@ -61,12 +70,14 @@ pub(super) fn resolve_binding(
         input: &input,
         context: &context,
         anim_tick: 0,
+        anim_time: None,
         life_tick: 0,
         finished: (false, false),
         bones: &[],
         bone_names: &[],
     };
-    let mut variables = layout.fresh(actor.runtime_id ^ actor.spawn_revision.rotate_left(32));
+    let random_seed = actor.runtime_id ^ actor.spawn_revision.rotate_left(32);
+    let mut variables = layout.fresh(random_seed);
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
         let selected = evaluator
             .run(
@@ -99,6 +110,8 @@ pub(super) fn resolve_binding(
     {
         collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
     }
+    let mut motion = MotionState::spawn(actor.body_yaw, actor.head_yaw);
+    motion.horse = super::horse::AnimationState::new(random_seed);
     Some(ActorRigState {
         pack: false,
         // The renderer needs the resolved geometry candidate, not only the
@@ -137,9 +150,10 @@ pub(super) fn resolve_binding(
         skin: None,
         skin_layers: Vec::new(),
         variables,
+        clip_clocks: BTreeMap::new(),
         initialized: false,
         culled: false,
-        motion: MotionState::spawn(actor.body_yaw, actor.head_yaw),
+        motion,
     })
 }
 
@@ -350,6 +364,7 @@ pub(super) fn reselect_geometry(
         input: &input,
         context,
         anim_tick: 0,
+        anim_time: None,
         life_tick: 0,
         finished: (false, false),
         bones: &state.bones,

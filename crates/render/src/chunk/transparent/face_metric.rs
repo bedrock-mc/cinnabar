@@ -1,7 +1,7 @@
 //! Perspective face ordering shared by every ordinary terrain-blend stream.
 use crate::chunk::*;
 
-// Current vanilla RenderChunkSorter perspective sort (RVA 0x01efa4a0) uses
+// Current vanilla RenderChunkSorter perspective sort uses
 // squared distance in chunks intersecting camera-block +/- four, otherwise
 // projection onto the normalized chunk-grid direction. It does not use yaw.
 const NEAR_CAMERA_BLOCK_RADIUS: i32 = 4;
@@ -27,8 +27,8 @@ pub(in crate::chunk) struct TransparentChunkFaceMetric {
 
 impl TransparentChunkFaceMetric {
     pub(in crate::chunk) fn distance(self, centroid: Vec3) -> f32 {
-        // Current CentroidPlusReverseBit (0x07bf8430) packs the emitted-vertex
-        // mean in chunk-local space; 0x07bf8830 decodes it before face sorting.
+        // Current CentroidPlusReverseBit packs the emitted-vertex
+        // mean in chunk-local space; vanilla decodes it before face sorting.
         // Quantize only this ordering anchor, never the rendered geometry.
         let local = (centroid - self.origin).to_array().map(|value| {
             ((value + CENTROID_PACK_BIAS) * CENTROID_PACK_SCALE)

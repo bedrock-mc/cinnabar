@@ -18,22 +18,17 @@ The non-token catalog cache's home value contains 22 messages: one
 message. Only home message fields were inspected; authentication token files were
 not read. No account identifiers or cached payloads are included here.
 
-## Vanilla reference
+## Vanilla rules
 
-Lens's reconstructed Windows client `1.26.50.26`, artifact 6, provides these
-source-backed references. RVAs identify the functions in that artifact:
-
-| Contract | RVA |
+| Rule | Behaviour |
 | --- | --- |
-| Messaging POST builder: Authorization, Session-Id, Content-Type and active Accept-Language | `0x54497e0` |
-| Refresh path `/api/v1.0/session/refresh` | `0x5450250` |
-| Refresh JSON: `sessionId`, `continuationToken` | `0x544a140` |
-| Start path `/api/v1.0/session/start` | `0x54500b0` |
-| Start JSON: `sessionId`, `previousSessionId`, `continuationToken` | `0x5449fa0` |
-| Session lifecycle: start first, refresh only after start succeeds | `0x54334a0` |
-| Event JSON: `SessionId`, `continuationToken`, `events` | `0x544a280` |
-| Message surface controller construction | `0x542f5f0` |
-| Fetched images associated by message and image ID with a local Core::Path | `0x5495400` |
+| Messaging POST | Include Authorization, Session-Id, Content-Type and active Accept-Language. |
+| Refresh | Use `/api/v1.0/session/refresh` and JSON `sessionId`, `continuationToken`. |
+| Start | Use `/api/v1.0/session/start` and JSON `sessionId`, `previousSessionId`, `continuationToken`. |
+| Lifecycle | Start first and refresh only after start succeeds. |
+| Event | Send JSON `SessionId`, `continuationToken`, `events`. |
+| Surfaces | Construct message surface controllers. |
+| Images | Associate fetched images by message and image ID with a local Core::Path. |
 
 The refresh request uses the discovered messaging service URI and has no
 placement, platform or locale query. Locale is an HTTP header. The service's
@@ -41,14 +36,13 @@ registered surfaces are `LoginAnnouncement`, `MarketplaceAnnouncement`,
 `MarketplaceButton`, `PlayButton`, `InboxMessage` and `ToastNotification`.
 Vanilla starts the session before refreshing. The pinned Go client instead
 refreshes immediately. This is another confirmed contract mismatch, still
-unfixed. RVA `0x5498290` parses the start response's `result.id` as the session
+unfixed. The start-response handler parses the start response's `result.id` as the session
 ID and `reportFrequency` (default 20), then handles the shared messages/inbox
-response at `0x544b210`. The pinned Go client cannot update its session ID, so
+response. The pinned Go client cannot update its session ID, so
 rewriting only the first request URL would be insufficient. Previous-session
 persistence and service-session lifecycle still need verification. The HTTP
 Session-Id is separate from the messaging JSON session ID: base request
-constructor `0x8667510` copies the service's session string, and POST builder
-`0x54497e0` uses it. Supplying the messaging client's ID there would be wrong.
+constructor copies the service's session string, and POST builder uses it. Supplying the messaging client's ID there would be wrong.
 
 The supplied `v1.26.50.4/full/resource_pack/ui/start_screen.json` confirms the
 existing main-button banners:
@@ -63,7 +57,7 @@ The gathering panel has the described caption/image/button shape. Its visibility
 is `#gathering_enabled`; its image is `#gathering_badge` with
 `#gathering_badge_file_system`, caption is `#gathering_countdown_text`, and button
 is `#gathering_button_text` with action `button.gathering`. The current controller's
-label callback at RVA `0x558aa50` uses configured text or
+label callback uses configured text or
 `gathering.button.liveEventFallback`. Cinnabar already binds this panel from
 `LiveEventCard`, but the owner's gathering fetch fails with 404.
 
@@ -109,35 +103,24 @@ Windows, and now receives that platform explicitly from the same constant.
 The XAL Android OAuth application configuration is separate from these service
 platform fields and has not been changed.
 
-Current Lens source-backed artifact 6 (`1.26.50.26`) has the build accessors at
-RVAs `0x94f40` (`Windows10`, nine characters) and `0x94f70` (`Win32`, five
-characters). The gathering manager constructor at `0x542a4c0` registers service
-name `gatherings`. This corroborates the fork's discovery key; a discovered host
-containing `gatherings-secondary` is not evidence for changing that key.
-Current controller callback `0x558aa50` localizes the configured button text or
-falls back to `gathering.button.liveEventFallback`, which is now also used by the
-Rust home-feed mapping. The pack's `texts/en_US.lang:11964` supplies “Join Game”.
+The desktop build reports `Windows10` (nine characters) and `Win32` (five
+characters). The gathering manager registers service name `gatherings`; a
+discovered host containing `gatherings-secondary` does not change that key.
+The controller localizes configured button text or falls back to
+`gathering.button.liveEventFallback`, now also used by the Rust home-feed mapping.
+The pack's `texts/en_US.lang:11964` supplies “Join Game”.
 
-The exact public request is positively identified in the older Lens client:
-`GatheringManager::_setupRefreshTask()::$_0::invoke`, VA `0x1046e7cd0`, constructs
-the GET handler for `/api/v1.0/config/public` and calls
-`GatheringServiceRequestHandler::_getRequestUriParameters`, VA `0x1046b7430`.
-The latter reads the network game version and the build's platform/subplatform
-virtual accessors, omitting the subplatform only when empty. The mcsrc references
-are `R:g/GatheringServiceRequestHandler.cpp:33` (query construction),
-`R:g/GatheringService.cpp:1944` (host resolution; discovery registration at 1980),
-and `R:g/GatheringServiceRequest.cpp:421` / `:469` (Authorization / Session-Id).
-The request code sets JSON Content-Type only when it has a nonempty body.
-The fork's public-config request uses its supplied Minecraft service token.
-These older request details have not yet been matched to a current Lens public
-request body; unsuccessful literal searches do not prove it was removed.
+The older client constructs a GET request for `/api/v1.0/config/public` using the
+network game version and build platform/subplatform, omitting subplatform only
+when empty. Resolve its host through service discovery, send Authorization and
+Session-Id, and set JSON Content-Type only for a nonempty body. The fork uses its
+supplied Minecraft service token. These older details have not yet been matched
+to the current public request; an unsuccessful search does not prove removal.
 The endpoint and authentication implementation therefore remain unchanged.
 
-The binding registration is `R:s/StartMenuScreenController.cpp:2645` through
-`:2814`. Its badge callback (`0x10323f390`) returns downloaded art or the built-in
-badge. Its file-system callback (`0x10323f450`) returns `RawPath` for downloaded
-art and `InUserPackage` for the fallback. Lens data at `0x10f5fc0f0` and
-`0x10f5fc0d5` identifies those strings. The current pack's
+The badge callback returns downloaded art or the built-in badge. Its filesystem
+callback returns `RawPath` for downloaded art and `InUserPackage` for the fallback.
+The current pack's
 `ui/start_screen.json:816` binds both texture and texture_file_system;
 `:802` binds `button.gathering`, `#gathering_button_text` and button enabled;
 `:910` binds `#gathering_countdown_text`; `:1009` controls panel visibility.
@@ -210,11 +193,9 @@ current-language state, rather than a second state that retained only the first
 selected language. Desktop service identity, downloaded badge filesystem,
 fallback labels and offline recording replay remain in place.
 
-References rechecked for this integration: Lens artifact 6, client 1.26.50.26,
-source-backed raw RVAs `0x94f40` and `0x94f70` produce Windows10 and Win32;
-`0x558aa50` chooses configured text or `gathering.button.liveEventFallback`.
-The query is identified by `R:g/GatheringServiceRequestHandler.cpp:33` and the
-controller bindings by `R:s/StartMenuScreenController.cpp:2645`. The installed
+The integration retains `Windows10` and `Win32`, configured text or
+`gathering.button.liveEventFallback`, gathering query fields and controller
+bindings. The installed
 vanilla pack's `ui/start_screen.json:816` binds the badge texture and filesystem,
 and `texts/en_US.lang:11964` supplies the Join Game fallback. Current public
 request and click parity remain incomplete as described above.

@@ -30,7 +30,7 @@ pub(super) fn normalize(skin: &mut SerializedSkinRef) {
         });
     let side = image.width as usize;
     let scale = side / CLASSIC_SKIN_SIDE;
-    // Lens 1.26.50.26: 0x9bd580 region table and 0x9be810 alpha/coverage validation.
+    // Vanilla validates alpha and coverage across these skin regions.
     for (bounds, protect) in [
         ([0, 8, 32, 16], true),
         ([8, 0, 24, 8], false),

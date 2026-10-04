@@ -1,7 +1,7 @@
 use crate::{FogMedium, FogProfile, ResolvedFog};
 
 /// Resolves highest-priority layers first, retaining missing entries' weight for lower layers.
-/// Lens 1.26.50.26 RVAs 0xfded80 and 0xfde760; layers are supplied in ascending priority.
+/// Fog layers are supplied in ascending priority.
 #[must_use]
 pub fn resolve_fog_layers(
     layers: &[&[Option<&FogProfile>]],

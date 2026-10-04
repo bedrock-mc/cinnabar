@@ -236,7 +236,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         || is_rail(record)
         || is_chain(record)
         // Ice's native layer 3 requires blending, not the inventory's cutout
-        // envelope (IceBlock ctor 071305c0). Its reviewed cube rule owns alpha
+        // envelope. Its reviewed cube rule owns alpha
         // and geometry. Do not change unrelated provisional cube families.
         || (is_translucent_cube(record)
             && matches!(record.name.as_ref(), "minecraft:ice" | "minecraft:frosted_ice"))

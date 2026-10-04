@@ -70,10 +70,16 @@ pub(super) struct EngineSlots {
     pub(super) left_arm_swim_amount: Option<usize>,
     pub(super) right_arm_swim_amount: Option<usize>,
     pub(super) has_target: Option<usize>,
+    pub(super) fish_animation_amount: Option<usize>,
+    pub(super) fish_animation_amount_previous: Option<usize>,
+    pub(super) tropical_fish_base: Option<usize>,
+    pub(super) tropical_fish_pattern: Option<usize>,
+    pub(super) horse_stand_anim: Option<usize>,
+    pub(super) horse_shake_tail: Option<usize>,
+    pub(super) horse_open_mouth: Option<usize>,
 }
 
-// Client-owned variables seeded on construction, observed in a client reconstruction and
-// needing independent measurement; remote third-person actors keep these values because
+// Client-owned variables seeded on construction and needing independent measurement; remote third-person actors keep these values because
 // only first-person, HUD, and paper-doll renderers change them.
 const SEEDED_VARIABLES: [(&str, f32); 20] = [
     ("variable.animation_frames_128x128", 1.0),
@@ -153,6 +159,13 @@ impl VariableLayout {
                 left_arm_swim_amount: slot("variable.left_arm_swim_amount"),
                 right_arm_swim_amount: slot("variable.right_arm_swim_amount"),
                 has_target: slot("variable.has_target"),
+                fish_animation_amount: slot("variable.animationamount"),
+                fish_animation_amount_previous: slot("variable.animationamountprev"),
+                tropical_fish_base: slot("variable.tropicalfish.base"),
+                tropical_fish_pattern: slot("variable.tropicalfish.pattern"),
+                horse_stand_anim: slot("variable.stand_anim"),
+                horse_shake_tail: slot("variable.shake_tail"),
+                horse_open_mouth: slot("variable.open_mouth"),
             },
         }
     }
@@ -328,6 +341,8 @@ pub(super) struct Evaluator<'a> {
     pub(super) input: &'a ActorTickInput,
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
+    /// The clip clock while its time expression or bone channels are evaluated.
+    pub(super) anim_time: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -566,6 +581,7 @@ impl Evaluator<'_> {
             input: self.input,
             context: self.context,
             anim_tick: self.anim_tick,
+            anim_time: self.anim_time,
             life_tick: self.life_tick,
             finished: self.finished,
             bones: self.bones,

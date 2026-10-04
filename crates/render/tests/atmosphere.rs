@@ -287,7 +287,7 @@ fn cloud_weather_colours_use_exact_native_values_and_contributions() {
     let clear = cloud_weather_colour(0.0, 0.0);
     let rain = cloud_weather_colour(1.0, 0.0);
     let thunder = cloud_weather_colour(0.0, 1.0);
-    // Current getCloudColor06c320c0, legacy (non-custom) branch.
+    // Current getCloudColor, legacy (non-custom) branch.
     let rain_native = 0.6_f32;
     let thunder_native = 0.2_f32;
 

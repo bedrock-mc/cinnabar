@@ -3,6 +3,7 @@
 mod aabb;
 mod conformance;
 mod destroy;
+mod fluid;
 mod math;
 mod prediction;
 mod simulator;
@@ -18,18 +19,19 @@ pub use destroy::{
     BlockDestroyInfo, DestroyConditions, HeldTool, ToolKind, ToolTier, block_destroy_info,
     destroy_progress_per_tick,
 };
-pub use math::Vec3;
+pub use fluid::sample_actor_liquids;
+pub use math::{Vec3, view_direction};
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
     AxisCollisions, ControlledTickResult, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
     MovementEffects, MovementEnvironment, MovementInput, MovementMode, PlayerState,
     ProcessedControls, SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, TICKS_PER_SECOND,
-    TickResult, pose_fits,
+    TickResult, pose_fits, sample_water_head,
 };
 pub use world::{
     BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,
     CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionSnapshot,
-    CollisionWorld, DoorFacing, DoorState, LenientCollisionBoxes, LenientSkipCounts,
-    MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider,
-    RegistryError, SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
+    CollisionWorld, DoorFacing, DoorState, FlowBlockFacts, LenientCollisionBoxes,
+    LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld,
+    ProvenancedCollider, RegistryError, SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
 };

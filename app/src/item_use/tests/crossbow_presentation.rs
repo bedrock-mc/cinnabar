@@ -4,7 +4,49 @@ use protocol::{
 };
 
 use super::*;
-use crate::item_use::crossbow as native_crossbow;
+use crate::mining::FrozenMiningSelection;
+use protocol::{NetworkItemStack, VerifiedNetworkItemStack};
+use sha2::{Digest, Sha256};
+use std::sync::Arc;
+
+const BOW: i32 = 300;
+
+fn selected_stack(slot: u8, network_id: i32, count: u16) -> FrozenMiningSelection {
+    let extra_data: Arc<[u8]> = Arc::from([]);
+    let stack = NetworkItemStack {
+        network_id,
+        metadata: 0,
+        stack_network_id: 41,
+        count,
+        nbt_digest: Sha256::digest(&extra_data).into(),
+        block_runtime_id: 0,
+        extra_data,
+    };
+    FrozenMiningSelection {
+        slot,
+        item: VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap(),
+    }
+}
+
+fn selection(slot: u8, network_id: i32) -> FrozenMiningSelection {
+    selected_stack(slot, network_id, 1)
+}
+
+fn frame(tick: u64, held: bool) -> UseFrame {
+    UseFrame {
+        tick,
+        now_millis: tick * 50,
+        position: [0.5, 65.62, 0.5],
+        held,
+        selection: Some(selection(2, BOW)),
+        air_use: classify("minecraft:bow", false, 0, None),
+        ready: true,
+        creative: false,
+        inventory_revision: Some(1),
+        charge_projectile: None,
+        press_consumed: false,
+    }
+}
 
 const ARROW: i32 = BOW + 1;
 const FIREWORK: i32 = BOW + 2;
@@ -111,7 +153,7 @@ fn use_frame(
         inventory_revision: ui
             .inventory_ledger(player_runtime)
             .authoritative_slot_revision(2),
-        charge_projectile: native_crossbow::loading_projectile(player_runtime, stream, ui, true),
+        charge_projectile: loading_projectile(player_runtime, stream, ui, true),
         ..frame(tick, true)
     }
 }
@@ -191,11 +233,11 @@ fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let (stream, mut ui) = fixture(&mut player_runtime);
     assert_eq!(
-        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
+        loading_projectile(&player_runtime, &stream, &ui, false),
         None
     );
     assert_eq!(
-        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, true),
+        loading_projectile(&player_runtime, &stream, &ui, true),
         Some("minecraft:arrow")
     );
     publish(
@@ -207,7 +249,7 @@ fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
         stack(ARROW),
     );
     assert_eq!(
-        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
+        loading_projectile(&player_runtime, &stream, &ui, false),
         Some("minecraft:arrow")
     );
     let offhand = ContainerIdentity {
@@ -217,16 +259,16 @@ fn offhand_projectile_precedes_inventory_and_only_creative_synthesizes_ammo() {
     };
     publish(&mut player_runtime, &mut ui, 3, offhand, 0, stack(FIREWORK));
     assert_eq!(
-        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
+        loading_projectile(&player_runtime, &stream, &ui, false),
         Some("minecraft:firework_rocket")
     );
     assert_eq!(
-        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, true),
+        loading_projectile(&player_runtime, &stream, &ui, true),
         Some("minecraft:firework_rocket")
     );
     publish(&mut player_runtime, &mut ui, 4, offhand, 0, stack(ARROW));
     assert_eq!(
-        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
+        loading_projectile(&player_runtime, &stream, &ui, false),
         Some("minecraft:arrow")
     );
 }
@@ -282,7 +324,7 @@ fn normal_transaction_clears_loaded_prediction_and_retains_charged_nbt_and_offha
             .hand_charged
     );
     assert_eq!(
-        native_crossbow::loading_projectile(&player_runtime, &stream, &ui, false),
+        loading_projectile(&player_runtime, &stream, &ui, false),
         Some("minecraft:firework_rocket")
     );
     assert_eq!(ui.gameplay_hud().offhand_stack(), Some(&stack(FIREWORK)));
@@ -298,4 +340,30 @@ fn normal_transaction_clears_loaded_prediction_and_retains_charged_nbt_and_offha
     assert!(rendered.hand_charged);
     assert_eq!(rendered.animation_frame, 4);
     assert_eq!(ui.gameplay_hud().hotbar_stack(2), Some(&charged_stack()));
+}
+
+/// Reads the unloaded crossbow duration from the production item-use classifier.
+fn crossbow_duration() -> u32 {
+    match classify("minecraft:crossbow", false, 0, None).unwrap() {
+        AirUse::Hold { max_ticks, .. } => max_ticks,
+        _ => panic!("an unloaded crossbow charges"),
+    }
+}
+
+/// Classifies the ordered use transactions produced by one accepted gameplay step.
+fn kinds(outcome: &gameplay::item_use::UseOutcome) -> Vec<&'static str> {
+    outcome
+        .packets
+        .iter()
+        .map(|packet| {
+            let debug = format!("{:?}", packet.data);
+            if debug.contains("ItemUseInventoryTransaction(") {
+                "use"
+            } else if debug.contains("action_type: Release") {
+                "release"
+            } else {
+                "other"
+            }
+        })
+        .collect()
 }

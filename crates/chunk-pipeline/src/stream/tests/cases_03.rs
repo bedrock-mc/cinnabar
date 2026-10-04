@@ -623,6 +623,7 @@ fn newer_subchunk_is_validated_after_fifo_blocked_dimension_change_commits() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 1,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [100, 0, 0],
                     result: SubChunkResult::AllAir,
                 }],
@@ -816,6 +817,7 @@ fn eviction_purges_unsent_requests_and_late_subchunks_cannot_resurrect_the_colum
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [key.x, key.y, key.z],
                     result: SubChunkResult::AllAir,
                 }],
@@ -1000,6 +1002,7 @@ fn subchunk_admission_requires_the_exact_expected_dimension_column_and_y() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [0, -3, 0],
                     result: SubChunkResult::AllAir,
                 }],

@@ -57,7 +57,7 @@ fn water_acceleration_multiplies_effective_level_before_division() {
 
 #[test]
 fn jump_lookup_uses_float_indices_and_float_division_for_table_angles() {
-    // Lens 0xa5dacf0 indexes the table initialized by 0x296ccd0 with sinf(i / 10430.378f).
+    // Vanilla indexes the table initialized with sinf(i / 10430.378f).
     for (yaw, sine, cosine) in [
         (5.625_f32, 0x3dc8_bd36, 0x3f7e_c46d),
         (-5.625, 0xbdc8_bd04, 0x3f7e_c46d),
@@ -96,7 +96,6 @@ fn distant_position_rounding_does_not_change_motion_or_invent_collisions() {
 
 #[test]
 fn ordinary_steering_uses_native_float_trigonometry_and_product_order() {
-    // Lens 1.26.50.26 0x99cc8b0; R:d/DefaultMoveSystems.cpp:32-57.
     for (yaw, strafe, speed, initial, expected) in [
         (33.333, 0.0, 0.02, [0.0, 0.0], [0xbc30_75d4, 0x3c86_262c]),
         (5.625, 0.98, 0.1, [0.07, -0.03], [0x3e08_a452, 0x3d41_bebe]),

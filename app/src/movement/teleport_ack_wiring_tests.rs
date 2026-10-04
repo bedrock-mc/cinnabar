@@ -11,7 +11,6 @@ use protocol::{
 };
 
 use super::integration_tests::{evidence_context, synthetic_preg};
-use super::teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use super::{
     LocalPhysicsController, MovementSource, MovementTicker, PhysicsCollisionRegistries,
     ProcessedMovementState, ServerTeleportKind, flush_player_auth_inputs,
@@ -28,6 +27,7 @@ use crate::server_camera::ServerCameraInstructions;
 use crate::ui_runtime::UiRuntime;
 use assets::read_registry_for_protocol;
 use client_world::WorldStream;
+use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 

@@ -2,6 +2,7 @@ mod collision;
 mod controls;
 mod effects;
 mod environment;
+mod flight;
 mod input;
 mod mode;
 #[cfg(test)]
@@ -9,13 +10,14 @@ mod numeric_tests;
 mod scaffolding;
 mod state;
 mod travel;
+mod water;
 
 use crate::{
     Aabb, CollisionWorld, Vec3,
     math::{minecraft_cos, minecraft_sin},
 };
 use collision::{clip_sneak_edge, resolve_motion};
-use environment::{contains_liquid, sample};
+use environment::sample;
 
 pub use controls::{ControlledTickResult, ProcessedControls};
 pub use effects::MovementEffects;
@@ -23,6 +25,7 @@ pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use mode::{MovementMode, pose_fits};
 pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
+pub use water::sample_water_head;
 
 pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
     state::validate(state)
@@ -47,7 +50,7 @@ const SPRINT_JUMP_IMPULSE: f64 = 0.2;
 /// this and each subsequent tick decrements it; prediction replays rebuild
 /// initiations against the same gate, so it is part of the public contract.
 pub const JUMP_DELAY_TICKS: u8 = 10;
-// Lens FinalizeMove 0x6dcbfc0 reads 0x14ffab690: the native float epsilon.
+// FinalizeMove uses the native float epsilon.
 const COLLISION_EPSILON: f64 = f32::EPSILON as f64;
 /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 const CLIMB_SPEED: f64 = 0.2;
@@ -70,9 +73,6 @@ const SCAFFOLDING_SNEAK_DESCENT: f64 = 0.15;
 const SLIME_WALK_DAMPING: f64 = 0.4;
 /// `bedsim v0.1.3` `landOnBlock` zeroes a slime rebound below this magnitude.
 const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
-/// Pinned v0.1.5 observation for a clear water-to-ledge exit probe.
-const WATER_LEDGE_EXIT_VERTICAL_VELOCITY: f64 = 0.3;
-
 // Known modelling limitation: bedsim distinguishes `state.Sneaking` (the
 // latched sneak state, which start/stop edges can drive independently) from
 // `state.PressingSneak` (the raw held button), and `walkOnBlock` and
@@ -88,6 +88,29 @@ pub struct Simulator {
 }
 
 impl Simulator {
+    /// Samples current body contact before selecting this tick's pose. Reusing
+    /// the movement sampler keeps trigger queries and travel on the same liquid
+    /// contact rules, without carrying the previous position's contact forward.
+    pub fn movement_environment(
+        &self,
+        position: Vec3,
+        mode: MovementMode,
+        sneaking: bool,
+        world: &(impl CollisionWorld + ?Sized),
+    ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
+        let sampled = sample(
+            world,
+            position,
+            Vec3::ZERO,
+            mode.hitbox_height(sneaking),
+            None,
+        )?;
+        Ok(crate::CollisionQuery {
+            value: sampled.movement,
+            identity: sampled.identity,
+        })
+    }
+
     /// Advances exactly one 20 Hz Bedrock movement tick transactionally.
     pub fn tick(
         &self,
@@ -112,6 +135,9 @@ impl Simulator {
         let mut next = state.clone();
         next.position = next.position.rounded();
         next.velocity = next.velocity.rounded();
+        next.swim_amount = water::advance_swim_amount(next.swim_amount, next.swim_pose_active);
+        next.swim_pose_active =
+            matches!(input.mode, MovementMode::Swimming | MovementMode::Crawling);
         next.tick = next
             .tick
             .checked_add(1)
@@ -125,19 +151,62 @@ impl Simulator {
         }
         let grounded_at_start = next.on_ground;
         let retained_collisions = next.collisions;
-        let sampled = sample(
+        let mut sampled = sample(
             world,
             next.position,
             next.velocity,
             input.mode.hitbox_height(input.sneaking),
+            input.liquid_contact_height,
         )?;
+        if input.mode != MovementMode::Riding
+            && input
+                .liquid_flow_enabled
+                .unwrap_or(input.mode != MovementMode::Flying)
+        {
+            let contact_height = input
+                .liquid_contact_height
+                .unwrap_or_else(|| input.mode.hitbox_height(input.sneaking));
+            let contact = crate::Aabb::player_with_height_at(next.position, contact_height);
+            if let Some(current) = world.liquid_current(contact)? {
+                sampled.identity = sampled.identity.merge(&current.identity)?;
+                next.velocity = Vec3::new(
+                    f64::from(next.velocity.x as f32 + current.value.x as f32),
+                    f64::from(next.velocity.y as f32 + current.value.y as f32),
+                    f64::from(next.velocity.z as f32 + current.value.z as f32),
+                );
+            }
+        }
+        let head_in_water = if input.jumping
+            && input.mode == MovementMode::Swimming
+            && let Some(attach_height) = input.liquid_attach_height
+        {
+            if sampled.block_samples == MAX_BLOCK_SAMPLES_PER_TICK {
+                return Err(crate::WorldQueryError::QueryExtentExceeded.into());
+            }
+            let head = water::sample_water_head(world, next.position, attach_height)?;
+            sampled.identity = sampled.identity.merge(&head.identity)?;
+            sampled.block_samples += 1;
+            Some(head.value)
+        } else {
+            None
+        };
+        let jump_suppressed = water::jump_suppressed(input.mode, next.swim_amount, head_in_water);
+        if input.jumping && input.mode != MovementMode::Flying {
+            if jump_suppressed {
+                if sampled.movement.in_water {
+                    next.velocity.y = 0.0;
+                }
+            } else if sampled.movement.in_water || sampled.movement.in_lava {
+                water::jump(&mut next.velocity.y);
+            }
+        }
+        // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
+        // independent of the retained swimming pose on a dry low ceiling.
         if matches!(
             input.mode,
-            MovementMode::Swimming
-                | MovementMode::Gliding
-                | MovementMode::Flying
-                | MovementMode::Riding
-        ) {
+            MovementMode::Gliding | MovementMode::Flying | MovementMode::Riding
+        ) || (input.mode == MovementMode::Swimming && sampled.movement.in_water)
+        {
             return travel::tick_mode(
                 next,
                 state,
@@ -179,6 +248,7 @@ impl Simulator {
         );
 
         let jump_initiated = input.jump_pressed
+            && !jump_suppressed
             && next.on_ground
             && next.jump_delay == 0
             && !sampled.movement.in_water
@@ -228,8 +298,8 @@ impl Simulator {
             }
         }
         if sampled.movement.in_water || sampled.movement.in_lava {
-            if input.jumping {
-                next.velocity.y = f64::from(next.velocity.y as f32 + 0.04_f32);
+            if sampled.movement.in_water && input.sneaking {
+                water::sink(&mut next.velocity.y);
             }
             next.velocity.y =
                 f64::from(next.velocity.y as f32 * (sampled.movement.vertical_speed_factor) as f32);
@@ -329,7 +399,7 @@ impl Simulator {
                     }
                 }
                 crate::SurfaceResponse::Bed if bounces => {
-                    // Current BedBlock restitution (1.26.50.26 RVA 0x2e27ce0).
+                    // Current BedBlock restitution.
                     f64::from(-0.75_f32 * pre_collision_velocity.y as f32)
                 }
                 _ => 0.0,
@@ -339,8 +409,8 @@ impl Simulator {
             next.velocity.z = 0.0;
         }
 
-        let water_ledge_exit =
-            sampled.movement.in_water && (motion.collisions.x || motion.collisions.z);
+        let liquid_ledge_exit = (sampled.movement.in_water || sampled.movement.in_lava)
+            && (motion.collisions.x || motion.collisions.z);
         if sampled.movement.in_cobweb {
             next.velocity = Vec3::ZERO;
             effects::apply_vertical(
@@ -352,18 +422,13 @@ impl Simulator {
         } else if sampled.movement.in_water || sampled.movement.in_lava {
             // When both liquid facts overlap, the pinned v0.1.5 slice follows
             // water travel rather than composing water gravity with lava drag.
-            let drag = if sampled.movement.in_water {
-                f64::from(
-                    WATER_DRAG as f32
-                        + (DEPTH_STRIDER_TARGET_DRAG as f32 - WATER_DRAG as f32)
-                            * (depth_strider as f32 / f32::from(DEPTH_STRIDER_MAX_LEVEL)),
-                )
+            if sampled.movement.in_water {
+                water::apply_drag(&mut next.velocity, &input, depth_strider);
             } else {
-                0.5
-            };
-            next.velocity.x = f64::from(next.velocity.x as f32 * (drag) as f32);
-            next.velocity.y = f64::from(next.velocity.y as f32 * (drag) as f32);
-            next.velocity.z = f64::from(next.velocity.z as f32 * (drag) as f32);
+                next.velocity.x = f64::from(next.velocity.x as f32 * 0.5_f32);
+                next.velocity.y = f64::from(next.velocity.y as f32 * 0.5_f32);
+                next.velocity.z = f64::from(next.velocity.z as f32 * 0.5_f32);
+            }
             // Pinned v0.1.5 open-water and ledge controls distinguish water's
             // non-swimming gravity from lava's ordinary liquid gravity.
             let gravity = if sampled.movement.in_water {
@@ -387,28 +452,22 @@ impl Simulator {
             next.velocity.x = f64::from(next.velocity.x as f32 * (friction) as f32);
             next.velocity.z = f64::from(next.velocity.z as f32 * (friction) as f32);
         }
-        if water_ledge_exit {
+        if liquid_ledge_exit {
             if motion.collisions.x {
                 next.movement.x = 0.0;
             }
             if motion.collisions.z {
                 next.movement.z = 0.0;
             }
-            // The pinned clear, blocked, and still-submerged cases distinguish
-            // this raised probe from the ordinary swept collision volume.
-            let probe = Aabb::player_at(next.position).translated(Vec3::new(
-                next.velocity.x,
-                next.velocity.y + 0.6 + state.position.y - next.position.y,
-                next.velocity.z,
-            ));
-            let collision_probe = collision::has_collision(world, probe)?;
-            let (liquid_probe, liquid_identity) =
-                contains_liquid(world, probe, sampled.block_samples)?;
-            identity = identity.merge(&collision_probe.identity)?;
-            identity = identity.merge(&liquid_identity)?;
-            if !collision_probe.value && !liquid_probe {
-                next.velocity.y = WATER_LEDGE_EXIT_VERTICAL_VELOCITY;
-            }
+            let exit = water::climb_out(
+                world,
+                motion.aabb,
+                state.position.y,
+                next.position.y,
+                &mut next.velocity,
+                sampled.block_samples,
+            )?;
+            identity = identity.merge(&exit.identity)?;
         }
         match sampled.movement.surface_response {
             crate::SurfaceResponse::BubbleUp => next.velocity.y = next.velocity.y.max(0.1),
@@ -446,7 +505,6 @@ fn water_travel_speed(
 ) -> f64 {
     let base = DEFAULT_AIR_SPEED as f32 * horizontal_speed_factor as f32;
     let ground = effective_movement_speed(input);
-    // Lens 0xdc3eeb0; R:w/WaterTravelSystem.cpp:73.
     f64::from(base + ((ground - base) * depth_strider as f32) / f32::from(DEPTH_STRIDER_MAX_LEVEL))
 }
 

@@ -160,7 +160,7 @@ fn cached_foliage_uses_actual_pinned_shape_motion_and_colour_variables() {
     assert_eq!(emitter.particles.len(), 32);
     assert!(emitter.def.particle.lit);
     for (x, particle) in emitter.particles.iter().enumerate() {
-        // Native emission origin (04e97cb0), followed by the unmodified pack shape.
+        // Native emission origin, followed by the unmodified pack shape.
         let center = [x as f32 + 0.5, 0.5, 0.5];
         for axis in 0..3 {
             let relative = particle.pos[axis] - center[axis];

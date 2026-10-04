@@ -1,4 +1,4 @@
-//! Native biome/season colour policy for leaves (26.50 RVAs 01df9eb0/04e97cb0).
+//! Native biome/season colour policy for leaves.
 //! Height/regional climate eligibility still uses the shared, incomplete biome gate.
 
 use assets::{BIOME_TINT_FLAG_SEASONAL_FOLIAGE, LinearBiomeTints, seasonal_foliage_palette_index};

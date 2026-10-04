@@ -1,4 +1,4 @@
-//! Native ambient RNG: current 26.50 `Random` RVAs 0028f930/0028fb80/0028fff0.
+//! Vanilla ambient random-number generator.
 //! Eager initialization/twisting is equivalent to the native lazy MT19937 state.
 
 use std::{collections::hash_map::RandomState, hash::BuildHasher};

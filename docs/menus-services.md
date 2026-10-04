@@ -1,8 +1,8 @@
 # Menu service feeds
 
 Which services feed each out-of-game screen in the vanilla 26.30 client, and what Cinnabar
-serves over the control channel (`docs/control-channel.md`). Endpoints and fields come from the
-26.30 reconstruction and the open-source gophertunnel/go-xsapi/go-playfab libraries.
+serves over the control channel (`docs/control-channel.md`). Endpoints and fields describe vanilla behavior and the open-source
+gophertunnel/go-xsapi/go-playfab libraries.
 
 Tokens: **MCToken** is the Minecraft-services `Authorization` header from the discovery `auth`
 environment (`POST {auth}/api/v1.0/session/start`, started from a PlayFab session; its result also

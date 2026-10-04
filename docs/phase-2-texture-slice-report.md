@@ -85,8 +85,6 @@ non-diagnostic material. The current full-cube registry has 669 records.
 ## Live Windows evidence
 
 Machine: AMD Ryzen 5 3600, Radeon RX 570, Windows 10 Pro, 3440x1440 display.
-BDS source executable SHA-256:
-`10c680f00faffecdfb3743c5a8a71d6c73f176d148173ca19a99b0c80e40a83f`.
 
 The first two rows are normal automated-flight passes at the instrumentation
 commit. The final rows use the deterministic runtime-only BDS gallery, fixed

@@ -7,13 +7,13 @@ const HALF_DISTANCE_MAX: f32 = 160.0;
 const BASE_FOG_OFFSET: f32 = 40.0;
 const BASE_FOG_MARGIN_MIN: f32 = 4.0;
 const BASE_FOG_MARGIN_MAX: f32 = 96.0;
-// Native 1501edd94's magnitude: 13.856406211853027, retained at its exact f32 bits.
+// Vanilla distance magnitude: 13.856406211853027, retained at its exact f32 bits.
 const INTERIOR_INSET: f32 = f32::from_bits(0x415d_b3d7);
 const ALPHA_DISTANCE_INSET: f32 = 7.0;
 
-/// Current camera 04e40a10 derives its +5dc scalar from adjusted render distance
-/// +5e0; 04e47ed0/04ed6730 subtract seven for FogAndDistanceControl.w. The input
-/// has already passed 04e462e0's render-distance adjustment and minimum of forty.
+/// The camera derives its distance scalar from adjusted render distance
+/// and subtracts seven for FogAndDistanceControl.w. The input has already
+/// passed the render-distance adjustment and minimum of forty.
 pub(super) fn alpha_distance_blocks(adjusted_render_distance: f32) -> Option<f32> {
     if !adjusted_render_distance.is_finite() || adjusted_render_distance < BASE_FOG_OFFSET {
         return None;

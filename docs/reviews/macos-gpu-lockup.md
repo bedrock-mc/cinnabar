@@ -69,8 +69,6 @@ movement and repeated sessions remain open until recorded.
 
 ## Hardened-build smoke witness
 
-Canonical debug executable SHA-256:
-`be225012a9fe5e601a67ffdf7c04317d908d064dc47ae593e5049fb8b797a751`.
 Source state: `a1b0e289` plus the uncommitted stability, snow and local-BDS edits.
 Server: offline official BDS 1.26.52.3, world `6b0acddbce41f58d`, requested
 radius 10; macOS/Metal window 1280x752 logical points, Retina scale 2.
@@ -105,8 +103,7 @@ opaque-phase reset, selection overlays and Enhanced world/hand/UI separation.
 The full workspace suite passes with `CINNABAR_REQUIRE_ENHANCED_GPU=1`, alongside
 focused rendering/snow tests, formatting, strict all-target Clippy and architecture.
 The offscreen populated GPU test is not a native game, DPI or stability gate.
-Runtime carriers and the canonical client were rebuilt; its SHA-256 is
-`5b9f9c56543fc87fea30f9bc319f25929b72b62099683124937fe75300d1870a`.
+Runtime carriers and the canonical client were rebuilt.
 That executable had not been launched into a live session at that checkpoint.
 The game remained closed for that snapshot, and those changes were test-green
 uncommitted, not pushed.

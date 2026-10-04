@@ -1,4 +1,4 @@
-//! LevelRenderer's local tick counter (current 1.26.50.26 04fd5020).
+//! LevelRenderer's local tick counter.
 //! It advances independently of named daylight clocks and server world age.
 
 use super::numeric::finite_nonnegative;

@@ -74,7 +74,7 @@ impl PaletteWorld<'_> {
 
 /// Builds the current native door plane after resolving its paired state.
 fn door_box(facing: DoorFacing, open: bool, hinge_right: bool) -> Aabb {
-    // Lens 0xa7bdbf0 / 0xa7bdb60, plane data at 0x150381810 (thickness 0.1825f).
+    // Vanilla door planes use thickness 0.1825f.
     let direction = facing as usize;
     let blocked = if open {
         (direction + usize::from(hinge_right) * 2) & 3

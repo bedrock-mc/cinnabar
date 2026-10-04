@@ -6,7 +6,7 @@ use bevy::{
     prelude::{Res, ResMut, Time},
     time::Real,
 };
-use client_world::CommittedUiEvent;
+use client_world::{CommittedControlEvent, CommittedUiEvent, WorldStream};
 
 pub(crate) fn drain_committed_ui_before_authority(
     mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
@@ -189,6 +189,25 @@ pub(crate) fn drain_committed_ui_before_authority(
             return;
         }
     }
+}
+
+/// Refreshes Tab/rawtext identity state when a committed player-list marker
+/// reports that the authoritative roster changed without a UI packet.
+pub(super) fn refresh_player_list_cache_for_controls(
+    stream: &WorldStream,
+    ui_runtime: &mut UiRuntime,
+    controls: &[CommittedControlEvent],
+) {
+    if !controls
+        .iter()
+        .any(|control| matches!(control, CommittedControlEvent::PlayerListChanged { .. }))
+    {
+        return;
+    }
+    ui_runtime.refresh_raw_text_identities(
+        |unique_id| stream.actor_display_name(unique_id),
+        stream.player_list_usernames(),
+    );
 }
 
 #[cfg(test)]

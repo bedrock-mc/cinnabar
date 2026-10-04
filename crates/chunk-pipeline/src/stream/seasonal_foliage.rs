@@ -1,4 +1,4 @@
-//! ClientLevel::_subTick season rows (1.26.50.26 RVA 0x0149bf80).
+//! ClientLevel::_subTick season rows.
 
 use super::*;
 mod admission;
@@ -10,7 +10,7 @@ const PALETTE_REFRESH_TICKS: u64 = 100;
 const RAIN_THRESHOLD: f32 = 0.2;
 const COLD_ACCUMULATION: f32 = 0.04;
 const WARM_MELT: f32 = 0.08;
-// Current PE pool 0x1500b5310/0x1500b5320: one ULP below the literal -0.002.
+// Vanilla uses one ULP below the literal -0.002.
 const DRY_MELT: f32 = f32::from_bits(0xbb03_126e);
 
 fn advance_row(snow: f32, temperature: f32, downfall: f32, rain: [f32; 2]) -> f32 {

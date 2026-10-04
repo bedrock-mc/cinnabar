@@ -50,12 +50,12 @@ pub(crate) struct WornArmor {
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
 const SWIM_AMOUNT_STEP: f32 = 0.2;
 
-// Native ItemInHandRenderer::tick, current RVA 04f8c0f0: ±0.4 clamp and cached
-// stack replacement at height <= 0.1 (PE VAs 1500d39f0, 14feff2a0, 14ffab644).
+// Native ItemInHandRenderer::tick: ±0.4 clamp and cached
+// stack replacement at height <= 0.1.
 const ARM_HEIGHT_STEP: f32 = 0.4;
 const ARM_SWAP_HEIGHT: f32 = 0.1;
 
-// Babies' legs cycle faster by this factor; needs independent measurement.
+// Vanilla applies this modified-speed query multiplier to babies.
 const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
 
 // Gliding divides limb swing by the cubed squared speed over this; needs independent
@@ -86,9 +86,17 @@ pub(super) fn advance_motion(
         yaw: actor.yaw,
         head_yaw: actor.head_yaw,
     });
+    if is_native_fish(actor) {
+        motion.advance_fish(actor.native_velocity());
+    }
+    if super::horse::is_horse(actor) {
+        motion
+            .horse
+            .advance(query::actor_flag(actor, query::FLAG_STANDING));
+    }
     // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
-    // a mob: Actor::getInterpolatedBodyYaw returns 0 (26.30 RVA 0997c220), while
-    // query.target_y_rotation reads the actor's absolute rotation (26.50 024d3560).
+    // a mob: Actor::getInterpolatedBodyYaw returns 0, while
+    // query.target_y_rotation reads the actor's absolute rotation.
     if query::is_arrow(actor) {
         motion.body_yaw = 0.0;
         motion.previous_body_yaw = 0.0;
@@ -236,6 +244,7 @@ pub(super) fn evaluate_state(
         input: &input,
         context,
         anim_tick,
+        anim_time: None,
         life_tick,
         finished: (false, false),
         bones: state.posed_bones(),
@@ -327,6 +336,12 @@ pub(super) fn evaluate_state(
         }
     }
     let mut weighted_clips = Vec::new();
+    let empty_clocks = super::clock::ClipClocks::new();
+    let previous_clocks = if reset {
+        &empty_clocks
+    } else {
+        &state.clip_clocks
+    };
     let candidate = assets
         .rig_geometries()
         .get(state.geometry_binding)
@@ -364,6 +379,7 @@ pub(super) fn evaluate_state(
                     clip: binding.clip as usize,
                     weight,
                     started_tick: 0,
+                    time: 0.0,
                 });
             }
         } else {
@@ -375,6 +391,7 @@ pub(super) fn evaluate_state(
                     evaluator: &evaluator,
                     variables: &mut variables,
                     controllers: &mut controllers,
+                    clip_clocks: previous_clocks,
                     clips: &mut weighted_clips,
                     budget,
                 };
@@ -391,11 +408,24 @@ pub(super) fn evaluate_state(
             evaluator: &evaluator,
             variables: &mut variables,
             controllers: &mut controllers,
+            clip_clocks: previous_clocks,
             clips: &mut weighted_clips,
             budget,
         }
         .evaluate(controller, 1.0, 0)?;
     }
+    let clip_clocks = super::clock::prepare(
+        &evaluator,
+        &mut variables,
+        if reset {
+            None
+        } else {
+            Some(&state.clip_clocks)
+        },
+        &controllers,
+        &mut weighted_clips,
+        budget,
+    )?;
     let local = sample_clips(
         &evaluator,
         &mut variables,
@@ -436,6 +466,7 @@ pub(super) fn evaluate_state(
         render,
         scale,
         controllers,
+        clip_clocks,
         variables,
     })
 }
@@ -491,6 +522,29 @@ pub(super) fn apply_engine_variables(
         engine.bob_animation,
         f32::from(context.view_bobbing.unwrap_or(true)),
     );
+    if is_native_fish(actor) {
+        // The native updater publishes FishAnimationComponent before pack scripts.
+        let [current, previous] = motion.fish_phase();
+        variables.set(engine.fish_animation_amount, current);
+        variables.set(engine.fish_animation_amount_previous, previous);
+    }
+    if let Some([base, pattern]) = query::tropical_fish_variables(actor) {
+        variables.set(engine.tropical_fish_base, base);
+        variables.set(engine.tropical_fish_pattern, pattern);
+    }
+    if super::horse::is_horse(actor) {
+        variables.set(engine.horse_stand_anim, motion.horse.stand_amount);
+        variables.set(engine.horse_shake_tail, truth(motion.horse.shake_tail()));
+        variables.set(
+            engine.horse_open_mouth,
+            truth(super::horse::mouth_open(actor)),
+        );
+    }
+}
+
+fn is_native_fish(actor: &ActorSnapshot) -> bool {
+    matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+        "minecraft:cod" | "minecraft:salmon" | "minecraft:pufferfish" | "minecraft:tropicalfish"))
 }
 
 /// A clip to sample, its blend weight, and the animation tick its controller state began.
@@ -498,6 +552,8 @@ pub(super) struct WeightedClip {
     pub(super) clip: usize,
     pub(super) weight: f32,
     pub(super) started_tick: u64,
+    /// Assigned once before posing, shared by every geometry this clip animates.
+    pub(super) time: f32,
 }
 
 fn blend_weight(
@@ -521,6 +577,7 @@ struct ControllerWalk<'e, 'v, 'b, 'w> {
     evaluator: &'e Evaluator<'e>,
     variables: &'v mut MolangVariables,
     controllers: &'v mut [ControllerState],
+    clip_clocks: &'v super::clock::ClipClocks,
     clips: &'v mut Vec<WeightedClip>,
     budget: &'b mut EvalBudget<'w>,
 }
@@ -556,6 +613,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
                     clip: clip as usize,
                     weight,
                     started_tick,
+                    time: 0.0,
                 }),
                 EntityControllerAnimationTarget::Controller(nested) => {
                     self.evaluate(nested as usize, weight, depth + 1)?;
@@ -594,16 +652,22 @@ impl ControllerWalk<'_, '_, '_, '_> {
         let mut all = true;
         let mut any = false;
         for animation in state_animations(self.evaluator.assets, state)? {
-            let EntityControllerAnimationTarget::Clip(clip) = animation.target else {
+            let EntityControllerAnimationTarget::Clip(index) = animation.target else {
                 continue;
             };
             let clip = self
                 .evaluator
                 .assets
                 .animation_clips()
-                .get(clip as usize)
+                .get(index as usize)
                 .ok_or(EvalError::Invalid)?;
-            let done = elapsed >= clip.length_seconds.get();
+            let done = if clip.anim_time_update.is_some() {
+                self.clip_clocks
+                    .get(&(index as usize, entered_tick))
+                    .is_some_and(|clock| clock.finished)
+            } else {
+                elapsed >= clip.length_seconds.get()
+            };
             all &= done;
             any |= done;
         }

@@ -363,8 +363,8 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
     return mix(colour, atmosphere.fog_color_start.rgb, distance_fog_amount(world_position));
 }
 
-// Current atlas creation/upload (0x08118020/0x0cc45300) uses RGBA8_UNORM,
-// and named 26.30 Metal swapchain 0x0c13fe60/0x0c13ffd0 uses BGRA8_UNORM.
+// Current atlas creation/upload uses RGBA8_UNORM,
+// and vanilla Metal swapchain uses BGRA8_UNORM.
 // Installed 1.26.51.01 RenderChunk Metal applies palette, AO and lightmap,
 // then gamma fog, without a transfer function. Preserve Bevy's existing
 // sRGB texture/output contract at the renderer boundary, not in its lighting.
@@ -393,7 +393,7 @@ fn native_cube_colour(
     if (!material_uses_native_leaf_colour(flags)) {
         texture_gamma = tint_to_gamma(vec4(texture.rgb, 1.0)).rgb;
     }
-    // Current atlas overlay 08119570 and installed near-version opaque
+    // Current atlas overlay and installed near-version opaque
     // RenderChunk agree: alpha masks the RGB tint, then output is opaque.
     // Apply this in the same gamma domain as the native terrain product.
     let overlay = material_uses_overlay_mask(flags);

@@ -1,4 +1,5 @@
 use super::*;
+use std::io::Cursor;
 
 /// Admits a stored archive with one inert payload for cache-key fixtures.
 fn fixture_stack(payload: &[u8]) -> Arc<resource_pack::ValidatedPackStack> {

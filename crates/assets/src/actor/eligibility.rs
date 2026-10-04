@@ -125,7 +125,11 @@ pub fn neutral_actor_geometry_uvs_are_supported(
         };
         // Ancestor cubes are checked conservatively even when later overridden.
         // This may reject unused art; it cannot admit an unverified wrap route.
-        for cube in geometry.bones.iter().flat_map(|bone| bone.cubes.iter()) {
+        for (bone, cube) in geometry
+            .bones
+            .iter()
+            .flat_map(|bone| bone.cubes.iter().map(move |cube| (bone, cube)))
+        {
             let [x, y, z] = cube.size.map(|value| value.get());
             if [x, y, z]
                 .iter()
@@ -135,13 +139,25 @@ pub fn neutral_actor_geometry_uvs_are_supported(
             }
             let valid = match &cube.uv {
                 EntityGeometryUv::Box(origin) => {
-                    // Camera-facing item planes only expose the north rectangle.
-                    let envelope = if z == 0.0 {
-                        [x, y]
+                    // Native Cube setup (26.50.26 RVA 01e5f1d0) offsets the side
+                    // UVs by depth and the top/bottom UVs by depth in U. Fish
+                    // fins have negative origins in unused, degenerate faces.
+                    // Validate the faces with area, not the entire unfolded box.
+                    let [x_uv, y_uv, z_uv] = [x, y, z].map(f32::trunc);
+                    let [u, v] = origin.map(|value| value.get());
+                    let inflate =
+                        cube.inflate.get() + bone.inflate.map_or(0.0, |inflate| inflate.get());
+                    let (origin, envelope) = if x + 2.0 * inflate == 0.0 {
+                        ([u, v + z_uv], [2.0 * z_uv, y_uv])
+                    } else if y + 2.0 * inflate == 0.0 {
+                        ([u + z_uv, v], [2.0 * x_uv, z_uv])
+                    } else if z + 2.0 * inflate == 0.0 {
+                        // Preserve the camera-facing item plane's north rectangle.
+                        ([u, v], [x_uv, y_uv])
                     } else {
-                        [2.0 * x + 2.0 * z, y + z]
+                        ([u, v], [2.0 * x_uv + 2.0 * z_uv, y_uv + z_uv])
                     };
-                    rectangle(origin.map(|value| value.get()), envelope)
+                    rectangle(origin, envelope)
                 }
                 EntityGeometryUv::Faces(faces) => [
                     &faces.north,

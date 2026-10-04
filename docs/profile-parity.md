@@ -12,29 +12,29 @@ In the notes below, **J** means
 `resource_packs/oreui/texts/en_US.lang`, all relative to that root.
 **P** means the worktree's
 `.local/assets/bedrock-samples/v1.26.50.4/full/resource_pack/texts/en_US.lang`.
-**R:owner:line** refers to the supplied 26.30 reconstruction under `src/by-owner`.
-Lens citations name the reconstructed 1.26.50.26 client (artifact 6) and function RVA.
 
 ## Layout and controls
 
-| Element | Reference |
+### Vanilla rules
+
+| Rule | Behaviour |
 | --- | --- |
-| Profile header uses “Your Profile”; other players use their name | J `m2`; O:2848–2849 |
-| Profile breakpoint is 70rem; wide columns are 4/8, narrow 0/8 | J `p2`, `f2` |
-| Left card and right tab content scroll independently | J `p2`, `b2`, `h2` |
-| Card has a 0.2rem border and natural height | J `bZ`; C `.b3ea77029532ae5c1380` |
-| Banner aspect ratio is 16:9 | J `bZ`, `nm.AspectRatio` |
-| Default banner is selected by the sum of JavaScript UTF-16 code units modulo the eight images | J `mZ` |
-| Gamerpic is 5.2rem square; name and status sit alongside it | J `vx`, `bZ`; C `.cad011cd688da5294d75` |
-| Successful character image is 14.8×19.6rem, bottom -7.6rem, left margin -4rem; gamerpic moves to bottom-right | J `hZ`, `bZ`; C `.e00b5062b199c807b468`, `.c72117dd90e5ec13dea3` |
-| Card name margins are 1.2rem; action margins are 1.2rem | C `.e029b233669f292c691e`, `.c0d0e3a4658d188285cf` |
-| Narrow card is a 12.8rem horizontal card; banner occupies 40% | C `.cfdfb462a95f1a51c994`, `.ce85aa1190044faf5956` |
-| Narrow content margins are 0.8rem; banner covers and crops at its center | C `.a467b7ac28ebbbf52ae5`, `.c61f96cf5e1c013afbe9`, `.b86424395a97c332f9a1`; J `nm`, `lm` |
-| Self action is secondary “Dressing room”, hanger icon, navigating to persona | J `FZ`; O:2199 |
-| Tabs are 4.8rem, selected 4.4rem with 0.4rem top offset; underline is 4.8×0.2rem | J `cL`, `sL`; C `.e2f6aa3d9859af25ebc1`, `.caa7713b620a56fca5ba`, `.a2c11937fe7d1cff8659` |
-| List rows have minimum height 7.2rem, 0.2rem border, overlapping bottom border | J `uK`; C `.d88f68ad0091a0ae663f` |
-| Action padding is 0.8rem; main cell horizontal padding is 0.8rem | C `.c99e146579fc302b9d5f`, `.c0ba399cff2bbe877009` |
-| Row icons are 2.4rem; labels/values are stacked | J `EJ`; C `.cc5bc5ac25b30e8245f4` |
+| Header | Profile header uses “Your Profile”; other players use their name |
+| Breakpoint | Profile breakpoint is 70rem; wide columns are 4/8, narrow 0/8 |
+| Scrolling | Left card and right tab content scroll independently |
+| Card border | Card has a 0.2rem border and natural height |
+| Banner | Banner aspect ratio is 16:9 |
+| Default banner | Default banner is selected by the sum of JavaScript UTF-16 code units modulo the eight images |
+| Gamerpic | Gamerpic is 5.2rem square; name and status sit alongside it |
+| Character image | Successful character image is 14.8×19.6rem, bottom -7.6rem, left margin -4rem; gamerpic moves to bottom-right |
+| Card margins | Card name margins are 1.2rem; action margins are 1.2rem |
+| Narrow card | Narrow card is a 12.8rem horizontal card; banner occupies 40% |
+| Narrow margins | Narrow content margins are 0.8rem; banner covers and crops at its center |
+| Self action | Self action is secondary “Dressing room”, hanger icon, navigating to persona |
+| Tabs | Tabs are 4.8rem, selected 4.4rem with 0.4rem top offset; underline is 4.8×0.2rem |
+| List rows | List rows have minimum height 7.2rem, 0.2rem border, overlapping bottom border |
+| Action padding | Action padding is 0.8rem; main cell horizontal padding is 0.8rem |
+| Row icons | Row icons are 2.4rem; labels/values are stacked |
 
 The card name uses Header5B (2rem font, 2.4rem line). Stats labels and values
 use captionShort (1.4rem font, 2rem line), with a dimmest label. Overview
@@ -70,26 +70,21 @@ J `h2` reads `vanilla.playerStatistics`, passing each entry's `label`, `icon`,
 convert distances to kilometers. The loaded empty list has no empty message;
 J `pQ` receives no `emptyMessage` argument.
 
-Lens 1.26.50.26 `0x5eac00` establishes the four service names and label keys:
-MinutesPlayed, BlockBrokenTotal, MobKilled.IsMonster.1, DistanceTravelled.
-J's unused `ek.BlocksBroken` enum says BlocksBrokenTotal, but the reconstructed
-service constructor and request list use the singular BlockBrokenTotal.
-R:PlayerStatisticsFacet:332, :342, :350, :364 corroborate the icon mapping.
-Labels are P:11130–11133.
+The four service names and label keys are MinutesPlayed, BlockBrokenTotal,
+MobKilled.IsMonster.1 and DistanceTravelled. J's unused `ek.BlocksBroken` enum
+says BlocksBrokenTotal, but the service constructor and request list use the
+singular BlockBrokenTotal. Labels are P:11130–11133.
 
-Lens `0x63bfd0` (lines 1038–1042) truncates MinutesPlayed to an integer,
-multiplies by 60, then formats its duration with three fields and format 2.
-Lens `0x775540` delegates to `0x775620`; that function splits days, hours,
-minutes and seconds, omits leading zero fields, and retains trailing fields
-up to the requested three-field limit. R:DateHelper:963 identifies format 2
-as localized one-character abbreviations. P:2755–2757 give the day, hour,
-and minute templates. English examples are `59m`, `2h 0m`, `1d 0h 0m`.
+Truncate MinutesPlayed to an integer, multiply by 60, then format the duration
+with three fields and format 2. Split days, hours, minutes and seconds, omit
+leading zero fields, and retain trailing fields up to the three-field limit.
+Format 2 uses localized one-character abbreviations. P:2755–2757 gives the day,
+hour and minute templates. English examples are `59m`, `2h 0m`, `1d 0h 0m`.
 
-The non-time branch calls Lens `0x63b1e0` through its formatting adapter.
-That function truncates the double value to an integer and groups digits by
-three with commas (lines 102–114). This includes raw DistanceTravelled;
-there is no identified kilometer conversion. Negative, missing, non-finite,
-or out-of-range service values stay unavailable in Cinnabar.
+For non-time values, truncate the double to an integer and group digits by three
+with commas. This includes raw DistanceTravelled, with no identified kilometer
+conversion. Negative, missing, non-finite or out-of-range values stay unavailable
+in Cinnabar.
 
 ## Loading, error, and unavailable states
 
@@ -115,10 +110,7 @@ This document records the target behavior. It does not close a visual parity
 gate: implemented behavior and remaining gaps are tracked in `plan.md`.
 
 Opening Profile subscribes to or refetches the profile instead of waiting for
-the Home feed. R:PlayerProfileFacet:204 subscribes and :394 refetches;
-R:ProfileSystem:2254 implements explicit refetch. Lens artifact 6,
-`0xd1416b0`, binds `subscribeToOrRefetchProfile`; `0xd140920` binds avatar
-state separately. Cinnabar now wakes an independent Profile worker on opening,
+the Home feed. Avatar state is subscribed to separately. Cinnabar now wakes an independent Profile worker on opening,
 retry and account changes. Its terminal control error finishes all loading
 inputs and selects the existing unavailable/Retry panel. Optional avatar,
 featured-image, statistics and achievement failures finish their own inputs.
@@ -160,12 +152,10 @@ unavailable. Malformed framing and unbounded pagination fail the feed rather tha
 reporting a partial total. Icon URLs pass the existing HTTPS artwork policy and
 are cached by the core.
 
-The character is the persona service's rendered avatar image. Lens artifact 6
-`0xf8d0b0` requests `getMinecraftAvatarByXuid` in the Profile subscriber; the
-gamerpic stays the fallback when that image is unavailable. Lens `0xf80670`
-builds `api/v1.0/profile/xuid/{xuid}/image/{subtype}` from the discovered
-persona base URL. R:ProfileImageRequester_Minecraft:325 resolves the `persona`
-service. The pinned Go transport already provides `persona.ImageAvatar` and
+The character is the persona service's rendered avatar image, requested with
+`getMinecraftAvatarByXuid`; the gamerpic remains its fallback. Build
+`api/v1.0/profile/xuid/{xuid}/image/{subtype}` from the discovered `persona` URL.
+The pinned Go transport already provides `persona.ImageAvatar` and
 `ProfileImage`, with service-token authentication and a GET image response.
 The existing Home persona-head transport establishes the corresponding core
 integration pattern. No fixed production host or substitute native skin is
@@ -173,12 +163,9 @@ needed.
 
 Screenshot counts differ for self and other profiles. J `g2` selects
 `vanilla.screenshotGallery` for self and `vanilla.playerShowcasedGallery` for
-others. R:ScreenshotGalleryFacet:116 gives the self limit of 100;
-R:ScreenshotGallery:2014–2040 reads the local screenshot collection when no
-full gallery count has been loaded. R:PlayerShowcasedGalleryFacet:43 reads the
-remote showcase limit with a fallback of five. Lens `0x53c3910`, `0x53c53f0`
-and `0x53bf1b0` identify the persona-service gallery list, size and featured
-image routes respectively. A remote showcased-image count cannot substitute
+others. The self limit is 100; read the local screenshot collection when no full
+gallery count has loaded. The remote showcase limit has a fallback of five.
+The persona service provides gallery list, size and featured-image routes. A remote showcased-image count cannot substitute
 for the self gallery count. Its local persistence and screenshot management
 remain separate parity work.
 
@@ -192,18 +179,16 @@ transports, with no live account requests or `.local` dependency.
 The character image uses the existing Minecraft persona client, requesting the
 `avatar` subtype with `Accept: image/*` and the account's Minecraft service token.
 The host comes from persona service discovery, with no fixed fallback host.
-Lens 1.26.50.26 `0xf80670` corroborates
-`api/v1.0/profile/xuid/{xuid}/image/{subtype}`; `0xf8d0b0` is the Profile
-subscriber's `getMinecraftAvatarByXuid` request. R:ProfileImageRequester_Minecraft:325
-resolves the `persona` service through ServicesManager. The Go fork already
+The Profile subscriber requests `getMinecraftAvatarByXuid` at
+`api/v1.0/profile/xuid/{xuid}/image/{subtype}`, resolving `persona` through
+ServicesManager. The Go fork already
 implements this contract in `minecraft/service/persona/persona.go`.
 The core caches image bytes under a content hash, publishes a local artwork path,
 and retains current avatar and achievement icons during artwork pruning.
 An avatar failure remains separate from otherwise available account data.
 
 The featured banner may be read from the existing Gallery client using the
-same discovered persona service and Minecraft service token. The showcased
-collection route is corroborated by Lens6 `0x53c3910`. Cinnabar selects only
+same discovered persona service and Minecraft service token. Cinnabar selects only
 an entry whose `isFeatured` flag is true and whose URL passes the artwork
 policy; no featured entry selects the XUID-based banner fallback. The returned
 image is downloaded through the core artwork cache. A showcased collection's

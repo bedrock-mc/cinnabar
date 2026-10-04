@@ -306,15 +306,23 @@ fn fast_transfer_action_is_exact_and_carries_session_ordinal_identity() {
             packet.header.id as u32, 77,
             "expected CommandRequest packet ID"
         );
-        observed = action.map(|action| action.marker(session, sequence, 1_000_000));
+        observed = action.map(|action| {
+            action.marker(
+                crate::diagnostic_markers::FAST_TRANSFER_ACTION,
+                session,
+                sequence,
+                1_000_000,
+            )
+        });
         Ok::<_, &str>(())
     })
     .unwrap();
     assert_eq!(
-        observed.as_deref(),
-        Some(
-            "RUST_MCBE_FAST_TRANSFER_ACTION={\"action_ordinal\":0,\"command\":\"/transfer sm3\",\"kind\":\"command_sent\",\"schema\":\"rust-mcbe-fast-transfer-action-v1\",\"sent_unix_ms\":1000000,\"session_generation\":7}"
-        )
+        observed,
+        Some(format!(
+            "{}={{\"action_ordinal\":0,\"command\":\"/transfer sm3\",\"kind\":\"command_sent\",\"schema\":\"rust-mcbe-fast-transfer-action-v1\",\"sent_unix_ms\":1000000,\"session_generation\":7}}",
+            crate::diagnostic_markers::FAST_TRANSFER_ACTION,
+        ))
     );
 }
 

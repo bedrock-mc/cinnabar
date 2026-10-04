@@ -72,3 +72,48 @@ fn newer_update_waits_for_older_decode_and_wins() {
         Some(99)
     );
 }
+
+/// Parallel decode workers may finish out of order; commits must still follow wire order.
+#[test]
+fn out_of_order_decode_completions_commit_in_sequence() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let key = SubChunkKey::new(0, 0, -4, 0);
+    stream
+        .submit(1, inline_block_entity_event(0, 5, Vec::new()))
+        .unwrap();
+    stream
+        .submit(2, inline_block_entity_event(0, 7, Vec::new()))
+        .unwrap();
+    let completions: Vec<_> = std::iter::from_fn(|| stream.pending_decode.pop_front())
+        .map(|queued| queued.job.run(queued.queued_at))
+        .collect();
+    assert_eq!(completions.len(), 2);
+
+    let mut completions = completions.into_iter().rev();
+    stream.accept_decode_completion(completions.next().unwrap());
+    stream.apply_ready();
+    assert_eq!(stream.order.next_sequence(), 1, "sequence two must wait");
+    assert!(stream.authority.terrain().sub_chunk(key).is_none());
+
+    stream.accept_decode_completion(completions.next().unwrap());
+    stream.apply_ready();
+    assert_eq!(stream.order.next_sequence(), 3);
+    assert_eq!(
+        stream
+            .authority
+            .terrain()
+            .sub_chunk(key)
+            .unwrap()
+            .runtime_id(0, 0, 0, 0),
+        Some(7),
+        "the later wire column must win"
+    );
+}

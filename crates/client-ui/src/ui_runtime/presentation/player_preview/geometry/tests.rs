@@ -88,6 +88,96 @@ fn native_live_angles_remain_separate_body_head_and_model_pitch() {
 }
 
 #[test]
+fn hud_faces_the_players_left_and_keeps_body_facing_fixed() {
+    let source = standard_biped_vertices();
+    let model = bare(PreviewView::Hud, 64);
+    let mean_x = |front: bool| {
+        let positions: Vec<_> = source
+            .iter()
+            .zip(model.vertices())
+            .filter(|(source, _)| source.part == 1 && (source.position[2] > 0.0) == front)
+            .map(|(_, projected)| projected.position[0])
+            .collect();
+        positions.iter().sum::<f32>() / positions.len() as f32
+    };
+    assert!(
+        mean_x(true) > mean_x(false),
+        "native front faces screen-right"
+    );
+    for yaw in [-135.0, 0.0, 75.0, 180.0] {
+        let turned = mesh(
+            PlayerPreviewPose::new(yaw, yaw, 0.0, false),
+            PreviewView::Hud,
+            0.0,
+            skin(64),
+            &Default::default(),
+            [None; 4],
+            [None; 2],
+            false,
+        )
+        .unwrap();
+        for (rest, turned) in model.vertices().iter().zip(turned.vertices()) {
+            assert_eq!(
+                rest.position, turned.position,
+                "world yaw must not turn the HUD body"
+            );
+        }
+    }
+}
+
+#[test]
+fn hud_keeps_evaluated_head_motion_without_turning_the_body() {
+    let source = standard_biped_vertices();
+    let posed = |head_yaw: f32| {
+        source
+            .iter()
+            .map(|vertex| {
+                let mut vertex = *vertex;
+                if vertex.part == 0 {
+                    vertex.position = super::super::rotate_y(
+                        vertex.position,
+                        head_yaw.to_radians(),
+                        [0.0, 1.5, 0.0],
+                    );
+                }
+                // The HUD capture has already posed these vertices, so it places them
+                // outside the six equipment transforms to prevent posing twice.
+                vertex.part += 6;
+                vertex
+            })
+            .collect::<Vec<_>>()
+    };
+    let project = |vertices: &[ActorVertex]| {
+        mesh_with_body(
+            Some((vertices, &[None; 6])),
+            Default::default(),
+            PreviewView::Hud,
+            0.0,
+            skin(64),
+            &Default::default(),
+            [None; 4],
+            [None; 2],
+            false,
+        )
+        .unwrap()
+    };
+    let rest = project(&posed(0.0));
+    let looking = project(&posed(60.0));
+    let mut changed_head = false;
+    for ((source, rest), looking) in source.iter().zip(rest.vertices()).zip(looking.vertices()) {
+        if source.part == 0 {
+            changed_head |= rest.position != looking.position;
+        } else {
+            assert_eq!(
+                rest.position, looking.position,
+                "head look must not turn the body"
+            );
+        }
+    }
+    assert!(changed_head, "evaluated head look survives HUD projection");
+}
+
+#[test]
 fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
     let armor_texture = super::super::PreviewTexture {
         rgba: Arc::from(vec![255; 64 * 32 * 4]),

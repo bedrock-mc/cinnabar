@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{Aabb, CollisionWorld, PLAYER_HEIGHT, Vec3, WorldQueryError};
+use crate::{Aabb, CollisionWorld, PLAYER_HEIGHT, PLAYER_WIDTH, Vec3, WorldQueryError};
 
-/// Current Player constructor's SneakingHeightChangeVersion value (RVA 0x1eba20).
+/// Current Player constructor's SneakingHeightChangeVersion value.
 const SNEAK_HEIGHT: f64 = 1.49_f32 as f64;
-/// Swimming, crawling and gliding hitbox height. Public wiki value.
-const LOW_POSE_HEIGHT: f64 = 0.6;
-/// Vertical inset applied before the fit test so exact contact still fits.
-const FIT_INSET: f64 = 1.0e-3;
+/// Native horizontal pose uses collision width as height (RVA 0x02c33550).
+const LOW_POSE_HEIGHT: f64 = PLAYER_WIDTH;
+/// Native bounding-box input update shrinks all probe faces (RVA 0x09eeeb70).
+const FIT_INSET: f64 = 0.01_f32 as f64;
 
 /// Locomotion mode the client selected for one tick; the simulator never picks it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,10 +51,9 @@ pub fn pose_fits(
 ) -> Result<bool, WorldQueryError> {
     let query = Aabb::player_with_height_at(feet, mode.hitbox_height(sneaking));
     crate::world::validate_collision_query(query)?;
-    let boxes = world.collision_boxes(query)?;
-    // Contact within float noise is not overlap.
-    let inset = Vec3::new(0.0, FIT_INSET, 0.0);
+    let inset = Vec3::new(FIT_INSET, FIT_INSET, FIT_INSET);
     let probe = Aabb::new(query.min + inset, query.max - inset);
+    let boxes = world.collision_boxes(probe)?;
     Ok(!boxes.value.into_iter().any(|shape| shape.intersects(probe)))
 }
 
@@ -64,9 +63,9 @@ mod tests {
 
     #[test]
     fn low_poses_share_one_height_and_sneak_only_shrinks_walking() {
-        assert_eq!(MovementMode::Swimming.hitbox_height(false), 0.6);
-        assert_eq!(MovementMode::Crawling.hitbox_height(true), 0.6);
-        assert_eq!(MovementMode::Gliding.hitbox_height(false), 0.6);
+        assert_eq!(MovementMode::Swimming.hitbox_height(false), PLAYER_WIDTH);
+        assert_eq!(MovementMode::Crawling.hitbox_height(true), PLAYER_WIDTH);
+        assert_eq!(MovementMode::Gliding.hitbox_height(false), PLAYER_WIDTH);
         assert_eq!(
             MovementMode::Walking.hitbox_height(true),
             f64::from(1.49_f32)

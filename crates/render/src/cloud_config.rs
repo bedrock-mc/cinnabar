@@ -15,7 +15,7 @@ const MAX_CAMERA_POSITION_MILLIBLOCKS: i64 = 64_000_000_000;
 
 /// Camera-adjusted `RENDER_DISTANCE` used directly by classic cloud DistanceControl.
 ///
-/// Current native recalculateRenderDistance04e462e0 removes a distance-dependent
+/// Current native recalculateRenderDistance removes a distance-dependent
 /// margin, applies the caller coefficient, optionally caps it with the platform
 /// coefficient, then enforces a minimum of 40 blocks. The caller/platform option
 /// admission is separate: this function deliberately does not invent defaults.
@@ -59,8 +59,8 @@ pub fn adjusted_cloud_distance_blocks(
 }
 
 /// Ordinary camera distance from the server-confirmed chunk radius in blocks.
-/// Current 014c34c0 stores packet radius + one chunk in Player::mChunkRadius;
-/// 004f71b0 converts it to blocks before 04e462e0 applies its far-chunk margin.
+/// Vanilla stores packet radius + one chunk in Player::mChunkRadius;
+/// it converts this to blocks before applying its far-chunk margin.
 /// The publisher's residency radius and the selected video setting are not
 /// substitutes for this input. Optional platform admission remains separate.
 #[must_use]
@@ -100,7 +100,7 @@ impl CloudRenderConfig {
         }
     }
 
-    /// Current tickClouds04e69110's feature-disabled Fancy route. Advanced
+    /// Current tickClouds's feature-disabled Fancy route. Advanced
     /// FrameBuilder quality selection is a separate, still-open parity gate.
     #[must_use]
     pub const fn legacy_fancy() -> Self {

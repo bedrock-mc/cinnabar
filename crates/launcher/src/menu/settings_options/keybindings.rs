@@ -108,7 +108,7 @@ impl SettingsOptions {
 
     /// Keeps vanilla secondary defaults until a remap replaces the complete key list.
     pub fn secondary_key_control(&self, name: &str) -> Option<PhysicalControl> {
-        // R:k/KeyboardRemappingLayout.cpp:85–87 replaces the list with one captured key.
+        // KeyboardRemappingLayout replaces the list with one captured key.
         SECONDARY_KEYS
             .iter()
             .find(|(label, _)| *label == name && !self.keys.contains_key(name))

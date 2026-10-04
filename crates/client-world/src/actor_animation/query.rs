@@ -2,6 +2,11 @@ use super::{evaluation::MolangValue, *};
 
 mod wolf;
 
+#[cfg(test)]
+mod fish_tests;
+#[cfg(test)]
+mod tropical_fish_tests;
+
 // Actor flag bits and metadata keys follow gophertunnel v1.61.0
 // `minecraft/protocol/entity_metadata.go` (`EntityDataFlag*` and `EntityDataKey*`, iota from
 // zero); flag bits from 64 live in the overflow flag word.
@@ -55,7 +60,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("is_sonic_boom", 107),
     ("is_sprinting", 3),
     ("is_stalking", 91),
-    ("is_standing", 39),
+    ("is_standing", FLAG_STANDING),
     ("is_stunned", 83),
     ("is_swimming", 57),
     ("is_tamed", FLAG_TAMED),
@@ -93,7 +98,7 @@ const FLOAT_QUERIES: [(&str, u32, f32); 3] = [
 const KEY_NAME: u32 = 4;
 const KEY_TARGET: u32 = 6;
 const KEY_SWELL: u32 = 19;
-const FLAG_STANDING: u32 = 39;
+pub(super) const FLAG_STANDING: u32 = 39;
 pub(super) const FLAG_SWIMMING: u32 = 57;
 
 // Fuse ticks a swell is normalised by; needs independent measurement.
@@ -130,6 +135,7 @@ pub(super) struct QueryInputs<'a> {
     pub(super) input: &'a ActorTickInput,
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
+    pub(super) anim_time: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -160,7 +166,7 @@ pub(super) fn query(
                 ActorKind::Entity { identifier } => identifier.as_ref(),
             },
         )),
-        // Native query025186e0 requires a string argument; unknown names pass through.
+        // Native query requires a string argument; unknown names pass through.
         "item_slot_to_bone_name" => text(evaluator.context.attachable.and_then(|_| {
             let Some(MolangValue::String(slot)) = arguments.first() else {
                 return None;
@@ -246,6 +252,11 @@ fn default_bone_pivot(evaluator: &QueryInputs<'_>, arguments: &[MolangValue]) ->
 
 fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) -> f32 {
     let (actor, input, context) = (evaluator.actor, evaluator.input, evaluator.context);
+    if name == "anim_time"
+        && let Some(time) = evaluator.anim_time
+    {
+        return time;
+    }
     if let Some(attachable) = context.attachable {
         let remaining = attachable.use_elapsed_ticks.map_or(0, |elapsed| {
             attachable.max_use_ticks.saturating_sub(elapsed)
@@ -267,11 +278,14 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     if name == "is_in_ui" && evaluator.context.is_in_ui {
         return 1.0;
     }
+    if name == "is_grazing" && super::horse::is_horse(actor) {
+        return truth(super::horse::is_grazing(actor));
+    }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));
     }
-    if let Some((_, key)) = INTEGER_QUERIES.iter().find(|(query, _)| *query == name) {
-        return metadata_number(actor, *key).unwrap_or(0.0);
+    if let Some(key) = integer_query_key(name) {
+        return metadata_number(actor, key).unwrap_or(0.0);
     }
     if let Some((_, key, idle)) = FLOAT_QUERIES.iter().find(|(query, ..)| *query == name) {
         return metadata_number(actor, *key).unwrap_or(*idle);
@@ -328,7 +342,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             }
         }
         "hurt_time" => f32::from(actor.status.hurt_time),
-        // 26.50 RVA 02503c80 returns the signed actor shake counter as float.
+        // 26.50 returns the signed actor shake counter as float.
         "shake_time" => actor.status.shake_time as f32,
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
@@ -522,6 +536,42 @@ fn texture_frame_index(actor: &ActorSnapshot) -> f32 {
 
 pub(super) fn has_target(actor: &ActorSnapshot) -> bool {
     matches!(actor.metadata.get(&KEY_TARGET), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
+}
+
+/// The native updater tests the low byte of the Int variant for the base,
+/// and the Int mark variant selects one of six patterns within that base family.
+pub(super) fn tropical_fish_variables(actor: &ActorSnapshot) -> Option<[f32; 2]> {
+    const PATTERNS_PER_FAMILY: i32 = 6;
+    if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:tropicalfish")
+    {
+        return None;
+    }
+    // Unlike the numeric Molang queries, this native updater requires Int metadata.
+    let integer = |name| {
+        integer_query_key(name)
+            .and_then(|key| match actor.metadata.get(&key) {
+                Some(ActorMetadataValue::Int(value)) => Some(*value),
+                _ => None,
+            })
+            .unwrap_or(0)
+    };
+    let base = integer("variant") as u8 != 0;
+    let mark = integer("mark_variant");
+    let pattern = if (0..PATTERNS_PER_FAMILY).contains(&mark) {
+        mark
+    } else {
+        0
+    };
+    Some([
+        truth(base),
+        (pattern + if base { PATTERNS_PER_FAMILY } else { 0 }) as f32,
+    ])
+}
+
+fn integer_query_key(name: &str) -> Option<u32> {
+    INTEGER_QUERIES
+        .iter()
+        .find_map(|(query, key)| (*query == name).then_some(*key))
 }
 
 /// Sampled fluid at the actor when available; otherwise the swimming flag or airborne fish.

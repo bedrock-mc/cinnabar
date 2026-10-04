@@ -95,7 +95,7 @@ recomputed from an anchor. The rule is:
   `0.000017`–`0.000124`. An open jump stayed within
   `0.000015`–`0.000126` through takeoff, apex, landing, and continued travel.
   The same run confirmed the pinned bedsim takeoff/drag ordering; an older
-  recovered 1.16.201 path is not a version-matched authority.
+  1.16.201 behavior is not a version-matched authority.
 
 ## Remaining features
 

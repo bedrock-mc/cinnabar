@@ -2,8 +2,8 @@ package main
 
 import "testing"
 
-// Final native registrations 0dcae2a6 / 0dceb39c override the constructors:
-// inherited getter 0365cdf0 returns dampening three for every frosted age.
+// Final native registrations override the constructors:
+// inherited getter returns dampening three for every frosted age.
 func TestIceNativeLightDampening(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

@@ -14,6 +14,7 @@ fn carrier_v4_rejects_every_extended_cross_index_relationship() {
     assert_mutation_rejected(|c| c.animation_clips[0].symbol = 0);
     assert_mutation_rejected(|c| c.animation_clips[0].source = 0);
     assert_mutation_rejected(|c| c.animation_clips[0].first_channel = u32::MAX);
+    assert_mutation_rejected(|c| c.animation_clips[0].anim_time_update = Some(u32::MAX));
     assert_mutation_rejected(|c| c.animation_channels[0].first_keyframe = u32::MAX);
     assert_mutation_rejected(|c| c.molang_ops[0] = MolangOp::LoadQuery(u32::MAX));
     assert_mutation_rejected(|c| c.molang_ops[0] = MolangOp::SelectCollection(u32::MAX));
@@ -64,6 +65,42 @@ fn carrier_v4_rejects_every_extended_cross_index_relationship() {
         };
     });
     assert_mutation_rejected(|c| c.item_visual_aliases[0].visual = item::ItemVisualId(u32::MAX));
+}
+
+#[test]
+fn animation_time_update_round_trips_and_defaults_for_clips_without_overrides() {
+    let mut compiled = carrier_v4_fixture();
+    let default_blob = entity::encode_entity_blob(&compiled).unwrap();
+    let default_payload: serde_json::Value =
+        serde_json::from_slice(&default_blob[80..default_blob.len() - 32]).unwrap();
+    assert!(
+        default_payload["animation_clips"][0]
+            .get("anim_time_update")
+            .is_none()
+    );
+    let default_runtime = RuntimeEntityAssets::decode(&default_blob).unwrap();
+    assert_eq!(default_runtime.animation_clips()[0].anim_time_update, None);
+    assert_eq!(default_runtime.encode().unwrap(), default_blob);
+
+    compiled.animation_clips[0].anim_time_update = Some(0);
+    let blob = entity::encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&blob).unwrap();
+    assert_eq!(runtime.animation_clips()[0].anim_time_update, Some(0));
+    assert_eq!(runtime.encode().unwrap(), blob);
+}
+
+#[test]
+fn rejects_previous_format_catalogs_that_did_not_compile_authored_clocks() {
+    let mut stale = entity::encode_entity_blob(&carrier_v4_fixture())
+        .unwrap()
+        .to_vec();
+    let previous_version = entity::ENTITY_BLOB_VERSION.checked_sub(1).unwrap();
+    stale[8..12].copy_from_slice(&previous_version.to_le_bytes());
+    let payload_end = stale.len() - 32;
+    let digest = Sha256::digest(&stale[..payload_end]);
+    stale[payload_end..].copy_from_slice(&digest);
+    let error = RuntimeEntityAssets::decode(&stale).unwrap_err();
+    assert!(error.to_string().contains("unsupported MCBEENT4 header"));
 }
 
 #[test]

@@ -1,4 +1,15 @@
-use std::{ffi::OsStr, fs, path::Path, sync::Arc};
+#[cfg(feature = "acceptance")]
+use crate::acceptance::{
+    model_witness::poll_model_witness_request,
+    transparent_witness::poll_transparent_witness_request,
+};
+#[cfg(feature = "acceptance")]
+use crate::runtime::phase3_evidence::{
+    Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
+};
+#[cfg(feature = "acceptance")]
+use crate::runtime::shutdown::finish_acceptance_run;
+use std::{ffi::OsStr, fs, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
@@ -17,18 +28,12 @@ use render::{
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
     RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
-use sha2::{Digest, Sha256};
+mod startup;
+use startup::read_verified_physics_registry;
 
-use crate::acceptance::{
-    markers::{SHUTDOWN_COMPLETED, requested_present_mode},
-    world_ready::emit_world_ready,
-};
+#[cfg(feature = "acceptance")]
+use crate::acceptance::world_ready::emit_world_ready;
 use crate::{
-    acceptance::{
-        AcceptanceRun,
-        model_witness::{ModelWitnessFileSource, poll_model_witness_request},
-        transparent_witness::{TransparentWitnessFileSource, poll_transparent_witness_request},
-    },
     args,
     asset_startup::{
         LoadedAssetKind, load_runtime_assets, require_hud_assets, require_icon_assets,
@@ -65,16 +70,11 @@ use crate::{
             NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
             publish_actor_render_frame, receive_network_events, spawn_network,
         },
-        phase3_evidence::{
-            Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
-        },
         publication::{PublicationController, begin_publication_frame},
-        shutdown::{
-            exit_on_fatal_runtime_error, exit_on_window_close_requested, finish_acceptance_run,
-        },
+        shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
         telemetry::{
             AcceptanceRuntimeConfig, frame_limited_winit_settings, publish_runtime_stage_profile,
-            record_metrics_and_title, send_player_auth_inputs, update_visibility_diagnostics,
+            record_metrics, send_player_auth_inputs, update_visibility_diagnostics,
         },
         visibility::{
             AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
@@ -104,7 +104,9 @@ use crate::{
         },
     },
 };
+use diagnostics::markers::{SHUTDOWN_COMPLETED, requested_present_mode};
 
+#[cfg(feature = "acceptance")]
 use crate::acceptance::model_witness::drive_model_witness;
 
 mod render_setup;
@@ -156,6 +158,10 @@ pub(crate) enum ClientFrameSet {
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
+    #[cfg(not(feature = "acceptance"))]
+    app.init_resource::<crate::acceptance::AcceptanceRun>();
+    #[cfg(feature = "acceptance")]
+    app.init_resource::<Phase3EvidenceEmitter>();
     app.init_resource::<crate::runtime::network::PackReload>();
     configure_client_authority_systems(app);
     crate::audio::configure(app);
@@ -164,7 +170,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .init_resource::<SurvivalMiningRuntime>()
         .init_resource::<MeleeRuntime>()
         .init_resource::<SwingTracker>()
-        .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
         .init_resource::<crate::named_audio::NamedAudio>()
@@ -265,7 +270,10 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             (
                 flush_inventory_network,
+                #[cfg(feature = "acceptance")]
                 emit_phase3_evidence,
+                #[cfg(not(feature = "acceptance"))]
+                crate::runtime::telemetry::discard_completed_movement_evidence,
                 produce_melee,
                 produce_survival_mining,
                 produce_block_use,
@@ -279,28 +287,30 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
 }
 
 pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
+    #[cfg(feature = "acceptance")]
     app.add_systems(
         Update,
         finish_acceptance_run
             .after(ClientFrameSet::NetworkSend)
             .after(ClientFrameSet::UiPublication)
-            .after(record_metrics_and_title),
-    )
-    // The launcher gets first refusal on a fatal session error, so a failed
-    // join returns to the menu instead of ending the process. This has to sit
-    // after the failure is recorded (network drain) and before both systems
-    // that act on it. The transfer follower runs first so a server-directed
-    // move is classified as a replacement handoff, not a failure.
-    .add_systems(
-        Update,
-        (follow_server_transfer, recover_menu_session_failure)
-            .chain()
-            .after(receive_network_events)
-            .after(ClientFrameSet::NetworkSend)
-            .after(ClientFrameSet::UiPublication)
-            .before(exit_on_fatal_runtime_error)
-            .before(finish_acceptance_run),
+            .after(record_metrics)
+            .after(recover_menu_session_failure),
     );
+    app
+        // The launcher gets first refusal on a fatal session error, so a failed
+        // join returns to the menu instead of ending the process. This has to sit
+        // after the failure is recorded (network drain) and before both systems
+        // that act on it. The transfer follower runs first so a server-directed
+        // move is classified as a replacement handoff, not a failure.
+        .add_systems(
+            Update,
+            (follow_server_transfer, recover_menu_session_failure)
+                .chain()
+                .after(receive_network_events)
+                .after(ClientFrameSet::NetworkSend)
+                .after(ClientFrameSet::UiPublication)
+                .before(exit_on_fatal_runtime_error),
+        );
 }
 
 pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
@@ -330,7 +340,9 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 flush_chat_network.before(ClientFrameSet::UiPreparation),
                 flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
+                #[cfg(feature = "acceptance")]
                 poll_transparent_witness_request,
+                #[cfg(feature = "acceptance")]
                 poll_model_witness_request,
                 update_camera_medium,
                 update_atmosphere_frame,
@@ -340,42 +352,18 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 update_lightning,
                 refresh_cave_visibility,
                 update_visibility_diagnostics.after(ChunkRenderApplySet),
+                #[cfg(feature = "acceptance")]
                 emit_world_ready,
+                #[cfg(feature = "acceptance")]
                 drive_model_witness,
                 apply_runtime_vsync_setting,
-                record_metrics_and_title,
+                record_metrics,
                 publish_runtime_stage_profile,
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
         )
         .add_systems(Last, arm_shutdown_watchdog);
-}
-
-fn read_verified_physics_registry(
-    path: &Path,
-    expected_sha256: &str,
-    expected_protocol: u32,
-) -> Result<Vec<u8>> {
-    let bytes = fs::read(path).with_context(|| {
-        format!(
-            "read required protocol-{expected_protocol} physics registry {}; {}",
-            path.display(),
-            PHYSICS_REGISTRY_GENERATION_GUIDANCE
-        )
-    })?;
-    let actual_sha256 = format!("{:x}", Sha256::digest(&bytes));
-    let expected_sha256 = expected_sha256.trim();
-    if actual_sha256 != expected_sha256 {
-        bail!(
-            "protocol-{expected_protocol} physics registry {} is stale or corrupt: expected sha256 {}, got {}; {}",
-            path.display(),
-            expected_sha256,
-            actual_sha256,
-            PHYSICS_REGISTRY_GENERATION_GUIDANCE
-        );
-    }
-    Ok(bytes)
 }
 
 pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
@@ -423,6 +411,7 @@ fn bind_direct_session_directory(
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = crate::lifecycle::children::StopOnDrop;
     crate::lifecycle::children::install_exit_hooks();
@@ -659,6 +648,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );
+    #[cfg(feature = "acceptance")]
     let phase3_identity_source = args
         .phase3_evidence_target
         .map(|target| {
@@ -738,11 +728,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: if connection_requested {
-                        "Rust MCBE | connecting".to_owned()
-                    } else {
-                        "Rust MCBE | Cinnabar".to_owned()
-                    },
+                    title: launcher::PRODUCT_NAME.to_owned(),
                     present_mode,
                     ..default()
                 }),
@@ -881,17 +867,16 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(block_entity_scene)
     .insert_resource(PublicationController::new(
         PublicationServiceConfig::PHASE2_GATE,
-    ))
-    .insert_resource(TransparentWitnessFileSource::new(
-        args.transparent_witness_request,
-    ))
-    .insert_resource(ModelWitnessFileSource::new(args.model_witness_request))
-    .insert_resource(AcceptanceRun::new(
-        args.acceptance_seconds,
-        args.metrics_out,
-        args.full_view_teleport_gate,
-        args.require_transparent_presentation,
     ));
+    #[cfg(feature = "acceptance")]
+    app.add_plugins(acceptance::AcceptancePlugin {
+        seconds: args.acceptance_seconds,
+        metrics_out: args.metrics_out,
+        full_view_teleport_gate: args.full_view_teleport_gate,
+        require_transparent_presentation: args.require_transparent_presentation,
+        transparent_witness_request: args.transparent_witness_request,
+        model_witness_request: args.model_witness_request,
+    });
     {
         const MAIN_FRAME: usize = render::RuntimeStage::MainFrame as usize;
         app.insert_resource(RuntimeStageProfiler::for_gameplay(
@@ -952,6 +937,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);
     }
+    #[cfg(feature = "acceptance")]
     if let Some(identity) = phase3_identity_source {
         app.insert_resource(identity);
     }

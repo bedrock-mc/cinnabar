@@ -90,7 +90,7 @@ fn enhanced_pipelines_build_on_native_adapter() {
             vec![super::gpu::enhanced_post_layout()]
         } else {
             vec![
-                crate::chunk::enhanced::chunk_bind_group_layout(),
+                crate::chunk::pipeline::layouts::chunk_bind_group_layout(),
                 crate::lighting::layout(),
                 if shadow {
                     super::gpu::enhanced_caster_layout()

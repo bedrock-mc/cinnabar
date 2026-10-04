@@ -1,4 +1,4 @@
-// Current liquid tessellation (1.26.50.26 0x06a1b960) owns its lighting,
+// Current liquid tessellation owns its lighting,
 // independently of AmbientOcclusionCalculator's terrain sampling.
 use std::cell::Cell;
 

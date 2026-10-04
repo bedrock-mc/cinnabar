@@ -10,18 +10,14 @@ The focused history ends at the same bottom offset as HUD chat. The input bar
 and history share the pack's chat width. Focused history does not fade or give
 way to autocomplete; suggestions overlay it immediately above the input.
 
-References for the unchanged controller contract:
+## Vanilla rules
 
-- Lens `source_search`, current `1.26.50.26`, `ChatScreenController`: source-backed
-  RTTI at `0x5669d40` identifies `_pasteClipboardInChat`; `0x566c7f0` identifies
-  `_registerBindings`. `owner_search` / `owner_functions` identify the 26.30
-  controller's send (`0x28a2b30`) and sent-history (`0x28a6a90`) methods.
-  Current implementation searches returned no matching binding body; batched
-  function reads reported unavailable analysis/source. No current implementation
-  details are inferred from those RTTI names.
-- `R:c/ChatScreenController.cpp:3350`: `_sendChatMessage` owns sending and blank
-  dismissal. `R:c/ChatScreenController.cpp:6144`: `_handleSelectSentMessage`
-  owns sent-message selection. Both are in the local 26.30 reconstruction.
+| Rule | Behaviour |
+| --- | --- |
+| Chat controller | Own clipboard paste and binding registration. Current binding implementation details remain unverified. |
+| Sending | Send the message or dismiss blank input. |
+| Sent history | Select previously sent messages. |
+
 - Vanilla `v1.26.50.4/full/resource_pack/ui/chat_screen.json:308`: the
   `messages_factory` and scrolling panel, including jump-to-bottom on update.
   Lines 339 and 523 define the editor content binding and autocomplete rows;

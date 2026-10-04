@@ -1,5 +1,5 @@
 use super::*;
-use protocol::{AbilitiesUpdate, AbilityLayersEvidence};
+use protocol::{AbilitiesUpdate, AbilityLayerEvidence, AbilityLayersEvidence};
 
 /// Builds empty or unavailable ability evidence without fabricating received layers.
 fn update(owner: i64, count: u32) -> AbilitiesUpdate {
@@ -75,4 +75,36 @@ fn retired_and_failed_repeat_bindings_cannot_be_resurrected_by_drain_or_clone() 
     runtime.apply_local_abilities(7, 6, 1, update(17, 0));
     runtime.begin_session(8);
     assert!(runtime.local_abilities().is_none());
+}
+
+/// A confirmed mode switch changes mining immediately without rewriting wire evidence.
+#[test]
+fn creative_to_survival_keeps_abilities_but_stops_instant_destruction() {
+    use crate::game_mode_capabilities::ability_bit::INSTANT_BUILD;
+    use protocol::PlayerGameMode::{Creative, Survival};
+
+    let mut runtime = LocalPlayerFacts::new(7);
+    runtime.publish_bootstrap_game_modes(Creative, Creative, false);
+    runtime.bind_local_abilities(7, 4, 17, true);
+    let evidence = AbilitiesUpdate {
+        layers: AbilityLayersEvidence::Received(
+            [AbilityLayerEvidence {
+                layer_type: 1,
+                abilities: INSTANT_BUILD,
+                values: INSTANT_BUILD,
+                fly_speed_bits: 0,
+                vertical_fly_speed_bits: 0,
+                walk_speed_bits: 0,
+            }]
+            .into(),
+        ),
+        ..update(17, 0)
+    };
+    runtime.apply_local_abilities(7, 4, 1, evidence.clone());
+    assert!(runtime.game_mode_capabilities().unwrap().instant_break);
+    assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Survival)));
+    assert!(!runtime.game_mode_capabilities().unwrap().instant_break);
+    assert_eq!(runtime.local_abilities(), Some(&evidence));
+    assert!(runtime.apply_game_mode_update(GameModeUpdate::Explicit(Creative)));
+    assert!(runtime.game_mode_capabilities().unwrap().instant_break);
 }

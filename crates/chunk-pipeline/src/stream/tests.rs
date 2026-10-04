@@ -500,6 +500,7 @@ fn requested_block_entity_sub_chunk_event(
     WorldEvent::SubChunks(SubChunkBatchEvent {
         dimension: 0,
         entries: vec![SubChunkEntryEvent {
+            diagnostics: None,
             position: [chunk_x, -4, 0],
             result: SubChunkResult::Success { payload },
         }],
@@ -827,6 +828,7 @@ fn apply_sub_chunk_result(
     stream.apply_prepared(super::PreparedWorldEvent::SubChunks {
         dimension: key.dimension,
         entries: vec![PreparedSubChunk {
+            diagnostics: None,
             position: [key.x, key.y, key.z],
             result,
         }],

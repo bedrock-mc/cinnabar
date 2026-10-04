@@ -1,38 +1,49 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
 pub mod helper;
+#[cfg(feature = "execution")]
 mod runtime;
+#[cfg(feature = "execution")]
 pub mod server;
 
-use anyhow::{Context, Result, ensure};
+#[cfg(feature = "execution")]
 pub use mod_api::{MAX_CAMERA_DELTA_RADIANS, MAX_GAMEPLAY_PLAYERS};
-use runtime::Instance;
+#[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{
     Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
 
 /// Committed local actor rotation; yaw turns left and pitch turns up, in radians.
+#[cfg(feature = "execution")]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CameraDelta {
     pub yaw: f32,
     pub pitch: f32,
 }
-use sha2::{Digest, Sha256};
-use std::{
-    fs::File,
-    io::Read,
-    path::{Path, PathBuf},
+#[cfg(feature = "execution")]
+use {
+    anyhow::{Context, Result, ensure},
+    runtime::Instance,
+    sha2::{Digest, Sha256},
+    std::{
+        fs::File,
+        io::Read,
+        path::{Path, PathBuf},
+    },
+    wasmtime::{Config, Engine},
 };
-use wasmtime::{Config, Engine};
 
 /// Maximum bytes accepted before compilation or allocation of a package buffer.
 pub const MAX_COMPONENT_BYTES: usize = 4 * 1024 * 1024;
 /// Plain-text UI limit, checked before publishing any guest output.
 pub const MAX_LABEL_BYTES: usize = 256;
+#[cfg(feature = "execution")]
 pub(crate) const FRAME_FUEL: u64 = 100_000;
+#[cfg(feature = "execution")]
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Explicit per-instance authority; optional capabilities are denied by default.
+#[cfg(feature = "execution")]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ModGrants {
     /// Allows this instance to replace visual time only.
@@ -44,6 +55,7 @@ pub struct ModGrants {
 }
 
 /// A developer-selected component with transactional reload and trap quarantine.
+#[cfg(feature = "execution")]
 pub struct ModHost {
     engine: Engine,
     instance: Instance,
@@ -52,6 +64,7 @@ pub struct ModHost {
     grants: ModGrants,
 }
 
+#[cfg(feature = "execution")]
 impl ModHost {
     /// Loads a local component with HUD and demo input, denying optional capabilities.
     pub fn load(path: &Path) -> Result<Self> {
@@ -125,6 +138,7 @@ impl ModHost {
 }
 
 /// Bounds file reads even if a writer grows the file between metadata and read.
+#[cfg(feature = "execution")]
 fn read_component(path: &Path) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     File::open(path)
@@ -138,5 +152,5 @@ fn read_component(path: &Path) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "execution"))]
 mod tests;

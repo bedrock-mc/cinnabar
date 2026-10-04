@@ -299,7 +299,7 @@ pub fn block_break_request(
         position: block.map(|c| c as f32 + 0.5),
         variables: variables(&[
             ("emitter_particles_count", BLOCK_BREAK_PARTICLES),
-            // Native _addTerrainEffect (04e96080), matched exponent DAT_14feff29c.
+            // Vanilla terrain effects use this exponent.
             ("emitter_intensity", BLOCK_BREAK_PARTICLES.powf(1.0 / 3.0)),
             ("emitter_radius", 0.5),
             ("velocity_scalar", 1.0),

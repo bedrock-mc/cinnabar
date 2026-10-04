@@ -64,7 +64,7 @@ fn selected_shape(
 #[test]
 fn current_stair_selection_surface_uses_authoritative_corner_rotation_and_half() {
     let (records, assets) = fixture();
-    // Native step/inner AABB witnesses, 0a5b5090/0a5b5460, quadrant bits x+2*z.
+    // Native step/inner AABB witnesses, quadrant bits x+2*z.
     let occupied = [
         [10_u8, 11, 14, 2, 8],
         [5, 13, 7, 4, 1],
@@ -141,7 +141,7 @@ fn current_stair_selection_surface_uses_authoritative_corner_rotation_and_half()
             };
             let mut frame = BlockSelectionFrame::default();
             frame.update(Some(&target), Vec3::splat(3.0), Vec3::NEG_Z, true);
-            // Named native StairBlock::getOutline 0b01f380 deliberately uses one full box.
+            // Named native StairBlock::getOutline deliberately uses one full box.
             assert_eq!(frame.outline.len(), 12 * 6);
             frame.update(Some(&target), Vec3::splat(3.0), Vec3::NEG_Z, false);
             assert_eq!(frame.highlight.len(), quad_count * 6);

@@ -382,6 +382,7 @@ fn client_world_publication_contract_crosses_the_app_boundary() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [key.x, key.y, key.z],
                     result: SubChunkResult::AllAir,
                 }],

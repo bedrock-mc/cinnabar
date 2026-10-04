@@ -6,6 +6,7 @@ use crate::{
 };
 
 use super::MovementEnvironment;
+use crate::fluid::liquid_contact;
 
 pub const MAX_BLOCK_SAMPLES_PER_TICK: usize = 64;
 
@@ -16,15 +17,22 @@ pub(super) struct SampledEnvironment {
     pub block_samples: usize,
 }
 
-/// Samples blocks touching the current pose box (`height` tall) and its sweep.
+/// Samples the movement pose's sweep and the preceding liquid-sensing pose.
 pub(super) fn sample(
-    world: &impl CollisionWorld,
+    world: &(impl CollisionWorld + ?Sized),
     position: Vec3,
     velocity: Vec3,
     height: f64,
+    liquid_contact_height: Option<f64>,
 ) -> Result<SampledEnvironment, WorldQueryError> {
     let player = Aabb::player_with_height_at(position, height);
+    let liquid_player =
+        Aabb::player_with_height_at(position, liquid_contact_height.unwrap_or(height));
     let swept = player.swept(velocity);
+    let swept = Aabb::new(
+        swept.min.component_min(liquid_player.min),
+        swept.max.component_max(liquid_player.max),
+    );
     crate::world::validate_collision_query(swept)?;
     let min = block_at(swept.min)?;
     let max = inclusive_max_block_at(swept.max)?;
@@ -80,9 +88,9 @@ pub(super) fn sample(
             movement.on_climbable |=
                 body_contact && facts.flags.contains(BlockPhysicsFlags::CLIMBABLE);
             movement.in_water |= facts.flags.contains(BlockPhysicsFlags::WATER)
-                && liquid_contact(player, block, true);
+                && liquid_contact(liquid_player, block, true);
             movement.in_lava |= facts.flags.contains(BlockPhysicsFlags::LAVA)
-                && liquid_contact(player, block, false);
+                && liquid_contact(liquid_player, block, false);
             // Cobwebs occupy a full block volume even without solid collision
             // boxes. Swept/support samples alone do not establish body contact.
             movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB)
@@ -132,10 +140,11 @@ pub(super) fn contains_liquid(
                 });
                 // The raised exit probe asks whether its sampled block cells
                 // carry liquid, not whether the liquid surface reaches it.
-                contains |= sample.layers.iter().any(|facts| {
-                    facts.flags.contains(BlockPhysicsFlags::WATER)
-                        || facts.flags.contains(BlockPhysicsFlags::LAVA)
-                });
+                // Current BlockSource::containsAnyLiquid (0x031a7a20)
+                // reads getBlock's primary material, without secondary layers.
+                let flags = sample.primary().flags;
+                contains |= flags.contains(BlockPhysicsFlags::WATER)
+                    || flags.contains(BlockPhysicsFlags::LAVA);
             }
         }
     }
@@ -173,25 +182,6 @@ fn active_surface_response(
     } else {
         facts.surface_response
     }
-}
-
-/// Tests the native shrunken liquid probe against material cells, independent of surface height.
-fn liquid_contact(player: Aabb, block: [i32; 3], water: bool) -> bool {
-    // Lens 0xa5d5c40 shrinks these boxes; 0xa5dd330 tests floored cell coordinates.
-    let shrink = if water {
-        [0.001_f32, 0.401, 0.001]
-    } else {
-        [0.1_f32, 0.4, 0.1]
-    };
-    (0..3).all(|axis| {
-        let min = player.min[axis] as f32;
-        let max = player.max[axis] as f32;
-        let center = (min + max) * 0.5;
-        let low = (min + shrink[axis]).min(center).floor();
-        let high = (max - shrink[axis]).max(center);
-        let coordinate = block[axis] as f32;
-        low <= coordinate && coordinate <= high
-    })
 }
 
 /// Tests body contact with a block volume used by non-liquid effects.

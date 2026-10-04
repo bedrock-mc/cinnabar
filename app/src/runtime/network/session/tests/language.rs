@@ -88,7 +88,7 @@ fn replacing_handle_drops_old_terminal_receiver_before_new_session_publication()
     ] {
         let (mut handle, _) = NetworkHandle::stub();
         let (sender, receiver) = mpsc::channel(1);
-        handle.control_events = receiver;
+        *handle.control_events_mut() = receiver;
         sender.try_send(terminal).unwrap();
         let old = std::mem::replace(&mut handle, NetworkHandle::disconnected());
         drop(old);
