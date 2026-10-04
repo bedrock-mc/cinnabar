@@ -33,7 +33,8 @@ CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm \
 ```
 
 During gameplay, F8 changes the label. UI focus and window focus suppress the
-action. The mod cannot generate input, chat, packets or world mutations. Rebuild
+action. Without the additional gameplay grants below, the mod cannot generate
+camera input, chat, packets or world mutations. Rebuild
 the guest and package to a temporary sibling file, then atomically rename it over
 the selected component to reload. Reload resets guest state and commits the new
 label only after initialization succeeds; a broken replacement keeps the previous
@@ -79,25 +80,79 @@ subject to its current parity limits; this mod adds no native acceptance claim.
 
 ## Contract and implementation
 
+### Opt-in gameplay API
+
+Personal developer components may request `gameplay.read-frame()` and
+`gameplay.rotate(yaw-delta, pitch-delta)`. Both capabilities are denied by
+default, independently of the visual time grant. Explicitly opt in at startup:
+
+```sh
+CINNABAR_MOD_COMPONENT=/tmp/my-mod.wasm \
+CINNABAR_MOD_PLAYERS=1 CINNABAR_MOD_CAMERA=1 \
+  cargo run -p bedrock-client --locked
+```
+
+On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
+launching the client. Only the exact value `1` grants access. These grants apply
+only to the explicitly selected personal component, not to server bundles.
+
+`read-frame` returns an error without the players grant, or `ok(none)` outside
+active gameplay. A snapshot contains the actor session, dimension, local subject
+eye position, actor yaw/pitch, frame duration in seconds, held semantic attack
+action and up to `mod_api::MAX_GAMEPLAY_PLAYERS` remote player feet positions.
+Positions are world block coordinates; angles and rotation deltas are radians
+in the actor's YXZ convention: positive yaw turns left, positive pitch turns up.
+Nearest players come first, with runtime ID breaking distance ties. The local
+player, mobs, non-finite positions and player-list entries without loaded actors
+are excluded. Runtime IDs are session-scoped. These are committed actor positions,
+not interpolated render poses; the list does **not** assert line of sight,
+on-screen visibility, friendship or server permission.
+
+`rotate` requires the separate camera grant and a current gameplay snapshot.
+It adds to physical look in the same frame, before movement, physics and camera
+publication. The sum of accepted writes per axis must remain within
+`mod_api::MAX_CAMERA_DELTA_RADIANS`; non-finite or excessive deltas are rejected.
+The app retains its existing pitch limit and preserves subject position and roll.
+There are at most eight read calls and eight rotation calls per callback; exceeding
+either budget traps the guest. Output is committed only after a successful
+callback and consumed once. Initialization, loss of gameplay authority, a trap or
+successful reload cannot leave a rotation queued for a later frame.
+
+The app provides no gameplay frame when the window is unfocused, the cursor is
+released, a screen owns input, no world is connected, an acceptance camera is
+running, or a server camera is active. The default client still installs no
+extension systems. A camera write changes the local actor's look; the normal
+movement/network path may report that look to the server. This is not a
+presentation-only override and carries no server approval claim.
+
+A guest can use `attack-held` to choose between continuous assistance and
+assistance only during the attack action, and `frame-seconds` to scale a strength
+setting independently of rendering speed. Target selection and strength remain
+guest policy; this API does not install an aim-assist algorithm. No process memory,
+OS input synthesis or vision model is needed.
+
 `crates/mod-api/wit/extension.wit` is the single interface definition. The guest
 SDK uses `wit-bindgen`; the host independently generates Wasmtime bindings from
 that same file. Copy `examples/mods/hello` to start a mod, adjust its dependency
 path, and implement its generated `Guest` trait. `pack` converts the core WASM
 module and embedded WIT metadata to a component. The guest's actual imports
 declare its requirements; unknown imports fail linking. The prototype's
-grant is HUD, the demo action and environment for the developer-selected mod. It has
+grant is HUD, the demo action and environment for the developer-selected mod,
+with separate explicit opt-ins for gameplay reads and camera writes. It has
 no permission prompt or install manifest yet.
 
-The host admits no WASI, filesystem, network, Bevy, world or GPU import. Each
+The host admits no WASI, filesystem, network, Bevy or GPU import. Gameplay data
+arrives only as a bounded app-owned snapshot, not a world handle. Each
 callback receives a fresh fuel budget and publishes at most one validated label
-and one visual time override.
+and one visual time override, plus one current-frame camera delta when granted.
 Resource limits are defined in `crates/mod-host/src/lib.rs` and `runtime.rs`.
 Invalid text is rejected; labels are plain text and cannot carry formatting codes.
 The label's original host-owned JSON template goes through the existing JSON-UI
 engine and compiled carrier. Guest strings never become JSON or binding expressions.
 
 The app integration sits after semantic input finalization and before UI
-publication. With the switch absent it installs no mod resource or update system.
+publication, between physical look and movement. With the switch absent it
+installs no mod resource or update system.
 Required vanilla carriers remain required. The extension adds no protocol types
 or dependencies on gameplay state to the component host.
 

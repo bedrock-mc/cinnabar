@@ -703,6 +703,16 @@ acceptance. Only explicitly selected local developer components are supported;
 do not treat this as admission for untrusted downloaded mods. See
 `docs/modding-spike.md` for the executable sample and offline evidence harness.
 
+2026-10-04 modding gameplay API: experimental, non-parity extension. Separate,
+default-denied grants expose bounded current-frame remote player snapshots and
+transactional local actor rotation after physical look and before movement.
+Focus, input authority, cursor capture, session presence and camera ownership
+gate the app adapter. Incomplete: server policy negotiation, user-facing grant
+and revocation UI, production API stability, native multiplayer acceptance and
+cross-platform runtime acceptance. Loaded player data is not line-of-sight or
+visibility evidence. No aim-assist algorithm is installed and no vanilla parity
+gate is closed; see `docs/modding-spike.md` for the contract and opt-in switches.
+
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
 the native 0.35-block crouch offset, half-blended once per completed tick and
 interpolated per frame. Local actor feet, interaction eye and network anchor are

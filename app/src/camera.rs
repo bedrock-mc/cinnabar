@@ -74,6 +74,10 @@ pub struct FlyCamera {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FlyCameraUpdateSet;
 
+/// Optional developer camera input, after physical look and before movement.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModCameraInputSet;
+
 impl Default for FlyCamera {
     fn default() -> Self {
         Self { speed: 24.0 }
@@ -528,6 +532,13 @@ impl Plugin for FlyCameraPlugin {
                 FlyCameraUpdateSet
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(ClientFrameSet::Physics),
+            )
+            .configure_sets(
+                Update,
+                ModCameraInputSet
+                    .in_set(FlyCameraUpdateSet)
+                    .after(update_look)
+                    .before(update_movement),
             )
             .add_systems(
                 Update,

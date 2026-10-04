@@ -1,4 +1,5 @@
 use super::*;
+mod gameplay;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.
 fn fixture(frame: &str, text: &str) -> String {
@@ -188,6 +189,7 @@ fn environment_fixture(init: &str, frame: &str, granted: bool) -> (tempfile::Tem
         &path,
         ModGrants {
             environment: granted,
+            ..Default::default()
         },
     )
     .unwrap();

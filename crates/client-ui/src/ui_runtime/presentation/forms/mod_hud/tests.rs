@@ -187,7 +187,10 @@ fn mod_spike_snapshot_with_real_carrier() {
     let mut guest = std::env::var_os(SAMPLE_COMPONENT_ENV).map(|path| {
         mod_host::ModHost::load_with_grants(
             std::path::Path::new(&path),
-            mod_host::ModGrants { environment: true },
+            mod_host::ModGrants {
+                environment: true,
+                ..Default::default()
+            },
         )
         .unwrap()
     });
@@ -221,7 +224,10 @@ fn mod_spike_offline_frame_overhead() {
         .unwrap_or_else(|| panic!("set {SAMPLE_COMPONENT_ENV} to the compiled sample"));
     let mut host = mod_host::ModHost::load_with_grants(
         std::path::Path::new(&path),
-        mod_host::ModGrants { environment: true },
+        mod_host::ModGrants {
+            environment: true,
+            ..Default::default()
+        },
     )
     .unwrap();
     let mut vanilla = pack_harness::engine_presentation().expect("real UI carrier required");

@@ -22,6 +22,7 @@ fn main() -> Result<()> {
                 Path::new(path),
                 ModGrants {
                     environment: command == "probe-environment",
+                    ..Default::default()
                 },
             )?;
             let initial = host.label().map(str::to_owned);

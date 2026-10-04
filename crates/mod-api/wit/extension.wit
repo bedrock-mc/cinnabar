@@ -18,11 +18,34 @@ interface environment {
     set-time-override: func(ticks: option<u32>) -> result<_, string>;
 }
 
+/// Explicit local gameplay capabilities; no world mutation or packet access.
+interface gameplay {
+    record vector3 { x: f32, y: f32, z: f32 }
+    /// Remote player feet in world coordinates, without names or network access.
+    record player { runtime-id: u64, position: vector3 }
+    /// Current input-owned frame only. Angles are actor YXZ radians: yaw left, pitch up.
+    record snapshot {
+        session: u64,
+        dimension: s32,
+        eye: vector3,
+        yaw: f32,
+        pitch: f32,
+        attack-held: bool,
+        frame-seconds: f32,
+        players: list<player>,
+    }
+    /// Requires the explicit players grant; none means gameplay does not own input.
+    read-frame: func() -> result<option<snapshot>, string>;
+    /// Requires the camera grant and a current frame; commits only after frame returns.
+    rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
+}
+
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
     import hud;
     import input;
     import environment;
+    import gameplay;
     /// Creates the initial retained UI state.
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.

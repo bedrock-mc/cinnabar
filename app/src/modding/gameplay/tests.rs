@@ -1,0 +1,321 @@
+use std::sync::Arc;
+
+use client_world::WorldStream;
+use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
+
+use super::*;
+
+#[test]
+fn production_camera_and_extension_schedule_is_acyclic_without_carriers() {
+    let path = std::env::temp_dir().join(format!(
+        "cinnabar-gameplay-schedule-{}.wat",
+        std::process::id()
+    ));
+    std::fs::write(
+        &path,
+        r#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#,
+    )
+    .unwrap();
+    let mut app = App::new();
+    app.add_plugins(crate::camera::FlyCameraPlugin::default());
+    super::super::configure_with_grants(
+        &mut app,
+        Some(&path),
+        ModGrants {
+            players: true,
+            camera: true,
+            ..Default::default()
+        },
+    );
+    std::fs::remove_file(path).unwrap();
+    assert!(app.world().contains_resource::<super::super::ModRuntime>());
+    let mut schedule = app
+        .world_mut()
+        .resource_mut::<Schedules>()
+        .remove(Update)
+        .unwrap();
+    schedule.initialize(app.world_mut()).unwrap();
+}
+
+#[derive(Resource)]
+struct Request {
+    allowed: bool,
+    grants: ModGrants,
+}
+
+#[derive(Resource, Default)]
+struct ResultSnapshot(Option<GameplaySnapshot>);
+
+fn capture(context: GameplayContext, request: Res<Request>, mut result: ResMut<ResultSnapshot>) {
+    result.0 = context.snapshot(request.allowed, request.grants);
+}
+
+fn stream() -> WorldStream {
+    WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        // No block events are submitted; this fixture uses only actor authority.
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    })
+}
+
+fn spawn(id: u64, kind: ActorKind, position: [f32; 3]) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+        dimension: 0,
+        unique_id: i64::try_from(id).unwrap(),
+        runtime_id: id,
+        kind,
+        position,
+        velocity: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        body_yaw: 0.0,
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    }))
+}
+
+fn player(id: u64, position: [f32; 3]) -> WorldEvent {
+    spawn(
+        id,
+        ActorKind::Player {
+            uuid: [0; 16],
+            username: format!("fixture-{id}").into(),
+        },
+        position,
+    )
+}
+
+fn app() -> App {
+    let mut app = App::new();
+    app.insert_resource(Request {
+        allowed: true,
+        grants: ModGrants {
+            players: true,
+            camera: true,
+            ..Default::default()
+        },
+    })
+    .init_resource::<ResultSnapshot>()
+    .insert_resource(LocalViewPose::new(Vec3::ZERO, Quat::IDENTITY))
+    .insert_resource(ClientWorld {
+        stream: Some(stream()),
+        ..Default::default()
+    })
+    .add_systems(Update, capture);
+    app
+}
+
+#[test]
+fn missing_authority_or_gameplay_context_clears_the_snapshot() {
+    let mut app = app();
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_some());
+
+    // This is the adapter's captured-gameplay flag, supplied by focus/menu gating.
+    app.world_mut().resource_mut::<Request>().allowed = false;
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+    app.world_mut().resource_mut::<Request>().allowed = true;
+    app.world_mut().resource_mut::<Request>().grants = ModGrants::default();
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+
+    app.world_mut().resource_mut::<Request>().grants.players = true;
+    app.world_mut().resource_mut::<ClientWorld>().stream = None;
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+    app.world_mut().resource_mut::<ClientWorld>().stream = Some(stream());
+    app.world_mut().remove_resource::<LocalViewPose>();
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+}
+
+#[test]
+fn acceptance_camera_blocks_snapshot_even_while_presentation_is_paused() {
+    let mut app = app();
+    app.insert_resource(AutoFly::new(true));
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+    app.world_mut()
+        .resource_mut::<AutoFly>()
+        .pause_for_stable_presentation();
+    assert!(!app.world().resource::<AutoFly>().enabled());
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+    app.insert_resource(AutoFly::new(false));
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_some());
+}
+
+#[test]
+fn protocol_players_are_remote_only_and_grants_do_not_disclose_players() {
+    let mut app = app();
+    {
+        let mut world = app.world_mut().resource_mut::<ClientWorld>();
+        let stream = world.stream.as_mut().unwrap();
+        stream.submit(1, player(1, [0.0; 3])).unwrap();
+        stream.submit(2, player(2, [2.0, 0.0, 0.0])).unwrap();
+        stream
+            .submit(
+                3,
+                spawn(
+                    3,
+                    ActorKind::Entity {
+                        identifier: "minecraft:player".into(),
+                    },
+                    [0.0; 3],
+                ),
+            )
+            .unwrap();
+    }
+    app.update();
+    let snapshot = app.world().resource::<ResultSnapshot>().0.as_ref().unwrap();
+    assert_eq!(snapshot.players.len(), 1);
+    assert_eq!(snapshot.players[0].runtime_id, 2);
+    assert_eq!(snapshot.dimension, 0);
+    assert!(!snapshot.attack_held);
+    assert_eq!(snapshot.frame_seconds, 0.0);
+    app.world_mut().resource_mut::<Request>().grants.players = false;
+    app.update();
+    assert!(
+        app.world()
+            .resource::<ResultSnapshot>()
+            .0
+            .as_ref()
+            .unwrap()
+            .players
+            .is_empty()
+    );
+}
+
+#[test]
+fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
+    let mut stream = stream();
+    let count = mod_host::MAX_GAMEPLAY_PLAYERS + 7;
+    // Reverse the admission order to make ordering independent of the actor map.
+    for (index, id) in (2..=count as u64 + 1).rev().enumerate() {
+        stream
+            .submit(index as u64 + 1, player(id, [1.0, 0.0, 0.0]))
+            .unwrap();
+    }
+    let players = nearest_players(stream.remote_actors(), Vec3::ZERO);
+    assert_eq!(players.len(), mod_host::MAX_GAMEPLAY_PLAYERS);
+    assert_eq!(players.first().unwrap().runtime_id, 2);
+    assert_eq!(
+        players.last().unwrap().runtime_id,
+        mod_host::MAX_GAMEPLAY_PLAYERS as u64 + 1
+    );
+
+    // A newly spawned nearer player must replace the furthest retained tie.
+    let near_id = count as u64 + 2;
+    stream
+        .submit(count as u64 + 1, player(near_id, [0.0; 3]))
+        .unwrap();
+    let players = nearest_players(stream.remote_actors(), Vec3::ZERO);
+    assert_eq!(players.len(), mod_host::MAX_GAMEPLAY_PLAYERS);
+    assert_eq!(players[0].runtime_id, near_id);
+    assert_eq!(players[1].runtime_id, 2);
+}
+
+#[test]
+fn malformed_actor_samples_do_not_enter_the_guest_snapshot() {
+    let mut stream = stream();
+    stream.submit(1, player(2, [1.0, 0.0, 0.0])).unwrap();
+    let valid = stream.remote_actors().next().unwrap().clone();
+    let mut zero_id = valid.clone();
+    zero_id.runtime_id = 0;
+    let mut non_finite = valid.clone();
+    non_finite.runtime_id = 3;
+    non_finite.position[0] = f32::NAN;
+    let mut infinite = valid.clone();
+    infinite.runtime_id = 4;
+    infinite.position[1] = f32::INFINITY;
+    let samples = [zero_id, non_finite, infinite, valid];
+    let players = nearest_players(samples.iter(), Vec3::ZERO);
+    assert_eq!(players.len(), 1);
+    assert_eq!(players[0].runtime_id, 2);
+}
+
+#[test]
+fn camera_delta_wraps_yaw_and_preserves_roll_eye_and_feet() {
+    let eye = Vec3::new(3.0, 70.5, -4.0);
+    let feet = Vec3::new(3.0, 69.0, -4.0);
+    let roll = 0.17;
+    let mut view = LocalViewPose::new(
+        eye,
+        Quat::from_euler(EulerRot::YXZ, std::f32::consts::PI - 0.05, 0.2, roll),
+    );
+    view.set_subject_position(eye, feet);
+    let original = view;
+    apply_delta(&mut view, CameraDelta::default());
+    assert_eq!(view, original);
+    apply_delta(
+        &mut view,
+        CameraDelta {
+            yaw: 0.1,
+            pitch: 0.1,
+        },
+    );
+    let (yaw, pitch, actual_roll) = view.rotation().to_euler(EulerRot::YXZ);
+    assert!((yaw - (-std::f32::consts::PI + 0.05)).abs() < 1e-5);
+    assert!((pitch - 0.3).abs() < 1e-5);
+    assert!((actual_roll - roll).abs() < 1e-5);
+    assert_eq!(view.eye_translation(), eye);
+    assert_eq!(view.feet_translation(), feet);
+}
+
+#[test]
+fn camera_delta_obeys_both_existing_pitch_limits_through_the_system_param() {
+    fn rotate(mut context: GameplayContext, delta: Res<PendingDelta>) {
+        context.apply(delta.0);
+    }
+    #[derive(Resource)]
+    struct PendingDelta(CameraDelta);
+    let mut app = App::new();
+    app.insert_resource(LocalViewPose::new(
+        Vec3::ZERO,
+        Quat::from_euler(EulerRot::YXZ, 0.0, PITCH_LIMIT - 0.01, 0.0),
+    ))
+    .insert_resource(PendingDelta(CameraDelta {
+        yaw: 0.0,
+        pitch: 0.1,
+    }))
+    .add_systems(Update, rotate);
+    app.update();
+    let (_, pitch, _) = app
+        .world()
+        .resource::<LocalViewPose>()
+        .rotation()
+        .to_euler(EulerRot::YXZ);
+    // Euler extraction near the pole has less precision than the quaternion.
+    assert!((pitch - PITCH_LIMIT).abs() < 1e-4);
+    app.world_mut()
+        .resource_mut::<LocalViewPose>()
+        .set_rotation(Quat::from_euler(
+            EulerRot::YXZ,
+            0.0,
+            -PITCH_LIMIT + 0.01,
+            0.0,
+        ));
+    app.world_mut().resource_mut::<PendingDelta>().0.pitch = -0.1;
+    app.update();
+    let (_, pitch, _) = app
+        .world()
+        .resource::<LocalViewPose>()
+        .rotation()
+        .to_euler(EulerRot::YXZ);
+    assert!((pitch + PITCH_LIMIT).abs() < 1e-4);
+}
