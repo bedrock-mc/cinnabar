@@ -12,14 +12,14 @@ test-support = []
 crossbeam-channel = "0.5"
 assets = { path = "../assets" }
 bytes.workspace = true
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tga"] }
+image.workspace = true
 protocol = { path = "../protocol" }
 resource-pack = { path = "../resource-pack" }
 server-experience = { path = "../server-experience" }
 serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+tokio.workspace = true
 tracing = "0.1"
 world = { path = "../world" }
 

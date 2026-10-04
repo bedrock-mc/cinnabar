@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 assets = { path = "../assets" }
-bevy = { workspace = true, features = ["bevy_window", "std"] }
+bevy.workspace = true
 client-world = { package = "chunk-pipeline", path = "../chunk-pipeline" }
 meshing = { path = "../meshing" }
 protocol = { path = "../protocol" }

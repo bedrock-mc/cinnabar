@@ -162,6 +162,10 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --workspace --locked --no-fail-fast
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Lint off-by-default features
+        run: |
+          cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
+          cargo clippy -p bedrock-client --features enhanced,local-mods --locked -- -D warnings
       - run: bash scripts/tests/acceptance_test.sh
       # The Windows job above exercises the vanilla-asset fetchers through
       # Windows PowerShell 5.1, where its bash deep legs are conditionally

@@ -2,7 +2,8 @@
 
 Enhanced is currently hard-disabled after GPU faults and system freezes. The
 renderer kill switch cannot be overridden by settings, launch flags or camera
-components. The implementation below is retained for future investigation.
+components. The implementation below is retained for future investigation and
+compiles only with `--features enhanced` (on `render` or `bedrock-client`).
 
 Vanilla is the default. Enhanced is a deliberate non-parity look and never closes
 a vanilla parity gate. No shader-pack source is used. The earlier Cinnabar WIP

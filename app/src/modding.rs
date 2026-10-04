@@ -1,25 +1,29 @@
 //! Opt-in component spike. The default client registers no extension runtime.
 
-use std::{
-    path::Path,
-    time::{Duration, Instant},
-};
-
-use bevy::{prelude::*, window::PrimaryWindow};
-use mod_host::{ModGrants, ModHost};
-
-use crate::environment::VisualTimeOverride;
-
-use crate::{
-    app::ClientFrameSet,
-    menu::MenuRuntime,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+use bevy::prelude::*;
+#[cfg(feature = "local-mods")]
+use {
+    crate::{
+        app::ClientFrameSet,
+        environment::VisualTimeOverride,
+        menu::MenuRuntime,
+        ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+    },
+    bevy::window::PrimaryWindow,
+    mod_host::{ModGrants, ModHost},
+    std::{
+        path::Path,
+        time::{Duration, Instant},
+    },
 };
 
 const COMPONENT_ENV: &str = "CINNABAR_MOD_COMPONENT";
+#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
+#[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
+#[cfg(feature = "local-mods")]
 #[derive(Resource)]
 struct ModRuntime {
     host: ModHost,
@@ -29,10 +33,17 @@ struct ModRuntime {
 /// Installs the developer extension only when its component path is explicit.
 pub(crate) fn configure_from_environment(app: &mut App) {
     let path = std::env::var_os(COMPONENT_ENV);
+    #[cfg(feature = "local-mods")]
     configure(app, path.as_deref().map(Path::new));
+    #[cfg(not(feature = "local-mods"))]
+    if path.is_some() {
+        let _ = app;
+        eprintln!("{COMPONENT_ENV} ignored: build bedrock-client with --features local-mods");
+    }
 }
 
 /// Loads one optional component without changing the vanilla schedule on absence.
+#[cfg(feature = "local-mods")]
 fn configure(app: &mut App, path: Option<&Path>) {
     let Some(path) = path else { return };
     match ModHost::load_with_grants(path, ModGrants { environment: true }) {
@@ -59,6 +70,7 @@ fn configure(app: &mut App, path: Option<&Path>) {
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
 )]
+#[cfg(feature = "local-mods")]
 fn drive_mod(
     player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut extension: ResMut<ModRuntime>,
@@ -97,11 +109,12 @@ fn drive_mod(
 }
 
 /// A mod keybind is unavailable while another UI or an unfocused window owns input.
+#[cfg(feature = "local-mods")]
 fn keybind_allowed(window_focused: bool, input_absorbed: bool) -> bool {
     window_focused && !input_absorbed
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "local-mods"))]
 mod tests {
     use super::*;
 
@@ -186,5 +199,5 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "local-mods"))]
 mod time_changer_tests;

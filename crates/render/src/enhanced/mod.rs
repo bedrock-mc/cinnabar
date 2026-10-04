@@ -5,36 +5,53 @@
 //! Techniques are standard published ones implemented from scratch: stable
 //! cascaded shadow maps with PCF, Bevy bloom, ray-marched
 //! shadow-map light shafts, screen-space reflections, and a filmic shoulder.
+//!
+//! The passes compile only with the `enhanced` feature; the component, kill switch
+//! and the shader imports vanilla variants resolve are always present.
 
+#[cfg(feature = "enhanced")]
 mod frame;
+#[cfg(feature = "enhanced")]
 mod gpu;
-mod materials;
-mod post;
-mod shadows;
-mod snapshot;
-use snapshot::{EnhancedSnapshotLabel, EnhancedSnapshotNode};
-#[cfg(test)]
+#[cfg(all(test, feature = "enhanced"))]
 mod graph_tests;
-#[cfg(test)]
+#[cfg(feature = "enhanced")]
+mod materials;
+#[cfg(feature = "enhanced")]
+mod post;
+#[cfg(feature = "enhanced")]
+mod shadows;
+#[cfg(feature = "enhanced")]
+mod snapshot;
+#[cfg(all(test, feature = "enhanced"))]
 mod validation;
-pub(crate) use frame::CascadeBounds;
-use shadows::{EnhancedShadowLabel, EnhancedShadowNode, EnhancedShadowPipelines};
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
     prelude::*,
-    render::{
-        Render, RenderApp, RenderSystems,
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
-        render_graph::{Node, RenderGraph, RenderLabel, ViewNodeRunner},
-    },
+    render::extract_component::ExtractComponent,
     shader::Shader,
 };
+#[cfg(feature = "enhanced")]
+use {
+    bevy::{
+        core_pipeline::core_3d::graph::{Core3d, Node3d},
+        render::{
+            Render, RenderApp, RenderSystems,
+            extract_component::ExtractComponentPlugin,
+            render_graph::{Node, RenderGraph, RenderLabel, ViewNodeRunner},
+        },
+    },
+    gpu::{EnhancedGpu, prepare_enhanced_materials, prepare_enhanced_views},
+    post::{EnhancedPostLabel, EnhancedPostNode, EnhancedPostPipelines},
+    shadows::{EnhancedShadowLabel, EnhancedShadowNode, EnhancedShadowPipelines},
+    snapshot::{EnhancedSnapshotLabel, EnhancedSnapshotNode},
+};
 
-use gpu::{EnhancedGpu, prepare_enhanced_materials, prepare_enhanced_views};
+#[cfg(feature = "enhanced")]
+pub(crate) use frame::CascadeBounds;
+#[cfg(feature = "enhanced")]
 pub(crate) use gpu::{EnhancedViews, SetEnhancedViewBindGroup, enhanced_view_layout};
-use post::{EnhancedPostLabel, EnhancedPostNode, EnhancedPostPipelines};
 
 const ENHANCED_COMMON_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("0f5b3a57-5d7e-4a3e-9d0e-2b1f6c8a4e11");
@@ -42,6 +59,7 @@ const ENHANCED_VIEW_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("6a2d9c41-8e3b-4f7a-b1c5-3d9e0f2a7b62");
 const ENHANCED_CASTER_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("c4e81f23-7a9d-4b6e-8f10-5a3c2d1e9b73");
+#[cfg(feature = "enhanced")]
 const ENHANCED_POST_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("9b7e2c15-3f4a-4d8b-a6e2-7c1d0f5b3a84");
 
@@ -116,6 +134,35 @@ pub(crate) fn load_shader_imports(app: &mut App) {
     );
 }
 
+#[cfg(not(feature = "enhanced"))]
+impl Plugin for EnhancedRenderPlugin {
+    fn build(&self, _app: &mut App) {}
+}
+
+/// Binds nothing: the Enhanced view group exists only with the `enhanced` feature.
+#[cfg(not(feature = "enhanced"))]
+pub(crate) struct SetEnhancedViewBindGroup<const I: usize>;
+
+#[cfg(not(feature = "enhanced"))]
+impl<P: bevy::render::render_phase::PhaseItem, const I: usize>
+    bevy::render::render_phase::RenderCommand<P> for SetEnhancedViewBindGroup<I>
+{
+    type Param = ();
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    fn render<'w>(
+        _item: &P,
+        _view: (),
+        _entity: Option<()>,
+        _param: (),
+        _pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
+    ) -> bevy::render::render_phase::RenderCommandResult {
+        bevy::render::render_phase::RenderCommandResult::Success
+    }
+}
+
+#[cfg(feature = "enhanced")]
 impl Plugin for EnhancedRenderPlugin {
     fn build(&self, app: &mut App) {
         if !ENHANCED_RENDERING_ENABLED {
@@ -157,6 +204,7 @@ impl Plugin for EnhancedRenderPlugin {
 }
 
 /// Keeps runtime MSAA changes from reaching the single-sample depth passes.
+#[cfg(feature = "enhanced")]
 fn enforce_single_sample_depth(mut cameras: Query<&mut Msaa, With<EnhancedRendering>>) {
     for mut msaa in &mut cameras {
         if *msaa != Msaa::Off {
@@ -166,6 +214,7 @@ fn enforce_single_sample_depth(mut cameras: Query<&mut Msaa, With<EnhancedRender
 }
 
 /// Orders world, Bloom and grade before the hand and UI on Enhanced views.
+#[cfg(feature = "enhanced")]
 fn install_graph(world: &mut World) {
     let snapshot = ViewNodeRunner::<EnhancedSnapshotNode>::new(EnhancedSnapshotNode, world);
     let shadow = ViewNodeRunner::<EnhancedShadowNode>::new(EnhancedShadowNode, world);
@@ -220,6 +269,7 @@ fn install_graph(world: &mut World) {
 }
 
 /// Adds the post-grade twin of an installed main-pass node; `false` when that pass is absent.
+#[cfg(feature = "enhanced")]
 fn add_post_node(
     graph: &mut RenderGraph,
     main: impl RenderLabel,
@@ -234,8 +284,10 @@ fn add_post_node(
     true
 }
 
+#[cfg(feature = "enhanced")]
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 struct EnhancedHandLabel;
 
+#[cfg(feature = "enhanced")]
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 struct EnhancedHandRigLabel;

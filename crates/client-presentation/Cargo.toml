@@ -13,7 +13,7 @@ server-experience = { path = "../server-experience" }
 crossbeam-queue = "=0.3.13"
 anyhow.workspace = true
 assets = { path = "../assets" }
-bevy = { workspace = true, features = ["bevy_anti_alias", "bevy_camera", "bevy_image", "bevy_window", "keyboard", "mouse", "std", "bevy_post_process"] }
+bevy.workspace = true
 client-world = { package = "chunk-pipeline", path = "../chunk-pipeline" }
 client-ui = { path = "../client-ui" }
 inventory = { path = "../inventory" }
@@ -28,7 +28,7 @@ sim = { path = "../sim" }
 ui = { path = "../ui" }
 world = { path = "../world" }
 meshing = { path = "../meshing" }
-image = { version = "0.25", default-features = false, features = ["png"] }
+image.workspace = true
 rodio = { version = "=0.20.1", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

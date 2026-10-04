@@ -1,5 +1,6 @@
 //! Bounded process protocol. OS-restricted production launch deliberately fails closed.
 
+#[cfg(feature = "execution")]
 use crate::server::BundleHost;
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -188,6 +189,7 @@ impl Drop for Helper {
 }
 
 /// Runs only as the private helper entry point; there are no inherited game handles.
+#[cfg(feature = "execution")]
 pub fn serve_developer() -> Result<()> {
     ensure!(
         std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),

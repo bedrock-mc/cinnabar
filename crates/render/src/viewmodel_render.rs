@@ -76,6 +76,7 @@ fn install(app: &mut App) {
 }
 
 /// The hand pass Enhanced views run after Bloom and grading.
+#[cfg(feature = "enhanced")]
 pub(crate) fn enhanced_post_node(world: &mut World) -> impl bevy::render::render_graph::Node {
     ViewNodeRunner::new(
         crate::ui_render::overlay::GradeStage::<_, true>(node::HandViewNode),

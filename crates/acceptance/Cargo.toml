@@ -10,7 +10,7 @@ test-support = []
 
 [dependencies]
 anyhow.workspace = true
-bevy = { workspace = true, features = ["bevy_window", "std"] }
+bevy.workspace = true
 client-world = { package = "chunk-pipeline", path = "../chunk-pipeline" }
 client-presentation = { path = "../client-presentation" }
 diagnostics = { path = "../diagnostics" }
