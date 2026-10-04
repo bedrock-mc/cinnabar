@@ -183,6 +183,8 @@ mod presentation_model_witness;
 mod presentation_required_columns;
 #[path = "transparent/tests.rs"]
 mod transparent;
+#[path = "transparent/residency_tests.rs"]
+mod transparent_residency;
 
 #[path = "resource_geometry_queue_tests.rs"]
 mod resource_geometry_review;

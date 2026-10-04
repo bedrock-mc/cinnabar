@@ -734,27 +734,15 @@ fn transparent_model_face_order_tracks_camera_position_not_rotation() {
             .collect::<Vec<_>>(),
     );
     assert_eq!(
-        sort_transparent_model_candidates(Mat4::IDENTITY, Arc::clone(&candidates))[0]
+        sort_transparent_model_candidates(Vec3::ZERO, Arc::clone(&candidates))[0]
             .words
             .as_ref(),
         [[5, 1], [5, 0]],
     );
     assert_eq!(
-        sort_transparent_model_candidates(
-            Mat4::from_quat(Quat::from_rotation_y(std::f32::consts::PI)),
-            Arc::clone(&candidates),
-        )[0]
-        .words
-        .as_ref(),
-        [[5, 1], [5, 0]],
-    );
-    assert_eq!(
-        sort_transparent_model_candidates(
-            Mat4::from_translation(Vec3::new(0.0, 0.0, -2.0)),
-            candidates,
-        )[0]
-        .words
-        .as_ref(),
+        sort_transparent_model_candidates(Vec3::new(0.0, 0.0, 2.0), candidates)[0]
+            .words
+            .as_ref(),
         [[5, 0], [5, 1]],
     );
 }
@@ -781,19 +769,6 @@ fn transparent_model_upload_batches_respect_cap_without_splitting_subchunks() {
     assert_eq!(second.len(), 1);
     assert_eq!(second[0].draw_range, 6..14);
     assert!(batches.is_empty());
-}
-
-#[test]
-fn transparent_model_rotation_cache_key_normalizes_quaternion_sign() {
-    let rotation = Quat::from_rotation_y(0.75);
-    assert_eq!(
-        canonical_transparent_rotation_bits(rotation),
-        canonical_transparent_rotation_bits(-rotation),
-    );
-    assert_ne!(
-        canonical_transparent_rotation_bits(rotation),
-        canonical_transparent_rotation_bits(Quat::from_rotation_y(1.0)),
-    );
 }
 
 #[test]

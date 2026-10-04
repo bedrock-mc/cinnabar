@@ -250,6 +250,7 @@ fn model_mdi_batch_emits_one_command_per_eligible_allocation() {
         )
     });
     let frame_probe = ActiveFrameProbe::default();
+    let frame_probe = frame_probe.scope();
     let (commands, drawn) = prepare_model_indirect_batch_draws(
         allocations
             .iter()

@@ -144,6 +144,7 @@ pub(in crate::chunk) fn queue_chunks(
     } else {
         frame_probe.clear();
     }
+    let frame_probe = &frame_probe.scope();
     for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced) in &views {
         let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
             continue;

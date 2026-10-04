@@ -269,6 +269,7 @@ fn matching_identity_uploads_acks_and_queues_direct_and_mdi_draws() {
         })
         .collect::<HashMap<_, _>>();
     let frame_probe = ActiveFrameProbe::default();
+    let frame_probe = frame_probe.scope();
     let direct = allocations
         .iter()
         .filter_map(|(&entity, allocation)| {

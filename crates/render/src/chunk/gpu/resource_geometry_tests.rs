@@ -148,7 +148,6 @@ fn review_render_stale_resource_geometry_preserves_active_arena() {
     .unwrap();
     candidate.models.committed = Some(TransparentModelSortKey {
         view_entity: view,
-        rotation_bits: [0; 4],
         camera_position_bits: camera_position_bits(Vec3::ZERO).unwrap(),
         address: TransparentModelAddressIdentity {
             asset_identity: ChunkTextureAssets::default().identity(),
@@ -315,7 +314,6 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
         .view_entity = Some(view);
     let key = TransparentModelSortKey {
         view_entity: view,
-        rotation_bits: Quat::IDENTITY.to_array().map(f32::to_bits),
         camera_position_bits: camera_position_bits(Vec3::ZERO).unwrap(),
         address: TransparentModelAddressIdentity {
             asset_identity: app.world().resource::<ChunkTextureAssets>().identity(),
@@ -367,6 +365,30 @@ fn review_render_model_result_survives_camera_rotation() {
             .as_ref(),
         Some(&key)
     );
+}
+
+/// A rotation-only camera change must not re-sort or re-upload committed model order.
+#[test]
+fn committed_model_sort_is_reused_for_rotation_only_camera_change() {
+    let (mut app, view, key) = model_sort_app();
+    app.world_mut()
+        .resource_mut::<TransparentModelSortRuntime>()
+        .committed = Some(key.clone());
+    for yaw in [0.5, 1.5, -2.0] {
+        app.world_mut()
+            .get_mut::<ExtractedView>(view)
+            .unwrap()
+            .world_from_view = GlobalTransform::from(Transform::from_rotation(
+            Quat::from_rotation_y(yaw) * Quat::from_rotation_x(0.3),
+        ));
+        app.world_mut()
+            .run_system_once(prepare_transparent_model_sorts)
+            .unwrap();
+        let runtime = app.world().resource::<TransparentModelSortRuntime>();
+        assert_eq!(runtime.committed.as_ref(), Some(&key));
+        assert!(runtime.requested.is_none());
+        assert_eq!(runtime.next_generation, 0);
+    }
 }
 
 #[test]

@@ -45,7 +45,7 @@ fn transparent_sort_is_grouped_back_to_front_stable_and_rotation_sensitive() {
     assert_eq!(rotated[0].liquid_record_index(), 11);
 }
 
-fn resident_transparent_allocation(
+pub(super) fn resident_transparent_allocation(
     identity: &TransparentAllocationIdentity,
     tint_identity: ChunkBiomeTintIdentity,
 ) -> GpuChunkAllocation {
@@ -256,100 +256,6 @@ fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
         state.committed().unwrap().buffer_slot(),
         old_snapshot.buffer_slot()
     );
-}
-
-#[test]
-fn grown_same_start_liquid_range_keeps_old_refs_physically_resident() {
-    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
-    let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
-    let identity =
-        TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
-    let key = ViewSortKey::try_new(
-        [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![identity.clone()],
-        texture_identity,
-        tint_identity,
-    )
-    .unwrap();
-    let snapshot = committed_transparent_state(
-        &key,
-        vec![PackedTransparentDrawRef::new(2, identity.metadata_index)],
-    )
-    .committed()
-    .unwrap()
-    .clone();
-    let mut resident = resident_transparent_allocation(&identity, tint_identity);
-    resident.generation += 1;
-    resident.liquid_range = Some(8..24);
-    resident.liquid_lighting_range = Some(40..48);
-    assert!(transparent_snapshot_addresses_are_resident(
-        &snapshot,
-        [&resident],
-        std::iter::empty(),
-        texture_identity,
-        tint_identity,
-    ));
-}
-
-#[test]
-fn physical_residency_rejects_moved_shrunk_or_structurally_invalid_streams() {
-    let texture_identity = ChunkTextureAssetIdentity::new(1, 1);
-    let tint_identity = ChunkBiomeTintIdentity::new(2, 2);
-    let identity =
-        TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
-    let key = ViewSortKey::try_new(
-        [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![identity.clone()],
-        texture_identity,
-        tint_identity,
-    )
-    .unwrap();
-    let snapshot = committed_transparent_state(
-        &key,
-        vec![PackedTransparentDrawRef::new(2, identity.metadata_index)],
-    )
-    .committed()
-    .unwrap()
-    .clone();
-    let exact = resident_transparent_allocation(&identity, tint_identity);
-    let mut moved = exact.clone();
-    moved.liquid_range = Some(4..16);
-    let mut shrunk = exact.clone();
-    shrunk.liquid_range = Some(8..12);
-    let mut missing_lighting = exact.clone();
-    missing_lighting.liquid_lighting_range = None;
-    let mut invalid_lighting_count = exact.clone();
-    invalid_lighting_count.liquid_lighting_range = Some(32..34);
-    let mut changed_tint = exact.clone();
-    changed_tint.tint_identity = ChunkBiomeTintIdentity::new(9, 9);
-    let mut changed_key = exact;
-    changed_key.key = SubChunkKey::new(0, 1, 0, 0);
-
-    for resident in [
-        moved,
-        shrunk,
-        missing_lighting,
-        invalid_lighting_count,
-        changed_tint,
-        changed_key,
-    ] {
-        assert!(!transparent_snapshot_addresses_are_resident(
-            &snapshot,
-            [&resident],
-            std::iter::empty(),
-            texture_identity,
-            tint_identity,
-        ));
-    }
-    assert!(!transparent_snapshot_addresses_are_resident(
-        &snapshot,
-        [&resident_transparent_allocation(&identity, tint_identity)],
-        std::iter::empty(),
-        ChunkTextureAssetIdentity::new(9, 9),
-        tint_identity,
-    ));
 }
 
 #[test]

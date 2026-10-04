@@ -127,7 +127,7 @@ pub(super) fn prepare(
         asset_identity: assets.identity(),
         allocations: model_manifest.into(),
     };
-    for batch in sort_transparent_model_candidates(matrix, model_candidates.into()) {
+    for batch in sort_transparent_model_candidates(translation, model_candidates.into()) {
         write_geometry_stream_words(
             arena,
             queue,
@@ -138,7 +138,6 @@ pub(super) fn prepare(
     }
     models.committed = Some(TransparentModelSortKey {
         view_entity: view.entity,
-        rotation_bits: canonical_transparent_rotation_bits(rotation)?,
         camera_position_bits: crate::chunk::transparent::model::camera_position_bits(translation)?,
         address: model_address,
     });

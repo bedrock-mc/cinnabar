@@ -1,4 +1,8 @@
 use crate::chunk::*;
+use std::sync::{
+    MutexGuard,
+    atomic::{AtomicBool, Ordering},
+};
 
 pub(in crate::chunk) fn build_presented_frame_ack(
     probe: CompletedFrameProbe,
@@ -479,29 +483,18 @@ pub(in crate::chunk) struct ActiveFrameProbeState {
 }
 
 #[derive(Resource, Default)]
-pub(in crate::chunk) struct ActiveFrameProbe(Mutex<ActiveFrameProbeState>);
+pub(in crate::chunk) struct ActiveFrameProbe {
+    state: Mutex<ActiveFrameProbeState>,
+    /// Mirrors `state.current.is_some()` so inactive passes never take the lock.
+    active: AtomicBool,
+}
 
-impl ActiveFrameProbe {
-    pub(in crate::chunk) fn is_active(&self) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .current
-            .is_some()
-    }
+/// One lock held across a pass; inactive probes are never locked and accept everything.
+pub(in crate::chunk) struct FrameProbeScope<'a>(Option<MutexGuard<'a, ActiveFrameProbeState>>);
 
-    pub(in crate::chunk) fn begin(&self, mut probe: FrameProbe) {
-        let mut state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
-        state.next_frame_sequence = state.next_frame_sequence.wrapping_add(1).max(1);
-        probe.frame_sequence = state.next_frame_sequence;
-        state.current = Some(probe);
-    }
-
-    pub(in crate::chunk) fn clear(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .current = None;
+impl FrameProbeScope<'_> {
+    fn current(&self) -> Option<&FrameProbe> {
+        self.0.as_ref().and_then(|state| state.current.as_ref())
     }
 
     pub(in crate::chunk) fn accepts(
@@ -509,17 +502,12 @@ impl ActiveFrameProbe {
         entity: Entity,
         allocation: FrameAllocationIdentity,
     ) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .current
-            .as_ref()
-            .is_none_or(|probe| {
-                probe
-                    .eligible
-                    .get(&entity)
-                    .is_some_and(|(eligible, _)| *eligible == allocation)
-            })
+        self.current().is_none_or(|probe| {
+            probe
+                .eligible
+                .get(&entity)
+                .is_some_and(|(eligible, _)| *eligible == allocation)
+        })
     }
 
     pub(in crate::chunk) fn record_visible(
@@ -527,12 +515,56 @@ impl ActiveFrameProbe {
         entity: Entity,
         allocation: FrameAllocationIdentity,
     ) -> bool {
-        self.0
+        self.current()
+            .is_none_or(|probe| probe.record_visible(entity, allocation))
+    }
+}
+
+impl ActiveFrameProbe {
+    fn lock(&self) -> MutexGuard<'_, ActiveFrameProbeState> {
+        self.state
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
-            .current
-            .as_ref()
-            .is_none_or(|probe| probe.record_visible(entity, allocation))
+    }
+
+    pub(in crate::chunk) fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+
+    /// Callers must not call other probe methods on this thread while the scope lives.
+    pub(in crate::chunk) fn scope(&self) -> FrameProbeScope<'_> {
+        FrameProbeScope(self.is_active().then(|| self.lock()))
+    }
+
+    pub(in crate::chunk) fn begin(&self, mut probe: FrameProbe) {
+        let mut state = self.lock();
+        state.next_frame_sequence = state.next_frame_sequence.wrapping_add(1).max(1);
+        probe.frame_sequence = state.next_frame_sequence;
+        state.current = Some(probe);
+        self.active.store(true, Ordering::Release);
+    }
+
+    pub(in crate::chunk) fn clear(&self) {
+        let mut state = self.lock();
+        state.current = None;
+        self.active.store(false, Ordering::Release);
+    }
+
+    pub(in crate::chunk) fn accepts(
+        &self,
+        entity: Entity,
+        allocation: FrameAllocationIdentity,
+    ) -> bool {
+        self.scope().accepts(entity, allocation)
+    }
+
+    #[cfg(test)]
+    pub(in crate::chunk) fn record_visible(
+        &self,
+        entity: Entity,
+        allocation: FrameAllocationIdentity,
+    ) -> bool {
+        self.scope().record_visible(entity, allocation)
     }
 
     pub(in crate::chunk) fn record_direct_draw(
@@ -540,11 +572,8 @@ impl ActiveFrameProbe {
         entity: Entity,
         allocation: FrameAllocationIdentity,
     ) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .current
-            .as_ref()
+        self.scope()
+            .current()
             .is_none_or(|probe| probe.record_direct_draw(entity, allocation))
     }
 
@@ -554,11 +583,8 @@ impl ActiveFrameProbe {
         allocation: FrameAllocationIdentity,
         streams: ChunkStreamMask,
     ) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .current
-            .as_ref()
+        self.scope()
+            .current()
             .is_none_or(|probe| probe.record_direct_streams(entity, allocation, streams))
     }
 
@@ -566,9 +592,9 @@ impl ActiveFrameProbe {
         &self,
         draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
     ) -> usize {
-        let state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        let scope = self.scope();
         let draws = draws.into_iter().collect::<Vec<_>>();
-        state.current.as_ref().map_or(draws.len(), |probe| {
+        scope.current().map_or(draws.len(), |probe| {
             probe.record_mdi_draws(draws.iter().copied())
         })
     }
@@ -578,9 +604,9 @@ impl ActiveFrameProbe {
         draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
         streams: ChunkStreamMask,
     ) -> usize {
-        let state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        let scope = self.scope();
         let draws = draws.into_iter().collect::<Vec<_>>();
-        state.current.as_ref().map_or(draws.len(), |probe| {
+        scope.current().map_or(draws.len(), |probe| {
             probe.record_mdi_streams(draws.iter().copied(), streams)
         })
     }
@@ -590,20 +616,17 @@ impl ActiveFrameProbe {
         generation: ViewSortGeneration,
         draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
     ) -> usize {
-        let state = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        let scope = self.scope();
         let draws = draws.into_iter().collect::<Vec<_>>();
-        state.current.as_ref().map_or(draws.len(), |probe| {
+        scope.current().map_or(draws.len(), |probe| {
             probe.record_transparent_draw(generation, draws.iter().copied())
         })
     }
 
     pub(in crate::chunk) fn take_completed(&self) -> Option<CompletedFrameProbe> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .current
-            .take()
-            .map(FrameProbe::complete)
+        let mut state = self.lock();
+        self.active.store(false, Ordering::Release);
+        state.current.take().map(FrameProbe::complete)
     }
 }
 

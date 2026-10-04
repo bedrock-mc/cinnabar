@@ -42,26 +42,31 @@ pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
     {
         return false;
     }
-    let resident_allocations = resident_allocations
-        .into_iter()
-        .filter(|allocation| allocation.tint_identity == active_tint_identity)
-        .collect::<Vec<_>>();
-    let retired_allocations = retired_allocations
-        .into_iter()
-        .filter(|allocation| allocation.tint_identity == active_tint_identity)
-        .collect::<Vec<_>>();
+    if snapshot.key.visible_allocations.is_empty() {
+        return true;
+    }
+    let mut resident = HashMap::<SubChunkKey, Vec<&GpuChunkAllocation>>::new();
+    for allocation in resident_allocations {
+        if allocation.tint_identity == active_tint_identity {
+            resident.entry(allocation.key).or_default().push(allocation);
+        }
+    }
+    let mut retired = HashMap::<SubChunkKey, Vec<&GpuChunkAllocation>>::new();
+    for allocation in retired_allocations {
+        if allocation.tint_identity == active_tint_identity {
+            retired.entry(allocation.key).or_default().push(allocation);
+        }
+    }
     snapshot.key.visible_allocations.iter().all(|identity| {
-        let active = resident_allocations
-            .iter()
-            .any(|allocation| transparent_resident_allocation_contains(identity, allocation));
-        active
-            || retired_allocations.iter().any(|allocation| {
-                allocation.key == identity.key
-                    && allocation.generation == identity.mesh_generation
-                    && allocation.metadata_index == identity.metadata_index
-                    && allocation.liquid_range.as_ref() == Some(&identity.liquid_range)
-                    && allocation.liquid_lighting_range.as_ref() == Some(&identity.lighting_range)
-            })
+        resident.get(&identity.key).is_some_and(|candidates| {
+            candidates
+                .iter()
+                .any(|allocation| transparent_resident_allocation_contains(identity, allocation))
+        }) || retired.get(&identity.key).is_some_and(|candidates| {
+            candidates
+                .iter()
+                .any(|allocation| transparent_allocation_is_exact(identity, allocation))
+        })
     })
 }
 

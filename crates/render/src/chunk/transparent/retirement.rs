@@ -200,13 +200,23 @@ pub(in crate::chunk) fn transparent_snapshot_references_allocation(
     snapshot: &TransparentOrderedSnapshot,
     allocation: &GpuChunkAllocation,
 ) -> bool {
-    snapshot.key.visible_allocations.iter().any(|visible| {
-        visible.key == allocation.key
-            && visible.mesh_generation == allocation.generation
-            && visible.metadata_index == allocation.metadata_index
-            && allocation.liquid_range.as_ref() == Some(&visible.liquid_range)
-            && allocation.liquid_lighting_range.as_ref() == Some(&visible.lighting_range)
-    })
+    snapshot
+        .key
+        .visible_allocations
+        .iter()
+        .any(|visible| transparent_allocation_is_exact(visible, allocation))
+}
+
+/// Matches the exact mesh generation and liquid addresses a snapshot reference was sorted against.
+pub(in crate::chunk) fn transparent_allocation_is_exact(
+    identity: &TransparentAllocationIdentity,
+    allocation: &GpuChunkAllocation,
+) -> bool {
+    identity.key == allocation.key
+        && identity.mesh_generation == allocation.generation
+        && identity.metadata_index == allocation.metadata_index
+        && allocation.liquid_range.as_ref() == Some(&identity.liquid_range)
+        && allocation.liquid_lighting_range.as_ref() == Some(&identity.lighting_range)
 }
 
 #[cfg(test)]
