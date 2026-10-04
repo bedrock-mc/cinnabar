@@ -361,11 +361,11 @@ impl HandAdapter {
         if self
             .raw_skin
             .as_ref()
-            .is_none_or(|old| !Arc::ptr_eq(old, &raw.rgba8))
+            .is_none_or(|old| !Arc::ptr_eq(old, raw.rgba8.pixels()))
         {
-            self.raw_skin = Some(Arc::clone(&raw.rgba8));
+            self.raw_skin = Some(Arc::clone(raw.rgba8.pixels()));
             self.skin_identity = Sha256::digest(&raw.rgba8).into();
-            self.skin = ViewmodelSkin::new(Arc::clone(&raw.rgba8), self.skin_identity);
+            self.skin = ViewmodelSkin::new(Arc::clone(raw.rgba8.pixels()), self.skin_identity);
             self.stats.skin_validations = self.stats.skin_validations.saturating_add(1);
             if let Some(next) = self.revision.checked_add(1) {
                 self.revision = next;

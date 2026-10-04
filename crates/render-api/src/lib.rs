@@ -13,7 +13,7 @@ pub use publication::{
 };
 pub use skin::{
     CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE,
-    expand_legacy_skin_rgba8,
+    SkinRgba8, expand_legacy_skin_rgba8,
 };
 
 /// Maximum view radius supported by the initial world streaming pipeline.

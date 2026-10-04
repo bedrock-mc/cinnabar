@@ -17,7 +17,6 @@ use render::{
     ChunkRenderQueue, ChunkUploadAcknowledgements, UiRenderScene, UiRenderStats,
     VisibilityDiagnostics, VisibilityDiagnosticsInput,
 };
-use std::sync::Arc;
 use ui::{DpiScale, SafeArea};
 
 #[cfg(test)]

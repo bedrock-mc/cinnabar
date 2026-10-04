@@ -184,12 +184,12 @@ fn high_resolution_standard_skin_is_nearest_sampled_and_invalid_skin_uses_author
     let valid = ActorSkinPixels {
         width: 128,
         height: 128,
-        rgba8: Arc::from(rgba8),
+        rgba8: rgba8.into(),
     };
     let invalid = ActorSkinPixels {
         width: 64,
         height: 64,
-        rgba8: Arc::from([0_u8; 4]),
+        rgba8: vec![0_u8; 4].into(),
     };
     let mut first = source(1, 0.0, 0.0);
     first.skin = Some(valid);
@@ -259,14 +259,17 @@ fn cached_skin_normalization_resamples_each_source_once() {
     let hd = ActorSkinPixels {
         width: 128,
         height: 128,
-        rgba8: (0..128 * 128 * 4).map(|value| value as u8).collect(),
+        rgba8: (0..128 * 128 * 4)
+            .map(|value| value as u8)
+            .collect::<Vec<_>>()
+            .into(),
     };
     let first = super::normalize_actor_skin_cached(&hd).unwrap();
     assert_eq!(first, super::normalize_actor_skin(&hd).unwrap());
     for _ in 0..10 {
         assert!(Arc::ptr_eq(
-            &first,
-            &super::normalize_actor_skin_cached(&hd).unwrap()
+            first.pixels(),
+            super::normalize_actor_skin_cached(&hd).unwrap().pixels()
         ));
     }
     let copy = ActorSkinPixels {
@@ -274,8 +277,8 @@ fn cached_skin_normalization_resamples_each_source_once() {
         ..hd
     };
     assert!(!Arc::ptr_eq(
-        &first,
-        &super::normalize_actor_skin_cached(&copy).unwrap()
+        first.pixels(),
+        super::normalize_actor_skin_cached(&copy).unwrap().pixels()
     ));
 }
 

@@ -1,10 +1,10 @@
 //! Player capes: the cape geometry drawn with the player's own pose and a cape raster carried
 //! in the skin layer payload.
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use assets::RuntimeEntityAssets;
 use client_world::{ActorRigSnapshot, PlayerProfile};
-use protocol::PlayerSkin;
+use protocol::{PlayerSkin, SkinRgba8};
 use render::{
     ACTOR_LAYER_BODY, ActorRigGeometry, ActorRigRoute, ActorRigSubmission, EntityRigId,
     MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
@@ -119,14 +119,34 @@ fn cape_pose(
         .collect()
 }
 
-fn cape_of(profile: &PlayerProfile) -> Option<Arc<[u8]>> {
-    match &profile.skin {
-        PlayerSkin::Standard(skin) => {
-            let cape = skin.cape.as_ref()?;
-            cape_layer(cape.width, cape.height, &cape.rgba8)
-        }
-        PlayerSkin::Unavailable(_) => None,
+/// The cape layer, resampled and hashed once per source raster; entries hold their source, so a
+/// matched pointer is never a reused allocation.
+fn cape_of(profile: &PlayerProfile) -> Option<SkinRgba8> {
+    type Entry = (Arc<[u8]>, u32, u32, Option<SkinRgba8>);
+    static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
+    let PlayerSkin::Standard(skin) = &profile.skin else {
+        return None;
+    };
+    let cape = skin.cape.as_ref()?;
+    let mut cache = CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((.., layer)) = cache.iter().find(|(source, width, height, _)| {
+        Arc::ptr_eq(source, &cape.rgba8) && *width == cape.width && *height == cape.height
+    }) {
+        return layer.clone();
     }
+    let layer = cape_layer(cape.width, cape.height, &cape.rgba8).map(SkinRgba8::new);
+    if cache.len() == MAX_RENDERED_PLAYERS {
+        cache.remove(0);
+    }
+    cache.push((
+        Arc::clone(&cape.rgba8),
+        cape.width,
+        cape.height,
+        layer.clone(),
+    ));
+    layer
 }
 
 /// Appends a cape instance for every drawn player body whose skin carries one; capes past the
@@ -137,7 +157,7 @@ pub fn apply_capes<'a>(
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     profile_of: impl Fn(u64) -> Option<&'a PlayerProfile>,
 ) {
-    let mut capes: Vec<(Arc<[u8]>, usize)> = Vec::new();
+    let mut capes: Vec<(SkinRgba8, usize)> = Vec::new();
     let mut extras = Vec::new();
     for body in &batch.submissions {
         let identity = body.input.identity;
@@ -156,7 +176,7 @@ pub fn apply_capes<'a>(
         let layer = match capes.iter().find(|(known, _)| *known == cape_pixels) {
             Some((_, layer)) => *layer,
             None if batch.skin_layers.len() < MAX_RENDERED_PLAYERS => {
-                batch.skin_layers.push(Arc::clone(&cape_pixels));
+                batch.skin_layers.push(cape_pixels.clone());
                 capes.push((cape_pixels, batch.skin_layers.len() - 1));
                 batch.skin_layers.len() - 1
             }

@@ -194,7 +194,7 @@ pub(crate) fn prepare_ui_runtime(
         &render::ActorSkinPixels {
             width: menu_skin.width,
             height: menu_skin.height,
-            rgba8: Arc::clone(&menu_skin.rgba8),
+            rgba8: menu_skin.rgba8.clone(),
         },
     );
     let pose = player_preview::PlayerPreviewPose::of_local_player(stream);

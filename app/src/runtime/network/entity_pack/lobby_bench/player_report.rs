@@ -46,7 +46,7 @@ fn skin_stamp(skin: Option<&PlayerSkin>) -> u64 {
     match skin {
         Some(PlayerSkin::Standard(skin)) => {
             (skin.width, skin.height).hash(&mut hash);
-            skin.rgba8.hash(&mut hash);
+            (*skin.rgba8).hash(&mut hash);
             if let Some(geometry) = &skin.geometry {
                 geometry.resource_patch.hash(&mut hash);
                 geometry.geometry_data.hash(&mut hash);

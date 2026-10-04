@@ -1,5 +1,11 @@
 //! Shared skin layout limits and conversion, used by admission and rendering.
 
+use std::{
+    hash::{BuildHasher, Hash, Hasher, RandomState},
+    ops::Deref,
+    sync::{Arc, OnceLock},
+};
+
 /// Local ceiling for the standard skin raster, including persona skins.
 pub const MAX_STANDARD_SKIN_SIDE: u32 = 512;
 /// Animated texture slots the vanilla player renderer adds to the base skin.
@@ -45,4 +51,96 @@ pub fn expand_legacy_skin_rgba8(rgba8: &[u8], side: usize) -> Vec<u8> {
         }
     }
     square
+}
+
+/// Skin texels with a content hash taken once at ingest, so equal skins match without a byte scan.
+///
+/// Equality is identity: the same allocation, or the same length and keyed 64-bit content hash.
+#[derive(Clone, Debug)]
+pub struct SkinRgba8 {
+    rgba8: Arc<[u8]>,
+    content_hash: u64,
+}
+
+impl SkinRgba8 {
+    #[must_use]
+    pub fn new(rgba8: Arc<[u8]>) -> Self {
+        // Process-random keys keep a server from crafting two skins that collide.
+        static KEYS: OnceLock<RandomState> = OnceLock::new();
+        let content_hash = KEYS.get_or_init(RandomState::new).hash_one(&*rgba8);
+        Self {
+            rgba8,
+            content_hash,
+        }
+    }
+
+    #[must_use]
+    pub const fn pixels(&self) -> &Arc<[u8]> {
+        &self.rgba8
+    }
+
+    #[must_use]
+    pub const fn content_hash(&self) -> u64 {
+        self.content_hash
+    }
+}
+
+impl Deref for SkinRgba8 {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.rgba8
+    }
+}
+
+impl AsRef<[u8]> for SkinRgba8 {
+    fn as_ref(&self) -> &[u8] {
+        &self.rgba8
+    }
+}
+
+impl From<Arc<[u8]>> for SkinRgba8 {
+    fn from(rgba8: Arc<[u8]>) -> Self {
+        Self::new(rgba8)
+    }
+}
+
+impl From<Vec<u8>> for SkinRgba8 {
+    fn from(rgba8: Vec<u8>) -> Self {
+        Self::new(rgba8.into())
+    }
+}
+
+impl PartialEq for SkinRgba8 {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.rgba8, &other.rgba8)
+            || (self.content_hash == other.content_hash && self.rgba8.len() == other.rgba8.len())
+    }
+}
+
+impl Eq for SkinRgba8 {}
+
+impl Hash for SkinRgba8 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.content_hash);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identical_texels_in_distinct_allocations_are_one_skin() {
+        let first = SkinRgba8::from(vec![7_u8; 4096]);
+        let copy = SkinRgba8::from(vec![7_u8; 4096]);
+        let mut changed = vec![7_u8; 4096];
+        changed[4095] = 8;
+        let changed = SkinRgba8::from(changed);
+        assert!(!Arc::ptr_eq(first.pixels(), copy.pixels()));
+        assert_eq!(first, copy);
+        assert_eq!(first.content_hash(), copy.content_hash());
+        assert_ne!(first, changed);
+        assert_ne!(first, SkinRgba8::from(vec![7_u8; 4092]));
+    }
 }

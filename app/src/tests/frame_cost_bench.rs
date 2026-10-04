@@ -162,7 +162,7 @@ fn frame_cost_bench_sound_decode() {
 #[test]
 #[ignore = "benchmark"]
 fn frame_cost_bench_skin_packing_128_players() {
-    let skins: Vec<std::sync::Arc<[u8]>> = (0..128)
+    let skins: Vec<protocol::SkinRgba8> = (0..128)
         .map(|player| vec![player as u8; render::STANDARD_SKIN_BYTES].into())
         .collect();
     let mut previous: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
@@ -188,7 +188,7 @@ fn frame_cost_bench_skin_packing_128_players() {
 #[test]
 #[ignore = "benchmark"]
 fn frame_cost_bench_skin_packing_shared_layers() {
-    let skins: Vec<std::sync::Arc<[u8]>> = (0..render::MAX_RENDERED_PLAYERS)
+    let skins: Vec<protocol::SkinRgba8> = (0..render::MAX_RENDERED_PLAYERS)
         .map(|player| vec![player as u8; render::STANDARD_SKIN_BYTES].into())
         .collect();
     let mut pack = crate::presentation::actors::SkinLayerPack::default();

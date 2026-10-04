@@ -4,6 +4,7 @@ use protocol::{
     ContainerIdentity, InventoryEvent, InventorySlotEvent, NetworkItemStack, SlotIdentity,
 };
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 fn presentation() -> UiPresentationRuntime {
     let sprites = (0..6)

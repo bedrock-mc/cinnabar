@@ -8,14 +8,15 @@ mod alpha;
 mod animation;
 pub use animation::{SkinAnimation, SkinAnimationKind};
 pub use render_api::{
-    CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, expand_legacy_skin_rgba8,
+    CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, SkinRgba8,
+    expand_legacy_skin_rgba8,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardSkin {
     pub width: u32,
     pub height: u32,
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: SkinRgba8,
     /// The skin's cape image when it carries a valid one; counts toward the skin byte budget.
     pub cape: Option<CapeImage>,
     /// The skin's own model inputs when it may name a non-default geometry.
@@ -159,7 +160,7 @@ pub(super) fn normalize_player_skin(
     PlayerSkin::Standard(StandardSkin {
         width,
         height,
-        rgba8: Arc::from(skin.image_data.image_bytes),
+        rgba8: SkinRgba8::from(skin.image_data.image_bytes),
         cape,
         geometry,
     })

@@ -26,7 +26,7 @@ use skin::normalize_player_skin;
 pub use skin::{
     CLASSIC_SKIN_SIDE, CapeImage, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS,
     MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable, SkinAnimation,
-    SkinAnimationKind, SkinGeometrySource, StandardSkin, expand_legacy_skin_rgba8,
+    SkinAnimationKind, SkinGeometrySource, SkinRgba8, StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{

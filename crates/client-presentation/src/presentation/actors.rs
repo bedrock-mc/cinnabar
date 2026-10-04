@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
-use protocol::{ActorKind, PlayerSkin};
+use protocol::{ActorKind, PlayerSkin, SkinRgba8};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
@@ -19,7 +19,7 @@ const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_A
 #[derive(Clone, Debug)]
 pub struct ActorRigPresentation {
     pub submission: ActorRigSubmission,
-    pub skin_rgba8: Option<Arc<[u8]>>,
+    pub skin_rgba8: Option<SkinRgba8>,
     pub artwork: Option<ActorArtworkLocation>,
     /// Authored model scale alone; the eye-anchored first-person hand ignores the metadata scale.
     pub authored_scale: f32,
@@ -33,7 +33,7 @@ pub struct ActorRigPresentation {
 pub struct ActorPresentationBatch {
     pub submissions: Vec<ActorRigSubmission>,
     /// One standard-size RGBA8 layer per texture layer index.
-    pub skin_layers: Vec<Arc<[u8]>>,
+    pub skin_layers: Vec<SkinRgba8>,
     pub artwork: HashMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
@@ -41,21 +41,20 @@ pub struct ActorPresentationBatch {
 /// unchanged frame neither copies nor compares the whole payload.
 #[derive(Debug, Default)]
 pub struct SkinLayerPack {
-    layers: Vec<Arc<[u8]>>,
+    layers: Vec<SkinRgba8>,
     packed: Arc<[u8]>,
     rebuilds: u64,
 }
 
 impl SkinLayerPack {
-    pub fn pack(&mut self, layers: Vec<Arc<[u8]>>) -> Arc<[u8]> {
-        // Arc equality on unsized byte slices scans the pixels even for the same allocation.
-        let unchanged = layers.len() == self.layers.len()
-            && layers
+    pub fn pack(&mut self, layers: Vec<SkinRgba8>) -> Arc<[u8]> {
+        if layers != self.layers {
+            self.packed = layers
                 .iter()
-                .zip(&self.layers)
-                .all(|(layer, previous)| Arc::ptr_eq(layer, previous) || layer == previous);
-        if !unchanged {
-            self.packed = layers.concat().into();
+                .map(|layer| &**layer)
+                .collect::<Vec<_>>()
+                .concat()
+                .into();
             self.rebuilds += 1;
         }
         self.layers = layers;
@@ -466,7 +465,8 @@ pub fn select_actor_presentations_for_view(
     }
 
     let mut artwork = HashMap::with_capacity(selected.len());
-    let mut skin_families = Vec::<Arc<[u8]>>::new();
+    let mut skin_families = Vec::<SkinRgba8>::new();
+    let mut skin_layer_of = HashMap::<SkinRgba8, usize>::new();
     let mut submissions = Vec::with_capacity(selected.len());
     for mut presentation in selected {
         if let Some(location) = presentation.artwork {
@@ -480,13 +480,10 @@ pub fn select_actor_presentations_for_view(
             submissions.push(presentation.submission);
             continue;
         };
-        let layer = skin_families
-            .iter()
-            .position(|existing| Arc::ptr_eq(existing, &skin) || *existing == skin)
-            .unwrap_or_else(|| {
-                skin_families.push(skin);
-                skin_families.len() - 1
-            });
+        let layer = *skin_layer_of.entry(skin).or_insert_with_key(|skin| {
+            skin_families.push(skin.clone());
+            skin_families.len() - 1
+        });
         presentation.submission.texture_layer =
             u32::try_from(layer).expect("actor skin family count is bounded");
         submissions.push(presentation.submission);
@@ -695,7 +692,7 @@ fn player_route_and_skin(
     actor: &ActorSnapshot,
     profile: Option<&PlayerProfile>,
     fallback: EntityRigFallback,
-) -> (ActorRigRoute, Option<Arc<[u8]>>) {
+) -> (ActorRigRoute, Option<SkinRgba8>) {
     let ActorKind::Player { .. } = &actor.kind else {
         return (ActorRigRoute::NoDraw, None);
     };
@@ -710,7 +707,7 @@ fn player_route_and_skin(
             PlayerSkin::Standard(skin) => render::normalize_actor_skin_cached(&ActorSkinPixels {
                 width: skin.width,
                 height: skin.height,
-                rgba8: Arc::clone(&skin.rgba8),
+                rgba8: skin.rgba8.clone(),
             }),
             PlayerSkin::Unavailable(_) => None,
         })
@@ -763,6 +760,44 @@ mod death_tests {
             .zip(expected.into_iter().flatten())
         {
             assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod skin_dedupe_tests {
+    use super::*;
+
+    fn remote(runtime_id: u64, skin: SkinRgba8) -> ActorRigPresentation {
+        let mut presentation =
+            local_diagnostic_presentation(7, 0, runtime_id, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
+                .expect("finite carrier converts");
+        presentation.skin_rgba8 = Some(skin);
+        presentation
+    }
+
+    /// Equal texels in distinct allocations share one layer; different texels never do.
+    #[test]
+    fn skins_share_a_layer_only_when_their_texels_match() {
+        let texels = |value: u8| vec![value; 4096];
+        let batch = select_actor_presentations(
+            99,
+            false,
+            None,
+            [1, 2, 1, 2, 3]
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| remote(index as u64 + 1, texels(value).into())),
+        );
+        let layers = batch
+            .submissions
+            .iter()
+            .map(|submission| submission.texture_layer)
+            .collect::<Vec<_>>();
+        assert_eq!(layers, [0, 1, 0, 1, 2]);
+        assert_eq!(batch.skin_layers.len(), 3);
+        for (layer, value) in batch.skin_layers.iter().zip([1, 2, 3]) {
+            assert_eq!(&**layer, texels(value).as_slice());
         }
     }
 }

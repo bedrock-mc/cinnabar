@@ -21,8 +21,8 @@ fn single_instance_frame() -> ActorRigRenderFrame {
     }
 }
 
-fn skin() -> Arc<[u8]> {
-    Arc::from(vec![0u8; crate::STANDARD_SKIN_BYTES])
+fn skin() -> render_api::SkinRgba8 {
+    vec![0u8; crate::STANDARD_SKIN_BYTES].into()
 }
 
 fn light() -> HandRigLight {
@@ -44,7 +44,7 @@ fn publish_accepts_a_single_instance_lit_rig_and_activates() {
 #[test]
 fn publish_rejects_a_wrong_sized_skin_and_stays_inactive() {
     let mut scene = HandRigScene::default();
-    let bad_skin = Arc::from(vec![0u8; 10]);
+    let bad_skin = vec![0u8; 10].into();
     assert!(!scene.publish(single_instance_frame(), bad_skin, light(), 1.2, 7));
     assert!(!scene.is_active());
 }

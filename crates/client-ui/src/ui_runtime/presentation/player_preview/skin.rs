@@ -18,14 +18,14 @@ pub fn local_preview_skin(
             protocol::PlayerSkin::Standard(skin) => ActorSkinPixels {
                 width: skin.width,
                 height: skin.height,
-                rgba8: Arc::clone(&skin.rgba8),
+                rgba8: skin.rgba8.clone(),
             },
             _ => return None,
         },
         None => ActorSkinPixels {
             width: menu_skin.width,
             height: menu_skin.height,
-            rgba8: Arc::clone(&menu_skin.rgba8),
+            rgba8: menu_skin.rgba8.clone(),
         },
     };
     validated_ui_skin(&pixels)
@@ -50,7 +50,7 @@ pub fn validated_ui_skin(skin: &render::ActorSkinPixels) -> Option<Arc<[u8]>> {
         return None;
     }
     Some(if side == height {
-        Arc::clone(&skin.rgba8)
+        Arc::clone(skin.rgba8.pixels())
     } else {
         render_api::expand_legacy_skin_rgba8(&skin.rgba8, side).into()
     })
@@ -72,7 +72,7 @@ mod tests {
             rgba8: rgba.into(),
         };
         let validated = validated_ui_skin(&skin).expect("supported HD skin");
-        assert!(Arc::ptr_eq(&skin.rgba8, &validated));
+        assert!(Arc::ptr_eq(skin.rgba8.pixels(), &validated));
         assert_eq!(validated.len(), side * side * 4);
         assert_eq!(&validated[fine..fine + 4], &[17, 43, 199, 255]);
     }

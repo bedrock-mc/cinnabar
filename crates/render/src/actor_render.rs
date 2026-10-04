@@ -368,25 +368,21 @@ fn prepare_actor_resources(
             return;
         };
         if gpu.skin_texture.is_none() {
-            let texture = render_device.create_texture_with_data(
-                &render_queue,
-                &TextureDescriptor {
-                    label: Some("bounded normalized server player skins"),
-                    size: Extent3d {
-                        width: STANDARD_SKIN_SIDE as u32,
-                        height: STANDARD_SKIN_SIDE as u32,
-                        depth_or_array_layers: crate::actor::MAX_RENDERED_PLAYERS as u32,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: TextureDimension::D2,
-                    format: TextureFormat::Rgba8UnormSrgb,
-                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                    view_formats: &[],
+            // wgpu zero-initialises the array; only packed layers are written below.
+            let texture = render_device.create_texture(&TextureDescriptor {
+                label: Some("bounded normalized server player skins"),
+                size: Extent3d {
+                    width: STANDARD_SKIN_SIDE as u32,
+                    height: STANDARD_SKIN_SIDE as u32,
+                    depth_or_array_layers: crate::actor::MAX_RENDERED_PLAYERS as u32,
                 },
-                TextureDataOrder::LayerMajor,
-                &vec![0; crate::actor::MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES],
-            );
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8UnormSrgb,
+                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
             let view = texture.create_view(&TextureViewDescriptor {
                 label: Some("bounded normalized server player skin array"),
                 dimension: Some(TextureViewDimension::D2Array),

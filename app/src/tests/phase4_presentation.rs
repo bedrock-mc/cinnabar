@@ -374,17 +374,17 @@ fn unchanged_skin_layers_reuse_one_packed_payload() {
 #[test]
 fn skin_layer_packing_keeps_equal_copies_and_detects_changed_pixels() {
     let mut pack = SkinLayerPack::default();
-    let one: Arc<[u8]> = vec![1; STANDARD_SKIN_BYTES].into();
-    let two: Arc<[u8]> = vec![2; STANDARD_SKIN_BYTES].into();
-    let first = pack.pack(vec![Arc::clone(&one), Arc::clone(&two)]);
-    let shared = pack.pack(vec![Arc::clone(&one), Arc::clone(&two)]);
+    let one: protocol::SkinRgba8 = vec![1; STANDARD_SKIN_BYTES].into();
+    let two: protocol::SkinRgba8 = vec![2; STANDARD_SKIN_BYTES].into();
+    let first = pack.pack(vec![one.clone(), two.clone()]);
+    let shared = pack.pack(vec![one.clone(), two.clone()]);
     let copies = pack.pack(vec![one.to_vec().into(), two.to_vec().into()]);
     assert!(Arc::ptr_eq(&first, &shared));
     assert!(Arc::ptr_eq(&first, &copies));
     assert_eq!(pack.rebuilds(), 1);
-    let reordered = pack.pack(vec![Arc::clone(&two), Arc::clone(&one)]);
-    assert_eq!(&reordered[..STANDARD_SKIN_BYTES], two.as_ref());
-    assert_eq!(&reordered[STANDARD_SKIN_BYTES..], one.as_ref());
+    let reordered = pack.pack(vec![two.clone(), one.clone()]);
+    assert_eq!(&reordered[..STANDARD_SKIN_BYTES], &*two);
+    assert_eq!(&reordered[STANDARD_SKIN_BYTES..], &*one);
     let mut expected = one.to_vec();
     expected[STANDARD_SKIN_BYTES - 1] = 3;
     let changed = pack.pack(vec![two, expected.clone().into()]);
@@ -398,9 +398,9 @@ fn skin_layer_packing_keeps_equal_copies_and_detects_changed_pixels() {
 #[test]
 fn skin_layer_packing_releases_replaced_equal_source_pixels() {
     let mut pack = SkinLayerPack::default();
-    let source: Arc<[u8]> = vec![11; STANDARD_SKIN_BYTES].into();
-    let obsolete = Arc::downgrade(&source);
-    let replacement: Arc<[u8]> = source.to_vec().into();
+    let source: protocol::SkinRgba8 = vec![11; STANDARD_SKIN_BYTES].into();
+    let obsolete = Arc::downgrade(source.pixels());
+    let replacement: protocol::SkinRgba8 = source.to_vec().into();
     let first = pack.pack(vec![source]);
     assert!(obsolete.upgrade().is_some());
     let second = pack.pack(vec![replacement]);
