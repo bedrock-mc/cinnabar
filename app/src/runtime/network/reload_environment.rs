@@ -36,7 +36,7 @@ impl EnvironmentBase {
 
 pub(super) struct PreparedEnvironment {
     pub(super) atmosphere: Option<render::AtmosphereTextureAssets>,
-    pub(super) particles: Option<render::ParticleSystem>,
+    pub(super) particles: Option<::particles::ParticleSystem>,
     pub(super) dependencies: super::pack_reload_diff::Dependencies,
 }
 

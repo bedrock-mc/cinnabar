@@ -42,7 +42,21 @@ fn flipbook_preserves_complete_metadata_defaults_and_order() {
     assert_eq!(lava.atlas_index, 0);
     assert_eq!(lava.atlas_tile_variant, 0);
     assert_eq!(lava.replicate, 1);
-    assert!(!lava.blend_frames);
+    assert!(lava.blend_frames);
+}
+
+// Omitted `blend_frames` blends as in vanilla; only an explicit `false` opts out.
+#[test]
+fn flipbook_blends_frames_unless_opted_out() {
+    let directory = pack_with_flipbooks(
+        r#"[
+            {"flipbook_texture": "textures/blocks/water", "atlas_tile": "water"},
+            {"flipbook_texture": "textures/blocks/lava", "atlas_tile": "lava", "blend_frames": false}
+        ]"#,
+    );
+    let pack = read_pack(directory.path()).expect("valid flipbooks");
+    assert!(pack.flipbooks[0].blend_frames);
+    assert!(!pack.flipbooks[1].blend_frames);
 }
 
 #[test]

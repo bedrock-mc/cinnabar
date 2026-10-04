@@ -44,7 +44,7 @@ fn unrelated_arrivals_do_not_renew_neighbour_deadlines() {
 #[test]
 fn cohort_deadline_counts_only_new_local_progress() {
     let (mut stream, key) = stream_with_one_expected_sub_chunk();
-    stream.committed_view_cohort = Some(ViewCohort::from_publisher(0, [0, 0, 0], 64));
+    stream.publisher.cohort = Some(ViewCohort::from_publisher(0, [0, 0, 0], 64));
     let now = Instant::now();
     let missing = SubChunkKey::new(0, 1, key.y, 0);
     stream.record_column_arrival(key.chunk(), now);
@@ -62,6 +62,6 @@ fn cohort_deadline_counts_only_new_local_progress() {
     let expired = quiet + UNSENT_COLUMN_GRACE;
     stream.record_sub_chunk_arrival(slot, expired);
     assert!(!stream.sub_chunk_is_due(missing, expired));
-    stream.publisher_epoch += 1;
+    stream.publisher.epoch += 1;
     assert!(!stream.sub_chunk_is_due(missing, quiet));
 }

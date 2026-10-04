@@ -79,14 +79,7 @@ fn vanilla_pickup_replaces_closed_inventory_and_hud_before_the_next_drop() {
         Some(&update.stack)
     );
     assert_eq!(
-        runtime.gameplay_hud().hotbar_stack(slot),
-        Some(&update.stack)
-    );
-    assert_eq!(
-        runtime
-            .selected_stack_snapshot(&player_runtime)
-            .unwrap()
-            .state,
+        player_runtime.selected_stack_snapshot().unwrap().state,
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&update.stack)
     );
     let request = runtime

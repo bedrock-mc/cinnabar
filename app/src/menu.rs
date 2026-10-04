@@ -9,7 +9,6 @@
 mod account;
 mod account_control;
 pub(crate) mod auth;
-mod connection;
 mod construction;
 pub(crate) mod core_process;
 pub(crate) mod disconnect;
@@ -24,33 +23,33 @@ mod navigation;
 #[cfg(test)]
 mod server_input_tests;
 pub(crate) mod servers;
+#[cfg(test)]
+mod session_teardown_tests;
 pub(crate) mod settings_options;
 mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
+#[cfg(test)]
+mod transfer_follow_tests;
 mod video_settings;
-mod view;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
 use ui::RenderMode;
 
-pub(crate) use connection::{
-    drive_menu_connection, follow_server_transfer, recover_menu_session_failure,
-};
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
+use launcher::menu::view::{CatalogFile, MenuFeeds};
+#[cfg(test)]
+pub(crate) use launcher::menu::view::{InboxItem, JoinKind, JoinProgress, JoinStage, MenuHome};
+pub(crate) use launcher::menu::view::{
+    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use video_settings::persist_video_settings;
-use view::{CatalogFile, MenuFeeds};
-#[cfg(test)]
-pub(crate) use view::{InboxItem, JoinKind, JoinProgress, JoinStage, MenuHome};
-pub(crate) use view::{
-    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
-};
 pub(crate) use worlds_tab::LocalWorldAction;
 
 use std::{
@@ -59,9 +58,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Commands, Res, ResMut, Resource};
 
-use crate::{install_layout::InstallLayout, session_cleanup::SessionDirectoryGuard};
+use crate::{
+    install_layout::InstallLayout,
+    runtime::world::ClientWorld,
+    session::{JoinIntent, SessionStatus},
+};
+use client_ui::ui_runtime::UiRuntime;
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -70,26 +74,6 @@ const MAX_SERVER_PORT_BYTES: usize = 6;
 use launcher::menu::DEFAULT_PORT;
 
 pub(crate) use launcher::menu::split_address;
-
-/// Bounded number of consecutive automatic transfer-follow hops.
-///
-/// Mirrors the Go core's pre-login transfer-follower limit so a malicious or
-/// misconfigured transfer loop ends in a visible menu state instead of
-/// reconnecting forever. User-initiated joins always start a fresh chain.
-pub(crate) const MAX_TRANSFER_CHAIN_HOPS: u32 = 8;
-
-/// Renders a validated transfer host and port as a dialable address.
-///
-/// IPv6 literals are bracketed the way the Go core's dialer expects.
-pub(crate) fn format_transfer_address(host: &str, port: u16) -> String {
-    if host.starts_with('[') && host.ends_with(']') {
-        format!("{host}:{port}")
-    } else if host.contains(':') {
-        format!("[{host}]:{port}")
-    } else {
-        format!("{host}:{port}")
-    }
-}
 
 pub(crate) use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
 
@@ -131,13 +115,9 @@ pub(crate) struct MenuRuntime {
     servers: Vec<SavedServer>,
     config_path: PathBuf,
     saves: ServerWriter,
-    pending_connect: Option<PendingConnect>,
-    connecting: bool,
-    disconnect_requested: bool,
-    exit_requested: bool,
-    session_generation: u64,
-    /// Automatic transfer-follow hops remaining in the current chain.
-    transfer_hops_remaining: u32,
+    intents: SessionIntents,
+    /// The session controller's last published state.
+    session: SessionStatus,
     featured: Vec<MenuServerCard>,
     gatherings: Vec<MenuServerCard>,
     realms: Vec<MenuRealmCard>,
@@ -157,7 +137,6 @@ pub(crate) struct MenuRuntime {
     disconnect_message: Option<String>,
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
-    respawn_requested: bool,
     local_worlds: Vec<LocalWorldCard>,
     local_world_requested: Option<usize>,
     local_ui: worlds_tab::LocalWorldsUi,
@@ -171,7 +150,7 @@ pub(crate) struct MenuRuntime {
     pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
     pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// The Marketplace's presented state while its screen is up.
-    store_snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+    store_snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
     settings_options: std::sync::Arc<settings_options::SettingsOptions>,
     storage: std::sync::Arc<settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
@@ -189,20 +168,15 @@ pub(crate) struct MenuRuntime {
     local_world_joined: bool,
     local_world_active: bool,
     feeds: MenuFeeds,
-    /// Identity-checked owner of this session's runtime directory; bound
-    /// once a connect attempt provisions it and released on disconnect,
-    /// session failure, exit, or drop.
-    session_directory: Option<SessionDirectoryGuard>,
-    /// The join provisioning behind the connecting screen.
-    join: Option<connection::JoinAttempt>,
 }
 
-#[derive(Debug)]
-struct PendingConnect {
-    address: String,
-    auth_cache: Option<PathBuf>,
-    /// Joins the launcher core's opened local world instead of `address`.
-    local_world: bool,
+/// Session requests raised by menu actions, for the session controller to take.
+#[derive(Debug, Default)]
+struct SessionIntents {
+    join: Option<JoinIntent>,
+    disconnect: bool,
+    respawn: bool,
+    exit: bool,
 }
 
 impl MenuRuntime {
@@ -244,8 +218,21 @@ impl MenuRuntime {
         self.launcher
     }
 
+    /// A join is queued or in progress.
     pub(crate) fn is_connecting(&self) -> bool {
-        self.connecting
+        self.session.connecting || self.intents.join.is_some()
+    }
+
+    pub(crate) fn observe_session(&mut self, status: SessionStatus) {
+        self.session = status;
+    }
+
+    pub(crate) fn layout(&self) -> &InstallLayout {
+        &self.layout
+    }
+
+    pub(crate) fn display_name(&self) -> &str {
+        &self.display_name
     }
 
     pub(crate) fn set_visible(&mut self, visible: bool) {
@@ -307,7 +294,7 @@ impl MenuRuntime {
             catalog_loading,
             catalog_message: self.catalog_message.clone(),
             auth_state,
-            connecting: self.connecting,
+            connecting: self.is_connecting(),
             settings_section: self.settings_section,
             disconnect_message: self.disconnect_message.clone(),
             editing: self.editing,
@@ -333,7 +320,7 @@ impl MenuRuntime {
     /// Publish (or clear) the Marketplace's presented state.
     pub(crate) fn set_store_snapshot(
         &mut self,
-        snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+        snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
     ) {
         self.store_snapshot = snapshot;
     }
@@ -361,7 +348,7 @@ impl MenuRuntime {
 
     /// Show the death screen once per death (health reached zero in play).
     pub(crate) fn open_death(&mut self) {
-        if self.visible || self.connecting || self.death_shown {
+        if self.visible || self.is_connecting() || self.death_shown {
             return;
         }
         self.death_shown = true;
@@ -381,11 +368,11 @@ impl MenuRuntime {
 
     /// The death screen's respawn press, for the session to send once.
     pub(crate) fn take_respawn_request(&mut self) -> bool {
-        std::mem::take(&mut self.respawn_requested)
+        std::mem::take(&mut self.intents.respawn)
     }
 
     pub(crate) fn open_pause(&mut self) {
-        if self.visible || self.connecting {
+        if self.visible || self.is_connecting() {
             return;
         }
         self.history.reset(MenuScreen::Pause);
@@ -395,7 +382,8 @@ impl MenuRuntime {
         self.visible = true;
     }
 
-    fn take_pending_connect(&mut self) -> Option<PendingConnect> {
+    /// The queued join, once any sign-in helper has finished cleaning up.
+    pub(crate) fn take_join_intent(&mut self) -> Option<JoinIntent> {
         if self
             .auth_process
             .as_ref()
@@ -403,11 +391,11 @@ impl MenuRuntime {
         {
             return None;
         }
-        self.pending_connect.take()
+        self.intents.join.take()
     }
 
-    pub(crate) fn mark_connected(&mut self) {
-        self.connecting = false;
+    /// The session is live: the menu gives way to the world.
+    pub(crate) fn show_world(&mut self) {
         self.visible = false;
         self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
@@ -415,8 +403,7 @@ impl MenuRuntime {
         self.field = None;
     }
 
-    pub(crate) fn mark_connecting(&mut self) {
-        self.connecting = true;
+    pub(crate) fn show_connecting(&mut self) {
         self.visible = true;
         self.history.reset(MenuScreen::Home);
         self.history.push(MenuScreen::Play);
@@ -424,14 +411,33 @@ impl MenuRuntime {
         self.message = Some("Connecting…".to_owned());
     }
 
-    pub(crate) fn mark_disconnected(&mut self) {
+    pub(crate) fn show_home(&mut self) {
         self.visible = true;
         self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.focused = 0;
-        self.connecting = false;
         self.field = None;
         self.dialog = None;
+    }
+
+    /// A cancelled join drops any queued join and returns to the play screen.
+    pub(crate) fn cancel_join(&mut self) {
+        self.intents.join = None;
+        self.enter(MenuScreen::Play);
+    }
+
+    pub(crate) fn show_join_failure(&mut self, message: String) {
+        self.message = Some(message);
+    }
+
+    pub(crate) fn show_transfer(&mut self, address: &str) {
+        self.message = Some(format!("Transferring to {address}…"));
+    }
+
+    /// Resets the join progress screen for a join to `address`.
+    pub(crate) fn begin_join_progress(&mut self, address: &str, local_world: bool) {
+        self.feeds.join =
+            launcher::menu::view::JoinProgress::new(launcher_core::join_kind(address, local_world));
     }
 
     /// Returns the session back to the launcher after a fatal session error.
@@ -442,7 +448,6 @@ impl MenuRuntime {
         if !self.launcher {
             return false;
         }
-        self.connecting = false;
         self.visible = true;
         self.history.reset(MenuScreen::Home);
         self.history.push(MenuScreen::Play);
@@ -459,29 +464,11 @@ impl MenuRuntime {
     }
 
     pub(crate) fn take_disconnect_request(&mut self) -> bool {
-        std::mem::take(&mut self.disconnect_requested)
+        std::mem::take(&mut self.intents.disconnect)
     }
 
     pub(crate) fn take_exit_request(&mut self) -> bool {
-        std::mem::take(&mut self.exit_requested)
-    }
-
-    pub(crate) fn next_session_generation(&mut self) -> u64 {
-        self.session_generation = self.session_generation.saturating_add(1).max(1);
-        self.session_generation
-    }
-
-    /// Takes ownership of the bound session directory, releasing any
-    /// previous binding first so at most one session directory is live.
-    pub(crate) fn bind_session_directory(&mut self, directory: SessionDirectoryGuard) {
-        self.session_directory = Some(directory);
-    }
-
-    /// Releases the session runtime directory now (after the core has been
-    /// stopped); a no-op when nothing is bound.
-    #[cfg(test)]
-    pub(crate) fn release_session_directory(&mut self) {
-        self.session_directory = None;
+        std::mem::take(&mut self.intents.exit)
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
@@ -516,7 +503,7 @@ impl MenuRuntime {
             }
             MenuAction::ConfirmExit => {
                 self.dialog = None;
-                self.exit_requested = true;
+                self.intents.exit = true;
             }
             MenuAction::DismissDialog => self.dialog = None,
             MenuAction::SelectServerTab(tab) => {
@@ -634,7 +621,7 @@ impl MenuRuntime {
             }
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
-                self.disconnect_requested = true;
+                self.intents.disconnect = true;
                 self.set_visible(false);
             }
             MenuAction::PauseSettings => {
@@ -668,7 +655,7 @@ impl MenuRuntime {
             | MenuAction::SettingsResetChat
             | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
             MenuAction::Respawn => {
-                self.respawn_requested = true;
+                self.intents.respawn = true;
                 self.set_visible(false);
             }
             MenuAction::SignOut => self.sign_out_requested = true,
@@ -777,66 +764,68 @@ impl MenuRuntime {
         }
     }
 
-    fn request_connect(&mut self, address: String) {
+    /// Queues a join to `address` for the session controller.
+    pub(crate) fn request_connect(&mut self, address: String) {
         if address.trim().is_empty() {
             self.message = Some("That server has no address.".to_owned());
             return;
         }
-        // A user-initiated join always starts a fresh transfer chain.
-        self.begin_fresh_transfer_chain();
         self.stop_catalog();
-        let auth_cache = account::validated_auth_cache(
-            &self.layout,
-            self.auth_process.as_ref().map(AuthSupervisor::state),
-        );
+        let auth_cache = self.launcher_auth_cache();
         self.stop_sign_in();
         self.local_world_joined = false;
-        self.pending_connect = Some(PendingConnect {
+        self.intents.join = Some(JoinIntent {
             address,
             auth_cache,
             local_world: false,
         });
-        self.mark_connecting();
+        self.show_connecting();
     }
+}
 
-    /// Starts a fresh bounded transfer-follow chain for a user join.
-    pub(crate) fn begin_fresh_transfer_chain(&mut self) {
-        self.transfer_hops_remaining = MAX_TRANSFER_CHAIN_HOPS;
-    }
-
-    /// Consumes one hop of the bounded automatic transfer-follow chain.
-    ///
-    /// Returns `false` when the chain is exhausted; the caller must surface
-    /// the explicit cannot-follow state instead of reconnecting again.
-    pub(crate) fn consume_transfer_chain_hop(&mut self) -> bool {
-        if self.transfer_hops_remaining == 0 {
-            return false;
-        }
-        self.transfer_hops_remaining -= 1;
-        true
-    }
-
-    /// Prepares the replacement-handoff target for a server-directed
-    /// transfer without staging a user connect.
-    ///
-    /// Well-formedness only, exactly like the protocol boundary: no host
-    /// allowlist exists because vanilla servers legitimately transfer across
-    /// unrelated hosts. Returns `None` for an unusable target.
-    pub(crate) fn transfer_handoff_target(
-        &self,
-        host: &str,
-        port: u16,
-    ) -> Option<(String, Option<PathBuf>)> {
-        let trimmed = host.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-        let address = format_transfer_address(trimmed, port);
-        let auth_cache = account::validated_auth_cache(
-            &self.layout,
-            self.auth_process.as_ref().map(AuthSupervisor::state),
+/// Drives the launcher's own services: catalog, saves, settings, the account core and local worlds.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn drive_menu_services(
+    mut commands: Commands,
+    mut menu: ResMut<MenuRuntime>,
+    client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
+    client_world: Res<ClientWorld>,
+    mut runtime: ResMut<UiRuntime>,
+    launcher: Option<ResMut<LauncherCoreSlot>>,
+    launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
+    mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
+    audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
+    settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
+) {
+    menu.poll_catalog(launcher_account.is_some());
+    menu.poll_saves();
+    menu.sync_audio_settings(audio_settings);
+    menu.sync_user_settings(settings);
+    menu.sync_language(&mut runtime);
+    let in_session = client_world.stream.is_some();
+    if let Some(mut slot) = launcher {
+        // Remote direct sessions have a separate game core. Local worlds use
+        // the account core, so sign-in must not restart it during local play.
+        let idle = launcher_core::account_core_idle(
+            menu.is_launcher(),
+            menu.is_connecting(),
+            in_session,
+            menu.local_world_joined,
         );
-        Some((address, auth_cache))
+        slot.drive(
+            &mut commands,
+            &mut menu,
+            idle,
+            client_blob_cache.enables_upstream_client_cache(),
+            local_worlds.as_deref_mut(),
+        );
+    }
+    match launcher_account {
+        Some(mut account) => menu.sync_account_control(&mut *account),
+        None => menu.sign_out_locally(),
+    }
+    if let Some(worlds) = local_worlds.as_deref_mut() {
+        menu.sync_local_worlds(worlds, in_session);
     }
 }
 

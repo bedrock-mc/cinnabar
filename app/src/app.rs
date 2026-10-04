@@ -22,7 +22,7 @@ use bevy::{
     render::{diagnostic::RenderDiagnosticsPlugin, settings::Backends},
     window::WindowPlugin,
 };
-use client_world::PublicationServiceConfig;
+use chunk_pipeline::PublicationServiceConfig;
 use render::{
     ActorRenderPlugin, ActorRenderScene, AtmosphereFrame, AtmospherePlugin,
     AtmosphereTextureAssets, ChunkRenderApplySet, ChunkRenderPlugin, ChunkTextureAssets,
@@ -53,11 +53,9 @@ use crate::{
     },
     melee::{MeleeRuntime, SwingTracker, produce_melee},
     menu::{
-        CoreProcessGuard, MenuRuntime, drive_menu_connection, drive_menu_input,
-        follow_server_transfer, recover_menu_session_failure, spawn_core_for_address,
-        wait_for_core,
+        CoreProcessGuard, MenuRuntime, drive_menu_input, drive_menu_services,
+        spawn_core_for_address, wait_for_core,
     },
-    metrics::MetricsCollector,
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         PhysicsAuthorityGate, PhysicsCollisionRegistries, advance_local_physics,
@@ -90,21 +88,23 @@ use crate::{
         collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
         synchronize_semantic_input_authority,
     },
+    session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
-        UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
+        drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
         drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
         drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
         flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{
-            UiPresentationRuntime, drive_menu_panorama, observe_mount_jump_input,
-            prepare_ui_runtime, publish_ui_runtime,
+            drive_menu_panorama, observe_mount_jump_input, prepare_ui_runtime, publish_ui_runtime,
         },
     },
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use diagnostics::markers::{SHUTDOWN_COMPLETED, requested_present_mode};
+use diagnostics::metrics::MetricsCollector;
 
 #[cfg(feature = "acceptance")]
 use crate::acceptance::model_witness::drive_model_witness;
@@ -170,11 +170,11 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .init_resource::<SurvivalMiningRuntime>()
         .init_resource::<MeleeRuntime>()
         .init_resource::<SwingTracker>()
-        .init_resource::<crate::server_camera::ServerCameraInstructions>()
+        .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
         .init_resource::<crate::named_audio::NamedAudio>()
         .init_resource::<crate::audio::AudioEngine>()
-        .init_resource::<crate::local_player_camera_receipt::CameraPublicationAttempt>()
+        .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
             Update,
             receive_network_events
@@ -190,9 +190,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             crate::session_audio::drain_sequenced_audio_into_session
                 .after(reconcile_world_stream_before_physics)
-                .after(drive_menu_connection)
+                .after(drive_session)
                 .after(follow_server_transfer)
-                .after(recover_menu_session_failure),
+                .after(recover_session_failure),
         )
         .add_systems(
             Update,
@@ -209,7 +209,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             (
-                crate::local_player_camera_receipt::begin_camera_publication_attempt,
+                client_presentation::local_player_camera_receipt::begin_camera_publication_attempt,
                 resolve_camera_pose,
             )
                 .chain()
@@ -236,9 +236,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .after(publish_local_player_frame)
                 .after(drive_world_stream)
                 .after(reconcile_world_stream_before_physics)
-                .after(drive_menu_connection)
+                .after(drive_session)
                 .after(follow_server_transfer)
-                .after(recover_menu_session_failure),
+                .after(recover_session_failure),
         )
         .add_systems(
             Update,
@@ -294,7 +294,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
             .after(ClientFrameSet::NetworkSend)
             .after(ClientFrameSet::UiPublication)
             .after(record_metrics)
-            .after(recover_menu_session_failure),
+            .after(recover_session_failure),
     );
     app
         // The launcher gets first refusal on a fatal session error, so a failed
@@ -304,7 +304,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
         // move is classified as a replacement handoff, not a failure.
         .add_systems(
             Update,
-            (follow_server_transfer, recover_menu_session_failure)
+            (follow_server_transfer, recover_session_failure)
                 .chain()
                 .after(receive_network_events)
                 .after(ClientFrameSet::NetworkSend)
@@ -590,13 +590,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
     // The gameplay HUD draws through the JSON-UI engine, so its carrier is required.
     let ui_assets =
-        crate::ui_runtime::json_ui_assets::require_ui_assets(&loaded_assets.selected_path)?;
+        client_ui::ui_runtime::json_ui_assets::require_ui_assets(&loaded_assets.selected_path)?;
     ui_presentation
         .enable_json_ui(ui_assets)
         .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
     // Dev-only: CINNABAR_OREUI_LOCAL_ASSETS compares OreUI against the install's originals.
-    if let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images()
+    if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images()
         && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
         eprintln!("OreUI originals disabled ({reason})");
@@ -771,7 +771,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(core_process)
+    .insert_resource(SessionController::new(core_process))
     .insert_resource(client_blob_cache)
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
@@ -927,7 +927,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
-        app.insert_resource(render::ParticleSystem::from_assets(particle_assets));
+        app.insert_resource(render::ParticleSimulation(
+            particles::ParticleSystem::from_assets(particle_assets),
+        ));
     }
     app.insert_resource(particle_icons);
     crate::particles::configure_particles(&mut app);

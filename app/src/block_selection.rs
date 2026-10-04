@@ -13,8 +13,8 @@ use crate::{
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
     settings_runtime::RuntimeSettings,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 #[derive(SystemParam)]
 struct SelectionContext<'w> {
@@ -68,14 +68,14 @@ fn target(
     let stream = context.world.stream.as_ref()?;
     let ray = context.origin.outbound_ray()?;
     if !ray_is_current(ray, context.ui.session_id(), stream)
-        || context.ui.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Spectator)
+        || player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator)
     {
         return None;
     }
     let mode = protocol_input_mode(context.input.snapshot()?.input_mode);
-    let reach = if context
-        .ui
-        .game_mode_capabilities(player_runtime)?
+    let reach = if player_runtime
+        .facts
+        .game_mode_capabilities()?
         .creative_reach
     {
         creative_reach(mode)

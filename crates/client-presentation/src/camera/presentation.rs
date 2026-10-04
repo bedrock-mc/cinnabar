@@ -184,7 +184,7 @@ pub fn update_screen_overlays(
         let helmet = ui.local_armor(player_runtime).helmet;
         pumpkin = stream
             .filter(|_| !helmet.is_empty())
-            .and_then(|stream| stream.canonical_item_stack(&helmet)?.identifier)
+            .and_then(|stream| stream.authority().canonical_item_stack(&helmet)?.identifier)
             .is_some_and(|identifier| &*identifier == CARVED_PUMPKIN_IDENTIFIER);
     }
     let step = if dt.is_finite() && dt > 0.0 {
@@ -233,7 +233,7 @@ pub fn apply_camera_presentation(
         .as_ref()
         .and_then(|world| world.stream.as_ref());
     let actors = |unique_id: i64| {
-        let (position, yaw, pitch) = stream?.actor_pose_by_unique(unique_id)?;
+        let (position, yaw, pitch) = stream?.authority().actor_pose_by_unique(unique_id)?;
         Some(ActorView {
             position: Vec3::from_array(position),
             yaw_degrees: yaw,

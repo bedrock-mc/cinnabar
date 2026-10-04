@@ -72,8 +72,9 @@ impl InventoryScreen {
             return Self::Book;
         }
         let screen = Self::of(runtime.inventory_ledger(player_runtime));
-        let creative = runtime
-            .player_game_mode(player_runtime)
+        let creative = player_runtime
+            .facts
+            .player_game_mode()
             .is_some_and(|mode| mode == protocol::PlayerGameMode::Creative);
         if screen == Self::Personal
             && creative

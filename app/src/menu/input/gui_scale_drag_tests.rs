@@ -4,11 +4,11 @@ use ui::{DpiScale, UiRect};
 use super::*;
 use crate::{
     menu::{MenuAction, MenuScreen},
-    ui_runtime::{
-        UiRuntime,
-        presentation::{apply_gui_scale_setting, tests::engine_hud_tests::engine_presentation},
+    ui_runtime::presentation::{
+        apply_gui_scale_setting, tests::engine_hud_tests::engine_presentation,
     },
 };
+use client_ui::ui_runtime::UiRuntime;
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 

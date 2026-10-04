@@ -1,7 +1,4 @@
-use crate::{
-    menu::MenuRuntime,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
-};
+use crate::menu::MenuRuntime;
 use bevy::{
     prelude::{Local, Query, Res, ResMut, With},
     window::{PrimaryWindow, Window},
@@ -9,6 +6,7 @@ use bevy::{
 use client_ui::ui_runtime::presentation::forms::panorama::{
     launcher_faces, launcher_view, overlay_tint,
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use render::PanoramaScene;
 use std::{sync::Arc, time::Instant};
 /// Uploads the faces on first sight of the carrier and shows the panorama

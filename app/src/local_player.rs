@@ -22,7 +22,7 @@ pub use client_presentation::local_player::{
 pub(crate) struct CameraPublicationContext<'w> {
     clock: Res<'w, WorldClock>,
     physics: Res<'w, LocalPhysicsController>,
-    receipt: ResMut<'w, crate::local_player_camera_receipt::CameraPublicationAttempt>,
+    receipt: ResMut<'w, client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
 }
 
 /// Borrows world and completed physics facts for presentation publication.

@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::metrics::{DiagnosticQuadTracker, MetricsCollector};
+use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
 
 const LOG_INTERVAL: Duration = Duration::from_secs(5);
 

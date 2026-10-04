@@ -6,9 +6,9 @@ use world::SubChunkKey;
 
 use crate::{
     camera::FlyCamera,
-    metrics::{DiagnosticQuadTracker, MetricsCollector},
     runtime::{telemetry::camera_sub_chunk_key, world::ClientWorld},
 };
+use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
 
 #[derive(Resource, Default)]
 pub(crate) struct CaveVisibilityCache {
@@ -16,7 +16,7 @@ pub(crate) struct CaveVisibilityCache {
     pub(crate) graph_generation: Option<u64>,
     pub(crate) visible: HashSet<SubChunkKey>,
     next_visible: HashSet<SubChunkKey>,
-    scratch: client_world::CaveVisibilityScratch,
+    scratch: chunk_pipeline::CaveVisibilityScratch,
     pub(crate) rendered: HashSet<SubChunkKey>,
     pub(crate) visible_rendered: usize,
     pub(crate) initialized: bool,

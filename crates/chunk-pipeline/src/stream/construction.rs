@@ -71,7 +71,6 @@ impl WorldStream {
     ) -> Self {
         let _ = &*workers::WORKERS;
         let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
-        let (light_tx, light_rx) = bounded(LIGHT_RESULT_CAPACITY);
         let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
         let authority = client_world::WorldAuthority::new(
             bootstrap,
@@ -102,43 +101,15 @@ impl WorldStream {
             predictions: prediction::DeferredPredictions::default(),
             decode_tx,
             decode_rx,
-            light_tx,
-            light_rx,
             mesh_tx,
             mesh_rx,
-            next_block_generation: 0,
-            block_generations: HashMap::new(),
-            light_store: LightStore::default(),
-            light_ownership: HashMap::new(),
-            direct_sky: BTreeMap::new(),
-            light_failures: HashMap::new(),
-            light_revisions: RevisionTracker::default(),
-            pending_light: HashMap::new(),
-            pending_light_scan: VecDeque::new(),
-            pending_light_ready: BinaryHeap::new(),
-            pending_light_deferred: BinaryHeap::new(),
-            light_priority_wakeups: HashMap::new(),
-            light_scheduler_refresh: Default::default(),
-            in_flight_light: HashMap::new(),
-            next_light_batch_id: 0,
-            in_flight_light_batches: HashMap::new(),
-            running_light_jobs: Arc::new(AtomicUsize::new(0)),
-            last_dispatched_light_batch: HashMap::new(),
-            light_waiters: HashMap::new(),
-            fatal_light_failure: false,
+            lighting: lighting::Lighting::new(),
             fatal_error: None,
             revisions: RevisionTracker::default(),
             applied_mesh_generations: HashMap::new(),
             mesh_dependency_masks: HashMap::new(),
-            pending_mesh: HashMap::new(),
-            pending_mesh_scan: VecDeque::new(),
-            pending_resident_mesh_deferred: BinaryHeap::new(),
-            pending_resident_mesh_ready: BinaryHeap::new(),
-            pending_mesh_removal_deferred: BinaryHeap::new(),
-            pending_mesh_removal_ready: BinaryHeap::new(),
-            mesh_scheduler_refresh: Default::default(),
+            mesh_jobs: Default::default(),
             view_forward: None,
-            in_flight: HashMap::new(),
             admitted_mesh_jobs: Arc::new(AtomicUsize::new(0)),
             mesh_cancellations: HashMap::new(),
             urgent_mesh_in_flight: HashSet::new(),
@@ -147,19 +118,9 @@ impl WorldStream {
             resident: BTreeSet::new(),
             known_air: BTreeSet::new(),
             loaded_columns: BTreeSet::new(),
-            requested_sub_chunks: HashMap::new(),
-            request_collision_failures: HashSet::new(),
-            sub_chunk_deadlines: BTreeSet::new(),
-            correlated_sub_chunk_attempts: HashMap::new(),
-            admitted_sub_chunk_replies: HashMap::new(),
-            deferred_retries: VecDeque::new(),
-            deferred_retry_set: HashSet::new(),
-            deferred_recovery_requests: VecDeque::new(),
             connectivity: FastHashMap::new(),
             connectivity_generation: 0,
-            requests: RequestQueue::default(),
-            transport_pending_requests: 0,
-            last_request_player_chunk: None,
+            requests: Default::default(),
             unsent_column_deadlines: HashMap::new(),
             arrival_cohort: None,
             poll_deadline: None,
@@ -167,21 +128,10 @@ impl WorldStream {
             polling: false,
             publication_allowance: None,
             mesh_changes: VecDeque::new(),
-            publisher_center,
-            publisher_radius_blocks: None,
-            publisher_radius_chunks: None,
-            committed_view_cohort: None,
-            provisional_publisher_rebase: false,
-            local_resets_armed: 0,
-            local_resets_consumed: 0,
-            local_reset_dispatch_count: 0,
-            local_reset_dispatch_total: 0,
-            local_reset_dispatch_active: false,
-            local_reset_dispatch_classes: [None; MAX_LOCAL_RESET_DISPATCH_EVIDENCE],
-            publisher_epoch: 0,
-            required_columns: BTreeSet::new(),
-            source_columns: BTreeSet::new(),
-            source_capture_sequence: None,
+            publisher: cohort::PublisherScope {
+                center: publisher_center,
+                ..Default::default()
+            },
             chunk_radius: None,
             last_retention_center: None,
             last_retention_radius: None,
@@ -257,17 +207,17 @@ impl WorldStream {
                 .map_or(event.requested_sub_chunks != Some(0), |ys| !ys.is_empty()),
             _ => false,
         };
-        if creates_request && self.requests.len() >= OUTBOUND_REQUEST_CAPACITY {
+        if creates_request && self.requests.queue.len() >= OUTBOUND_REQUEST_CAPACITY {
             return Err(WorldStreamError::OutboundFull {
                 sequence,
-                pending: self.requests.len(),
+                pending: self.requests.queue.len(),
                 capacity: OUTBOUND_REQUEST_CAPACITY,
             });
         }
         let retained_commits = self.authority.retained_commit_count();
         self.order.admit(sequence, heavy, retained_commits)?;
         if creates_request {
-            self.requests.reserve(sequence);
+            self.requests.queue.reserve(sequence);
         }
 
         match event {
@@ -366,6 +316,6 @@ impl WorldStream {
     pub fn remaining_admission_capacity(&self) -> usize {
         self.order
             .remaining_admission_capacity(self.authority.retained_commit_count())
-            .min(OUTBOUND_REQUEST_CAPACITY.saturating_sub(self.requests.len()))
+            .min(OUTBOUND_REQUEST_CAPACITY.saturating_sub(self.requests.queue.len()))
     }
 }

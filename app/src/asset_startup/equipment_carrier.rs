@@ -73,7 +73,7 @@ pub(crate) fn load_optional_block_entity_assets(
     world: &Path,
 ) -> Option<Arc<RuntimeBlockEntityAssets>> {
     let path = world.with_file_name(crate::block_entities::BLOCK_ENTITY_ASSETS_FILENAME);
-    let bytes = match crate::bounded_file::read(
+    let bytes = match diagnostics::bounded_file::read(
         &path,
         assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64,
     ) {

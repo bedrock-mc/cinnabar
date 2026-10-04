@@ -8,11 +8,11 @@ use crate::{
     movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
-    server_camera::ServerCameraInstructions,
-    ui_runtime::UiRuntime,
 };
 use bevy::prelude::{Query, Res, ResMut, Time, Transform, With};
 pub use client_presentation::camera::presentation::{FirstPersonHandMotion, ScreenEffectFacts};
+use client_presentation::server_camera::ServerCameraInstructions;
+use client_ui::ui_runtime::UiRuntime;
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]

@@ -22,7 +22,7 @@ fn math_stream(compiled: &CompiledEntityAssets, speed: f32) -> WorldStream {
 
 /// Hashes published float bits without relying on debug formatting.
 fn pose_digest(stream: &WorldStream, hash: &mut Sha256) {
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     for bone in rig.current {
         for value in bone
             .rotation
@@ -72,7 +72,7 @@ fn argument_arities_preserve_prefix_and_numeric_string_conversion() {
         let mut stream = math_stream(&math_assets(program, stack), 1.0);
         stream.advance_actor_interpolation_ticks(1);
         assert_eq!(
-            stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+            stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
             -expected
         );
     }
@@ -96,7 +96,7 @@ fn argument_arities_preserve_prefix_and_numeric_string_conversion() {
     let mut stream = math_stream(&compiled, 1.0);
     stream.advance_actor_interpolation_ticks(1);
     assert_eq!(
-        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
         -0.5
     );
 }
@@ -114,12 +114,12 @@ fn nan_math_retains_the_previous_pose() {
         ),
         1.0,
     );
-    let previous = stream.actor_rig(42).unwrap().current.to_vec();
+    let previous = stream.authority().actor_rig(42).unwrap().current.to_vec();
     stream.advance_actor_interpolation_ticks(2);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(rig.current, previous);
     assert_eq!(rig.completed_tick, 0);
-    assert_eq!(stream.actor_animation_stats().frozen_actors, 2);
+    assert_eq!(stream.authority().actor_animation_stats().frozen_actors, 2);
 }
 
 /// A failed budget discards random draws from the transaction before the next successful call.
@@ -144,8 +144,14 @@ fn budget_failure_preserves_the_random_sequence() {
     );
     let (mut failed, mut clean) = (math_stream(&compiled, 1.0), math_stream(&compiled, 0.0));
     failed.advance_actor_interpolation_ticks(1);
-    assert_eq!(failed.actor_animation_stats().actor_budget_exhaustions, 1);
-    assert_eq!(failed.actor_rig(42).unwrap().completed_tick, 0);
+    assert_eq!(
+        failed
+            .authority()
+            .actor_animation_stats()
+            .actor_budget_exhaustions,
+        1
+    );
+    assert_eq!(failed.authority().actor_rig(42).unwrap().completed_tick, 0);
     let mut stop = turn(2, 0.0);
     if let WorldEvent::Actor(ActorEvent::Move(movement)) = &mut stop {
         movement.position = [Some(0.0), Some(64.0), Some(0.0)];
@@ -154,8 +160,8 @@ fn budget_failure_preserves_the_random_sequence() {
     failed.advance_actor_interpolation_ticks(1);
     clean.advance_actor_interpolation_ticks(1);
     assert_eq!(
-        failed.actor_rig(42).unwrap().current,
-        clean.actor_rig(42).unwrap().current
+        failed.authority().actor_rig(42).unwrap().current,
+        clean.authority().actor_rig(42).unwrap().current
     );
 }
 
@@ -225,7 +231,10 @@ fn math_call_arguments_bench() {
             .unwrap();
     }
     stream.advance_actor_interpolation_ticks(1);
-    let before = stream.actor_animation_stats().evaluated_molang_ops;
+    let before = stream
+        .authority()
+        .actor_animation_stats()
+        .evaluated_molang_ops;
     let start = std::time::Instant::now();
     for _ in 0..100 {
         stream.advance_actor_interpolation_ticks(1);
@@ -234,6 +243,11 @@ fn math_call_arguments_bench() {
         "MATH_CALLS mean_us={:.3} calls_per_tick={} molang_ops={}",
         start.elapsed().as_secs_f64() * 1e6 / 100.0,
         128 * 64 * 3,
-        (stream.actor_animation_stats().evaluated_molang_ops - before) / 100
+        (stream
+            .authority()
+            .actor_animation_stats()
+            .evaluated_molang_ops
+            - before)
+            / 100
     );
 }

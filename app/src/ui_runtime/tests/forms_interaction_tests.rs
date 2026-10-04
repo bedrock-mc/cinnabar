@@ -2,8 +2,7 @@ use super::forms_fixture::retained;
 use crate::{
     menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     ui_runtime::{
-        UiRuntime, drive_chat_keyboard_input, drive_server_form_input, flush_form_response,
-        presentation::{UiPresentationRuntime, tests::fixture_font},
+        drive_chat_keyboard_input, drive_server_form_input, presentation::tests::fixture_font,
     },
 };
 use bevy::{
@@ -17,6 +16,7 @@ use bevy::{
     time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
+use client_ui::ui_runtime::{UiRuntime, flush_form_response, presentation::UiPresentationRuntime};
 
 #[test]
 fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
@@ -314,7 +314,10 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
             .resource::<UiPresentationRuntime>()
             .hit_test_form(point)
             .unwrap();
-        assert_eq!(hit.1, crate::ui_runtime::LocalFormAction::SubmitButton(0));
+        assert_eq!(
+            hit.1,
+            client_ui::ui_runtime::LocalFormAction::SubmitButton(0)
+        );
         if stale {
             app.world_mut()
                 .resource_mut::<UiRuntime>()
@@ -568,8 +571,9 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
 // Zeqa answers a page before the mouse is released; that release must not click the next page.
 #[test]
 fn a_release_after_the_next_page_arrives_does_not_click_it() {
-    use crate::ui_runtime::{SequencedUiEvent, presentation::forms::pack_harness};
+    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
+    use client_ui::ui_runtime::SequencedUiEvent;
     use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
     use std::sync::Arc;
     let Some(mut presentation) = pack_harness::engine_presentation() else {
@@ -750,9 +754,9 @@ fn a_click_without_a_form_reaches_gameplay() {
 fn custom_form_toggle_and_input_edit_their_values() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    use crate::ui_runtime::forms::FormValue;
     use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::mouse::MouseButtonInput;
+    use client_ui::ui_runtime::forms::FormValue;
     use json_ui::HitKind;
     use protocol::{CustomForm, CustomFormElement, FormRequestEvent, ServerFormModel, UiEvent};
     use std::sync::Arc;
@@ -766,7 +770,7 @@ fn custom_form_toggle_and_input_edit_their_values() {
     runtime
         .apply(
             &mut player_runtime,
-            crate::ui_runtime::SequencedUiEvent {
+            client_ui::ui_runtime::SequencedUiEvent {
                 session_id: 1,
                 fifo_sequence: 1,
                 local_millis: 0,

@@ -7,7 +7,8 @@ fn light_waits_for_requested_above_during_partial_column_commit() {
     let above = SubChunkKey::new(0, 0, 5, 0);
     assert!(stream.light_dispatch_ready(key));
     stream
-        .requested_sub_chunks
+        .requests
+        .requested
         .entry(key.chunk())
         .or_default()
         .insert(above.y, Default::default());
@@ -61,7 +62,7 @@ fn scheduler_turn_timing() {
     samples.sort_unstable();
     println!(
         "scheduler_turn pending={} median_us={} p95_us={}",
-        stream.pending_mesh.len(),
+        stream.mesh_jobs.pending.len(),
         samples[15],
         samples[28]
     );
@@ -101,7 +102,7 @@ fn expired_poll_still_dispatches_one_ready_mesh() {
     }
     stream.poll_deadline = Some(Instant::now() - Duration::from_secs(1));
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], usize::MAX), 1);
-    assert_eq!(stream.pending_mesh.len(), 1);
+    assert_eq!(stream.mesh_jobs.pending.len(), 1);
     let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(2)).unwrap();
     stream.accept_mesh_completion(completion);
 }
@@ -114,17 +115,10 @@ fn expired_mesh_slice_bounds_blocked_readiness_work() {
         position: [0.0; 3],
         forward: None,
     };
-    stream.mesh_scheduler_refresh.refresh(
-        view,
-        [
-            &mut stream.pending_resident_mesh_ready,
-            &mut stream.pending_resident_mesh_deferred,
-            &mut stream.pending_mesh_removal_ready,
-            &mut stream.pending_mesh_removal_deferred,
-        ],
-        None,
-        |_, _| true,
-    );
+    stream
+        .mesh_jobs
+        .refresh
+        .refresh(view, &mut stream.mesh_jobs.lanes, None, |_, _| true);
     for x in 10..42 {
         let key = SubChunkKey::new(1, x, 0, 0);
         stream
@@ -133,15 +127,15 @@ fn expired_mesh_slice_bounds_blocked_readiness_work() {
             .unwrap();
         stream.resident.insert(key);
         let revision = stream.mark_dirty_exact(key, Instant::now());
-        stream
-            .pending_resident_mesh_ready
+        stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+            .ready
             .push(PendingSchedulerCandidate::new(key, revision, view, false));
     }
-    stream.pending_mesh_scan.clear();
+    stream.mesh_jobs.scan.clear();
     stream.poll_deadline = Some(Instant::now());
     assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 0);
-    assert_eq!(stream.pending_resident_mesh_deferred.len(), 1);
-    assert_eq!(stream.pending_resident_mesh_ready.len(), 31);
+    assert_eq!(stream.mesh_jobs.lanes[RESIDENT_MESH_LANE].deferred.len(), 1);
+    assert_eq!(stream.mesh_jobs.lanes[RESIDENT_MESH_LANE].ready.len(), 31);
 }
 
 #[test]
@@ -155,13 +149,13 @@ fn expired_reversed_camera_reaches_near_work_before_old_backlog() {
     for x in 0..=destination.x {
         let key = SubChunkKey::new(1, x, 0, 0);
         let revision = stream.mark_dirty_exact(key, Instant::now());
-        stream
-            .pending_resident_mesh_ready
+        stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+            .ready
             .push(PendingSchedulerCandidate::new(
                 key, revision, old_view, false,
             ));
     }
-    stream.pending_mesh_scan.clear();
+    stream.mesh_jobs.scan.clear();
     for key in [SubChunkKey::new(1, 0, 0, 0), destination] {
         stream
             .authority
@@ -169,23 +163,16 @@ fn expired_reversed_camera_reaches_near_work_before_old_backlog() {
             .unwrap();
         install_current_light(&mut stream, key, 0, 0, false);
     }
-    stream.mesh_scheduler_refresh.refresh(
-        old_view,
-        [
-            &mut stream.pending_resident_mesh_ready,
-            &mut stream.pending_resident_mesh_deferred,
-            &mut stream.pending_mesh_removal_ready,
-            &mut stream.pending_mesh_removal_deferred,
-        ],
-        None,
-        |_, _| true,
-    );
+    stream
+        .mesh_jobs
+        .refresh
+        .refresh(old_view, &mut stream.mesh_jobs.lanes, None, |_, _| true);
     stream.poll_deadline = Some(Instant::now() - Duration::from_secs(1));
     assert_eq!(
         stream.dispatch_mesh_jobs([destination.x as f32 * 16.0 + 8.0, 8.0, 8.0], 1),
         1
     );
-    assert!(stream.in_flight.contains_key(&destination));
+    assert!(stream.mesh_jobs.in_flight.contains_key(&destination));
     let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(2)).unwrap();
     assert_eq!(completion.key, destination);
     stream.accept_mesh_completion(completion);
@@ -193,7 +180,7 @@ fn expired_reversed_camera_reaches_near_work_before_old_backlog() {
 
 #[test]
 fn near_light_column_keeps_its_nearest_members_priority_for_high_dependencies() {
-    for z in [0, scheduler_refresh::NEAR_CAMERA_RADIUS + 1] {
+    for z in [0, scheduler::NEAR_CAMERA_RADIUS + 1] {
         let mut stream = lit_stream(0);
         let range = vanilla_dimension_range(0).unwrap();
         let near = SubChunkKey::new(0, 0, 5, z);
@@ -203,7 +190,7 @@ fn near_light_column_keeps_its_nearest_members_priority_for_high_dependencies() 
             range.base_sub_chunk_y + range.sub_chunk_count as i32 - 1,
             z,
         );
-        let far = SubChunkKey::new(0, scheduler_refresh::NEAR_CAMERA_RADIUS * 2, 5, 0);
+        let far = SubChunkKey::new(0, scheduler::NEAR_CAMERA_RADIUS * 2, 5, 0);
         for key in [near, top, far] {
             stream
                 .authority
@@ -216,19 +203,19 @@ fn near_light_column_keeps_its_nearest_members_priority_for_high_dependencies() 
             position: [8.0, 81.62, 8.0],
             forward: None,
         };
-        stream.pending_light_scan.clear();
-        stream
-            .pending_light_ready
+        stream.lighting.jobs.scan.clear();
+        stream.lighting.jobs.lanes[0]
+            .ready
             .push(PendingSchedulerCandidate::new(
                 far,
-                stream.pending_light[&far].revision,
+                stream.lighting.jobs.pending[&far].revision,
                 view,
                 false,
             ));
         assert!(view.rank(top) > view.rank(far));
         assert!(view.rank(near) < view.rank(far));
         assert_eq!(stream.dispatch_light_jobs(view.position, 1), 1);
-        assert!(stream.in_flight_light.contains_key(&top));
-        assert!(!stream.in_flight_light.contains_key(&far));
+        assert!(stream.lighting.jobs.in_flight.contains_key(&top));
+        assert!(!stream.lighting.jobs.in_flight.contains_key(&far));
     }
 }

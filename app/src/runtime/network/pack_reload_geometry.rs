@@ -17,13 +17,14 @@ impl GeometryPreparation {
         &mut self,
         candidate: &ChunkTextureAssets,
         current: &ChunkTextureAssets,
-        stream: Option<&client_world::WorldStream>,
+        stream: Option<&chunk_pipeline::WorldStream>,
         chunks: &Query<&mut ChunkRenderInstance>,
         gpu: &ChunkTextureReload,
     ) -> Result<(), String> {
         if let Some((identity, receiver)) = &self.pending {
             if *identity == candidate.identity() {
-                if stream.map(client_world::WorldStream::biome_tint_identity) != self.source_tint {
+                if stream.map(chunk_pipeline::WorldStream::biome_tint_identity) != self.source_tint
+                {
                     return Err(
                         "World biomes changed while preparing resource packs; apply again".into(),
                     );

@@ -149,7 +149,7 @@ pub(crate) fn prepare_ui_runtime(
                         && client_world
                             .stream
                             .as_ref()
-                            .is_some_and(client_world::WorldStream::local_terrain_ready),
+                            .is_some_and(chunk_pipeline::WorldStream::local_terrain_ready),
                     cohort_target_complete: frame_poll.cohort.map_or_else(
                         // Outside acceptance runs the cohort is only scanned while loading, so a
                         // sparse view (a Flat world) can still release the loading screen. A
@@ -203,6 +203,7 @@ pub(crate) fn prepare_ui_runtime(
         client_world
             .stream
             .as_ref()?
+            .authority()
             .canonical_item_stack(stack)?
             .identifier
     });
@@ -233,7 +234,7 @@ pub(crate) fn prepare_ui_runtime(
         shown: runtime.inventory_open() || menu_runtime.is_visible() || hud_doll,
         hands: first_person && !hide_hand && !hand_rig.is_active(),
     };
-    super::forms::observe_station_block(
+    client_ui::ui_runtime::presentation::forms::observe_station_block(
         &player_runtime,
         &mut runtime,
         client_world.stream.as_ref(),
@@ -360,13 +361,13 @@ pub(crate) fn prepare_ui_runtime(
 
 /// Captures predicted local movement and authoritative armor without server echo latency.
 fn observe_paper_doll(
-    stream: &client_world::WorldStream,
-    runtime: &crate::ui_runtime::UiRuntime,
+    stream: &chunk_pipeline::WorldStream,
+    runtime: &client_ui::ui_runtime::UiRuntime,
     player_runtime: &crate::player_runtime::PlayerRuntime,
     physics: &crate::movement::LocalPhysicsController,
 ) -> Option<client_ui::ui_runtime::presentation::paper_doll::State> {
-    use crate::ui_runtime::inventory_ledger::InventoryTarget;
-    let actor = stream.actor(stream.local_player_runtime_id())?;
+    use client_ui::ui_runtime::inventory_ledger::InventoryTarget;
+    let actor = stream.authority().actor(stream.local_player_runtime_id())?;
     let flag = |bit: u32| {
         let key = if bit < 64 { 0 } else { 92 };
         match actor.metadata.get(&key) {
@@ -398,7 +399,7 @@ fn observe_paper_doll(
 
 /// Resolves the crafter block's triggered state at the existing UI capture boundary.
 fn station_triggered(
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
     collisions: &crate::movement::PhysicsCollisionRegistries,
     position: [i32; 3],
 ) -> Option<bool> {
@@ -417,14 +418,14 @@ fn station_triggered(
 
 /// Captures nametag picking with gameplay's reach and collision policy before UI projection.
 fn picked_nametag_actor(
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
     camera_transform: &GlobalTransform,
     collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
 ) -> Option<u64> {
     let eye = camera_transform.translation();
     let direction = *camera_transform.forward();
     crate::melee::pick_actor(
-        stream.remote_actors(),
+        stream.authority().remote_actors(),
         None,
         eye.to_array(),
         direction.to_array(),

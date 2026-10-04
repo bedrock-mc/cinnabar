@@ -1,6 +1,6 @@
 //! Bounded retained-memory and frame-shape evidence with every UI surface
 //! active at once: chat at capacity, scoreboard and boss stores loaded,
-//! effects saturated, hotbar mirrored, hearts/hunger/air/XP presented.
+//! effects saturated, hotbar loaded, hearts/hunger/air/XP presented.
 //!
 //! These are deterministic structural bounds, not wall-clock claims: retained
 //! bytes stay inside the documented store budgets, the draw list stays inside
@@ -28,7 +28,9 @@ use super::*;
 
 fn saturated_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(player_runtime, protocol::PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     let mut sequence = 0u64;
     let mut next = || {
         sequence += 1;

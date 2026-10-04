@@ -1,5 +1,5 @@
 use bevy::log::debug;
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 
 pub(crate) fn flush_sub_chunk_requests(
     stream: &mut WorldStream,
@@ -16,7 +16,7 @@ pub(crate) fn flush_sub_chunk_requests(
         let Some(request) = stream.pop_next_request() else {
             break;
         };
-        let client_world::PendingSubChunkRequest {
+        let chunk_pipeline::PendingSubChunkRequest {
             packet,
             dimension,
             chunk,
@@ -38,7 +38,7 @@ pub(crate) fn flush_sub_chunk_requests(
             }
             Err(error) => {
                 let closed = error.is_closed();
-                let retry = client_world::PendingSubChunkRequest {
+                let retry = chunk_pipeline::PendingSubChunkRequest {
                     packet: error.into_packet(),
                     dimension,
                     chunk,

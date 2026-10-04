@@ -173,9 +173,9 @@ fn stationary_dirty_storm_keeps_the_mesh_scan_bounded_by_live_work() {
     }
     stream.dispatch_mesh_jobs([0.0; 3], 1);
     assert!(
-        stream.pending_mesh_scan.len() <= keys.len(),
+        stream.mesh_jobs.scan.len() <= keys.len(),
         "scan retained {} entries for {} live keys",
-        stream.pending_mesh_scan.len(),
+        stream.mesh_jobs.scan.len(),
         keys.len()
     );
 }
@@ -199,16 +199,17 @@ fn still_running_light_solves_hold_their_worker_slots() {
         .unwrap();
     stream.resident.insert(key);
     stream.mark_light_changed_sources([key]);
-    assert!(stream.in_flight_light_batches.is_empty());
+    assert!(stream.lighting.in_flight_batches.is_empty());
 
     stream
-        .running_light_jobs
+        .lighting
+        .running_jobs
         .store(MAX_IN_FLIGHT_LIGHT_JOBS, Ordering::Release);
     assert_eq!(
         stream.dispatch_light_jobs([0.0; 3], LIGHT_DISPATCH_BUDGET_PER_POLL),
         0
     );
-    stream.running_light_jobs.store(0, Ordering::Release);
+    stream.lighting.running_jobs.store(0, Ordering::Release);
     assert!(stream.dispatch_light_jobs([0.0; 3], LIGHT_DISPATCH_BUDGET_PER_POLL) > 0);
 }
 

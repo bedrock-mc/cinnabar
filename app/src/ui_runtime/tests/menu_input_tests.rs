@@ -11,11 +11,9 @@ use bevy::{
 
 use crate::{
     menu::{MenuAction, MenuClipboard, MenuField, MenuRuntime, MenuScreen, drive_menu_input},
-    ui_runtime::{
-        UiRuntime,
-        presentation::{UiPresentationRuntime, tests::fixture_font},
-    },
+    ui_runtime::presentation::tests::fixture_font,
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -349,7 +347,7 @@ fn escape_from_pause_settings_returns_to_pause_and_teardown_clears_context() {
 
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
-        menu.mark_connected();
+        menu.show_world();
         menu.open_pause();
         menu.activate(MenuAction::PauseSettings);
     }
@@ -380,12 +378,12 @@ fn escape_from_pause_settings_returns_to_pause_and_teardown_clears_context() {
 
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
-        menu.mark_connected();
+        menu.show_world();
         menu.open_pause();
         menu.activate(MenuAction::PauseSettings);
-        menu.mark_disconnected();
-        menu.mark_connecting();
-        menu.mark_connected();
+        menu.show_home();
+        menu.show_connecting();
+        menu.show_world();
         menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     }
     press_key(&mut app, window, KeyCode::Escape, None);

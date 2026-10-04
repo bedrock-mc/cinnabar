@@ -3,9 +3,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use chunk_pipeline::{
-    COMMITTED_AUDIO_CAPACITY, MAX_ADMITTED_WORLD_EVENTS, WorldStream, WorldStreamError,
-};
+use chunk_pipeline::{MAX_ADMITTED_WORLD_EVENTS, WorldStream, WorldStreamError};
+use client_world::COMMITTED_AUDIO_CAPACITY;
 use protocol::{
     AudioEvent, BlockUpdateEvent, PlayAudioEvent, WeatherChannel, WeatherUpdateEvent,
     WorldBootstrap, WorldEvent,

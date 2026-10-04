@@ -23,31 +23,34 @@ pub struct PublicationFixtureSnapshot {
 
 impl WorldStream {
     fn install_publication_fixture_light(&mut self, key: SubChunkKey) {
-        self.next_block_generation = self.next_block_generation.wrapping_add(1).max(1);
-        let block_generation = self.next_block_generation;
+        self.lighting.next_block_generation =
+            self.lighting.next_block_generation.wrapping_add(1).max(1);
+        let block_generation = self.lighting.next_block_generation;
         let light_revision = block_generation.wrapping_add(10_000);
-        self.block_generations.insert(key, block_generation);
-        self.light_store.insert_resident(
+        self.lighting
+            .block_generations
+            .insert(key, block_generation);
+        self.lighting.store.insert_resident(
             key,
             SubChunkLight::uniform(0, 15, light_revision)
                 .expect("fixture light channels are bounded"),
         );
-        self.light_ownership.insert(
+        self.lighting.ownership.insert(
             key,
             LightOwnership {
                 block_generation,
                 light_revision,
             },
         );
-        self.direct_sky.insert(
+        self.lighting.direct_sky.insert(
             key,
             StoredDirectSky {
                 light_revision,
                 mask: Arc::new(DirectSkyMask::Uniform(true)),
             },
         );
-        self.light_revisions.entries.remove(&key);
-        self.pending_light.remove(&key);
+        self.lighting.revisions.entries.remove(&key);
+        self.lighting.jobs.pending.remove(&key);
     }
 
     /// Stages current resident completions through the real bounded worker
@@ -84,8 +87,8 @@ impl WorldStream {
             .map(|(key, mesh, biome)| {
                 let dirty_since = Instant::now();
                 let generation = self.mark_dirty_exact(key, dirty_since);
-                self.pending_mesh.remove(&key);
-                self.in_flight.insert(key, generation);
+                self.mesh_jobs.pending.remove(&key);
+                self.mesh_jobs.in_flight.insert(key, generation);
                 let source = self
                     .authority
                     .terrain()
@@ -160,8 +163,8 @@ impl WorldStream {
     #[must_use]
     pub fn publication_fixture_snapshot(&self) -> PublicationFixtureSnapshot {
         PublicationFixtureSnapshot {
-            pending_mesh_jobs: self.pending_mesh.len(),
-            in_flight_mesh_jobs: self.in_flight.len(),
+            pending_mesh_jobs: self.mesh_jobs.pending.len(),
+            in_flight_mesh_jobs: self.mesh_jobs.in_flight.len(),
             pending_mesh_changes: self.mesh_changes.len(),
             unacknowledged_meshes: self.revisions.entries.len(),
         }

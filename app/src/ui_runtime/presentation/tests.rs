@@ -1,8 +1,8 @@
 //! App input and scheduling tests over the extracted presentation model.
 use super::*;
-use crate::ui_runtime::SequencedUiEvent;
 pub(crate) use client_ui::test_support as engine_hud_tests;
 pub(crate) use client_ui::test_support::{fixture_font, fixture_hud};
+use client_ui::ui_runtime::SequencedUiEvent;
 use protocol::{TextCategory, TextEvent, TextKind, UiEvent};
 use std::sync::Arc;
 use ui::DpiScale;

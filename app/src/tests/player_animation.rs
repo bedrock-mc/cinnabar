@@ -1,7 +1,8 @@
 //! Independently authored player-shaped pack compiled end to end: rig scripts, a nested
 //! root controller, expression channels, and actor-state queries drive the pose.
 use assets::{EntityRigFallback, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
-use client_world::{BoneTransform, LocalPlayerFeed, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::{BoneTransform, LocalPlayerFeed};
 use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorKind, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, CapeImage, ItemActorEvent,
@@ -168,7 +169,7 @@ fn bone_of(
     runtime_id: u64,
     name: &str,
 ) -> BoneTransform {
-    let rig = world.actor_rig(runtime_id).unwrap();
+    let rig = world.authority().actor_rig(runtime_id).unwrap();
     let geometry = entities.rig_geometries()[rig.rig.0 as usize].geometry as usize;
     let index = entities.geometries()[geometry]
         .bones
@@ -187,7 +188,7 @@ fn vanilla_shaped_player_rig_resolves_animated_with_its_authored_scale() {
     let entities = entities();
     let mut world = stream(Arc::clone(&entities));
     world.submit(1, spawn_player()).unwrap();
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     assert_eq!(rig.fallback, EntityRigFallback::Skip);
     assert_eq!(rig.scale, 0.9375);
     world.advance_actor_interpolation_ticks(2);
@@ -288,7 +289,7 @@ fn head_faces_the_reported_head_yaw_and_pitch_in_the_world() {
     world.submit(2, move_player(0.0, 40.0, 20.0, 1)).unwrap();
     // Rotation reaches the packet target over the three interpolation steps.
     world.advance_actor_interpolation_ticks(3);
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     assert!(rig.body_yaw.abs() < 40.0, "the body lags the head");
     let model = crate::presentation::actors::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
     let forward = rotate(bone(&world, &entities, "head").rotation, [0.0, 0.0, -1.0]);
@@ -318,7 +319,7 @@ fn sneaking_keeps_the_heads_entity_relative_look_direction() {
         world.advance_actor_interpolation_ticks(3);
         let standing_head = bone(&world, &entities, "head");
         let world_direction = |world: &WorldStream, rotation, direction| {
-            let rig = world.actor_rig(42).unwrap();
+            let rig = world.authority().actor_rig(42).unwrap();
             let model =
                 crate::presentation::actors::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
             let vector = rotate(rotation, direction);
@@ -442,11 +443,11 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
     world.submit(1, skinned_player_list(200, 90)).unwrap();
     world.submit(2, spawn_player()).unwrap();
     world.advance_actor_interpolation_ticks(2);
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     let body = actors::actor_rig_presentation(
         &rig,
-        world.actor(42).unwrap(),
-        world.actor_player_profile(42),
+        world.authority().actor(42).unwrap(),
+        world.authority().actor_player_profile(42),
         0.5,
     )
     .unwrap();
@@ -458,8 +459,8 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
     cape::apply_capes(
         &mut batch,
         cape_rig,
-        |runtime_id| world.actor_rig(runtime_id),
-        |runtime_id| world.actor_player_profile(runtime_id),
+        |runtime_id| world.authority().actor_rig(runtime_id),
+        |runtime_id| world.authority().actor_player_profile(runtime_id),
     );
     let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
@@ -587,13 +588,13 @@ fn rig_reports_the_equip_progress_of_its_last_two_ticks() {
         world.sync_local_player_pose(&local_feed(None));
         world.advance_actor_interpolation_ticks(1);
     }
-    let rest = world.actor_rig(1).unwrap().hand;
+    let rest = world.authority().actor_rig(1).unwrap().hand;
     assert_eq!(rest.map(|phase| phase.arm_height), [1.0; 2]);
     let hands = (0..8)
         .map(|_| {
             world.sync_local_player_pose(&local_feed(Some("minecraft:stick")));
             world.advance_actor_interpolation_ticks(1);
-            world.actor_rig(1).unwrap().hand
+            world.authority().actor_rig(1).unwrap().hand
         })
         .collect::<Vec<_>>();
     assert!(
@@ -634,7 +635,7 @@ fn skin_geometry_replaces_the_default_model_and_keeps_the_player_animations() {
     world.submit(2, spawn_player()).unwrap();
     world.submit(3, move_player(0.0, 0.0, 30.0, 1)).unwrap();
     world.advance_actor_interpolation_ticks(4);
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     let geometry = rig.skin_geometry.expect("the skin model resolves").clone();
     assert_eq!(
         rig.bone_names,
@@ -651,8 +652,8 @@ fn skin_geometry_replaces_the_default_model_and_keeps_the_player_animations() {
     );
     let mut presentation = actors::actor_rig_presentation(
         &rig,
-        world.actor(42).unwrap(),
-        world.actor_player_profile(42),
+        world.authority().actor(42).unwrap(),
+        world.authority().actor_player_profile(42),
         0.5,
     )
     .unwrap();
@@ -687,10 +688,16 @@ fn malformed_skin_geometry_falls_back_to_the_default_model() {
         .unwrap();
     world.submit(2, spawn_player()).unwrap();
     world.advance_actor_interpolation_ticks(2);
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     assert!(rig.skin_geometry.is_none());
     assert_eq!(rig.bone_names.len(), 7);
-    assert_eq!(world.actor_animation_stats().invalid_skin_geometries, 1);
+    assert_eq!(
+        world
+            .authority()
+            .actor_animation_stats()
+            .invalid_skin_geometries,
+        1
+    );
 }
 
 // The server never echoes the local player's own swing, so a local attack swings the local rig:
@@ -802,7 +809,7 @@ fn a_local_swing_animates_the_vanilla_pack_arm() {
             let arm = |world: &mut WorldStream| {
                 world.sync_local_player_pose(&feed);
                 world.advance_actor_interpolation_ticks(1);
-                let rig = world.actor_rig(1).unwrap();
+                let rig = world.authority().actor_rig(1).unwrap();
                 let index = rig
                     .bone_names
                     .iter()
@@ -815,12 +822,17 @@ fn a_local_swing_animates_the_vanilla_pack_arm() {
             }
             let rest = arm(&mut world);
             assert_eq!(
-                world.actor_rig(1).unwrap().skin_geometry.is_some(),
+                world
+                    .authority()
+                    .actor_rig(1)
+                    .unwrap()
+                    .skin_geometry
+                    .is_some(),
                 matches!(skin, PlayerSkin::Standard(_))
             );
             world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
             let swing = (0..3).map(|_| arm(&mut world)).collect::<Vec<_>>();
-            let item = world.actor_rig(1).unwrap().item_animation;
+            let item = world.authority().actor_rig(1).unwrap().item_animation;
             assert!(item[1].attack_time > item[0].attack_time);
             assert!(item.iter().all(|item| item.arm_height.is_finite()));
             assert!(
@@ -868,7 +880,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
     let arm = |world: &mut WorldStream| {
         world.sync_local_player_pose(&feed);
         world.advance_actor_interpolation_ticks(1);
-        let rig = world.actor_rig(1).unwrap();
+        let rig = world.authority().actor_rig(1).unwrap();
         let index = rig
             .bone_names
             .iter()
@@ -934,12 +946,12 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
         .unwrap();
     world.submit(2, spawn_player()).unwrap();
     world.advance_actor_interpolation_ticks(4);
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     assert_eq!(rig.skin_layers.len(), 1);
     let body = actors::actor_rig_presentation(
         &rig,
-        world.actor(42).unwrap(),
-        world.actor_player_profile(42),
+        world.authority().actor(42).unwrap(),
+        world.authority().actor_player_profile(42),
         0.5,
     )
     .unwrap();
@@ -951,7 +963,7 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
         .apply(
             &mut batch,
             &Default::default(),
-            |id| world.actor_rig(id),
+            |id| world.authority().actor_rig(id),
             &mut skin_rig::SkinRigCache::default(),
             |geometry| geometries.push(geometry),
         )
@@ -1031,7 +1043,7 @@ fn persona_face_blinks_with_the_pinned_runtime_controller() {
     let mut closed = false;
     for _ in 0..800 {
         world.advance_actor_interpolation_ticks(1);
-        let rig = world.actor_rig(42).unwrap();
+        let rig = world.authority().actor_rig(42).unwrap();
         assert_eq!(rig.skin_layers.len(), 1);
         let offset = rig.skin_layers[0].uv_anim[1];
         opened |= offset == 0.0;

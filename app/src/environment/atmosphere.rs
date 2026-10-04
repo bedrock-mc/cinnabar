@@ -10,7 +10,7 @@ use meshing::CameraMedium;
 use render::{AtmosphereFrame, SkyKind};
 use ui::BossBarView;
 
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 
 use super::{
     CameraMediumState, EnvironmentContext, EnvironmentProfileRoute, LightningFlashState,

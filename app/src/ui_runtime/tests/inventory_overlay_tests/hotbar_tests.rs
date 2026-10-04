@@ -94,8 +94,8 @@ fn accepted_sparse_corrections_refresh_every_presented_nonselected_hotbar_consum
     // The presented nonselected cell and the HUD frame must show that exact
     // ledger revision, not the stale pre-correction mirror.
     assert_eq!(
-        runtime
-            .presented_hotbar_stack(&player_runtime, 3)
+        player_runtime
+            .presented_hotbar_stack(3)
             .map(cell_facts)
             .expect("the corrected nonselected cell stays presented"),
         (2, 99),
@@ -130,7 +130,7 @@ fn rejected_nonselected_gestures_present_the_pre_gesture_cells_again() {
         .inventory_ledger_mut(&mut player_runtime)
         .begin_click(3)
         .unwrap();
-    assert_eq!(runtime.presented_hotbar_stack(&player_runtime, 3), None);
+    assert_eq!(player_runtime.presented_hotbar_stack(3), None);
 
     runtime
         .inventory_ledger_mut(&mut player_runtime)
@@ -156,7 +156,7 @@ fn session_reset_presents_no_hotbar_cells_from_either_store() {
     let mut runtime = drained_inventory_runtime(&mut player_runtime);
     assert!(presented_hotbar_stacks(&player_runtime, &mut runtime)[3].is_some());
 
-    runtime.begin_session(&mut player_runtime, 2);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
 
     let reset = presented_hotbar_stacks(&player_runtime, &mut runtime);
     assert!(
@@ -164,6 +164,6 @@ fn session_reset_presents_no_hotbar_cells_from_either_store() {
         "a session reset must clear every presented hotbar cell"
     );
     for slot in 0..9u8 {
-        assert_eq!(runtime.presented_hotbar_stack(&player_runtime, slot), None);
+        assert_eq!(player_runtime.presented_hotbar_stack(slot), None);
     }
 }

@@ -440,7 +440,7 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
     let source = stream.authority.terrain().sub_chunk(key).unwrap();
     let biome_source = stream.authority.terrain().biome_storage(key).unwrap();
     let generation = stream.revisions.mark_dirty(key, Instant::now());
-    stream.in_flight.insert(key, generation);
+    stream.mesh_jobs.in_flight.insert(key, generation);
     let mesh = mesh_sub_chunk(
         &stream.classifier,
         stream.runtime_assets(),
@@ -508,7 +508,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
     let source = stream.authority.terrain().sub_chunk(key).unwrap();
     let old_biome = stream.authority.terrain().biome_storage(key).unwrap();
     let generation = stream.revisions.mark_dirty(key, Instant::now());
-    stream.in_flight.insert(key, generation);
+    stream.mesh_jobs.in_flight.insert(key, generation);
     let mesh = mesh_sub_chunk(
         &stream.classifier,
         stream.runtime_assets(),
@@ -582,7 +582,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
     let old_record =
         super::pack_biome_record(&biome_sources, &stream.resolved_biome_tints_snapshot());
     let generation = stream.revisions.mark_dirty(key, Instant::now());
-    stream.in_flight.insert(key, generation);
+    stream.mesh_jobs.in_flight.insert(key, generation);
     let mesh = mesh_sub_chunk(
         &stream.classifier,
         stream.runtime_assets(),
@@ -648,11 +648,12 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
     assert_eq!(stream.unacknowledged_mesh_count(), 1);
     assert!(!stream.is_mesh_clean(key));
     stream
-        .requested_sub_chunks
+        .requests
+        .requested
         .insert(key.chunk(), BTreeMap::from([(key.y, Default::default())]));
     assert_eq!(stream.outstanding_sub_chunk_count(), 1);
-    stream.requested_sub_chunks.clear();
-    stream.in_flight.insert(key, generation);
+    stream.requests.requested.clear();
+    stream.mesh_jobs.in_flight.insert(key, generation);
     let mesh = mesh_sub_chunk(
         &stream.classifier,
         stream.runtime_assets(),
@@ -885,8 +886,8 @@ fn starved_mesh_dispatch_floor_admits_exactly_the_floor_through_poll() {
     for key in &keys {
         stream.mark_dirty_exact(*key, Instant::now());
     }
-    assert_eq!(stream.pending_mesh.len(), 6);
-    assert!(stream.in_flight.is_empty());
+    assert_eq!(stream.mesh_jobs.pending.len(), 6);
+    assert!(stream.mesh_jobs.in_flight.is_empty());
 
     // Exhaust the frame publication window exactly like the single-job
     // witness above: the starved floor is the only remaining admission
@@ -905,7 +906,7 @@ fn starved_mesh_dispatch_floor_admits_exactly_the_floor_through_poll() {
     let report = stream.poll([0.0; 3], 32);
     assert_eq!(report.mesh_jobs_dispatched, 4);
     assert_eq!(
-        stream.in_flight.len(),
+        stream.mesh_jobs.in_flight.len(),
         4,
         "exactly the floored budget must enter the worker window"
     );
@@ -977,7 +978,7 @@ fn starved_mesh_dispatch_floor_never_invents_work_with_an_empty_pending_queue() 
 
     let report = stream.poll([0.0; 3], 32);
     assert_eq!(report.mesh_jobs_dispatched, 0);
-    assert!(stream.in_flight.is_empty());
+    assert!(stream.mesh_jobs.in_flight.is_empty());
     assert!(stream.take_mesh_changes().is_empty());
 }
 
@@ -1113,10 +1114,10 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
     assert_eq!(committed.runtime_id(0, 0, 0, 0), Some(15_000));
     assert_eq!(committed.runtime_id(0, 15, 14, 15), Some(4_095));
     let key = SubChunkKey::new(0, 0, 0, 0);
-    assert!(stream.block_generations.contains_key(&key));
-    assert!(stream.pending_light.contains_key(&key));
+    assert!(stream.lighting.block_generations.contains_key(&key));
+    assert!(stream.lighting.jobs.pending.contains_key(&key));
     assert_eq!(
-        stream.light_store.kind(key),
+        stream.lighting.store.kind(key),
         world::LightSubChunkKind::Resident
     );
     assert_eq!(

@@ -187,7 +187,7 @@ fn local_armor_equipment_is_ignored_like_vanilla() {
     }));
     stream.submit(1, armor).unwrap();
     stream.submit(2, form(1)).unwrap();
-    assert!(stream.actor_armor(1).is_none());
+    assert!(stream.authority().actor_armor(1).is_none());
     assert!(matches!(
         stream.take_committed_ui().as_slice(),
         [CommittedUiEvent::Form { sequence: 2, .. }]

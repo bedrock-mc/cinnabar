@@ -530,3 +530,10 @@ fn invalid_registry_does_not_change_ordinary_lookup_and_identical_valid_event_re
             > generation
     );
 }
+
+// A presentation copy shares the recipe catalog rather than deep-cloning its lists.
+#[test]
+fn copied_authority_shares_its_recipe_catalog() {
+    let authority = CraftingAuthority::new(1);
+    assert!(Arc::ptr_eq(&authority.catalog, &authority.clone().catalog));
+}

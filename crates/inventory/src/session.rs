@@ -51,6 +51,24 @@ impl InventorySession {
         }
     }
 
+    /// Returns a copy of this session that shows `ledger` in place of its own.
+    #[must_use]
+    pub fn with_ledger(&self, ledger: PlayerInventoryLedger) -> Self {
+        Self {
+            session_id: self.session_id,
+            inventory_authority: self.inventory_authority,
+            last_inventory_sequence: self.last_inventory_sequence,
+            pending_inventory: self.pending_inventory.clone(),
+            crafting_authority: self.crafting_authority.clone(),
+            equipment_router: self.equipment_router.clone(),
+            local_selected_equipment: self.local_selected_equipment.clone(),
+            local_selected_slot: self.local_selected_slot,
+            pending_hotbar_selection: self.pending_hotbar_selection,
+            server_selected_slot: self.server_selected_slot,
+            inventory_ledger: ledger,
+        }
+    }
+
     /// The connection generation that owns every retained value.
     pub const fn session_id(&self) -> u64 {
         self.session_id

@@ -25,9 +25,11 @@ use super::{
     state::BlockState,
 };
 use crate::{
-    local_player::LocalViewPose, movement::PhysicsCollisionRegistries,
-    runtime::network::ActorFramePartialTick, runtime::world::ClientWorld, ui_runtime::UiRuntime,
+    local_player::LocalViewPose,
+    movement::PhysicsCollisionRegistries,
+    runtime::{network::ActorFramePartialTick, world::ClientWorld},
 };
+use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
 /// Block entities farther than this from the eye are not drawn.
@@ -44,7 +46,7 @@ mod crystal_beams;
 pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntityScene {
     let path = world_asset_path.with_file_name(BLOCK_ENTITY_ASSETS_FILENAME);
     let mut scene = BlockEntityScene::default();
-    let bytes = match crate::bounded_file::read(
+    let bytes = match diagnostics::bounded_file::read(
         &path,
         assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64,
     ) {
@@ -283,7 +285,7 @@ pub(crate) fn update_block_entity_scene(
     };
     let runtime = &mut *runtime;
     runtime.bind_session(Some((
-        stream.actor_session_id(),
+        stream.authority().actor_session_id(),
         stream.current_dimension(),
     )));
     runtime.missing_maps.clear();
@@ -422,7 +424,7 @@ pub(crate) fn update_block_entity_scene(
     });
     crystal_beams::submit(
         &mut submissions,
-        stream.crystal_beams(actor_partial_tick.0),
+        stream.authority().crystal_beams(actor_partial_tick.0),
         camera
             .single()
             .ok()
@@ -433,7 +435,7 @@ pub(crate) fn update_block_entity_scene(
 }
 
 struct FrameContext<'a> {
-    stream: &'a client_world::WorldStream,
+    stream: &'a chunk_pipeline::WorldStream,
     eye: Vec3,
     delta_seconds: f32,
     now_seconds: f64,

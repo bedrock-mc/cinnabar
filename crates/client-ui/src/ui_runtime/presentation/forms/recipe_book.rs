@@ -56,7 +56,7 @@ const RECIPE_DISABLED: &str = "textures/ui/recipe_book_red_button";
 /// Whether the panel shows: creative opens on it and the toggle flips either way.
 pub fn recipe_book_shown(player_runtime: &player_state::PlayerState, runtime: &UiRuntime) -> bool {
     let creative =
-        runtime.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Creative);
+        player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     creative != runtime.screen_state().book_open
 }
 
@@ -110,7 +110,7 @@ pub(super) fn book_data(
     cache: &mut Option<BookCache>,
 ) {
     let creative =
-        runtime.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Creative);
+        player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     let state = runtime.screen_state();
     let tab = state.creative_tab;
     let wide = shown && creative && state.creative_wide;

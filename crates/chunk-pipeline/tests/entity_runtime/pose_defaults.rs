@@ -46,9 +46,9 @@ fn native_this_keeps_polar_bear_body_and_children_at_the_authored_idle_pivots() 
     );
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
+    let rest = stream.authority().actor_rig(42).unwrap().rest.to_vec();
     stream.advance_actor_interpolation_ticks(2);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(
         rig.current, rest,
         "idle body expression must not sink the whole hierarchy"
@@ -70,9 +70,9 @@ fn native_this_reads_parent_relative_position_and_authored_x_before_reflection()
     );
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
+    let rest = stream.authority().actor_rig(42).unwrap().rest.to_vec();
     stream.advance_actor_interpolation_ticks(2);
-    assert_eq!(stream.actor_rig(42).unwrap().current, rest);
+    assert_eq!(stream.authority().actor_rig(42).unwrap().current, rest);
 }
 
 #[test]
@@ -108,9 +108,9 @@ fn native_this_includes_the_contribution_from_an_earlier_channel() {
     compiled.animation_clips[0].channel_count = 2;
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
+    let rest = stream.authority().actor_rig(42).unwrap().rest.to_vec();
     stream.advance_actor_interpolation_ticks(2);
-    assert_eq!(stream.actor_rig(42).unwrap().current, rest);
+    assert_eq!(stream.authority().actor_rig(42).unwrap().current, rest);
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn native_this_cancels_default_rotation_without_resetting_parent_position() {
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
     stream.advance_actor_interpolation_ticks(2);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(rig.current[0].rotation, [0.0, 0.0, 0.0, 1.0]);
     assert_eq!(rig.current[1].translation_scale[..3], [0.0, 2.0, 0.0]);
 }

@@ -14,7 +14,8 @@ use bevy::{
     prelude::{Local, Projection, Res, ResMut, Resource, Time, Vec3},
     time::Real,
 };
-use client_world::{LocalPlayerFeed, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::LocalPlayerFeed;
 use render::{
     ActorCullView, ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission,
     HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
@@ -250,7 +251,7 @@ pub fn prepare_actor_render_frame(
     let session_id = client_world
         .stream
         .as_ref()
-        .map(|stream| stream.actor_session_id());
+        .map(|stream| stream.authority().actor_session_id());
     let new_session = *published_session != session_id;
     if new_session {
         if session_id.is_none() {
@@ -422,12 +423,12 @@ pub fn prepare_actor_render_frame(
             .as_ref()
             .map(|stream| {
                 let local_runtime_id = stream.local_player_runtime_id();
-                let mut remotes = Vec::with_capacity(stream.actor_count());
+                let mut remotes = Vec::with_capacity(stream.authority().actor_count());
                 let mut canonical_local = None;
                 let mut rigged = 0;
-                for rig in stream.actor_rigs() {
+                for rig in stream.authority().actor_rigs() {
                     rigged += 1;
-                    let Some(actor) = stream.actor(rig.actor.runtime_id) else {
+                    let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
                         continue;
                     };
                     // Culled before any per-actor work; the local rig also drives the hand.
@@ -442,7 +443,9 @@ pub fn prepare_actor_render_frame(
                     {
                         continue;
                     }
-                    let profile = stream.actor_player_profile(rig.actor.runtime_id);
+                    let profile = stream
+                        .authority()
+                        .actor_player_profile(rig.actor.runtime_id);
                     let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
                         crate::presentation::actors::actor_rig_presentation_cached(
                             &rig,
@@ -496,11 +499,11 @@ pub fn prepare_actor_render_frame(
                 }
                 (
                     local_runtime_id,
-                    stream.actor_session_id(),
+                    stream.authority().actor_session_id(),
                     stream.current_dimension(),
                     remotes,
                     canonical_local,
-                    stream.actor_count().saturating_sub(rigged),
+                    stream.authority().actor_count().saturating_sub(rigged),
                 )
             })
             .unwrap_or((0, 0, 0, Vec::new(), None, 0));
@@ -513,7 +516,7 @@ pub fn prepare_actor_render_frame(
             let equipment = equipment.as_deref_mut()?;
             let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
-            let hand = stream.actor_rig(local_runtime_id).map_or(
+            let hand = stream.authority().actor_rig(local_runtime_id).map_or(
                 FirstPersonHand {
                     swing: 0.0,
                     equip: 1.0,
@@ -523,7 +526,7 @@ pub fn prepare_actor_render_frame(
             );
             let items = std::array::from_fn(|index| {
                 let item = [equipment_input.main.as_ref(), equipment_input.off.as_ref()][index]?;
-                let rig = stream.actor_rig(local_runtime_id)?;
+                let rig = stream.authority().actor_rig(local_runtime_id)?;
                 let modern = item_animation.and_then(|mut render_input| {
                     render_input.frame_alpha = step.partial_tick;
                     let render_input =
@@ -531,7 +534,7 @@ pub fn prepare_actor_render_frame(
                     equipment.first_person_attachable(
                         &presentation.submission,
                         item,
-                        stream.actor(local_runtime_id)?,
+                        stream.authority().actor(local_runtime_id)?,
                         &rig,
                         render_input,
                     )
@@ -621,7 +624,7 @@ pub fn prepare_actor_render_frame(
     let local_death = client_world
         .stream
         .as_ref()
-        .and_then(|stream| stream.actor(local_runtime_id))
+        .and_then(|stream| stream.authority().actor(local_runtime_id))
         .and_then(|actor| actor.status.death_progress(step.partial_tick));
     let local = local.map(|mut local| {
         local.submission.world_from_actor = crate::presentation::actors::death_tilted(
@@ -653,8 +656,8 @@ pub fn prepare_actor_render_frame(
         crate::presentation::cape::apply_capes(
             &mut batch,
             cape,
-            |runtime_id| stream.actor_rig(runtime_id),
-            |runtime_id| stream.actor_player_profile(runtime_id),
+            |runtime_id| stream.authority().actor_rig(runtime_id),
+            |runtime_id| stream.authority().actor_player_profile(runtime_id),
         );
     }
     let selected_count = batch.submissions.len();
@@ -682,7 +685,7 @@ pub fn prepare_actor_render_frame(
     if let Some(stream) = client_world.stream.as_ref() {
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
-            |runtime_id| stream.actor_rig(runtime_id),
+            |runtime_id| stream.authority().actor_rig(runtime_id),
             artwork,
             &mut layer_poses,
         );
@@ -691,7 +694,7 @@ pub fn prepare_actor_render_frame(
         && let Some(pages) = skin_layers.apply(
             &mut batch,
             artwork,
-            |runtime_id| stream.actor_rig(runtime_id),
+            |runtime_id| stream.authority().actor_rig(runtime_id),
             &mut skin_rigs,
             |geometry| new_geometries.push(geometry),
         )
@@ -707,6 +710,7 @@ pub fn prepare_actor_render_frame(
                 || crate::presentation::skin_layers::is_skin_layer(identity.layer)
                 || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
                 && stream
+                    .authority()
                     .actor(identity.runtime_id)
                     .is_some_and(|actor| actor.is_invisible())
             {
@@ -785,7 +789,7 @@ fn local_equipment(
     runtime_id: u64,
     inventory: &crate::presentation::equipment::ActorEquipmentInput,
 ) -> crate::presentation::equipment::ActorEquipmentInput {
-    let actor = stream.actor(runtime_id);
+    let actor = stream.authority().actor(runtime_id);
     crate::presentation::equipment::ActorEquipmentInput {
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),

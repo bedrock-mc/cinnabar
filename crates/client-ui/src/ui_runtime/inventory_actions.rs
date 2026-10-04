@@ -81,7 +81,7 @@ pub fn recipe_book_entries<'a>(
 ) -> Vec<BookEntry<'a>> {
     let ledger = runtime.inventory_ledger(player_runtime);
     let state = runtime.screen_state();
-    if runtime.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Creative)
+    if player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
         && let Some(catalog) = ledger.creative_catalog()
     {
         let items = visible_creative_entries(ledger, state);

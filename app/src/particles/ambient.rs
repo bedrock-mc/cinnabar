@@ -3,25 +3,18 @@
 
 use std::time::{Duration, Instant};
 
-use assets::{BLOCK_VISUAL_VARIANT_SEASONAL_LEAF, BlockFlags};
-use client_world::WorldStream;
-use render::{ParticleSystem, ParticleView};
+use assets::BLOCK_VISUAL_VARIANT_SEASONAL_LEAF;
+use chunk_pipeline::WorldStream;
+use particles::{
+    ParticleSystem, ParticleView,
+    ambient::{AmbientRandom, LEAF_CHANCE_DENOMINATOR, LEAF_EFFECT, Sampler, material_allows_leaf},
+};
 
 use super::world_adapter::StreamParticleWorld;
 use crate::movement::{MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, PhysicsCollisionRegistries};
 
 mod color;
 mod diagnostics;
-mod random;
-mod sampler;
-#[cfg(test)]
-mod tests;
-
-use random::AmbientRandom;
-use sampler::Sampler;
-
-pub(super) const LEAF_EFFECT: &str = "minecraft:biome_tinted_leaves_particle";
-const LEAF_CHANCE_DENOMINATOR: u32 = 100;
 
 #[derive(Default)]
 pub(super) struct AmbientParticles {
@@ -167,20 +160,32 @@ fn valid_view(view: &ParticleView) -> bool {
         .all(|component| component.is_finite())
 }
 
-/// Material::_setupMaterials: air(0) and plant(8)
-/// are neither solid nor liquid. TallGrass, Flower,
-/// Mushroom use plant; do not infer this from collision/Cross shape.
-fn material_allows_leaf(flags: BlockFlags, identifier: Option<&str>) -> bool {
-    flags.contains(BlockFlags::AIR)
-        || matches!(
-            identifier,
-            Some(
-                "minecraft:short_grass"
-                    | "minecraft:fern"
-                    | "minecraft:poppy"
-                    | "minecraft:dandelion"
-                    | "minecraft:brown_mushroom"
-                    | "minecraft:red_mushroom"
-            )
-        )
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::AmbientParticles;
+    use crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
+
+    #[test]
+    fn ambient_leaf_cadence_is_fixed_tick_not_render_frame_and_resets_without_a_backlog() {
+        let mut ambient = AmbientParticles::default();
+        let quarter_tick = world::TICK_DURATION / 4;
+        for _ in 0..30 {
+            for _ in 0..3 {
+                assert_eq!(ambient.due_ticks(quarter_tick), 0);
+            }
+            assert_eq!(ambient.due_ticks(quarter_tick), 1);
+        }
+        assert_eq!(ambient.due_ticks(world::TICK_DURATION * 3), 3);
+        assert_eq!(
+            ambient.due_ticks(world::TICK_DURATION * 1000),
+            MAX_LOCAL_PHYSICS_TICKS_PER_FRAME
+        );
+        assert_eq!(ambient.due_ticks(Duration::ZERO), 0);
+        assert_eq!(ambient.due_ticks(quarter_tick), 0);
+        ambient.reset();
+        assert_eq!(ambient.due_ticks(world::TICK_DURATION - quarter_tick), 0);
+        assert_eq!(ambient.due_ticks(quarter_tick), 1);
+    }
 }

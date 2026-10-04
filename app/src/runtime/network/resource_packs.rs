@@ -8,7 +8,7 @@ use super::{
     glyph_sheets::compile_session_glyphs,
     item_icons::{BlockIcons, compile_session_icons, custom_block_icons},
 };
-use crate::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
+use client_ui::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
 mod ui;
 use ui::collect_server_ui;
@@ -25,12 +25,13 @@ pub struct PackApplication {
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
     /// StartGame item components, applied with the pack stack they present through.
-    pub(crate) item_components: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
+    pub(crate) item_components:
+        Option<Arc<client_ui::ui_runtime::item_facts::SessionItemComponents>>,
     pub(crate) glyph_sheets: Option<Arc<SessionGlyphSheets>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
     pub(super) entity_artwork: Option<Arc<render::ActorArtworkPages>>,
     pub(crate) prepared_actor_artwork:
-        Option<Arc<super::prepared_actor_artwork::PreparedActorArtwork>>,
+        Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
     pub(crate) server_ui: Option<Arc<ServerUiPack>>,
     /// Installed only once the session's Bootstrap is accepted.
@@ -68,9 +69,9 @@ impl PackApplication {
             {
                 return previous.clone();
             }
-            Arc::new(super::prepared_actor_artwork::PreparedActorArtwork::new(
-                base, pack,
-            ))
+            Arc::new(
+                client_presentation::prepared_actor_artwork::PreparedActorArtwork::new(base, pack),
+            )
         });
     }
 }
@@ -95,7 +96,7 @@ pub(super) fn prepare_session_presentation(
         },
         |packs| {
             packs.item_components =
-                crate::ui_runtime::item_facts::SessionItemComponents::from_game_data(game_data);
+                client_ui::ui_runtime::item_facts::SessionItemComponents::from_game_data(game_data);
         },
     )
 }
@@ -271,7 +272,7 @@ pub(super) fn prepare_changed_application(
 }
 
 pub(super) fn install_server_ui(
-    runtime: &mut crate::ui_runtime::UiRuntime,
+    runtime: &mut client_ui::ui_runtime::UiRuntime,
     generation: u64,
     pack: Option<Arc<ServerUiPack>>,
     setup_succeeded: bool,
@@ -385,10 +386,10 @@ pub(super) use client_session::pack_textures::{
 };
 
 pub(super) fn install_session_icons(
-    runtime: &mut crate::ui_runtime::UiRuntime,
+    runtime: &mut client_ui::ui_runtime::UiRuntime,
     generation: u64,
     icons: Option<Arc<SessionIcons>>,
-    items: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
+    items: Option<Arc<client_ui::ui_runtime::item_facts::SessionItemComponents>>,
     setup_succeeded: bool,
 ) {
     if runtime.session_id() == generation {
@@ -398,7 +399,7 @@ pub(super) fn install_session_icons(
 }
 
 pub(super) fn install_session_glyphs(
-    runtime: &mut crate::ui_runtime::UiRuntime,
+    runtime: &mut client_ui::ui_runtime::UiRuntime,
     generation: u64,
     glyphs: Option<Arc<SessionGlyphSheets>>,
     setup_succeeded: bool,
@@ -409,7 +410,7 @@ pub(super) fn install_session_glyphs(
 }
 
 pub(super) fn install_server_language(
-    runtime: &mut crate::ui_runtime::UiRuntime,
+    runtime: &mut client_ui::ui_runtime::UiRuntime,
     generation: u64,
     overlay: Option<std::sync::Arc<assets::ServerLangOverlay>>,
     setup_succeeded: bool,

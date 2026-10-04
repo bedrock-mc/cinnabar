@@ -1,25 +1,14 @@
 //! App-owned authoritative gameplay-HUD state beyond the basic stat rows:
-//! hotbar/offhand stacks, status effects, air, freezing, and
+//! the offhand stack, status effects, air, freezing, and
 //! the local mount. Every field mirrors server state the Bedrock protocol
 //! actually exposes; nothing here invents state.
 
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorHandedness, ActorMetadata, ActorMetadataValue,
-    CanonicalCell, EquipmentEvent, HOTBAR_SLOT_COUNT, InventoryEvent, NetworkItemStack,
-    project_container_cell,
+    CanonicalCell, EquipmentEvent, InventoryEvent, NetworkItemStack, project_container_cell,
 };
 
 pub const MAX_HUD_EFFECTS: usize = 32;
-pub const PLAYER_INVENTORY_SLOT_COUNT: usize = 36;
-
-#[derive(Clone, Debug)]
-struct PlayerInventory([Option<NetworkItemStack>; PLAYER_INVENTORY_SLOT_COUNT]);
-
-impl Default for PlayerInventory {
-    fn default() -> Self {
-        Self(std::array::from_fn(|_| None))
-    }
-}
 
 /// Pinned protocol-1001 SetEntityData keys consumed by the HUD.
 /// (`MetadataDictionaryItemKey::{Air, MaxAirdataMaxAir, FreezingEffectStrength}`.)
@@ -122,9 +111,6 @@ pub struct GameplayHudDiagnostics {
 /// authoritative events.
 #[derive(Clone, Debug, Default)]
 pub struct GameplayHudState {
-    inventory: PlayerInventory,
-    hotbar: [Option<NetworkItemStack>; HOTBAR_SLOT_COUNT as usize],
-    hotbar_known: bool,
     offhand: Option<NetworkItemStack>,
     effects: Vec<HudEffect>,
     air_supply_ticks: Option<i16>,
@@ -147,46 +133,6 @@ impl GameplayHudState {
     #[must_use]
     pub const fn diagnostics(&self) -> GameplayHudDiagnostics {
         self.diagnostics
-    }
-
-    /// The authoritative hotbar stack for a slot, if inventory content has
-    /// arrived. Empty stacks read as `None`.
-    ///
-    /// Retained for focused HUD-mirror authority tests: hotbar presentation
-    /// now derives every cell from the gesture-ledger snapshot.
-    #[cfg_attr(not(test), allow(dead_code))]
-    #[must_use]
-    pub fn hotbar_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
-        self.hotbar
-            .get(usize::from(slot))?
-            .as_ref()
-            .filter(|stack| !stack.is_empty())
-    }
-
-    /// One authoritative player-inventory stack. Bedrock window `0` exposes
-    /// the nine hotbar cells first, followed by the 27 storage cells.
-    #[allow(
-        dead_code,
-        reason = "retained for focused HUD authority tests while inventory presentation uses the gesture ledger"
-    )]
-    #[must_use]
-    pub fn inventory_stack(&self, slot: usize) -> Option<&NetworkItemStack> {
-        self.inventory
-            .0
-            .get(slot)?
-            .as_ref()
-            .filter(|stack| !stack.is_empty())
-    }
-
-    /// Whether any window-0 inventory traffic has reached the retained
-    /// mirror.
-    ///
-    /// Retained for focused HUD-mirror authority tests: hotbar presentation
-    /// now derives every cell from the gesture-ledger snapshot.
-    #[cfg_attr(not(test), allow(dead_code))]
-    #[must_use]
-    pub const fn hotbar_known(&self) -> bool {
-        self.hotbar_known
     }
 
     #[must_use]
@@ -449,26 +395,14 @@ impl GameplayHudState {
         true
     }
 
-    /// Applies one committed inventory event to the retained hotbar/offhand
-    /// mirror. Every container identity resolves through the canonical
-    /// container-address projection, so a cursor or offhand update riding
-    /// the legacy player window can never land in a hotbar cell, a partial
-    /// rewrite states only the cells it actually carries, and identities
-    /// resolving onto no mirrored surface are counted skips. Container-UI
-    /// events (open/close/response/data) plus known surfaces without a HUD
-    /// mirror are dropped and counted until the Phase 5.5 container store
-    /// takes over this drain.
+    /// Applies one committed inventory event to the retained offhand. Every container
+    /// identity resolves through the canonical container-address projection; identities
+    /// resolving onto no surface and container-UI events are counted skips.
     pub fn apply_inventory(&mut self, event: &InventoryEvent) {
         for slot_event in event.slot_updates() {
             match project_container_cell(&slot_event.identity.container, slot_event.identity.slot) {
-                Some(CanonicalCell::PlayerInventory(slot)) => {
-                    let slot = usize::from(slot);
-                    self.inventory.0[slot] = Some(slot_event.stack.clone());
-                    if slot < usize::from(HOTBAR_SLOT_COUNT) {
-                        self.hotbar[slot] = Some(slot_event.stack.clone());
-                        self.hotbar_known = true;
-                    }
-                }
+                // The gesture ledger owns player-inventory cells.
+                Some(CanonicalCell::PlayerInventory(_)) => {}
                 Some(CanonicalCell::Offhand) => self.offhand = Some(slot_event.stack.clone()),
                 Some(_) => {
                     self.diagnostics.dropped_inventory_events =
@@ -485,17 +419,7 @@ impl GameplayHudState {
                 // A content payload addresses its surface from index zero,
                 // so the projected first cell identifies the surface.
                 match project_container_cell(&content.container, 0) {
-                    Some(CanonicalCell::PlayerInventory(_)) => {
-                        for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
-                            if let Some(stack) = content.slots.get(slot) {
-                                self.inventory.0[slot] = Some(stack.clone());
-                            }
-                        }
-                        for slot in 0..usize::from(HOTBAR_SLOT_COUNT) {
-                            self.hotbar[slot] = self.inventory.0[slot].clone();
-                        }
-                        self.hotbar_known = true;
-                    }
+                    Some(CanonicalCell::PlayerInventory(_)) => {}
                     Some(CanonicalCell::Offhand) => {
                         if let Some(stack) = content.slots.first() {
                             self.offhand = Some(stack.clone());

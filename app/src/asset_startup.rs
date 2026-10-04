@@ -13,7 +13,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::metrics::AssetMetrics;
+use diagnostics::metrics::AssetMetrics;
 
 mod font_fallback;
 use font_fallback::diagnostic_font_assets;

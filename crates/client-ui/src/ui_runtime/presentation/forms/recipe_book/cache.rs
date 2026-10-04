@@ -24,7 +24,7 @@ impl BookCache {
         runtime: &UiRuntime,
     ) -> Option<&'a CreativeContentEvent> {
         let state = runtime.screen_state();
-        (runtime.player_game_mode(player_runtime) == Some(PlayerGameMode::Creative)
+        (player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative)
             && (state.creative_tab != SEARCH_TAB || state.search.is_empty()))
         .then(|| runtime.inventory_ledger(player_runtime).creative_catalog())
         .flatten()
@@ -90,7 +90,9 @@ mod tests {
         let mut player_runtime = player_state::PlayerState::new(1);
 
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Creative);
+        player_runtime
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
         let catalog = CreativeContentEvent {
             groups: Arc::from([]),
             items: Arc::from([]),

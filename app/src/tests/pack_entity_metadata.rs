@@ -3,7 +3,7 @@
 //! the model.
 use crate::presentation::{actors, entity_layers};
 use assets::{RuntimeAssets, RuntimeEntityAssets};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
     ActorSpawnEvent, WorldBootstrap, WorldEvent,
@@ -293,11 +293,12 @@ struct Drawn {
 }
 
 fn drawn(world: &WorldStream, artwork: &ActorArtworkPages) -> Drawn {
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     let body =
-        actors::entity_rig_presentation(&rig, world.actor(42).unwrap(), artwork, 0.5).unwrap();
+        actors::entity_rig_presentation(&rig, world.authority().actor(42).unwrap(), artwork, 0.5)
+            .unwrap();
     let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-    entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
+    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     let submission = &batch.submissions[0];
     let matrix = submission.world_from_actor;
     Drawn {
@@ -359,11 +360,12 @@ fn render_controller_uv_anim_steps_the_flipbook_frame() {
 }
 
 fn layered(world: &WorldStream, artwork: &ActorArtworkPages) -> actors::ActorPresentationBatch {
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     let body =
-        actors::entity_rig_presentation(&rig, world.actor(42).unwrap(), artwork, 0.5).unwrap();
+        actors::entity_rig_presentation(&rig, world.authority().actor(42).unwrap(), artwork, 0.5)
+            .unwrap();
     let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-    entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
+    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     batch
 }
 
@@ -439,7 +441,7 @@ fn a_finished_once_animation_releases_the_pose_while_hold_keeps_it() {
     let lift = |identifier: &str| {
         let mut world = world(pack.clone(), identifier);
         world.advance_actor_interpolation_ticks(20);
-        let rig = world.actor_rig(42).unwrap();
+        let rig = world.authority().actor_rig(42).unwrap();
         rig.current[0].translation_scale[1] - rig.rest[0].translation_scale[1]
     };
     assert!(lift("test:once").abs() < 1e-6);
@@ -453,12 +455,21 @@ fn ignore_lighting_controllers_draw_unlit_while_others_keep_world_light() {
     let (pack, artwork) = pack();
     let light = |identifier: &str| {
         let world = world(pack.clone(), identifier);
-        let rig = world.actor_rig(42).unwrap();
-        let mut body =
-            actors::entity_rig_presentation(&rig, world.actor(42).unwrap(), &artwork, 0.5).unwrap();
+        let rig = world.authority().actor_rig(42).unwrap();
+        let mut body = actors::entity_rig_presentation(
+            &rig,
+            world.authority().actor(42).unwrap(),
+            &artwork,
+            0.5,
+        )
+        .unwrap();
         body.submission.light = render::pack_actor_light(2, 9);
         let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-        entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), &artwork);
+        entity_layers::apply_render_layers(
+            &mut batch,
+            |id| world.authority().actor_rig(id),
+            &artwork,
+        );
         batch.submissions[0].light
     };
     assert_eq!(light("test:logo"), 0);
@@ -490,7 +501,7 @@ fn scale_scripts_size_the_model_per_tick() {
 fn an_override_clip_resets_the_whole_bone_pose() {
     let (pack, _) = pack();
     let world = world(pack, "test:override");
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     let lift = rig.current[0].translation_scale[1] - rig.rest[0].translation_scale[1];
     assert!(lift.abs() < 1e-5, "{lift}");
 }
@@ -500,7 +511,7 @@ fn an_override_clip_resets_the_whole_bone_pose() {
 fn root_animations_run_in_authored_order() {
     let (pack, _) = pack();
     let world = world(pack, "test:ordered");
-    let rig = world.actor_rig(42).unwrap();
+    let rig = world.authority().actor_rig(42).unwrap();
     let lift = rig.current[0].translation_scale[1] - rig.rest[0].translation_scale[1];
     assert!((lift - 8.0).abs() < 1e-4, "{lift}");
 }

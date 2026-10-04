@@ -1,6 +1,6 @@
 use protocol::{InventoryEvent, ItemRegistryEvent, WorldEvent};
 
-use crate::ui_runtime::{UiRuntime, UiRuntimeError};
+use client_ui::ui_runtime::{UiRuntime, UiRuntimeError};
 
 use super::session;
 

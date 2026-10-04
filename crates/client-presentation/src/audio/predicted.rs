@@ -263,11 +263,12 @@ pub fn drive_consume_audio(
 ) {
     let stream = world.stream.as_ref();
     let using = stream
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         .is_some_and(|actor| actor.is_using_item());
-    let item = stream.zip(ui).filter(|_| using).and_then(|(stream, ui)| {
+    let item = stream.zip(ui).filter(|_| using).and_then(|(stream, _)| {
         let identifier = stream
-            .canonical_item_stack(ui.selected_stack(player_runtime)?)?
+            .authority()
+            .canonical_item_stack(player_runtime.selected_stack()?)?
             .identifier?;
         let event = is_consumable(&identifier)?;
         Some((identifier, event))
@@ -275,7 +276,7 @@ pub fn drive_consume_audio(
     let duration = stream
         .zip(item.as_ref())
         .and_then(|(stream, (identifier, _))| {
-            Some(stream.item_max_use_ticks(identifier)? as f32 * SECONDS_PER_TICK)
+            Some(stream.authority().item_max_use_ticks(identifier)? as f32 * SECONDS_PER_TICK)
         });
     let cues = state.advance(item, duration, time.delta_secs());
     if cues.is_empty() {
@@ -345,9 +346,9 @@ pub fn drive_actor_audio(
     let local = stream.local_player_runtime_id();
     for notice in &notices {
         let (identifier, unique_id) = if notice.runtime_id == local {
-            (PLAYER, stream.local_player_unique_id())
+            (PLAYER, stream.authority().local_player_unique_id())
         } else {
-            let Some(actor) = stream.actor(notice.runtime_id) else {
+            let Some(actor) = stream.authority().actor(notice.runtime_id) else {
                 continue;
             };
             let identifier = match &actor.kind {
@@ -367,10 +368,11 @@ pub fn drive_actor_audio(
             engine.enqueue(request);
         }
     }
-    let items = stream.dropped_items(0.0);
+    let items = stream.authority().dropped_items(0.0);
     popped.retain(|id| items.iter().any(|item| item.runtime_id == *id));
     for item in &items {
         let collected = stream
+            .authority()
             .actor(item.runtime_id)
             .is_some_and(|actor| actor.status.pickup.is_some());
         if collected && popped.insert(item.runtime_id) {

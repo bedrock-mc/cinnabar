@@ -1,7 +1,7 @@
 use std::process::{Command, Stdio};
 
-use super::view::MenuProfile;
 use super::*;
+use launcher::menu::view::MenuProfile;
 
 /// Waits for an exiting helper on a thread so the frame never blocks on it; it
 /// stays tracked, so the exit sweep still covers it.
@@ -29,7 +29,7 @@ const SIGN_IN_PAGE: &str = "https://login.live.com/oauth20_remoteconnect.srf?otc
 
 impl MenuRuntime {
     fn start_catalog(&mut self) {
-        if self.catalog_started || !self.visible || self.connecting {
+        if self.catalog_started || !self.visible || self.is_connecting() {
             return;
         }
         if self.auth_attempted && self.auth_process.is_none() {
@@ -82,7 +82,7 @@ impl MenuRuntime {
         // Cached validation also runs when a signed-out account core is already
         // attached, as happens before opening the menu in a direct session.
         if self.visible
-            && !self.connecting
+            && !self.is_connecting()
             && self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
         {
             self.start_sign_in();
@@ -474,7 +474,7 @@ mod tests {
         menu.auth_process = Some(AuthSupervisor::from_child(child).unwrap());
 
         menu.request_connect("offline.example:19132".to_owned());
-        assert!(menu.take_pending_connect().is_none());
+        assert!(menu.take_join_intent().is_none());
         assert!(matches!(
             menu.auth_process.as_ref().map(AuthSupervisor::state),
             Some(AuthState::SignedOut)
@@ -496,7 +496,7 @@ mod tests {
                 .is_some_and(AuthSupervisor::cleanup_complete),
             "cancelled sign-in helper was not reaped"
         );
-        let pending = menu.take_pending_connect().expect("offline connection");
+        let pending = menu.take_join_intent().expect("offline connection");
         assert_eq!(pending.address, "offline.example:19132");
         assert_eq!(pending.auth_cache, None);
     }
@@ -525,7 +525,7 @@ mod tests {
         ));
 
         menu.request_connect("authenticated.example:19132".to_owned());
-        assert!(menu.take_pending_connect().is_none());
+        assert!(menu.take_join_intent().is_none());
         let deadline = Instant::now() + Duration::from_secs(5);
         while !menu
             .auth_process
@@ -542,9 +542,7 @@ mod tests {
                 .is_some_and(AuthSupervisor::cleanup_complete),
             "authenticated sign-in helper was not reaped"
         );
-        let pending = menu
-            .take_pending_connect()
-            .expect("authenticated connection");
+        let pending = menu.take_join_intent().expect("authenticated connection");
         assert_eq!(pending.address, "authenticated.example:19132");
         assert_eq!(pending.auth_cache, Some(menu.layout.auth_cache()));
         fs::remove_dir_all(directory).unwrap();
@@ -590,7 +588,7 @@ mod tests {
                 .is_some_and(AuthSupervisor::cleanup_complete),
             "failed sign-in helper was not reaped"
         );
-        let pending = menu.take_pending_connect().expect("offline connection");
+        let pending = menu.take_join_intent().expect("offline connection");
         assert_eq!(pending.address, "offline-after-failure.example:19132");
         assert_eq!(pending.auth_cache, None);
         fs::remove_dir_all(directory).unwrap();

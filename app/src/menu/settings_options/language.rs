@@ -1,5 +1,6 @@
 //! Host handoff for selected language assets.
-use crate::{menu::MenuRuntime, ui_runtime::UiRuntime};
+use crate::menu::MenuRuntime;
+use client_ui::ui_runtime::UiRuntime;
 use std::{path::PathBuf, sync::Arc};
 
 impl MenuRuntime {

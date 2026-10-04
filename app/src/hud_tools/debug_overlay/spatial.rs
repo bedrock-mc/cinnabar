@@ -1,7 +1,7 @@
 //! Player coordinates, heading and the authoritative block-selection ray.
 
 use bevy::prelude::Vec3;
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 
 use super::{DebugContext, DebugLines, LocalPlayerFrameCarrier, LocalViewPose};
 

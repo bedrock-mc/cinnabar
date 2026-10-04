@@ -86,10 +86,10 @@ fn bds_saved_terrain_drains_without_camera_motion() {
     eprintln!(
         "saved terrain {:?}: {report:?}; pending light={} mesh={} loaded={}/{}",
         started.elapsed(),
-        harness.stream.pending_light.len(),
-        harness.stream.pending_mesh.len(),
+        harness.stream.lighting.jobs.pending.len(),
+        harness.stream.mesh_jobs.pending.len(),
         harness.stream.loaded_columns.len(),
-        harness.stream.required_columns.len()
+        harness.stream.publisher.required_columns.len()
     );
     assert!(harness.idle(), "saved-world load stranded work");
     assert!(!harness.presented.is_empty());
@@ -108,15 +108,15 @@ fn bds_join_dense_columns_drain_with_a_stationary_camera() {
     eprintln!(
         "bds join {:?}: {report:?}; pending light={} mesh={} light heaps={}/{} waiters={} loaded={}/{}",
         started.elapsed(),
-        harness.stream.pending_light.len(),
-        harness.stream.pending_mesh.len(),
-        harness.stream.pending_light_ready.len(),
-        harness.stream.pending_light_deferred.len(),
-        harness.stream.light_waiters.len(),
+        harness.stream.lighting.jobs.pending.len(),
+        harness.stream.mesh_jobs.pending.len(),
+        harness.stream.lighting.jobs.lanes[0].ready.len(),
+        harness.stream.lighting.jobs.lanes[0].deferred.len(),
+        harness.stream.lighting.waiters.len(),
         harness.stream.loaded_columns.len(),
-        harness.stream.required_columns.len()
+        harness.stream.publisher.required_columns.len()
     );
-    for key in harness.stream.pending_light.keys().take(8) {
+    for key in harness.stream.lighting.jobs.pending.keys().take(8) {
         eprintln!(
             "pending {key:?} highest={:?} context={} ready={} current={}",
             harness

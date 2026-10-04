@@ -9,25 +9,22 @@ use bevy::prelude::{
 use protocol::{AudioEvent, PlayAudioEvent, StopAudioEvent};
 
 use super::*;
-use crate::runtime::audio::drain_committed_audio;
 use crate::{
-    app::ClientBlobCacheOwner,
     app::{
-        configure_acceptance_finish_system, configure_client_frame_schedule,
+        ClientBlobCacheOwner, configure_acceptance_finish_system, configure_client_frame_schedule,
         configure_client_production_frame_systems,
     },
-    menu::{
-        CoreProcessGuard, MenuAction, MenuRuntime, drive_menu_connection, follow_server_transfer,
-        recover_menu_session_failure,
-    },
+    menu::{MenuAction, MenuRuntime},
     runtime::{
-        audio::SequencedAudioEvent,
         network::{NetworkHandle, ResourcePackAdmissionState},
         world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
     },
+    session::{drive_session, follow_server_transfer, recover_session_failure},
     session_audio::{SessionAudio, SessionAudioCatalog, drain_sequenced_audio_into_session},
-    ui_runtime::UiRuntime,
 };
+use client_presentation::audio_ingress::SequencedAudioEvent;
+use client_presentation::audio_ingress::drain_committed_audio;
+use client_ui::ui_runtime::UiRuntime;
 
 fn audio_event(name: &str) -> WorldEvent {
     WorldEvent::Audio(AudioEvent::Play(PlayAudioEvent {
@@ -61,7 +58,7 @@ fn app_audio_seam_drains_each_committed_event_once_in_the_same_call() {
     assert!(
         forwarded
             .iter()
-            .all(|event| event.origin_stream_session_id == stream.actor_session_id())
+            .all(|event| event.origin_stream_session_id == stream.authority().actor_session_id())
     );
     assert_eq!(stream.stats().committed_audio_events, 0);
 
@@ -111,7 +108,7 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
     app.add_message::<SequencedAudioEvent>()
         .insert_resource(world)
         .init_resource::<crate::environment::WorldClock>()
-        .init_resource::<crate::local_player_camera_receipt::CameraPublicationAttempt>()
+        .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
         .init_resource::<crate::local_player::CameraPose>()
         .init_resource::<crate::movement::LocalPhysicsController>()
@@ -231,9 +228,19 @@ fn write_pending_audio(
 fn session_audio_reader_consumes_each_sequenced_event_exactly_once() {
     // Create an earlier session even when this test runs alone in nextest.
     let previous_world = connected_client_world();
-    let previous_session = previous_world.stream.as_ref().unwrap().actor_session_id();
+    let previous_session = previous_world
+        .stream
+        .as_ref()
+        .unwrap()
+        .authority()
+        .actor_session_id();
     let world = connected_client_world();
-    let stream_session = world.stream.as_ref().unwrap().actor_session_id();
+    let stream_session = world
+        .stream
+        .as_ref()
+        .unwrap()
+        .authority()
+        .actor_session_id();
     assert_ne!(stream_session, previous_session);
     let mut app = App::new();
     app.add_message::<SequencedAudioEvent>()
@@ -268,7 +275,12 @@ fn session_audio_reader_consumes_each_sequenced_event_exactly_once() {
 #[test]
 fn production_audio_reader_clears_disconnect_state_and_drops_stale_messages() {
     let world = connected_client_world();
-    let stream_session = world.stream.as_ref().unwrap().actor_session_id();
+    let stream_session = world
+        .stream
+        .as_ref()
+        .unwrap()
+        .authority()
+        .actor_session_id();
     let mut app = App::new();
     app.add_message::<SequencedAudioEvent>()
         .init_resource::<crate::environment::WorldClock>()
@@ -338,7 +350,7 @@ fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: 
         .insert_resource(retained_session_audio())
         .insert_resource(client_world)
         .insert_resource(menu)
-        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(crate::session::SessionController::default())
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
@@ -360,8 +372,8 @@ fn menu_disconnect_clears_audio_in_its_production_frame() {
         .add_systems(
             Update,
             (
-                drive_menu_connection,
-                drain_sequenced_audio_into_session.after(drive_menu_connection),
+                drive_session,
+                drain_sequenced_audio_into_session.after(drive_session),
             ),
         );
 
@@ -385,8 +397,8 @@ fn failure_recovery_clears_audio_in_its_production_frame() {
     app.add_systems(
         Update,
         (
-            recover_menu_session_failure,
-            drain_sequenced_audio_into_session.after(recover_menu_session_failure),
+            recover_session_failure,
+            drain_sequenced_audio_into_session.after(recover_session_failure),
         ),
     );
 
@@ -457,7 +469,7 @@ fn production_schedule_reads_session_audio_after_the_world_stream_writer() {
     );
     for (teardown, label) in [
         (
-            IntoSystemSet::into_system_set(drive_menu_connection).intern(),
+            IntoSystemSet::into_system_set(drive_session).intern(),
             "menu disconnect",
         ),
         (
@@ -465,7 +477,7 @@ fn production_schedule_reads_session_audio_after_the_world_stream_writer() {
             "server transfer",
         ),
         (
-            IntoSystemSet::into_system_set(recover_menu_session_failure).intern(),
+            IntoSystemSet::into_system_set(recover_session_failure).intern(),
             "failure recovery",
         ),
     ] {

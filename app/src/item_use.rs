@@ -10,7 +10,8 @@ use bevy::{
     prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
-use client_world::{LocalItemUse, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::LocalItemUse;
 use protocol::PlayerGameMode;
 use semantic_input::Action;
 
@@ -21,8 +22,8 @@ use crate::{
     movement::{LocalMovementEffectTimeline, MovementTicker},
     runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) use gameplay::item_use::UseFrame;
 pub(crate) use gameplay::item_use::{
@@ -65,7 +66,7 @@ impl ItemUseRuntime {
         let max_use_ticks = self.active_timing().map_or_else(
             // Native CrossbowItem::getMaxUseDuration remains its charge duration
             // when loaded; Instant describes the next action, not that query.
-            || match selected_air_use_with_projectile(player_runtime, stream, ui, Some(None)) {
+            || match selected_air_use_with_projectile(player_runtime, stream, Some(None)) {
                 Some(AirUse::Hold { max_ticks, .. }) => max_ticks,
                 _ => 0,
             },
@@ -74,9 +75,9 @@ impl ItemUseRuntime {
         let use_elapsed_ticks = self.active_timing().map(|(started_tick, max_ticks)| {
             tick.saturating_sub(started_tick).min(u64::from(max_ticks)) as u32
         });
-        let selected = ui
-            .selected_stack(player_runtime)
-            .and_then(|stack| stream.canonical_item_stack(stack));
+        let selected = player_runtime
+            .selected_stack()
+            .and_then(|stack| stream.authority().canonical_item_stack(stack));
         let projectile = self
             .selected_projectile(player_runtime, ui)
             .unwrap_or_else(|| {
@@ -93,7 +94,7 @@ impl ItemUseRuntime {
             let firework = ui
                 .gameplay_hud()
                 .offhand_stack()
-                .and_then(|stack| stream.canonical_item_stack(stack))
+                .and_then(|stack| stream.authority().canonical_item_stack(stack))
                 .is_some_and(|item| {
                     item.identifier.as_deref() == Some("minecraft:firework_rocket")
                 });
@@ -122,11 +123,11 @@ impl ItemUseRuntime {
         tick: u64,
     ) -> Option<u32> {
         let stack = ui.inventory_ledger(player_runtime).displayed_stack(slot)?;
-        let canonical = stream.canonical_item_stack(stack)?;
+        let canonical = stream.authority().canonical_item_stack(stack)?;
         if canonical.identifier.as_deref() != Some("minecraft:crossbow") {
             return None;
         }
-        if ui.selected_hotbar_slot(player_runtime) == Some(slot) {
+        if player_runtime.selected_hotbar_slot() == Some(slot) {
             return Some(
                 self.render_input(player_runtime, stream, ui, tick, 0.0)
                     .animation_frame,
@@ -151,7 +152,6 @@ impl ItemUseRuntime {
         match selected_air_use_with_projectile(
             player_runtime,
             stream,
-            ui,
             self.selected_projectile(player_runtime, ui),
         ) {
             Some(AirUse::Hold { .. } | AirUse::Instant) => LocalItemUse::Idle,
@@ -164,12 +164,12 @@ impl ItemUseRuntime {
         player_runtime: &crate::player_runtime::PlayerRuntime,
         ui: &UiRuntime,
     ) -> Option<Option<&'static str>> {
-        let slot = ui.selected_hotbar_slot(player_runtime)?;
+        let slot = player_runtime.selected_hotbar_slot()?;
         self.predicted_projectile(
             slot,
             ui.inventory_ledger(player_runtime)
                 .authoritative_slot_revision(slot)?,
-            ui.selected_stack(player_runtime)?,
+            player_runtime.selected_stack()?,
         )
     }
     /// Resolves a charge prediction against an authoritative inventory slot.
@@ -192,26 +192,28 @@ impl ItemUseRuntime {
 pub(crate) fn selected_air_use(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &WorldStream,
-    ui: &UiRuntime,
 ) -> Option<AirUse> {
-    selected_air_use_with_projectile(player_runtime, stream, ui, None)
+    selected_air_use_with_projectile(player_runtime, stream, None)
 }
 
 fn selected_air_use_with_projectile(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &WorldStream,
-    ui: &UiRuntime,
     projectile_override: Option<Option<&str>>,
 ) -> Option<AirUse> {
-    let stack = ui.selected_stack(player_runtime)?;
-    let canonical = stream.canonical_item_stack(stack)?;
+    let stack = player_runtime.selected_stack()?;
+    let canonical = stream.authority().canonical_item_stack(stack)?;
     let identifier = canonical.identifier.as_deref()?;
     let quick_charge =
         protocol::item_enchantment_level(&stack.extra_data, QUICK_CHARGE_ENCHANTMENT_ID)
             .unwrap_or(0);
-    let pack_ticks = stream.item_max_use_ticks(identifier).or_else(|| {
-        classify::pack_identifier(identifier).and_then(|pack| stream.item_max_use_ticks(pack))
-    });
+    let pack_ticks = stream
+        .authority()
+        .item_max_use_ticks(identifier)
+        .or_else(|| {
+            classify::pack_identifier(identifier)
+                .and_then(|pack| stream.authority().item_max_use_ticks(pack))
+        });
     classify(
         identifier,
         projectile_override.map_or(canonical.charged_projectile.is_some(), |projectile| {
@@ -226,10 +228,11 @@ fn selected_air_use_with_projectile(
 pub(crate) fn consume_ticks(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &WorldStream,
-    ui: &UiRuntime,
 ) -> Option<u32> {
-    let canonical = stream.canonical_item_stack(ui.selected_stack(player_runtime)?)?;
-    match selected_air_use(player_runtime, stream, ui)? {
+    let canonical = stream
+        .authority()
+        .canonical_item_stack(player_runtime.selected_stack()?)?;
+    match selected_air_use(player_runtime, stream)? {
         AirUse::Hold { max_ticks, .. }
             if classify::is_consumed(canonical.identifier.as_deref()?) =>
         {
@@ -249,6 +252,7 @@ fn needs_met(
     let is = |stack: &protocol::NetworkItemStack, identifier: &str| {
         !stack.is_empty()
             && stream
+                .authority()
                 .item_identifier(stack.network_id)
                 .is_some_and(|name| &*name == identifier)
     };
@@ -310,9 +314,9 @@ pub(crate) fn produce_item_use(
             .pressed
             .then(|| crate::movement::note_click_drop("use", "screen_open"));
         false
-    } else if context
-        .ui
-        .game_mode_capabilities(&player_runtime)
+    } else if player_runtime
+        .facts
+        .game_mode_capabilities()
         .is_some_and(|caps| !caps.can_use_items)
     {
         use_phase
@@ -341,10 +345,9 @@ pub(crate) fn produce_item_use(
     let air_use = selected_air_use_with_projectile(
         &player_runtime,
         stream,
-        &context.ui,
         runtime.selected_projectile(&player_runtime, &context.ui),
     );
-    let creative = context.ui.player_game_mode(&player_runtime) == Some(PlayerGameMode::Creative);
+    let creative = player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative);
     let frame = UseFrame {
         tick: sample.tick,
         now_millis,
@@ -359,15 +362,12 @@ pub(crate) fn produce_item_use(
             _ => false,
         },
         creative,
-        inventory_revision: context
-            .ui
-            .selected_hotbar_slot(&player_runtime)
-            .and_then(|slot| {
-                context
-                    .ui
-                    .inventory_ledger(&player_runtime)
-                    .authoritative_slot_revision(slot)
-            }),
+        inventory_revision: player_runtime.selected_hotbar_slot().and_then(|slot| {
+            context
+                .ui
+                .inventory_ledger(&player_runtime)
+                .authoritative_slot_revision(slot)
+        }),
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
         press_consumed: context.melee.blocks_use_at(now_millis)
             || context.block_use.interacted_at(sample.tick),
@@ -391,13 +391,13 @@ pub(crate) fn produce_item_use(
 /// arrows, and synthesizes an arrow only in creative (09a157e0).
 fn loading_projectile(
     player_runtime: &crate::player_runtime::PlayerRuntime,
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
     ui: &UiRuntime,
     creative: bool,
 ) -> Option<&'static str> {
     let name = |stack: &protocol::NetworkItemStack| {
         (!stack.is_empty())
-            .then(|| stream.item_identifier(stack.network_id))
+            .then(|| stream.authority().item_identifier(stack.network_id))
             .flatten()
     };
     if let Some(offhand) = ui.gameplay_hud().offhand_stack().and_then(name) {

@@ -160,7 +160,9 @@ fn game_mode_changes_never_fabricate_or_discard_authoritative_stats() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     // No attributes have arrived: nothing is fabricated.
     assert_eq!(runtime.hud().health(), None);
     assert_eq!(runtime.hud().hunger(), None);
@@ -181,12 +183,16 @@ fn game_mode_changes_never_fabricate_or_discard_authoritative_stats() {
 
     // Creative hides the rows but the authority is retained, so returning to
     // survival presents the same server values.
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Creative);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Creative);
     assert_eq!(
         runtime.hud().health(),
         BoundedStat::new_scaled(1_300, 2_000, 100)
     );
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     assert_eq!(
         runtime.hud().health(),
         BoundedStat::new_scaled(1_300, 2_000, 100)
@@ -203,13 +209,12 @@ fn fallback_and_default_game_type_resolve_against_the_world_default() {
 
     let mut runtime = UiRuntime::new(1);
     // StartGame: player mode is the level-default sentinel, world is creative.
-    runtime.publish_bootstrap_game_modes(
-        &mut player_runtime,
+    player_runtime.facts.publish_bootstrap_game_modes(
         PlayerGameMode::Creative,
         PlayerGameMode::Creative,
         true,
     );
-    assert!(!runtime.survival_stats_visible(&player_runtime));
+    assert!(!player_runtime.facts.survival_stats_visible());
 
     // An explicit runtime change detaches the player from the world default.
     runtime
@@ -224,7 +229,7 @@ fn fallback_and_default_game_type_resolve_against_the_world_default() {
             ),
         )
         .unwrap();
-    assert!(runtime.survival_stats_visible(&player_runtime));
+    assert!(player_runtime.facts.survival_stats_visible());
 
     // Changing the world default while explicit does not move the player.
     runtime
@@ -239,7 +244,7 @@ fn fallback_and_default_game_type_resolve_against_the_world_default() {
             ),
         )
         .unwrap();
-    assert!(runtime.survival_stats_visible(&player_runtime));
+    assert!(player_runtime.facts.survival_stats_visible());
 
     // Returning to the level default re-binds to the updated default.
     runtime
@@ -255,7 +260,7 @@ fn fallback_and_default_game_type_resolve_against_the_world_default() {
         )
         .unwrap();
     assert!(
-        runtime.survival_stats_visible(&player_runtime),
+        player_runtime.facts.survival_stats_visible(),
         "adventure shows stats"
     );
 
@@ -272,8 +277,8 @@ fn fallback_and_default_game_type_resolve_against_the_world_default() {
             ),
         )
         .unwrap();
-    assert!(!runtime.survival_stats_visible(&player_runtime));
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), None);
+    assert!(!player_runtime.facts.survival_stats_visible());
+    assert_eq!(player_runtime.selected_hotbar_slot(), None);
 
     // An unknown wire mode keeps the current authority and is counted.
     runtime
@@ -288,7 +293,7 @@ fn fallback_and_default_game_type_resolve_against_the_world_default() {
             ),
         )
         .unwrap();
-    assert!(!runtime.survival_stats_visible(&player_runtime));
+    assert!(!player_runtime.facts.survival_stats_visible());
     assert_eq!(runtime.gameplay_hud().diagnostics().odd_hud_packets, 1);
 }
 
@@ -297,7 +302,9 @@ fn targeted_game_mode_cannot_bypass_world_stream_identity_admission() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     let outcome = runtime
         .apply(
             &mut player_runtime,
@@ -316,7 +323,7 @@ fn targeted_game_mode_cannot_bypass_world_stream_identity_admission() {
         .unwrap();
     assert_eq!(outcome, UiApplyOutcome::IgnoredByReceiveStore);
     assert_eq!(
-        runtime.player_game_mode(&player_runtime),
+        player_runtime.facts.player_game_mode(),
         Some(PlayerGameMode::Survival)
     );
     assert_eq!(runtime.gameplay_hud().diagnostics().odd_hud_packets, 1);

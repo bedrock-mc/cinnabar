@@ -1,11 +1,11 @@
 //! Replays a local packet capture through the inventory registry, ledger and HUD.
 
 use super::*;
-use crate::ui_runtime::{
+use assets::{RuntimeAssets, RuntimeEntityAssets, RuntimeIconCatalog};
+use client_ui::ui_runtime::{
     UiRuntime,
     presentation::{UiPresentationRuntime, refresh_hud_frame},
 };
-use assets::{RuntimeAssets, RuntimeEntityAssets, RuntimeIconCatalog};
 use protocol::{InventoryEvent, PlayerGameMode, WorldBootstrap};
 use ui::DpiScale;
 
@@ -39,7 +39,9 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
     let bytes = std::fs::read(path).unwrap();
     let session = BedrockSession { shield_item_id: 0 };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     let (mut at, mut sequence, mut contents) = (0, 0, 0);
     while at + 8 <= bytes.len() {
         let id = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
@@ -102,7 +104,7 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
         if let Some(stack) = stack {
             eprintln!(
                 "captured slot {slot}: {:?}, icon={:?}",
-                stream.canonical_item_stack(stack),
+                stream.authority().canonical_item_stack(stack),
                 frame.hotbar_icons[slot]
             );
             assert!(
@@ -124,7 +126,7 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
             DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    crate::ui_runtime::presentation::forms::snapshot::write(&input, "captured-hotbar");
+    client_ui::ui_runtime::presentation::forms::snapshot::write(&input, "captured-hotbar");
     let icon_pages: std::collections::BTreeSet<_> = frame
         .hotbar_icons
         .iter()
@@ -141,7 +143,7 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
 }
 
 /// Loads the installed carriers into the inventory and GUI model presentation paths.
-fn harness() -> Option<(UiPresentationRuntime, client_world::WorldStream)> {
+fn harness() -> Option<(UiPresentationRuntime, chunk_pipeline::WorldStream)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.local/assets/compiled");
     let icons = Arc::new(
         RuntimeIconCatalog::decode(&std::fs::read(root.join("vanilla-v1.mcbeico")).ok()?).ok()?,
@@ -157,7 +159,7 @@ fn harness() -> Option<(UiPresentationRuntime, client_world::WorldStream)> {
         .enable_json_ui(crate::ui_runtime::presentation::forms::pack_harness::carrier()?)
         .ok()?;
     presentation.set_gui_models(&world, &entities).ok()?;
-    let stream = client_world::WorldStream::new_with_asset_sets(
+    let stream = chunk_pipeline::WorldStream::new_with_asset_sets(
         WorldBootstrap {
             local_player_unique_id: 1,
             dimension: 0,

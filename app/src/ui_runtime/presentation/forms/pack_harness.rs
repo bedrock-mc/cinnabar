@@ -1,10 +1,10 @@
 //! Startup fixture that exercises the app's carrier-loading entry points.
 
-use crate::ui_runtime::presentation::UiPresentationRuntime;
 pub(crate) use client_ui::test_support::pack_harness::{
     action_form, carrier, drawn_texts, dump, engine_presentation, env_glyphs, env_pack, font,
     menu_nodes, menu_runtime, menu_translation, scratch_dir,
 };
+use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use std::path::Path;
 
 /// Resolves a fixture asset through this worktree's installed assets symlink.
@@ -52,7 +52,7 @@ pub fn startup_presentation() -> Option<UiPresentationRuntime> {
         &entities,
         local(&crate::install_layout::vanilla_pack_relative()),
     );
-    if let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images() {
+    if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images() {
         presentation.enable_oreui_originals(images).unwrap();
     }
     presentation

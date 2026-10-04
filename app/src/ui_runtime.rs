@@ -1,13 +1,7 @@
-//! Temporary app adapters for client-ui; the app retains system ordering and services.
+//! App systems driving client-ui; the app retains system ordering and services.
 #[cfg(test)]
-pub(crate) use client_ui::ui_runtime::dispatch_inventory_click;
-pub use client_ui::ui_runtime::{
-    CraftingPreview, FastTransferAction, FormRespondError, FormTransportError,
-    InventoryAuthorityEvent, LocalFormAction, MAX_PENDING_INVENTORY_EVENTS, PlatformClipboard,
-    SequencedLocalAttributes, SequencedUiEvent, UiRuntime, UiRuntimeError, flush_form_response,
-    flush_inventory_send, inventory_drag, inventory_ledger, inventory_router, item_facts,
-    json_ui_assets, oreui_assets,
-};
+use client_ui::ui_runtime::item_facts;
+use client_ui::ui_runtime::{UiRuntime, inventory_drag};
 pub mod forms;
 pub(crate) mod gameplay_touch;
 pub mod interaction;

@@ -93,6 +93,7 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/mod-api` | Experimental guest SDK generated from the extension WIT contract. |
 | `crates/mod-host` | Opt-in WASM component spike with bounded HUD and input imports. |
 | `crates/pack-compiler` | Reusable pack compilation for runtime loading and `assetc`. |
+| `crates/particles` | Engine-independent particle simulation: effects, Molang emitters and triggers. |
 | `crates/protocol` | Bedrock packet definitions and codec. |
 | `crates/render` | Chunk and entity rendering on Bevy/wgpu. |
 | `crates/render-api` | Engine-independent contracts between world publication and rendering. |

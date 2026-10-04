@@ -1,5 +1,161 @@
 use super::super::*;
 
+/// Light indexes, job scheduling and solver plumbing for resident sub-chunks.
+pub(in crate::stream) struct Lighting {
+    pub(in crate::stream) tx: Sender<LightCompletion>,
+    pub(in crate::stream) rx: Receiver<LightCompletion>,
+    /// Solves still executing, including ones whose keys were evicted meanwhile.
+    pub(in crate::stream) running_jobs: Arc<AtomicUsize>,
+    pub(in crate::stream) next_batch_id: u64,
+    pub(in crate::stream) next_block_generation: u64,
+    pub(in crate::stream) fatal_failure: bool,
+    pub(in crate::stream) revisions: RevisionTracker,
+    pub(in crate::stream) block_generations: HashMap<SubChunkKey, u64>,
+    pub(in crate::stream) store: LightStore,
+    pub(in crate::stream) ownership: HashMap<SubChunkKey, LightOwnership>,
+    pub(in crate::stream) direct_sky: BTreeMap<SubChunkKey, StoredDirectSky>,
+    pub(in crate::stream) failures: HashMap<SubChunkKey, LightFailure>,
+    pub(in crate::stream) jobs: scheduler::KeyedJobs<PendingLight, LightJobIdentity, 1>,
+    pub(in crate::stream) priority_wakeups: HashMap<SubChunkKey, u64>,
+    pub(in crate::stream) in_flight_batches: HashMap<u64, usize>,
+    pub(in crate::stream) last_dispatched_batch: HashMap<SubChunkKey, u64>,
+    pub(in crate::stream) waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
+}
+
+impl Lighting {
+    pub(in crate::stream) fn new() -> Self {
+        let (tx, rx) = bounded(LIGHT_RESULT_CAPACITY);
+        Self {
+            tx,
+            rx,
+            running_jobs: Arc::new(AtomicUsize::new(0)),
+            next_batch_id: 0,
+            next_block_generation: 0,
+            fatal_failure: false,
+            revisions: RevisionTracker::default(),
+            block_generations: HashMap::new(),
+            store: LightStore::default(),
+            ownership: HashMap::new(),
+            direct_sky: BTreeMap::new(),
+            failures: HashMap::new(),
+            jobs: Default::default(),
+            priority_wakeups: HashMap::new(),
+            in_flight_batches: HashMap::new(),
+            last_dispatched_batch: HashMap::new(),
+            waiters: HashMap::new(),
+        }
+    }
+
+    /// Releases every per-key index off the frame thread, as a disjoint retirement leaves no
+    /// retained neighbours; plumbing, counters, running solves and the fatal latch survive.
+    pub(in crate::stream) fn retire_all(&mut self) {
+        let Self {
+            tx: _,
+            rx: _,
+            running_jobs: _,
+            next_batch_id: _,
+            next_block_generation: _,
+            fatal_failure: _,
+            revisions,
+            block_generations,
+            store,
+            ownership,
+            direct_sky,
+            failures,
+            jobs,
+            priority_wakeups,
+            in_flight_batches,
+            last_dispatched_batch,
+            waiters,
+        } = self;
+        let retired = (
+            std::mem::take(&mut revisions.entries),
+            std::mem::take(block_generations),
+            std::mem::take(store),
+            std::mem::take(ownership),
+            std::mem::take(direct_sky),
+            std::mem::take(failures),
+            std::mem::take(jobs),
+            std::mem::take(priority_wakeups),
+            std::mem::take(in_flight_batches),
+            std::mem::take(last_dispatched_batch),
+            std::mem::take(waiters),
+        );
+        rayon::spawn(move || drop(retired));
+    }
+
+    /// Forgets one source in every index without invalidating dependent meshes; stale scan
+    /// and lane entries fall away against the pending map.
+    pub(in crate::stream) fn remove_key(&mut self, key: SubChunkKey) {
+        self.block_generations.remove(&key);
+        self.store.remove(key);
+        self.ownership.remove(&key);
+        self.direct_sky.remove(&key);
+        self.failures.remove(&key);
+        self.revisions.entries.remove(&key);
+        self.jobs.pending.remove(&key);
+        self.priority_wakeups.remove(&key);
+        self.remove_in_flight(key, None);
+        self.last_dispatched_batch.remove(&key);
+        self.remove_waiters_for(key);
+    }
+
+    /// Drops queued work and wake-up edges after a fatal solve; running jobs drain normally.
+    pub(in crate::stream) fn clear_after_fatal(&mut self) {
+        self.jobs.clear_queued();
+        self.priority_wakeups.clear();
+        self.waiters.clear();
+    }
+
+    pub(in crate::stream) fn remove_in_flight(
+        &mut self,
+        key: SubChunkKey,
+        expected: Option<LightJobIdentity>,
+    ) -> bool {
+        let Some(identity) = self.jobs.in_flight.get(&key).copied() else {
+            return false;
+        };
+        if expected.is_some_and(|expected| expected != identity) {
+            return false;
+        }
+        self.jobs.in_flight.remove(&key);
+        if let std::collections::hash_map::Entry::Occupied(mut entry) =
+            self.in_flight_batches.entry(identity.batch_id)
+        {
+            if *entry.get() <= 1 {
+                entry.remove();
+            } else {
+                *entry.get_mut() -= 1;
+            }
+        }
+        true
+    }
+
+    pub(in crate::stream) fn remove_waiters_for(&mut self, key: SubChunkKey) {
+        self.waiters.remove(&key);
+        self.remove_waiter_target(key);
+    }
+
+    pub(in crate::stream) fn remove_waiter_target(&mut self, key: SubChunkKey) -> usize {
+        // Waiter edges are registered only for face-adjacent light dependencies:
+        // the upper skylight dependency and `register_untrusted_light_waiters`.
+        // Therefore `key` can occur only in a face neighbour's waiter set.
+        let mut probes = 0;
+        for source in key.mesh_dependents().filter(|source| *source != key) {
+            probes += 1;
+            if let std::collections::hash_map::Entry::Occupied(mut entry) =
+                self.waiters.entry(source)
+            {
+                entry.get_mut().remove(&key);
+                if entry.get().is_empty() {
+                    entry.remove();
+                }
+            }
+        }
+        probes
+    }
+}
+
 impl WorldStream {
     pub(in crate::stream) fn block_light_semantics_changed(
         &self,
@@ -47,9 +203,11 @@ impl WorldStream {
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
         for key in &sources {
             if self.resident.contains(key) {
-                self.next_block_generation = self.next_block_generation.wrapping_add(1).max(1);
-                self.block_generations
-                    .insert(*key, self.next_block_generation);
+                self.lighting.next_block_generation =
+                    self.lighting.next_block_generation.wrapping_add(1).max(1);
+                self.lighting
+                    .block_generations
+                    .insert(*key, self.lighting.next_block_generation);
                 let expected_kind = if self.known_air.contains(key) {
                     LightSubChunkKind::KnownAir
                 } else if self.authority.terrain().sub_chunk(*key).is_some() {
@@ -61,17 +219,18 @@ impl WorldStream {
                     self.remove_light_key(*key);
                     continue;
                 }
-                if self.light_store.kind(*key) != expected_kind {
+                if self.lighting.store.kind(*key) != expected_kind {
                     let retained = self
-                        .light_store
+                        .lighting
+                        .store
                         .light(*key)
                         .map_or_else(|| SubChunkLight::dark(0), |light| light.as_ref().clone());
                     match expected_kind {
                         LightSubChunkKind::KnownAir => {
-                            self.light_store.insert_known_air(*key, retained);
+                            self.lighting.store.insert_known_air(*key, retained);
                         }
                         LightSubChunkKind::Resident => {
-                            self.light_store.insert_resident(*key, retained);
+                            self.lighting.store.insert_resident(*key, retained);
                         }
                         LightSubChunkKind::Unknown => unreachable!(),
                     }
@@ -90,97 +249,15 @@ impl WorldStream {
         }
     }
     pub(in crate::stream) fn remove_light_key(&mut self, key: SubChunkKey) {
-        let invalidates_mesh_halo = self.light_store.light(key).is_some()
-            || self.light_ownership.contains_key(&key)
-            || self.direct_sky.contains_key(&key);
+        let invalidates_mesh_halo = self.lighting.store.light(key).is_some()
+            || self.lighting.ownership.contains_key(&key)
+            || self.lighting.direct_sky.contains_key(&key);
         if invalidates_mesh_halo {
             self.mark_mesh_neighbourhood_dirty(key, Instant::now());
         }
-        self.remove_light_key_without_invalidation(key);
+        self.lighting.remove_key(key);
     }
 
-    /// A disjoint retirement has no retained neighbours; release its indexes off the frame thread.
-    pub(in crate::stream) fn retire_all_lighting(&mut self) {
-        let retired = (
-            std::mem::take(&mut self.block_generations),
-            std::mem::take(&mut self.light_store),
-            std::mem::take(&mut self.light_ownership),
-            std::mem::take(&mut self.direct_sky),
-            std::mem::take(&mut self.light_failures),
-            std::mem::take(&mut self.light_revisions.entries),
-            std::mem::take(&mut self.pending_light),
-            std::mem::take(&mut self.light_priority_wakeups),
-            std::mem::take(&mut self.in_flight_light),
-            std::mem::take(&mut self.in_flight_light_batches),
-            std::mem::take(&mut self.last_dispatched_light_batch),
-            std::mem::take(&mut self.light_waiters),
-            std::mem::take(&mut self.pending_light_scan),
-            std::mem::take(&mut self.pending_light_ready),
-            std::mem::take(&mut self.pending_light_deferred),
-            std::mem::take(&mut self.light_scheduler_refresh),
-        );
-        rayon::spawn(move || drop(retired));
-    }
-
-    /// Retires one light source after its batch collected the affected mesh halo.
-    pub(in crate::stream) fn remove_light_key_without_invalidation(&mut self, key: SubChunkKey) {
-        self.block_generations.remove(&key);
-        self.light_store.remove(key);
-        self.light_ownership.remove(&key);
-        self.direct_sky.remove(&key);
-        self.light_failures.remove(&key);
-        self.light_revisions.entries.remove(&key);
-        self.pending_light.remove(&key);
-        self.light_priority_wakeups.remove(&key);
-        self.remove_in_flight_light(key, None);
-        self.last_dispatched_light_batch.remove(&key);
-        self.remove_light_waiters_for(key);
-    }
-    pub(in crate::stream) fn remove_in_flight_light(
-        &mut self,
-        key: SubChunkKey,
-        expected: Option<LightJobIdentity>,
-    ) -> bool {
-        let Some(identity) = self.in_flight_light.get(&key).copied() else {
-            return false;
-        };
-        if expected.is_some_and(|expected| expected != identity) {
-            return false;
-        }
-        self.in_flight_light.remove(&key);
-        if let std::collections::hash_map::Entry::Occupied(mut entry) =
-            self.in_flight_light_batches.entry(identity.batch_id)
-        {
-            if *entry.get() <= 1 {
-                entry.remove();
-            } else {
-                *entry.get_mut() -= 1;
-            }
-        }
-        true
-    }
-    pub(in crate::stream) fn remove_light_waiters_for(&mut self, key: SubChunkKey) {
-        self.light_waiters.remove(&key);
-        self.remove_light_waiter_target(key);
-    }
-    pub(in crate::stream) fn remove_light_waiter_target(&mut self, key: SubChunkKey) -> usize {
-        // Waiter edges are registered only for face-adjacent light dependencies:
-        // the upper skylight dependency and `register_untrusted_light_waiters`.
-        // Therefore `key` can occur only in a face neighbour's waiter set.
-        let mut probes = 0;
-        for source in key.mesh_dependents().filter(|source| *source != key) {
-            probes += 1;
-            if let std::collections::hash_map::Entry::Occupied(mut entry) =
-                self.light_waiters.entry(source)
-            {
-                entry.get_mut().remove(&key);
-                if entry.get().is_empty() {
-                    entry.remove();
-                }
-            }
-        }
-        probes
-    }
     #[cfg(test)]
     pub(in crate::stream) fn mark_light_dirty_exact(&mut self, key: SubChunkKey) -> Option<u64> {
         self.mark_light_dirty_exact_with_priority(key, false)
@@ -190,29 +267,28 @@ impl WorldStream {
         key: SubChunkKey,
         urgent: bool,
     ) -> Option<u64> {
-        if !self.resident.contains(&key) || !self.block_generations.contains_key(&key) {
+        if !self.resident.contains(&key) || !self.lighting.block_generations.contains_key(&key) {
             return None;
         }
-        self.light_failures.remove(&key);
-        self.light_priority_wakeups.remove(&key);
-        self.remove_light_waiter_target(key);
+        self.lighting.failures.remove(&key);
+        self.lighting.priority_wakeups.remove(&key);
+        self.lighting.remove_waiter_target(key);
         let urgent = urgent
             || self
-                .pending_light
+                .lighting
+                .jobs
+                .pending
                 .get(&key)
                 .is_some_and(|pending| pending.urgent)
             || self
-                .in_flight_light
+                .lighting
+                .jobs
+                .in_flight
                 .get(&key)
                 .is_some_and(|identity| identity.urgent);
         let queued_at = Instant::now();
-        let revision = self.light_revisions.mark_dirty(key, queued_at);
-        if urgent {
-            self.pending_light_scan.push_front((key, revision));
-        } else {
-            self.pending_light_scan.push_back((key, revision));
-        }
-        self.pending_light.insert(
+        let revision = self.lighting.revisions.mark_dirty(key, queued_at);
+        self.lighting.jobs.enqueue(
             key,
             PendingLight {
                 revision,
@@ -223,13 +299,13 @@ impl WorldStream {
         Some(revision)
     }
     pub(in crate::stream) fn light_is_current(&self, key: SubChunkKey) -> bool {
-        if !self.light_source_is_known(key) || self.light_revisions.dirty(key).is_some() {
+        if !self.light_source_is_known(key) || self.lighting.revisions.dirty(key).is_some() {
             return false;
         }
-        let Some(block_generation) = self.block_generations.get(&key).copied() else {
+        let Some(block_generation) = self.lighting.block_generations.get(&key).copied() else {
             return false;
         };
-        let Some(ownership) = self.light_ownership.get(&key).copied() else {
+        let Some(ownership) = self.lighting.ownership.get(&key).copied() else {
             return false;
         };
         let expected_kind = if self.known_air.contains(&key) {
@@ -241,12 +317,14 @@ impl WorldStream {
         };
         ownership.block_generation == block_generation
             && expected_kind != LightSubChunkKind::Unknown
-            && self.light_store.kind(key) == expected_kind
+            && self.lighting.store.kind(key) == expected_kind
             && self
-                .light_store
+                .lighting
+                .store
                 .light(key)
                 .is_some_and(|light| light.generation() == ownership.light_revision)
             && self
+                .lighting
                 .direct_sky
                 .get(&key)
                 .is_some_and(|direct| direct.light_revision == ownership.light_revision)
@@ -276,8 +354,8 @@ impl WorldStream {
                     if !self.light_is_current(key) {
                         return None;
                     }
-                    let ownership = self.light_ownership.get(&key).copied()?;
-                    let light = Arc::clone(self.light_store.light(key)?);
+                    let ownership = self.lighting.ownership.get(&key).copied()?;
+                    let light = Arc::clone(self.lighting.store.light(key)?);
                     slots[mesh_offset_index(offset)] = Some(MeshLightSlot {
                         key,
                         block_generation: ownership.block_generation,
@@ -331,7 +409,8 @@ impl WorldStream {
         let direct_sky = keys
             .iter()
             .filter_map(|sample_key| {
-                self.direct_sky
+                self.lighting
+                    .direct_sky
                     .get(sample_key)
                     .cloned()
                     .map(|direct| (*sample_key, direct))
@@ -343,7 +422,7 @@ impl WorldStream {
             .filter(|sample_key| *sample_key != key && self.light_is_current(*sample_key))
             .collect();
         LightPriorSnapshot {
-            light: self.light_store.snapshot_keys(keys),
+            light: self.lighting.store.snapshot_keys(keys),
 
             direct_sky,
             trusted_boundaries,
@@ -351,7 +430,7 @@ impl WorldStream {
     }
     pub(in crate::stream) fn original_light_column_context_ready(&self, key: SubChunkKey) -> bool {
         let center = key.chunk();
-        if !self.required_columns.contains(&center) {
+        if !self.publisher.required_columns.contains(&center) {
             return true;
         }
         for dx in -1_i32..=1 {
@@ -363,7 +442,7 @@ impl WorldStream {
                     continue;
                 };
                 let neighbour = ChunkKey::new(center.dimension, x, z);
-                if self.required_columns.contains(&neighbour)
+                if self.publisher.required_columns.contains(&neighbour)
                     && !self.loaded_columns.contains(&neighbour)
                 {
                     return false;
@@ -381,10 +460,11 @@ impl WorldStream {
             if !retained_batch.contains(&neighbour)
                 && self.light_source_is_known(neighbour)
                 && !self.light_is_current(neighbour)
-                && self.light_store.light(neighbour).is_some()
+                && self.lighting.store.light(neighbour).is_some()
                 && self.prior_light_may_seed(target, neighbour)
             {
-                self.light_waiters
+                self.lighting
+                    .waiters
                     .entry(neighbour)
                     .or_default()
                     .insert(target);
@@ -397,7 +477,9 @@ impl WorldStream {
     ) -> Option<(SubChunkKey, PendingLight)> {
         self.light_column_sources(key)
             .filter_map(|candidate| {
-                self.pending_light
+                self.lighting
+                    .jobs
+                    .pending
                     .get(&candidate)
                     .copied()
                     .map(|pending| (candidate, pending))
@@ -438,7 +520,7 @@ impl WorldStream {
         target: SubChunkKey,
         neighbour: SubChunkKey,
     ) -> bool {
-        let Some(light) = self.light_store.light(neighbour) else {
+        let Some(light) = self.lighting.store.light(neighbour) else {
             return false;
         };
         let block_may_seed = !light.channel(LightChannel::Block).is_uniform()
@@ -462,7 +544,7 @@ impl WorldStream {
         if self.light_source_is_known(above) {
             self.light_is_current(above)
         } else {
-            !self.is_expected_sub_chunk(above)
+            !self.requests.is_expected(above)
         }
     }
 }

@@ -3,7 +3,7 @@
 use std::{path::Path, sync::Arc};
 
 use assets::{RuntimeAssets, RuntimeEntityAssets};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap,
     WorldEvent,
@@ -185,7 +185,8 @@ fn draw(
     artwork: &ActorArtworkPages,
 ) -> image::RgbaImage {
     let mut image = image::RgbaImage::from_pixel(SIDE, SIDE, image::Rgba([40, 44, 52, 255]));
-    let (Some(rig), Some(actor)) = (world.actor_rig(42), world.actor(42)) else {
+    let (Some(rig), Some(actor)) = (world.authority().actor_rig(42), world.authority().actor(42))
+    else {
         eprintln!("render: no rig");
         return image;
     };
@@ -197,7 +198,7 @@ fn draw(
         return image;
     };
     let mut batch = actors::select_actor_presentations(1, false, None, [body]);
-    entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
+    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
@@ -214,7 +215,10 @@ fn draw(
         batch.submissions.len(),
         rig.instances.len(),
         rig.rejects,
-        world.actor_rig(42).map_or(0, |rig| rig.render.len()),
+        world
+            .authority()
+            .actor_rig(42)
+            .map_or(0, |rig| rig.render.len()),
     );
     let mut triangles = Vec::new();
     for (instance, entry) in rig.instances.iter().zip(rig.manifest.iter()) {

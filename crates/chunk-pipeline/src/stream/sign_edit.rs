@@ -1,6 +1,6 @@
 //! Presentation access to authoritative sign-edit requests.
 
-pub use client_world::SignEditRequest;
+use client_world::SignEditRequest;
 use client_world::ingestion::OpenSignEvent;
 
 use super::WorldStream;

@@ -1,33 +1,35 @@
 //! The display state that outbound producers may change within a frame.
-use super::{PlayerInventoryLedger, UiRuntime, forms::ServerFormStore};
+use super::{UiRuntime, forms::ServerFormStore};
 
 pub struct PresentationInventory {
-    ledger: PlayerInventoryLedger,
+    ledger: player_state::CapturedLedger,
+    ui: CapturedUi,
+}
+
+/// UI-owned display fields written by outbound producers.
+struct CapturedUi {
     forms: ServerFormStore,
     open: bool,
     pointer: Option<[f32; 2]>,
 }
 
-impl PresentationInventory {
-    /// Exchanges only the render-visible fields written by outbound producers.
-    fn swap(&mut self, player_runtime: &mut player_state::PlayerState, runtime: &mut UiRuntime) {
+impl CapturedUi {
+    fn swap(&mut self, runtime: &mut UiRuntime) {
         std::mem::swap(&mut self.forms, &mut runtime.forms);
-        std::mem::swap(&mut self.ledger, player_runtime.inventory.ledger_mut());
         std::mem::swap(&mut self.open, &mut runtime.inventory_open);
         std::mem::swap(&mut self.pointer, &mut runtime.inventory_pointer_gui);
     }
 }
 
-struct RestoreInventory<'a> {
+struct RestoreUi<'a> {
     runtime: &'a mut UiRuntime,
-    player_runtime: &'a mut player_state::PlayerState,
-    after_send: PresentationInventory,
+    after_send: CapturedUi,
 }
 
-impl Drop for RestoreInventory<'_> {
-    /// Restores authoritative post-send state even if rendering returns early or panics.
+impl Drop for RestoreUi<'_> {
+    /// Restores post-send UI state even if rendering returns early or panics.
     fn drop(&mut self) {
-        self.after_send.swap(self.player_runtime, self.runtime);
+        self.after_send.swap(self.runtime);
     }
 }
 
@@ -38,26 +40,29 @@ impl UiRuntime {
         player_runtime: &player_state::PlayerState,
     ) -> PresentationInventory {
         PresentationInventory {
-            ledger: player_runtime.inventory.ledger().clone(),
-            forms: self.forms.clone(),
-            open: self.inventory_open,
-            pointer: self.inventory_pointer_gui,
+            ledger: player_runtime.capture_ledger(),
+            ui: CapturedUi {
+                forms: self.forms.clone(),
+                open: self.inventory_open,
+                pointer: self.inventory_pointer_gui,
+            },
         }
     }
 
-    /// Gives rendering a read-only view of the pre-send inventory for this call alone.
+    /// Renders the pre-send inventory from the snapshot; player authority is only read.
     pub fn with_presentation_inventory<T>(
         &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        mut snapshot: PresentationInventory,
+        player_runtime: &player_state::PlayerState,
+        snapshot: PresentationInventory,
         render: impl FnOnce(&UiRuntime, &player_state::PlayerState) -> T,
     ) -> T {
-        snapshot.swap(player_runtime, self);
-        let restore = RestoreInventory {
+        let presented = player_runtime.present(snapshot.ledger);
+        let mut ui = snapshot.ui;
+        ui.swap(self);
+        let restore = RestoreUi {
             runtime: self,
-            player_runtime,
-            after_send: snapshot,
+            after_send: ui,
         };
-        render(restore.runtime, restore.player_runtime)
+        render(restore.runtime, &presented)
     }
 }

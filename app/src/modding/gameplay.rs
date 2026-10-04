@@ -1,14 +1,13 @@
 //! App-owned snapshot and camera adapter; the component host has no world access.
 
 use bevy::{ecs::system::SystemParam, prelude::*};
-use mod_host::{CameraDelta, GameplayPlayer, GameplaySnapshot, GameplayVector3, ModGrants};
-
-use crate::{
+use client_presentation::{
     camera::{AutoFly, PITCH_LIMIT, ServerCameraView},
     local_player::LocalViewPose,
-    runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
 };
+use mod_host::{CameraDelta, GameplayPlayer, GameplaySnapshot, GameplayVector3, ModGrants};
+
+use crate::{runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot};
 
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
@@ -36,18 +35,18 @@ impl GameplayContext<'_> {
         {
             return None;
         }
-        let stream = self.world.as_ref()?.stream.as_ref()?;
+        let authority = self.world.as_ref()?.stream.as_ref()?.authority();
         let view = self.view.as_ref()?;
         let (yaw, pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
         let eye = view.eye_translation();
         let players = if grants.players {
-            nearest_players(stream.remote_actors(), eye)
+            nearest_players(authority.remote_actors(), eye)
         } else {
             Vec::new()
         };
         Some(GameplaySnapshot {
-            session: stream.actor_session_id(),
-            dimension: stream.current_dimension(),
+            session: authority.actor_session_id(),
+            dimension: authority.current_dimension(),
             eye: vector(eye),
             yaw,
             pitch,

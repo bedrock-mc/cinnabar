@@ -149,11 +149,6 @@ pub struct PendingSubChunkRequest {
     pub count: usize,
 }
 
-pub(super) enum OutboundRequestSlot {
-    Reserved(u64),
-    Ready(PendingSubChunkRequest),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RetrySchedule {
     Scheduled,

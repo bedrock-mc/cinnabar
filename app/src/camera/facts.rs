@@ -2,10 +2,11 @@
 use super::{CameraFovInputs, ScreenEffectFacts};
 use crate::{
     item_use::ItemUseRuntime, local_player::LocalViewPose, movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld, ui_runtime::UiRuntime,
+    runtime::world::ClientWorld,
 };
 use bevy::prelude::{Res, ResMut};
 pub use client_presentation::camera::facts::ItemUseClock;
+use client_ui::ui_runtime::UiRuntime;
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]

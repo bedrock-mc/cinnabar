@@ -33,7 +33,7 @@ fn ability_fifo_waits_for_predecessor_and_joins_unique_not_runtime_identity() {
 #[test]
 fn ability_suffix_waits_for_actual_block_mutation_and_survives_malformed_chunk_prefix() {
     let mut stream = block_entity_visual_stream();
-    let local = stream.local_player_unique_id();
+    let local = stream.authority().local_player_unique_id();
     stream.submit(1, inline_air_event(0)).unwrap();
     complete_pending_decode_jobs(&mut stream);
     stream
@@ -71,7 +71,7 @@ fn ability_suffix_waits_for_actual_block_mutation_and_survives_malformed_chunk_p
         )
         .unwrap();
     stream
-        .submit(2, ability(stream.local_player_unique_id(), 0))
+        .submit(2, ability(stream.authority().local_player_unique_id(), 0))
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
     assert!(stream.take_fatal_error().is_none());

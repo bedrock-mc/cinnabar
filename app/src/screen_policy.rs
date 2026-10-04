@@ -1,8 +1,6 @@
 //! Shared screen ownership for gameplay consumers outside the semantic router.
-use crate::{
-    menu::MenuRuntime,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
-};
+use crate::menu::MenuRuntime;
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 /// A visible absorbing screen owns all gameplay input, including directly read wheel state.
 pub(crate) fn absorbs_input(

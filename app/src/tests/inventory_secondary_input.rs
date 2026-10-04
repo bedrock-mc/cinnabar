@@ -31,15 +31,16 @@ use crate::{
     },
     settings_runtime::RuntimeSettings,
     ui_runtime::{
-        UiRuntime, drive_chat_keyboard_input, drive_inventory_ui_actions,
-        inventory_ledger::{
-            GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryPendingState,
-            SMALL_STORAGE_SLOT_COUNT,
-        },
-        presentation::{
-            UiPresentationRuntime, inventory_pointer::InventoryCellHit, tests::fixture_font,
-        },
+        drive_chat_keyboard_input, drive_inventory_ui_actions, presentation::tests::fixture_font,
     },
+};
+use client_ui::ui_runtime::{
+    UiRuntime,
+    inventory_ledger::{
+        GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryPendingState,
+        SMALL_STORAGE_SLOT_COUNT,
+    },
+    presentation::{UiPresentationRuntime, inventory_pointer::InventoryCellHit},
 };
 
 const PHYSICAL_SIZE: [u32; 2] = [1280, 720];
@@ -825,8 +826,8 @@ fn hit_point(
                 let point = UiPoint::new(x as f32, y as f32).unwrap();
                 let gui = presentation.inventory_gui_point(point, PHYSICAL_SIZE, 1.0)?;
                 let screen = storage_slots.map_or(
-                    crate::ui_runtime::presentation::inventory_pointer::InventoryScreen::Personal,
-                    crate::ui_runtime::presentation::inventory_pointer::InventoryScreen::Storage,
+                    client_ui::ui_runtime::presentation::inventory_pointer::InventoryScreen::Personal,
+                    client_ui::ui_runtime::presentation::inventory_pointer::InventoryScreen::Storage,
                 );
                 (presentation.inventory_cell_hit(gui, PHYSICAL_SIZE, 1.0, screen) == Some(target))
                     .then_some(Vec2::new(x as f32, y as f32))

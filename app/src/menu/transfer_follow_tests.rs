@@ -6,13 +6,7 @@ use std::{
 
 use bevy::prelude::{App, Update};
 
-use super::{
-    super::{
-        CoreProcessGuard, MAX_TRANSFER_CHAIN_HOPS, MenuAction, MenuRuntime, MenuScreen,
-        format_transfer_address,
-    },
-    follow_server_transfer,
-};
+use super::{MenuAction, MenuRuntime, MenuScreen};
 use crate::{
     app::ClientBlobCacheOwner,
     install_layout::{InstallEnvironment, InstallLayout, Platform},
@@ -20,8 +14,9 @@ use crate::{
         network::{NetworkHandle, ResourcePackAdmissionState},
         world::{ClientWorld, TransferNotice},
     },
-    ui_runtime::UiRuntime,
+    session::{SessionController, drive_session, follow_server_transfer},
 };
+use client_ui::ui_runtime::UiRuntime;
 
 struct TempRoot(PathBuf);
 
@@ -66,61 +61,6 @@ fn missing_core_layout(root: &Path) -> InstallLayout {
 }
 
 #[test]
-fn transfer_addresses_bracket_ipv6_and_leave_ordinary_hosts_untouched() {
-    assert_eq!(
-        format_transfer_address("game.example.net", 19133),
-        "game.example.net:19133"
-    );
-    assert_eq!(format_transfer_address("::1", 19132), "[::1]:19132");
-    assert_eq!(
-        format_transfer_address("2001:db8::10", 25565),
-        "[2001:db8::10]:25565"
-    );
-    assert_eq!(
-        format_transfer_address("[2001:db8::10]", 25565),
-        "[2001:db8::10]:25565",
-        "an already-bracketed transfer literal must not be bracketed twice",
-    );
-}
-
-#[test]
-fn handoff_targets_are_well_formed_without_any_host_allowlist() {
-    let menu = MenuRuntime::new(true, 2, "Player".to_owned());
-
-    let (address, _) = menu
-        .transfer_handoff_target(" game.example.net ", 19133)
-        .expect("a trimmed well-formed host is a valid target");
-    assert_eq!(address, "game.example.net:19133");
-
-    let (address, _) = menu
-        .transfer_handoff_target("minigames.other-host.example", 19321)
-        .expect("cross-host transfers are legitimate vanilla behavior");
-    assert_eq!(address, "minigames.other-host.example:19321");
-
-    assert!(menu.transfer_handoff_target("", 19132).is_none());
-    assert!(menu.transfer_handoff_target("   ", 19132).is_none());
-}
-
-#[test]
-fn the_automatic_transfer_chain_is_bounded() {
-    let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
-
-    // A user-initiated join always starts a fresh bounded chain.
-    menu.begin_fresh_transfer_chain();
-    for _ in 0..MAX_TRANSFER_CHAIN_HOPS {
-        assert!(menu.consume_transfer_chain_hop());
-    }
-    assert!(
-        !menu.consume_transfer_chain_hop(),
-        "an exhausted chain must refuse to follow again"
-    );
-
-    // And another user join renews it after exhaustion.
-    menu.begin_fresh_transfer_chain();
-    assert!(menu.consume_transfer_chain_hop());
-}
-
-#[test]
 fn failed_automatic_replacement_cannot_return_to_the_old_pause_menu() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
@@ -138,7 +78,7 @@ fn pointer_opened_dialogs_accept_keyboard_confirmation_and_navigation() {
             missing_core_layout(root.path()),
             crate::player_skin::LocalPlayerSkin::generated_default("Player"),
         );
-        menu.servers.push(super::super::SavedServer {
+        menu.servers.push(super::SavedServer {
             name: "Local".to_owned(),
             address: "127.0.0.1:19132".to_owned(),
             favorite: false,
@@ -163,7 +103,7 @@ fn pointer_opened_dialogs_accept_keyboard_confirmation_and_navigation() {
         if remove_saved {
             assert!(menu.servers.is_empty());
         } else {
-            assert!(menu.exit_requested);
+            assert!(menu.intents.exit);
         }
     }
 }
@@ -190,7 +130,7 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
         crate::player_skin::LocalPlayerSkin::generated_default("Player"),
     );
     menu.catalog_started = true;
-    menu.mark_connected();
+    menu.show_world();
     menu.open_pause();
     menu.activate(MenuAction::PauseDisconnect);
     let mut network = NetworkHandle::disconnected();
@@ -214,7 +154,7 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
     let mut app = App::new();
     app.add_message::<AppExit>()
         .insert_resource(menu)
-        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(SessionController::default())
         .insert_resource(network)
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
@@ -225,7 +165,7 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
         .insert_resource(crate::movement::LocalPhysicsController::default())
         .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
-        .add_systems(Update, super::drive_menu_connection);
+        .add_systems(Update, drive_session);
     app.update();
 
     let menu = app.world().resource::<MenuRuntime>();
@@ -266,7 +206,7 @@ fn app_with_core(root: &Path, script: &str) -> App {
     let mut app = App::new();
     app.add_message::<bevy::app::AppExit>()
         .insert_resource(menu)
-        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(SessionController::default())
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
@@ -277,29 +217,27 @@ fn app_with_core(root: &Path, script: &str) -> App {
         .insert_resource(crate::movement::LocalPhysicsController::default())
         .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
-        .add_systems(Update, super::drive_menu_connection);
+        .add_systems(Update, drive_session);
     app
 }
 
 #[cfg(unix)]
 #[test]
 fn cancellation_precedes_a_ready_join_response() {
+    use crate::session::JoinStage;
+
     let root = TempRoot::new();
     let mut app = app_with_core(root.path(), "#!/bin/sh\nexit 0\n");
     let (reply, ready) = crossbeam_channel::bounded(1);
     reply.send(Err("retired join failed".to_owned())).unwrap();
+    app.world_mut()
+        .resource_mut::<SessionController>()
+        .adopt_join("local world", true, JoinStage::Launcher(ready));
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         menu.enter(MenuScreen::Play);
-        menu.mark_connecting();
-        menu.join = Some(super::JoinAttempt {
-            generation: menu.session_generation,
-            address: "local world".to_owned(),
-            auth_cache: None,
-            local_world: true,
-            stage: super::JoinStage::Launcher(ready),
-        });
-        menu.disconnect_requested = true;
+        menu.show_connecting();
+        menu.intents.disconnect = true;
     }
     app.update();
     let menu = app.world().resource::<MenuRuntime>();
@@ -309,7 +247,7 @@ fn cancellation_precedes_a_ready_join_response() {
             .as_deref()
             .is_none_or(|message| !message.contains("retired join"))
     );
-    assert!(menu.join.is_none());
+    assert!(!app.world().resource::<SessionController>().join_pending());
 }
 
 // Join frames stay short while the core starts; cancelling reaps it.
@@ -330,16 +268,19 @@ fn a_join_frame_does_not_wait_for_the_core() {
         eprintln!("menu-latency join (two frames)          {frames:?}");
     }
     let menu = app.world().resource::<MenuRuntime>();
+    let joining = app.world().resource::<SessionController>().join_pending();
     assert!(frames < std::time::Duration::from_secs(1), "{frames:?}");
-    assert!(menu.is_connecting() && menu.join.is_some());
+    assert!(menu.is_connecting() && joining);
     assert!(menu.view().connecting);
 
     app.world_mut()
         .resource_mut::<MenuRuntime>()
-        .disconnect_requested = true;
+        .intents
+        .disconnect = true;
     app.update();
     let menu = app.world().resource::<MenuRuntime>();
-    assert!(!menu.is_connecting() && menu.join.is_none());
+    assert!(!menu.is_connecting());
+    assert!(!app.world().resource::<SessionController>().join_pending());
 }
 
 // A core that dies before publishing fails the join on a later frame, not
@@ -352,14 +293,24 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
     app.world_mut()
         .resource_mut::<MenuRuntime>()
         .request_connect("127.0.0.1:19132".to_owned());
-    while app.world().resource::<CoreProcessGuard>().id().is_none()
+    while app
+        .world_mut()
+        .resource_mut::<SessionController>()
+        .core_mut()
+        .id()
+        .is_none()
         && app.world().resource::<MenuRuntime>().is_connecting()
     {
         app.update();
     }
     // Frames wait for the exit, so a launch slowed by load cannot let the start deadline win.
     let spawned = std::time::Instant::now();
-    while !app.world_mut().resource_mut::<CoreProcessGuard>().exited() {
+    while !app
+        .world_mut()
+        .resource_mut::<SessionController>()
+        .core_mut()
+        .exited()
+    {
         assert!(
             spawned.elapsed() < std::time::Duration::from_secs(60),
             "stub core never exited"
@@ -370,8 +321,8 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
         app.update();
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    assert!(!app.world().resource::<SessionController>().join_pending());
     let menu = app.world().resource::<MenuRuntime>();
-    assert!(menu.join.is_none());
     // The exit is seen, not the start timeout (a new executable's first
     // launch can itself take seconds on macOS).
     assert!(
@@ -396,15 +347,16 @@ fn failed_automatic_replacement(
         missing_core_layout(root.path()),
         crate::player_skin::LocalPlayerSkin::generated_default("Player"),
     );
-    let old_generation = menu.next_session_generation();
-    menu.mark_connected();
+    let controller = SessionController::default();
+    let old_generation = controller.generation();
+    menu.show_world();
     if from_settings {
         menu.open_pause();
         menu.activate(MenuAction::PauseSettings);
     }
 
     let client_world = ClientWorld {
-        stream: Some(client_world::WorldStream::new(protocol::WorldBootstrap {
+        stream: Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 1,
             local_player_unique_id: 1,
@@ -425,7 +377,7 @@ fn failed_automatic_replacement(
 
     let mut app = App::new();
     app.insert_resource(menu)
-        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(controller)
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())

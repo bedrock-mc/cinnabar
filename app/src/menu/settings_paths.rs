@@ -5,7 +5,8 @@ use super::{MenuRuntime, PathBuf};
 impl MenuRuntime {
     /// Where the Marketplace settings file lives.
     pub(crate) fn store_settings_path(&self) -> PathBuf {
-        self.config_path.with_file_name(crate::store::SETTINGS_FILE)
+        self.config_path
+            .with_file_name(launcher::store::settings::SETTINGS_FILE)
     }
 
     /// Server trust lives beside the other per-user launcher settings.

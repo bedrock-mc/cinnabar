@@ -68,10 +68,11 @@ fn cached_subchunk_admission_cancels_deadline_without_completing_expected_y() {
         )
         .unwrap();
 
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
     assert!(
         stream
-            .requested_sub_chunks
+            .requests
+            .requested
             .get(&key.chunk())
             .is_some_and(|column| column.contains_key(&key.y)),
         "admission must not complete or remove the expected Y"
@@ -94,7 +95,7 @@ fn abandoned_cached_subchunk_rolls_back_admission_and_queues_retry() {
             }),
         )
         .unwrap();
-    stream.admitted_sub_chunk_replies.insert(key, 2);
+    stream.requests.admitted_replies.insert(key, 2);
 
     stream
         .submit(
@@ -108,7 +109,7 @@ fn abandoned_cached_subchunk_rolls_back_admission_and_queues_retry() {
             }),
         )
         .unwrap();
-    assert!(!stream.admitted_sub_chunk_replies.contains_key(&key));
+    assert!(!stream.requests.admitted_replies.contains_key(&key));
     let retry = stream
         .pop_next_request()
         .expect("abandonment must restore an exact retry");
@@ -138,7 +139,7 @@ fn recovery_without_admission_preserves_existing_request_deadline() {
         .unwrap();
 
     assert!(stream.pop_next_request().is_none());
-    assert_eq!(stream.sub_chunk_deadlines.len(), 1);
+    assert_eq!(stream.requests.deadlines.len(), 1);
 }
 
 #[test]
@@ -156,10 +157,10 @@ fn recovery_clears_stale_admission_after_another_reply_completed_the_y() {
             }),
         )
         .unwrap();
-    stream.admitted_sub_chunk_replies.insert(key, 2);
+    stream.requests.admitted_replies.insert(key, 2);
     apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
-    assert!(!stream.is_expected_sub_chunk(key));
-    assert!(stream.admitted_sub_chunk_replies.contains_key(&key));
+    assert!(!stream.requests.is_expected(key));
+    assert!(stream.requests.admitted_replies.contains_key(&key));
 
     stream
         .submit(
@@ -174,7 +175,7 @@ fn recovery_clears_stale_admission_after_another_reply_completed_the_y() {
         )
         .unwrap();
 
-    assert!(!stream.admitted_sub_chunk_replies.contains_key(&key));
+    assert!(!stream.requests.admitted_replies.contains_key(&key));
     let retry = stream
         .pop_next_request()
         .expect("recovery must request the completed Y again");
@@ -233,7 +234,7 @@ fn timely_sub_chunk_admission_disarms_and_cancels_before_decode_or_expiry() {
         .expect("the first exact retry should retain FIFO order");
     acknowledge_request_sent(&mut stream, &sent_retry, first_deadline);
     assert_eq!(stream.pending_request_count(), 1);
-    assert_eq!(stream.sub_chunk_deadlines.len(), 1);
+    assert_eq!(stream.requests.deadlines.len(), 1);
 
     stream
         .submit(
@@ -253,7 +254,7 @@ fn timely_sub_chunk_admission_disarms_and_cancels_before_decode_or_expiry() {
         .unwrap();
 
     assert_eq!(stream.pending_decode.len(), 1);
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
     assert_eq!(stream.pending_request_count(), 0);
     let retry_deadline = first_deadline + super::SUB_CHUNK_RESPONSE_TIMEOUT;
     stream.expire_sub_chunk_deadlines(retry_deadline);

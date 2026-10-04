@@ -382,10 +382,10 @@ fn hud_model(
 ) -> HudModel {
     let seconds = |millis: u64| millis as f64 / 1_000.0;
     let now = frame.now_millis;
-    let mode = runtime.player_game_mode(player_runtime);
+    let mode = player_runtime.facts.player_game_mode();
     let mode_allows_hotbar = mode.is_none_or(|mode| mode.shows_hotbar());
-    let selected = runtime.selected_hotbar_slot(player_runtime);
-    let survival = runtime.survival_stats_visible(player_runtime);
+    let selected = player_runtime.selected_hotbar_slot();
+    let survival = player_runtime.facts.survival_stats_visible();
     let mut slot = |stack: Option<&protocol::NetworkItemStack>,
                     icon: Option<IconRef>,
                     durability: Option<f32>,

@@ -11,7 +11,7 @@ use resource_pack::LayeredPackView;
 
 use super::resource_packs::{DecodedTexture, decode_pack_texture};
 use crate::presentation::equipment::blocks::overlay_sheet;
-use crate::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
+use client_ui::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 
 /// One icon per registry item, the most a session can name.
 const MAX_SESSION_ICONS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;

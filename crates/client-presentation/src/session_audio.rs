@@ -392,7 +392,7 @@ pub fn drain_sequenced_audio_into_session(
         return;
     };
     session.admit_from_stream(
-        stream.actor_session_id(),
+        stream.authority().actor_session_id(),
         clock.session_generation(),
         stream.current_dimension(),
         messages.read().cloned().collect(),

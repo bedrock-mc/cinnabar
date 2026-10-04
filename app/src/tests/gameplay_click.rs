@@ -14,22 +14,19 @@ use crate::{
     app::{ClientFrameSet, configure_client_frame_schedule},
     menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
     semantic_controls::{
-        collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
-        synchronize_semantic_input_authority,
+        SemanticInputSnapshot, collect_raw_input, finalize_semantic_input_after_ui_authority,
+        route_semantic_input, synchronize_semantic_input_authority,
     },
     settings_runtime::RuntimeSettings,
-    ui_runtime::{
-        UiRuntime,
-        presentation::{UiPresentationRuntime, tests::fixture_font},
-    },
     ui_runtime::{
         drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
         drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
         drive_world_inventory_keys, gameplay_touch::drive_gameplay_touch_targets,
+        presentation::tests::fixture_font,
     },
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 fn gameplay_app(menu_visible: bool) -> App {
     let mut player_runtime = PlayerRuntime::new(1);

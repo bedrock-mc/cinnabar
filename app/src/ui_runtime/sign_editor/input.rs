@@ -8,15 +8,14 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 
-use super::{MAX_LINE_DESIGN_PIXELS, SignEdit};
 use crate::{
     block_entities::{BlockEntityFont, BlockEntityRuntime},
     menu::MenuRuntime,
     runtime::{network::NetworkHandle, world::ClientWorld},
-    ui_runtime::{
-        UiRuntime, interaction::restore_gameplay_input_after_chat,
-        presentation::UiPresentationRuntime,
-    },
+};
+use client_ui::ui_runtime::sign_editor::{MAX_LINE_DESIGN_PIXELS, SignEdit};
+use client_ui::ui_runtime::{
+    UiRuntime, interaction::restore_gameplay_input_after_chat, presentation::UiPresentationRuntime,
 };
 
 #[allow(clippy::too_many_arguments)]

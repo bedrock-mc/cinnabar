@@ -83,8 +83,8 @@ fn publish(
     ui.drain_pending_inventory(player_runtime);
 }
 
-fn stream() -> client_world::WorldStream {
-    let mut stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+fn stream() -> chunk_pipeline::WorldStream {
+    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -240,7 +240,7 @@ fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_correctio
     assert!(!item_use.step(&fire).started);
     assert_eq!(capture(&player_runtime, &mut ui, &item_use, 40), corrected);
     assert_eq!(
-        protocol::item_charged_projectile(&ui.selected_stack(&player_runtime).unwrap().extra_data)
+        protocol::item_charged_projectile(&player_runtime.selected_stack().unwrap().extra_data)
             .as_deref(),
         Some("minecraft:arrow")
     );

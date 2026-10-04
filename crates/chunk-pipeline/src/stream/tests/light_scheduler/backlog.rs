@@ -15,8 +15,8 @@ fn empty_removals_have_separate_bounded_service() {
         0
     );
     assert_eq!(stream.mesh_changes.len(), removal_budget);
-    assert_eq!(stream.pending_mesh.len(), 1);
-    assert!(stream.in_flight.is_empty());
+    assert_eq!(stream.mesh_jobs.pending.len(), 1);
+    assert!(stream.mesh_jobs.in_flight.is_empty());
 }
 
 /// Times a mesh-heavy transfer after lighting converges, including frame-paced acceptance.
@@ -34,7 +34,7 @@ fn ready_mesh_backlog_drains() {
         stream.mark_dirty_exact(key, Instant::now());
     }
     let started = Instant::now();
-    while !stream.pending_mesh.is_empty() || !stream.in_flight.is_empty() {
+    while !stream.mesh_jobs.pending.is_empty() || !stream.mesh_jobs.in_flight.is_empty() {
         stream.poll([0.0; 3], 64);
         acknowledge_mesh_changes(&mut stream);
         assert!(
@@ -92,26 +92,29 @@ fn light_churn_supersedes_pending_mesh_in_place() {
         .unwrap();
     install_current_light(&mut stream, key, 0, 0, false);
     let revision = stream.mark_dirty_exact(key, Instant::now());
-    stream.pending_mesh.remove(&key);
-    stream.pending_mesh_scan.clear();
-    stream.in_flight.insert(key, revision);
+    stream.mesh_jobs.pending.remove(&key);
+    stream.mesh_jobs.scan.clear();
+    stream.mesh_jobs.in_flight.insert(key, revision);
     let cancelled = Arc::new(AtomicBool::new(false));
     stream
         .mesh_cancellations
         .insert(key, Arc::clone(&cancelled));
     stream.mark_changed_light_mesh_dependents(key, [true; 6], Instant::now(), false);
-    let successor = stream.pending_mesh[&key];
+    let successor = stream.mesh_jobs.pending[&key];
     for _ in 0..100 {
         stream.mark_changed_light_mesh_dependents(key, [true; 6], Instant::now(), true);
     }
     assert!(cancelled.load(Ordering::Acquire));
     assert_ne!(successor.revision, revision);
-    assert_eq!(stream.pending_mesh[&key].revision, successor.revision);
-    assert_eq!(stream.pending_mesh[&key].queued_at, successor.queued_at);
-    assert!(stream.pending_mesh[&key].urgent);
-    assert!(stream.pending_mesh_scan.len() <= 2);
+    assert_eq!(stream.mesh_jobs.pending[&key].revision, successor.revision);
+    assert_eq!(
+        stream.mesh_jobs.pending[&key].queued_at,
+        successor.queued_at
+    );
+    assert!(stream.mesh_jobs.pending[&key].urgent);
+    assert!(stream.mesh_jobs.scan.len() <= 2);
 
-    stream.in_flight.remove(&key);
+    stream.mesh_jobs.in_flight.remove(&key);
     stream.mark_light_dirty_exact(key).unwrap();
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
     complete_one_light(&mut stream, [0.0; 3]);
@@ -120,7 +123,7 @@ fn light_churn_supersedes_pending_mesh_in_place() {
     assert_eq!(completion.revision, successor.revision);
     stream.accept_mesh_completion(completion);
     assert_eq!(stream.stats.stale_mesh_jobs, 0);
-    assert!(stream.pending_mesh.is_empty());
+    assert!(stream.mesh_jobs.pending.is_empty());
 }
 
 /// Exercises thousands of resident sub-chunks with roofs, emitters and repeated relighting.
@@ -171,19 +174,19 @@ fn large_lighting_backlog_drains() {
             eprintln!(
                 "backlog ms={} pending_mesh={} flight_mesh={} pending_light={} flight_light={} accepted={} stale_mesh={}",
                 started.elapsed().as_millis(),
-                stream.pending_mesh.len(),
-                stream.in_flight.len(),
-                stream.pending_light.len(),
-                stream.in_flight_light.len(),
+                stream.mesh_jobs.pending.len(),
+                stream.mesh_jobs.in_flight.len(),
+                stream.lighting.jobs.pending.len(),
+                stream.lighting.jobs.in_flight.len(),
                 stream.stats.accepted_light_jobs,
                 stream.stats.stale_mesh_jobs
             );
         }
         if frame > 16
-            && stream.pending_mesh.is_empty()
-            && stream.in_flight.is_empty()
-            && stream.pending_light.is_empty()
-            && stream.in_flight_light.is_empty()
+            && stream.mesh_jobs.pending.is_empty()
+            && stream.mesh_jobs.in_flight.is_empty()
+            && stream.lighting.jobs.pending.is_empty()
+            && stream.lighting.jobs.in_flight.is_empty()
             && stream.staged_mesh_completions.is_empty()
         {
             polls.sort_unstable();
@@ -263,12 +266,12 @@ fn arriving_neighbours_coalesce_before_mesh_snapshot() {
         .unwrap();
     install_current_light(&mut stream, key, 0, 0, false);
     stream.mark_changed(key, Instant::now());
-    let pending = stream.pending_mesh[&key];
-    let queued = stream.pending_mesh_scan.len();
+    let pending = stream.mesh_jobs.pending[&key];
+    let queued = stream.mesh_jobs.scan.len();
     for _ in 0..100 {
         stream.mark_changed(key, Instant::now());
     }
-    assert_eq!(stream.pending_mesh[&key].revision, pending.revision);
-    assert_eq!(stream.pending_mesh[&key].queued_at, pending.queued_at);
-    assert_eq!(stream.pending_mesh_scan.len(), queued);
+    assert_eq!(stream.mesh_jobs.pending[&key].revision, pending.revision);
+    assert_eq!(stream.mesh_jobs.pending[&key].queued_at, pending.queued_at);
+    assert_eq!(stream.mesh_jobs.scan.len(), queued);
 }

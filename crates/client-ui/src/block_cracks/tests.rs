@@ -1,4 +1,5 @@
-use client_world::{CommittedUiEvent, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::CommittedUiEvent;
 use protocol::{BlockCrackAction, WorldBootstrap, WorldEvent};
 
 use super::*;
@@ -217,7 +218,8 @@ fn block_crack_projection_disconnect_and_session_reset_preserve_identity_rules()
         consume_committed_block_crack(&mut ui, 9, 2, 0, event([0, -64, 0], start(7))),
         Err(UiRuntimeError::StaleBlockCrackSequence { .. })
     ));
-    ui.begin_session(&mut player_runtime, 10);
+    player_runtime.begin_session(10);
+    ui.begin_session(10);
     assert_eq!(ui.block_cracks_status(), BlockCrackStatus::default());
     assert!(matches!(
         consume_committed_block_crack(&mut ui, 9, 3, 0, event([0, -64, 0], start(7))),

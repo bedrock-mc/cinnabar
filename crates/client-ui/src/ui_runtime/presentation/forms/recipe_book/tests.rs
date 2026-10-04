@@ -12,7 +12,9 @@ fn review_recipe_cell_clears_an_icon_when_replacement_has_no_art() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Creative);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
     runtime
         .inventory_ledger_mut(&mut player_runtime)
         .apply(&protocol::InventoryEvent::Creative(

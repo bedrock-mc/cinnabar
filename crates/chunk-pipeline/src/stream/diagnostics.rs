@@ -188,32 +188,34 @@ impl WorldStream {
         player_column: ChunkKey,
     ) -> Phase2PublicationSnapshot {
         let required = self
-            .committed_view_cohort
+            .publisher
+            .cohort
             .filter(|cohort| cohort.dimension == player_column.dimension)
-            .map_or_else(BTreeSet::new, |_| self.required_columns.clone());
+            .map_or_else(BTreeSet::new, |_| self.publisher.required_columns.clone());
         let mut stages = self.stats.phase2_stages;
         stages.requests_ready = self.pending_request_count();
-        stages.requests_transport_pending = self.transport_pending_requests;
-        stages.subchunks_awaiting_response = self.sub_chunk_deadlines.len();
+        stages.requests_transport_pending = self.requests.transport_pending;
+        stages.subchunks_awaiting_response = self.requests.deadlines.len();
         stages.decode_jobs_queued = self.pending_decode.len();
         stages.decode_jobs_in_flight = self.in_flight_decode_jobs;
-        stages.light_jobs_queued = self.pending_light.len();
-        stages.light_jobs_in_flight = self.in_flight_light.len();
-        stages.mesh_jobs_queued = self.pending_mesh.len();
-        stages.mesh_jobs_in_flight = self.in_flight.len();
+        stages.light_jobs_queued = self.lighting.jobs.pending.len();
+        stages.light_jobs_in_flight = self.lighting.jobs.in_flight.len();
+        stages.mesh_jobs_queued = self.mesh_jobs.pending.len();
+        stages.mesh_jobs_in_flight = self.mesh_jobs.in_flight.len();
         stages.mesh_changes_pending = self.mesh_changes.len();
         stages.mesh_uploads_unacknowledged = self.revisions.entries.len();
-        let request_queue = self
-            .requests
-            .evidence(self.last_request_player_chunk, &self.required_columns);
+        let request_queue = self.requests.queue.evidence(
+            self.requests.last_player_chunk,
+            &self.publisher.required_columns,
+        );
 
         Phase2PublicationSnapshot {
             session_generation: self.authority.actor_session_id(),
-            publisher_epoch: self.publisher_epoch,
-            publisher_center: self.publisher_center,
+            publisher_epoch: self.publisher.epoch,
+            publisher_center: self.publisher.center,
             player_column,
-            publisher_radius_blocks: self.publisher_radius_blocks,
-            publisher_radius_chunks: self.publisher_radius_chunks,
+            publisher_radius_blocks: self.publisher.radius_blocks,
+            publisher_radius_chunks: self.publisher.radius_chunks,
             required_cohort_hash: deterministic_chunk_key_hash(&required),
             required_columns: required.len(),
             loaded_required_columns: self.loaded_columns.intersection(&required).count(),
@@ -224,29 +226,29 @@ impl WorldStream {
                 && self.pending_decode.is_empty()
                 && self.in_flight_decode_jobs == 0
                 && self.decode_rx.is_empty()
-                && self.requests.is_empty()
-                && self.transport_pending_requests == 0
-                && self.requested_sub_chunks.is_empty()
-                && self.deferred_retries.is_empty()
-                && self.deferred_recovery_requests.is_empty()
-                && self.pending_light.is_empty()
-                && self.in_flight_light.is_empty()
-                && self.light_rx.is_empty()
-                && self.pending_mesh.is_empty()
-                && self.in_flight.is_empty()
+                && self.requests.queue.is_empty()
+                && self.requests.transport_pending == 0
+                && self.requests.requested.is_empty()
+                && self.requests.deferred_retries.is_empty()
+                && self.requests.deferred_recovery.is_empty()
+                && self.lighting.jobs.pending.is_empty()
+                && self.lighting.jobs.in_flight.is_empty()
+                && self.lighting.rx.is_empty()
+                && self.mesh_jobs.pending.is_empty()
+                && self.mesh_jobs.in_flight.is_empty()
                 && self.staged_mesh_completions.is_empty()
                 && self.mesh_rx.is_empty()
                 && self.mesh_changes.is_empty()
                 && self.revisions.entries.is_empty(),
             inactive_level_chunks: self.stats.normalization_reasons.inactive_level_chunks,
-            local_reset_armed: self.provisional_publisher_rebase,
-            local_resets_armed: self.local_resets_armed,
-            local_resets_consumed: self.local_resets_consumed,
-            local_reset_dispatch_count: self.local_reset_dispatch_count,
-            local_reset_dispatch_total: self.local_reset_dispatch_total,
-            local_reset_dispatch_trace_overflowed: self.local_reset_dispatch_total
-                > u64::from(self.local_reset_dispatch_count),
-            local_reset_dispatch_classes: self.local_reset_dispatch_classes,
+            local_reset_armed: self.publisher.provisional_rebase,
+            local_resets_armed: self.publisher.local_reset.armed,
+            local_resets_consumed: self.publisher.local_reset.consumed,
+            local_reset_dispatch_count: self.publisher.local_reset.dispatch_count,
+            local_reset_dispatch_total: self.publisher.local_reset.dispatch_total,
+            local_reset_dispatch_trace_overflowed: self.publisher.local_reset.dispatch_total
+                > u64::from(self.publisher.local_reset.dispatch_count),
+            local_reset_dispatch_classes: self.publisher.local_reset.dispatch_classes,
             request_queue,
             stages,
             outcomes: self.stats.phase2_outcomes,

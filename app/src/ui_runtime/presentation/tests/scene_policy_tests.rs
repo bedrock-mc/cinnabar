@@ -1,7 +1,8 @@
 //! App launcher transitions feed synchronous JSON-UI scene policy.
 use super::*;
 use crate::menu::{MenuAction, MenuRuntime};
-use crate::ui_runtime::presentation::forms::{ServerUiPack, pack_harness};
+use crate::ui_runtime::presentation::forms::pack_harness;
+use client_ui::ui_runtime::presentation::forms::ServerUiPack;
 
 #[test]
 fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {

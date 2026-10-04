@@ -1,6 +1,12 @@
 use super::*;
 
 impl WorldStream {
+    /// Read-only view of the admitted world; mutation stays behind ordered admission.
+    #[must_use]
+    pub const fn authority(&self) -> &client_world::WorldAuthority {
+        &self.authority
+    }
+
     pub fn set_publication_allowance(&mut self, allowance: PublicationAllowance) {
         self.publication_allowance = Some(allowance);
     }
@@ -113,46 +119,6 @@ impl WorldStream {
     pub fn take_fatal_error(&mut self) -> Option<WorldStreamFatalError> {
         self.fatal_error.take()
     }
-    pub fn render_players(&self) -> Vec<(&ActorSnapshot, Option<&PlayerProfile>)> {
-        self.authority.render_players()
-    }
-    pub fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
-        self.authority.actor_display_name(unique_id)
-    }
-    /// Synced actor name tag, distinct from the player's scoreboard username.
-    pub fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
-        self.authority.actor_name_tag(unique_id)
-    }
-    /// Every username on the retained authoritative player list, sorted.
-    pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
-        self.authority.player_list_usernames()
-    }
-    /// The authoritative `(current, maximum)` health of the actor with this
-    /// unique id, if it is known and well-formed.
-    pub fn actor_health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {
-        self.authority.actor_health_by_unique(unique_id)
-    }
-    /// Position and view angles `(position, yaw, pitch)` of the actor with this unique id.
-    pub fn actor_pose_by_unique(&self, unique_id: i64) -> Option<([f32; 3], f32, f32)> {
-        self.authority.actor_pose_by_unique(unique_id)
-    }
-    /// Whether this actor carries a named attribute (capability gate).
-    pub fn actor_has_attribute_by_unique(&self, unique_id: i64, name: &str) -> bool {
-        self.authority
-            .actor_has_attribute_by_unique(unique_id, name)
-    }
-    /// Resolves one wire item stack against the retained item registry and
-    /// compiled item visual routes.
-    pub fn canonical_item_stack(
-        &self,
-        stack: &client_world::ingestion::NetworkItemStack,
-    ) -> Option<client_world::CanonicalItemStack> {
-        self.authority.canonical_item_stack(stack)
-    }
-    /// The item identifier registered for a network id.
-    pub fn item_identifier(&self, network_id: i32) -> Option<std::sync::Arc<str>> {
-        self.authority.item_identifier(network_id)
-    }
     /// Installs the StartGame item registry so server-defined item ids resolve
     /// before any play-time registry arrives. False when it is refused.
     pub fn seed_item_registry(
@@ -170,26 +136,19 @@ impl WorldStream {
         self.authority.advance_actor_interpolation_frame(ticks)
     }
     /// Drains decoded actor status events (hurt, death, taming, totem, ...) for particle and sound consumers.
-    pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {
+    pub fn take_actor_status_notices(&mut self) -> Vec<client_world::ActorStatusNotice> {
         self.authority.take_actor_status_notices()
     }
     /// Drains where MobEquipment and MobArmorEquipment events landed, for diagnostics.
-    pub fn take_equipment_notices(&mut self) -> Vec<crate::EquipmentNotice> {
+    pub fn take_equipment_notices(&mut self) -> Vec<client_world::EquipmentNotice> {
         self.authority.take_equipment_notices()
     }
-    /// Body boxes for the native liquid probes backing [`Self::set_actor_fluids`].
-    #[must_use]
-    pub fn actor_fluid_probes(&self) -> Vec<client_world::ActorFluidProbe> {
-        self.authority.actor_fluid_probes()
-    }
     /// Installs the per-mount seat layouts riders fall back to when the server streams no offset.
-    pub fn set_actor_seat_defaults(&mut self, defaults: std::sync::Arc<crate::SeatDefaults>) {
+    pub fn set_actor_seat_defaults(
+        &mut self,
+        defaults: std::sync::Arc<client_world::SeatDefaults>,
+    ) {
         self.authority.set_actor_seat_defaults(defaults)
-    }
-    /// Bed block under every sleeping actor, for [`Self::set_actor_bed_rotations`] sampling.
-    #[must_use]
-    pub fn actor_bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
-        self.authority.actor_bed_sample_points()
     }
     /// Records the `(runtime_id, degrees)` bed orientation that backs `query.sleep_rotation`.
     pub fn set_actor_bed_rotations(&mut self, samples: &[(u64, f32)]) {
@@ -204,7 +163,7 @@ impl WorldStream {
         self.authority.set_actor_camera_rotation(rotation)
     }
     /// Sets the view outside which rigs hold their pose at each tick; `None` animates all.
-    pub fn set_actor_animation_view(&mut self, view: Option<crate::ActorAnimationView>) {
+    pub fn set_actor_animation_view(&mut self, view: Option<client_world::ActorAnimationView>) {
         self.authority.set_actor_animation_view(view)
     }
     /// Sets the view's world position that camera-relative queries sample per tick.
@@ -212,8 +171,8 @@ impl WorldStream {
         self.authority.set_actor_camera_position(position)
     }
     /// Feeds this frame's client-authored local-player pose into the shared actor rig. Call
-    /// before [`Self::advance_actor_interpolation_ticks`] and [`Self::actor_rigs`] so the
-    /// third-person body and first-person hand read a driven rig instead of a static fallback.
+    /// before advancing interpolation and reading rigs so the third-person body and
+    /// first-person hand read a driven rig instead of a static fallback.
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
         self.authority.sync_local_player_pose(feed)
     }
@@ -221,66 +180,6 @@ impl WorldStream {
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.authority.start_local_player_swing(ticks)
-    }
-    pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
-        self.authority.actor(runtime_id)
-    }
-    /// Unique id of the local player's actor.
-    pub fn local_player_unique_id(&self) -> i64 {
-        self.authority.local_player_unique_id()
-    }
-    /// Seat feet position and body yaw of the local player on its mount, when placed.
-    pub fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
-        self.authority.local_rider_seat_pose()
-    }
-    pub fn actor_by_unique_id(&self, unique_id: i64) -> Option<&ActorSnapshot> {
-        self.authority.actor_by_unique_id(unique_id)
-    }
-    pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
-        self.authority.actor_player_profile(runtime_id)
-    }
-    /// Dropped-item stacks with interpolated pose, spin, and pickup flight at `partial_tick`.
-    pub fn dropped_items(&self, partial_tick: f32) -> Vec<crate::DroppedItemView> {
-        self.authority.dropped_items(partial_tick)
-    }
-    /// Live lightning-bolt actors, for the bolt renderer and sky flash.
-    pub fn lightning_bolts(&self) -> Vec<crate::LightningBoltView> {
-        self.authority.lightning_bolts()
-    }
-    /// Falling blocks and primed TNT with interpolated centres, swell and flash.
-    pub fn block_entities(&self, partial_tick: f32) -> Vec<crate::BlockEntityView> {
-        self.authority.block_entities(partial_tick)
-    }
-    /// End crystal beams with interpolated endpoints and actor animation age.
-    pub fn crystal_beams(&self, partial_tick: f32) -> Vec<crate::CrystalBeamView> {
-        self.authority.crystal_beams(partial_tick)
-    }
-    /// Fishing lines and leads with interpolated endpoints.
-    pub fn ropes(&self, partial_tick: f32) -> Vec<crate::RopeView> {
-        self.authority.ropes(partial_tick)
-    }
-    pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
-        self.authority.actor_rig(runtime_id)
-    }
-    /// Full-body pose for HUD rendering, independent of the local first-person hand pose.
-    pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
-        self.authority.actor_ui_pose(runtime_id)
-    }
-    pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
-        self.authority.actor_rigs()
-    }
-    pub const fn actor_animation_stats(&self) -> ActorAnimationStats {
-        self.authority.actor_animation_stats()
-    }
-    pub fn actor_equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
-        self.authority.actor_equipment(runtime_id)
-    }
-    pub fn actor_equipment_in_hand(
-        &self,
-        runtime_id: u64,
-        hand: ActorHandedness,
-    ) -> Option<&ActorEquipmentSnapshot> {
-        self.authority.actor_equipment_in_hand(runtime_id, hand)
     }
     /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
     /// Layers the session's server-pack entity catalog over the vanilla one; its entities
@@ -296,7 +195,7 @@ impl WorldStream {
     /// server has not synced.
     pub fn seed_property_defaults(
         &mut self,
-        types: &[(std::sync::Arc<str>, Vec<crate::PropertyDefault>)],
+        types: &[(std::sync::Arc<str>, Vec<client_world::PropertyDefault>)],
     ) {
         self.authority.seed_property_defaults(types)
     }
@@ -306,32 +205,6 @@ impl WorldStream {
         durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
     ) {
         self.authority.set_item_use_durations(durations)
-    }
-    /// Ticks the pack lets `identifier` be used for before its use completes.
-    pub fn item_max_use_ticks(&self, identifier: &str) -> Option<u32> {
-        self.authority.item_max_use_ticks(identifier)
-    }
-    pub fn actor_armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {
-        self.authority.actor_armor(runtime_id)
-    }
-    pub fn actor_action(&self, runtime_id: u64) -> Option<&RemoteActionSnapshot> {
-        self.authority.actor_action(runtime_id)
-    }
-    pub fn actor_action_history(&self, runtime_id: u64) -> &[RemoteActionSnapshot] {
-        self.authority.actor_action_history(runtime_id)
-    }
-    pub const fn actor_action_stats(&self) -> RemoteActionStats {
-        self.authority.actor_action_stats()
-    }
-    pub fn pending_item_resolution_count(&self) -> usize {
-        self.authority.pending_item_resolution_count()
-    }
-    /// Every tracked actor except the local player, in no particular order.
-    pub fn remote_actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
-        self.authority.remote_actors()
-    }
-    pub fn actor_count(&self) -> usize {
-        self.authority.actor_count()
     }
     pub fn stats(&self) -> WorldStreamStats {
         let completed_decode_results = self
@@ -348,17 +221,17 @@ impl WorldStream {
         WorldStreamStats {
             audio_nondefault_camera_observed: self.authority.audio_nondefault_camera_observed(),
             received_radius_chunks: self.chunk_radius,
-            publisher_radius_chunks: self.publisher_radius_chunks,
+            publisher_radius_chunks: self.publisher.radius_chunks,
             resident_sub_chunks: self.resident.len(),
             adjudicated_static_block_entities,
             adjudicated_logical_block_entities,
             deferred_block_entities,
             unknown_block_entities,
-            pending_mesh_jobs: self.pending_mesh.len(),
-            in_flight_mesh_jobs: self.in_flight.len(),
-            pending_light_jobs: self.pending_light.len(),
-            in_flight_light_jobs: self.in_flight_light.len(),
-            terminal_light_failures: self.light_failures.len(),
+            pending_mesh_jobs: self.mesh_jobs.pending.len(),
+            in_flight_mesh_jobs: self.mesh_jobs.in_flight.len(),
+            pending_light_jobs: self.lighting.jobs.pending.len(),
+            in_flight_light_jobs: self.lighting.jobs.in_flight.len(),
+            terminal_light_failures: self.lighting.failures.len(),
             admitted_world_events: self.order.admitted_count(),
             admitted_heavy_events: self.order.heavy_count(),
             committed_audio_events: self.authority.committed_audio_count(),
@@ -366,8 +239,8 @@ impl WorldStream {
             queued_decode_jobs: self.pending_decode.len(),
             in_flight_decode_jobs: self.in_flight_decode_jobs,
             completed_decode_results,
-            pending_retry_requests: self.queued_retry_request_count(),
-            awaiting_sub_chunk_responses: self.sub_chunk_deadlines.len(),
+            pending_retry_requests: self.requests.queued_retry_count(),
+            awaiting_sub_chunk_responses: self.requests.deadlines.len(),
             ..self.stats
         }
     }
@@ -383,12 +256,5 @@ impl WorldStream {
         self.stats.last_mesh_dispatch_at = None;
         self.stats.last_mesh_completion_at = None;
         self.stats.last_mesh_ack_at = None;
-    }
-}
-
-impl WorldStream {
-    #[must_use]
-    pub const fn actor_session_id(&self) -> u64 {
-        self.authority.actor_session_id()
     }
 }

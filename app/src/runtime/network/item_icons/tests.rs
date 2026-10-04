@@ -3,7 +3,7 @@ use std::{io::Write, sync::Arc};
 use resource_pack::LayeredPackView;
 
 use super::{BlockIcons, compile_session_icons, custom_block_items};
-use crate::ui_runtime::presentation::SessionIcon;
+use client_ui::ui_runtime::presentation::SessionIcon;
 
 fn png(width: u32, height: u32) -> Vec<u8> {
     let image = image::RgbaImage::from_fn(width, height, |_, y| image::Rgba([y as u8, 0, 0, 255]));

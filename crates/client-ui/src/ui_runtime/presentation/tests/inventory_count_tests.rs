@@ -214,7 +214,7 @@ fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     use crate::ui_runtime::presentation::publish::capture_hud_frame;
-    let stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+    let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
@@ -225,6 +225,7 @@ fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
     });
     assert_eq!(
         stream
+            .authority()
             .canonical_item_stack(&stack(22))
             .unwrap()
             .identifier

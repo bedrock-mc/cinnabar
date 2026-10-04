@@ -1,6 +1,6 @@
 use super::*;
 use bevy::prelude::{App, Update};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::{BiomeDefinitionEvent, BiomeDefinitionsEvent, WorldBootstrap, WorldEvent};
 use std::sync::Arc;
 

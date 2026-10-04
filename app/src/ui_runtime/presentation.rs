@@ -21,12 +21,9 @@ use std::sync::Arc;
 use ui::{DpiScale, SafeArea};
 
 #[cfg(test)]
-pub(crate) use client_ui::ui_runtime::presentation::refresh_hud_frame;
-pub use client_ui::ui_runtime::presentation::{
-    BUILT_IN_TITLE, BedHit, ChatHit, DebugLines, HudFrame, IconRef, LoadingStage,
-    MAX_PACK_TEXTURE_BYTES, MAX_SESSION_ICON_SIDE, PreparedUiPublication, ServerUiPack,
-    SessionGlyphSheets, SessionIcon, SessionIcons, UiPresentationError, UiPresentationRuntime,
-    inventory_pointer, menu_artwork, nametag_atlas, nametags,
+use client_ui::ui_runtime::presentation::{HudFrame, menu_artwork};
+use client_ui::ui_runtime::presentation::{
+    LoadingStage, UiPresentationError, UiPresentationRuntime,
 };
 pub mod forms;
 pub mod gui_scale_settings;

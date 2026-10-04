@@ -92,7 +92,7 @@ fn actual_control_and_committed_drain_execute_transfer_fence_with_valid_old_fron
         })
         .unwrap();
     app.insert_resource(network)
-        .insert_resource(AppMetrics(crate::metrics::MetricsCollector::new()))
+        .insert_resource(AppMetrics(diagnostics::metrics::MetricsCollector::new()))
         .insert_resource(AutoFly::new(false))
         .init_resource::<ResourcePackAdmissionState>()
         .init_resource::<LocalAvatarPresentation>()

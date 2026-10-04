@@ -1,6 +1,6 @@
 //! Presentation access to authoritative map images.
 
-pub use client_world::MapImage;
+use client_world::MapImage;
 use client_world::ingestion::MapDataEvent;
 
 use super::WorldStream;

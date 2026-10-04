@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use bedrock_client::ui_runtime::inventory_ledger::{
+use client_ui::ui_runtime::inventory_ledger::{
     INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryGestureError, InventoryPendingState,
     PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger,
     PlayerInventorySlot,
 };
-use bedrock_client::ui_runtime::{UiRuntime, flush_inventory_send};
+use client_ui::ui_runtime::{UiRuntime, flush_inventory_send};
 use protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
     InventoryEvent, InventorySlotEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,

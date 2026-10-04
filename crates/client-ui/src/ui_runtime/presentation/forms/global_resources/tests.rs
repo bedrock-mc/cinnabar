@@ -138,7 +138,9 @@ fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
         return;
     };
     let mut runtime = UiRuntime::new(7);
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     let dpi = ui::DpiScale::new(1.0).unwrap();
     let before = presentation
         .build(&player_runtime, &runtime, 0, [1280, 720], dpi)

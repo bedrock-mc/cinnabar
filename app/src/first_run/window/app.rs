@@ -283,7 +283,7 @@ impl ApplicationHandler for SetupApp {
                 let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
                 let seconds = self.epoch.elapsed().as_secs_f32();
                 if let Err(error) =
-                    gpu.draw(&crate::ui_runtime::presentation::forms::launcher_view(
+                    gpu.draw(&client_ui::ui_runtime::presentation::forms::launcher_view(
                         seconds,
                         aspect,
                         PANORAMA_TINT,

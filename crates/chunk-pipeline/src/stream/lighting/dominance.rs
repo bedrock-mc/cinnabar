@@ -7,10 +7,10 @@ impl WorldStream {
         replacement: &SubChunkLight,
         replacement_direct: &DirectSkyMask,
     ) -> [bool; 6] {
-        let Some(previous) = self.light_store.light(key) else {
+        let Some(previous) = self.lighting.store.light(key) else {
             return [false; 6];
         };
-        let previous_direct = match self.direct_sky.get(&key) {
+        let previous_direct = match self.lighting.direct_sky.get(&key) {
             Some(direct) if direct.light_revision == previous.generation() => Some(&direct.mask),
             Some(_) => return [false; 6],
             None if previous.channel(LightChannel::Sky).is_uniform()
@@ -78,8 +78,8 @@ impl WorldStream {
         monotonic_faces: [bool; 6],
     ) -> bool {
         if !self.light_source_is_known(destination_key)
-            || self.pending_light.contains_key(&destination_key)
-            || self.in_flight_light.contains_key(&destination_key)
+            || self.lighting.jobs.pending.contains_key(&destination_key)
+            || self.lighting.jobs.in_flight.contains_key(&destination_key)
             || !self.light_is_current(destination_key)
         {
             return false;
@@ -91,13 +91,14 @@ impl WorldStream {
         else {
             return false;
         };
-        let Some(source) = self.light_store.light(source_key) else {
+        let Some(source) = self.lighting.store.light(source_key) else {
             return false;
         };
-        let Some(destination) = self.light_store.light(destination_key) else {
+        let Some(destination) = self.lighting.store.light(destination_key) else {
             return false;
         };
         let Some(source_direct) = self
+            .lighting
             .direct_sky
             .get(&source_key)
             .filter(|direct| direct.light_revision == source.generation())
@@ -105,6 +106,7 @@ impl WorldStream {
             return false;
         };
         let Some(destination_direct) = self
+            .lighting
             .direct_sky
             .get(&destination_key)
             .filter(|direct| direct.light_revision == destination.generation())

@@ -5,7 +5,8 @@ use std::{
 };
 
 use bevy::prelude::Resource;
-use client_world::{CommittedControlEvent, ViewCohortStatus};
+use chunk_pipeline::ViewCohortStatus;
+use client_world::CommittedControlEvent;
 use render::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;
 

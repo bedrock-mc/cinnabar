@@ -1,7 +1,8 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::Resource;
-use client_world::{CommittedCameraEvent, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::CommittedCameraEvent;
 
 /// Maximum retained server camera instructions.
 ///

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{BiomeRule, RuntimeAssets};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::BiomeDefinitionEvent;
 use render::PRECIPITATION_SAMPLE_OFFSETS;
 

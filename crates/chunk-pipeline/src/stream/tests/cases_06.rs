@@ -142,7 +142,7 @@ fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
         )
         .unwrap();
 
-    assert!(stream.actor(42).is_none());
+    assert!(stream.authority().actor(42).is_none());
     assert_eq!(
         stream.take_committed_ui(),
         vec![CommittedUiEvent::LocalAttributes {
@@ -498,7 +498,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
     stream.resident.insert(key);
     let old_revision = stream.mark_dirty_exact(key, Instant::now());
     let current_revision = stream.mark_dirty_exact(key, Instant::now());
-    stream.in_flight.insert(key, old_revision);
+    stream.mesh_jobs.in_flight.insert(key, old_revision);
     let classifier = BlockClassifier::new(12_530);
     let mesh = mesh_sub_chunk(
         &classifier,
@@ -530,7 +530,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
     assert_eq!(stream.stats().stale_mesh_jobs, 1);
     assert!(stream.take_mesh_changes().is_empty());
     assert_eq!(stream.mesh_dependency_mask(key), None);
-    assert_eq!(stream.pending_mesh[&key].revision, current_revision);
+    assert_eq!(stream.mesh_jobs.pending[&key].revision, current_revision);
 }
 
 #[test]
@@ -562,12 +562,16 @@ fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
     stream.mark_changed(key, Instant::now());
     for index in 0..super::WORK_RESULT_CAPACITY {
         stream
+            .mesh_jobs
             .in_flight
             .insert(SubChunkKey::new(7, index as i32, 0, 0), index as u64 + 1);
     }
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
-    assert_eq!(stream.in_flight.len(), super::WORK_RESULT_CAPACITY);
+    assert_eq!(
+        stream.mesh_jobs.in_flight.len(),
+        super::WORK_RESULT_CAPACITY
+    );
 }
 
 #[test]
@@ -585,6 +589,7 @@ fn mesh_removals_are_not_blocked_by_a_full_worker_window() {
     stream.mark_dirty_exact(removed, Instant::now());
     for index in 0..super::WORK_RESULT_CAPACITY {
         stream
+            .mesh_jobs
             .in_flight
             .insert(SubChunkKey::new(7, index as i32, 0, 0), index as u64 + 1);
     }
@@ -674,18 +679,22 @@ fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
     stream.resident.insert(real);
     let block_generation = 7;
     let light_revision = 11;
-    stream.block_generations.insert(real, block_generation);
     stream
-        .light_store
+        .lighting
+        .block_generations
+        .insert(real, block_generation);
+    stream
+        .lighting
+        .store
         .insert_resident(real, SubChunkLight::dark(light_revision));
-    stream.light_ownership.insert(
+    stream.lighting.ownership.insert(
         real,
         LightOwnership {
             block_generation,
             light_revision,
         },
     );
-    stream.direct_sky.insert(
+    stream.lighting.direct_sky.insert(
         real,
         StoredDirectSky {
             light_revision,
@@ -704,11 +713,15 @@ fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
     }
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 2), 1);
-    assert_eq!(stream.in_flight.get(&real).copied(), Some(real_revision));
+    assert_eq!(
+        stream.mesh_jobs.in_flight.get(&real).copied(),
+        Some(real_revision)
+    );
     assert!(stream.pending_mesh_change_count() <= 2);
     assert_eq!(
         stream
-            .pending_mesh
+            .mesh_jobs
+            .pending
             .keys()
             .filter(|key| removals.contains(key))
             .count(),
@@ -896,10 +909,10 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
     assert!(stream.authority.terrain().sub_chunk(key).is_none());
     assert!(stream.resident.contains(&key));
     assert!(stream.known_air.contains(&key));
-    assert!(stream.block_generations.contains_key(&key));
-    assert!(stream.pending_light.contains_key(&key));
+    assert!(stream.lighting.block_generations.contains_key(&key));
+    assert!(stream.lighting.jobs.pending.contains_key(&key));
     assert_eq!(
-        stream.light_store.kind(key),
+        stream.lighting.store.kind(key),
         world::LightSubChunkKind::KnownAir
     );
     assert_eq!(
@@ -926,7 +939,8 @@ fn explicit_all_air_result_is_counted_as_a_resident_graph_node() {
     });
     let key = SubChunkKey::new(1, -8, 3, 12);
     stream
-        .requested_sub_chunks
+        .requests
+        .requested
         .insert(key.chunk(), BTreeMap::from([(key.y, Default::default())]));
     stream.apply_prepared(super::PreparedWorldEvent::SubChunks {
         dimension: key.dimension,
@@ -1075,8 +1089,11 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
         )
         .unwrap();
 
-    assert_eq!(stream.actor_count(), 1);
-    assert_eq!(stream.actor(8).unwrap().position, [1.0, 2.0, 3.0]);
+    assert_eq!(stream.authority().actor_count(), 1);
+    assert_eq!(
+        stream.authority().actor(8).unwrap().position,
+        [1.0, 2.0, 3.0]
+    );
     assert!(stream.take_mesh_changes().is_empty());
     let after = stream.stats();
     assert_eq!(after.pending_mesh_jobs, before.pending_mesh_jobs);
@@ -1131,7 +1148,10 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
         )
         .unwrap();
     stream.advance_actor_interpolation_ticks(3);
-    assert_eq!(stream.actor(8).unwrap().position, [1.0, 64.0, 2.0]);
+    assert_eq!(
+        stream.authority().actor(8).unwrap().position,
+        [1.0, 64.0, 2.0]
+    );
 
     stream
         .submit(
@@ -1151,7 +1171,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
             })),
         )
         .unwrap();
-    let actor = stream.actor(8).unwrap();
+    let actor = stream.authority().actor(8).unwrap();
     assert_eq!(actor.previous_pose.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.received_pose.position, [1.0, 64.0, 2.0]);

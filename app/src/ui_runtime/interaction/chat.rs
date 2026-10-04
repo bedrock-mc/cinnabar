@@ -1,6 +1,7 @@
 //! Mouse and gamepad input for the native chat screen and its settings popup.
 
 use super::*;
+use client_ui::ui_runtime::presentation::{BedHit, ChatHit, UiPresentationRuntime};
 
 /// Routes chat pointer actions while a settings modal owns its underlying controls.
 #[allow(clippy::too_many_arguments)]
@@ -14,7 +15,7 @@ pub(crate) fn drive_chat_ui_actions(
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
     coordinates: super::chat_coordinates::ChatCoordinateContext,
-    mut presentation: ResMut<presentation::UiPresentationRuntime>,
+    mut presentation: ResMut<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     if runtime.server_forms().owns_input() {
@@ -29,8 +30,8 @@ pub(crate) fn drive_chat_ui_actions(
     presentation.set_bed_pointer(pointer.filter(|_| bed));
     if bed && mouse_buttons.just_pressed(MouseButton::Left) {
         match pointer.and_then(|position| presentation.hit_test_bed(position)) {
-            Some(presentation::BedHit::LeaveBed) => runtime.request_wake(),
-            Some(presentation::BedHit::OpenChat) => {
+            Some(BedHit::LeaveBed) => runtime.request_wake(),
+            Some(BedHit::OpenChat) => {
                 runtime.open_chat(&mut player_runtime);
             }
             None => {}
@@ -65,41 +66,39 @@ pub(crate) fn drive_chat_ui_actions(
     for position in presses {
         let hit = presentation.hit_test_chat(position);
         match hit {
-            Some(presentation::ChatHit::SettingsOpen) => presentation.set_chat_settings_open(true),
-            Some(presentation::ChatHit::SettingsClose) => {
-                presentation.set_chat_settings_open(false)
-            }
-            Some(presentation::ChatHit::SettingsAction(action)) => {
+            Some(ChatHit::SettingsOpen) => presentation.set_chat_settings_open(true),
+            Some(ChatHit::SettingsClose) => presentation.set_chat_settings_open(false),
+            Some(ChatHit::SettingsAction(action)) => {
                 if let Some(menu) = menu.as_deref_mut() {
                     menu.activate(action);
                 }
             }
             _ if presentation.chat_settings_open() => {}
-            Some(presentation::ChatHit::CoordinateDropdown) => {
+            Some(ChatHit::CoordinateDropdown) => {
                 presentation.select_chat_coordinates(None);
             }
-            Some(presentation::ChatHit::CoordinateSource(facing)) => {
+            Some(ChatHit::CoordinateSource(facing)) => {
                 presentation.select_chat_coordinates(Some(facing));
             }
-            Some(presentation::ChatHit::CopyCoordinates) => {
+            Some(ChatHit::CopyCoordinates) => {
                 if let Some(text) = presentation.chat_coordinate_text()
                     && PlatformClipboard.write_text(text).is_ok()
                 {
                     presentation.chat_coordinates_copied(now_millis);
                 }
             }
-            Some(presentation::ChatHit::Paste) => {
+            Some(ChatHit::Paste) => {
                 let _ = runtime.paste_chat_text(&mut PlatformClipboard);
             }
-            Some(presentation::ChatHit::Send) => {
+            Some(ChatHit::Send) => {
                 dispatch_chat_ui_action(&mut runtime, UiAction::Accept, None, now_millis);
             }
-            Some(presentation::ChatHit::Close) => {
+            Some(ChatHit::Close) => {
                 dispatch_chat_ui_action(&mut runtime, UiAction::Cancel, None, now_millis);
             }
             _ => {
                 let suggestion = match hit {
-                    Some(presentation::ChatHit::Suggestion(index)) => Some(index),
+                    Some(ChatHit::Suggestion(index)) => Some(index),
                     _ => None,
                 };
                 dispatch_chat_ui_action(

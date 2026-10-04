@@ -27,8 +27,8 @@ use bedrock_client::asset_startup::{
     font_asset_path, load_runtime_assets, local_font_asset_path, pinned_world_provenance,
     select_asset_path, select_asset_path_in_context,
 };
-use bedrock_client::metrics::{DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, MetricsCollector};
 use client_world::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
+use diagnostics::metrics::{DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, MetricsCollector};
 use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use sha2::{Digest, Sha256};
 

@@ -12,7 +12,7 @@ use std::{
 pub(super) fn prepare_particles(
     view: &LayeredPackView,
     base: Option<&RuntimeParticleAssets>,
-) -> render::ParticleSystem {
+) -> ::particles::ParticleSystem {
     let mut effects: BTreeMap<Box<str>, ParticleEffectFile> = base
         .into_iter()
         .flat_map(RuntimeParticleAssets::effects)
@@ -78,12 +78,12 @@ pub(super) fn prepare_particles(
     match assets::encode_particle_catalog(identity, &textures, &effects)
         .and_then(|bytes| RuntimeParticleAssets::decode(&bytes))
     {
-        Ok(assets) => render::ParticleSystem::from_assets(&assets),
+        Ok(assets) => ::particles::ParticleSystem::from_assets(&assets),
         Err(error) => {
             bevy::log::warn!(%error, "optional particle layers ignored");
             base.map_or_else(
-                render::ParticleSystem::default,
-                render::ParticleSystem::from_assets,
+                ::particles::ParticleSystem::default,
+                ::particles::ParticleSystem::from_assets,
             )
         }
     }

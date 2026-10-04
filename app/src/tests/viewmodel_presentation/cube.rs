@@ -68,10 +68,7 @@ fn cube_world_assets(
 fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rejection() {
     let mut player_runtime = PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::{
-        UiPresentationRuntime, refresh_hud_frame,
-        tests::{fixture_font, fixture_hud},
-    };
+    use crate::ui_runtime::presentation::tests::{fixture_font, fixture_hud};
     use crate::{
         camera::FlyCamera,
         presentation::viewmodel::{HandAdapter, HandFallback, ViewmodelPublish},
@@ -82,6 +79,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         ecs::system::RunSystemOnce,
         prelude::*,
     };
+    use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
     use protocol::WorldBootstrap;
     use std::sync::Arc;
     let (pack, _geometry, _) = hand_fixture();
@@ -118,15 +116,15 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         air_network_id: 0,
         block_network_ids_are_hashes: false,
     };
-    let stream = client_world::WorldStream::new_with_asset_sets(
+    let stream = chunk_pipeline::WorldStream::new_with_asset_sets(
         bootstrap,
         assets.clone(),
         entities.clone(),
         [0., 64., 0.],
         None,
     );
-    assert!(stream.actor(1).is_none());
-    assert!(stream.actor_rig(1).is_none());
+    assert!(stream.authority().actor(1).is_none());
+    assert!(stream.authority().actor_rig(1).is_none());
     let mut world = ClientWorld::new_with_entity_assets(assets, entities);
     world.stream = Some(stream);
     let mut runtime = UiRuntime::new(1);
@@ -321,8 +319,8 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .init_resource::<crate::local_player::InteractionOriginSnapshot>()
         .init_resource::<crate::runtime::phase3_evidence::Phase3EvidenceEmitter>()
         .init_resource::<crate::runtime::world::WorldStreamFramePoll>()
-        .init_resource::<crate::server_camera::ServerCameraInstructions>()
-        .add_message::<crate::runtime::audio::SequencedAudioEvent>();
+        .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
+        .add_message::<client_presentation::audio_ingress::SequencedAudioEvent>();
     let controls = [
         protocol::WorldEvent::Respawn(protocol::RespawnEvent {
             position: [1., 64., 0.],
@@ -504,7 +502,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .unwrap();
     assert_cube_scene(&app, true);
     crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-        runtime.begin_session(player_runtime, 2);
+        crate::session::begin_session(runtime, player_runtime, 2);
     });
     app.world_mut()
         .run_system_once(
@@ -549,15 +547,23 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     for fresh_stream in [false, true] {
         if fresh_stream {
             let mut world = app.world_mut().resource_mut::<ClientWorld>();
-            let fresh = client_world::WorldStream::new_with_asset_sets(
+            let fresh = chunk_pipeline::WorldStream::new_with_asset_sets(
                 bootstrap,
                 world.runtime_assets.clone(),
                 world.entity_assets.clone().unwrap(),
                 bootstrap.player_position,
                 None,
             );
-            assert!(fresh.actor_session_id() > world.stream.as_ref().unwrap().actor_session_id());
-            assert!(fresh.actor(1).is_none());
+            assert!(
+                fresh.authority().actor_session_id()
+                    > world
+                        .stream
+                        .as_ref()
+                        .unwrap()
+                        .authority()
+                        .actor_session_id()
+            );
+            assert!(fresh.authority().actor(1).is_none());
             world.stream = Some(fresh);
         }
         let current_input = input.clone();
@@ -592,7 +598,15 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
              player_runtime: Res<PlayerRuntime>,
              runtime: Res<UiRuntime>,
              world: Res<ClientWorld>| {
-                assert!(world.stream.as_ref().unwrap().actor(1).is_none());
+                assert!(
+                    world
+                        .stream
+                        .as_ref()
+                        .unwrap()
+                        .authority()
+                        .actor(1)
+                        .is_none()
+                );
                 assert!(!hand.observe(&player_runtime, &runtime, &world, true, false, [640, 480]));
                 let (reason, values) = hand.diagnostic_snapshot(
                     &player_runtime,

@@ -222,7 +222,7 @@ impl UiRuntime {
 
     /// Opens the book in the selected hotbar slot; whether one was there.
     pub fn open_held_book(&mut self, player_runtime: &player_state::PlayerState) -> bool {
-        let Some(slot) = self.selected_hotbar_slot(player_runtime) else {
+        let Some(slot) = player_runtime.selected_hotbar_slot() else {
             return false;
         };
         let Some(stack) = player_runtime.inventory.ledger().displayed_stack(slot) else {

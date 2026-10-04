@@ -44,7 +44,7 @@ fn mutation_light_summary_cost() {
         let start = Instant::now();
         assert!(stream.commit_block_mutations_with_relight(prepared.mutations, &prepared.relight));
         commit_us.push(start.elapsed().as_secs_f64() * 1e6);
-        assert!(stream.pending_light.is_empty());
+        assert!(stream.lighting.jobs.pending.is_empty());
         for x in 0..64 {
             assert_eq!(
                 stream
@@ -122,12 +122,12 @@ fn worker_light_summary_matches_direct_prediction_commit() {
             worker.authority.terrain().sub_chunk(key)
         );
         assert_eq!(
-            direct.pending_light.keys().collect::<BTreeSet<_>>(),
-            worker.pending_light.keys().collect::<BTreeSet<_>>()
+            direct.lighting.jobs.pending.keys().collect::<BTreeSet<_>>(),
+            worker.lighting.jobs.pending.keys().collect::<BTreeSet<_>>()
         );
         assert_eq!(
-            direct.pending_mesh.keys().collect::<BTreeSet<_>>(),
-            worker.pending_mesh.keys().collect::<BTreeSet<_>>()
+            direct.mesh_jobs.pending.keys().collect::<BTreeSet<_>>(),
+            worker.mesh_jobs.pending.keys().collect::<BTreeSet<_>>()
         );
     }
 }

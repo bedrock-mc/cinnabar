@@ -213,6 +213,7 @@ fn synthetic_player_lobby_bench() {
             .stream
             .as_ref()
             .unwrap()
+            .authority()
             .actor_animation_stats()
     );
 }

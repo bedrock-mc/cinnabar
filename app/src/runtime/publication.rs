@@ -4,7 +4,7 @@ use bevy::{
     prelude::{Res, ResMut, Resource, Time},
     time::Real,
 };
-use client_world::{PublicationAllowance, PublicationServiceConfig};
+use chunk_pipeline::{PublicationAllowance, PublicationServiceConfig};
 use render::ChunkUploadBudget;
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;

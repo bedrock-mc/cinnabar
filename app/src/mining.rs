@@ -1,5 +1,5 @@
 //! App inventory adapter for frozen gameplay interaction selections.
-use crate::ui_runtime::{UiRuntime, inventory_ledger::PlayerInventorySlot};
+use client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot;
 pub(crate) use gameplay::mining::{
     FrozenMiningFrame, FrozenMiningRay, FrozenMiningSelection, FrozenMiningTarget, creative_reach,
     protocol_input_mode, survival_reach,
@@ -8,9 +8,8 @@ use protocol::VerifiedNetworkItemStack;
 
 pub(crate) fn verified_selection(
     player_runtime: &crate::player_runtime::PlayerRuntime,
-    ui: &UiRuntime,
 ) -> Option<FrozenMiningSelection> {
-    let selected = ui.selected_stack_snapshot(player_runtime)?;
+    let selected = player_runtime.selected_stack_snapshot()?;
     let stack = match selected.state {
         PlayerInventorySlot::Unknown => return None,
         PlayerInventorySlot::Empty => protocol::NetworkItemStack::empty(),
@@ -29,9 +28,8 @@ pub(crate) fn verified_selection(
 /// placement must not use this — it stays fail-closed via `verified_selection`.
 pub(crate) fn hand_interaction_selection(
     player_runtime: &crate::player_runtime::PlayerRuntime,
-    ui: &UiRuntime,
 ) -> Option<FrozenMiningSelection> {
-    let selected = ui.selected_stack_snapshot(player_runtime)?;
+    let selected = player_runtime.selected_stack_snapshot()?;
     let stack = match selected.state {
         PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => {
             protocol::NetworkItemStack::empty()

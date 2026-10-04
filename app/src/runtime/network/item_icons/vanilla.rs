@@ -1,7 +1,7 @@
 //! Optional raster replacements follow source paths recorded by the pinned item carrier.
 use super::{MAX_SESSION_ICONS, first_frame, icon};
-use crate::ui_runtime::presentation::SessionIcon;
 use assets::{ItemVisualDefinitionRoute, RuntimeEntityAssets};
+use client_ui::ui_runtime::presentation::SessionIcon;
 use resource_pack::LayeredPackView;
 use std::{
     collections::HashSet,

@@ -124,7 +124,8 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
     assert!(dispatched > 0);
     for _ in 0..dispatched {
         let completion = stream
-            .light_rx
+            .lighting
+            .rx
             .recv_timeout(Duration::from_secs(2))
             .expect("light worker completion");
         stream.accept_light_completion(completion);
@@ -135,25 +136,26 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
 pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     for _ in 0..128 {
         stream.dispatch_light_jobs(camera, usize::MAX);
-        if stream.in_flight_light.is_empty() {
+        if stream.lighting.jobs.in_flight.is_empty() {
             // Retired jobs can still own slots after their in-flight entries are removed.
             // Wait for real worker progress instead of spending scheduler turns spinning.
             let deadline = Instant::now() + Duration::from_secs(5);
-            while stream.running_light_jobs.load(Ordering::Acquire) != 0 {
+            while stream.lighting.running_jobs.load(Ordering::Acquire) != 0 {
                 assert!(
                     Instant::now() < deadline,
                     "retired light workers did not release their slots"
                 );
                 std::thread::yield_now();
             }
-            if stream.pending_light.is_empty() {
+            if stream.lighting.jobs.pending.is_empty() {
                 return;
             }
             // A finished scan round can defer ready work until the next turn.
             continue;
         }
         let completion = stream
-            .light_rx
+            .lighting
+            .rx
             .recv_timeout(Duration::from_secs(5))
             .expect("light convergence made no bounded progress");
         stream.accept_light_completion(completion);
@@ -175,32 +177,36 @@ fn install_current_light(
     } else {
         stream.record_known_air(key);
     }
-    stream.next_block_generation = stream.next_block_generation.wrapping_add(1).max(1);
-    let block_generation = stream.next_block_generation;
+    stream.lighting.next_block_generation =
+        stream.lighting.next_block_generation.wrapping_add(1).max(1);
+    let block_generation = stream.lighting.next_block_generation;
     let light_revision = block_generation.wrapping_add(10_000);
-    stream.block_generations.insert(key, block_generation);
+    stream
+        .lighting
+        .block_generations
+        .insert(key, block_generation);
     let light = SubChunkLight::uniform(block, sky, light_revision).unwrap();
     if resident_blocks {
-        stream.light_store.insert_resident(key, light);
+        stream.lighting.store.insert_resident(key, light);
     } else {
-        stream.light_store.insert_known_air(key, light);
+        stream.lighting.store.insert_known_air(key, light);
     }
-    stream.light_ownership.insert(
+    stream.lighting.ownership.insert(
         key,
         LightOwnership {
             block_generation,
             light_revision,
         },
     );
-    stream.direct_sky.insert(
+    stream.lighting.direct_sky.insert(
         key,
         StoredDirectSky {
             light_revision,
             mask: Arc::new(DirectSkyMask::Uniform(direct)),
         },
     );
-    stream.light_revisions.entries.remove(&key);
-    stream.pending_light.remove(&key);
+    stream.lighting.revisions.entries.remove(&key);
+    stream.lighting.jobs.pending.remove(&key);
 }
 
 fn synthetic_light_completion(
@@ -214,21 +220,22 @@ fn synthetic_light_completion(
     let revision = stream.mark_light_dirty_exact(key).unwrap();
     let identity = LightJobIdentity {
         revision,
-        block_generation: stream.block_generations[&key],
+        block_generation: stream.lighting.block_generations[&key],
         previous_light_generation: stream
-            .light_store
+            .lighting
+            .store
             .light(key)
             .map(|light| light.generation()),
         batch_id: 0,
         urgent: false,
     };
-    stream.pending_light.remove(&key);
-    stream.in_flight_light.insert(key, identity);
+    stream.lighting.jobs.pending.remove(&key);
+    stream.lighting.jobs.in_flight.insert(key, identity);
     LightCompletion {
         key,
         identity,
         result: Ok(SolvedLightJob {
-            replacement: stream.light_store.light(key).unwrap().as_ref().clone(),
+            replacement: stream.lighting.store.light(key).unwrap().as_ref().clone(),
             direct_sky: Arc::new(direct_sky),
             used_uniform_fast_path: false,
             light_levels_changed,
@@ -262,9 +269,9 @@ fn settle_light_waits_for_retired_worker_slots() {
         .unwrap();
     install_current_light(&mut stream, key, 0, 0, false);
     stream.mark_light_dirty_exact(key).unwrap();
-    let running = Arc::clone(&stream.running_light_jobs);
+    let running = Arc::clone(&stream.lighting.running_jobs);
     running.store(effective_light_job_cap(), Ordering::Release);
-    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.lighting.jobs.in_flight.is_empty());
     assert_eq!(stream.dispatch_light_jobs([8.0; 3], usize::MAX), 0);
     let worker = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(20));

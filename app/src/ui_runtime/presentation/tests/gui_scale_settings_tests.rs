@@ -7,11 +7,9 @@ use ui::{DpiScale, UiPoint};
 use super::{engine_hud_tests::engine_presentation, fixture_font, fixture_hud};
 use crate::{
     menu::{MenuAction, MenuRuntime, MenuScreen},
-    ui_runtime::{
-        UiRuntime,
-        presentation::{UiPresentationRuntime, apply_gui_scale_setting},
-    },
+    ui_runtime::presentation::apply_gui_scale_setting,
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 fn settings_app(visible: bool, preference: Option<u8>) -> App {
     let mut menu = MenuRuntime::new(visible, 2, "Player".to_owned());
@@ -284,8 +282,10 @@ fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
     app.insert_resource(presentation);
     app.update();
 
-    let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    let runtime = UiRuntime::new(1);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     app.insert_resource(player_runtime);
     let physical = [1920, 1080];
     for (offset, physical_scale) in [(-2, 2), (0, 4)] {
@@ -371,8 +371,10 @@ fn gui_scale_minimum_on_high_dpi_relayouts_cached_native_hud() {
             .resolution
             .set_physical_resolution(physical[0], physical[1]);
     }
-    let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    let runtime = UiRuntime::new(1);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     app.insert_resource(player_runtime);
     for (offset, scale) in [(0, 2), (-1, 1), (0, 2)] {
         app.world_mut()

@@ -22,75 +22,12 @@ const MILLIS_PER_SERVER_TICK: u64 = 50;
 const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
 
 impl UiRuntime {
-    pub fn clear_block_breaking_mode(&mut self, player_runtime: &mut player_state::PlayerState) {
-        player_runtime.facts.clear_block_breaking_mode()
-    }
-
-    pub fn install_block_breaking_mode(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        session_generation: u64,
-        mode: bool,
-        setup_succeeded: bool,
-    ) {
-        player_runtime
-            .facts
-            .install_block_breaking_mode(session_generation, mode, setup_succeeded)
-    }
-
-    /// Retained negotiation only; this does not authorize a mining request.
-    pub const fn server_authoritative_block_breaking(
-        &self,
-        player_runtime: &player_state::PlayerState,
-    ) -> Option<bool> {
-        player_runtime.facts.server_authoritative_block_breaking()
-    }
-
-    /// Returns the latest locally selected slot whose packet has not entered the network queue.
-    pub const fn pending_hotbar_selection(
-        &self,
-        player_runtime: &player_state::PlayerState,
-    ) -> Option<u8> {
-        player_runtime.inventory.pending_hotbar_selection()
-    }
-
-    /// Installs an explicit authoritative game mode. Stats are never
-    /// fabricated or cleared here: attributes remain the only stat authority,
-    /// and visibility is a pure presentation gate on the mode. Production
-    /// bootstrap goes through [`Self::publish_bootstrap_game_modes`]; the
-    /// witnesses drive this directly.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn publish_player_game_mode(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        game_mode: protocol::PlayerGameMode,
-    ) {
-        player_runtime.facts.publish_player_game_mode(game_mode)
-    }
-
     pub fn set_hardcore(&mut self, hardcore: bool) {
         self.gameplay_hud.set_hardcore(hardcore);
     }
 
     pub fn apply_hud_rules(&mut self, rules: protocol::HudRules) {
         self.gameplay_hud.apply_hud_rules(rules);
-    }
-
-    /// Installs the StartGame game modes: the resolved player mode, the
-    /// world's default mode, and whether the player is bound to that default
-    /// (StartGame carried the level-default sentinel).
-    pub fn publish_bootstrap_game_modes(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        player: protocol::PlayerGameMode,
-        world_default: protocol::PlayerGameMode,
-        player_uses_world_default: bool,
-    ) {
-        player_runtime.facts.publish_bootstrap_game_modes(
-            player,
-            world_default,
-            player_uses_world_default,
-        )
     }
 
     pub(super) fn apply_game_mode_update(
@@ -119,109 +56,8 @@ impl UiRuntime {
         }
     }
 
-    /// Registers a mine-block prediction and returns its request id.
-    pub fn begin_mining_request(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        slot: u8,
-        predicted_damage: i32,
-    ) -> Option<i32> {
-        player_runtime
-            .inventory
-            .ledger_mut()
-            .begin_mining_request(slot, predicted_damage)
-    }
-
-    pub fn cancel_mining_request(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        request_id: i32,
-    ) {
-        player_runtime
-            .inventory
-            .ledger_mut()
-            .cancel_mining_request(request_id);
-    }
-
-    pub const fn player_game_mode(
-        &self,
-        player_runtime: &player_state::PlayerState,
-    ) -> Option<protocol::PlayerGameMode> {
-        player_runtime.facts.player_game_mode()
-    }
-
-    /// Interaction capabilities for the current mode, refined by any server
-    /// ability evidence. `None` until a game mode is known.
-    pub fn game_mode_capabilities(
-        &self,
-        player_runtime: &player_state::PlayerState,
-    ) -> Option<client_world::game_mode_capabilities::GameModeCapabilities> {
-        player_runtime.facts.game_mode_capabilities()
-    }
-
-    pub const fn survival_stats_visible(&self, player_runtime: &player_state::PlayerState) -> bool {
-        player_runtime.facts.survival_stats_visible()
-    }
-
-    pub fn selected_hotbar_slot(&self, player_runtime: &player_state::PlayerState) -> Option<u8> {
-        player_runtime
-            .inventory
-            .selected_hotbar_slot(player_runtime.facts.player_game_mode())
-    }
-
-    /// Borrows the selected slot and its one tri-state stack authority.
-    pub fn selected_stack_snapshot<'a>(
-        &self,
-        player_runtime: &'a player_state::PlayerState,
-    ) -> Option<SelectedStackSnapshot<'a>> {
-        player_runtime
-            .inventory
-            .selected_stack_snapshot(player_runtime.facts.player_game_mode())
-    }
-
-    /// Returns the present selected stack, preserving the existing optional API.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn selected_stack<'a>(
-        &self,
-        player_runtime: &'a player_state::PlayerState,
-    ) -> Option<&'a protocol::NetworkItemStack> {
-        player_runtime
-            .inventory
-            .selected_stack(player_runtime.facts.player_game_mode())
-    }
-
-    /// The authoritative custom display name the selected hotbar cell
-    /// presents, following the same predicted stack authority as
-    /// [`Self::selected_stack_snapshot`]: during a pending gesture the
-    /// travelling overlay of the predicted half serves beside the predicted
-    /// stack. Presentation prefers it over the localized identifier
-    /// fallback.
-    pub fn selected_stack_custom_name(
-        &self,
-        player_runtime: &player_state::PlayerState,
-    ) -> Option<Arc<str>> {
-        player_runtime
-            .inventory
-            .selected_stack_custom_name(player_runtime.facts.player_game_mode())
-    }
-
     pub const fn gameplay_hud(&self) -> &GameplayHudState {
         &self.gameplay_hud
-    }
-
-    /// The stack presented in one hotbar cell: the same gesture-ledger
-    /// snapshot authority the HUD presents (predicted or committed), with
-    /// the MobEquipment echo only for the selected slot before any container
-    /// content has arrived.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn presented_hotbar_stack<'a>(
-        &self,
-        player_runtime: &'a player_state::PlayerState,
-        slot: u8,
-    ) -> Option<&'a protocol::NetworkItemStack> {
-        player_runtime
-            .inventory
-            .presented_hotbar_stack(slot, player_runtime.facts.player_game_mode())
     }
 
     /// The estimated authoritative tick at `now_millis`: the last observed
@@ -295,8 +131,8 @@ impl UiRuntime {
         player_runtime: &player_state::PlayerState,
         now_millis: u64,
     ) {
-        let identity = self
-            .selected_stack_snapshot(player_runtime)
+        let identity = player_runtime
+            .selected_stack_snapshot()
             .and_then(|snapshot| match snapshot.state {
                 super::inventory_ledger::PlayerInventorySlot::Present(stack) => {
                     Some((snapshot.slot, stack.network_id, stack.metadata))

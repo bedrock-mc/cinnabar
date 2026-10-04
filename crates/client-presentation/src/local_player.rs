@@ -679,7 +679,7 @@ pub fn publish_local_player_frame(
     };
     let sample = LocalPlayerFrameSample {
         session_generation: clock.session_generation(),
-        actor_session_id: stream.actor_session_id(),
+        actor_session_id: stream.authority().actor_session_id(),
         fifo_sequence: stream.committed_sequence(),
         physics_tick: state.tick,
         perspective: settings.perspective(),

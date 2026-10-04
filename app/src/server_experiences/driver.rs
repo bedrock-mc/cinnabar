@@ -6,12 +6,8 @@ use server_experience::{
     trust::{Choice, Settings},
 };
 
-use crate::{
-    app::ClientFrameSet,
-    menu::MenuRuntime,
-    runtime::network::NetworkHandle,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
-};
+use crate::{app::ClientFrameSet, menu::MenuRuntime, runtime::network::NetworkHandle};
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 #[derive(Resource)]
 struct ExperienceService {

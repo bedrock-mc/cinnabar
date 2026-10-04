@@ -1,17 +1,26 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-nethernet/endpoint"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
 func TestLocalBDSUsesHTTPStatusWithoutOnlineResolution(t *testing.T) {
@@ -102,4 +111,85 @@ func TestLocalBDSDoesNotFollowStatusRedirects(t *testing.T) {
 	if _, err := target.network.PingContext(t.Context(), target.address); err == nil {
 		t.Fatal("local BDS status redirect was accepted")
 	}
+}
+
+// A signed-out dial must still be admitted by a listener that, like BDS, refuses anonymous offers.
+func TestLocalNetherNetSignedOutDialIsAdmittedByIdentityRequiringListener(t *testing.T) {
+	t.Parallel()
+	log := slog.New(slog.DiscardHandler)
+	handler := endpoint.HandlerConfig{Logger: log}.New()
+	listener, err := nethernet.ListenConfig{Log: log, DisableTrickleICE: true}.Listen(handler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	answers := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body bytes.Buffer
+		handler.ServeHTTP(teeResponse{ResponseWriter: w, body: &body}, r)
+		if r.Method == http.MethodPost {
+			answers <- body.String()
+		}
+	}))
+	t.Cleanup(server.Close)
+	resolve := withLocalTarget(func(context.Context) (localworld.ConnectionTarget, bool, error) {
+		return localworld.ConnectionTarget{Address: server.Listener.Addr().String(), Transport: localworld.TransportNetherNetHTTP}, true, nil
+	}, onlineStub("online"))
+	target, err := resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	dialed := make(chan error, 1)
+	go func() {
+		conn, err := target.network.DialContext(ctx, target.address)
+		if err == nil {
+			_ = conn.Close()
+		}
+		dialed <- err
+	}()
+	var answer string
+	select {
+	case answer = <-answers:
+	case err := <-dialed:
+		t.Fatalf("dial ended before its offer was answered: %v", err)
+	}
+	cancel()
+	<-dialed
+	if _, err := strconv.ParseUint(answer, 10, 32); err == nil || !strings.HasPrefix(answer, "v=0") {
+		t.Fatalf("signed-out offer refused: answer %q, want an SDP answer", answer)
+	}
+}
+
+// BDS refuses an identity whose cpk is a JWK, so it must stay base64 DER.
+func TestLocalNetherNetIdentityCarriesDERPublicKey(t *testing.T) {
+	t.Parallel()
+	identity, err := selfSignedIdentity(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := jwt.ParseSigned(identity.Token, []jose.SignatureAlgorithm{jose.ES384})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claims struct {
+		PublicKey string `json:"cpk"`
+	}
+	if err := token.Claims(&identity.PrivateKey.PublicKey, &claims); err != nil {
+		t.Fatal(err)
+	}
+	var key ecdsa.PublicKey
+	if err := login.ParsePublicKey(claims.PublicKey, &key); err != nil || !key.Equal(&identity.PrivateKey.PublicKey) {
+		t.Fatalf("cpk %q does not carry the identity key: %v", claims.PublicKey, err)
+	}
+}
+
+type teeResponse struct {
+	http.ResponseWriter
+	body *bytes.Buffer
+}
+
+func (w teeResponse) Write(b []byte) (int, error) {
+	w.body.Write(b)
+	return w.ResponseWriter.Write(b)
 }

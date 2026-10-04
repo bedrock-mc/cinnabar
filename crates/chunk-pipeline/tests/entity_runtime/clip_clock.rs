@@ -1,5 +1,5 @@
 use super::*;
-use chunk_pipeline::ACTOR_TICK_DURATION;
+use client_world::ACTOR_TICK_DURATION;
 
 fn clock_stream(program: Vec<MolangOp>, length: f32, mode: EntityAnimationLoop) -> WorldStream {
     configured_clock_stream(program, length, mode, |_| {})
@@ -47,7 +47,7 @@ fn configured_clock_stream(
 }
 
 fn time(stream: &WorldStream) -> f32 {
-    -stream.actor_rig(42).unwrap().current[1].translation_scale[0]
+    -stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0]
 }
 
 fn move_to(stream: &mut WorldStream, sequence: u64, x: f32, teleported: bool) {

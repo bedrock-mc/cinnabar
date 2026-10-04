@@ -9,8 +9,11 @@ impl WorldStream {
     ) -> Option<PendingSchedulerCandidate> {
         let (highest, pending) = self.highest_pending_light_in_column(key)?;
         if !self.resident.contains(&highest)
-            || !self.light_revisions.is_current(highest, pending.revision)
-            || self.in_flight_light.contains_key(&highest)
+            || !self
+                .lighting
+                .revisions
+                .is_current(highest, pending.revision)
+            || self.lighting.jobs.in_flight.contains_key(&highest)
             || !self.original_light_column_context_ready(highest)
             || !self.light_dispatch_ready(highest)
         {
@@ -20,7 +23,7 @@ impl WorldStream {
             PendingSchedulerCandidate::new(highest, pending.revision, view, pending.urgent);
         let mut priority = candidate;
         for member in self.light_column_sources(key) {
-            if let Some(pending) = self.pending_light.get(&member) {
+            if let Some(pending) = self.lighting.jobs.pending.get(&member) {
                 priority = priority.max(PendingSchedulerCandidate::new(
                     member,
                     pending.revision,
@@ -39,20 +42,22 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
-        let light_job_cap = if self.pending_light.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
-            || self.pending_mesh.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
+        let light_job_cap = if self.lighting.jobs.pending.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
+            || self.mesh_jobs.pending.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
         {
             initial_light_job_cap()
         } else {
             effective_light_job_cap()
         };
         let occupied = self
-            .in_flight_light_batches
+            .lighting
+            .in_flight_batches
             .len()
-            .max(self.running_light_jobs.load(Ordering::Acquire));
+            .max(self.lighting.running_jobs.load(Ordering::Acquire));
         let worker_budget = light_job_cap.saturating_sub(occupied);
         let solve_budget = budget.min(worker_budget);
-        if self.fatal_light_failure || solve_budget == 0 || self.pending_light.is_empty() {
+        if self.lighting.fatal_failure || solve_budget == 0 || self.lighting.jobs.pending.is_empty()
+        {
             return 0;
         }
 
@@ -60,70 +65,16 @@ impl WorldStream {
             position: camera_position,
             forward: self.view_forward,
         };
-        let pending_light = &self.pending_light;
-        let probe_near = self.light_scheduler_refresh.refresh(
-            view,
-            [
-                &mut self.pending_light_ready,
-                &mut self.pending_light_deferred,
-            ],
-            self.poll_deadline,
-            |key, revision| {
-                pending_light
-                    .get(&key)
-                    .is_some_and(|p| p.revision == revision)
-            },
-        );
-        let pending_light = &self.pending_light;
-        super::super::dirty::compact_scheduler_scan(
-            &mut self.pending_light_scan,
-            pending_light.len(),
-            |key, revision| {
-                pending_light
-                    .get(&key)
-                    .is_some_and(|p| p.revision == revision)
-            },
-        );
-        let ingress_budget = self
-            .pending_light_scan
-            .len()
-            .min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
-        let mut ingressed = false;
-        for index in 0..ingress_budget {
-            if self.poll_budget_exhausted()
-                && (ingressed || index >= MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
-            {
-                break;
-            }
-            let Some((key, queued_revision)) = self.pending_light_scan.pop_front() else {
-                break;
-            };
-            let Some(pending) = self
-                .pending_light
-                .get(&key)
-                .copied()
-                .filter(|pending| pending.revision == queued_revision)
-            else {
-                continue;
-            };
-            let candidate =
-                PendingSchedulerCandidate::new(key, queued_revision, view, pending.urgent);
-            ingressed = true;
-            if pending.urgent || self.light_priority_wakeups.get(&key) == Some(&queued_revision) {
-                self.pending_light_ready.push(candidate);
-            } else {
-                self.pending_light_deferred.push(candidate);
-            }
-        }
-        if self.pending_light_ready.is_empty() {
-            std::mem::swap(
-                &mut self.pending_light_ready,
-                &mut self.pending_light_deferred,
-            );
-        }
+        let wakeups = &self.lighting.priority_wakeups;
+        let probe_near =
+            self.lighting
+                .jobs
+                .ingress(view, self.poll_deadline, |key, revision, pending| {
+                    (0, pending.urgent || wakeups.get(&key) == Some(&revision))
+                });
 
         let mut near = if probe_near {
-            scheduler_refresh::near_light_columns(view, self.authority.current_dimension())
+            scheduler::near_light_columns(view, self.authority.current_dimension())
                 .filter_map(|key| self.near_light_column_candidate(key, view))
                 .collect::<BinaryHeap<_>>()
         } else {
@@ -136,12 +87,12 @@ impl WorldStream {
             && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL
             && (prepared_batches.is_empty() || !self.poll_budget_exhausted())
         {
-            let queued = self
-                .pending_light_ready
+            let queued = self.lighting.jobs.lanes[0]
+                .ready
                 .peek()
                 .is_some_and(|candidate| near.peek().is_none_or(|local| candidate >= local));
             let Some(mut candidate) = (if queued {
-                &mut self.pending_light_ready
+                &mut self.lighting.jobs.lanes[0].ready
             } else {
                 &mut near
             })
@@ -153,7 +104,7 @@ impl WorldStream {
                 candidate.distance_squared = view.rank(candidate.key);
             }
             if queued && near.peek().is_some_and(|local| *local > candidate) {
-                self.pending_light_ready.push(candidate);
+                self.lighting.jobs.lanes[0].ready.push(candidate);
                 candidate = near.pop().expect("near candidate was inspected");
                 queued = false;
             }
@@ -163,7 +114,7 @@ impl WorldStream {
                 && highest_key != candidate.key
             {
                 if queued {
-                    self.pending_light_deferred.push(candidate);
+                    self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }
                 queued = false;
                 let priority = candidate;
@@ -177,69 +128,70 @@ impl WorldStream {
             }
             let key = candidate.key;
             let revision = candidate.revision;
-            let Some(pending) = self.pending_light.get(&key).copied() else {
+            let Some(pending) = self.lighting.jobs.pending.get(&key).copied() else {
                 continue;
             };
             if pending.revision != revision {
                 continue;
             }
-            if !self.light_revisions.is_current(key, revision) {
+            if !self.lighting.revisions.is_current(key, revision) {
                 if queued {
-                    self.pending_light_deferred.push(candidate);
+                    self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }
                 continue;
             }
-            if self.in_flight_light.contains_key(&key) {
+            if self.lighting.jobs.in_flight.contains_key(&key) {
                 if queued {
-                    self.pending_light_deferred.push(candidate);
+                    self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }
                 continue;
             }
             if !self.resident.contains(&key) {
                 if queued {
-                    self.pending_light_deferred.push(candidate);
+                    self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }
                 continue;
             }
             if !self.original_light_column_context_ready(key) {
                 if queued {
-                    self.pending_light_deferred.push(candidate);
+                    self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }
                 continue;
             }
             if !self.light_dispatch_ready(key) {
                 if let Some(above) = offset_sub_chunk_key(key, [0, 1, 0]) {
-                    self.light_waiters.entry(above).or_default().insert(key);
+                    self.lighting.waiters.entry(above).or_default().insert(key);
                 }
-                self.light_priority_wakeups.remove(&key);
+                self.lighting.priority_wakeups.remove(&key);
                 continue;
             }
             if key
                 .mesh_dependents()
                 .filter(|candidate| *candidate != key)
                 .any(|neighbour| {
-                    selected.contains(&neighbour) || self.in_flight_light.contains_key(&neighbour)
+                    selected.contains(&neighbour)
+                        || self.lighting.jobs.in_flight.contains_key(&neighbour)
                 })
             {
                 if queued {
-                    self.pending_light_deferred.push(candidate);
+                    self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }
                 continue;
             }
-            let Some(block_generation) = self.block_generations.get(&key).copied() else {
+            let Some(block_generation) = self.lighting.block_generations.get(&key).copied() else {
                 if queued {
-                    self.pending_light_deferred.push(candidate);
+                    self.lighting.jobs.lanes[0].deferred.push(candidate);
                 }
                 continue;
             };
             let Some(bounds) = light_bounds(key) else {
-                self.pending_light.remove(&key);
-                self.light_priority_wakeups.remove(&key);
+                self.lighting.jobs.pending.remove(&key);
+                self.lighting.priority_wakeups.remove(&key);
                 continue;
             };
 
-            self.next_light_batch_id = self.next_light_batch_id.wrapping_add(1).max(1);
-            let batch_id = self.next_light_batch_id;
+            self.lighting.next_batch_id = self.lighting.next_batch_id.wrapping_add(1).max(1);
+            let batch_id = self.lighting.next_batch_id;
             let mut batch_keys = HashSet::from([key]);
             let mut batch_inputs = vec![(key, pending, block_generation, bounds)];
             let mut lower = key;
@@ -247,11 +199,14 @@ impl WorldStream {
                 let Some(next) = offset_sub_chunk_key(lower, [0, -1, 0]) else {
                     break;
                 };
-                let Some(next_pending) = self.pending_light.get(&next).copied() else {
+                let Some(next_pending) = self.lighting.jobs.pending.get(&next).copied() else {
                     break;
                 };
-                if !self.light_revisions.is_current(next, next_pending.revision)
-                    || self.in_flight_light.contains_key(&next)
+                if !self
+                    .lighting
+                    .revisions
+                    .is_current(next, next_pending.revision)
+                    || self.lighting.jobs.in_flight.contains_key(&next)
                     || !self.resident.contains(&next)
                 {
                     break;
@@ -262,17 +217,19 @@ impl WorldStream {
                     .any(|neighbour| {
                         !batch_keys.contains(&neighbour)
                             && (selected.contains(&neighbour)
-                                || self.in_flight_light.contains_key(&neighbour))
+                                || self.lighting.jobs.in_flight.contains_key(&neighbour))
                     })
                 {
                     break;
                 }
-                let Some(next_block_generation) = self.block_generations.get(&next).copied() else {
+                let Some(next_block_generation) =
+                    self.lighting.block_generations.get(&next).copied()
+                else {
                     break;
                 };
                 let Some(next_bounds) = light_bounds(next) else {
-                    self.pending_light.remove(&next);
-                    self.light_priority_wakeups.remove(&next);
+                    self.lighting.jobs.pending.remove(&next);
+                    self.lighting.priority_wakeups.remove(&next);
                     break;
                 };
                 batch_keys.insert(next);
@@ -295,10 +252,14 @@ impl WorldStream {
                 })
                 .collect::<Vec<_>>();
             for member in &batch_keys {
-                self.last_dispatched_light_batch.insert(*member, batch_id);
+                self.lighting
+                    .last_dispatched_batch
+                    .insert(*member, batch_id);
             }
             selected.extend(batch_keys);
-            self.in_flight_light_batches.insert(batch_id, batch.len());
+            self.lighting
+                .in_flight_batches
+                .insert(batch_id, batch.len());
             prepared_batches.push(batch);
         }
 
@@ -309,8 +270,8 @@ impl WorldStream {
             .light_jobs_dispatched
             .saturating_add(dispatched as u64);
         for batch in prepared_batches {
-            let tx = self.light_tx.clone();
-            let running = RunningLightJob::start(&self.running_light_jobs);
+            let tx = self.lighting.tx.clone();
+            let running = RunningLightJob::start(&self.lighting.running_jobs);
             workers::WORKERS.light.spawn(move || {
                 let started = Instant::now();
                 let solved = solve_prepared_light_batch(batch);
@@ -339,23 +300,27 @@ impl WorldStream {
         retained_batch: &HashSet<SubChunkKey>,
         batch_id: u64,
     ) -> PreparedLightJob {
-        if !self.light_ownership.contains_key(&key) {
-            debug_assert!(self.light_store.light(key).is_some());
+        if !self.lighting.ownership.contains_key(&key) {
+            debug_assert!(self.lighting.store.light(key).is_some());
         }
-        self.remove_light_waiter_target(key);
+        self.lighting.remove_waiter_target(key);
         let blocks = self.light_block_snapshot(key);
         self.register_untrusted_light_waiters(key, retained_batch);
         let prior = self.light_prior_snapshot(key);
         let identity = LightJobIdentity {
             revision: pending.revision,
             block_generation,
-            previous_light_generation: self.light_store.light(key).map(|light| light.generation()),
+            previous_light_generation: self
+                .lighting
+                .store
+                .light(key)
+                .map(|light| light.generation()),
             batch_id,
             urgent: pending.urgent,
         };
-        self.pending_light.remove(&key);
-        self.light_priority_wakeups.remove(&key);
-        self.in_flight_light.insert(key, identity);
+        self.lighting.jobs.pending.remove(&key);
+        self.lighting.priority_wakeups.remove(&key);
+        self.lighting.jobs.in_flight.insert(key, identity);
         PreparedLightJob {
             key,
             identity,
@@ -372,20 +337,27 @@ impl WorldStream {
             .light_jobs_completed
             .saturating_add(1);
         self.stats.observe_light_queue_wait(completion.queue_wait);
-        self.remove_in_flight_light(completion.key, Some(completion.identity));
-        if self.fatal_light_failure {
-            self.remove_light_waiters_for(completion.key);
+        self.lighting
+            .remove_in_flight(completion.key, Some(completion.identity));
+        if self.lighting.fatal_failure {
+            self.lighting.remove_waiters_for(completion.key);
             self.record_stale_light(completion.key, completion.identity, "fatal_failure");
             return;
         }
         let current = self
-            .light_revisions
+            .lighting
+            .revisions
             .is_current(completion.key, completion.identity.revision)
-            && self.block_generations.get(&completion.key).copied()
+            && self
+                .lighting
+                .block_generations
+                .get(&completion.key)
+                .copied()
                 == Some(completion.identity.block_generation)
             && self.resident.contains(&completion.key)
             && self
-                .light_store
+                .lighting
+                .store
                 .light(completion.key)
                 .map(|light| light.generation())
                 == completion.identity.previous_light_generation;
@@ -407,7 +379,7 @@ impl WorldStream {
                         }
                     }
                 };
-                self.light_failures.insert(
+                self.lighting.failures.insert(
                     completion.key,
                     LightFailure {
                         revision: completion.identity.revision,
@@ -415,14 +387,9 @@ impl WorldStream {
                         error,
                     },
                 );
-                self.fatal_light_failure = true;
+                self.lighting.fatal_failure = true;
                 self.fatal_error = Some(fatal);
-                self.pending_light.clear();
-                self.pending_light_scan.clear();
-                self.pending_light_ready.clear();
-                self.pending_light_deferred.clear();
-                self.light_priority_wakeups.clear();
-                self.light_waiters.clear();
+                self.lighting.clear_after_fatal();
                 self.stats.light_solve_failures = self.stats.light_solve_failures.saturating_add(1);
                 return;
             }
@@ -451,6 +418,7 @@ impl WorldStream {
                 return;
             };
             let Some(current_direct) = self
+                .lighting
                 .direct_sky
                 .get(&completion.key)
                 .filter(|direct| direct.light_revision == light_revision)
@@ -463,14 +431,15 @@ impl WorldStream {
                 );
                 return;
             };
-            self.light_ownership.insert(
+            self.lighting.ownership.insert(
                 completion.key,
                 LightOwnership {
                     block_generation: completion.identity.block_generation,
                     light_revision,
                 },
             );
-            self.light_revisions
+            self.lighting
+                .revisions
                 .clear_if_current(completion.key, completion.identity.revision);
             self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
             self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
@@ -498,15 +467,18 @@ impl WorldStream {
                 light_revision,
                 mask: direct_sky,
             };
-            self.light_ownership.insert(
+            self.lighting.ownership.insert(
                 completion.key,
                 LightOwnership {
                     block_generation: completion.identity.block_generation,
                     light_revision,
                 },
             );
-            self.direct_sky.insert(completion.key, new_direct.clone());
-            self.light_revisions
+            self.lighting
+                .direct_sky
+                .insert(completion.key, new_direct.clone());
+            self.lighting
+                .revisions
                 .clear_if_current(completion.key, completion.identity.revision);
             self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
             self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
@@ -526,7 +498,7 @@ impl WorldStream {
             light_revision: completion.identity.revision,
             mask: direct_sky,
         };
-        if !self.light_store.commit_if_generation(
+        if !self.lighting.store.commit_if_generation(
             completion.key,
             completion.identity.previous_light_generation,
             replacement,
@@ -538,15 +510,18 @@ impl WorldStream {
             );
             return;
         }
-        self.light_ownership.insert(
+        self.lighting.ownership.insert(
             completion.key,
             LightOwnership {
                 block_generation: completion.identity.block_generation,
                 light_revision: completion.identity.revision,
             },
         );
-        self.direct_sky.insert(completion.key, new_direct.clone());
-        self.light_revisions
+        self.lighting
+            .direct_sky
+            .insert(completion.key, new_direct.clone());
+        self.lighting
+            .revisions
             .clear_if_current(completion.key, completion.identity.revision);
         self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
         self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
@@ -595,9 +570,10 @@ impl WorldStream {
         urgent: bool,
         monotonic_faces: [bool; 6],
     ) {
-        let mut requeue = self.light_waiters.remove(&key).unwrap_or_default();
+        let mut requeue = self.lighting.waiters.remove(&key).unwrap_or_default();
         let completed_uniform_direct_sky = self
-            .light_store
+            .lighting
+            .store
             .light(key)
             .is_some_and(|light| is_uniform_direct_sky(light, direct_sky.mask.as_ref()));
         for (offset, changed) in LIGHT_NEIGHBOUR_OFFSETS.into_iter().zip(changed_faces) {
@@ -605,18 +581,18 @@ impl WorldStream {
                 continue;
             }
             if let Some(neighbour) = offset_sub_chunk_key(key, offset) {
-                let neighbour_in_flight = self.in_flight_light.contains_key(&neighbour);
+                let neighbour_in_flight = self.lighting.jobs.in_flight.contains_key(&neighbour);
                 let neighbour_in_same_batch =
-                    self.last_dispatched_light_batch.get(&neighbour) == Some(&batch_id);
+                    self.lighting.last_dispatched_batch.get(&neighbour) == Some(&batch_id);
                 if !neighbour_in_flight
-                    && let Some(pending) = self.pending_light.get_mut(&neighbour)
+                    && let Some(pending) = self.lighting.jobs.pending.get_mut(&neighbour)
                 {
                     let revision = pending.revision;
                     if urgent {
                         pending.urgent = true;
-                        self.pending_light_scan.push_front((neighbour, revision));
+                        self.lighting.jobs.scan.push_front((neighbour, revision));
                     }
-                    self.light_priority_wakeups.insert(neighbour, revision);
+                    self.lighting.priority_wakeups.insert(neighbour, revision);
                     continue;
                 }
                 if neighbour_in_same_batch {
@@ -633,20 +609,20 @@ impl WorldStream {
             if self.current_known_target_dominates_source_face(key, neighbour, monotonic_faces) {
                 continue;
             }
-            if let Some(pending) = self.pending_light.get_mut(&neighbour) {
+            if let Some(pending) = self.lighting.jobs.pending.get_mut(&neighbour) {
                 let revision = pending.revision;
                 let effective_urgent = urgent || pending.urgent;
                 if effective_urgent {
                     pending.urgent = true;
-                    self.pending_light_scan.push_front((neighbour, revision));
-                } else {
-                    self.pending_light_scan.push_back((neighbour, revision));
                 }
-                self.light_priority_wakeups.insert(neighbour, revision);
+                self.lighting
+                    .jobs
+                    .rescan(neighbour, revision, effective_urgent);
+                self.lighting.priority_wakeups.insert(neighbour, revision);
                 continue;
             }
             if let Some(revision) = self.mark_light_dirty_exact_with_priority(neighbour, urgent) {
-                self.light_priority_wakeups.insert(neighbour, revision);
+                self.lighting.priority_wakeups.insert(neighbour, revision);
             }
         }
     }
@@ -662,8 +638,9 @@ impl WorldStream {
             return false;
         };
         self.light_is_current(above)
-            && self.light_store.light(above).is_some_and(|light| {
-                self.direct_sky
+            && self.lighting.store.light(above).is_some_and(|light| {
+                self.lighting
+                    .direct_sky
                     .get(&above)
                     .is_some_and(|direct| is_uniform_direct_sky(light, direct.mask.as_ref()))
             })

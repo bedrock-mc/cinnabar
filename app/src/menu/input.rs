@@ -19,10 +19,10 @@ use ui::{ChatClipboard, ChatEditor, UiPoint};
 
 use super::{
     MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MAX_SERVER_PORT_BYTES, MenuField, MenuRuntime,
-    view::MenuCaret,
 };
 use crate::local_worlds::{MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS};
-use crate::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
+use launcher::menu::view::MenuCaret;
 
 #[derive(Resource)]
 pub(crate) struct MenuClipboard(
@@ -325,7 +325,7 @@ pub(crate) fn drive_menu_input(
     mut presentation: ResMut<UiPresentationRuntime>,
     mut clipboard: ResMut<MenuClipboard>,
     mut menu: ResMut<MenuRuntime>,
-    runtime: Option<Res<crate::ui_runtime::UiRuntime>>,
+    runtime: Option<Res<client_ui::ui_runtime::UiRuntime>>,
     mut modifiers: Local<MenuModifiers>,
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,

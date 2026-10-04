@@ -19,11 +19,11 @@ use protocol::launcher_control::{
 };
 
 use super::account_control::{AccountControl, AccountEvent};
-use super::view::{
+use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
+use launcher::menu::view::{
     ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
     ServerDetails,
 };
-use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 
 #[cfg(test)]
 mod home_promo;

@@ -70,7 +70,8 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
     );
 
     stream
-        .requested_sub_chunks
+        .requests
+        .requested
         .get_mut(&keys[4].chunk())
         .unwrap()
         .remove(&keys[4].y);
@@ -98,16 +99,20 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
         None,
     );
     let publisher = stream
-        .committed_view_cohort
+        .publisher
+        .cohort
         .expect("publisher update commits a cohort");
-    stream.required_columns = super::ViewCohort {
+    stream.publisher.required_columns = super::ViewCohort {
         publisher_geometry: None,
         ..publisher
     }
     .classifier_columns();
 
     let snapshot = stream.phase2_publication_snapshot(keys[0].chunk());
-    assert_eq!(snapshot.session_generation, stream.actor_session_id());
+    assert_eq!(
+        snapshot.session_generation,
+        stream.authority().actor_session_id()
+    );
     assert_eq!(snapshot.player_column, keys[0].chunk());
     assert_eq!(snapshot.publisher_radius_blocks, Some(16));
     assert_eq!(snapshot.publisher_radius_chunks, Some(1));
@@ -383,7 +388,7 @@ fn request_mode_collision_failure_latch_spans_column_and_resets_on_eviction() {
         keys[0],
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension),
     );
-    assert!(stream.request_collision_failures.contains(&chunk));
+    assert!(stream.requests.collision_failures.contains(&chunk));
     apply_sub_chunk_result(&mut stream, keys[1], super::PreparedSubChunkResult::AllAir);
     assert!(!stream.loaded_columns.contains(&chunk));
     assert!(!stream.authority.terrain().is_chunk_loaded(chunk));
@@ -410,9 +415,9 @@ fn request_mode_collision_failure_latch_spans_column_and_resets_on_eviction() {
         keys[0],
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension),
     );
-    assert!(stream.request_collision_failures.contains(&chunk));
+    assert!(stream.requests.collision_failures.contains(&chunk));
     stream.evict_column(chunk);
-    assert!(!stream.request_collision_failures.contains(&chunk));
+    assert!(!stream.requests.collision_failures.contains(&chunk));
 
     stream
         .submit(
@@ -440,8 +445,8 @@ fn omitted_sub_chunk_y_retries_at_deadline_then_completes_after_bound() {
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(1);
     let key = keys[0];
     let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
-    stream.committed_view_cohort = Some(target);
-    stream.required_columns.insert(key.chunk());
+    stream.publisher.cohort = Some(target);
+    stream.publisher.required_columns.insert(key.chunk());
     acknowledge_request_sent(&mut stream, &initial, started);
 
     for attempt in 1..=super::MAX_SUB_CHUNK_RETRIES {
@@ -462,10 +467,10 @@ fn omitted_sub_chunk_y_retries_at_deadline_then_completes_after_bound() {
     stream.expire_sub_chunk_deadlines(terminal_deadline);
 
     assert!(!stream.loaded_columns.contains(&key.chunk()));
-    assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
+    assert!(!stream.requests.requested.contains_key(&key.chunk()));
     assert!(!stream.resident.contains(&key));
     assert!(!stream.known_air.contains(&key));
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
     assert_eq!(stream.pending_request_count(), 0);
     let stats = stream.stats();
     assert_eq!(stats.awaiting_sub_chunk_responses, 0);
@@ -499,7 +504,7 @@ fn response_deadline_begins_only_after_successful_send() {
     stream.expire_sub_chunk_deadlines(started + Duration::from_secs(100));
     assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
     assert_eq!(stream.stats().sub_chunk_timeouts, 0);
-    assert!(stream.requested_sub_chunks.contains_key(&key.chunk()));
+    assert!(stream.requests.requested.contains_key(&key.chunk()));
 
     let retry = stream.pop_next_request().unwrap();
     let sent_at = started + Duration::from_secs(100);
@@ -537,7 +542,7 @@ fn transport_ack_after_reply_admission_cannot_rearm_expiry_during_decode() {
         )
         .unwrap();
     assert_eq!(stream.pending_decode.len(), 1);
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
 
     stream.acknowledge_sub_chunk_request_sent(
         initial.chunk,
@@ -546,7 +551,7 @@ fn transport_ack_after_reply_admission_cannot_rearm_expiry_during_decode() {
         acknowledged_at,
     );
 
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
     stream.expire_sub_chunk_deadlines(acknowledged_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
     assert_eq!(stream.stats().sub_chunk_timeouts, 0);
     assert_eq!(stream.outstanding_sub_chunk_count(), 1);
@@ -564,7 +569,7 @@ fn explicit_transient_reply_disarms_old_deadline_and_preserves_retry_bound() {
         key,
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
     );
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
     assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
     assert_eq!(stream.stats().sub_chunk_retries_scheduled, 1);
     stream.expire_sub_chunk_deadlines(started + super::SUB_CHUNK_RESPONSE_TIMEOUT);
@@ -593,22 +598,20 @@ fn explicit_transient_retry_preserves_older_deferred_fifo_when_outbound_reopens(
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
     acknowledge_request_sent(&mut stream, &initial, started);
     for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY {
-        stream
-            .requests
-            .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        stream.requests.queue.reserve(sequence as u64 + 10);
     }
     apply_sub_chunk_result(
         &mut stream,
         keys[0],
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
     );
-    assert_eq!(stream.deferred_retries.front(), Some(&keys[0]));
+    assert_eq!(stream.requests.deferred_retries.front(), Some(&keys[0]));
     for index in 1..super::DEFERRED_RETRY_CAPACITY {
         let key = SubChunkKey::new(0, 100 + index as i32, -4, 100);
-        stream.deferred_retries.push_back(key);
-        stream.deferred_retry_set.insert(key);
+        stream.requests.deferred_retries.push_back(key);
+        stream.requests.deferred_retry_set.insert(key);
     }
-    stream.requests.pop_front();
+    stream.requests.queue.cancel_reservation(10);
     let normalization_before = stream.stats().normalization_errors;
 
     apply_sub_chunk_result(
@@ -617,14 +620,16 @@ fn explicit_transient_retry_preserves_older_deferred_fifo_when_outbound_reopens(
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound),
     );
 
-    let outbound_retry_y = stream.requests.iter().find_map(|slot| match slot {
-        super::OutboundRequestSlot::Ready(request) => Some(request.base_sub_chunk_y),
-        super::OutboundRequestSlot::Reserved(_) => None,
-    });
+    let outbound_retry_y = stream
+        .requests
+        .queue
+        .ready_requests()
+        .map(|request| request.base_sub_chunk_y)
+        .next();
     assert_eq!(outbound_retry_y, Some(keys[0].y));
-    assert_eq!(stream.deferred_retries.back(), Some(&keys[1]));
+    assert_eq!(stream.requests.deferred_retries.back(), Some(&keys[1]));
     assert_eq!(
-        stream.deferred_retries.len(),
+        stream.requests.deferred_retries.len(),
         super::DEFERRED_RETRY_CAPACITY
     );
     assert_eq!(stream.outstanding_sub_chunk_count(), 2);
@@ -639,13 +644,11 @@ fn late_success_cancels_queued_timeout_retry() {
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
     acknowledge_request_sent(&mut stream, &initial, started);
     for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY - 1 {
-        stream
-            .requests
-            .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        stream.requests.queue.reserve(sequence as u64 + 10);
     }
     stream.expire_sub_chunk_deadlines(started + super::SUB_CHUNK_RESPONSE_TIMEOUT);
     assert_eq!(stream.pending_request_count(), 1);
-    assert_eq!(stream.deferred_retries.len(), 1);
+    assert_eq!(stream.requests.deferred_retries.len(), 1);
 
     for key in &keys {
         apply_sub_chunk_result(&mut stream, *key, super::PreparedSubChunkResult::AllAir);
@@ -654,8 +657,8 @@ fn late_success_cancels_queued_timeout_retry() {
     assert!(stream.loaded_columns.contains(&keys[0].chunk()));
     assert!(keys.iter().all(|key| stream.known_air.contains(key)));
     assert_eq!(stream.pending_request_count(), 0);
-    assert!(stream.deferred_retries.is_empty());
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deferred_retries.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
     let stats = stream.stats();
     assert_eq!(stats.sub_chunk_timeouts, 2);
     assert_eq!(stats.sub_chunk_retries_scheduled, 2);
@@ -668,34 +671,35 @@ fn eviction_purges_deadlines_retries_and_late_reply_state() {
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(3);
     acknowledge_request_sent(&mut stream, &initial, started);
     for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY - 2 {
-        stream
-            .requests
-            .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        stream.requests.queue.reserve(sequence as u64 + 10);
     }
     stream.expire_sub_chunk_deadlines(started + super::SUB_CHUNK_RESPONSE_TIMEOUT);
     assert_eq!(stream.pending_request_count(), 2);
-    assert_eq!(stream.deferred_retries.len(), 1);
-    stream
-        .requests
-        .retain(|slot| matches!(slot, super::OutboundRequestSlot::Ready(_)));
+    assert_eq!(stream.requests.deferred_retries.len(), 1);
+    for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY - 2 {
+        stream
+            .requests
+            .queue
+            .cancel_reservation(sequence as u64 + 10);
+    }
     let armed_retry = stream.pop_next_request().unwrap();
     acknowledge_request_sent(
         &mut stream,
         &armed_retry,
         started + super::SUB_CHUNK_RESPONSE_TIMEOUT,
     );
-    assert!(!stream.sub_chunk_deadlines.is_empty());
+    assert!(!stream.requests.deadlines.is_empty());
     assert_eq!(stream.pending_request_count(), 1);
-    assert_eq!(stream.deferred_retries.len(), 1);
+    assert_eq!(stream.requests.deferred_retries.len(), 1);
 
     let chunk = keys[0].chunk();
     stream.evict_column(chunk);
 
-    assert!(!stream.requested_sub_chunks.contains_key(&chunk));
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(!stream.requests.requested.contains_key(&chunk));
+    assert!(stream.requests.deadlines.is_empty());
     assert_eq!(stream.pending_request_count(), 0);
-    assert!(stream.deferred_retries.is_empty());
-    assert!(stream.deferred_retry_set.is_empty());
+    assert!(stream.requests.deferred_retries.is_empty());
+    assert!(stream.requests.deferred_retry_set.is_empty());
     assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
 
     let errors_before = stream.stats().normalization_errors;
@@ -712,46 +716,49 @@ fn expired_deadlines_obey_capacity_without_loss_or_overflow() {
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(3);
     acknowledge_request_sent(&mut stream, &initial, started);
     for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY {
-        stream
-            .requests
-            .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        stream.requests.queue.reserve(sequence as u64 + 10);
     }
     apply_sub_chunk_result(
         &mut stream,
         keys[0],
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
     );
-    assert_eq!(stream.deferred_retries.front(), Some(&keys[0]));
+    assert_eq!(stream.requests.deferred_retries.front(), Some(&keys[0]));
     for index in 1..super::DEFERRED_RETRY_CAPACITY {
         let key = SubChunkKey::new(0, 100 + index as i32, -4, 100);
-        stream.deferred_retries.push_back(key);
-        stream.deferred_retry_set.insert(key);
+        stream.requests.deferred_retries.push_back(key);
+        stream.requests.deferred_retry_set.insert(key);
     }
     let normalization_before = stream.stats().normalization_errors;
     let deadline = started + super::SUB_CHUNK_RESPONSE_TIMEOUT;
 
     stream.expire_sub_chunk_deadlines(deadline);
-    assert_eq!(stream.sub_chunk_deadlines.len(), 2);
+    assert_eq!(stream.requests.deadlines.len(), 2);
     assert_eq!(stream.stats().sub_chunk_timeouts, 0);
     assert_eq!(stream.stats().sub_chunk_retries_scheduled, 1);
     assert_eq!(stream.stats().normalization_errors, normalization_before);
 
-    stream.requests.pop_front();
+    stream.requests.queue.cancel_reservation(10);
     stream.expire_sub_chunk_deadlines(deadline);
 
-    assert_eq!(stream.requests.len(), super::OUTBOUND_REQUEST_CAPACITY);
-    let outbound_retry_y = stream.requests.iter().find_map(|slot| match slot {
-        super::OutboundRequestSlot::Ready(request) => Some(request.base_sub_chunk_y),
-        super::OutboundRequestSlot::Reserved(_) => None,
-    });
+    assert_eq!(
+        stream.requests.queue.len(),
+        super::OUTBOUND_REQUEST_CAPACITY
+    );
+    let outbound_retry_y = stream
+        .requests
+        .queue
+        .ready_requests()
+        .map(|request| request.base_sub_chunk_y)
+        .next();
     assert_eq!(outbound_retry_y, Some(keys[0].y));
     assert_eq!(
-        stream.deferred_retries.len(),
+        stream.requests.deferred_retries.len(),
         super::DEFERRED_RETRY_CAPACITY
     );
-    assert_eq!(stream.deferred_retries.back(), Some(&keys[1]));
-    assert_eq!(stream.sub_chunk_deadlines.len(), 1);
-    assert!(stream.sub_chunk_deadlines.contains(&(deadline, keys[2])));
+    assert_eq!(stream.requests.deferred_retries.back(), Some(&keys[1]));
+    assert_eq!(stream.requests.deadlines.len(), 1);
+    assert!(stream.requests.deadlines.contains(&(deadline, keys[2])));
     assert_eq!(stream.outstanding_sub_chunk_count(), 3);
     assert_eq!(stream.stats().sub_chunk_timeouts, 1);
     assert_eq!(stream.stats().sub_chunk_retries_scheduled, 2);
@@ -831,7 +838,7 @@ fn unavailable_value_is_preserved_and_y_out_of_bounds_leaves_empty_slot_as_air()
         SubChunkKey::from_chunk(chunk, -3),
         SubChunkKey::from_chunk(chunk, -2),
     );
-    stream.requested_sub_chunks.insert(
+    stream.requests.requested.insert(
         chunk,
         BTreeMap::from([
             (-4, Default::default()),
@@ -857,7 +864,7 @@ fn unavailable_value_is_preserved_and_y_out_of_bounds_leaves_empty_slot_as_air()
         );
     }
 
-    assert!(!stream.requested_sub_chunks.contains_key(&chunk));
+    assert!(!stream.requests.requested.contains_key(&chunk));
     assert!(stream.loaded_columns.contains(&chunk));
     assert!(stream.authority.terrain().sub_chunk(empty).is_none());
     assert!(stream.known_air.contains(&empty));
@@ -883,14 +890,14 @@ fn transient_unavailable_results_retry_boundedly_then_complete_without_wedging()
             );
             if attempt < super::MAX_SUB_CHUNK_RETRIES {
                 assert_eq!(stream.pending_request_count(), 1);
-                assert!(stream.requested_sub_chunks.contains_key(&key.chunk()));
+                assert!(stream.requests.requested.contains_key(&key.chunk()));
                 stream.take_requests();
             }
         }
-        assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
+        assert!(!stream.requests.requested.contains_key(&key.chunk()));
         assert!(!stream.loaded_columns.contains(&key.chunk()));
         assert!(!stream.authority.terrain().is_chunk_loaded(key.chunk()));
-        assert!(stream.request_collision_failures.contains(&key.chunk()));
+        assert!(stream.requests.collision_failures.contains(&key.chunk()));
         assert_eq!(stream.pending_request_count(), 0);
     }
 }
@@ -909,7 +916,7 @@ fn malformed_payload_completes_without_retry_and_invalid_dimension_is_terminal_n
     );
     assert!(stream.take_requests().is_empty());
     assert!(stream.loaded_columns.contains(&key.chunk()));
-    assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
+    assert!(!stream.requests.requested.contains_key(&key.chunk()));
 
     let (mut stream, key) = stream_with_one_expected_sub_chunk();
     apply_sub_chunk_result(
@@ -920,7 +927,7 @@ fn malformed_payload_completes_without_retry_and_invalid_dimension_is_terminal_n
     assert_eq!(stream.stats().normalization_errors, 1);
     assert!(!stream.loaded_columns.contains(&key.chunk()));
     assert!(!stream.authority.terrain().is_chunk_loaded(key.chunk()));
-    assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
+    assert!(!stream.requests.requested.contains_key(&key.chunk()));
 }
 
 #[test]
@@ -932,8 +939,8 @@ fn terminal_unavailable_results_leave_request_columns_missing() {
     ] {
         let (mut stream, key) = stream_with_one_expected_sub_chunk();
         let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
-        stream.committed_view_cohort = Some(target);
-        stream.required_columns.insert(key.chunk());
+        stream.publisher.cohort = Some(target);
+        stream.publisher.required_columns.insert(key.chunk());
 
         apply_sub_chunk_result(
             &mut stream,
@@ -941,7 +948,7 @@ fn terminal_unavailable_results_leave_request_columns_missing() {
             super::PreparedSubChunkResult::Unavailable(unavailable),
         );
 
-        assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
+        assert!(!stream.requests.requested.contains_key(&key.chunk()));
         assert!(!stream.loaded_columns.contains(&key.chunk()));
         assert!(!stream.authority.terrain().is_chunk_loaded(key.chunk()));
         assert_eq!(stream.pending_request_count(), 0);
@@ -972,7 +979,12 @@ fn decoded_and_all_air_sections_complete_an_authoritative_request_column() {
 
     assert!(stream.loaded_columns.contains(&keys[0].chunk()));
     assert!(stream.authority.terrain().is_chunk_loaded(keys[0].chunk()));
-    assert!(!stream.request_collision_failures.contains(&keys[0].chunk()));
+    assert!(
+        !stream
+            .requests
+            .collision_failures
+            .contains(&keys[0].chunk())
+    );
 }
 
 #[test]
@@ -1004,12 +1016,13 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
     stream.mark_changed(key, Instant::now());
     assert_eq!(stream.dispatch_light_jobs([0.0; 3], 1), 1);
     let completion = stream
-        .light_rx
+        .lighting
+        .rx
         .recv_timeout(Duration::from_secs(2))
         .expect("eviction setup light completion");
     stream.accept_light_completion(completion);
     assert!(stream.light_is_current(key));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
     stream.revisions.entries.clear();
 
     stream
@@ -1030,7 +1043,8 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
     assert!(!stream.resident.contains(&key));
     assert_eq!(stream.take_requests().len(), 1);
     let actual = stream
-        .pending_mesh
+        .mesh_jobs
+        .pending
         .keys()
         .copied()
         .collect::<std::collections::BTreeSet<_>>();
@@ -1042,7 +1056,7 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
     for y in -3..=19 {
         let air = SubChunkKey::new(0, key.x, y, key.z);
         assert!(stream.known_air.contains(&air));
-        assert!(stream.pending_light.contains_key(&air));
+        assert!(stream.lighting.jobs.pending.contains_key(&air));
     }
 }
 
@@ -1065,11 +1079,12 @@ fn changed_sub_chunk_dirties_center_and_six_face_neighbours_once() {
         .mesh_dependents()
         .collect::<std::collections::BTreeSet<_>>();
     let actual = stream
-        .pending_mesh
+        .mesh_jobs
+        .pending
         .keys()
         .copied()
         .collect::<std::collections::BTreeSet<_>>();
 
     assert_eq!(actual, expected);
-    assert_eq!(stream.pending_mesh.len(), 7);
+    assert_eq!(stream.mesh_jobs.pending.len(), 7);
 }

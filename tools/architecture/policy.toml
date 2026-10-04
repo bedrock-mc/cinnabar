@@ -146,8 +146,8 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "play
 [[crates]]
 name = "client-ui"
 path = "crates/client-ui"
-# The client-world key names chunk-pipeline; render and extension edges support presentation adapters.
-allowed_dependencies = ["assets", "chunk-pipeline", "player-state", "launcher", "inventory", "json-ui", "protocol", "render", "render-api", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience"]
+# Render and extension edges support presentation adapters.
+allowed_dependencies = ["assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render", "render-api", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session"]
 test_support_features = ["test-support"]
@@ -156,7 +156,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render", "render-api", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "server-experience"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "acceptance", "asset-compiler"]
 test_support_features = ["test-support"]
@@ -171,7 +171,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", 
 name = "acceptance"
 path = "crates/acceptance"
 test_support_features = ["test-support"]
-allowed_dependencies = ["chunk-pipeline", "client-presentation", "diagnostics", "protocol", "render", "semantic-input", "world"]
+allowed_dependencies = ["chunk-pipeline", "client-presentation", "client-world", "diagnostics", "protocol", "render", "semantic-input", "world"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
 
 [[crates]]
@@ -187,11 +187,19 @@ allowed_dependencies = []
 # Shared contracts stay std-only, including build, dev and target dependencies.
 dependency_free = true
 
+# CPU particle simulation; render only uploads and draws its output.
+[[crates]]
+name = "particles"
+path = "crates/particles"
+allowed_dependencies = ["assets"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
+
 [[crates]]
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["assets", "meshing", "mod-api", "render-api", "world"]
+allowed_dependencies = ["assets", "meshing", "mod-api", "particles", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -199,8 +207,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-# The client-world dependency key temporarily names the chunk-pipeline compatibility facade.
-allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "player-state", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "particles", "player-state", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -615,11 +622,6 @@ forbidden_modules = ["bedrock_client"]
 forbidden_crate_modules = ["app", "runtime", "movement", "mining", "item_use", "camera", "server_camera", "local_player", "semantic_controls", "settings_runtime", "acceptance", "audio", "block_selection", "block_use", "hotbar", "pick_block", "melee", "survival_mining"]
 forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "AbilitiesUpdate", "PlayerState", "PlayerRuntime"]
 
-[[module_boundaries.ownership_exceptions]]
-path = "crates/client-ui/src/ui_runtime/presentation_snapshot.rs"
-owner = "PresentationInventory"
-owned_type = "PlayerInventoryLedger"
-
 [[module_boundaries]]
 path = "crates/launcher/src"
 forbidden_modules = ["bedrock_client", "client_ui", "UiRuntime", "PlayerRuntime", "PlayerState", "NetworkHandle"]
@@ -677,3 +679,7 @@ path = "crates/client-session/src"
 forbidden_modules = ["bedrock_client", "bevy", "render", "client_ui", "gameplay", "chunk_pipeline", "UiRuntime", "MovementTicker"]
 forbidden_crate_modules = ["app", "runtime", "movement", "camera", "local_player", "acceptance", "audio", "session_audio", "presentation", "ui_runtime", "menu"]
 forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "PlayerState", "ChunkStore", "ActorStore", "WorldAuthority"]
+
+[[module_boundaries]]
+path = "crates/particles/src"
+forbidden_modules = ["bevy", "wgpu"]

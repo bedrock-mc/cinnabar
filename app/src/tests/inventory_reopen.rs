@@ -15,8 +15,9 @@ use protocol::{
     ContainerCloseEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryEvent,
 };
 
-use crate::ui_runtime::{
-    UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, flush_inventory_send,
+use crate::ui_runtime::{drain_inventory_authority, drive_chat_keyboard_input};
+use client_ui::ui_runtime::{
+    UiRuntime, flush_inventory_send,
     inventory_ledger::{GENERIC_STORAGE_WINDOW_TYPE, PERSONAL_INVENTORY_WINDOW_TYPE},
 };
 

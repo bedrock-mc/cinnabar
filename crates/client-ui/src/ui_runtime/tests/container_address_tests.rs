@@ -100,7 +100,9 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Creative);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
     server_ledger(&mut player_runtime, &mut runtime);
 
     runtime
@@ -113,10 +115,7 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
         .unwrap();
     runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(
-        runtime
-            .selected_stack_snapshot(&player_runtime)
-            .unwrap()
-            .state,
+        player_runtime.selected_stack_snapshot().unwrap().state,
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty,
         "the complete empty inventory establishes selected slot 0 as known empty"
     );
@@ -131,10 +130,7 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
         .unwrap();
     runtime.drain_pending_inventory(&mut player_runtime);
     assert!(matches!(
-        runtime
-            .selected_stack_snapshot(&player_runtime)
-            .unwrap()
-            .state,
+        player_runtime.selected_stack_snapshot().unwrap().state,
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
     ));
 
@@ -148,7 +144,7 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
         )
         .unwrap();
     runtime.drain_pending_inventory(&mut player_runtime);
-    let selected = runtime.selected_stack_snapshot(&player_runtime).unwrap();
+    let selected = player_runtime.selected_stack_snapshot().unwrap();
     assert_eq!(selected.slot, 4);
     assert!(matches!(
         selected.state,
@@ -157,7 +153,7 @@ fn default_descriptor_packets_establish_selected_stack_authority_in_the_ledger()
 }
 
 #[test]
-fn cursor_slot_type_events_cannot_reach_the_hotbar_mirror_through_any_admission_path() {
+fn cursor_slot_type_events_only_reach_the_cursor_cell() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
@@ -201,22 +197,6 @@ fn cursor_slot_type_events_cannot_reach_the_hotbar_mirror_through_any_admission_
             .map(|stack| stack.network_id),
         Some(11)
     );
-    // The hotbar mirror keeps every established cell untouched.
-    assert_eq!(
-        runtime
-            .gameplay_hud()
-            .hotbar_stack(0)
-            .map(|stack| stack.network_id),
-        Some(11)
-    );
-    assert_eq!(
-        runtime
-            .gameplay_hud()
-            .hotbar_stack(8)
-            .map(|stack| stack.network_id),
-        Some(19)
-    );
-    assert_eq!(runtime.gameplay_hud().hotbar_stack(1), None);
 }
 
 /// A server's arbitrary container name on the player window still fills player inventory cells.
@@ -400,72 +380,18 @@ fn combined_player_name_on_a_foreign_window_is_skipped_by_ledger_and_hud() {
     assert_eq!(
         runtime
             .gameplay_hud()
-            .hotbar_stack(0)
-            .map(|stack| stack.network_id),
-        None,
-    );
-    assert_eq!(
-        runtime
-            .gameplay_hud()
             .diagnostics()
             .unknown_container_events,
         1
     );
 }
 
-#[test]
-fn partial_window_zero_content_preserves_unseen_hotbar_mirror_cells() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    let mut runtime = UiRuntime::new(1);
-    let slots: Vec<NetworkItemStack> = (1..=36).map(stack).collect();
-    runtime
-        .enqueue_inventory_event(&mut player_runtime, 1, 1, content(identity(0, None), slots))
-        .unwrap();
-    runtime.drain_pending_inventory(&mut player_runtime);
-
-    // A partial authoritative rewrite states only the cells it carries; the
-    // unseen mirror cells keep their last authoritative values.
-    runtime
-        .enqueue_inventory_event(
-            &mut player_runtime,
-            1,
-            2,
-            content(identity(0, None), vec![stack(50)]),
-        )
-        .unwrap();
-    runtime.drain_pending_inventory(&mut player_runtime);
-
-    assert_eq!(
-        runtime
-            .gameplay_hud()
-            .hotbar_stack(0)
-            .map(|stack| stack.network_id),
-        Some(50)
-    );
-    assert_eq!(
-        runtime
-            .gameplay_hud()
-            .hotbar_stack(8)
-            .map(|stack| stack.network_id),
-        Some(9)
-    );
-    assert_eq!(
-        runtime
-            .gameplay_hud()
-            .hotbar_stack(1)
-            .map(|stack| stack.network_id),
-        Some(2)
-    );
-}
-
 /// The pinned gophertunnel `InventorySlot` fixture (`tools/fixturegen`)
 /// writes exactly this shape: legacy window id 0 carrying a full container
-/// name whose byte is `InventoryContainer` (29). Prior admission applied
-/// such events to player cells in both the ledger and the HUD hotbar
-/// mirror; the canonical projection must keep routing them there.
+/// name whose byte is `InventoryContainer` (29). The canonical projection
+/// must route such events to player cells, never counting them as unknown.
 #[test]
-fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud() {
+fn fixture_named_inventory_slot_updates_land_in_player_cells() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     const INVENTORY_CONTAINER_NAME: u8 = 29;
@@ -506,13 +432,6 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud()
     )
     .unwrap();
     hud.drain_pending_inventory(&mut player_runtime);
-    assert_eq!(
-        hud.gameplay_hud()
-            .hotbar_stack(4)
-            .map(|stack| stack.network_id),
-        Some(29),
-        "the fixture-shaped Slot event mirrors into hotbar cell 4"
-    );
     assert_eq!(hud.gameplay_hud().diagnostics().unknown_container_events, 0);
 
     // A named full-content rewrite rides the same alias.
@@ -525,13 +444,7 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud()
     )
     .unwrap();
     hud.drain_pending_inventory(&mut player_runtime);
-    assert!(hud.gameplay_hud().hotbar_known());
-    assert_eq!(
-        hud.gameplay_hud()
-            .hotbar_stack(8)
-            .map(|stack| stack.network_id),
-        Some(9)
-    );
+    assert_eq!(hud.gameplay_hud().diagnostics().unknown_container_events, 0);
 
     // Generic-storage-named traffic on a non-player window belongs to no
     // player cell; with no storage window open it is counted leniency.

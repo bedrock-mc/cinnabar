@@ -20,7 +20,7 @@ pub(crate) fn drive_model_witness(
             committed_cohort: world
                 .stream
                 .as_ref()
-                .and_then(client_world::WorldStream::committed_view_cohort),
+                .and_then(chunk_pipeline::WorldStream::committed_view_cohort),
         },
         &queue,
         &frames,

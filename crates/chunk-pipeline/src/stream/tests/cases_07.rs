@@ -17,7 +17,7 @@ fn publisher_radius_classifier_is_policy_not_universal_wire_geometry() {
     assert_eq!(radius_120.radius, 8);
     assert_eq!(
         radius_120.publisher_geometry,
-        Some(super::PublisherViewGeometry {
+        Some(client_world::PublisherViewGeometry {
             center_blocks: [-1350, 1634],
             radius_blocks: 120,
         })
@@ -53,7 +53,7 @@ fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
         request.base_sub_chunk_y,
         request.count,
     );
-    assert_eq!(stream.transport_pending_requests, 1);
+    assert_eq!(stream.requests.transport_pending, 1);
 
     stream
         .submit(
@@ -68,7 +68,7 @@ fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
         )
         .unwrap();
     assert!(!stream.tracked_columns().contains(&request.chunk));
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
 
     stream.acknowledge_sub_chunk_request_sent(
         request.chunk,
@@ -77,8 +77,8 @@ fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
         Instant::now(),
     );
 
-    assert_eq!(stream.transport_pending_requests, 0);
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert_eq!(stream.requests.transport_pending, 0);
+    assert!(stream.requests.deadlines.is_empty());
     assert!(!stream.tracked_columns().contains(&request.chunk));
     assert_eq!(stream.outstanding_sub_chunk_count(), 0);
 }
@@ -94,14 +94,14 @@ fn provisional_publisher_epoch_overflow_clears_retained_destination_membership()
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    stream.publisher_epoch = u64::MAX;
-    stream.committed_view_cohort = Some(super::ViewCohort {
+    stream.publisher.epoch = u64::MAX;
+    stream.publisher.cohort = Some(super::ViewCohort {
         dimension: 0,
         center: [0, 0],
         radius: 8,
         publisher_geometry: None,
     });
-    stream.publisher_radius_chunks = Some(8);
+    stream.publisher.radius_chunks = Some(8);
     stream
         .submit(
             1,
@@ -115,7 +115,7 @@ fn provisional_publisher_epoch_overflow_clears_retained_destination_membership()
         )
         .unwrap();
     let destination = ChunkKey::new(0, 65, 65);
-    stream.required_columns.insert(destination);
+    stream.publisher.required_columns.insert(destination);
 
     stream
         .submit(
@@ -127,10 +127,10 @@ fn provisional_publisher_epoch_overflow_clears_retained_destination_membership()
         )
         .unwrap();
 
-    assert_eq!(stream.publisher_epoch, u64::MAX);
+    assert_eq!(stream.publisher.epoch, u64::MAX);
     assert_eq!(stream.committed_view_cohort(), None);
-    assert!(!stream.provisional_publisher_rebase);
-    assert!(stream.required_columns.is_empty());
+    assert!(!stream.publisher.provisional_rebase);
+    assert!(stream.publisher.required_columns.is_empty());
 }
 
 #[test]
@@ -145,8 +145,8 @@ fn provisional_publisher_update_retains_destination_data_interest() {
         block_network_ids_are_hashes: false,
     });
     stream.chunk_radius = Some(2);
-    stream.publisher_radius_chunks = Some(2);
-    stream.committed_view_cohort = Some(super::ViewCohort {
+    stream.publisher.radius_chunks = Some(2);
+    stream.publisher.cohort = Some(super::ViewCohort {
         dimension: 0,
         center: [0, 0],
         radius: 2,
@@ -166,8 +166,8 @@ fn provisional_publisher_update_retains_destination_data_interest() {
         .unwrap();
     let active = ChunkKey::new(0, 66, 65);
     let grid_slack = ChunkKey::new(0, 69, 65);
-    stream.required_columns = BTreeSet::from([active, grid_slack]);
-    stream.loaded_columns = stream.required_columns.clone();
+    stream.publisher.required_columns = BTreeSet::from([active, grid_slack]);
+    stream.loaded_columns = stream.publisher.required_columns.clone();
 
     stream
         .submit(
@@ -183,7 +183,7 @@ fn provisional_publisher_update_retains_destination_data_interest() {
     // publisher control scope and the outer column is in the independently
     // confirmed player grid's existing slack.
     assert_eq!(
-        stream.required_columns,
+        stream.publisher.required_columns,
         BTreeSet::from([active, grid_slack])
     );
     assert!(stream.tracked_columns().contains(&active));
@@ -406,7 +406,10 @@ fn publisher_identity_and_dimension_changes_reset_required_membership_epoch() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    assert_ne!(other_session.actor_session_id(), first.session_generation);
+    assert_ne!(
+        other_session.authority().actor_session_id(),
+        first.session_generation
+    );
 }
 
 #[test]
@@ -421,15 +424,18 @@ fn required_epoch_reports_stable_only_after_stream_work_drains() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    stream.committed_view_cohort = Some(target);
-    stream.publisher_epoch = 1;
-    stream.required_columns.insert(ChunkKey::new(0, 0, 0));
+    stream.publisher.cohort = Some(target);
+    stream.publisher.epoch = 1;
+    stream
+        .publisher
+        .required_columns
+        .insert(ChunkKey::new(0, 0, 0));
     stream.loaded_columns.insert(ChunkKey::new(0, 0, 0));
 
     let drained = stream.phase2_publication_snapshot(ChunkKey::new(0, 0, 0));
     assert!(drained.required_cohort_stable);
 
-    stream.transport_pending_requests = 1;
+    stream.requests.transport_pending = 1;
     let pending = stream.phase2_publication_snapshot(ChunkKey::new(0, 0, 0));
     assert!(!pending.required_cohort_stable);
 }
@@ -498,9 +504,12 @@ fn publisher_epoch_overflow_fails_closed_without_reusing_an_identity() {
         block_network_ids_are_hashes: false,
     });
     let old = super::ViewCohort::from_publisher(0, [0, 64, 0], 128);
-    stream.publisher_epoch = u64::MAX;
-    stream.committed_view_cohort = Some(old);
-    stream.required_columns.insert(ChunkKey::new(0, 0, 0));
+    stream.publisher.epoch = u64::MAX;
+    stream.publisher.cohort = Some(old);
+    stream
+        .publisher
+        .required_columns
+        .insert(ChunkKey::new(0, 0, 0));
 
     stream
         .submit(
@@ -512,7 +521,7 @@ fn publisher_epoch_overflow_fails_closed_without_reusing_an_identity() {
         )
         .unwrap();
 
-    assert_eq!(stream.publisher_epoch, u64::MAX);
+    assert_eq!(stream.publisher.epoch, u64::MAX);
     assert_eq!(stream.committed_view_cohort(), None);
-    assert!(stream.required_columns.is_empty());
+    assert!(stream.publisher.required_columns.is_empty());
 }

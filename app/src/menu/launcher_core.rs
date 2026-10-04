@@ -137,7 +137,7 @@ impl LauncherCoreSlot {
     /// Selects a join's target on the launcher core off the frame; the receiver
     /// yields the game socket to dial. Local worlds always use their owning core;
     /// direct remote joins stay on a separate per-session core.
-    pub(super) fn begin_join(
+    pub(crate) fn begin_join(
         &self,
         address: &str,
         local_world: bool,
@@ -277,8 +277,8 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
 pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
 
 /// The kind of join `address` starts, for its progress titles.
-pub(super) fn join_kind(address: &str, local_world: bool) -> super::view::JoinKind {
-    use super::view::JoinKind;
+pub(super) fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::JoinKind {
+    use launcher::menu::view::JoinKind;
     match target_for(address) {
         _ if local_world => JoinKind::Local,
         ConnectTarget::Realm(_) => JoinKind::Realm,
@@ -315,8 +315,8 @@ pub(super) fn target_for(address: &str) -> ConnectTarget {
 }
 
 impl MenuRuntime {
-    /// The auth cache a launcher core runs with: only a validated sign-in's.
-    fn launcher_auth_cache(&self) -> Option<PathBuf> {
+    /// The validated sign-in's auth cache, for the launcher core and joins.
+    pub(crate) fn launcher_auth_cache(&self) -> Option<PathBuf> {
         account::validated_auth_cache(
             &self.layout,
             self.auth_process.as_ref().map(AuthSupervisor::state),
@@ -366,7 +366,7 @@ mod tests {
             layout,
             crate::player_skin::LocalPlayerSkin::generated_default("Fixture"),
         );
-        menu.mark_disconnected();
+        menu.show_home();
         assert!(!menu.is_launcher());
         assert_eq!(menu.screen(), super::super::MenuScreen::Home);
         assert!(

@@ -5,7 +5,7 @@ use crate::runtime::network::{
         BootstrapGenerationDisposition, classify_bootstrap_generation, install_server_language,
     },
 };
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 
 fn overlay(value: &[u8]) -> Arc<assets::ServerLangOverlay> {
     assets::ServerLangOverlay::read(value.len(), |target| {
@@ -35,7 +35,7 @@ fn only_current_successful_bootstrap_can_install_or_retire_language() {
     assert!(accepted);
     install_server_language(&mut runtime, 2, Some(old), accepted);
     assert_eq!(runtime.localized_item_name("minecraft:stone"), "Old");
-    runtime.begin_session(&mut player_runtime, 3);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 3);
     assert!(old_weak.upgrade().is_none());
     let current = overlay(b"item.stone.name=Current\n");
     install_server_language(&mut runtime, 3, Some(current), true);

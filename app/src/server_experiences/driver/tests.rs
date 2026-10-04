@@ -272,7 +272,7 @@ fn controller_follows_committed_drain_before_semantic_input() {
 #[test]
 fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
-    let mut stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 42,
         local_player_unique_id: 1,
@@ -342,8 +342,9 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
 fn unadvertised_experience_preserves_input_and_rendered_menu() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::forms::{pack_harness, snapshot};
+    use crate::ui_runtime::presentation::forms::pack_harness;
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    use client_ui::ui_runtime::presentation::forms::snapshot;
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         eprintln!(
             "skipping unadvertised_experience_preserves_input_and_rendered_menu: fixture unavailable; requires installed local carriers (make assets)"

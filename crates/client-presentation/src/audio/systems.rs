@@ -9,7 +9,7 @@ use crate::{
 use std::collections::HashSet;
 
 use bevy::prelude::{Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Vec3};
-use render::{ParticleSystem, PrecipitationMix};
+use render::{ParticleSimulation, PrecipitationMix};
 use sim::PaletteWorld;
 
 use super::{
@@ -181,7 +181,7 @@ pub fn ingest_audio_events(
         return;
     };
     state.bind(
-        stream.actor_session_id(),
+        stream.authority().actor_session_id(),
         stream.form_dimension_epoch(),
         &mut engine,
     );
@@ -223,7 +223,7 @@ pub fn ingest_audio_events(
             }
             protocol::AudioEvent::LevelEvent(level) if level.event_id == RECORD_EVENT => {
                 let name = (level.data != 0)
-                    .then(|| stream.item_identifier(level.data))
+                    .then(|| stream.authority().item_identifier(level.data))
                     .flatten()
                     .and_then(|identifier| route::record_sound_name(&identifier))
                     .filter(|name| {
@@ -371,7 +371,7 @@ impl Default for AmbientState {
 
 /// Ambience definition prefix for the eye position: the biome's own set when the pack defines it.
 fn ambience_prefix(
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
     dimension: i32,
     eye: [f32; 3],
     engine: &AudioEngine,
@@ -505,7 +505,7 @@ pub fn drive_weather_and_particles(
     world: crate::observations::WorldObservation<'_>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
     mix: Option<Res<PrecipitationMix>>,
-    particles: Option<ResMut<ParticleSystem>>,
+    particles: Option<ResMut<ParticleSimulation>>,
     inbox: Option<&mut dyn crate::observations::ParticleAudioObservation>,
     mut engine: ResMut<AudioEngine>,
     mut seen_bolts: Local<HashSet<i64>>,
@@ -531,7 +531,7 @@ pub fn drive_weather_and_particles(
         }),
     );
 
-    let bolts = stream.lightning_bolts();
+    let bolts = stream.authority().lightning_bolts();
     seen_bolts.retain(|id| bolts.iter().any(|bolt| bolt.unique_id == *id));
     for bolt in &bolts {
         if seen_bolts.insert(bolt.unique_id) {

@@ -143,7 +143,8 @@ fn cloned_ui_preserves_evidence_fifo_deduplication_and_full_quota() {
         original.use_on_identity_evidence.last_sequence
     );
     assert!(!full.use_on_identity_evidence.admit_sequence(7, 100));
-    full.begin_session(&mut player_runtime, 8);
+    player_runtime.begin_session(8);
+    full.begin_session(8);
     assert!(full.use_on_identity_evidence.rows.is_empty());
     assert_eq!(original.use_on_identity_evidence.rows.len(), MAX_ROWS);
 }
@@ -245,7 +246,8 @@ fn deduplicated_rows_are_capped_and_new_session_clears_every_identity() {
         );
     }
     assert_eq!(runtime.use_on_identity_evidence.rows.len(), MAX_ROWS);
-    runtime.begin_session(&mut player_runtime, 8);
+    player_runtime.begin_session(8);
+    runtime.begin_session(8);
     let evidence = &runtime.use_on_identity_evidence;
     assert_eq!(evidence.session, 8);
     assert!(evidence.rows.is_empty());

@@ -1,6 +1,6 @@
 use assets::{BlockFlags, SeasonalFoliageBlock, seasonal_foliage_cell_shelters};
-use client_world::WorldStream;
-use render::{ParticleFluid, ParticleWorld};
+use chunk_pipeline::WorldStream;
+use particles::{Fluid, ParticleWorld};
 use sim::{Aabb, BlockPhysicsFlags, CollisionRegistry, CollisionWorld, PaletteWorld, Vec3};
 use world::SubChunkKey;
 
@@ -88,19 +88,19 @@ impl ParticleWorld for StreamParticleWorld<'_> {
         self.stream.light_level_at(block.map(|c| c as f32 + 0.5))
     }
 
-    fn fluid(&self, block: [i32; 3]) -> ParticleFluid {
+    fn fluid(&self, block: [i32; 3]) -> Fluid {
         match self.palette().block_physics(block) {
             Ok(sample) => {
                 let flags = sample.primary().flags;
                 if flags.contains(BlockPhysicsFlags::WATER) {
-                    ParticleFluid::Water
+                    Fluid::Water
                 } else if flags.contains(BlockPhysicsFlags::LAVA) {
-                    ParticleFluid::Lava
+                    Fluid::Lava
                 } else {
-                    ParticleFluid::None
+                    Fluid::None
                 }
             }
-            Err(_) => ParticleFluid::None,
+            Err(_) => Fluid::None,
         }
     }
 }

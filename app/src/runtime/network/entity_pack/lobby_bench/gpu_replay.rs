@@ -81,8 +81,9 @@ fn gpu_app(camera: Transform) -> App {
 }
 
 /// Loads the real font, HUD and JSON-UI carriers used by offline screen snapshots.
-fn ui_presentation() -> crate::ui_runtime::presentation::UiPresentationRuntime {
-    use crate::ui_runtime::presentation::{UiPresentationRuntime, forms::pack_harness};
+fn ui_presentation() -> client_ui::ui_runtime::presentation::UiPresentationRuntime {
+    use crate::ui_runtime::presentation::forms::pack_harness;
+    use client_ui::ui_runtime::presentation::UiPresentationRuntime;
     let world_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(crate::asset_startup::DEFAULT_ASSET_PATH);
@@ -101,8 +102,8 @@ fn ui_presentation() -> crate::ui_runtime::presentation::UiPresentationRuntime {
 fn publish_ui(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     app: &mut App,
-    presentation: &mut crate::ui_runtime::presentation::UiPresentationRuntime,
-    runtime: &crate::ui_runtime::UiRuntime,
+    presentation: &mut client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    runtime: &client_ui::ui_runtime::UiRuntime,
     millis: u64,
 ) {
     let input = presentation
@@ -136,7 +137,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
         .unwrap();
     let mut app = gpu_app(camera);
     let mut presentation = ui_presentation();
-    let runtime = crate::ui_runtime::UiRuntime::new(1);
+    let runtime = client_ui::ui_runtime::UiRuntime::new(1);
     presentation.set_menu_view(Some(
         crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view(),
     ));
@@ -153,7 +154,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
     presentation.set_menu_view(None);
     let font = crate::ui_runtime::presentation::forms::pack_harness::font();
     let mut layouts = ui::TextLayoutCache::new(256, 1 << 20);
-    let mut atlas = crate::ui_runtime::presentation::nametag_atlas::NametagAtlas::default();
+    let mut atlas = client_ui::ui_runtime::presentation::nametag_atlas::NametagAtlas::default();
     let mut clock = Instant::now();
     let mut next = 0;
     for frame in 0..120 {
@@ -186,18 +187,19 @@ fn enhanced_lobby_replay_on_native_gpu() {
             frame as u64 * 16,
         );
         {
-            use crate::ui_runtime::presentation::{nametag_atlas, nametags};
+            use client_ui::ui_runtime::presentation::{nametag_atlas, nametags};
             let client = world.resource::<crate::runtime::world::ClientWorld>();
             let stream = client.stream.as_ref().unwrap();
             let anchors: Vec<_> = stream
+                .authority()
                 .actor_rigs()
                 .filter_map(|rig| {
-                    let actor = stream.actor(rig.actor.runtime_id)?;
+                    let actor = stream.authority().actor(rig.actor.runtime_id)?;
                     nametags::extract_nametag(
                         actor,
                         camera.translation,
                         None,
-                        stream.actor_name_tag(actor.unique_id)?,
+                        stream.authority().actor_name_tag(actor.unique_id)?,
                         &ui::ScoreboardStore::default(),
                         1.0,
                     )

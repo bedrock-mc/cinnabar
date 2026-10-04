@@ -54,7 +54,7 @@ const BUBBLE_HEIGHTS: [f64; 7] = [29.0, 24.0, 20.0, 16.0, 11.0, 6.0, 0.0];
 pub fn observe_station_block(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
-    stream: Option<&client_world::WorldStream>,
+    stream: Option<&chunk_pipeline::WorldStream>,
     station_triggered: impl FnOnce([i32; 3]) -> Option<bool>,
     now_millis: u64,
 ) {
@@ -67,7 +67,7 @@ pub fn observe_station_block(
     if kind == WindowKind::Horse {
         let identifier = ledger
             .window_actor()
-            .and_then(|unique| stream.actor_by_unique_id(unique))
+            .and_then(|unique| stream.authority().actor_by_unique_id(unique))
             .and_then(|actor| match &actor.kind {
                 protocol::ActorKind::Entity { identifier } => Some(identifier.clone()),
                 protocol::ActorKind::Player { .. } => None,
@@ -345,7 +345,7 @@ fn enchant_buttons(
         .target_stack(InventoryTarget::Craft(15))
         .map_or(0, |stack| u32::from(stack.count));
     let creative =
-        runtime.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Creative);
+        player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     (0..3u32)
         .map(|row| {
             let item = CollectionItem::default();

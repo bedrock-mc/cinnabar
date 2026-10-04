@@ -14,7 +14,7 @@ use bevy::{
     prelude::World,
     time::{Real, Time},
 };
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::{ActorKind, BedrockSession, WorldBootstrap, WorldEvent};
 use render::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
 
@@ -216,8 +216,8 @@ fn population(stream: &WorldStream) -> Population {
         entities: 0,
         by_identifier: Default::default(),
     };
-    for rig in stream.actor_rigs() {
-        let Some(actor) = stream.actor(rig.actor.runtime_id) else {
+    for rig in stream.authority().actor_rigs() {
+        let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
             continue;
         };
         match &actor.kind {
@@ -237,8 +237,9 @@ fn population(stream: &WorldStream) -> Population {
 /// Centroid of the non-player actors, which the lobby camera faces.
 fn entity_centroid(stream: &WorldStream) -> Option<Vec3> {
     let points: Vec<Vec3> = stream
+        .authority()
         .actor_rigs()
-        .filter_map(|rig| stream.actor(rig.actor.runtime_id))
+        .filter_map(|rig| stream.authority().actor(rig.actor.runtime_id))
         .filter(|actor| matches!(actor.kind, ActorKind::Entity { .. }))
         .map(|actor| Vec3::from_array(actor.position))
         .collect();
@@ -294,7 +295,8 @@ fn build_world(
         super::set_vanilla_refs(refs);
     }
     let view = super::super::local_pack::local_pack_view_at(pack_path).unwrap();
-    let pack = super::compile(&view).expect("the pack defines entities");
+    let pack =
+        super::compile(&view, super::vanilla_refs().as_deref()).expect("the pack defines entities");
 
     let mut stream = WorldStream::new_with_asset_sets(
         capture.bootstrap,
@@ -637,5 +639,8 @@ fn lobby_frame_bench() {
             .geometry_spans
             .len()
     );
-    eprintln!("LOBBY_BENCH animation {:?}", stream.actor_animation_stats());
+    eprintln!(
+        "LOBBY_BENCH animation {:?}",
+        stream.authority().actor_animation_stats()
+    );
 }

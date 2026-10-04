@@ -62,7 +62,9 @@ impl<'a> TextureCatalog<'a> {
                     Flipbook {
                         frames,
                         ticks_per_frame: ticks as u32,
-                        blend: entry["blend_frames"].as_bool().unwrap_or(true),
+                        blend: entry["blend_frames"]
+                            .as_bool()
+                            .unwrap_or(pack_compiler::DEFAULT_BLEND_FRAMES),
                     },
                 );
             }

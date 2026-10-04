@@ -6,7 +6,7 @@ impl WorldStream {
     /// A popped asynchronous block update is not committed until its decode applies.
     #[must_use]
     pub fn inventory_committed_through(&self) -> Option<u64> {
-        if self.fatal_light_failure {
+        if self.lighting.fatal_failure {
             return None;
         }
         Some(self.committed_sequence())
@@ -33,7 +33,7 @@ impl WorldStream {
 
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
         if camera_position.iter().all(|value| value.is_finite()) {
-            self.last_request_player_chunk = Some(ChunkKey::new(
+            self.requests.last_player_chunk = Some(ChunkKey::new(
                 self.authority.current_dimension(),
                 floor_to_i32(camera_position[0]).div_euclid(16),
                 floor_to_i32(camera_position[2]).div_euclid(16),
@@ -65,7 +65,7 @@ impl WorldStream {
         let remaining = frame_deadline.saturating_duration_since(now);
         self.poll_deadline = Some(now + remaining - remaining / commit_budget::WORLD_MESH_SHARE);
         while report.light_results == 0 || !self.poll_budget_exhausted() {
-            let Ok(completion) = self.light_rx.try_recv() else {
+            let Ok(completion) = self.lighting.rx.try_recv() else {
                 break;
             };
             report.light_results += 1;
@@ -95,8 +95,8 @@ impl WorldStream {
         // preparation/present path stutter even though only the nearest
         // handful can be visible. Once the initial backlog drains, restore
         // the normal publication budget.
-        let mesh_budget = if self.pending_light.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
-            || self.in_flight_light.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
+        let mesh_budget = if self.lighting.jobs.pending.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
+            || self.lighting.jobs.in_flight.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
         {
             max_mesh_jobs.min(Self::INITIAL_MESH_DISPATCH_BUDGET_PER_POLL)
         } else {
@@ -107,9 +107,9 @@ impl WorldStream {
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
         if dispatch_budget == 0
             && mesh_budget != 0
-            && self.in_flight.is_empty()
+            && self.mesh_jobs.in_flight.is_empty()
             && self.staged_mesh_completions.is_empty()
-            && !self.pending_mesh.is_empty()
+            && !self.mesh_jobs.pending.is_empty()
         {
             dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL.min(mesh_budget);
         }
@@ -193,7 +193,7 @@ impl WorldStream {
             block[1].div_euclid(16),
             block[2].div_euclid(16),
         );
-        let light = self.light_store.light(key)?;
+        let light = self.lighting.store.light(key)?;
         let local = |axis: usize| block[axis].rem_euclid(16) as u8;
         let (x, y, z) = (local(0), local(1), local(2));
         Some((
@@ -356,7 +356,7 @@ impl WorldStream {
 impl WorldStream {
     #[must_use]
     pub const fn committed_view_cohort(&self) -> Option<ViewCohort> {
-        self.committed_view_cohort
+        self.publisher.cohort
     }
 }
 

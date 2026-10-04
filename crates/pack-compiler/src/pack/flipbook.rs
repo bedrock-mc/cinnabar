@@ -13,6 +13,8 @@ use super::{
 pub const MAX_FLIPBOOKS: usize = MAX_TEXTURE_KEYS;
 /// Maximum number of explicit frame indices retained for one flipbook.
 pub const MAX_FLIPBOOK_FRAMES: usize = 4_096;
+/// Vanilla interpolates frames unless an entry opts out; its pack only writes `false`.
+pub const DEFAULT_BLEND_FRAMES: bool = true;
 
 /// Flipbook metadata needed to keep animated strips out of static layers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,7 +101,12 @@ pub(super) fn read_flipbooks(
             }
         }
         let frames = flipbook_frames(entry.frames, index)?;
-        let blend_frames = flipbook_bool(entry.blend_frames, false, index, "blend_frames")?;
+        let blend_frames = flipbook_bool(
+            entry.blend_frames,
+            DEFAULT_BLEND_FRAMES,
+            index,
+            "blend_frames",
+        )?;
 
         let frame_count =
             u32::try_from(frames.len().max(1)).expect("bounded flipbook frame count fits u32");

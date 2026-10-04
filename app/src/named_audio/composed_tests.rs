@@ -49,7 +49,7 @@ fn forward_live_audio(
     mut messages: bevy::prelude::MessageWriter<SequencedAudioEvent>,
 ) {
     if let Some(stream) = world.stream.as_mut() {
-        crate::runtime::audio::drain_committed_audio(stream, |event| {
+        client_presentation::audio_ingress::drain_committed_audio(stream, |event| {
             messages.write(event);
         });
     }
@@ -62,13 +62,15 @@ fn composed_app() -> (bevy::prelude::App, rodio::dynamic_mixer::DynamicMixer<f32
             CameraPose, LocalPlayerFrameCarrier, LocalViewPose, publish_local_player_frame,
             resolve_camera_pose,
         },
-        local_player_camera_receipt::{CameraPublicationAttempt, begin_camera_publication_attempt},
         movement::{LocalPhysicsController, PhysicsCollisionRegistries},
         runtime::world::ClientWorld,
     };
     use bevy::prelude::*;
+    use client_presentation::local_player_camera_receipt::{
+        CameraPublicationAttempt, begin_camera_publication_attempt,
+    };
     let mut world = ClientWorld::new(Arc::new(assets::RuntimeAssets::diagnostic()));
-    world.stream = Some(client_world::WorldStream::new(protocol::WorldBootstrap {
+    world.stream = Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -155,7 +157,7 @@ fn actual_committed_ingress_camera_writer_publication_and_mixer_submit_admit_onc
     app.update();
     let proof = app
         .world()
-        .resource::<crate::local_player_camera_receipt::CameraPublicationAttempt>()
+        .resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .published()
         .unwrap();
     assert_eq!(proof.owner.sequence, 1);
@@ -191,9 +193,10 @@ fn delayed_actual_old_epoch_stop_cannot_cancel_current_epoch_submitted_voice() {
         let mut world = app
             .world_mut()
             .resource_mut::<crate::runtime::world::ClientWorld>();
-        crate::runtime::audio::drain_committed_audio(world.stream.as_mut().unwrap(), |event| {
-            held.push(event)
-        });
+        client_presentation::audio_ingress::drain_committed_audio(
+            world.stream.as_mut().unwrap(),
+            |event| held.push(event),
+        );
     }
     assert_eq!((held[0].dimension, held[0].dimension_epoch), (0, 0));
     commit(&mut app, 2, live_dimension(1));
@@ -202,7 +205,7 @@ fn delayed_actual_old_epoch_stop_cannot_cancel_current_epoch_submitted_voice() {
     app.update();
     let proof = app
         .world()
-        .resource::<crate::local_player_camera_receipt::CameraPublicationAttempt>()
+        .resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .published()
         .unwrap();
     assert_eq!((proof.owner.dimension, proof.owner.epoch), (0, 3));

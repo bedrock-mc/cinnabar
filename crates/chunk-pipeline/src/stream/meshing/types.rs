@@ -120,3 +120,7 @@ impl MeshSnapshot {
 pub(in crate::stream) fn mesh_offset_index([x, y, z]: [i8; 3]) -> usize {
     (usize::from((x + 1) as u8) * 3 + usize::from((y + 1) as u8)) * 3 + usize::from((z + 1) as u8)
 }
+
+/// Mesh scheduler lanes: resident geometry, and removals for evicted or known-air keys.
+pub(in crate::stream) const RESIDENT_MESH_LANE: usize = 0;
+pub(in crate::stream) const MESH_REMOVAL_LANE: usize = 1;

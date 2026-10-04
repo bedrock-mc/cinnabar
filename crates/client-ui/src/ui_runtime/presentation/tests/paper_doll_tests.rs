@@ -13,7 +13,7 @@ fn paper_doll_uses_the_pack_control_and_visibility_binding() {
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
-    let mut runtime = UiRuntime::new(1);
+    let runtime = UiRuntime::new(1);
     let mut player_runtime = player_state::PlayerState::new(1);
     for (mode, setting, visible) in [
         (PlayerGameMode::Survival, None, true),
@@ -23,7 +23,7 @@ fn paper_doll_uses_the_pack_control_and_visibility_binding() {
         (PlayerGameMode::Survival, Some("hide_hud"), false),
         (PlayerGameMode::Survival, None, true),
     ] {
-        runtime.publish_player_game_mode(&mut player_runtime, mode);
+        player_runtime.facts.publish_player_game_mode(mode);
         let mut options = SettingsOptions::default();
         if let Some(setting) = setting {
             let index = SETTINGS_OPTIONS

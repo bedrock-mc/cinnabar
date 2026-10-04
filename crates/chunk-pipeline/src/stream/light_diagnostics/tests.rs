@@ -51,7 +51,8 @@ fn lighting_report_distinguishes_stored_darkness_and_current_solve() {
     let key = SubChunkKey::new(0, 0, 2, 0);
     stream.record_known_air(key);
     stream
-        .light_store
+        .lighting
+        .store
         .insert_known_air(key, SubChunkLight::dark(0));
     let report = stream.lighting_diagnostic(&[[0.5, 43.5, 0.5]]);
     assert!(report.contains("presence=known-air"));
@@ -59,15 +60,15 @@ fn lighting_report_distinguishes_stored_darkness_and_current_solve() {
     assert!(
         report.contains("stored_block_sky=Some((0, 0)) solved_block_sky=None solve_current=false")
     );
-    stream.block_generations.insert(key, 1);
-    stream.light_ownership.insert(
+    stream.lighting.block_generations.insert(key, 1);
+    stream.lighting.ownership.insert(
         key,
         LightOwnership {
             block_generation: 1,
             light_revision: 0,
         },
     );
-    stream.direct_sky.insert(
+    stream.lighting.direct_sky.insert(
         key,
         StoredDirectSky {
             light_revision: 0,
@@ -191,7 +192,7 @@ fn failed_column_evidence_has_a_cap_and_is_pruned_without_resident_terrain() {
     assert_eq!(stream.light_diagnostics.columns.len(), MAX_RETAINED_COLUMNS);
     assert!(stream.light_diagnostics.column_evidence_truncated);
     assert!(stream.resident.is_empty());
-    assert!(stream.requested_sub_chunks.is_empty());
+    assert!(stream.requests.requested.is_empty());
     stream.chunk_radius = Some(1);
     stream.reevaluate_chunk_retention();
     assert!(stream.light_diagnostics.columns.len() < MAX_RETAINED_COLUMNS);

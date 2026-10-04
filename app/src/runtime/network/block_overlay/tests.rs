@@ -217,6 +217,16 @@ fn flipbook_texture_animates_listed_frames() {
     );
 }
 
+// A server flipbook that omits `blend_frames` interpolates, matching the offline compiler.
+#[test]
+fn flipbook_without_blend_frames_blends() {
+    let compiled = compiled();
+    let overlay = &compiled.overlay;
+    let material = overlay.materials[overlay.visuals[1].faces[0] as usize];
+    let animation = overlay.animations[material.animation as usize];
+    assert_ne!(animation.flags & assets::ANIMATION_FLAG_BLEND, 0);
+}
+
 // Geometry faces keep their pixel UVs and a quarter turn moves the front to the west.
 #[test]
 fn geometry_quads_follow_uvs_and_placement_rotation() {

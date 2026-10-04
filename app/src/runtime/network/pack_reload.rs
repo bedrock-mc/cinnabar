@@ -4,8 +4,9 @@ use super::reload_environment::{
     EnvironmentBase, PreparedEnvironment, apply_biome_overlay, prepare_environment,
 };
 use super::resource_packs::{self, PackApplication};
-use crate::{runtime::world::ClientWorld, ui_runtime::UiRuntime};
+use crate::runtime::world::ClientWorld;
 use bevy::prelude::{Query, Res, ResMut, Resource};
+use client_ui::ui_runtime::UiRuntime;
 use resource_pack::{PackAdmission, ValidatedPackStack};
 use std::{
     sync::{Arc, Mutex, mpsc},
@@ -36,7 +37,7 @@ pub(crate) struct PackReload {
     globals: Arc<ValidatedPackStack>,
     server: Arc<ValidatedPackStack>,
     inputs: Arc<PackInputs>,
-    items: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
+    items: Option<Arc<client_ui::ui_runtime::item_facts::SessionItemComponents>>,
     generation: u64,
     revision: u64,
     applied: u64,
@@ -246,10 +247,10 @@ pub(crate) fn reload_resource_packs(
     mut world: ResMut<ClientWorld>,
     mut ui: ResMut<UiRuntime>,
     mut textures: Option<ResMut<render::ChunkTextureAssets>>,
-    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
+    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     environment_base: Option<Res<EnvironmentBase>>,
     mut atmosphere: Option<ResMut<render::AtmosphereTextureAssets>>,
-    mut particles: Option<ResMut<render::ParticleSystem>>,
+    mut particles: Option<ResMut<render::ParticleSimulation>>,
     mut entity_artwork: Option<ResMut<render::ActorArtworkPages>>,
     gpu_reload: Option<Res<render::ChunkTextureReload>>,
     mut chunks: Query<&mut render::ChunkRenderInstance>,
@@ -368,7 +369,7 @@ pub(crate) fn reload_resource_packs(
                     if let (Some(particles), Some(next)) =
                         (particles.as_mut(), environment.particles)
                     {
-                        **particles = next;
+                        particles.0 = next;
                     }
                 }
                 let packs = prepared.application;

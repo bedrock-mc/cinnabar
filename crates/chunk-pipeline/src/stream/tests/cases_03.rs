@@ -54,14 +54,14 @@ fn unannounced_prefetch_column_prevents_explicit_cohort_exactness() {
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
-    stream.committed_view_cohort = Some(target);
-    stream.publisher_epoch = 1;
-    stream.required_columns = super::ViewCohort {
+    stream.publisher.cohort = Some(target);
+    stream.publisher.epoch = 1;
+    stream.publisher.required_columns = super::ViewCohort {
         publisher_geometry: None,
         ..target
     }
     .classifier_columns();
-    stream.loaded_columns = stream.required_columns.clone();
+    stream.loaded_columns = stream.publisher.required_columns.clone();
     stream.loaded_columns.insert(ChunkKey::new(0, 1, 1));
 
     let status = stream.cohort_status(target);
@@ -85,14 +85,14 @@ fn in_scope_prefetch_cannot_replace_a_missing_required_column() {
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
-    stream.committed_view_cohort = Some(target);
-    stream.publisher_epoch = 1;
-    stream.required_columns = super::ViewCohort {
+    stream.publisher.cohort = Some(target);
+    stream.publisher.epoch = 1;
+    stream.publisher.required_columns = super::ViewCohort {
         publisher_geometry: None,
         ..target
     }
     .classifier_columns();
-    stream.loaded_columns = stream.required_columns.clone();
+    stream.loaded_columns = stream.publisher.required_columns.clone();
     stream.loaded_columns.remove(&ChunkKey::new(0, 1, 0));
     stream.loaded_columns.insert(ChunkKey::new(0, 1, 1));
 
@@ -122,7 +122,7 @@ fn columns_outside_square_prefetch_scope_prevent_exact_cohort_readiness() {
         radius: 1,
         publisher_geometry: None,
     };
-    stream.committed_view_cohort = Some(target);
+    stream.publisher.cohort = Some(target);
     stream.loaded_columns = target.classifier_columns();
     stream.loaded_columns.insert(ChunkKey::new(0, 2, 0));
 
@@ -148,7 +148,7 @@ fn publisher_cohort_is_exposed_only_after_fifo_commit() {
         dimension: 0,
         center: [100, 0],
         radius: 16,
-        publisher_geometry: Some(super::PublisherViewGeometry {
+        publisher_geometry: Some(client_world::PublisherViewGeometry {
             center_blocks: [1_600, 0],
             radius_blocks: 256,
         }),
@@ -187,7 +187,7 @@ fn publisher_cohort_accessor_is_exposed_only_after_fifo_commit() {
         dimension: 0,
         center: [100, 0],
         radius: 16,
-        publisher_geometry: Some(super::PublisherViewGeometry {
+        publisher_geometry: Some(client_world::PublisherViewGeometry {
             center_blocks: [1_600, 0],
             radius_blocks: 256,
         }),
@@ -230,7 +230,7 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
         dimension: 0,
         center: [0, 0],
         radius: 16,
-        publisher_geometry: Some(super::PublisherViewGeometry {
+        publisher_geometry: Some(client_world::PublisherViewGeometry {
             center_blocks: [0, 0],
             radius_blocks: 256,
         }),
@@ -270,7 +270,7 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
         )
         .unwrap();
 
-    assert!(stream.source_columns.contains(&source));
+    assert!(stream.publisher.source_columns.contains(&source));
     assert!(!stream.tracked_columns().contains(&source));
     assert!(matches!(
         stream.take_committed_controls().as_slice(),
@@ -325,7 +325,7 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
         sent_at,
     );
     assert!(stream.tracked_columns().contains(&source));
-    assert!(!stream.sub_chunk_deadlines.is_empty());
+    assert!(!stream.requests.deadlines.is_empty());
 
     let destination = ChunkKey::new(0, 65, 65);
     stream
@@ -341,10 +341,10 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
         )
         .unwrap();
 
-    assert_eq!(stream.publisher_center, Some([1_040, 70, 1_040]));
+    assert_eq!(stream.publisher.center, Some([1_040, 70, 1_040]));
     assert_eq!(stream.committed_view_cohort(), None);
     assert!(!stream.tracked_columns().contains(&source));
-    assert!(stream.sub_chunk_deadlines.is_empty());
+    assert!(stream.requests.deadlines.is_empty());
     assert_eq!(stream.outstanding_sub_chunk_count(), 0);
     let armed = stream.phase2_publication_snapshot(destination);
     assert!(armed.local_reset_armed);
@@ -371,8 +371,8 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
         stream.stats().normalization_reasons.inactive_level_chunks,
         inactive_before
     );
-    assert!(stream.requested_sub_chunks.contains_key(&destination));
-    assert!(stream.required_columns.contains(&destination));
+    assert!(stream.requests.requested.contains_key(&destination));
+    assert!(stream.publisher.required_columns.contains(&destination));
 
     stream
         .submit(
@@ -384,9 +384,9 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
         )
         .unwrap();
 
-    assert!(stream.requested_sub_chunks.contains_key(&destination));
-    assert!(stream.required_columns.contains(&destination));
-    assert_eq!(stream.publisher_epoch, 2);
+    assert!(stream.requests.requested.contains_key(&destination));
+    assert!(stream.publisher.required_columns.contains(&destination));
+    assert_eq!(stream.publisher.epoch, 2);
     assert_eq!(stream.committed_view_cohort().unwrap().center, [65, 65]);
     let consumed = stream.phase2_publication_snapshot(destination);
     assert!(!consumed.local_reset_armed);
@@ -447,7 +447,7 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
             block_network_ids_are_hashes: false,
         });
         stream.chunk_radius = Some(8);
-        stream.publisher_radius_chunks = Some(8);
+        stream.publisher.radius_chunks = Some(8);
         let resident = SubChunkKey::new(0, 0, -4, 0);
         let requested = SubChunkKey::new(0, 1, -4, 0);
         let deadline = Instant::now() + super::SUB_CHUNK_RESPONSE_TIMEOUT;
@@ -458,9 +458,10 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
         stream.loaded_columns.insert(resident.chunk());
         stream.resident.insert(resident);
         stream
-            .requested_sub_chunks
+            .requests
+            .requested
             .insert(requested.chunk(), BTreeMap::from([(requested.y, pending)]));
-        stream.sub_chunk_deadlines.insert((deadline, requested));
+        stream.requests.deadlines.insert((deadline, requested));
         stream
     }
 
@@ -492,9 +493,9 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
         // rebases the publisher: the publisher center, armed local resets, and
         // rebase flag are all left untouched. Chunk-grid retention recenters on
         // the local player independently and is covered by its own tests.
-        assert_eq!(stream.publisher_center, Some([0, 70, 0]));
-        assert_eq!(stream.local_resets_armed, 0);
-        assert!(!stream.provisional_publisher_rebase);
+        assert_eq!(stream.publisher.center, Some([0, 70, 0]));
+        assert_eq!(stream.publisher.local_reset.armed, 0);
+        assert!(!stream.publisher.provisional_rebase);
     }
 }
 
@@ -532,7 +533,7 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
             dimension: 0,
             center: [0, 0],
             radius: 17,
-            publisher_geometry: Some(super::PublisherViewGeometry {
+            publisher_geometry: Some(client_world::PublisherViewGeometry {
                 center_blocks: [0, 0],
                 radius_blocks: 272,
             }),
@@ -807,10 +808,10 @@ fn eviction_purges_unsent_requests_and_late_subchunks_cannot_resurrect_the_colum
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
-    assert_eq!(stream.requests.len(), 1);
+    assert_eq!(stream.requests.queue.len(), 1);
 
     stream.evict_column(chunk);
-    assert!(stream.requests.is_empty());
+    assert!(stream.requests.queue.is_empty());
     stream
         .submit(
             2,
@@ -858,7 +859,7 @@ fn valid_late_inactive_subchunk_reply_records_stale_without_world_side_effects()
     complete_pending_decode_jobs(&mut stream);
     assert!(stream.column_is_active(chunk));
     assert_eq!(stream.take_requests().len(), 1);
-    assert!(stream.requested_sub_chunks.contains_key(&chunk));
+    assert!(stream.requests.requested.contains_key(&chunk));
 
     stream
         .submit(
@@ -875,11 +876,11 @@ fn valid_late_inactive_subchunk_reply_records_stale_without_world_side_effects()
     let resident_before = stream.resident.clone();
     let known_air_before = stream.known_air.clone();
     let loaded_columns_before = stream.loaded_columns.clone();
-    let requested_sub_chunks_before = stream.requested_sub_chunks.clone();
-    let sub_chunk_deadlines_before = stream.sub_chunk_deadlines.clone();
-    let deferred_retries_before = stream.deferred_retries.clone();
-    let deferred_retry_set_before = stream.deferred_retry_set.clone();
-    let requests_before = stream.requests.len();
+    let requested_sub_chunks_before = stream.requests.requested.clone();
+    let sub_chunk_deadlines_before = stream.requests.deadlines.clone();
+    let deferred_retries_before = stream.requests.deferred_retries.clone();
+    let deferred_retry_set_before = stream.requests.deferred_retry_set.clone();
+    let requests_before = stream.requests.queue.len();
     let stats_before = stream.stats();
 
     apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
@@ -888,11 +889,14 @@ fn valid_late_inactive_subchunk_reply_records_stale_without_world_side_effects()
     assert_eq!(stream.resident, resident_before);
     assert_eq!(stream.known_air, known_air_before);
     assert_eq!(stream.loaded_columns, loaded_columns_before);
-    assert_eq!(stream.requested_sub_chunks, requested_sub_chunks_before);
-    assert_eq!(stream.sub_chunk_deadlines, sub_chunk_deadlines_before);
-    assert_eq!(stream.deferred_retries, deferred_retries_before);
-    assert_eq!(stream.deferred_retry_set, deferred_retry_set_before);
-    assert_eq!(stream.requests.len(), requests_before);
+    assert_eq!(stream.requests.requested, requested_sub_chunks_before);
+    assert_eq!(stream.requests.deadlines, sub_chunk_deadlines_before);
+    assert_eq!(stream.requests.deferred_retries, deferred_retries_before);
+    assert_eq!(
+        stream.requests.deferred_retry_set,
+        deferred_retry_set_before
+    );
+    assert_eq!(stream.requests.queue.len(), requests_before);
     let mut expected_stats = stats_before;
     expected_stats.phase2_outcomes.stale = expected_stats.phase2_outcomes.stale.saturating_add(1);
     assert_eq!(stream.stats(), expected_stats);
@@ -927,7 +931,7 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
         Some(super::PHASE0_MAX_VIEW_RADIUS_CHUNKS)
     );
     assert_eq!(
-        stream.publisher_radius_chunks,
+        stream.publisher.radius_chunks,
         Some(super::PHASE0_MAX_VIEW_RADIUS_CHUNKS)
     );
     let stats = format!("{:?}", stream.stats());
@@ -955,7 +959,7 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
-    assert!(stream.requests.is_empty());
+    assert!(stream.requests.queue.is_empty());
 
     stream
         .submit(
@@ -1018,7 +1022,7 @@ fn subchunk_admission_requires_the_exact_expected_dimension_column_and_y() {
     assert!(stream.known_air.contains(&implicit_air));
     assert!(stream.authority.terrain().sub_chunk(implicit_air).is_none());
     assert_eq!(
-        stream.requested_sub_chunks[&ChunkKey::new(0, 0, 0)]
+        stream.requests.requested[&ChunkKey::new(0, 0, 0)]
             .keys()
             .copied()
             .collect::<BTreeSet<_>>(),

@@ -12,7 +12,7 @@ use protocol::{
 };
 
 use super::*;
-use crate::ui_runtime::presentation::refresh_hud_frame;
+use client_ui::ui_runtime::presentation::refresh_hud_frame;
 
 /// Reads an installed item fixture, skipping missing files and rejecting other read errors.
 fn local(name: &str) -> Option<Vec<u8>> {
@@ -34,7 +34,7 @@ fn local(name: &str) -> Option<Vec<u8>> {
 
 struct Harness {
     presentation: UiPresentationRuntime,
-    stream: client_world::WorldStream,
+    stream: chunk_pipeline::WorldStream,
 }
 
 fn harness() -> Option<Harness> {
@@ -66,7 +66,7 @@ fn harness() -> Option<Harness> {
         air_network_id: 0,
         block_network_ids_are_hashes: false,
     };
-    let stream = client_world::WorldStream::new_with_asset_sets(
+    let stream = chunk_pipeline::WorldStream::new_with_asset_sets(
         bootstrap,
         world,
         entities,
@@ -154,7 +154,9 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
     runtime
         .publish_local_runtime_id(&mut player_runtime, 1, 1)
         .unwrap();
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     runtime
         .enqueue_inventory_event(
             &mut player_runtime,
@@ -189,6 +191,7 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
             let stage = if frame.hotbar_stacks[slot].is_none() {
                 "no ledger stack"
             } else if stream
+                .authority()
                 .canonical_item_stack(frame.hotbar_stacks[slot].as_ref().unwrap())
                 .and_then(|item| item.identifier)
                 .is_none()
@@ -261,7 +264,9 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
     runtime
         .publish_local_runtime_id(&mut player_runtime, 1, 1)
         .unwrap();
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     let worn = [
         "minecraft:diamond_helmet",
         "minecraft:diamond_chestplate",

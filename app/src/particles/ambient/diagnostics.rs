@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use render::ParticleSystem;
+use particles::ParticleSystem;
 
 const REPORT_INTERVAL: Duration = Duration::from_secs(5);
 

@@ -159,7 +159,9 @@ pub fn inventory_session(player_runtime: &mut player_state::PlayerState) -> UiRu
 pub fn creative_with(player_runtime: &mut player_state::PlayerState, count: u32) -> UiRuntime {
     use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
     let mut runtime = inventory_session(player_runtime);
-    runtime.publish_player_game_mode(player_runtime, protocol::PlayerGameMode::Creative);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
     let categories = [
         CreativeCategory::Construction,
         CreativeCategory::Nature,

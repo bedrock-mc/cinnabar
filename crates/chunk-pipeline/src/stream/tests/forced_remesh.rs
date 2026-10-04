@@ -119,7 +119,12 @@ fn forced_remesh_of_frozen_published_manifest_skips_unpublished_and_air_keys() {
             .is_some_and(|(_, previous)| previous != generation)
     }));
     assert_eq!(
-        stream.pending_mesh.keys().copied().collect::<BTreeSet<_>>(),
+        stream
+            .mesh_jobs
+            .pending
+            .keys()
+            .copied()
+            .collect::<BTreeSet<_>>(),
         published.into_iter().collect(),
         "unpublished resident and known-air identities must not create no-mesh jobs"
     );
@@ -160,7 +165,7 @@ fn published_manifest_remesh_rejects_stale_duplicate_or_nonresident_allocations(
             .remesh_published_manifest(&[(stale_key, 6)], now)
             .is_none()
     );
-    assert!(stale.pending_mesh.is_empty());
+    assert!(stale.mesh_jobs.pending.is_empty());
 
     let (mut duplicate, duplicate_key) = new_stream();
     assert!(
@@ -168,7 +173,7 @@ fn published_manifest_remesh_rejects_stale_duplicate_or_nonresident_allocations(
             .remesh_published_manifest(&[(duplicate_key, 7), (duplicate_key, 7)], now)
             .is_none()
     );
-    assert!(duplicate.pending_mesh.is_empty());
+    assert!(duplicate.mesh_jobs.pending.is_empty());
 
     let (mut nonresident, nonresident_key) = new_stream();
     nonresident.resident.remove(&nonresident_key);
@@ -177,7 +182,7 @@ fn published_manifest_remesh_rejects_stale_duplicate_or_nonresident_allocations(
             .remesh_published_manifest(&[(nonresident_key, 7)], now)
             .is_none()
     );
-    assert!(nonresident.pending_mesh.is_empty());
+    assert!(nonresident.mesh_jobs.pending.is_empty());
 
     let (mut known_air, known_air_key) = new_stream();
     known_air.record_known_air(known_air_key);
@@ -187,7 +192,7 @@ fn published_manifest_remesh_rejects_stale_duplicate_or_nonresident_allocations(
             .is_none(),
         "a key that became known air must not create a forced removal job"
     );
-    assert!(known_air.pending_mesh.is_empty());
+    assert!(known_air.mesh_jobs.pending.is_empty());
 }
 
 #[test]

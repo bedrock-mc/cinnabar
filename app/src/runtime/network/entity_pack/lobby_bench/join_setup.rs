@@ -82,7 +82,7 @@ fn lobby_join_setup_bench() {
 
 /// Reports worker preparation separately so moving work cannot be mistaken for removing it.
 fn prepare_artwork(world: &mut World, trial: usize) {
-    use crate::runtime::network::prepared_actor_artwork::PreparedActorArtwork;
+    use client_presentation::prepared_actor_artwork::PreparedActorArtwork;
     let base = world.resource::<render::ActorArtworkPages>().clone();
     let pack = world
         .resource::<crate::runtime::world::ClientWorld>()

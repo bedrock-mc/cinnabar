@@ -56,7 +56,7 @@ fn inventory_frontier_stops_at_missing_predecessor_then_passes_malformed_chunk()
 #[test]
 fn inventory_frontier_refuses_latched_light_failure_without_a_diagnostic() {
     let mut stream = block_entity_visual_stream();
-    stream.fatal_light_failure = true;
+    stream.lighting.fatal_failure = true;
     assert!(stream.take_fatal_error().is_none());
     assert_eq!(stream.inventory_committed_through(), None);
 }

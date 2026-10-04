@@ -36,8 +36,8 @@ fn sword(name: Option<&str>) -> NetworkItemStack {
     }
 }
 
-fn stream() -> client_world::WorldStream {
-    client_world::WorldStream::new(WorldBootstrap {
+fn stream() -> chunk_pipeline::WorldStream {
+    chunk_pipeline::WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         local_player_runtime_id: 1,
         dimension: 0,
@@ -72,7 +72,9 @@ fn publish(
 fn selected_item_name_reads_nbt_and_restarts_for_same_kind_in_another_slot() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player, PlayerGameMode::Survival);
+    player
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     let stacks = vec![
         sword(Some("§r§bFFA Selector")),
         sword(Some("§6Duel Selector")),
@@ -87,7 +89,7 @@ fn selected_item_name_reads_nbt_and_restarts_for_same_kind_in_another_slot() {
         (0, 20_000, "§o§r§bFFA Selector§r"),
     ] {
         player.inventory.set_local_selected_slot(slot);
-        assert!(runtime.selected_stack_custom_name(&player).is_none());
+        assert!(player.selected_stack_custom_name().is_none());
         capture_hud_frame(
             &player,
             &mut runtime,
@@ -124,7 +126,9 @@ fn selected_item_name_reads_nbt_and_restarts_for_same_kind_in_another_slot() {
 fn selected_item_name_keeps_empty_custom_names_and_localizes_only_defaults() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player, PlayerGameMode::Survival);
+    player
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     let input = b"item.diamond_sword.name=Localized Sword\n";
     runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
         target.copy_from_slice(input);

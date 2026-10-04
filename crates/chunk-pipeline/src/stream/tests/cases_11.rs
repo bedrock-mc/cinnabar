@@ -88,14 +88,14 @@ fn confirmed_player_grid_admits_inline_column_after_publisher_shrinks() {
         .expect("publisher shrink commits a cohort identity");
     assert_eq!(
         target.publisher_geometry,
-        Some(super::PublisherViewGeometry {
+        Some(client_world::PublisherViewGeometry {
             center_blocks: [-512, -512],
             radius_blocks: 32,
         })
     );
-    assert_eq!(stream.publisher_center, Some([-512, 64, -512]));
-    assert_eq!(stream.publisher_radius_blocks, Some(32));
-    assert_eq!(stream.publisher_radius_chunks, Some(2));
+    assert_eq!(stream.publisher.center, Some([-512, 64, -512]));
+    assert_eq!(stream.publisher.radius_blocks, Some(32));
+    assert_eq!(stream.publisher.radius_chunks, Some(2));
 
     let status = stream.cohort_status(target);
     assert_eq!(status.expected, 1);
@@ -137,7 +137,7 @@ fn request_and_subchunk_completion_use_confirmed_player_grid_interest() {
     complete_pending_decode_jobs(&mut stream);
 
     assert!(stream.required_columns().contains(&key));
-    assert!(stream.requested_sub_chunks.contains_key(&key));
+    assert!(stream.requests.requested.contains_key(&key));
     let request = stream
         .pop_next_request()
         .expect("request-mode announcement queues its sub-chunk request");
@@ -439,9 +439,9 @@ fn ordinary_long_travel_prunes_evicted_required_history() {
 
     assert_ne!(stream.cohort_status(target).required_hash, origin_hash);
     assert_eq!(stream.committed_view_cohort(), Some(target));
-    assert_eq!(stream.publisher_epoch, 2);
-    assert_eq!(stream.publisher_center, Some([-512, 64, -512]));
-    assert_eq!(stream.publisher_radius_blocks, Some(32));
+    assert_eq!(stream.publisher.epoch, 2);
+    assert_eq!(stream.publisher.center, Some([-512, 64, -512]));
+    assert_eq!(stream.publisher.radius_blocks, Some(32));
 }
 
 #[test]
@@ -485,32 +485,32 @@ fn confirmed_radius_shrink_prunes_outer_requirement_but_keeps_inner_pending() {
     complete_pending_decode_jobs(&mut stream);
     let request = stream.pop_next_request().expect("inner request is queued");
     acknowledge_request_sent(&mut stream, &request, Instant::now());
-    let deadlines_before = stream.sub_chunk_deadlines.clone();
+    let deadlines_before = stream.requests.deadlines.clone();
     let confirmed_attempts_before =
-        stream.requested_sub_chunks[&inner][&request.base_sub_chunk_y].confirmed_attempts;
+        stream.requests.requested[&inner][&request.base_sub_chunk_y].confirmed_attempts;
     let target = stream.committed_view_cohort().unwrap();
 
     assert_eq!(stream.required_columns(), &BTreeSet::from([inner, outer]));
-    assert!(stream.requested_sub_chunks.contains_key(&inner));
+    assert!(stream.requests.requested.contains_key(&inner));
     assert!(!stream.loaded_columns.contains(&inner));
     assert!(stream.loaded_columns.contains(&outer));
     assert_eq!(confirmed_attempts_before, 1);
-    assert_eq!(stream.sub_chunk_deadlines.len(), 1);
+    assert_eq!(stream.requests.deadlines.len(), 1);
 
     stream.submit(5, WorldEvent::ChunkRadiusUpdated(2)).unwrap();
 
     assert_eq!(stream.required_columns(), &BTreeSet::from([inner]));
-    assert!(stream.requested_sub_chunks.contains_key(&inner));
+    assert!(stream.requests.requested.contains_key(&inner));
     assert!(!stream.loaded_columns.contains(&inner));
-    assert_eq!(stream.sub_chunk_deadlines, deadlines_before);
+    assert_eq!(stream.requests.deadlines, deadlines_before);
     assert_eq!(
-        stream.requested_sub_chunks[&inner][&request.base_sub_chunk_y].confirmed_attempts,
+        stream.requests.requested[&inner][&request.base_sub_chunk_y].confirmed_attempts,
         confirmed_attempts_before
     );
     assert!(!stream.tracked_columns().contains(&outer));
     assert_eq!(stream.committed_view_cohort(), Some(target));
-    assert_eq!(stream.publisher_center, Some([0, 70, 0]));
-    assert_eq!(stream.publisher_radius_blocks, Some(32));
+    assert_eq!(stream.publisher.center, Some([0, 70, 0]));
+    assert_eq!(stream.publisher.radius_blocks, Some(32));
     let status = stream.cohort_status(target);
     assert_eq!(status.expected, 1);
     assert_eq!(status.loaded_target, 0);

@@ -1,7 +1,8 @@
 //! Borrowed facts supplied at the caller's existing ordered frame boundary.
 
 use assets::NetworkIdMode;
-use client_world::{ActorStatusNotice, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::ActorStatusNotice;
 use semantic_input::{Action, ActionPhase, ActionSnapshot};
 use sim::{CollisionRegistry, PlayerState, WorldCollisionIdentity};
 

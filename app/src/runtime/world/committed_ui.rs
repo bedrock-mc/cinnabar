@@ -1,12 +1,13 @@
 //! The sole FIFO committed-UI drain, before frame input authority.
 use super::{ClientWorld, WorldClock, record_fatal_error};
-use crate::block_cracks::consume_committed_block_crack;
-use crate::ui_runtime::{SequencedLocalAttributes, SequencedUiEvent, UiRuntime};
 use bevy::{
     prelude::{Res, ResMut, Time},
     time::Real,
 };
-use client_world::{CommittedControlEvent, CommittedUiEvent, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_ui::block_cracks::consume_committed_block_crack;
+use client_ui::ui_runtime::{SequencedLocalAttributes, SequencedUiEvent, UiRuntime};
+use client_world::{CommittedControlEvent, CommittedUiEvent};
 
 pub(crate) fn drain_committed_ui_before_authority(
     mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
@@ -25,7 +26,9 @@ pub(crate) fn drain_committed_ui_before_authority(
                 && stream.inventory_committed_through().is_some()
         })
         .map(|stream| stream.biome_tint_identity().stream());
-    ui_runtime.synchronize_local_abilities(&mut player_runtime, session, ability_stream);
+    player_runtime
+        .facts
+        .synchronize_local_abilities(session, ability_stream);
     let craft_identity = client_world
         .stream
         .as_ref()
@@ -52,9 +55,9 @@ pub(crate) fn drain_committed_ui_before_authority(
     if !committed_ui.is_empty() {
         // Rawtext score owners and selectors resolve against the stream's
         // authoritative actor names and player list as of this drain.
-        let known_player_names = stream.player_list_usernames();
+        let known_player_names = stream.authority().player_list_usernames();
         ui_runtime.refresh_raw_text_identities(
-            |unique_id| stream.actor_display_name(unique_id),
+            |unique_id| stream.authority().actor_display_name(unique_id),
             known_player_names,
         );
     }
@@ -76,8 +79,7 @@ pub(crate) fn drain_committed_ui_before_authority(
                 event,
             } => {
                 if Some(stream_identity) == ability_stream {
-                    ui_runtime.apply_local_abilities(
-                        &mut player_runtime,
+                    player_runtime.facts.apply_local_abilities(
                         session,
                         stream_identity,
                         sequence,
@@ -181,7 +183,7 @@ pub(crate) fn drain_committed_ui_before_authority(
             ),
         };
         if let Err(error) = result {
-            ui_runtime.clear_local_abilities(&mut player_runtime);
+            player_runtime.facts.clear_local_abilities();
             record_fatal_error(
                 &mut client_world.fatal_error,
                 format!("committed UI/gameplay event rejected: {error:?}"),
@@ -205,8 +207,8 @@ pub(super) fn refresh_player_list_cache_for_controls(
         return;
     }
     ui_runtime.refresh_raw_text_identities(
-        |unique_id| stream.actor_display_name(unique_id),
-        stream.player_list_usernames(),
+        |unique_id| stream.authority().actor_display_name(unique_id),
+        stream.authority().player_list_usernames(),
     );
 }
 

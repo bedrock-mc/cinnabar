@@ -3,13 +3,9 @@
 use bevy::prelude::*;
 #[cfg(feature = "local-mods")]
 use {
-    crate::{
-        app::ClientFrameSet,
-        environment::VisualTimeOverride,
-        menu::MenuRuntime,
-        ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
-    },
+    crate::{app::ClientFrameSet, environment::VisualTimeOverride, menu::MenuRuntime},
     bevy::window::{CursorOptions, PrimaryWindow},
+    client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
     mod_host::{ModGrants, ModHost},
     std::{
         path::Path,

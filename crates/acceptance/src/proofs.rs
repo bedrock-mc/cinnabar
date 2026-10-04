@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use client_world::ViewCohortStatus;
+use chunk_pipeline::ViewCohortStatus;
 use render::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;
 

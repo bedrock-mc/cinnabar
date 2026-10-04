@@ -1,6 +1,6 @@
 //! Borrows session identity for the presentation audio lane.
-use crate::runtime::audio::SequencedAudioEvent;
 use bevy::prelude::*;
+use client_presentation::audio_ingress::SequencedAudioEvent;
 pub use client_presentation::session_audio::{
     AudioOutcome, AudioSkipReason, MAX_SESSION_AUDIO_OUTCOMES, ResolvedPlayback, SessionAudio,
     SessionAudioCatalog,
@@ -22,7 +22,7 @@ pub(crate) fn drain_sequenced_audio_into_session(
         let stream_id = client_world
             .stream
             .as_ref()
-            .map(|stream| stream.actor_session_id());
+            .map(|stream| stream.authority().actor_session_id());
         wire.bind(stream_id);
         if let Some(stream_id) = stream_id {
             for event in wire_messages.read() {

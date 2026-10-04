@@ -32,7 +32,7 @@ fn seasonal_roof_add_remove_invalidates_only_leaf_meshes_below_in_the_same_colum
             MeshDependencyMask::default().with_seasonal_foliage(key != plain)
         ));
     }
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
     let plain_generation = stream.revisions.dirty(plain).unwrap().revision;
     let neighbour_generation = stream.revisions.dirty(neighbor).unwrap().revision;
     for _mutation in ["add roof", "remove roof"] {
@@ -53,7 +53,7 @@ fn seasonal_roof_add_remove_invalidates_only_leaf_meshes_below_in_the_same_colum
             current,
             MeshDependencyMask::default().with_seasonal_foliage(true)
         ));
-        stream.pending_mesh.clear();
+        stream.mesh_jobs.pending.clear();
     }
 }
 

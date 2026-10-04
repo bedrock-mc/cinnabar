@@ -304,7 +304,8 @@ fn session_and_dimension_retirement_clear_every_unsent_response() {
             .respond_to_server_form(old, LocalFormAction::Dismiss)
             .unwrap();
         if new_session {
-            runtime.begin_session(&mut player_runtime, 2);
+            player_runtime.begin_session(2);
+            runtime.begin_session(2);
         } else {
             runtime.note_stream_dimension(1);
         }

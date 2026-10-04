@@ -1,5 +1,5 @@
 use crate::player_runtime::PlayerRuntime;
-use crate::ui_runtime::{
+use client_ui::ui_runtime::{
     UiRuntime,
     inventory_router::{EquipmentRoute, EquipmentRouteResult},
 };
@@ -81,7 +81,7 @@ fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes(
     );
     assert_eq!(runtime.gameplay_hud().offhand_is_empty(), Some(true));
     assert!(runtime.gameplay_hud().offhand_stack().is_none());
-    runtime.begin_session(&mut player_runtime, 2);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
     assert_eq!(runtime.gameplay_hud().offhand_is_empty(), None);
     runtime
         .enqueue_inventory_event(
@@ -119,7 +119,7 @@ fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes(
         .unwrap();
     runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(runtime.gameplay_hud().offhand_is_empty(), Some(true));
-    runtime.begin_session(&mut player_runtime, 3);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 3);
     assert_eq!(runtime.gameplay_hud().offhand_is_empty(), None);
 }
 
@@ -127,9 +127,8 @@ fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes(
 fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
     let player_runtime = PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::{
-        IconRef, UiPresentationRuntime, refresh_hud_frame, tests::fixture_font,
-    };
+    use crate::ui_runtime::presentation::tests::fixture_font;
+    use client_ui::ui_runtime::presentation::{IconRef, UiPresentationRuntime, refresh_hud_frame};
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let pixels = vec![255; 64 * 64 * 4];
     presentation.set_player_preview_skin(Some(&pixels), Default::default());
@@ -181,10 +180,8 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
 fn active_hand_rig_retires_the_cpu_hand_and_item_quads() {
     let player_runtime = PlayerRuntime::new(1);
 
-    use crate::ui_runtime::presentation::{
-        UiPresentationRuntime, refresh_hud_frame,
-        tests::{fixture_font, fixture_hud},
-    };
+    use crate::ui_runtime::presentation::tests::{fixture_font, fixture_hud};
+    use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     presentation.set_player_preview_skin(Some(&vec![255; 64 * 64 * 4]), Default::default());
     let mut runtime = UiRuntime::new(1);
@@ -330,7 +327,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
     use std::sync::Arc;
     let (_pack, geometry, entities) = hand_fixture();
     let assets = Arc::new(assets::RuntimeAssets::diagnostic());
-    let mut stream = client_world::WorldStream::new_with_asset_sets(
+    let mut stream = chunk_pipeline::WorldStream::new_with_asset_sets(
         WorldBootstrap {
             local_player_unique_id: 1,
             dimension: 0,
@@ -528,7 +525,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         Some(HandFallback::ItemsUnknownOrHeld)
     );
     crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-        runtime.begin_session(player_runtime, 2);
+        crate::session::begin_session(runtime, player_runtime, 2);
     });
     app.world_mut().run_system_once(observe).unwrap();
     assert_eq!(app.world().resource::<HandAdapter>().stats.mode, None);
@@ -567,7 +564,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
     );
     assert_eq!(app.world().resource::<HandAdapter>().stats.mode, None);
     crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-        runtime.begin_session(player_runtime, 3);
+        crate::session::begin_session(runtime, player_runtime, 3);
         runtime
             .publish_local_runtime_id(player_runtime, 3, 1)
             .unwrap();

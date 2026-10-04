@@ -5,7 +5,8 @@ use std::{path::PathBuf, sync::Arc};
 
 use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::math::{Mat4, Vec3, Vec4};
-use client_world::{LocalPlayerFeed, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::LocalPlayerFeed;
 use protocol::{PlayerSkin, WorldBootstrap};
 use render::{ActorRigFrameBuilder, ActorRigVertex, RenderBoneTransform};
 
@@ -280,9 +281,9 @@ fn render_first_person_held_item_frames() {
             world.sync_local_player_pose(&feed(identifier, !third));
             world.advance_actor_interpolation_ticks(1);
         }
-        let rig = world.actor_rig(1).unwrap();
+        let rig = world.authority().actor_rig(1).unwrap();
         let presentation =
-            actor_rig_presentation(&rig, world.actor(1).unwrap(), None, 1.0).unwrap();
+            actor_rig_presentation(&rig, world.authority().actor(1).unwrap(), None, 1.0).unwrap();
         let placement = if third {
             // Looks at the model's right side from ahead of it (it faces +Z at yaw 0).
             Mat4::look_at_rh(Vec3::new(-3.0, 1.0, 0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::Y)

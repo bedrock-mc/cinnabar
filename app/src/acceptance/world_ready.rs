@@ -17,7 +17,7 @@ pub(crate) use ::acceptance::world_ready::{
 };
 pub(crate) use ::acceptance::world_ready::{SubChunkTimeoutProgress, WorldReadyWork};
 use bevy::prelude::*;
-use client_world::{ForcedRemeshManifest, ForcedRemeshManifestState, WorldStream};
+use chunk_pipeline::{ForcedRemeshManifest, ForcedRemeshManifestState, WorldStream};
 use render::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
 use std::time::Instant;
 use world::SubChunkKey;

@@ -5,7 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use client_world::{CommittedControlEvent, ViewCohort, ViewCohortStatus};
+use chunk_pipeline::ViewCohortStatus;
+use client_world::{CommittedControlEvent, ViewCohort};
 use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
 #[cfg(any(test, feature = "test-support"))]
 use world::SubChunkKey;

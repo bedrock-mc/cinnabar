@@ -1,6 +1,6 @@
 //! Form event fixture shared by app input integration tests.
 
-use crate::ui_runtime::SequencedUiEvent;
+use client_ui::ui_runtime::SequencedUiEvent;
 use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
 use std::sync::Arc;
 

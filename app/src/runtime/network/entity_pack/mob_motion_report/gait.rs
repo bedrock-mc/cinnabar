@@ -29,7 +29,7 @@ pub(super) fn verify(world: &WorldStream) -> [Vec<BoneTransform>; 2] {
         super::selected_bones(world, MOB_IDS[1], "leg"),
     ];
     let rotation = |species: usize, name: &str| {
-        let rig = world.actor_rig(MOB_IDS[species]).unwrap();
+        let rig = world.authority().actor_rig(MOB_IDS[species]).unwrap();
         let bone = rig
             .bone_names
             .iter()
@@ -64,7 +64,7 @@ pub(super) fn verify(world: &WorldStream) -> [Vec<BoneTransform>; 2] {
 }
 
 pub(super) fn verify_stopped(world: &WorldStream, species: usize) {
-    let rig = world.actor_rig(MOB_IDS[species]).unwrap();
+    let rig = world.authority().actor_rig(MOB_IDS[species]).unwrap();
     for (index, name) in rig
         .bone_names
         .iter()

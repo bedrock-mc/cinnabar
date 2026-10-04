@@ -1,4 +1,4 @@
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use sim::{Aabb, Vec3, sample_actor_liquids};
 
 use crate::observations::CollisionLookup;
@@ -13,6 +13,7 @@ pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn Colli
         stream.current_dimension(),
     );
     let fluids: Vec<_> = stream
+        .authority()
         .actor_fluid_probes()
         .into_iter()
         .filter_map(|probe| {
@@ -24,6 +25,7 @@ pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn Colli
         })
         .collect();
     let beds: Vec<_> = stream
+        .authority()
         .actor_bed_sample_points()
         .into_iter()
         .filter_map(|(runtime_id, block)| {

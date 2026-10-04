@@ -13,12 +13,10 @@ use bevy::{
 use ui::{DpiScale, UiPoint, UiVisual};
 
 use super::*;
-use crate::ui_runtime::{
+use crate::ui_runtime::presentation::forms::pack_harness;
+use client_ui::ui_runtime::{
     UiRuntime,
-    presentation::{
-        UiPresentationRuntime,
-        forms::{pack_harness, snapshot},
-    },
+    presentation::{UiPresentationRuntime, forms::snapshot},
 };
 
 #[derive(Resource)]
@@ -485,7 +483,7 @@ fn exercise_server_fields(dpi: f32) {
         .app
         .world_mut()
         .resource_mut::<MenuRuntime>()
-        .take_pending_connect()
+        .take_join_intent()
         .expect("Play queues connection");
     assert_eq!(pending.address, "localhost:19134");
     let menu = h.app.world().resource::<MenuRuntime>();

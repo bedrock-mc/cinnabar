@@ -40,7 +40,7 @@ pub fn spawn_network<P: Send + 'static>(
                     return;
                 }
             };
-            runtime.block_on(async move {
+            run_session_runtime(runtime, async move {
                 let Some(login) = wait_for_login_or_cancel(
                     LoginSequence::connect_with_blob_cache(
                         &config.socket_dir,
@@ -69,10 +69,25 @@ pub fn spawn_network<P: Send + 'static>(
                 // publishing any StartGame state; optional semantic rejection
                 // remains a live base-assets session, a required one ends it.
                 let handoff = session.take_resource_pack_handoff();
-                let preparation = crate::prepare_session_packs(handoff, &game_data);
-                let packs = match prepare_presentation(&preparation, &game_data) {
-                    Ok(packs) => packs,
-                    Err(error) => {
+                let cancelled = shutdown_rx.clone();
+                let Some((preparation, game_data, packs)) = run_blocking_or_cancel(
+                    move || {
+                        let preparation = crate::prepare_session_packs(handoff, &game_data);
+                        let packs = unless_cancelled(&cancelled, || {
+                            prepare_presentation(&preparation, &game_data)
+                        });
+                        (preparation, game_data, packs)
+                    },
+                    &mut shutdown_rx,
+                )
+                .await
+                else {
+                    return;
+                };
+                let packs = match packs {
+                    None => return,
+                    Some(Ok(packs)) => packs,
+                    Some(Err(error)) => {
                         send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None)
                             .await;
                         return;
@@ -172,6 +187,12 @@ pub fn spawn_network<P: Send + 'static>(
     })
 }
 
+/// Drives the session without waiting on a cancelled preparation that is still compiling.
+fn run_session_runtime(runtime: tokio::runtime::Runtime, session: impl Future<Output = ()>) {
+    runtime.block_on(session);
+    runtime.shutdown_background();
+}
+
 /// Routes startup transfers to the same reconnect owner as play-phase transfers.
 async fn send_login_error<P>(
     controls: &mpsc::Sender<NetworkControlEvent<P>>,
@@ -266,6 +287,66 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    // Cancelling during pack preparation ends the network thread while the compile still runs.
+    #[test]
+    fn cancelled_preparation_releases_the_network_thread() {
+        let (release, blocked) = std::sync::mpsc::channel::<()>();
+        let (finished, thread_done) = std::sync::mpsc::channel();
+        let (shutdown, mut shutdown_rx) = watch::channel(false);
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let thread = thread::spawn(move || {
+            run_session_runtime(runtime, async move {
+                let prepared =
+                    run_blocking_or_cancel(move || blocked.recv().is_ok(), &mut shutdown_rx).await;
+                assert!(prepared.is_none());
+            });
+            finished.send(()).unwrap();
+        });
+        shutdown.send_replace(true);
+        let ended = thread_done.recv_timeout(std::time::Duration::from_secs(5));
+        let _ = release.send(());
+        thread.join().unwrap();
+        ended.expect("the network thread outlived its cancelled preparation");
+    }
+
+    // Shutdown must not wait on the watch channel while a compile is running.
+    #[test]
+    fn shutdown_returns_while_presentation_compiles() {
+        let (shutdown, cancelled) = watch::channel(false);
+        let (started, compiling) = std::sync::mpsc::channel();
+        let (release, blocked) = std::sync::mpsc::channel::<()>();
+        let worker = thread::spawn(move || {
+            unless_cancelled(&cancelled, || {
+                started.send(()).unwrap();
+                blocked.recv().is_ok()
+            })
+        });
+        compiling.recv().unwrap();
+        let (sent, shutdown_done) = std::sync::mpsc::channel();
+        let notifier = thread::spawn(move || {
+            shutdown.send_replace(true);
+            sent.send(()).unwrap();
+        });
+        let returned = shutdown_done.recv_timeout(std::time::Duration::from_secs(5));
+        release.send(()).unwrap();
+        assert_eq!(worker.join().unwrap(), Some(true));
+        notifier.join().unwrap();
+        returned.expect("shutdown blocked behind the running compile");
+    }
+
+    #[tokio::test]
+    async fn uncancelled_preparation_returns_its_output() {
+        let (_shutdown, mut shutdown_rx) = watch::channel(false);
+        assert_eq!(
+            run_blocking_or_cancel(|| 7, &mut shutdown_rx).await,
+            Some(7)
+        );
     }
 
     #[tokio::test]

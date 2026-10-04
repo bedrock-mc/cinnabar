@@ -55,6 +55,27 @@ where
     }
 }
 
+/// Runs CPU-bound work on the blocking pool; `None` once the session is cancelled.
+pub(super) async fn run_blocking_or_cancel<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Option<T> {
+    match wait_for_login_or_cancel(tokio::task::spawn_blocking(work), shutdown).await? {
+        Ok(output) => Some(output),
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(_) => None,
+    }
+}
+
+/// Runs `work` unless the session is already cancelled, without borrowing the channel meanwhile.
+pub(super) fn unless_cancelled<T>(
+    cancelled: &watch::Receiver<bool>,
+    work: impl FnOnce() -> T,
+) -> Option<T> {
+    let cancelled = *cancelled.borrow();
+    (!cancelled).then(work)
+}
+
 pub(super) async fn wait_for_send_or_cancel<F>(
     send: F,
     shutdown: &mut watch::Receiver<bool>,

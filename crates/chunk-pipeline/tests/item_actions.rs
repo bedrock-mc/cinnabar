@@ -7,9 +7,10 @@ use assets::{
     ItemVisualDefinitionRoute, ItemVisualId, ItemVisualKey, ItemVisualRoute, RuntimeAssets,
     RuntimeEntityAssets, encode_entity_blob,
 };
-use chunk_pipeline::{
+use chunk_pipeline::WorldStream;
+use client_world::{
     ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, MAX_ACTIONS_PER_ACTOR, MAX_ITEM_REGISTRY_RECORDS,
-    MAX_PENDING_ITEM_RESOLUTIONS, RemoteActionFallback, WorldStream,
+    MAX_PENDING_ITEM_RESOLUTIONS, RemoteActionFallback,
 };
 use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorHandedness, ActorKind, ActorMoveEvent,
@@ -261,7 +262,7 @@ fn spawn_equipment_resolves_after_registry_without_mutating_stack_identity() {
     let held = stack(CUSTOM_ITEM_ID, 1, b"exact-extra");
     stream.submit(1, spawn(42, -42, held.clone())).unwrap();
 
-    let unresolved = stream.actor_equipment(42).unwrap().clone();
+    let unresolved = stream.authority().actor_equipment(42).unwrap().clone();
     assert_eq!(unresolved.item.identifier, None);
     assert_eq!(unresolved.item.visual, ItemVisualRoute::Missing);
     assert_eq!(unresolved.hand, ActorHandedness::Right);
@@ -272,7 +273,7 @@ fn spawn_equipment_resolves_after_registry_without_mutating_stack_identity() {
     stream
         .submit(2, registry(CUSTOM_ITEM_ID, "minecraft:red_apple"))
         .unwrap();
-    let resolved = stream.actor_equipment(42).unwrap();
+    let resolved = stream.authority().actor_equipment(42).unwrap();
     assert_eq!(resolved.item.identity, unresolved.item.identity);
     assert_eq!(
         resolved.item.identifier.as_deref(),
@@ -283,7 +284,7 @@ fn spawn_equipment_resolves_after_registry_without_mutating_stack_identity() {
         ItemVisualRoute::Compiled(ItemVisualId(0))
     );
     assert_eq!(resolved.event, unresolved.event);
-    assert_eq!(stream.pending_item_resolution_count(), 0);
+    assert_eq!(stream.authority().pending_item_resolution_count(), 0);
 }
 
 #[test]
@@ -305,7 +306,7 @@ fn registry_first_and_equipment_replacement_preserve_slots_and_handedness() {
             ),
         )
         .unwrap();
-    let left = stream.actor_equipment(42).unwrap();
+    let left = stream.authority().actor_equipment(42).unwrap();
     assert_eq!(left.hand, ActorHandedness::Left);
     assert!(!left.hand_defaulted);
     assert_eq!(left.inventory_slot, 4);
@@ -323,12 +324,13 @@ fn registry_first_and_equipment_replacement_preserve_slots_and_handedness() {
             ),
         )
         .unwrap();
-    let right = stream.actor_equipment(42).unwrap();
+    let right = stream.authority().actor_equipment(42).unwrap();
     assert_eq!(right.hand, ActorHandedness::Right);
     assert!(!right.hand_defaulted);
     assert_eq!(right.item.identity.count, 2);
     assert_eq!(right.event.ingress_sequence, 4);
     let retained_left = stream
+        .authority()
         .actor_equipment_in_hand(42, ActorHandedness::Left)
         .expect("left-hand equipment remains independently addressable");
     assert_eq!(retained_left.item.identity.count, 1);
@@ -344,13 +346,13 @@ fn latest_registry_re_resolves_live_equipment_without_changing_identity() {
     stream
         .submit(2, spawn(42, -42, stack(CUSTOM_ITEM_ID, 1, b"same")))
         .unwrap();
-    let original = stream.actor_equipment(42).unwrap().clone();
+    let original = stream.authority().actor_equipment(42).unwrap().clone();
     assert_eq!(original.item.identifier.as_deref(), Some("minecraft:apple"));
 
     stream
         .submit(3, registry(CUSTOM_ITEM_ID, "minecraft:red_apple"))
         .unwrap();
-    let replaced = stream.actor_equipment(42).unwrap();
+    let replaced = stream.authority().actor_equipment(42).unwrap();
     assert_eq!(replaced.item.identity, original.item.identity);
     assert_eq!(
         replaced.item.identifier.as_deref(),
@@ -377,19 +379,19 @@ fn stacks_equal_except_retained_block_identity_canonicalize_distinctly() {
     // The two wire stacks differ only in their retained block runtime
     // identity; canonical identity must keep them apart instead of silently
     // collapsing them.
-    let plain_canonical = stream.canonical_item_stack(&plain).unwrap();
-    let blocked_canonical = stream.canonical_item_stack(&blocked).unwrap();
+    let plain_canonical = stream.authority().canonical_item_stack(&plain).unwrap();
+    let blocked_canonical = stream.authority().canonical_item_stack(&blocked).unwrap();
     assert_ne!(plain_canonical, blocked_canonical);
     assert_ne!(plain_canonical.identity, blocked_canonical.identity);
     assert_eq!(plain_canonical.identity.block_runtime_id, 0);
     assert_eq!(blocked_canonical.identity.block_runtime_id, 180);
 
     stream.submit(2, spawn(42, -42, plain)).unwrap();
-    let plain_snapshot = stream.actor_equipment(42).unwrap().clone();
+    let plain_snapshot = stream.authority().actor_equipment(42).unwrap().clone();
     stream
         .submit(3, equipment(42, blocked, Some(ActorHandedness::Right)))
         .unwrap();
-    let blocked_snapshot = stream.actor_equipment(42).unwrap();
+    let blocked_snapshot = stream.authority().actor_equipment(42).unwrap();
     assert_ne!(blocked_snapshot.item.identity, plain_snapshot.item.identity);
     assert_eq!(blocked_snapshot.item.identity.block_runtime_id, 180);
 }
@@ -429,7 +431,7 @@ fn retained_block_runtime_identity_routes_fail_visible_and_survives_reresolution
 
     // The sprite-resolving identifier does not launder the retained block
     // identity: the route carries an explicit fail-visible block marker.
-    let held = stream.actor_equipment(42).unwrap().clone();
+    let held = stream.authority().actor_equipment(42).unwrap().clone();
     assert_eq!(held.item.identifier.as_deref(), Some("minecraft:red_apple"));
     assert_eq!(
         held.item.visual,
@@ -443,7 +445,7 @@ fn retained_block_runtime_identity_routes_fail_visible_and_survives_reresolution
     stream
         .submit(3, registry(CUSTOM_ITEM_ID, "minecraft:apple"))
         .unwrap();
-    let re_resolved = stream.actor_equipment(42).unwrap();
+    let re_resolved = stream.authority().actor_equipment(42).unwrap();
     assert_eq!(re_resolved.item.identity, held.item.identity);
     assert_eq!(
         re_resolved.item.identifier.as_deref(),
@@ -468,7 +470,7 @@ fn retained_block_runtime_identity_routes_fail_visible_and_survives_reresolution
             ),
         )
         .unwrap();
-    let sprite_item = stream.actor_equipment(42).unwrap();
+    let sprite_item = stream.authority().actor_equipment(42).unwrap();
     assert_eq!(sprite_item.item.identity.block_runtime_id, 0);
     assert_eq!(
         sprite_item.item.visual,
@@ -486,7 +488,7 @@ fn unresolved_identifiers_with_retained_block_identity_stay_fail_visible() {
         )
         .unwrap();
 
-    let item = &stream.actor_equipment(42).unwrap().item;
+    let item = &stream.authority().actor_equipment(42).unwrap().item;
     assert_eq!(item.identifier, None);
     assert_eq!(
         item.visual,
@@ -519,7 +521,7 @@ fn compiled_block_item_routes_stay_authoritative_over_retained_identity() {
     // A compiled block-item route remains the explicit block-item path even
     // when the wire also retained a block runtime identity; the retained id
     // stays bound into the canonical identity either way.
-    let item = &stream.actor_equipment(42).unwrap().item;
+    let item = &stream.authority().actor_equipment(42).unwrap().item;
     assert_eq!(item.visual, ItemVisualRoute::BlockItem(BlockVisualId(0)));
     assert_eq!(item.identity.block_runtime_id, 44);
 }
@@ -541,7 +543,7 @@ fn pending_resolution_queue_is_bounded_and_registry_still_resolves_overflow() {
             .unwrap();
     }
     assert_eq!(
-        stream.pending_item_resolution_count(),
+        stream.authority().pending_item_resolution_count(),
         MAX_PENDING_ITEM_RESOLUTIONS
     );
 
@@ -551,10 +553,15 @@ fn pending_resolution_queue_is_bounded_and_registry_still_resolves_overflow() {
             registry(PENDING_ITEM_ID, "minecraft:apple"),
         )
         .unwrap();
-    assert_eq!(stream.pending_item_resolution_count(), 0);
+    assert_eq!(stream.authority().pending_item_resolution_count(), 0);
     for runtime_id in [100, 100 + MAX_PENDING_ITEM_RESOLUTIONS as u64] {
         assert_eq!(
-            stream.actor_equipment(runtime_id).unwrap().item.visual,
+            stream
+                .authority()
+                .actor_equipment(runtime_id)
+                .unwrap()
+                .item
+                .visual,
             ItemVisualRoute::Compiled(ItemVisualId(0))
         );
     }
@@ -594,7 +601,7 @@ fn registry_record_bound_accepts_exact_limit_and_rejects_limit_plus_one_atomical
             registry_with_count(MAX_ITEM_REGISTRY_RECORDS, "minecraft:apple"),
         )
         .unwrap();
-    let accepted = stream.actor_equipment(42).unwrap().clone();
+    let accepted = stream.authority().actor_equipment(42).unwrap().clone();
     assert_eq!(accepted.item.identifier.as_deref(), Some("minecraft:apple"));
 
     stream
@@ -603,7 +610,7 @@ fn registry_record_bound_accepts_exact_limit_and_rejects_limit_plus_one_atomical
             registry_with_count(MAX_ITEM_REGISTRY_RECORDS + 1, "minecraft:red_apple"),
         )
         .unwrap();
-    assert_eq!(stream.actor_equipment(42), Some(&accepted));
+    assert_eq!(stream.authority().actor_equipment(42), Some(&accepted));
 }
 
 #[test]
@@ -612,18 +619,18 @@ fn bad_digest_and_unknown_actor_equipment_are_not_retained() {
     stream
         .submit(1, spawn(42, -42, NetworkItemStack::empty()))
         .unwrap();
-    let before = stream.actor_equipment(42).unwrap().clone();
+    let before = stream.authority().actor_equipment(42).unwrap().clone();
     let mut corrupt = stack(CUSTOM_ITEM_ID, 1, b"bytes");
     corrupt.nbt_digest = [0xff; 32];
     stream
         .submit(2, equipment(42, corrupt, Some(ActorHandedness::Right)))
         .unwrap();
-    assert_eq!(stream.actor_equipment(42), Some(&before));
+    assert_eq!(stream.authority().actor_equipment(42), Some(&before));
 
     stream
         .submit(3, equipment(999, stack(CUSTOM_ITEM_ID, 1, b"bytes"), None))
         .unwrap();
-    assert!(stream.actor_equipment(999).is_none());
+    assert!(stream.authority().actor_equipment(999).is_none());
 }
 
 #[test]
@@ -632,12 +639,12 @@ fn replacement_remove_and_dimension_reset_drop_lifetime_item_state() {
     stream
         .submit(1, spawn(42, -42, stack(CUSTOM_ITEM_ID, 1, b"a")))
         .unwrap();
-    let first = stream.actor_equipment(42).unwrap().actor;
+    let first = stream.authority().actor_equipment(42).unwrap().actor;
 
     stream
         .submit(2, spawn(42, -43, stack(CUSTOM_ITEM_ID, 1, b"b")))
         .unwrap();
-    let second = stream.actor_equipment(42).unwrap().actor;
+    let second = stream.authority().actor_equipment(42).unwrap().actor;
     assert_ne!(first, second);
     assert_eq!(second.spawn_revision, 2);
 
@@ -650,7 +657,7 @@ fn replacement_remove_and_dimension_reset_drop_lifetime_item_state() {
             })),
         )
         .unwrap();
-    assert!(stream.actor_equipment(42).is_none());
+    assert!(stream.authority().actor_equipment(42).is_none());
 
     stream
         .submit(4, spawn(43, -44, stack(CUSTOM_ITEM_ID, 1, b"c")))
@@ -664,7 +671,7 @@ fn replacement_remove_and_dimension_reset_drop_lifetime_item_state() {
             }),
         )
         .unwrap();
-    assert!(stream.actor_equipment(43).is_none());
+    assert!(stream.authority().actor_equipment(43).is_none());
 }
 
 #[test]
@@ -693,7 +700,7 @@ fn session_item_registry_survives_dimension_actor_state_reset() {
     spawn.dimension = 1;
     stream.submit(4, next_dimension_spawn).unwrap();
 
-    let equipment = stream.actor_equipment(43).unwrap();
+    let equipment = stream.authority().actor_equipment(43).unwrap();
     assert_eq!(equipment.actor.dimension, 1);
     assert_eq!(
         equipment.item.identifier.as_deref(),
@@ -711,7 +718,7 @@ fn unknown_item_stays_missing_and_duplicate_sequence_is_rejected() {
     stream
         .submit(1, spawn(42, -42, stack(PENDING_ITEM_ID, 1, b"a")))
         .unwrap();
-    let item = &stream.actor_equipment(42).unwrap().item;
+    let item = &stream.authority().actor_equipment(42).unwrap().item;
     assert_eq!(item.identifier, None);
     assert_eq!(item.visual, ItemVisualRoute::Missing);
     assert!(
@@ -731,8 +738,8 @@ fn local_actor_is_excluded_from_remote_equipment_and_action_state() {
         .submit(2, spawn(42, -42, NetworkItemStack::empty()))
         .unwrap();
 
-    assert!(stream.actor_equipment(1).is_none());
-    assert!(stream.actor_equipment(42).is_some());
+    assert!(stream.authority().actor_equipment(1).is_none());
+    assert!(stream.authority().actor_equipment(42).is_some());
 
     stream
         .submit(
@@ -744,9 +751,9 @@ fn local_actor_is_excluded_from_remote_equipment_and_action_state() {
         .submit(4, action(&[1, 42], ActorActionKind::SwingArm))
         .unwrap();
 
-    assert!(stream.actor_equipment(1).is_none());
-    assert!(stream.actor_action(1).is_none());
-    assert!(stream.actor_action(42).is_some());
+    assert!(stream.authority().actor_equipment(1).is_none());
+    assert!(stream.authority().actor_action(1).is_none());
+    assert!(stream.authority().actor_action(42).is_some());
 }
 
 #[test]
@@ -776,13 +783,16 @@ fn actions_are_fifo_bounded_and_later_ingress_restarts_windup() {
     stream
         .submit(3, action(&[42, 42], ActorActionKind::SwingArm))
         .unwrap();
-    let first = stream.actor_action(42).unwrap().clone();
-    assert_eq!(stream.actor_action_history(42).len(), 1);
+    let first = stream.authority().actor_action(42).unwrap().clone();
+    assert_eq!(stream.authority().actor_action_history(42).len(), 1);
     assert_eq!(first.event.source_tick, ActorSourceTick::IngressSequence(3));
     assert_eq!(first.phase, ItemActionPhase::Windup { elapsed_ticks: 0 });
 
     stream.advance_actor_interpolation_ticks(1);
-    assert_ne!(stream.actor_action(42).unwrap().phase, first.phase);
+    assert_ne!(
+        stream.authority().actor_action(42).unwrap().phase,
+        first.phase
+    );
     stream
         .submit(
             4,
@@ -804,7 +814,7 @@ fn actions_are_fifo_bounded_and_later_ingress_restarts_windup() {
     stream
         .submit(5, action(&[42], ActorActionKind::SwingArm))
         .unwrap();
-    let restarted = stream.actor_action(42).unwrap();
+    let restarted = stream.authority().actor_action(42).unwrap();
     assert_eq!(
         restarted.event.source_tick,
         ActorSourceTick::IngressSequence(5)
@@ -822,9 +832,9 @@ fn actions_are_fifo_bounded_and_later_ingress_restarts_windup() {
         };
         stream.submit(sequence, action(&[42], kind)).unwrap();
     }
-    let history = stream.actor_action_history(42);
+    let history = stream.authority().actor_action_history(42);
     assert_eq!(history.len(), MAX_ACTIONS_PER_ACTOR);
-    assert_eq!(history.last(), stream.actor_action(42));
+    assert_eq!(history.last(), stream.authority().actor_action(42));
 }
 
 #[test]
@@ -842,7 +852,12 @@ fn action_admission_is_exactly_bounded_per_completed_tick() {
             .unwrap();
     }
     assert_eq!(
-        stream.actor_action(42).unwrap().event.ingress_sequence,
+        stream
+            .authority()
+            .actor_action(42)
+            .unwrap()
+            .event
+            .ingress_sequence,
         MAX_ACTION_EVENTS_PER_TICK as u64 + 1
     );
 
@@ -853,10 +868,10 @@ fn action_admission_is_exactly_bounded_per_completed_tick() {
         )
         .unwrap();
     assert_eq!(
-        stream.actor_action(42).unwrap().kind,
+        stream.authority().actor_action(42).unwrap().kind,
         ActorActionKind::SwingArm
     );
-    assert!(stream.actor_action(43).is_none());
+    assert!(stream.authority().actor_action(43).is_none());
 
     stream
         .submit(
@@ -865,7 +880,7 @@ fn action_admission_is_exactly_bounded_per_completed_tick() {
         )
         .unwrap();
     assert_eq!(
-        stream.actor_action(43).unwrap().kind,
+        stream.authority().actor_action(43).unwrap().kind,
         ActorActionKind::CriticalHit
     );
 
@@ -877,7 +892,7 @@ fn action_admission_is_exactly_bounded_per_completed_tick() {
         )
         .unwrap();
     assert_eq!(
-        stream.actor_action(42).unwrap().kind,
+        stream.authority().actor_action(42).unwrap().kind,
         ActorActionKind::CriticalHit
     );
 }
@@ -895,7 +910,7 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
     stream
         .submit(2, action_with_details(&[42], custom.clone(), 0.4, None))
         .unwrap();
-    let first = stream.actor_action(42).unwrap();
+    let first = stream.authority().actor_action(42).unwrap();
     assert_eq!(first.kind, custom);
     assert_eq!(first.data, 0.4);
     assert_eq!(first.swing_source, None);
@@ -908,10 +923,10 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
     };
     stream.submit(3, action(&[42], catalog_only)).unwrap();
     assert_eq!(
-        stream.actor_action(42).unwrap().fallback,
+        stream.authority().actor_action(42).unwrap().fallback,
         RemoteActionFallback::StaticPose
     );
-    assert_eq!(stream.actor_action_stats().static_fallbacks, 2);
+    assert_eq!(stream.authority().actor_action_stats().static_fallbacks, 2);
 
     stream
         .submit(
@@ -919,7 +934,7 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
             action_with_details(&[42], ActorActionKind::RowLeft, 0.25, Some("paddle.left")),
         )
         .unwrap();
-    let rowing = stream.actor_action(42).unwrap();
+    let rowing = stream.authority().actor_action(42).unwrap();
     assert_eq!(rowing.kind, ActorActionKind::RowLeft);
     assert_eq!(rowing.data, 0.25);
     assert_eq!(rowing.swing_source.as_deref(), Some("paddle.left"));
@@ -930,7 +945,7 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
             duration_ticks: 5,
         }
     );
-    assert_eq!(stream.actor_action_history(42).len(), 3);
+    assert_eq!(stream.authority().actor_action_history(42).len(), 3);
 
     stream
         .submit(
@@ -951,16 +966,16 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
         )
         .unwrap();
     assert_eq!(
-        stream.actor_action(42).unwrap().phase,
+        stream.authority().actor_action(42).unwrap().phase,
         ItemActionPhase::Cancelled
     );
-    assert_eq!(stream.actor_action_history(42).len(), 1);
+    assert_eq!(stream.authority().actor_action_history(42).len(), 1);
 
     stream
         .submit(6, spawn(42, -43, NetworkItemStack::empty()))
         .unwrap();
-    assert!(stream.actor_action(42).is_none());
-    assert!(stream.actor_action_history(42).is_empty());
+    assert!(stream.authority().actor_action(42).is_none());
+    assert!(stream.authority().actor_action_history(42).is_empty());
 }
 
 // A StartGame-only registry must resolve server item ids before any play-time packet.
@@ -970,6 +985,7 @@ fn seeded_start_game_registry_resolves_custom_item_ids() {
     let custom = stack(CUSTOM_ITEM_ID, 1, b"");
     assert!(
         stream
+            .authority()
             .canonical_item_stack(&custom)
             .unwrap()
             .identifier
@@ -981,6 +997,6 @@ fn seeded_start_game_registry_resolves_custom_item_ids() {
         unreachable!("fixture builds a registry");
     };
     assert!(stream.seed_item_registry(seed));
-    let resolved = stream.canonical_item_stack(&custom).unwrap();
+    let resolved = stream.authority().canonical_item_stack(&custom).unwrap();
     assert_eq!(resolved.identifier.as_deref(), Some("test:gadget"));
 }

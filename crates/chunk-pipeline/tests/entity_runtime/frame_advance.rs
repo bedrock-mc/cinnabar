@@ -31,7 +31,10 @@ fn crowded_stream() -> WorldStream {
 #[ignore = "benchmark"]
 fn frame_advance_long_gap_bench() {
     let mut stream = crowded_stream();
-    let before = stream.actor_animation_stats().evaluated_molang_ops;
+    let before = stream
+        .authority()
+        .actor_animation_stats()
+        .evaluated_molang_ops;
     let start = std::time::Instant::now();
     for _ in 0..50 {
         stream.advance_actor_interpolation_frame(20);
@@ -39,7 +42,12 @@ fn frame_advance_long_gap_bench() {
     eprintln!(
         "ACTOR_LONG_GAP mean_us={:.3} molang_ops={}",
         start.elapsed().as_secs_f64() * 1e6 / 50.0,
-        (stream.actor_animation_stats().evaluated_molang_ops - before) / 50
+        (stream
+            .authority()
+            .actor_animation_stats()
+            .evaluated_molang_ops
+            - before)
+            / 50
     );
 }
 
@@ -113,7 +121,7 @@ fn scripted_stream() -> WorldStream {
         vec![
             MolangOp::LoadQuery(life),
             MolangOp::Push(scalar(
-                chunk_pipeline::ACTOR_TICK_DURATION.as_secs_f32() * 5.0,
+                client_world::ACTOR_TICK_DURATION.as_secs_f32() * 5.0,
             )),
             MolangOp::Greater,
         ],
@@ -152,9 +160,9 @@ fn scripted_stream() -> WorldStream {
 fn long_frame_advances_time_and_events_with_one_visual_evaluation() {
     let mut stream = scripted_stream();
     stream.advance_actor_interpolation_frame(1);
-    let previous = stream.actor_rig(42).unwrap().current.to_vec();
+    let previous = stream.authority().actor_rig(42).unwrap().current.to_vec();
     stream.advance_actor_interpolation_frame(20);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(rig.completed_tick, 21);
     assert_eq!(rig.rest_completed_tick, 21);
     assert_eq!(rig.previous, previous);
@@ -171,16 +179,16 @@ fn long_frame_advances_time_and_events_with_one_visual_evaluation() {
         wing[0], -2.0,
         "the keyframe script runs once per published frame"
     );
-    let tick = chunk_pipeline::ACTOR_TICK_DURATION.as_secs_f32();
+    let tick = client_world::ACTOR_TICK_DURATION.as_secs_f32();
     assert!((wing[1] - root[1] - 2.0 - 20.0 * tick).abs() < 1.0e-5);
     assert!((wing[2] - root[2] - 21.0 * tick).abs() < 1.0e-5);
     let current = rig.current.to_vec();
-    let stats = stream.actor_animation_stats();
+    let stats = stream.authority().actor_animation_stats();
     stream.advance_actor_interpolation_frame(0);
-    assert_eq!(stream.actor_rig(42).unwrap().current, current);
-    assert_eq!(stream.actor_animation_stats(), stats);
+    assert_eq!(stream.authority().actor_rig(42).unwrap().current, current);
+    assert_eq!(stream.authority().actor_animation_stats(), stats);
     stream.advance_actor_interpolation_frame(1);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(rig.completed_tick, 22);
     assert!((rig.current[0].translation_scale[1] - tick).abs() < 1.0e-5);
     assert_eq!(rig.current[0].translation_scale[2], 2.0);
@@ -193,16 +201,19 @@ fn single_tick_frames_match_explicit_tick_snapshots() {
     for ticks in [0, 1].into_iter().cycle().take(80) {
         legacy.advance_actor_interpolation_ticks(ticks);
         frame.advance_actor_interpolation_frame(ticks);
-        let (left, right) = (legacy.actor_rig(42).unwrap(), frame.actor_rig(42).unwrap());
+        let (left, right) = (
+            legacy.authority().actor_rig(42).unwrap(),
+            frame.authority().actor_rig(42).unwrap(),
+        );
         assert_eq!(left.current, right.current);
         assert_eq!(left.previous, right.previous);
         assert_eq!(left.completed_tick, right.completed_tick);
         assert_eq!(left.body_yaw, right.body_yaw);
         assert_eq!(left.hand, right.hand);
-        assert_eq!(legacy.actor(42), frame.actor(42));
+        assert_eq!(legacy.authority().actor(42), frame.authority().actor(42));
         assert_eq!(
-            legacy.actor_animation_stats(),
-            frame.actor_animation_stats()
+            legacy.authority().actor_animation_stats(),
+            frame.authority().actor_animation_stats()
         );
     }
 }
@@ -217,18 +228,28 @@ fn gap_preserves_motion_and_bounds_visual_work() {
     }
     legacy.submit(129, movement.clone()).unwrap();
     frame.submit(129, movement).unwrap();
-    let before = frame.actor_animation_stats().evaluated_molang_ops;
+    let before = frame
+        .authority()
+        .actor_animation_stats()
+        .evaluated_molang_ops;
     legacy.advance_actor_interpolation_ticks(20);
     frame.advance_actor_interpolation_frame(20);
     for id in 100..228 {
-        assert_eq!(legacy.actor(id), frame.actor(id));
-        let (left, right) = (legacy.actor_rig(id).unwrap(), frame.actor_rig(id).unwrap());
+        assert_eq!(legacy.authority().actor(id), frame.authority().actor(id));
+        let (left, right) = (
+            legacy.authority().actor_rig(id).unwrap(),
+            frame.authority().actor_rig(id).unwrap(),
+        );
         assert_eq!(left.body_yaw, right.body_yaw);
         assert_eq!(left.hand, right.hand);
         assert_eq!(left.completed_tick, right.completed_tick);
     }
     assert!(
-        frame.actor_animation_stats().evaluated_molang_ops - before
+        frame
+            .authority()
+            .actor_animation_stats()
+            .evaluated_molang_ops
+            - before
             <= MAX_MOLANG_OPS_PER_WORLD_TICK as u64
     );
 }

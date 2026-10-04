@@ -774,7 +774,7 @@ fn exact_recovery_keeps_disjoint_ranges_expected_when_outbound_is_saturated() {
     });
     for index in 0..(super::OUTBOUND_REQUEST_CAPACITY - 1) {
         let chunk = ChunkKey::new(0, 20 + i32::try_from(index).unwrap(), 0);
-        stream.requests.push_ready(
+        stream.requests.queue.push_ready(
             PendingSubChunkRequest {
                 packet: request_sub_chunk_column(0, chunk.x, chunk.z, -4, 1).unwrap(),
                 dimension: 0,
@@ -799,12 +799,12 @@ fn exact_recovery_keeps_disjoint_ranges_expected_when_outbound_is_saturated() {
         )
         .expect("the reserved first exact range has admission capacity");
 
-    assert_eq!(stream.requests.len(), super::OUTBOUND_REQUEST_CAPACITY);
-    assert_eq!(stream.deferred_recovery_requests.len(), 1);
     assert_eq!(
-        stream.requested_sub_chunks[&ChunkKey::new(0, 0, 0)].len(),
-        2
+        stream.requests.queue.len(),
+        super::OUTBOUND_REQUEST_CAPACITY
     );
+    assert_eq!(stream.requests.deferred_recovery.len(), 1);
+    assert_eq!(stream.requests.requested[&ChunkKey::new(0, 0, 0)].len(), 2);
 
     let requests = stream.take_requests();
     let recovery_ranges = requests
@@ -813,11 +813,8 @@ fn exact_recovery_keeps_disjoint_ranges_expected_when_outbound_is_saturated() {
         .map(|request| (request.base_sub_chunk_y, request.count))
         .collect::<BTreeSet<_>>();
     assert_eq!(recovery_ranges, BTreeSet::from([(-4, 1), (-2, 1)]));
-    assert!(stream.deferred_recovery_requests.is_empty());
-    assert_eq!(
-        stream.requested_sub_chunks[&ChunkKey::new(0, 0, 0)].len(),
-        2
-    );
+    assert!(stream.requests.deferred_recovery.is_empty());
+    assert_eq!(stream.requests.requested[&ChunkKey::new(0, 0, 0)].len(), 2);
 }
 
 fn apply_sub_chunk_result(

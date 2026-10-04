@@ -121,7 +121,7 @@ fn steady_frame_allocations(actors: u64) -> u64 {
             .resource::<crate::runtime::world::ClientWorld>()
             .stream
             .as_ref()
-            .and_then(|stream| stream.actor_rig(100))
+            .and_then(|stream| stream.authority().actor_rig(100))
             .map(|rig| rig.completed_tick)
     };
     let mut clock = Instant::now();

@@ -143,19 +143,15 @@ impl WorldStream {
     ) -> u64 {
         let urgent = urgent
             || self
-                .pending_mesh
+                .mesh_jobs
+                .pending
                 .get(&key)
                 .is_some_and(|pending| pending.urgent)
             || self.urgent_mesh_in_flight.contains(&key);
         self.cancel_mesh_job(key);
         let revision = self.revisions.mark_dirty(key, now);
         let since = self.revisions.dirty(key).map_or(now, |dirty| dirty.since);
-        if urgent {
-            self.pending_mesh_scan.push_front((key, revision));
-        } else {
-            self.pending_mesh_scan.push_back((key, revision));
-        }
-        self.pending_mesh.insert(
+        self.mesh_jobs.enqueue(
             key,
             PendingMesh {
                 revision,
@@ -200,10 +196,10 @@ impl WorldStream {
     }
     /// Pending work takes its snapshot at dispatch, so repeated invalidations need one record.
     fn invalidate_mesh_with_priority(&mut self, key: SubChunkKey, now: Instant, urgent: bool) {
-        if let Some(pending) = self.pending_mesh.get_mut(&key) {
+        if let Some(pending) = self.mesh_jobs.pending.get_mut(&key) {
             if urgent && !pending.urgent {
                 pending.urgent = true;
-                self.pending_mesh_scan.push_front((key, pending.revision));
+                self.mesh_jobs.scan.push_front((key, pending.revision));
             }
             return;
         }
@@ -216,7 +212,8 @@ impl WorldStream {
     }
     pub(super) fn mark_forced_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
         let urgent = self
-            .pending_mesh
+            .mesh_jobs
+            .pending
             .get(&key)
             .is_some_and(|pending| pending.urgent)
             || self.urgent_mesh_in_flight.contains(&key)
@@ -232,12 +229,7 @@ impl WorldStream {
             });
         self.cancel_mesh_job(key);
         let revision = self.revisions.force_dirty_since(key, now);
-        if urgent {
-            self.pending_mesh_scan.push_front((key, revision));
-        } else {
-            self.pending_mesh_scan.push_back((key, revision));
-        }
-        self.pending_mesh.insert(
+        self.mesh_jobs.enqueue(
             key,
             PendingMesh {
                 revision,
@@ -257,29 +249,10 @@ impl WorldStream {
             .collect::<Vec<_>>();
         for key in renderable {
             self.mark_forced_dirty_exact(key, now);
-            self.in_flight.remove(&key);
+            self.mesh_jobs.in_flight.remove(&key);
             self.urgent_mesh_in_flight.remove(&key);
         }
         self.mesh_changes
             .retain(|change| !matches!(change, WorldMeshChange::Upsert { .. }));
     }
-}
-
-/// Drops superseded and duplicate scan entries once they outnumber live work
-/// plus one poll of ingress, so a stationary dirty storm cannot grow the scan
-/// history without bound. Surviving entries keep their queue order.
-pub(super) fn compact_scheduler_scan(
-    scan: &mut VecDeque<(SubChunkKey, u64)>,
-    live_len: usize,
-    is_live: impl Fn(SubChunkKey, u64) -> bool,
-) {
-    if scan.len()
-        <= live_len
-            .saturating_mul(2)
-            .saturating_add(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL)
-    {
-        return;
-    }
-    let mut seen = HashSet::with_capacity(live_len);
-    scan.retain(|&(key, revision)| is_live(key, revision) && seen.insert(key));
 }

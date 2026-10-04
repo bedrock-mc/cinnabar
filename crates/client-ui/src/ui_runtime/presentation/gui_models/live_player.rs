@@ -20,7 +20,7 @@ impl UiPresentationRuntime {
     /// Projects the full-body evaluation, never the separate first-person hand skeleton.
     pub fn capture_hud_player(
         &mut self,
-        stream: Option<&client_world::WorldStream>,
+        stream: Option<&chunk_pipeline::WorldStream>,
         swimming: bool,
     ) {
         let live = &mut self.gui_models.live_player;
@@ -31,10 +31,10 @@ impl UiPresentationRuntime {
             return;
         };
         let id = stream.local_player_runtime_id();
-        let Some(rig) = stream.actor_rig(id) else {
+        let Some(rig) = stream.authority().actor_rig(id) else {
             return;
         };
-        let Some(pose) = stream.actor_ui_pose(id) else {
+        let Some(pose) = stream.authority().actor_ui_pose(id) else {
             return;
         };
         let basis = Affine3A::from_scale(Vec3::new(-1., 1., -1.));

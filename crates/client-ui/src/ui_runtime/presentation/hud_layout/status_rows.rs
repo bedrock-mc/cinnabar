@@ -81,8 +81,9 @@ pub(in super::super) fn capture(
     sheet: Option<&HudTexturePages>,
 ) -> HudPaint {
     let now_tick = runtime.estimated_server_tick(frame.now_millis);
-    let mode_allows_hotbar = runtime
-        .player_game_mode(player_runtime)
+    let mode_allows_hotbar = player_runtime
+        .facts
+        .player_game_mode()
         .is_none_or(|mode| mode.shows_hotbar());
     let mut paint = HudPaint {
         effects: effects(runtime, now_tick),
@@ -92,7 +93,7 @@ pub(in super::super) fn capture(
             .map(|sheet| sheet_sprite(sheet, HudTextureRole::Crosshair)),
         ..HudPaint::default()
     };
-    if !runtime.survival_stats_visible(player_runtime) {
+    if !player_runtime.facts.survival_stats_visible() {
         return paint;
     }
     if let Some(rows) = heart_rows(runtime) {

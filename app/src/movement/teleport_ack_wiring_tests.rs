@@ -23,10 +23,10 @@ use crate::runtime::phase3_evidence::Phase3EvidenceEmitter;
 use crate::runtime::world::{
     ClientWorld, WorldStreamFramePoll, reconcile_world_stream_before_physics,
 };
-use crate::server_camera::ServerCameraInstructions;
-use crate::ui_runtime::UiRuntime;
 use assets::read_registry_for_protocol;
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
+use client_presentation::server_camera::ServerCameraInstructions;
+use client_ui::ui_runtime::UiRuntime;
 use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
@@ -110,7 +110,7 @@ fn fixture_stream() -> WorldStream {
 /// reconciliation system over a real connected client world.
 fn wiring_app(ticker: MovementTicker, physics: LocalPhysicsController) -> App {
     let mut app = App::new();
-    app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
+    app.add_message::<client_presentation::audio_ingress::SequencedAudioEvent>()
         .insert_resource(ClientWorld {
             stream: Some(fixture_stream()),
             ..ClientWorld::default()

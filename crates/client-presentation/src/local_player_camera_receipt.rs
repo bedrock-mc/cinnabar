@@ -1,6 +1,6 @@
 //! Actual camera-writer proof, invalidated before every scheduled attempt.
 use bevy::prelude::{Entity, ResMut, Resource, Transform};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use semantic_input::PerspectiveMode;
 use sim::WorldCollisionIdentity;
 
@@ -17,7 +17,7 @@ impl CameraOwner {
     pub fn current(stream: &WorldStream, session: u64) -> Self {
         Self {
             session,
-            stream: stream.actor_session_id(),
+            stream: stream.authority().actor_session_id(),
             runtime: stream.local_player_runtime_id(),
             dimension: stream.current_dimension(),
             epoch: stream.form_dimension_epoch(),

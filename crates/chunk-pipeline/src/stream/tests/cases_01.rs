@@ -266,7 +266,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
     let source = stream.authority.terrain().sub_chunk(key).unwrap();
     let biome_source = stream.authority.terrain().biome_storage(key).unwrap();
     let old_generation = stream.revisions.mark_dirty(key, Instant::now());
-    stream.in_flight.insert(key, old_generation);
+    stream.mesh_jobs.in_flight.insert(key, old_generation);
     let old_tint_identity = stream.biome_tint_identity();
     let old_tint_revision = old_tint_identity.revision();
     let old_resolved = stream.resolved_biome_tints_snapshot();
@@ -305,7 +305,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
         urgent: false,
     });
     assert_eq!(stream.pending_mesh_change_count(), 1);
-    stream.in_flight.insert(key, old_generation);
+    stream.mesh_jobs.in_flight.insert(key, old_generation);
 
     stream
         .submit(
@@ -318,8 +318,8 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
 
     assert_eq!(stream.biome_tint_revision(), old_tint_revision + 1);
     assert_eq!(stream.pending_mesh_change_count(), 0);
-    assert!(!stream.in_flight.contains_key(&key));
-    assert!(stream.pending_mesh.contains_key(&key));
+    assert!(!stream.mesh_jobs.in_flight.contains_key(&key));
+    assert!(stream.mesh_jobs.pending.contains_key(&key));
     assert!(!stream.revisions.is_current(key, old_generation));
 
     stream.accept_mesh_completion(MeshCompletion {
@@ -517,7 +517,8 @@ fn light_level_at_reads_resident_block_and_sky_and_falls_dark_off_boundary() {
     );
     let key = SubChunkKey::new(0, 0, 0, 0);
     stream
-        .light_store
+        .lighting
+        .store
         .insert_resident(key, SubChunkLight::uniform(7, 3, 1).unwrap());
     assert_eq!(stream.light_level_at([4.5, 4.5, 4.5]), (7, 3));
     // A sub-chunk whose light is not resident, and a non-finite sample, both read dark.
@@ -600,7 +601,7 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_live_updates() {
     assert_eq!(stats.unknown_block_entities, 0);
 
     let revision_before = stream.revisions.next_revision;
-    let pending_before = stream.pending_mesh.len();
+    let pending_before = stream.mesh_jobs.pending.len();
     let changes_before = stream.mesh_changes.len();
     for (chunk_x, (id, _)) in routes.into_iter().enumerate() {
         let position = [chunk_x as i32 * 16 + 1, -63, 2];
@@ -629,7 +630,7 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_live_updates() {
     sequence += 1;
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.revisions.next_revision, revision_before);
-    assert_eq!(stream.pending_mesh.len(), pending_before);
+    assert_eq!(stream.mesh_jobs.pending.len(), pending_before);
     assert_eq!(stream.mesh_changes.len(), changes_before);
     assert_eq!(stream.stats().adjudicated_static_block_entities, 4);
     assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
@@ -705,13 +706,13 @@ fn block_entity_visual_diagnostics_preserve_zero_churn_inline_nbt_replacements()
     assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
 
     let mesh_revision_before = stream.revisions.next_revision;
-    let block_generation_before = stream.next_block_generation;
-    let light_revision_before = stream.light_revisions.next_revision;
+    let block_generation_before = stream.lighting.next_block_generation;
+    let light_revision_before = stream.lighting.revisions.next_revision;
     let render_generation_before = stream.connectivity_generation;
-    let block_generations_before = stream.block_generations.clone();
+    let block_generations_before = stream.lighting.block_generations.clone();
     let applied_mesh_generations_before = stream.applied_mesh_generations.clone();
-    let pending_mesh_before = stream.pending_mesh.len();
-    let pending_light_before = stream.pending_light.len();
+    let pending_mesh_before = stream.mesh_jobs.pending.len();
+    let pending_light_before = stream.lighting.jobs.pending.len();
     let mesh_changes_before = stream.mesh_changes.len();
 
     for (chunk_x, (_, runtime_id, _, replacement)) in cases.iter().enumerate() {
@@ -726,16 +727,22 @@ fn block_entity_visual_diagnostics_preserve_zero_churn_inline_nbt_replacements()
     }
 
     assert_eq!(stream.revisions.next_revision, mesh_revision_before);
-    assert_eq!(stream.next_block_generation, block_generation_before);
-    assert_eq!(stream.light_revisions.next_revision, light_revision_before);
+    assert_eq!(
+        stream.lighting.next_block_generation,
+        block_generation_before
+    );
+    assert_eq!(
+        stream.lighting.revisions.next_revision,
+        light_revision_before
+    );
     assert_eq!(stream.connectivity_generation, render_generation_before);
-    assert_eq!(stream.block_generations, block_generations_before);
+    assert_eq!(stream.lighting.block_generations, block_generations_before);
     assert_eq!(
         stream.applied_mesh_generations,
         applied_mesh_generations_before
     );
-    assert_eq!(stream.pending_mesh.len(), pending_mesh_before);
-    assert_eq!(stream.pending_light.len(), pending_light_before);
+    assert_eq!(stream.mesh_jobs.pending.len(), pending_mesh_before);
+    assert_eq!(stream.lighting.jobs.pending.len(), pending_light_before);
     assert_eq!(stream.mesh_changes.len(), mesh_changes_before);
     assert_eq!(stream.stats().adjudicated_static_block_entities, 4);
     assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
@@ -805,7 +812,7 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_request_mode_nbt_replace
     assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
 
     let revision_before = stream.revisions.next_revision;
-    let pending_before = stream.pending_mesh.len();
+    let pending_before = stream.mesh_jobs.pending.len();
     let changes_before = stream.mesh_changes.len();
     for (chunk_x, (_, runtime_id, _, replacement)) in cases.iter().enumerate() {
         stream
@@ -832,7 +839,7 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_request_mode_nbt_replace
     }
 
     assert_eq!(stream.revisions.next_revision, revision_before);
-    assert_eq!(stream.pending_mesh.len(), pending_before);
+    assert_eq!(stream.mesh_jobs.pending.len(), pending_before);
     assert_eq!(stream.mesh_changes.len(), changes_before);
     assert_eq!(stream.stats().adjudicated_static_block_entities, 4);
     assert_eq!(stream.stats().adjudicated_logical_block_entities, 2);
@@ -887,7 +894,7 @@ fn request_mode_changed_biome_keeps_destructive_column_replacement() {
     assert!(stream.authority.terrain().sub_chunk(key).is_none());
     assert!(!stream.resident.contains(&key));
     assert!(stream.revisions.next_revision > revision_before);
-    assert!(stream.pending_mesh.contains_key(&key));
+    assert!(stream.mesh_jobs.pending.contains_key(&key));
     assert_eq!(stream.take_requests().len(), 1);
 }
 
@@ -908,7 +915,7 @@ fn request_mode_changed_backing_dirties_and_replaces_preserved_column() {
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.stats().adjudicated_static_block_entities, 1);
     let revision_before = stream.revisions.next_revision;
-    let block_generation_before = stream.next_block_generation;
+    let block_generation_before = stream.lighting.next_block_generation;
 
     let replacement = block_entity_nbt_with_marker("Barrel", position, 1);
     stream
@@ -926,8 +933,8 @@ fn request_mode_changed_backing_dirties_and_replaces_preserved_column() {
     complete_pending_decode_jobs(&mut stream);
 
     assert_eq!(stream.revisions.next_revision, revision_before);
-    assert!(stream.next_block_generation > block_generation_before);
-    assert!(stream.pending_mesh.contains_key(&key));
+    assert!(stream.lighting.next_block_generation > block_generation_before);
+    assert!(stream.mesh_jobs.pending.contains_key(&key));
     assert_eq!(
         stream
             .authority

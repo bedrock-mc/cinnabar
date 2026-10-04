@@ -76,7 +76,7 @@ pub fn collect_screen_effect_facts(
         .and_then(|world| world.stream.as_ref());
 
     facts.on_fire = stream
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         .is_some_and(|actor| metadata_flag(&actor.metadata, ACTOR_FLAG_ON_FIRE));
 
     facts.in_portal = match (stream, collisions) {
@@ -98,9 +98,9 @@ pub fn collect_screen_effect_facts(
         _ => false,
     };
 
-    let selected = ui.and_then(|ui| {
-        let stack = ui.selected_stack(player_runtime)?;
-        stream?.canonical_item_stack(stack)?.identifier
+    let selected = ui.and_then(|_| {
+        let stack = player_runtime.selected_stack()?;
+        stream?.authority().canonical_item_stack(stack)?.identifier
     });
     let use_held = item_use.is_some_and(|item_use| item_use.is_using());
     clock.advance(selected.as_ref(), use_held, time.delta_secs());
@@ -109,7 +109,7 @@ pub fn collect_screen_effect_facts(
     fov.bow_draw_seconds = using(BOW_IDENTIFIER).then(|| clock.held_seconds());
     fov.spyglass_scoping = using(SPYGLASS_IDENTIFIER);
     fov.flying = ui
-        .and_then(|ui| ui.local_abilities(player_runtime))
+        .and_then(|_| player_runtime.facts.local_abilities())
         .is_some_and(flying_from_abilities);
 }
 

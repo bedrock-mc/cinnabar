@@ -4,8 +4,9 @@ use super::{
     pack_reload::{PackInputs, PackReload, reload_resource_packs},
     resource_packs,
 };
-use crate::{runtime::world::ClientWorld, ui_runtime::UiRuntime};
+use crate::runtime::world::ClientWorld;
 use bevy::prelude::{App, Update};
+use client_ui::ui_runtime::UiRuntime;
 use resource_pack::ValidatedPackStack;
 use std::{
     io::{Cursor, Write},
@@ -56,7 +57,7 @@ pub(super) fn app_with_assets(assets: Arc<assets::RuntimeAssets>) -> App {
             .unwrap_or(0),
         block_network_ids_are_hashes: false,
     };
-    world.stream = Some(client_world::WorldStream::new_with_assets(
+    world.stream = Some(chunk_pipeline::WorldStream::new_with_assets(
         bootstrap,
         assets.clone(),
         bootstrap.player_position,
@@ -154,6 +155,7 @@ fn live_reload_removal_releases_old_snapshot_and_keeps_world_identity() {
         .stream
         .as_ref()
         .unwrap()
+        .authority()
         .actor_session_id();
     let definition = br#"{"namespace":"reload_fixture","panel":{"type":"panel"}}"#;
     app.world_mut()
@@ -176,6 +178,7 @@ fn live_reload_removal_releases_old_snapshot_and_keeps_world_identity() {
             .stream
             .as_ref()
             .unwrap()
+            .authority()
             .actor_session_id(),
         identity
     );

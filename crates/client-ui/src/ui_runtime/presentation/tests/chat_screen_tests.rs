@@ -220,7 +220,9 @@ fn centre(bounds: ui::UiRect) -> UiPoint {
 /// A survival session with an authoritative selected hotbar slot.
 fn gameplay_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(player_runtime, protocol::PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     runtime.retain_local_selected_equipment(
         player_runtime,
         1,

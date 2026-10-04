@@ -12,14 +12,18 @@ fn omitted_inline_upper_sub_chunks_carry_sky_to_open_air() {
         assert!(stream.light_is_current(key), "{key:?}");
         assert_eq!(
             stream
-                .light_store
+                .lighting
+                .store
                 .light(key)
                 .unwrap()
                 .get(LightChannel::Sky, 8, 8, 8),
             Some(15),
             "{key:?}"
         );
-        assert!(stream.direct_sky[&key].mask.get(8, 8, 8), "{key:?}");
+        assert!(
+            stream.lighting.direct_sky[&key].mask.get(8, 8, 8),
+            "{key:?}"
+        );
     }
 }
 
@@ -48,14 +52,18 @@ fn omitted_inline_upper_sub_chunks_carry_sky_above_terrain() {
         assert!(stream.light_is_current(key), "{key:?}");
         assert_eq!(
             stream
-                .light_store
+                .lighting
+                .store
                 .light(key)
                 .unwrap()
                 .get(LightChannel::Sky, 8, 8, 8),
             Some(15),
             "{key:?}"
         );
-        assert!(stream.direct_sky[&key].mask.get(8, 8, 8), "{key:?}");
+        assert!(
+            stream.lighting.direct_sky[&key].mask.get(8, 8, 8),
+            "{key:?}"
+        );
     }
 }
 
@@ -116,7 +124,8 @@ fn transparent_occupied_top_cell_receives_sky_and_opaque_top_cell_filters_it() {
         complete_one_light(&mut stream, [8.0, 312.0, 8.0]);
         assert_eq!(
             stream
-                .light_store
+                .lighting
+                .store
                 .light(top)
                 .unwrap()
                 .get(LightChannel::Sky, 8, 15, 8),
@@ -133,11 +142,11 @@ fn overworld_seeds_direct_sky_from_known_cells_at_dimension_top() {
     stream.mark_changed(top, Instant::now());
     complete_one_light(&mut stream, [8.0, 312.0, 8.0]);
 
-    let light = stream.light_store.light(top).unwrap();
+    let light = stream.lighting.store.light(top).unwrap();
     assert_eq!(light.get(LightChannel::Sky, 0, 15, 0), Some(15));
     assert_eq!(light.get(LightChannel::Sky, 0, 14, 0), Some(15));
-    assert!(stream.direct_sky[&top].mask.get(0, 15, 0));
-    assert!(stream.direct_sky[&top].mask.get(0, 14, 0));
+    assert!(stream.lighting.direct_sky[&top].mask.get(0, 15, 0));
+    assert!(stream.lighting.direct_sky[&top].mask.get(0, 14, 0));
 
     let below = SubChunkKey::new(0, 0, 18, 0);
     stream.record_known_air(below);
@@ -147,25 +156,26 @@ fn overworld_seeds_direct_sky_from_known_cells_at_dimension_top() {
     settle_light(&mut stream, [8.0, 296.0, 8.0]);
     assert_eq!(
         stream
-            .light_store
+            .lighting
+            .store
             .light(below)
             .unwrap()
             .get(LightChannel::Sky, 0, 0, 0),
         Some(15)
     );
-    assert!(stream.direct_sky[&below].mask.get(0, 0, 0));
+    assert!(stream.lighting.direct_sky[&below].mask.get(0, 0, 0));
     assert!(stream.light_is_current(top));
     assert!(stream.light_is_current(below));
 
     install_current_light(&mut stream, below, 1, 15, true);
     // A completed solve may leave an obsolete candidate in the ready heap. Keep that state
     // explicit so this test covers the empty cleanup turn regardless of worker timing.
-    stream.pending_light_ready.clear();
-    stream
-        .pending_light_ready
+    stream.lighting.jobs.lanes[0].ready.clear();
+    stream.lighting.jobs.lanes[0]
+        .ready
         .push(PendingSchedulerCandidate::new(
             top,
-            stream.light_ownership[&top].light_revision,
+            stream.lighting.ownership[&top].light_revision,
             SchedulerView {
                 position: [8.0, 296.0, 8.0],
                 forward: stream.view_forward,
@@ -185,27 +195,29 @@ fn overworld_seeds_direct_sky_from_known_cells_at_dimension_top() {
         }
     }
     assert_eq!(dispatched, 2);
-    assert!(stream.in_flight_light.contains_key(&top));
-    assert!(stream.in_flight_light.contains_key(&below));
-    assert!(stream.light_waiters.is_empty());
+    assert!(stream.lighting.jobs.in_flight.contains_key(&top));
+    assert!(stream.lighting.jobs.in_flight.contains_key(&below));
+    assert!(stream.lighting.waiters.is_empty());
     for _ in 0..2 {
         let completion = stream
-            .light_rx
+            .lighting
+            .rx
             .recv_timeout(Duration::from_secs(2))
             .unwrap();
         stream.accept_light_completion(completion);
     }
-    assert!(stream.direct_sky[&below].mask.get(0, 0, 0));
+    assert!(stream.lighting.direct_sky[&below].mask.get(0, 0, 0));
     assert_eq!(
         stream
-            .light_store
+            .lighting
+            .store
             .light(below)
             .unwrap()
             .get(LightChannel::Sky, 0, 0, 0),
         Some(15)
     );
-    assert!(stream.pending_light.is_empty());
-    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.lighting.jobs.pending.is_empty());
+    assert!(stream.lighting.jobs.in_flight.is_empty());
     assert!(stream.light_is_current(top));
     assert!(stream.light_is_current(below));
 }

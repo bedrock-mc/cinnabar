@@ -1,6 +1,6 @@
 //! The read-only world inputs and explicit commands used by evidence.
 use crate::world_ready::{SubChunkTimeoutProgress, WorldReadyWork};
-use client_world::{
+use chunk_pipeline::{
     ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohortStatus, WorldStreamStats,
 };
 use std::{collections::BTreeSet, time::Instant};

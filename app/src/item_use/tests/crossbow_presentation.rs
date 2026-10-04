@@ -149,7 +149,7 @@ fn use_frame(
 ) -> UseFrame {
     UseFrame {
         selection: verified_use_selection(player_runtime, ui),
-        air_use: selected_air_use(player_runtime, stream, ui),
+        air_use: selected_air_use(player_runtime, stream),
         inventory_revision: ui
             .inventory_ledger(player_runtime)
             .authoritative_slot_revision(2),
@@ -339,7 +339,10 @@ fn normal_transaction_clears_loaded_prediction_and_retains_charged_nbt_and_offha
     let rendered = runtime.render_input(&player_runtime, &stream, &ui, 38, 0.0);
     assert!(rendered.hand_charged);
     assert_eq!(rendered.animation_frame, 4);
-    assert_eq!(ui.gameplay_hud().hotbar_stack(2), Some(&charged_stack()));
+    assert_eq!(
+        player_runtime.presented_hotbar_stack(2),
+        Some(&charged_stack())
+    );
 }
 
 /// Reads the unloaded crossbow duration from the production item-use classifier.

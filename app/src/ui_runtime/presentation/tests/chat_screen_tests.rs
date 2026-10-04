@@ -142,7 +142,7 @@ fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
     };
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat(&mut player_runtime);
-    presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
+    presentation.set_server_ui_pack(&client_ui::ui_runtime::presentation::forms::ServerUiPack {
         ui_layers: vec![vec![(
             "ui/chat_screen.json".into(),
             br#"{"namespace":"chat","chat_screen":{"render_game_behind":false},
@@ -165,7 +165,7 @@ fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
             DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    super::super::forms::snapshot::write(&input, "server-chat");
+    client_ui::ui_runtime::presentation::forms::snapshot::write(&input, "server-chat");
     presentation.set_server_ui_pack(&Default::default());
     build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(!texts(presentation.chat_draw_nodes()).contains(&"Server chat"));

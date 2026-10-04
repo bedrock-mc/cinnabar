@@ -11,12 +11,10 @@ use render::{ActorArtworkPages, ActorRenderScene, NAMETAG_ATLAS_SIDE, NametagSce
 use ui::TextLayoutCache;
 
 use super::render_report::{compile_local_pack, world_for};
-use crate::{
-    presentation::{actors, entity_layers},
-    ui_runtime::presentation::{
-        nametag_atlas::{GlyphPage, NametagAtlas, font_page},
-        nametags::{build_nametag_scene, extract_nametag},
-    },
+use crate::presentation::{actors, entity_layers};
+use client_ui::ui_runtime::presentation::{
+    nametag_atlas::{GlyphPage, NametagAtlas, font_page},
+    nametags::{build_nametag_scene, extract_nametag},
 };
 
 pub(super) const WIDTH: u32 = 1280;
@@ -99,13 +97,13 @@ fn render_captured_scene() {
     let (font, glyph_pages) = font_with_glyphs(Path::new(&font), Path::new(&glyphs));
     let anchors: Vec<_> = runtime_ids
         .iter()
-        .filter_map(|id| world.actor(*id))
+        .filter_map(|id| world.authority().actor(*id))
         .filter_map(|actor| {
             extract_nametag(
                 actor,
                 eye,
                 None,
-                world.actor_name_tag(actor.unique_id)?,
+                world.authority().actor_name_tag(actor.unique_id)?,
                 &ui::ScoreboardStore::default(),
                 1.0,
             )
@@ -332,7 +330,7 @@ impl Frame {
 
 pub(super) fn draw_actors(
     frame: &mut Frame,
-    world: &client_world::WorldStream,
+    world: &chunk_pipeline::WorldStream,
     runtime_ids: &[u64],
     entities: &assets::RuntimeEntityAssets,
     artwork: &ActorArtworkPages,
@@ -340,12 +338,12 @@ pub(super) fn draw_actors(
     let bodies: Vec<_> = runtime_ids
         .iter()
         .filter_map(|id| {
-            let rig = world.actor_rig(*id)?;
-            actors::entity_rig_presentation(&rig, world.actor(*id)?, artwork, 1.0)
+            let rig = world.authority().actor_rig(*id)?;
+            actors::entity_rig_presentation(&rig, world.authority().actor(*id)?, artwork, 1.0)
         })
         .collect();
     let mut batch = actors::select_actor_presentations(1, false, None, bodies);
-    entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
+    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());

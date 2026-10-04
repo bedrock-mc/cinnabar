@@ -12,7 +12,7 @@ use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, Network
 use std::sync::Arc;
 
 #[derive(Resource)]
-struct Stream(client_world::WorldStream);
+struct Stream(chunk_pipeline::WorldStream);
 
 #[derive(Resource, Default)]
 struct Observed(Option<LocalMovementFacts>);
@@ -119,7 +119,7 @@ fn sample(player: Res<PlayerRuntime>, stream: Res<Stream>, mut observed: ResMut<
 #[test]
 fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
     let player = player();
-    let stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+    let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -167,7 +167,7 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
 #[test]
 fn swimming_food_gate_uses_native_floor_and_flight_permission() {
     let mut player = player();
-    let stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+    let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,

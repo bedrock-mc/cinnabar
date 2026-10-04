@@ -77,8 +77,8 @@ impl MenuRuntime {
             return;
         }
         // Back on the join progress screen is its cancel button, where vanilla offers one.
-        if self.connecting {
-            self.disconnect_requested |= self.feeds.join.cancellable();
+        if self.is_connecting() {
+            self.intents.disconnect |= self.feeds.join.cancellable();
             return;
         }
         match self.screen {

@@ -76,8 +76,8 @@ impl UiPresentationRuntime {
             named(ledger.target_stack(InventoryTarget::Armor(slot as u8)))
         });
         let held = named(
-            runtime
-                .selected_hotbar_slot(player_runtime)
+            player_runtime
+                .selected_hotbar_slot()
                 .and_then(|slot| ledger.displayed_stack(slot)),
         );
         self.set_player_preview_gear(
@@ -300,8 +300,9 @@ impl PlayerPreviewPose {
     }
 
     /// The local actor's pose; the default stance off-world.
-    pub fn of_local_player(stream: Option<&client_world::WorldStream>) -> Self {
-        let Some(actor) = stream.and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+    pub fn of_local_player(stream: Option<&chunk_pipeline::WorldStream>) -> Self {
+        let Some(actor) =
+            stream.and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         else {
             return Self::default();
         };

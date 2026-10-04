@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use client_world::PublicationServiceConfig;
+use chunk_pipeline::PublicationServiceConfig;
 
 use crate::runtime::publication::{PublicationController, PublicationFrameWork};
 
@@ -40,7 +40,7 @@ fn stuck_backlog_keeps_collapsing_toward_the_pressure_floor_instead_of_one() {
     let mut controller = PublicationController::default();
     for frame in 0..24 {
         controller.finish_frame(PublicationFrameWork {
-            upload_queue_items: client_world::MAX_PENDING_MESH_CHANGES + frame,
+            upload_queue_items: chunk_pipeline::MAX_PENDING_MESH_CHANGES + frame,
             ..PublicationFrameWork::default()
         });
         controller.begin_frame(Duration::from_millis(125));
@@ -143,7 +143,7 @@ fn zero_byte_saturation_without_gpu_backlog_preserves_service_caps() {
 fn gpu_backlog_is_genuine_pressure_even_when_fifo_frame_time_is_healthy() {
     let mut controller = PublicationController::default();
     controller.finish_frame(PublicationFrameWork {
-        upload_queue_items: client_world::MAX_PENDING_MESH_CHANGES,
+        upload_queue_items: chunk_pipeline::MAX_PENDING_MESH_CHANGES,
         ..PublicationFrameWork::default()
     });
 
@@ -159,7 +159,7 @@ fn pressure_recovers_only_after_healthy_frames_without_self_funded_bursts() {
     let config = PublicationServiceConfig::PHASE2_GATE;
     let mut controller = PublicationController::default();
     controller.finish_frame(PublicationFrameWork {
-        upload_queue_items: client_world::MAX_PENDING_MESH_CHANGES,
+        upload_queue_items: chunk_pipeline::MAX_PENDING_MESH_CHANGES,
         ..PublicationFrameWork::default()
     });
     controller.begin_frame(Duration::from_millis(125));

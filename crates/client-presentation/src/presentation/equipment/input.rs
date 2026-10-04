@@ -2,7 +2,8 @@
 //! client-owned inventory) into runtime input.
 
 use assets::ItemVisualRoute;
-use client_world::{ActorArmorSnapshot, AttachableAnimationInput, CanonicalItemStack, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::{ActorArmorSnapshot, AttachableAnimationInput, CanonicalItemStack};
 use protocol::ActorHandedness;
 
 use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
@@ -57,14 +58,15 @@ fn armor_slots(armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
 pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInput {
     let held = |hand| {
         stream
+            .authority()
             .actor_equipment_in_hand(runtime_id, hand)
             .and_then(|equipment| worn_item(&equipment.item, None))
     };
-    let actor = stream.actor(runtime_id);
+    let actor = stream.authority().actor(runtime_id);
     ActorEquipmentInput {
         main: held(ActorHandedness::Right),
         off: held(ActorHandedness::Left),
-        armor: armor_slots(stream.actor_armor(runtime_id)),
+        armor: armor_slots(stream.authority().actor_armor(runtime_id)),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
     }
@@ -79,9 +81,10 @@ pub fn local_input(
     runtime_id: u64,
 ) -> ActorEquipmentInput {
     use client_ui::ui_runtime::inventory_ledger::InventoryTarget;
-    let actor = stream.actor(runtime_id);
+    let actor = stream.authority().actor(runtime_id);
     let resolve = |stack: &protocol::NetworkItemStack, dye_rgb: Option<u32>| {
         stream
+            .authority()
             .canonical_item_stack(stack)
             .and_then(|item| worn_item(&item, dye_rgb))
     };
@@ -90,7 +93,7 @@ pub fn local_input(
         .unwrap_or_default();
     ActorEquipmentInput {
         main: ui
-            .and_then(|ui| ui.selected_stack(player_runtime))
+            .and_then(|_| player_runtime.selected_stack())
             .and_then(|stack| resolve(stack, None)),
         off: ui
             .and_then(|ui| {

@@ -39,9 +39,10 @@ impl DebugContext<'_, '_> {
             optional_radius(stats.received_radius_chunks),
             optional_radius(stats.publisher_radius_chunks)
         ));
-        lines
-            .left
-            .push(format!("Entities: {} tracked", stream.actor_count()));
+        lines.left.push(format!(
+            "Entities: {} tracked",
+            stream.authority().actor_count()
+        ));
         lines.left.push(format!(
             "Decode: {} queued / {} running / {} ready",
             stats.queued_decode_jobs, stats.in_flight_decode_jobs, stats.completed_decode_results

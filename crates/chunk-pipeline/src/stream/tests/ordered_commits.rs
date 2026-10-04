@@ -104,6 +104,8 @@ fn out_of_order_decode_completions_commit_in_sequence() {
     assert!(stream.authority.terrain().sub_chunk(key).is_none());
 
     stream.accept_decode_completion(completions.next().unwrap());
+    // Each pass commits at least one ready event; the frame budget may stop it after one.
+    stream.apply_ready();
     stream.apply_ready();
     assert_eq!(stream.order.next_sequence(), 3);
     assert_eq!(

@@ -39,17 +39,17 @@ impl WorldStream {
             self.describe_block(&mut out, key, local, &ids);
             let stored = self.solved_light_at(position.map(|v| v as f32));
             let current = self.light_is_current(key);
-            let direct = self.direct_sky.get(&key);
+            let direct = self.lighting.direct_sky.get(&key);
             let _ = write!(
                 out,
                 " stored_block_sky={stored:?} solved_block_sky={:?} solve_current={current} light_generation={:?} block_generation={:?} direct_generation={:?} direct_sky={:?} pending={} in_flight={}; ",
                 stored.filter(|_| current),
-                self.light_store.light(key).map(|l| l.generation()),
-                self.block_generations.get(&key),
+                self.lighting.store.light(key).map(|l| l.generation()),
+                self.lighting.block_generations.get(&key),
                 direct.map(|d| d.light_revision),
                 direct.map(|d| d.mask.get(local[0], local[1], local[2])),
-                self.pending_light.contains_key(&key),
-                self.in_flight_light.contains_key(&key)
+                self.lighting.jobs.pending.contains_key(&key),
+                self.lighting.jobs.in_flight.contains_key(&key)
             );
             if columns.len() < MAX_COLUMNS {
                 columns.entry(key.chunk()).or_insert(position);
@@ -165,7 +165,7 @@ impl WorldStream {
                 source.and_then(|s| s.source).unwrap_or("unrecorded"),
                 source.and_then(|s| s.reply.as_deref()),
                 self.light_is_current(key),
-                self.is_expected_sub_chunk(key)
+                self.requests.is_expected(key)
             );
             if let Some(metadata) = source.and_then(|s| s.metadata) {
                 let _ = write!(out, "/decoded_payload_present={}", metadata.payload_present);

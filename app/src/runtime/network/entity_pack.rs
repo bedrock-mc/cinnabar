@@ -14,51 +14,98 @@ use super::resource_packs::{StackFingerprint, parse_pack_json};
 pub(crate) use assets::SessionEntityPack;
 pub(crate) use client_presentation::session_assets::SessionItems;
 
-/// Vanilla definitions server-pack entities may reference, set once at startup when the
-/// sidecar loads.
-static VANILLA_REFS: std::sync::OnceLock<assets::VanillaEntityRefs> = std::sync::OnceLock::new();
+/// Vanilla definitions server-pack entities may reference; replaced whenever a carrier loads.
+static VANILLA_REFS: std::sync::RwLock<Option<Arc<assets::VanillaEntityRefs>>> =
+    std::sync::RwLock::new(None);
 
 pub(crate) fn set_vanilla_refs(refs: assets::VanillaEntityRefs) {
-    let _ = VANILLA_REFS.set(refs);
+    *VANILLA_REFS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(refs));
+}
+
+fn vanilla_refs() -> Option<Arc<assets::VanillaEntityRefs>> {
+    VANILLA_REFS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
+/// Everything a compile reads: the pack stack and the vanilla refs it resolved against.
+#[derive(Clone, PartialEq)]
+struct EntityInputs {
+    stack: StackFingerprint,
+    vanilla: Option<Arc<assets::VanillaEntityRefs>>,
 }
 
 type CachedEntities = (
-    StackFingerprint,
+    EntityInputs,
     Option<Arc<SessionEntityPack>>,
     Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
 );
 
-/// The previous session's compile, reused when the same pack stack rejoins.
-static ENTITY_CACHE: std::sync::Mutex<Option<CachedEntities>> = std::sync::Mutex::new(None);
+/// The previous compile, reused when the same inputs rejoin.
+#[derive(Default)]
+struct EntityCache(std::sync::Mutex<Option<CachedEntities>>);
+
+impl EntityCache {
+    /// Returns the cached pack for `inputs`, compiling without holding the lock on a miss.
+    fn get_or_compile(
+        &self,
+        inputs: EntityInputs,
+        view: &LayeredPackView,
+        compile: impl FnOnce(
+            &LayeredPackView,
+            Option<&assets::VanillaEntityRefs>,
+        ) -> Option<Arc<SessionEntityPack>>,
+    ) -> Option<Arc<SessionEntityPack>> {
+        {
+            let cache = self.lock();
+            if let Some((cached, pack, files)) = cache.as_ref()
+                && *cached == inputs
+                && (view.dependencies().is_none() || files.is_some())
+            {
+                if let (Some(dependencies), Some(files)) = (view.dependencies(), files) {
+                    dependencies.extend(files.clone());
+                }
+                return pack.clone();
+            }
+        }
+        let pack = compile(view, inputs.vanilla.as_deref());
+        *self.lock() = Some((
+            inputs,
+            pack.clone(),
+            view.dependencies().map(|files| files.snapshot()),
+        ));
+        pack
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<CachedEntities>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+static ENTITY_CACHE: EntityCache = EntityCache(std::sync::Mutex::new(None));
 
 /// Compiles the stack's entity files; `None` when it defines no usable entity.
 pub(super) fn compile_session_entities(
     fingerprint: &StackFingerprint,
     view: &LayeredPackView,
 ) -> Option<Arc<SessionEntityPack>> {
-    let mut cache = ENTITY_CACHE
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
-    if let Some((cached, pack, inputs)) = cache.as_ref()
-        && cached == fingerprint
-        && (view.dependencies().is_none() || inputs.is_some())
-    {
-        if let (Some(dependencies), Some(inputs)) = (view.dependencies(), inputs) {
-            dependencies.extend(inputs.clone());
-        }
-        return pack.clone();
-    }
-    let pack = compile(view);
-    *cache = Some((
-        fingerprint.clone(),
-        pack.clone(),
-        view.dependencies().map(|inputs| inputs.snapshot()),
-    ));
-    pack
+    let inputs = EntityInputs {
+        stack: fingerprint.clone(),
+        vanilla: vanilla_refs(),
+    };
+    ENTITY_CACHE.get_or_compile(inputs, view, compile)
 }
 
-fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
-    let files = collect_files(view, VANILLA_REFS.get());
+fn compile(
+    view: &LayeredPackView,
+    vanilla: Option<&assets::VanillaEntityRefs>,
+) -> Option<Arc<SessionEntityPack>> {
+    let files = collect_files(view, vanilla);
     let compiled = match pack_compiler::compile_actor_pack(files) {
         Ok(Some(compiled)) => compiled,
         Ok(None) => return None,
@@ -200,6 +247,62 @@ mod tests {
                 "{definition}"
             );
         }
+    }
+
+    fn empty_view() -> resource_pack::LayeredPackView {
+        resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+            protocol::ResourcePackHandoff::from_archives(Vec::new()),
+        ))
+    }
+
+    fn inputs(vanilla: Option<assets::VanillaEntityRefs>) -> super::EntityInputs {
+        super::EntityInputs {
+            stack: Vec::new(),
+            vanilla: vanilla.map(std::sync::Arc::new),
+        }
+    }
+
+    fn refs_with_animation() -> assets::VanillaEntityRefs {
+        let mut refs = assets::VanillaEntityRefs::new();
+        refs.animations
+            .insert("animation.test".into(), serde_json::Value::Null);
+        refs
+    }
+
+    // The same stack recompiles when the vanilla refs it resolved against change.
+    #[test]
+    fn entity_cache_keys_on_vanilla_refs() {
+        let (view, cache) = (empty_view(), super::EntityCache::default());
+        let compiles = std::cell::Cell::new(0);
+        for vanilla in [
+            None,
+            None,
+            Some(assets::VanillaEntityRefs::new()),
+            Some(refs_with_animation()),
+        ] {
+            cache.get_or_compile(inputs(vanilla), &view, |_, _| {
+                compiles.set(compiles.get() + 1);
+                None
+            });
+        }
+        assert_eq!(compiles.get(), 3);
+    }
+
+    #[test]
+    fn entity_cache_compiles_without_holding_its_lock() {
+        let (view, cache) = (empty_view(), super::EntityCache::default());
+        cache.get_or_compile(inputs(None), &view, |_, _| {
+            assert!(cache.0.try_lock().is_ok());
+            None
+        });
+    }
+
+    #[test]
+    fn later_vanilla_refs_replace_earlier_ones() {
+        let later = refs_with_animation();
+        super::set_vanilla_refs(assets::VanillaEntityRefs::new());
+        super::set_vanilla_refs(later.clone());
+        assert_eq!(super::vanilla_refs().as_deref(), Some(&later));
     }
 
     #[test]

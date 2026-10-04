@@ -350,13 +350,13 @@ impl Harness {
             && self.held.is_empty()
             && self.stream.pending_decode.is_empty()
             && self.stream.in_flight_decode_jobs == 0
-            && self.stream.pending_light.is_empty()
-            && self.stream.in_flight_light.is_empty()
-            && self.stream.pending_mesh.is_empty()
-            && self.stream.in_flight.is_empty()
+            && self.stream.lighting.jobs.pending.is_empty()
+            && self.stream.lighting.jobs.in_flight.is_empty()
+            && self.stream.mesh_jobs.pending.is_empty()
+            && self.stream.mesh_jobs.in_flight.is_empty()
             && self.stream.mesh_changes.is_empty()
             && self.stream.staged_mesh_completions.is_empty()
-            && self.stream.requested_sub_chunks.is_empty()
+            && self.stream.requests.requested.is_empty()
     }
 
     /// Separates nearby publication delays from their data and lighting prerequisites.
@@ -397,7 +397,7 @@ impl Harness {
                     3
                 } else if !halo_blockers.is_empty() {
                     4
-                } else if self.stream.in_flight.contains_key(&key) {
+                } else if self.stream.mesh_jobs.in_flight.contains_key(&key) {
                     5
                 } else {
                     runnable.push(key);
@@ -411,11 +411,11 @@ impl Harness {
         }
         let pending_light = light_blockers
             .iter()
-            .filter(|key| self.stream.pending_light.contains_key(key))
+            .filter(|key| self.stream.lighting.jobs.pending.contains_key(key))
             .count();
         let running_light = light_blockers
             .iter()
-            .filter(|key| self.stream.in_flight_light.contains_key(key))
+            .filter(|key| self.stream.lighting.jobs.in_flight.contains_key(key))
             .count();
         println!(
             "near frame={} [shown,absent,due,center_light,halo_light,mesh_running,runnable]={counts:?} light_blockers_pending={pending_light} running={running_light} first_blockers={:?} first_runnable={:?}",
@@ -443,7 +443,9 @@ impl Harness {
                 poll_started.elapsed().as_micros()
             );
         }
-        self.peak_light_jobs = self.peak_light_jobs.max(self.stream.in_flight_light.len());
+        self.peak_light_jobs = self
+            .peak_light_jobs
+            .max(self.stream.lighting.jobs.in_flight.len());
         let _ = self.stream.take_committed_controls();
         self.answer_requests();
         self.present();
@@ -455,18 +457,18 @@ impl Harness {
                 self.stream.pending_decode.len(),
                 self.stream.in_flight_decode_jobs,
                 self.stream.order.heavy_count(),
-                self.stream.requests.len(),
-                self.stream.pending_light.len(),
-                self.stream.in_flight_light.len(),
-                self.stream.pending_mesh.len(),
-                self.stream.in_flight.len(),
+                self.stream.requests.queue.len(),
+                self.stream.lighting.jobs.pending.len(),
+                self.stream.lighting.jobs.in_flight.len(),
+                self.stream.mesh_jobs.pending.len(),
+                self.stream.mesh_jobs.in_flight.len(),
                 self.presented.len(),
             );
             println!(
                 "light_work frame={} workers={} channel={} dispatched={} accepted={} stale={}",
                 self.frame,
-                self.stream.running_light_jobs.load(Ordering::Acquire),
-                self.stream.light_rx.len(),
+                self.stream.lighting.running_jobs.load(Ordering::Acquire),
+                self.stream.lighting.rx.len(),
                 self.stream.stats.phase2_stages.light_jobs_dispatched,
                 self.stream.stats.accepted_light_jobs,
                 self.stream.stats.stale_light_jobs,
@@ -733,7 +735,7 @@ fn disjoint_teleport_keeps_columns_the_destination_view_covers() {
         block_network_ids_are_hashes: false,
     });
     stream.chunk_radius = Some(8);
-    stream.publisher_radius_chunks = Some(8);
+    stream.publisher.radius_chunks = Some(8);
     let kept = SubChunkKey::new(0, 10, -4, 0);
     let dropped = SubChunkKey::new(0, -8, -4, 0);
     for key in [kept, dropped] {
@@ -754,7 +756,7 @@ fn disjoint_teleport_keeps_columns_the_destination_view_covers() {
         )
         .unwrap();
 
-    assert!(stream.provisional_publisher_rebase);
+    assert!(stream.publisher.provisional_rebase);
     assert!(stream.tracked_columns().contains(&kept.chunk()));
     assert!(!stream.tracked_columns().contains(&dropped.chunk()));
 }
@@ -897,8 +899,8 @@ fn batch_eviction_preserves_overlap_and_snapshot() {
         revision
     );
     assert!(harness.stream.resident.contains(&retained));
-    assert!(harness.stream.pending_mesh.contains_key(&removed));
-    assert!(harness.stream.pending_mesh.contains_key(&retained));
+    assert!(harness.stream.mesh_jobs.pending.contains_key(&removed));
+    assert!(harness.stream.mesh_jobs.pending.contains_key(&retained));
     assert_eq!(snapshot.runtime_id(0, 0, 0, 0), Some(STONE));
 }
 

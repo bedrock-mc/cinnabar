@@ -8,8 +8,6 @@ use crate::acceptance::{
 use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind};
 #[cfg(feature = "acceptance")]
 use crate::runtime::visibility::AppMetrics;
-#[cfg(feature = "acceptance")]
-mod acceptance_helpers;
 mod committed_ui;
 mod control_apply;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
@@ -21,7 +19,7 @@ mod sub_chunk_requests;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 
 #[cfg(feature = "acceptance")]
-pub(crate) use acceptance_helpers::{
+use acceptance::committed_control::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
 pub(crate) use control_apply::apply_committed_control;
@@ -39,13 +37,12 @@ use bevy::{
     prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::Real,
 };
-use client_world::{
-    CommittedControlEvent, ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll,
-};
+use chunk_pipeline::{ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll};
+use client_world::CommittedControlEvent;
 
-use super::audio::{SequencedAudioEvent, drain_committed_audio};
-use crate::block_cracks::reconcile_world_block_cracks;
-use crate::server_camera::{ServerCameraInstructions, drain_committed_camera};
+use client_presentation::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
+use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
+use client_ui::block_cracks::reconcile_world_block_cracks;
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render::{
@@ -70,8 +67,8 @@ use crate::{
         shutdown::record_fatal_error,
         visibility::{CaveVisibilityCache, DiagnosticQuads},
     },
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 #[cfg(feature = "acceptance")]
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
@@ -102,7 +99,7 @@ pub(crate) struct ClientWorld {
     pub(crate) pack_entities: Option<Arc<crate::runtime::network::entity_pack::SessionEntityPack>>,
     /// Worker-built pack pages, reused only while their base artwork and pack remain current.
     pub(crate) prepared_actor_artwork:
-        Option<Arc<crate::runtime::network::prepared_actor_artwork::PreparedActorArtwork>>,
+        Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
     /// The session's custom item facts and pack icons for held and worn items.
     pub(crate) session_items: Option<Arc<crate::runtime::network::entity_pack::SessionItems>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
@@ -253,7 +250,7 @@ pub(crate) fn frame_cohort_status(
         .map(|target| stream.cohort_status(target))
 }
 
-pub(crate) fn world_stream_fatal_message(error: client_world::WorldStreamFatalError) -> String {
+pub(crate) fn world_stream_fatal_message(error: chunk_pipeline::WorldStreamFatalError) -> String {
     format!("world stream fatal: {error}")
 }
 
@@ -515,7 +512,7 @@ pub(crate) fn drive_world_stream(
     let active_session = client_world
         .stream
         .as_ref()
-        .map(WorldStream::actor_session_id);
+        .map(|stream| stream.authority().actor_session_id());
     if *rendered_session != active_session {
         render_queue.reset_session();
         acknowledgements.clear();

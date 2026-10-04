@@ -44,10 +44,11 @@ fn player_and_visible_retries_precede_far_initial_prefetch_without_losing_fifo_t
     let player = ChunkKey::new(0, 0, 0);
     let visible = ChunkKey::new(0, 2, 0);
     let prefetch = ChunkKey::new(0, 6, 0);
-    stream.required_columns = BTreeSet::from([player, visible]);
-    stream.requests.retain(|slot| {
-        !matches!(slot, super::OutboundRequestSlot::Ready(request) if request.chunk == player)
-    });
+    stream.publisher.required_columns = BTreeSet::from([player, visible]);
+    stream
+        .requests
+        .queue
+        .cancel_ready(|request| request.chunk == player);
     for y in [-4, -3] {
         let key = SubChunkKey::from_chunk(player, y);
         assert_eq!(
@@ -95,7 +96,8 @@ fn request_priority_uses_last_finite_polled_player_chunk_and_horizontal_distance
             .unwrap();
     }
     complete_pending_decode_jobs(&mut stream);
-    stream.required_columns = BTreeSet::from([ChunkKey::new(0, 4, 0), ChunkKey::new(0, 2, 0)]);
+    stream.publisher.required_columns =
+        BTreeSet::from([ChunkKey::new(0, 4, 0), ChunkKey::new(0, 2, 0)]);
 
     assert_eq!(stream.pop_next_request().unwrap().chunk.x, 2);
     assert_eq!(stream.pop_next_request().unwrap().chunk.x, 4);
@@ -128,7 +130,8 @@ fn restoring_unsent_request_preserves_original_fifo_tie_identity() {
             .unwrap();
     }
     complete_pending_decode_jobs(&mut stream);
-    stream.required_columns = BTreeSet::from([ChunkKey::new(0, 1, 0), ChunkKey::new(0, -1, 0)]);
+    stream.publisher.required_columns =
+        BTreeSet::from([ChunkKey::new(0, 1, 0), ChunkKey::new(0, -1, 0)]);
 
     let first = stream.pop_next_request().unwrap();
     assert_eq!(first.chunk.x, 1);
@@ -167,7 +170,10 @@ fn permit_denied_mesh_publishes_from_staging_without_a_second_mesh_job() {
     let deadline = Instant::now() + std::time::Duration::from_secs(10);
     for _ in 0..64 {
         dispatched += stream.poll([0.0; 3], 32).mesh_jobs_dispatched;
-        if dispatched > 0 && stream.in_flight.is_empty() && stream.pending_mesh.is_empty() {
+        if dispatched > 0
+            && stream.mesh_jobs.in_flight.is_empty()
+            && stream.mesh_jobs.pending.is_empty()
+        {
             break;
         }
         assert!(Instant::now() < deadline);

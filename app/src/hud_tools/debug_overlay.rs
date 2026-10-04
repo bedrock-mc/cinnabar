@@ -24,8 +24,8 @@ use crate::{
     movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
     player_runtime::PlayerRuntime,
     runtime::{network::NetworkHandle, visibility::CaveVisibilityCache, world::ClientWorld},
-    ui_runtime::presentation::{DebugLines, UiPresentationRuntime},
 };
+use client_ui::ui_runtime::presentation::{DebugLines, UiPresentationRuntime};
 
 /// Aggregate frame timing over a short window; live diagnostics still publish
 /// every frame while F3 is enabled.

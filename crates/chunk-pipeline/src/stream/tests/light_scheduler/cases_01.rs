@@ -28,8 +28,8 @@ fn live_mutation_marks_light_and_mesh_work_urgent() {
 
     stream.mark_live_mutation_changed(key, Instant::now(), true);
 
-    assert!(stream.pending_light.values().all(|pending| pending.urgent));
-    assert!(stream.pending_mesh.values().all(|pending| pending.urgent));
+    assert!(stream.lighting.jobs.pending.values().all(|p| p.urgent));
+    assert!(stream.mesh_jobs.pending.values().all(|p| p.urgent));
 }
 
 #[test]
@@ -43,16 +43,17 @@ fn unchanged_packed_light_completion_advances_only_block_ownership() {
     stream.resident.insert(key);
     stream.mark_changed(key, Instant::now());
     complete_one_light(&mut stream, [8.0; 3]);
-    let original_light = Arc::clone(stream.light_store.light(key).unwrap());
-    let original_direct = Arc::clone(&stream.direct_sky[&key].mask);
-    let original_light_revision = stream.light_ownership[&key].light_revision;
+    let original_light = Arc::clone(stream.lighting.store.light(key).unwrap());
+    let original_direct = Arc::clone(&stream.lighting.direct_sky[&key].mask);
+    let original_light_revision = stream.lighting.ownership[&key].light_revision;
     assert_eq!(original_light.get(LightChannel::Block, 8, 8, 8), Some(15));
     assert_ne!(original_light.get(LightChannel::Block, 0, 0, 0), Some(15));
 
     stream.mark_light_changed_sources([key]);
-    let replacement_block_generation = stream.block_generations[&key];
+    let replacement_block_generation = stream.lighting.block_generations[&key];
     let pending_mesh_before = stream
-        .pending_mesh
+        .mesh_jobs
+        .pending
         .iter()
         .map(|(key, pending)| (*key, (pending.revision, pending.since)))
         .collect::<BTreeSet<_>>();
@@ -65,12 +66,15 @@ fn unchanged_packed_light_completion_advances_only_block_ownership() {
     complete_one_light(&mut stream, [8.0; 3]);
 
     assert!(Arc::ptr_eq(
-        stream.light_store.light(key).unwrap(),
+        stream.lighting.store.light(key).unwrap(),
         &original_light
     ));
-    assert!(Arc::ptr_eq(&stream.direct_sky[&key].mask, &original_direct));
+    assert!(Arc::ptr_eq(
+        &stream.lighting.direct_sky[&key].mask,
+        &original_direct
+    ));
     assert_eq!(
-        stream.light_ownership[&key],
+        stream.lighting.ownership[&key],
         LightOwnership {
             block_generation: replacement_block_generation,
             light_revision: original_light_revision,
@@ -78,7 +82,8 @@ fn unchanged_packed_light_completion_advances_only_block_ownership() {
     );
     assert_eq!(
         stream
-            .pending_mesh
+            .mesh_jobs
+            .pending
             .iter()
             .map(|(key, pending)| (*key, (pending.revision, pending.since)))
             .collect::<BTreeSet<_>>(),
@@ -100,7 +105,7 @@ fn unchanged_completion_rejects_missing_prior_provenance_without_publication() {
     let mut stream = lit_stream(1);
     let key = SubChunkKey::new(1, 0, 0, 0);
     install_current_light(&mut stream, key, 0, 0, false);
-    let original_ownership = stream.light_ownership[&key];
+    let original_ownership = stream.lighting.ownership[&key];
     let completion = synthetic_light_completion(
         &mut stream,
         key,
@@ -109,14 +114,14 @@ fn unchanged_completion_rejects_missing_prior_provenance_without_publication() {
         false,
         [false; 6],
     );
-    stream.direct_sky.remove(&key);
+    stream.lighting.direct_sky.remove(&key);
 
     stream.accept_light_completion(completion);
 
     assert_eq!(stream.stats().stale_light_jobs, 1);
     assert_eq!(stream.stats().accepted_light_jobs, 0);
-    assert_eq!(stream.light_ownership[&key], original_ownership);
-    assert!(stream.light_revisions.dirty(key).is_some());
+    assert_eq!(stream.lighting.ownership[&key], original_ownership);
+    assert!(stream.lighting.revisions.dirty(key).is_some());
 }
 
 #[test]
@@ -128,9 +133,9 @@ fn provenance_only_completion_preserves_sampled_mesh_identity() {
         .commit_sub_chunk(key, super::uniform_sub_chunk(2))
         .unwrap();
     install_current_light(&mut stream, key, 0, 0, false);
-    let original_light = Arc::clone(stream.light_store.light(key).unwrap());
-    let original_direct = Arc::clone(&stream.direct_sky[&key].mask);
-    let original_light_revision = stream.light_ownership[&key].light_revision;
+    let original_light = Arc::clone(stream.lighting.store.light(key).unwrap());
+    let original_direct = Arc::clone(&stream.lighting.direct_sky[&key].mask);
+    let original_light_revision = stream.lighting.ownership[&key].light_revision;
     let mesh_revision = stream.mark_dirty_exact(key, Instant::now());
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
     let mesh_completion = stream
@@ -149,23 +154,23 @@ fn provenance_only_completion_preserves_sampled_mesh_identity() {
     stream.accept_light_completion(completion);
 
     assert!(Arc::ptr_eq(
-        stream.light_store.light(key).unwrap(),
+        stream.lighting.store.light(key).unwrap(),
         &original_light
     ));
     assert!(!Arc::ptr_eq(
-        &stream.direct_sky[&key].mask,
+        &stream.lighting.direct_sky[&key].mask,
         &original_direct
     ));
     assert_eq!(
-        stream.direct_sky[&key].light_revision,
+        stream.lighting.direct_sky[&key].light_revision,
         original_light_revision
     );
     assert_eq!(
-        stream.light_ownership[&key].light_revision,
+        stream.lighting.ownership[&key].light_revision,
         original_light_revision
     );
-    assert_eq!(stream.in_flight.get(&key), Some(&mesh_revision));
-    assert!(!stream.pending_mesh.contains_key(&key));
+    assert_eq!(stream.mesh_jobs.in_flight.get(&key), Some(&mesh_revision));
+    assert!(!stream.mesh_jobs.pending.contains_key(&key));
     assert!(
         stream
             .light_prior_snapshot(key)
@@ -192,7 +197,8 @@ fn provenance_only_face_change_stales_older_neighbour_solve() {
     stream.mark_light_dirty_exact(neighbour).unwrap();
     assert_eq!(stream.dispatch_light_jobs([24.0, 8.0, 8.0], 1), 1);
     let older_neighbour_completion = stream
-        .light_rx
+        .lighting
+        .rx
         .recv_timeout(Duration::from_secs(2))
         .expect("older neighbour light completion");
 
@@ -205,12 +211,12 @@ fn provenance_only_face_change_stales_older_neighbour_solve() {
         [false, true, false, false, false, false],
     );
     stream.accept_light_completion(completion);
-    assert!(stream.pending_light.contains_key(&neighbour));
-    assert!(stream.in_flight_light.contains_key(&neighbour));
+    assert!(stream.lighting.jobs.pending.contains_key(&neighbour));
+    assert!(stream.lighting.jobs.in_flight.contains_key(&neighbour));
 
     stream.accept_light_completion(older_neighbour_completion);
     assert_eq!(stream.stats().stale_light_jobs, 1);
-    assert!(stream.pending_light.contains_key(&neighbour));
+    assert!(stream.lighting.jobs.pending.contains_key(&neighbour));
 }
 
 #[test]
@@ -321,7 +327,12 @@ fn light_dispatch_rotates_past_a_blocked_nearest_window() {
     }
     assert_eq!(stream.dispatch_light_jobs([16.0, 0.0, 0.0], 1), 1);
     assert_eq!(
-        stream.in_flight_light.get(&farther).map(|job| job.revision),
+        stream
+            .lighting
+            .jobs
+            .in_flight
+            .get(&farther)
+            .map(|job| job.revision),
         Some(farther_revision)
     );
 }
@@ -350,8 +361,8 @@ fn mesh_dispatch_bounds_resident_readiness_scan_and_keeps_window_progressing() {
     let farther_revision = stream.mark_dirty_exact(farther, Instant::now());
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
-    assert!(!stream.in_flight.contains_key(&farther));
-    assert!(stream.pending_mesh.contains_key(&farther));
+    assert!(!stream.mesh_jobs.in_flight.contains_key(&farther));
+    assert!(stream.mesh_jobs.pending.contains_key(&farther));
     for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
         let key = SubChunkKey::new(0, index as i32 * 3, 0, 3);
         stream
@@ -364,7 +375,10 @@ fn mesh_dispatch_bounds_resident_readiness_scan_and_keeps_window_progressing() {
     }
 
     assert_eq!(stream.dispatch_mesh_jobs([16.0, 0.0, 0.0], 1), 1);
-    assert_eq!(stream.in_flight.get(&farther), Some(&farther_revision));
+    assert_eq!(
+        stream.mesh_jobs.in_flight.get(&farther),
+        Some(&farther_revision)
+    );
 }
 
 #[test]
@@ -395,10 +409,13 @@ fn exhausted_removal_authority_still_reclassifies_ready_resident_work() {
         .unwrap();
     install_current_light(&mut stream, resident, 0, 0, false);
     stream.mark_dirty_exact(resident, Instant::now());
-    let resident_revision = stream.pending_mesh[&resident].revision;
+    let resident_revision = stream.mesh_jobs.pending[&resident].revision;
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
-    assert_eq!(stream.in_flight.get(&resident), Some(&resident_revision));
+    assert_eq!(
+        stream.mesh_jobs.in_flight.get(&resident),
+        Some(&resident_revision)
+    );
 }
 
 #[test]
@@ -417,12 +434,17 @@ fn mesh_worker_budget_keeps_unscanned_residents_behind_nearer_ready_work() {
     }
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
-    assert!(stream.in_flight.contains_key(&keys[0]));
-    stream.in_flight.remove(&keys[0]);
+    assert!(stream.mesh_jobs.in_flight.contains_key(&keys[0]));
+    stream.mesh_jobs.in_flight.remove(&keys[0]);
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
-    assert!(stream.in_flight.contains_key(&keys[1]));
-    assert!(!stream.in_flight.contains_key(keys.last().unwrap()));
+    assert!(stream.mesh_jobs.in_flight.contains_key(&keys[1]));
+    assert!(
+        !stream
+            .mesh_jobs
+            .in_flight
+            .contains_key(keys.last().unwrap())
+    );
 }
 
 #[test]
@@ -469,12 +491,15 @@ fn mesh_dispatch_waits_for_every_known_light_halo_slot() {
     stream.mark_light_dirty_exact(corner);
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
-    assert_eq!(stream.pending_mesh[&center].revision, mesh_revision);
-    assert!(!stream.in_flight.contains_key(&center));
+    assert_eq!(stream.mesh_jobs.pending[&center].revision, mesh_revision);
+    assert!(!stream.mesh_jobs.in_flight.contains_key(&center));
 
     install_current_light(&mut stream, corner, 0, 0, false);
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
-    assert_eq!(stream.in_flight.get(&center), Some(&mesh_revision));
+    assert_eq!(
+        stream.mesh_jobs.in_flight.get(&center),
+        Some(&mesh_revision)
+    );
 }
 
 #[test]
@@ -509,8 +534,8 @@ fn stale_light_value_mesh_is_requeued_but_provenance_identity_is_ignored() {
 
     assert_eq!(stream.stats().stale_mesh_jobs, 1);
     assert!(stream.take_mesh_changes().is_empty());
-    assert!(!stream.in_flight.contains_key(&center));
-    assert_eq!(stream.pending_mesh[&center].revision, revision);
+    assert!(!stream.mesh_jobs.in_flight.contains_key(&center));
+    assert_eq!(stream.mesh_jobs.pending[&center].revision, revision);
     assert!(stream.revisions.is_current(center, revision));
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
@@ -518,11 +543,12 @@ fn stale_light_value_mesh_is_requeued_but_provenance_identity_is_ignored() {
         .mesh_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("provenance-only identity mesh completion");
-    stream.direct_sky.get_mut(&corner).unwrap().mask = Arc::new(DirectSkyMask::Uniform(false));
+    stream.lighting.direct_sky.get_mut(&corner).unwrap().mask =
+        Arc::new(DirectSkyMask::Uniform(false));
     stream.accept_mesh_completion(completion);
     assert_eq!(stream.stats().stale_mesh_jobs, 1);
     assert_eq!(stream.take_mesh_changes().len(), 1);
-    assert!(!stream.pending_mesh.contains_key(&center));
+    assert!(!stream.mesh_jobs.pending.contains_key(&center));
 }
 
 #[test]
@@ -556,7 +582,7 @@ fn mid_flight_light_halo_load_rejects_preload_mesh_completion() {
 
     assert_eq!(stream.stats().stale_mesh_jobs, 1);
     assert!(stream.take_mesh_changes().is_empty());
-    assert_eq!(stream.pending_mesh[&center].revision, revision);
+    assert_eq!(stream.mesh_jobs.pending[&center].revision, revision);
 }
 
 #[test]
@@ -576,13 +602,19 @@ fn light_change_invalidation_only_dirties_renderable_dependents_once() {
     stream.mark_light_mesh_dependents(source, first + Duration::from_millis(1));
 
     assert_eq!(
-        stream.pending_mesh.keys().copied().collect::<BTreeSet<_>>(),
+        stream
+            .mesh_jobs
+            .pending
+            .keys()
+            .copied()
+            .collect::<BTreeSet<_>>(),
         BTreeSet::from([source])
     );
-    assert!(!stream.pending_mesh.contains_key(&known_air));
+    assert!(!stream.mesh_jobs.pending.contains_key(&known_air));
     assert!(
         stream
-            .pending_mesh
+            .mesh_jobs
+            .pending
             .values()
             .all(|pending| pending.since == first)
     );
@@ -611,7 +643,8 @@ fn changed_light_faces_scope_mesh_invalidation_to_sampling_dependents() {
         false,
     );
     let revisions = stream
-        .pending_mesh
+        .mesh_jobs
+        .pending
         .iter()
         .map(|(&key, pending)| (key, pending.revision))
         .collect::<BTreeMap<_, _>>();
@@ -623,12 +656,18 @@ fn changed_light_faces_scope_mesh_invalidation_to_sampling_dependents() {
     );
 
     assert_eq!(
-        stream.pending_mesh.keys().copied().collect::<BTreeSet<_>>(),
+        stream
+            .mesh_jobs
+            .pending
+            .keys()
+            .copied()
+            .collect::<BTreeSet<_>>(),
         BTreeSet::from([source, east, up, east_up])
     );
     assert_eq!(
         stream
-            .pending_mesh
+            .mesh_jobs
+            .pending
             .iter()
             .map(|(&key, pending)| (key, pending.revision))
             .collect::<BTreeMap<_, _>>(),
@@ -645,6 +684,7 @@ fn original_column_lighting_waits_for_the_loaded_three_by_three_context() {
     for dx in -1..=1 {
         for dz in -1..=1 {
             stream
+                .publisher
                 .required_columns
                 .insert(ChunkKey::new(1, key.x + dx, key.z + dz));
         }
@@ -669,7 +709,7 @@ fn original_column_lighting_treats_unrequested_neighbours_as_the_view_boundary()
     let mut stream = lit_stream(1);
     let key = SubChunkKey::new(1, 4, 0, 6);
     stream.record_known_air(key);
-    stream.required_columns.insert(key.chunk());
+    stream.publisher.required_columns.insert(key.chunk());
     stream.loaded_columns.insert(key.chunk());
     stream.mark_changed(key, Instant::now());
 
@@ -697,12 +737,12 @@ fn mesh_dispatch_waits_for_current_light() {
     stream.mark_changed(key, Instant::now());
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
-    assert!(!stream.in_flight.contains_key(&key));
+    assert!(!stream.mesh_jobs.in_flight.contains_key(&key));
 
     complete_one_light(&mut stream, [0.0; 3]);
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
     assert_eq!(
-        stream.in_flight.get(&key).copied(),
+        stream.mesh_jobs.in_flight.get(&key).copied(),
         stream.revisions.dirty(key).map(|dirty| dirty.revision)
     );
 }
@@ -728,7 +768,8 @@ fn runtime_light_metadata_propagates_across_a_known_air_seam() {
 
     assert_eq!(
         stream
-            .light_store
+            .lighting
+            .store
             .light(air)
             .unwrap()
             .get(LightChannel::Block, 0, 0, 0),
@@ -767,8 +808,8 @@ fn dirty_or_stale_boundary_light_is_untrusted() {
             .boundary_light(0, sample, LightChannel::Block),
         BoundaryLightSample::untrusted()
     );
-    stream.light_revisions.entries.remove(&boundary);
-    stream.pending_light.remove(&boundary);
+    stream.lighting.revisions.entries.remove(&boundary);
+    stream.lighting.jobs.pending.remove(&boundary);
     stream.mark_light_changed_sources([boundary]);
     assert_eq!(
         stream
@@ -799,9 +840,9 @@ fn changed_light_levels_dirty_a_renderable_mesh_generation() {
     stream.mark_changed(target, Instant::now());
     complete_one_light(&mut stream, [-8.0, 8.0, 8.0]);
     assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], 1), 1);
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
     stream.revisions.entries.clear();
-    let previous_light = Arc::clone(stream.light_store.light(target).unwrap());
+    let previous_light = Arc::clone(stream.lighting.store.light(target).unwrap());
     stream.stats.accepted_light_jobs = 0;
     stream.stats.noop_light_jobs = 0;
     stream.stats.value_changed_light_jobs = 0;
@@ -809,33 +850,35 @@ fn changed_light_levels_dirty_a_renderable_mesh_generation() {
     stream.stats.light_mesh_invalidations = 0;
 
     let completion = stream
-        .light_rx
+        .lighting
+        .rx
         .recv_timeout(Duration::from_secs(2))
         .unwrap();
     stream.accept_light_completion(completion);
 
     assert_eq!(
         stream
-            .light_store
+            .lighting
+            .store
             .light(target)
             .unwrap()
             .get(LightChannel::Block, 0, 0, 0),
         Some(14)
     );
     assert!(!Arc::ptr_eq(
-        stream.light_store.light(target).unwrap(),
+        stream.lighting.store.light(target).unwrap(),
         &previous_light
     ));
-    assert!(stream.pending_mesh.contains_key(&target));
+    assert!(stream.mesh_jobs.pending.contains_key(&target));
     assert!(stream.revisions.dirty(target).is_some());
     assert_eq!(
         target
             .mesh_neighbourhood_dependents()
-            .filter(|dependent| stream.pending_mesh.contains_key(dependent))
+            .filter(|dependent| stream.mesh_jobs.pending.contains_key(dependent))
             .count(),
         2
     );
-    assert!(stream.pending_mesh.contains_key(&emitter));
+    assert!(stream.mesh_jobs.pending.contains_key(&emitter));
     assert_eq!(stream.stats().accepted_light_jobs, 1);
     assert_eq!(stream.stats().noop_light_jobs, 0);
     assert_eq!(stream.stats().value_changed_light_jobs, 1);
@@ -855,17 +898,18 @@ fn retained_column_batch_does_not_requeue_accepted_members() {
     }
 
     assert_eq!(stream.dispatch_light_jobs([8.0, 120.0, 8.0], 1), 2);
-    assert!(stream.light_waiters.is_empty());
+    assert!(stream.lighting.waiters.is_empty());
     for _ in 0..2 {
         let completion = stream
-            .light_rx
+            .lighting
+            .rx
             .recv_timeout(Duration::from_secs(2))
             .unwrap();
         stream.accept_light_completion(completion);
     }
 
-    assert!(stream.pending_light.is_empty());
-    assert!(stream.in_flight_light.is_empty());
+    assert!(stream.lighting.jobs.pending.is_empty());
+    assert!(stream.lighting.jobs.in_flight.is_empty());
     assert!(stream.light_is_current(top));
     assert!(stream.light_is_current(below));
 }
@@ -893,13 +937,14 @@ fn limited_empty_column_propagates_direct_sky_into_the_mesh_light_sidecar() {
     let bottom = SubChunkKey::new(0, 0, -4, 0);
     assert_eq!(
         stream
-            .light_store
+            .lighting
+            .store
             .light(bottom)
             .unwrap()
             .get(LightChannel::Sky, 0, 0, 0),
         Some(15)
     );
-    assert!(stream.direct_sky[&bottom].mask.get(0, 0, 0));
+    assert!(stream.lighting.direct_sky[&bottom].mask.get(0, 0, 0));
     let halo = stream
         .mesh_light_halo(bottom)
         .expect("settled implicit air exposes a current mesh-light sidecar");
@@ -917,13 +962,14 @@ fn nether_and_end_never_seed_sky() {
 
         assert_eq!(
             stream
-                .light_store
+                .lighting
+                .store
                 .light(key)
                 .unwrap()
                 .get(LightChannel::Sky, 0, 15, 0),
             Some(0)
         );
-        assert!(!stream.direct_sky[&key].mask.get(0, 15, 0));
+        assert!(!stream.lighting.direct_sky[&key].mask.get(0, 15, 0));
     }
 }
 
@@ -934,8 +980,8 @@ fn changed_light_face_requeues_exact_resident_neighbour() {
     let neighbour = SubChunkKey::new(0, 1, 0, 0);
     stream.record_known_air(neighbour);
     stream.mark_changed(neighbour, Instant::now());
-    stream.light_revisions.entries.remove(&neighbour);
-    stream.pending_light.remove(&neighbour);
+    stream.lighting.revisions.entries.remove(&neighbour);
+    stream.lighting.jobs.pending.remove(&neighbour);
     stream
         .authority
         .commit_sub_chunk(source, super::uniform_sub_chunk(1))
@@ -943,19 +989,22 @@ fn changed_light_face_requeues_exact_resident_neighbour() {
     stream.resident.insert(source);
     stream.mark_changed(source, Instant::now());
     assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], 1), 1);
-    stream.light_revisions.entries.remove(&neighbour);
-    stream.pending_light.remove(&neighbour);
+    stream.lighting.revisions.entries.remove(&neighbour);
+    stream.lighting.jobs.pending.remove(&neighbour);
 
     let completion = stream
-        .light_rx
+        .lighting
+        .rx
         .recv_timeout(Duration::from_secs(2))
         .unwrap();
     stream.accept_light_completion(completion);
 
-    assert!(stream.pending_light.contains_key(&neighbour));
+    assert!(stream.lighting.jobs.pending.contains_key(&neighbour));
     assert!(
         !stream
-            .pending_light
+            .lighting
+            .jobs
+            .pending
             .contains_key(&SubChunkKey::new(0, 1, 1, 0))
     );
 }
@@ -970,8 +1019,8 @@ fn light_snapshots_and_invalidation_exclude_diagonals() {
     stream.record_known_air(face);
     stream.record_known_air(diagonal);
     stream.mark_changed(center, Instant::now());
-    stream.pending_light.clear();
-    stream.light_revisions.entries.clear();
+    stream.lighting.jobs.pending.clear();
+    stream.lighting.revisions.entries.clear();
 
     let snapshot = stream.light_block_snapshot(center);
     assert_eq!(snapshot.blocks.len(), 2);
@@ -980,8 +1029,8 @@ fn light_snapshots_and_invalidation_exclude_diagonals() {
     assert!(!snapshot.blocks.contains_key(&diagonal));
 
     stream.mark_light_changed_sources([center]);
-    assert!(stream.pending_light.contains_key(&center));
-    assert!(!stream.pending_light.contains_key(&diagonal));
+    assert!(stream.lighting.jobs.pending.contains_key(&center));
+    assert!(!stream.lighting.jobs.pending.contains_key(&diagonal));
 }
 
 #[test]
@@ -1010,7 +1059,8 @@ fn worker_completion_contains_precomputed_voxel_change_summary() {
     assert_eq!(stream.dispatch_light_jobs([8.0, 312.0, 8.0], 1), 1);
 
     let completion = stream
-        .light_rx
+        .lighting
+        .rx
         .recv_timeout(Duration::from_secs(2))
         .unwrap();
     let solved = completion.result.as_ref().unwrap();
@@ -1027,11 +1077,12 @@ fn worker_distinguishes_provenance_only_output_from_sampled_light_changes() {
     let mut stream = lit_stream(0);
     let key = SubChunkKey::new(0, 0, 19, 0);
     install_current_light(&mut stream, key, 0, 15, false);
-    let original_light = Arc::clone(stream.light_store.light(key).unwrap());
+    let original_light = Arc::clone(stream.lighting.store.light(key).unwrap());
     stream.mark_light_dirty_exact(key).unwrap();
     assert_eq!(stream.dispatch_light_jobs([8.0, 312.0, 8.0], 1), 1);
     let completion = stream
-        .light_rx
+        .lighting
+        .rx
         .recv_timeout(Duration::from_secs(2))
         .expect("provenance-only worker completion");
     let solved = completion.result.as_ref().unwrap();
@@ -1040,10 +1091,10 @@ fn worker_distinguishes_provenance_only_output_from_sampled_light_changes() {
 
     stream.accept_light_completion(completion);
     assert!(Arc::ptr_eq(
-        stream.light_store.light(key).unwrap(),
+        stream.lighting.store.light(key).unwrap(),
         &original_light
     ));
-    assert!(stream.direct_sky[&key].mask.get(0, 15, 0));
+    assert!(stream.lighting.direct_sky[&key].mask.get(0, 15, 0));
     assert_eq!(stream.stats().provenance_only_light_jobs, 1);
     assert_eq!(stream.stats().light_mesh_invalidations, 0);
 }
@@ -1058,20 +1109,22 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
         stream.record_known_air(*key);
     }
     stream.mark_light_changed_sources(keys.iter().copied());
-    let latest = stream.pending_light[&keys[5]].revision;
+    let latest = stream.lighting.jobs.pending[&keys[5]].revision;
     stream.mark_light_dirty_exact(keys[5]);
-    assert_eq!(stream.pending_light.len(), keys.len());
-    assert_ne!(stream.pending_light[&keys[5]].revision, latest);
+    assert_eq!(stream.lighting.jobs.pending.len(), keys.len());
+    assert_ne!(stream.lighting.jobs.pending[&keys[5]].revision, latest);
 
     let expected = effective_light_job_cap().min(3);
     assert_eq!(
         stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX),
         expected
     );
-    assert_eq!(stream.in_flight_light.len(), expected);
+    assert_eq!(stream.lighting.jobs.in_flight.len(), expected);
     assert_eq!(
         stream
-            .in_flight_light
+            .lighting
+            .jobs
+            .in_flight
             .keys()
             .copied()
             .collect::<BTreeSet<_>>(),
@@ -1116,24 +1169,25 @@ fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
         stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX),
         capacity
     );
-    assert_eq!(stream.in_flight_light.len(), capacity);
-    assert_eq!(stream.pending_light.len(), 1);
+    assert_eq!(stream.lighting.jobs.in_flight.len(), capacity);
+    assert_eq!(stream.lighting.jobs.pending.len(), 1);
     assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 0);
-    assert_eq!(stream.in_flight_light.len(), capacity);
-    assert_eq!(stream.pending_light.len(), 1);
+    assert_eq!(stream.lighting.jobs.in_flight.len(), capacity);
+    assert_eq!(stream.lighting.jobs.pending.len(), 1);
     let completion = stream
-        .light_rx
+        .lighting
+        .rx
         .recv_timeout(Duration::from_secs(5))
         .expect("independent light completion");
     stream.accept_light_completion(completion);
-    assert_eq!(stream.in_flight_light.len(), capacity - 1);
-    assert_eq!(stream.pending_light.len(), 1);
+    assert_eq!(stream.lighting.jobs.in_flight.len(), capacity - 1);
+    assert_eq!(stream.lighting.jobs.pending.len(), 1);
     // Result delivery can precede the worker guard's final drop.
     let deadline = Instant::now() + Duration::from_secs(5);
     while stream.dispatch_light_jobs([8.0; 3], usize::MAX) == 0 {
         assert!(Instant::now() < deadline, "pending light work stalled");
         std::thread::yield_now();
     }
-    assert_eq!(stream.in_flight_light.len(), capacity);
-    assert!(stream.pending_light.is_empty());
+    assert_eq!(stream.lighting.jobs.in_flight.len(), capacity);
+    assert!(stream.lighting.jobs.pending.is_empty());
 }

@@ -27,10 +27,13 @@ use bevy::{
 use crate::menu::settings_options::{binding_gamepad, binding_key, binding_mouse, binding_pressed};
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
-use super::inventory_ledger::DropSource;
-use super::{PlatformClipboard, UiRuntime, presentation};
+use client_ui::ui_runtime::inventory_ledger::DropSource;
+use client_ui::ui_runtime::presentation::{
+    UiPresentationRuntime, inventory_pointer::InventoryScreen,
+};
+use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 
-pub use client_ui::ui_runtime::interaction::{
+use client_ui::ui_runtime::interaction::{
     ChatFlushError, dispatch_chat_ui_action, dispatch_inventory_key, flush_chat_sends,
     flush_inventory_send, gamepad_chat_action, is_chat_edit_shortcut, paste_chat_shortcut,
     restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
@@ -126,7 +129,7 @@ pub(crate) fn drive_inventory_ui_actions(
     mut release_cursor: Local<MessageCursor<MouseButtonInput>>,
     wheel_messages: Option<Res<Messages<MouseWheel>>>,
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
-    presentation: Res<presentation::UiPresentationRuntime>,
+    presentation: Res<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     let notches: Vec<(f32, MouseScrollUnit)> = wheel_messages
@@ -185,9 +188,8 @@ pub(crate) fn drive_inventory_ui_actions(
         .inventory_ledger(&player_runtime)
         .storage_generation();
     runtime.screen_state_mut().observe_window(generation);
-    let screen =
-        presentation::inventory_pointer::InventoryScreen::of_runtime(&player_runtime, &runtime);
-    if screen != presentation::inventory_pointer::InventoryScreen::Creative {
+    let screen = InventoryScreen::of_runtime(&player_runtime, &runtime);
+    if screen != InventoryScreen::Creative {
         runtime.screen_state_mut().search_focused = false;
     }
     let Some(position) = window.cursor_position() else {
@@ -272,7 +274,7 @@ pub(crate) fn drive_inventory_ui_actions(
 /// Wheel notches over an engine-drawn screen scroll the view under the pointer.
 fn scroll_container(
     runtime: &mut UiRuntime,
-    frame: &super::forms::EngineFrame,
+    frame: &client_ui::ui_runtime::forms::EngineFrame,
     gui: [f32; 2],
     notches: &[(f32, MouseScrollUnit)],
 ) {
@@ -322,7 +324,7 @@ pub(crate) fn drive_world_inventory_keys(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
-    presentation: Option<Res<presentation::UiPresentationRuntime>>,
+    presentation: Option<Res<UiPresentationRuntime>>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     let drop = binding_pressed(menu.as_deref(), "key.drop", &keys, &mouse)
@@ -336,8 +338,9 @@ pub(crate) fn drive_world_inventory_keys(
             presentation.as_deref(),
         )
         || !(drop || use_book)
-        || runtime
-            .player_game_mode(&player_runtime)
+        || player_runtime
+            .facts
+            .player_game_mode()
             .is_some_and(|mode| !mode.shows_hotbar())
     {
         return;
@@ -346,7 +349,7 @@ pub(crate) fn drive_world_inventory_keys(
         runtime.open_held_book(&player_runtime);
         return;
     }
-    let Some(slot) = runtime.selected_hotbar_slot(&player_runtime) else {
+    let Some(slot) = player_runtime.selected_hotbar_slot() else {
         return;
     };
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
@@ -367,7 +370,7 @@ pub(crate) fn drive_chat_keyboard_input(
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut runtime: ResMut<UiRuntime>,
-    mut presentation: Option<ResMut<presentation::UiPresentationRuntime>>,
+    mut presentation: Option<ResMut<UiPresentationRuntime>>,
     mut clipboard: Option<ResMut<crate::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
 ) {

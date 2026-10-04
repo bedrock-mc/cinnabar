@@ -216,8 +216,10 @@ fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
         presentation.set_gui_scale_preference(preference);
         presentation.set_safe_area(safe);
         *presentation.hud_frame_mut() = first_person();
-        let mut runtime = UiRuntime::new(1);
-        runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+        let runtime = UiRuntime::new(1);
+        player_runtime
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Survival);
         let input = build_at(
             &player_runtime,
             &mut presentation,
@@ -256,7 +258,9 @@ fn crosshair_is_first_person_only_and_mode_gated() {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     let paint = |player_runtime: &player_state::PlayerState,
                  presentation: &UiPresentationRuntime,
                  runtime: &UiRuntime| {
@@ -290,7 +294,9 @@ fn crosshair_is_first_person_only_and_mode_gated() {
         .is_some()
     );
     runtime.close_chat();
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Spectator);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Spectator);
     assert!(
         paint(&player_runtime, &presentation, &runtime)
             .crosshair
@@ -317,7 +323,7 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             return;
         };
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_player_game_mode(&mut player_runtime, mode);
+        player_runtime.facts.publish_player_game_mode(mode);
         player_runtime.inventory.set_local_selected_slot(2);
         full_stats(&mut player_runtime, &mut runtime, 1);
         runtime.apply_local_effect(1, 2, effect(1), 0).unwrap();
@@ -364,7 +370,9 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     player_runtime.inventory.set_local_selected_slot(2);
     build(&player_runtime, &mut presentation, &runtime, 0);
     assert_eq!(
@@ -386,7 +394,7 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
         )
         .unwrap();
     assert_eq!(
-        runtime.selected_hotbar_slot(&player_runtime),
+        player_runtime.selected_hotbar_slot(),
         Some(2),
         "slot retained"
     );
@@ -407,7 +415,9 @@ fn java_pack_geometry_on_a_real_viewport() {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     select_slot(&mut player_runtime, &mut runtime);
     full_stats(&mut player_runtime, &mut runtime, 1);
     runtime.hud.set_experience(7, 0.4);
@@ -505,7 +515,9 @@ fn heart_variants_mount_rows_air_and_armor_follow_authoritative_state() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     full_stats(&mut player_runtime, &mut runtime, 1);
     let frame = first_person();
     let paint = |runtime: &UiRuntime, frame: &HudFrame| {
@@ -593,7 +605,9 @@ fn selected_item_label_counts_and_durability_render_and_fade() {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     let mut slots = vec![NetworkItemStack::empty(); 36];
     slots[0] = item(5, 16);
     runtime
@@ -653,7 +667,9 @@ fn spectator_still_presents_boss_bars_and_chat() {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Spectator);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Spectator);
     runtime
         .apply(
             &mut player_runtime,
@@ -694,7 +710,9 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     full_stats(&mut player_runtime, &mut runtime, 1);
     runtime.hud.set_experience(3, 0.5);
     build(&player_runtime, &mut presentation, &runtime, 0);
@@ -903,7 +921,9 @@ fn unchanged_hud_reuses_its_layout_across_frames() {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     select_slot(&mut player_runtime, &mut runtime);
     full_stats(&mut player_runtime, &mut runtime, 1);
     build(&player_runtime, &mut presentation, &runtime, 0);
@@ -985,7 +1005,9 @@ fn chat_line(sequence: u64, message: &str) -> SequencedUiEvent {
 /// five chat lines, and a title.
 fn busy_session(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     select_slot(player_runtime, &mut runtime);
     runtime.hud.set_experience(12, 0.4);
     let rows: Vec<_> = (0..10)
@@ -1140,8 +1162,10 @@ fn settings_hide_hud_suppresses_the_rendered_overlay() {
         );
         return;
     };
-    let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+    let runtime = UiRuntime::new(1);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     player_runtime.inventory.set_local_selected_slot(0);
     let shown = build(&player_runtime, &mut presentation, &runtime, 0);
     let mut options = SettingsOptions::default();

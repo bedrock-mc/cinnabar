@@ -5,30 +5,30 @@ use bevy::{
 use protocol::{BlobCacheStats, PlayerInputMode, ServerDisconnectEvent};
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
-use super::{
-    super::{CoreProcessGuard, MenuAction, MenuRuntime, MenuScreen},
-    drive_menu_connection, recover_menu_session_failure,
-};
+use super::{MenuAction, MenuRuntime, MenuScreen};
 use crate::{
     acceptance::AcceptanceRun,
     app::{ClientBlobCacheOwner, ClientFrameSet, configure_client_frame_schedule},
     local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample},
-    metrics::MetricsCollector,
     movement::{
         LocalPhysicsController, MovementSource, MovementTicker, PhysicsMovementSample,
         ProcessedMovementState,
     },
     runtime::{
-        network::{NetworkControlEvent, NetworkFailureOrigin, drain_network_controls},
-        network::{NetworkHandle, ResourcePackAdmissionState},
+        network::{
+            NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, ResourcePackAdmissionState,
+            drain_network_controls,
+        },
         shutdown::record_fatal_error,
         telemetry::send_player_auth_inputs,
         visibility::AppMetrics,
         world::ClientWorld,
     },
     semantic_controls::SemanticInputSnapshot,
-    ui_runtime::UiRuntime,
+    session::{SessionController, drive_session, recover_session_failure},
 };
+use client_ui::ui_runtime::UiRuntime;
+use diagnostics::metrics::MetricsCollector;
 
 #[derive(Resource)]
 struct DelayedTerminal(Option<tokio::sync::mpsc::Sender<NetworkControlEvent>>);
@@ -122,7 +122,7 @@ fn pending_sample(world_identity: WorldCollisionIdentity) -> PhysicsMovementSamp
 #[test]
 fn pause_disconnect_retires_pending_movement_before_network_send() {
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
-    menu.mark_connected();
+    menu.show_world();
     menu.open_pause();
     menu.activate(MenuAction::PauseDisconnect);
 
@@ -172,7 +172,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     configure_client_frame_schedule(&mut app);
     app.add_message::<AppExit>()
         .insert_resource(menu)
-        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(SessionController::default())
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
@@ -186,17 +186,14 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
         .insert_resource(local_frame)
         .insert_resource(interaction)
         .insert_resource(AppMetrics(MetricsCollector::new()))
-        .add_systems(
-            Update,
-            drive_menu_connection.in_set(ClientFrameSet::UiAuthority),
-        )
+        .add_systems(Update, drive_session.in_set(ClientFrameSet::UiAuthority))
         .add_systems(
             Update,
             send_player_auth_inputs.in_set(ClientFrameSet::NetworkSend),
         )
         .add_systems(
             Update,
-            recover_menu_session_failure.after(ClientFrameSet::NetworkSend),
+            recover_session_failure.after(ClientFrameSet::NetworkSend),
         );
 
     app.update();
@@ -233,7 +230,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
 #[test]
 fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_launcher() {
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
-    menu.mark_connected();
+    menu.show_world();
 
     let mut movement = MovementTicker::default();
     movement.reset(1, 10, [0.0; 3]);
@@ -264,7 +261,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     configure_client_frame_schedule(&mut app);
     app.add_message::<AppExit>()
         .insert_resource(menu)
-        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(SessionController::default())
         .insert_resource(network)
         .insert_resource(DelayedTerminal(Some(terminal_sender)))
         .insert_resource(ClientBlobCacheOwner::default())
@@ -295,7 +292,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
         )
         .add_systems(
             Update,
-            recover_menu_session_failure.after(ClientFrameSet::NetworkSend),
+            recover_session_failure.after(ClientFrameSet::NetworkSend),
         );
 
     app.update();
@@ -328,20 +325,23 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
 }
 
-fn connecting_menu(stage: super::super::JoinStage) -> MenuRuntime {
+fn connecting_menu(stage: super::JoinStage) -> (MenuRuntime, SessionController) {
+    let mut controller = SessionController::default();
+    controller.set_connecting(true);
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
     menu.catalog_started = true;
-    menu.mark_connecting();
-    menu.feeds.join = super::super::JoinProgress::new(super::super::JoinKind::External);
+    menu.show_connecting();
+    menu.observe_session(controller.status());
+    menu.feeds.join = super::JoinProgress::new(super::JoinKind::External);
     menu.feeds.join.observe(Some(stage));
-    menu
+    (menu, controller)
 }
 
-fn drive_once(menu: MenuRuntime, network: NetworkHandle) -> App {
+fn drive_once((menu, controller): (MenuRuntime, SessionController), network: NetworkHandle) -> App {
     let mut app = App::new();
     app.add_message::<AppExit>()
         .insert_resource(menu)
-        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(controller)
         .insert_resource(network)
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
@@ -352,7 +352,7 @@ fn drive_once(menu: MenuRuntime, network: NetworkHandle) -> App {
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(LocalPlayerFrameCarrier::default())
         .insert_resource(InteractionOriginSnapshot::default())
-        .add_systems(Update, drive_menu_connection);
+        .add_systems(Update, drive_session);
     app.update();
     app
 }
@@ -360,7 +360,7 @@ fn drive_once(menu: MenuRuntime, network: NetworkHandle) -> App {
 // Cancelling a download retires the session, closing its link to the core, and returns to Play.
 #[test]
 fn cancelling_a_pack_download_retires_the_session() {
-    let mut menu = connecting_menu(super::super::JoinStage::Packs {
+    let (mut menu, controller) = connecting_menu(super::JoinStage::Packs {
         done: 0,
         total: 1,
         received_bytes: 1,
@@ -370,7 +370,7 @@ fn cancelling_a_pack_download_retires_the_session() {
     let mut network = NetworkHandle::disconnected();
     let (session_events, receiver) = tokio::sync::mpsc::channel(1);
     *network.control_events_mut() = receiver;
-    let app = drive_once(menu, network);
+    let app = drive_once((menu, controller), network);
     let menu = app.world().resource::<MenuRuntime>();
     assert!(!menu.is_connecting());
     assert!(menu.is_visible());
@@ -381,12 +381,12 @@ fn cancelling_a_pack_download_retires_the_session() {
 // Vanilla's Realm lookup offers no cancel, so back leaves the join running.
 #[test]
 fn back_during_the_realm_lookup_keeps_joining() {
-    let mut menu = connecting_menu(super::super::JoinStage::Realm);
+    let (mut menu, controller) = connecting_menu(super::JoinStage::Realm);
     menu.activate(MenuAction::AddBack);
     let mut network = NetworkHandle::disconnected();
     let (session_events, receiver) = tokio::sync::mpsc::channel(1);
     *network.control_events_mut() = receiver;
-    let app = drive_once(menu, network);
+    let app = drive_once((menu, controller), network);
     assert!(app.world().resource::<MenuRuntime>().is_connecting());
     assert!(!session_events.is_closed());
 }

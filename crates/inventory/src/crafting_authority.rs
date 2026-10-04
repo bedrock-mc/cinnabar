@@ -27,7 +27,7 @@ pub enum CraftingPreview<'a> {
 struct PreviewOwner {
     value: ManualCraftMatch,
     _registry: Arc<RegistryOwner>,
-    _catalog: RecipeCatalog,
+    _catalog: Arc<RecipeCatalog>,
     _permit: budget::Permit,
 }
 
@@ -46,7 +46,8 @@ pub(super) struct CraftingAuthority {
     exhausted: bool,
     authority: Option<InventoryAuthority>,
     registry: Option<Arc<RegistryOwner>>,
-    catalog: RecipeCatalog,
+    /// Shared so presentation copies never deep-clone the recipe lists.
+    catalog: Arc<RecipeCatalog>,
     catalog_lost: bool,
     grid: [Option<Arc<StackOwner>>; 4],
     cursor: Option<Arc<StackOwner>>,
@@ -78,7 +79,7 @@ impl CraftingAuthority {
             exhausted: false,
             authority: None,
             registry: None,
-            catalog,
+            catalog: Arc::new(catalog),
             catalog_lost: true,
             grid: std::array::from_fn(|_| None),
             cursor: None,
@@ -127,7 +128,7 @@ impl CraftingAuthority {
             self.registry = None;
         }
         if domains & 2 != 0 {
-            self.catalog.begin_session(self.session);
+            Arc::make_mut(&mut self.catalog).begin_session(self.session);
             self.catalog_lost = true;
         }
         if domains & 4 != 0 {
@@ -156,7 +157,7 @@ impl CraftingAuthority {
 
     /// The committed recipe catalog while it is available.
     pub(super) fn catalog(&self) -> Option<&RecipeCatalog> {
-        (self.catalog.is_available() && !self.catalog_lost).then_some(&self.catalog)
+        (self.catalog.is_available() && !self.catalog_lost).then_some(&*self.catalog)
     }
 
     pub(super) fn preview(&self) -> Option<CraftingPreview<'_>> {
@@ -416,7 +417,11 @@ impl CraftingAuthority {
                 }
                 Observation::Recipes(update) => {
                     if !self.catalog_lost || update.clears_catalog() {
-                        let applied = self.catalog.apply(self.session, record.sequence, update);
+                        let applied = Arc::make_mut(&mut self.catalog).apply(
+                            self.session,
+                            record.sequence,
+                            update,
+                        );
                         self.catalog_lost = !self.catalog.is_available();
                         if applied {
                             observation::recipe(record.sequence, self.catalog.is_available());
@@ -554,7 +559,7 @@ impl CraftingAuthority {
         self.preview = Some(Arc::new(PreviewOwner {
             value,
             _registry: Arc::clone(registry),
-            _catalog: self.catalog.clone(),
+            _catalog: Arc::clone(&self.catalog),
             _permit: permit,
         }));
         self.cache_key = Some(key);

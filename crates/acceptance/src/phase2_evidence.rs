@@ -1,4 +1,4 @@
-use client_world::{
+use chunk_pipeline::{
     BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
     Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
     RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,

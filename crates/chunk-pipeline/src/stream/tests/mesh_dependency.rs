@@ -29,7 +29,7 @@ fn diagonal_change_invalidates_ao_dependents() {
         generation,
         MeshDependencyMask::new(true, false),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream.mark_changed(source, Instant::now());
 
@@ -37,7 +37,7 @@ fn diagonal_change_invalidates_ao_dependents() {
         stream.revisions.dirty(dependent).unwrap().revision,
         generation
     );
-    assert!(stream.pending_mesh.contains_key(&dependent));
+    assert!(stream.mesh_jobs.pending.contains_key(&dependent));
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn horizontal_corner_change_invalidates_liquid_dependent() {
         generation,
         MeshDependencyMask::new(false, true),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream.mark_changed(source, Instant::now());
 
@@ -60,7 +60,7 @@ fn horizontal_corner_change_invalidates_liquid_dependent() {
         stream.revisions.dirty(dependent).unwrap().revision,
         generation
     );
-    assert!(stream.pending_mesh.contains_key(&dependent));
+    assert!(stream.mesh_jobs.pending.contains_key(&dependent));
 }
 
 /// Neighbour data cannot change geometry in an absent slot; explicit source removal still runs.
@@ -69,14 +69,14 @@ fn absent_neighbours_do_not_queue_empty_removals() {
     let mut stream = stream();
     let source = SubChunkKey::new(0, 0, 0, 0);
     stream.mark_changed(source, Instant::now());
-    assert_eq!(stream.pending_mesh.len(), 1);
-    assert!(stream.pending_mesh.contains_key(&source));
+    assert_eq!(stream.mesh_jobs.pending.len(), 1);
+    assert!(stream.mesh_jobs.pending.contains_key(&source));
     stream.dispatch_mesh_jobs([0.0; 3], 1);
     assert!(matches!(
         stream.pop_mesh_change(),
         Some(super::WorldMeshChange::Remove { key, .. }) if key == source
     ));
-    assert!(stream.pending_mesh.is_empty());
+    assert!(stream.mesh_jobs.pending.is_empty());
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn liquid_dependency_skips_vertical_corner_outside_sample_set() {
         generation,
         MeshDependencyMask::new(false, true),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream.mark_changed(source, Instant::now());
 
@@ -99,7 +99,7 @@ fn liquid_dependency_skips_vertical_corner_outside_sample_set() {
         stream.revisions.dirty(outside).unwrap().revision,
         generation
     );
-    assert!(!stream.pending_mesh.contains_key(&outside));
+    assert!(!stream.mesh_jobs.pending.contains_key(&outside));
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn face_only_target_skips_diagonal_but_face_neighbour_still_dirties() {
     }
     let diagonal_generation = stream.revisions.dirty(diagonal).unwrap().revision;
     let face_generation = stream.revisions.dirty(face).unwrap().revision;
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream.mark_changed(source, Instant::now());
 
@@ -127,12 +127,12 @@ fn face_only_target_skips_diagonal_but_face_neighbour_still_dirties() {
         stream.revisions.dirty(diagonal).unwrap().revision,
         diagonal_generation
     );
-    assert!(!stream.pending_mesh.contains_key(&diagonal));
+    assert!(!stream.mesh_jobs.pending.contains_key(&diagonal));
     assert_ne!(
         stream.revisions.dirty(face).unwrap().revision,
         face_generation
     );
-    assert!(stream.pending_mesh.contains_key(&face));
+    assert!(stream.mesh_jobs.pending.contains_key(&face));
 }
 
 #[test]
@@ -150,11 +150,11 @@ fn adding_and_removing_snow_above_face_only_grass_invalidates_lower_subchunk() {
             generation,
             MeshDependencyMask::default()
         ));
-        stream.pending_mesh.clear();
+        stream.mesh_jobs.pending.clear();
         stream.mark_live_mutation_changed(snow, now, false);
         let revised = stream.revisions.dirty(grass).unwrap().revision;
         assert_ne!(revised, generation);
-        assert!(stream.pending_mesh.contains_key(&grass));
+        assert!(stream.mesh_jobs.pending.contains_key(&grass));
         generation = revised;
     }
 }
@@ -173,7 +173,7 @@ fn rapid_liquid_changes_coalesce_latest_generation_and_oldest_since() {
         registered,
         MeshDependencyMask::new(false, true),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
     let first_at = Instant::now();
 
     let before_first = stream.revisions.next_revision;
@@ -183,7 +183,7 @@ fn rapid_liquid_changes_coalesce_latest_generation_and_oldest_since() {
         8,
         "duplicate sources must assign one revision per deduplicated dirty target"
     );
-    let first = stream.pending_mesh[&dependent];
+    let first = stream.mesh_jobs.pending[&dependent];
     let second_at = first_at + std::time::Duration::from_millis(5);
     let before_second = stream.revisions.next_revision;
     stream.mark_changed_sources([source, source], second_at);
@@ -192,7 +192,7 @@ fn rapid_liquid_changes_coalesce_latest_generation_and_oldest_since() {
         0,
         "pending snapshots must coalesce repeated invalidations"
     );
-    let second = stream.pending_mesh[&dependent];
+    let second = stream.mesh_jobs.pending[&dependent];
 
     assert_eq!(first.revision, second.revision);
     assert_eq!(
@@ -215,7 +215,7 @@ fn known_empty_mask_skips_diagonal_change() {
         generation,
         MeshDependencyMask::default(),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream.mark_changed(source, Instant::now());
 
@@ -223,7 +223,7 @@ fn known_empty_mask_skips_diagonal_change() {
         stream.revisions.dirty(diagonal).unwrap().revision,
         generation
     );
-    assert!(!stream.pending_mesh.contains_key(&diagonal));
+    assert!(!stream.mesh_jobs.pending.contains_key(&diagonal));
 }
 
 #[test]
@@ -235,7 +235,7 @@ fn unknown_new_mask_dirties_diagonal_conservatively() {
 
     stream.mark_changed(source, Instant::now());
 
-    assert!(stream.pending_mesh.contains_key(&diagonal));
+    assert!(stream.mesh_jobs.pending.contains_key(&diagonal));
 }
 
 #[test]
@@ -264,16 +264,16 @@ fn inline_full_column_change_invalidates_registered_corner_dependency() {
         generation,
         MeshDependencyMask::new(true, false),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream.submit(1, super::inline_air_event(0)).unwrap();
     super::complete_pending_decode_jobs(&mut stream);
 
     assert_ne!(stream.revisions.dirty(corner).unwrap().revision, generation);
-    assert!(stream.pending_mesh.contains_key(&corner));
+    assert!(stream.mesh_jobs.pending.contains_key(&corner));
     assert_eq!(
         stream.revisions.next_revision - generation,
-        stream.pending_mesh.len() as u64,
+        stream.mesh_jobs.pending.len() as u64,
         "one inline batch must assign exactly one revision per dirty target"
     );
 }
@@ -303,7 +303,7 @@ fn known_air_removal_replaces_stale_mask_and_skips_neighbour_changes() {
         stale_generation,
         MeshDependencyMask::new(true, true),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream.submit(1, super::inline_air_event(target.x)).unwrap();
     super::complete_pending_decode_jobs(&mut stream);
@@ -328,11 +328,11 @@ fn known_air_removal_replaces_stale_mask_and_skips_neighbour_changes() {
         stream.revisions.dirty(target).unwrap().revision,
         empty_generation
     );
-    assert!(!stream.pending_mesh.contains_key(&target));
+    assert!(!stream.mesh_jobs.pending.contains_key(&target));
     stream.mark_changed(SubChunkKey::new(0, 0, -4, 0), Instant::now());
-    assert!(!stream.pending_mesh.contains_key(&target));
+    assert!(!stream.mesh_jobs.pending.contains_key(&target));
     stream.mark_changed(target, Instant::now());
-    assert!(stream.pending_mesh.contains_key(&target));
+    assert!(stream.mesh_jobs.pending.contains_key(&target));
     assert_ne!(
         stream.revisions.dirty(target).unwrap().revision,
         empty_generation

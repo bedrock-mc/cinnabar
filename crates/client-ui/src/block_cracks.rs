@@ -3,7 +3,7 @@
 use crate::ui_runtime::{SequencedBlockCrackEvent, UiRuntime, UiRuntimeError};
 use protocol::BlockCrackEvent;
 
-pub use client_world::BlockCrackStatus;
+pub use chunk_pipeline::BlockCrackStatus;
 
 pub fn consume_committed_block_crack(
     ui: &mut UiRuntime,
@@ -23,13 +23,13 @@ pub fn consume_committed_block_crack(
     })
 }
 
-pub fn reconcile_world_block_cracks(ui: &mut UiRuntime, stream: &client_world::WorldStream) {
+pub fn reconcile_world_block_cracks(ui: &mut UiRuntime, stream: &chunk_pipeline::WorldStream) {
     ui.project_block_cracks(stream.block_crack_snapshot());
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BlockCracks {
-    snapshot: Option<client_world::BlockCrackSnapshot>,
+    snapshot: Option<chunk_pipeline::BlockCrackSnapshot>,
     reported_status: Option<BlockCrackStatus>,
 }
 
@@ -41,7 +41,7 @@ impl BlockCracks {
     }
 
     /// The active cracks and the dimension they belong to; empty before the first projection.
-    pub fn snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
+    pub fn snapshot(&self) -> Option<&chunk_pipeline::BlockCrackSnapshot> {
         self.snapshot.as_ref()
     }
 
@@ -55,7 +55,7 @@ impl BlockCracks {
         }
     }
 
-    pub fn project(&mut self, snapshot: client_world::BlockCrackSnapshot) {
+    pub fn project(&mut self, snapshot: chunk_pipeline::BlockCrackSnapshot) {
         self.snapshot = Some(snapshot);
     }
 

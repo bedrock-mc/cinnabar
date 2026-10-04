@@ -500,10 +500,11 @@ pub fn select_actor_presentations_for_view(
 
 /// Lights each body at the reference body-height point; a body without solved light yet
 /// keeps drawing unlit rather than black.
-pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &client_world::WorldStream) {
+pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline::WorldStream) {
     for submission in &mut batch.submissions {
         let feet = submission.world_from_actor.map(|row| row[3]);
         let position = stream
+            .authority()
             .actor(submission.input.identity.runtime_id)
             .map_or(feet, |actor| actor.brightness_sample_position(feet));
         if let Some((block, sky)) = stream.solved_light_at(position) {

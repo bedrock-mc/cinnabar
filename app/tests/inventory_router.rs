@@ -1,4 +1,4 @@
-use bedrock_client::ui_runtime::inventory_router::{
+use client_ui::ui_runtime::inventory_router::{
     EquipmentRoute, EquipmentRouteResult, InventoryEquipmentRouter, InventoryRouterError,
     MAX_PRE_IDENTITY_EQUIPMENT,
 };

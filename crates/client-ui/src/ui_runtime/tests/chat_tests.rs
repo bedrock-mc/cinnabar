@@ -19,7 +19,8 @@ fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
     assert!(runtime.chat_editor().as_str().is_empty());
     assert_eq!(runtime.pending_chat_sends().len(), 1);
 
-    runtime.begin_session(&mut player_runtime, 12);
+    player_runtime.begin_session(12);
+    runtime.begin_session(12);
     assert!(runtime.pending_chat_sends().is_empty());
     assert_eq!(runtime.dropped_unsent_chat_messages(), 1);
 }
@@ -200,7 +201,8 @@ fn session_replacement_discards_the_prior_autocomplete_catalog() {
             ),
         )
         .unwrap();
-    runtime.begin_session(&mut player_runtime, 3);
+    player_runtime.begin_session(3);
+    runtime.begin_session(3);
     runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("/g").unwrap();
 
@@ -337,7 +339,8 @@ fn session_replacement_clears_editor_autocomplete_and_old_outbox() {
     runtime.insert_chat_text("/draft").unwrap();
     assert!(runtime.take_chat_autocomplete_request().is_some());
 
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
 
     assert!(!runtime.chat_focused());
     assert!(runtime.chat_editor().as_str().is_empty());

@@ -53,8 +53,9 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
   keep running and status reports `pause_supported: false`.
-- **Login:** the core dials without a Microsoft session for local play (offline chain from the client's identity);
-  BDS accepts it because `online-mode=false`. Player-data persistence needs a stable client identity.
+- **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
+  identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
+  because `online-mode=false`. Player-data persistence needs a stable client identity.
 
 ## Control methods
 

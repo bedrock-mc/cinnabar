@@ -183,7 +183,7 @@ pub fn acceptance_runtime_metadata_marker(
 }
 
 pub fn world_publication_snapshot_marker(
-    stats: client_world::WorldStreamStats,
+    stats: chunk_pipeline::WorldStreamStats,
     upload_queue_items: usize,
     upload_queue_bytes: u64,
     gpu_upload_bytes: u64,

@@ -14,7 +14,6 @@ use semantic_input::Action;
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 
 use crate::{
-    game_mode_capabilities::GameModeCapabilities,
     interaction_authority::{observe_block, within_pick_range},
     local_player::InteractionOriginSnapshot,
     melee::{MeleeRuntime, SwingTracker, swing_duration},
@@ -26,8 +25,9 @@ use crate::{
     },
     runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
+use client_world::game_mode_capabilities::GameModeCapabilities;
 
 pub(crate) use gameplay::survival_mining::{
     BlockBreakingAuthority, DestroyInput, DestroyTarget, ToolWear, blocked_mining_reason,
@@ -55,7 +55,7 @@ impl std::ops::DerefMut for SurvivalMiningRuntime {
 pub(crate) struct SurvivalMiningContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
-    ui: ResMut<'w, UiRuntime>,
+    ui: Res<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: ResMut<'w, ClientWorld>,
@@ -79,11 +79,11 @@ pub(crate) fn produce_survival_mining(
     // Wire sequencing only, defaulted to server-authoritative when the server
     // never negotiated it. This decides HOW a break travels, never WHETHER one
     // may happen; the capability gate below owns that.
-    let authority = context
-        .ui
-        .server_authoritative_block_breaking(&player_runtime)
+    let authority = player_runtime
+        .facts
+        .server_authoritative_block_breaking()
         .map(BlockBreakingAuthority::from_negotiation);
-    let caps = context.ui.game_mode_capabilities(&player_runtime);
+    let caps = player_runtime.facts.game_mode_capabilities();
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     let attack = context.input.phase(Action::Attack);
@@ -137,7 +137,6 @@ pub(crate) fn produce_survival_mining(
         .as_ref()
         .map(|stream| stream.local_player_runtime_id());
     let network = &context.network;
-    let ui = &mut context.ui;
     let client_world = &mut context.client_world;
     let unsent = runtime.step_ticks(
         &mut movement,
@@ -153,7 +152,12 @@ pub(crate) fn produce_survival_mining(
                 ));
             }
         },
-        |slot, damage| ui.begin_mining_request(&mut player_runtime, slot, damage),
+        |slot, damage| {
+            player_runtime
+                .inventory
+                .ledger_mut()
+                .begin_mining_request(slot, damage)
+        },
         |position| {
             if let Some(stream) = client_world.stream.as_mut() {
                 let air = stream.air_block_id();
@@ -162,7 +166,10 @@ pub(crate) fn produce_survival_mining(
         },
     );
     for request_id in unsent {
-        ui.cancel_mining_request(&mut player_runtime, request_id);
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .cancel_mining_request(request_id);
     }
     for cue in runtime.take_break_cues() {
         let gameplay::survival_mining::BlockBreakCue::Break {
@@ -193,7 +200,7 @@ fn observe_destroy_target(
     if ui.ui_focused(player_runtime) {
         return None;
     }
-    let selection = hand_interaction_selection(player_runtime, ui)?;
+    let selection = hand_interaction_selection(player_runtime)?;
     let input_mode = protocol_input_mode(input_mode);
     let observed = observe_block(
         &context.origin,

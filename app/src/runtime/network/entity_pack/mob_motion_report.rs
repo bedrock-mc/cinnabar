@@ -4,7 +4,8 @@ use std::{path::Path, sync::Arc};
 
 use assets::RuntimeEntityAssets;
 use bevy::prelude::*;
-use client_world::{BoneTransform, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::BoneTransform;
 use protocol::{
     ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, WorldEvent,
 };
@@ -311,6 +312,7 @@ fn publish(
 ) {
     let bodies = MOB_IDS.into_iter().enumerate().map(|(index, id)| {
         let rig = world
+            .authority()
             .actor_rig(id)
             .unwrap_or_else(|| panic!("{} has no compiled vanilla rig", SPECIES[index]));
         assert!(
@@ -318,11 +320,11 @@ fn publish(
             "{} has no compiled pose bones",
             SPECIES[index]
         );
-        actors::entity_rig_presentation(&rig, world.actor(id).unwrap(), artwork, 1.0)
+        actors::entity_rig_presentation(&rig, world.authority().actor(id).unwrap(), artwork, 1.0)
             .expect("drawable vanilla body")
     });
     let mut batch = actors::select_actor_presentations(1, false, None, bodies);
-    entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
+    entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     let frame: ActorRenderFrame = scene
         .update_rigs_with_artwork(
             1.0,
@@ -355,7 +357,7 @@ fn publish(
 }
 
 fn selected_bones(world: &WorldStream, id: u64, prefix: &str) -> Vec<BoneTransform> {
-    let rig = world.actor_rig(id).unwrap();
+    let rig = world.authority().actor_rig(id).unwrap();
     let selected: Vec<_> = rig
         .bone_names
         .iter()
@@ -385,12 +387,12 @@ fn samples(world: &WorldStream, scenario: &str, tick: u32) -> Vec<PoseSample> {
     MOB_IDS
         .into_iter()
         .map(|runtime_id| {
-            let rig = world.actor_rig(runtime_id).unwrap();
+            let rig = world.authority().actor_rig(runtime_id).unwrap();
             PoseSample {
                 scenario: scenario.into(),
                 tick,
                 runtime_id,
-                position: world.actor(runtime_id).unwrap().position,
+                position: world.authority().actor(runtime_id).unwrap().position,
                 bones: rig
                     .bone_names
                     .iter()

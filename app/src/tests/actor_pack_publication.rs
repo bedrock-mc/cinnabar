@@ -259,7 +259,7 @@ fn same_artwork(actual: &ActorArtworkPages, expected: &ActorArtworkPages) {
 /// The first publication reuses worker pixels; a later pack or base change rejects stale preparation.
 #[test]
 fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
-    use crate::runtime::network::prepared_actor_artwork::PreparedActorArtwork;
+    use client_presentation::prepared_actor_artwork::PreparedActorArtwork;
     let (_fixture, artwork, entities) = super::actor_rest_presentation::compiled_fixture(
         "1.0",
         1,

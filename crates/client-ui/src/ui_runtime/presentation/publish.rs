@@ -9,13 +9,13 @@ pub fn capture_hud_frame(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
-    stream: Option<&client_world::WorldStream>,
+    stream: Option<&chunk_pipeline::WorldStream>,
     perspective: semantic_input::PerspectiveMode,
     now_millis: u64,
     icon_frames: ItemIconFrames,
 ) -> (Option<IconRef>, Option<IconRef>) {
     let resolve_identifier = |stack: &protocol::NetworkItemStack| {
-        stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
+        stream.and_then(|stream| stream.authority().canonical_item_stack(stack)?.identifier)
     };
     let worn = runtime.local_armor(player_runtime);
     let worn = [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots];
@@ -27,10 +27,9 @@ pub fn capture_hud_frame(
     runtime.set_derived_armor(Some(item_facts::total_armor_points(
         identifiers.iter().map(|id| id.as_deref()),
     )));
-    let mount_health = runtime
-        .gameplay_hud()
-        .mount_unique_id()
-        .and_then(|unique| stream.and_then(|stream| stream.actor_health_by_unique(unique)));
+    let mount_health = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
+        stream.and_then(|stream| stream.authority().actor_health_by_unique(unique))
+    });
     let mut hotbar_durability = [None; 9];
     let mut hotbar_icons = [None; 9];
     let mut hotbar_stacks: [Option<protocol::NetworkItemStack>; 9] = Default::default();
@@ -202,7 +201,7 @@ pub fn capture_hud_frame(
         // Keep formatting markers intact: resource-pack layouts use them.
         let stated_title = ledger
             .window_actor()
-            .and_then(|actor| stream?.actor_name_tag(actor))
+            .and_then(|actor| stream?.authority().actor_name_tag(actor))
             .filter(|name| !name.is_empty())
             .map(|name| name.to_string())
             .or_else(|| {
@@ -482,7 +481,7 @@ pub fn capture_hud_frame(
                 .as_deref()
                 .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
         });
-    let selected_snapshot = runtime.selected_stack_snapshot(player_runtime);
+    let selected_snapshot = player_runtime.selected_stack_snapshot();
     let selected_slot = selected_snapshot.map(|snapshot| snapshot.slot);
     let selected_stack = selected_snapshot.and_then(|snapshot| match snapshot.state {
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => Some(stack),
@@ -562,7 +561,7 @@ pub fn capture_hud_frame(
     });
     let selected_item_name = selected_stack.and_then(|stack| {
         let identifier = resolve_identifier(stack);
-        let stated_name = runtime.selected_stack_custom_name(player_runtime);
+        let stated_name = player_runtime.selected_stack_custom_name();
         let display = protocol::item_display(&stack.extra_data);
         super::inventory_tooltip::name_line(
             runtime,
@@ -581,7 +580,9 @@ pub fn capture_hud_frame(
     let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
         stream
             .filter(|stream| {
-                stream.actor_has_attribute_by_unique(unique, "minecraft:horse.jump_strength")
+                stream
+                    .authority()
+                    .actor_has_attribute_by_unique(unique, "minecraft:horse.jump_strength")
             })
             .map(|_| runtime.mount_jump_charge(now_millis))
     });
@@ -590,7 +591,7 @@ pub fn capture_hud_frame(
     let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
     runtime.observe_selected_item_identity_value(selected_identity, now_millis);
     let sleeping = stream
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         .is_some_and(|actor| actor.is_sleeping());
     runtime.set_local_sleeping(sleeping);
     let frame = presentation.hud_frame_mut();
@@ -616,7 +617,7 @@ pub fn capture_hud_frame(
     frame.left_hand = left_hand_icon;
     frame.right_hand = right_hand_icon;
     frame.viewmodel_pitch_degrees = stream
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         .map_or(0.0, |actor| actor.pitch);
     frame.selected_item_name = selected_item_name;
     frame.holding_filled_map = holding_filled_map;

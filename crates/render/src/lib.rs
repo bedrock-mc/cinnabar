@@ -38,7 +38,7 @@ mod native_trig;
 pub use native_sunlight::AtmosphereViewInputs;
 mod panorama;
 mod panorama_render;
-mod particles;
+mod particle_render;
 mod present_mode;
 mod runtime_profile;
 mod runtime_profile_slow;
@@ -67,13 +67,9 @@ pub use hand_rig_render::{
     HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAtlas, HandRigLight,
     HandRigRenderPlugin, HandRigScene,
 };
-pub use particles::{
-    ATLAS_SIDE as PARTICLE_ATLAS_SIDE, DrawLists as ParticleDrawLists,
-    EmptyWorld as EmptyParticleWorld, Fluid as ParticleFluid, LevelParticle, MAX_LIVE_PARTICLES,
-    ParticleGpuFrame, ParticleInstance, ParticleRenderPlugin, ParticleSound, ParticleSystem,
-    ParticleView, ParticleWorld, SpawnRequest, TileRequest, block_break_request,
-    block_crack_request, classify_level_event, is_particle_level_event, item_icon_request,
-    named_request, parse_molang_variables, particle_view, terrain_request, update_particle_frame,
+pub use particle_render::{
+    ParticleGpuFrame, ParticleRenderPlugin, ParticleSimulation, particle_view,
+    update_particle_frame,
 };
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,

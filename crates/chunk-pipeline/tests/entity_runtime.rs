@@ -11,10 +11,11 @@ use assets::{
     MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
     RuntimeAssets, RuntimeEntityAssets, encode_entity_blob,
 };
-use chunk_pipeline::{
+use chunk_pipeline::WorldStream;
+use client_world::{
     ActorAnimationView, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
     MAX_MOLANG_OPS_PER_ACTOR_TICK, MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK,
-    MAX_RUNTIME_BONES_PER_RIG, WorldStream,
+    MAX_RUNTIME_BONES_PER_RIG,
 };
 use protocol::{
     ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata, ActorMetadataUpdateEvent,
@@ -346,7 +347,7 @@ fn resolves_inherited_rig_and_publishes_adjacent_completed_tick_palettes() {
     let mut stream = stream(EntityRigFallback::Skip);
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
 
-    let initial = stream.actor_rig(42).unwrap();
+    let initial = stream.authority().actor_rig(42).unwrap();
     assert_eq!(initial.actor.runtime_id, 42);
     assert_eq!(initial.actor.spawn_revision, 1);
     assert_eq!(initial.previous, initial.current);
@@ -358,7 +359,7 @@ fn resolves_inherited_rig_and_publishes_adjacent_completed_tick_palettes() {
 
     // The first tick enters the animated state, whose clip starts at time zero.
     stream.advance_actor_interpolation_ticks(2);
-    let tick = stream.actor_rig(42).unwrap();
+    let tick = stream.authority().actor_rig(42).unwrap();
     assert_eq!(tick.completed_tick, 2);
     assert_eq!(tick.previous[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
     // The rig frame mirrors authored X, so the +X clip offset lands at -X.
@@ -374,9 +375,9 @@ fn cached_rest_uses_resolved_rotated_inheritance_not_the_latest_animation() {
     compiled.geometries[0].bones[0].rotation = Some([scalar(0.0), scalar(0.0), scalar(90.0)]);
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
+    let rest = stream.authority().actor_rig(42).unwrap().rest.to_vec();
     stream.advance_actor_interpolation_ticks(2);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(rig.rest, rest);
     assert_ne!(rig.current, rest);
     assert_ne!(rest[0].rotation, [0.0, 0.0, 0.0, 1.0]);
@@ -387,7 +388,7 @@ fn geometry_only_fallback_retains_static_pose_and_attribution() {
     let mut stream = stream(EntityRigFallback::GeometryOnly);
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
     stream.advance_actor_interpolation_ticks(2);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(rig.fallback, EntityRigFallback::GeometryOnly);
     assert_eq!(rig.previous, rig.current);
     assert_eq!(rig.current[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
@@ -398,8 +399,8 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     let mut stream = stream(EntityRigFallback::Skip);
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
     stream.advance_actor_interpolation_ticks(1);
-    let generation = stream.actor_rig(42).unwrap().reset_generation;
-    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
+    let generation = stream.authority().actor_rig(42).unwrap().reset_generation;
+    let rest = stream.authority().actor_rig(42).unwrap().rest.to_vec();
 
     stream
         .submit(
@@ -420,7 +421,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
         )
         .unwrap();
     stream.advance_actor_interpolation_ticks(1);
-    let teleported = stream.actor_rig(42).unwrap();
+    let teleported = stream.authority().actor_rig(42).unwrap();
     assert!(teleported.reset_generation > generation);
     assert_eq!(teleported.previous, teleported.current);
     assert_eq!(teleported.rest, rest);
@@ -444,7 +445,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
             .unwrap();
     }
     stream.advance_actor_interpolation_ticks(1);
-    let metadata_reset = stream.actor_rig(42).unwrap();
+    let metadata_reset = stream.authority().actor_rig(42).unwrap();
     assert!(metadata_reset.reset_generation > generation);
     assert_eq!(metadata_reset.previous, metadata_reset.current);
     assert_eq!(metadata_reset.rest, rest);
@@ -452,7 +453,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     let metadata_reset_generation = metadata_reset.reset_generation;
 
     stream.submit(5, spawn(42, -8, [0.0; 3])).unwrap();
-    let replacement = stream.actor_rig(42).unwrap();
+    let replacement = stream.authority().actor_rig(42).unwrap();
     assert_ne!(replacement.actor, old_lifetime);
     assert!(replacement.reset_generation > metadata_reset_generation);
     assert_eq!(replacement.previous, replacement.current);
@@ -472,9 +473,12 @@ fn missing_required_rig_produces_no_stale_snapshot() {
     stream
         .submit(1, WorldEvent::Actor(ActorEvent::Spawn(missing)))
         .unwrap();
-    assert!(stream.actor_rig(77).is_none());
-    assert!(stream.actor_rigs().next().is_none());
-    assert_eq!(stream.actor_animation_stats().unrigged_spawns, 1);
+    assert!(stream.authority().actor_rig(77).is_none());
+    assert!(stream.authority().actor_rigs().next().is_none());
+    assert_eq!(
+        stream.authority().actor_animation_stats().unrigged_spawns,
+        1
+    );
 }
 
 /// An actor outside the animation view holds its pose; back in view it resumes from its new
@@ -484,7 +488,7 @@ fn rigs_outside_the_animation_view_hold_their_pose_and_resume_unblended() {
     let mut stream = stream(EntityRigFallback::Skip);
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
     stream.advance_actor_interpolation_ticks(2);
-    let held = stream.actor_rig(42).unwrap().current.to_vec();
+    let held = stream.authority().actor_rig(42).unwrap().current.to_vec();
     stream.set_actor_animation_view(Some(ActorAnimationView {
         planes: [[1.0, 0.0, 0.0, -100.0]; 6],
         camera: [0.0, 64.0, 0.0],
@@ -492,7 +496,7 @@ fn rigs_outside_the_animation_view_hold_their_pose_and_resume_unblended() {
         entity_radius: 72.0,
     }));
     stream.advance_actor_interpolation_ticks(5);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(
         (rig.previous, rig.current),
         (held.as_slice(), held.as_slice())
@@ -500,7 +504,7 @@ fn rigs_outside_the_animation_view_hold_their_pose_and_resume_unblended() {
 
     stream.set_actor_animation_view(None);
     stream.advance_actor_interpolation_ticks(1);
-    let rig = stream.actor_rig(42).unwrap();
+    let rig = stream.authority().actor_rig(42).unwrap();
     assert_ne!(rig.current, held.as_slice());
     assert_eq!(rig.previous, rig.current);
 }
@@ -513,18 +517,21 @@ fn animation_time_is_lifetime_relative_and_looped() {
 
     stream.advance_actor_interpolation_ticks(2);
     assert_eq!(
-        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
         -1.0
     );
 
     stream.advance_actor_interpolation_ticks(19);
     assert_eq!(
-        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
         -2.0,
         "native keeps the loop endpoint at exact equality"
     );
     stream.advance_actor_interpolation_ticks(1);
-    assert!((stream.actor_rig(42).unwrap().current[1].translation_scale[0] + 1.0).abs() < 1e-5);
+    assert!(
+        (stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0] + 1.0).abs()
+            < 1e-5
+    );
 }
 
 #[test]
@@ -548,7 +555,7 @@ fn authoritative_riding_link_reaches_the_next_runtime_tick_query() {
         .unwrap();
     stream.advance_actor_interpolation_ticks(2);
     assert_eq!(
-        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
         -1.0
     );
 }
@@ -557,7 +564,7 @@ fn authoritative_riding_link_reaches_the_next_runtime_tick_query() {
 fn dimension_change_drops_rig_palettes_without_stale_publication() {
     let mut stream = stream(EntityRigFallback::Skip);
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    assert!(stream.actor_rig(42).is_some());
+    assert!(stream.authority().actor_rig(42).is_some());
 
     stream
         .submit(
@@ -569,8 +576,8 @@ fn dimension_change_drops_rig_palettes_without_stale_publication() {
         )
         .unwrap();
 
-    assert!(stream.actor_rig(42).is_none());
-    assert!(stream.actor_rigs().next().is_none());
+    assert!(stream.authority().actor_rig(42).is_none());
+    assert!(stream.authority().actor_rigs().next().is_none());
 }
 
 #[test]
@@ -609,7 +616,7 @@ fn conditioned_geometry_candidates_precede_the_unconditional_fallback() {
 
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    assert_eq!(stream.actor_rig(42).unwrap().rig.0, 1);
+    assert_eq!(stream.authority().actor_rig(42).unwrap().rig.0, 1);
 }
 
 #[test]
@@ -637,12 +644,12 @@ fn reversed_dynamic_clamp_takes_the_lower_bound_instead_of_freezing() {
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
     stream.advance_actor_interpolation_ticks(2);
-    assert_eq!(stream.actor_rig(42).unwrap().completed_tick, 2);
-    assert_eq!(stream.actor_animation_stats().frozen_actors, 0);
+    assert_eq!(stream.authority().actor_rig(42).unwrap().completed_tick, 2);
+    assert_eq!(stream.authority().actor_animation_stats().frozen_actors, 0);
     // One tick into the entered state, weight 2 doubles the clip's +1 authored X offset,
     // which the rig frame mirrors.
     assert_eq!(
-        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
         -2.0
     );
 }
@@ -653,7 +660,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
     stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
     stream.advance_actor_interpolation_ticks(1);
     assert_eq!(
-        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
         0.0
     );
 
@@ -678,7 +685,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
     // The move enters the animated state; its clip then runs from zero.
     stream.advance_actor_interpolation_ticks(3);
     assert_eq!(
-        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
         -2.0
     );
 
@@ -701,7 +708,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
         )
         .unwrap();
     stream.advance_actor_interpolation_ticks(1);
-    let reset = stream.actor_rig(42).unwrap();
+    let reset = stream.authority().actor_rig(42).unwrap();
     assert_eq!(reset.previous, reset.current);
     assert_eq!(reset.current[1].translation_scale[0], 0.0);
 }
@@ -761,7 +768,7 @@ fn duplicate_keyframe_post_values_and_collection_indices_are_bounded() {
     // At 0.05 the duplicate time's post value (2) interpolates to 3; index 99 wraps
     // to the second collection weight, which doubles that delta.
     assert_eq!(
-        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        stream.authority().actor_rig(42).unwrap().current[1].translation_scale[0],
         -6.0
     );
 }
@@ -819,7 +826,7 @@ fn static_and_failing_rigs_still_turn_their_bodies_toward_the_reported_yaw() {
         stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
         stream.submit(2, turn(2, 90.0)).unwrap();
         stream.advance_actor_interpolation_ticks(30);
-        let rig = stream.actor_rig(42).unwrap();
+        let rig = stream.authority().actor_rig(42).unwrap();
         assert!(
             (rig.body_yaw - 90.0).abs() < 1.0e-3,
             "body yaw {}",
@@ -854,7 +861,14 @@ fn world_budget_starvation_rotates_so_the_same_actors_do_not_always_freeze() {
     }
     stream.advance_actor_interpolation_ticks(1);
     let starved_first = (0..actors)
-        .filter(|index| stream.actor_rig(100 + index).unwrap().completed_tick == 0)
+        .filter(|index| {
+            stream
+                .authority()
+                .actor_rig(100 + index)
+                .unwrap()
+                .completed_tick
+                == 0
+        })
         .collect::<Vec<_>>();
     assert!(
         !starved_first.is_empty(),
@@ -863,7 +877,11 @@ fn world_budget_starvation_rotates_so_the_same_actors_do_not_always_freeze() {
     stream.advance_actor_interpolation_ticks(1);
     for index in starved_first {
         assert_eq!(
-            stream.actor_rig(100 + index).unwrap().completed_tick,
+            stream
+                .authority()
+                .actor_rig(100 + index)
+                .unwrap()
+                .completed_tick,
             2,
             "actor {index} starved twice"
         );
@@ -893,7 +911,7 @@ fn review_custom_action_uses_the_server_pack_rig_catalog() {
     let mut stream = stream(EntityRigFallback::Skip);
     stream.set_pack_entities(Some((pack, vec![0])));
     stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
-    assert!(stream.actor_rig(42).unwrap().rig.0 >= assets::PACK_RIG_ID_BASE);
+    assert!(stream.authority().actor_rig(42).unwrap().rig.0 >= assets::PACK_RIG_ID_BASE);
     stream
         .submit(
             2,
@@ -911,8 +929,8 @@ fn review_custom_action_uses_the_server_pack_rig_catalog() {
         )
         .unwrap();
     assert_eq!(
-        stream.actor_action(42).unwrap().fallback,
-        chunk_pipeline::RemoteActionFallback::None
+        stream.authority().actor_action(42).unwrap().fallback,
+        client_world::RemoteActionFallback::None
     );
 }
 

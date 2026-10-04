@@ -111,7 +111,7 @@ impl WorldStream {
                 self.diagnose_inline_column(&event, &stored_keys);
                 self.reconcile_block_crack_column(key);
                 self.loaded_columns.insert(key);
-                self.purge_sub_chunk_column_state(key);
+                self.requests.purge_columns(&BTreeSet::from([key]));
                 self.resident.retain(|resident| resident.chunk() != key);
                 self.known_air.retain(|resident| resident.chunk() != key);
                 for stale in old_keys.difference(&new_keys) {
@@ -160,11 +160,11 @@ impl WorldStream {
                             self.stats.phase2_outcomes.stale.saturating_add(1);
                         continue;
                     }
-                    let admitted = self.consume_admitted_sub_chunk_reply(key);
-                    if !self.is_expected_sub_chunk(key) {
+                    let admitted = self.requests.consume_admitted_reply(key);
+                    if !self.requests.is_expected(key) {
                         self.stats.phase2_outcomes.stale =
                             self.stats.phase2_outcomes.stale.saturating_add(1);
-                        if admitted && self.consume_correlated_sub_chunk_attempt(key) {
+                        if admitted && self.requests.consume_correlated_attempt(key) {
                             continue;
                         }
                         self.record_normalization_error(
@@ -172,8 +172,8 @@ impl WorldStream {
                         );
                         continue;
                     }
-                    self.consume_confirmed_sub_chunk_attempt(key);
-                    self.disarm_sub_chunk_deadline(key);
+                    self.requests.consume_confirmed_attempt(key);
+                    self.requests.disarm_deadline(key);
                     let mut arrival_source =
                         self.diagnose_sub_chunk_reply(key, &entry.result, entry.diagnostics);
                     let (completed, committed) = match entry.result {
@@ -399,39 +399,41 @@ impl WorldStream {
                 self.reevaluate_chunk_retention();
             }
             WorldEvent::PublisherUpdate(update) => {
-                let consumes_local_reset = self.provisional_publisher_rebase;
-                self.publisher_center = Some(update.center);
-                self.publisher_radius_blocks = Some(update.radius_blocks);
+                let consumes_local_reset = self.publisher.provisional_rebase;
+                self.publisher.center = Some(update.center);
+                self.publisher.radius_blocks = Some(update.radius_blocks);
                 let cohort = ViewCohort::from_publisher(
                     self.authority.current_dimension(),
                     update.center,
                     update.radius_blocks,
                 );
-                self.publisher_radius_chunks =
+                self.publisher.radius_chunks =
                     Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
-                if self.committed_view_cohort != Some(cohort) {
-                    if self.provisional_publisher_rebase {
-                        self.required_columns = std::mem::take(&mut self.required_columns)
-                            .into_iter()
-                            .filter(|key| self.column_is_data_interesting(*key))
-                            .collect();
+                if self.publisher.cohort != Some(cohort) {
+                    if self.publisher.provisional_rebase {
+                        self.publisher.required_columns =
+                            std::mem::take(&mut self.publisher.required_columns)
+                                .into_iter()
+                                .filter(|key| self.column_is_data_interesting(*key))
+                                .collect();
                     } else {
-                        self.required_columns.clear();
+                        self.publisher.required_columns.clear();
                     }
-                    let Some(next_epoch) = self.publisher_epoch.checked_add(1) else {
-                        self.committed_view_cohort = None;
-                        self.provisional_publisher_rebase = false;
-                        self.required_columns.clear();
+                    let Some(next_epoch) = self.publisher.epoch.checked_add(1) else {
+                        self.publisher.cohort = None;
+                        self.publisher.provisional_rebase = false;
+                        self.publisher.required_columns.clear();
                         return;
                     };
-                    self.publisher_epoch = next_epoch;
+                    self.publisher.epoch = next_epoch;
                 }
-                self.committed_view_cohort = Some(cohort);
+                self.publisher.cohort = Some(cohort);
                 self.prune_column_deadlines();
                 if consumes_local_reset {
-                    self.local_resets_consumed = self.local_resets_consumed.saturating_add(1);
+                    self.publisher.local_reset.consumed =
+                        self.publisher.local_reset.consumed.saturating_add(1);
                 }
-                self.provisional_publisher_rebase = false;
+                self.publisher.provisional_rebase = false;
             }
             WorldEvent::OpenSign(event) => self.consume_open_sign(event),
             WorldEvent::MapData(event) => self.consume_map_data(&event),
@@ -447,22 +449,8 @@ impl WorldStream {
                 self.block_entity_visuals.clear();
                 self.authority.reset_dimension(sequence, change.dimension);
                 let resolved = self.authority.resolve_position(change.position);
-                self.publisher_center = Some([
-                    floor_to_i32(resolved.position[0]),
-                    floor_to_i32(resolved.position[1]),
-                    floor_to_i32(resolved.position[2]),
-                ]);
-                self.publisher_radius_blocks = None;
-                self.publisher_radius_chunks = None;
-                self.committed_view_cohort = None;
-                self.provisional_publisher_rebase = false;
-                self.local_resets_armed = 0;
-                self.local_resets_consumed = 0;
-                self.local_reset_dispatch_count = 0;
-                self.local_reset_dispatch_total = 0;
-                self.local_reset_dispatch_active = false;
-                self.local_reset_dispatch_classes = [None; MAX_LOCAL_RESET_DISPATCH_EVIDENCE];
-                self.required_columns.clear();
+                self.publisher
+                    .reset_for_dimension(resolved.position.map(floor_to_i32));
                 self.last_retention_center = None;
                 self.last_retention_radius = None;
                 self.authority
@@ -489,10 +477,10 @@ impl WorldStream {
                 if movement.runtime_id != self.authority.local_player_runtime_id() {
                     return;
                 }
-                let source_cohort = self.committed_view_cohort;
-                if self.source_capture_sequence == Some(sequence) {
+                let source_cohort = self.publisher.cohort;
+                if self.publisher.source_capture_sequence == Some(sequence) {
                     self.capture_source_columns();
-                    self.source_capture_sequence = None;
+                    self.publisher.source_capture_sequence = None;
                 }
                 let resolved = self.authority.resolve_position(movement.position);
                 if movement.mode.is_teleport() {
@@ -594,8 +582,8 @@ impl WorldStream {
         let (biomes, block_entities) = decoded;
         if self.authority.terrain().biome_column_matches(key, &biomes) {
             self.loaded_columns.remove(&key);
-            self.request_collision_failures.remove(&key);
-            self.purge_sub_chunk_column_state(key);
+            self.requests.collision_failures.remove(&key);
+            self.requests.purge_columns(&BTreeSet::from([key]));
         } else {
             self.evict_column(key);
         }
@@ -643,10 +631,10 @@ impl WorldStream {
 
     fn record_required_level_chunk(&mut self, event: &LevelChunkEvent) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
-        if (self.committed_view_cohort.is_some() || self.provisional_publisher_rebase)
+        if (self.publisher.cohort.is_some() || self.publisher.provisional_rebase)
             && self.column_is_data_interesting(key)
         {
-            self.required_columns.insert(key);
+            self.publisher.required_columns.insert(key);
         }
     }
 }

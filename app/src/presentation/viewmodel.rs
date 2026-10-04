@@ -1,10 +1,11 @@
 //! Samples the viewmodel's world, screen and movement observations in the current frame.
-use crate::{player_runtime::PlayerRuntime, runtime::world::ClientWorld, ui_runtime::UiRuntime};
+use crate::{player_runtime::PlayerRuntime, runtime::world::ClientWorld};
 use bevy::{ecs::system::SystemParam, prelude::*};
 pub(crate) use client_presentation::presentation::viewmodel::HandAdapter;
 #[cfg(test)]
 pub(crate) use client_presentation::presentation::viewmodel::HandFallback;
 use client_presentation::presentation::viewmodel::{ViewmodelAuthority, ViewmodelWorld};
+use client_ui::ui_runtime::UiRuntime;
 
 #[derive(SystemParam)]
 pub(crate) struct ViewmodelPublish<'w, 's> {

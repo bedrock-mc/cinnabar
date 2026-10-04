@@ -12,8 +12,8 @@ use crate::{
     mining::{FrozenMiningFrame, FrozenMiningRay, FrozenMiningSelection, FrozenMiningTarget},
     movement::PhysicsCollisionRegistries,
     runtime::world::ClientWorld,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) use gameplay::interaction_authority::{FrozenBlockObservation, within_pick_range};
 
@@ -26,10 +26,10 @@ pub(crate) use gameplay::interaction_authority::{FrozenBlockObservation, within_
 pub(crate) fn ray_is_current(
     ray: &crate::local_player::FrozenInteractionOrigin,
     ui_session: u64,
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
 ) -> bool {
     ray.session_generation() == ui_session
-        && ray.actor_session_id() == stream.actor_session_id()
+        && ray.actor_session_id() == stream.authority().actor_session_id()
         && ray.fifo_sequence() <= stream.committed_sequence()
 }
 
@@ -158,8 +158,8 @@ pub(crate) fn fixture(
 mod tests {
     use super::*;
 
-    fn stream() -> client_world::WorldStream {
-        client_world::WorldStream::new(protocol::WorldBootstrap {
+    fn stream() -> chunk_pipeline::WorldStream {
+        chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 42,
             local_player_unique_id: 1,
@@ -203,7 +203,7 @@ mod tests {
     fn a_ray_survives_later_commits_and_reconnects_but_not_a_session_change() {
         let _earlier = stream();
         let mut stream = stream();
-        let actor_session_id = stream.actor_session_id();
+        let actor_session_id = stream.authority().actor_session_id();
         let session = actor_session_id + 5;
         let frozen = ray(session, actor_session_id, stream.committed_sequence());
         stream
@@ -218,7 +218,7 @@ mod tests {
             )
             .unwrap();
         assert!(stream.committed_sequence() > frozen.fifo_sequence());
-        assert_ne!(stream.actor_session_id(), session);
+        assert_ne!(stream.authority().actor_session_id(), session);
         assert!(ray_is_current(&frozen, session, &stream));
         assert!(!ray_is_current(&frozen, session + 1, &stream));
         assert!(!ray_is_current(&frozen, session, &self::stream()));
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn connection_and_actor_sessions_are_independent() {
         let stream = stream();
-        let actor_session_id = stream.actor_session_id();
+        let actor_session_id = stream.authority().actor_session_id();
         let connection_session = actor_session_id + 1;
         let frozen = ray(
             connection_session,

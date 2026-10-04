@@ -5,7 +5,7 @@ use bevy::{
     prelude::{Local, Query, Res, ResMut, Resource, Time, Transform, With},
     time::Real,
 };
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use meshing::CameraMedium;
 use render::{
     AtmosphereFrame, ColumnSample, ColumnSampler, LightningScene, OcclusionGrid,
@@ -335,7 +335,7 @@ pub(crate) fn update_lightning(
         seen.clear();
         return;
     };
-    let bolts = stream.lightning_bolts();
+    let bolts = stream.authority().lightning_bolts();
     seen.retain(|id| bolts.iter().any(|bolt| bolt.unique_id == *id));
     for bolt in bolts {
         if seen.insert(bolt.unique_id) {

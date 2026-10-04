@@ -5,7 +5,7 @@
 
 use protocol::world_control::{Difficulty, GameMode};
 
-use super::{MenuAction, MenuField, MenuRuntime, MenuScreen, PendingConnect};
+use super::{MenuAction, MenuField, MenuRuntime, MenuScreen};
 use crate::local_worlds::{Input, LocalWorlds, Progress, Screen, Tab, WorldsView};
 
 pub(crate) use launcher::menu::worlds_tab::LocalWorldAction;
@@ -67,13 +67,13 @@ impl MenuRuntime {
                 .map_or(id, |world| world.name.clone());
             self.request_local_world_join(name);
         }
-        if self.local_world_joined && self.connecting {
+        if self.local_world_joined && self.is_connecting() {
             let name = self.local_ui.joining.as_deref().unwrap_or_default();
             view.progress = Some(Progress::connecting(name));
         }
         self.finish_storage_world(view.screen);
         self.local_ui.view = view;
-        let active = self.local_world_joined && (in_session || self.connecting);
+        let active = self.local_world_joined && (in_session || self.is_connecting());
         if active != self.local_world_active {
             self.local_world_active = active;
             if active {
@@ -239,16 +239,15 @@ impl MenuRuntime {
     }
 
     fn request_local_world_join(&mut self, name: String) {
-        self.begin_fresh_transfer_chain();
         self.stop_catalog();
         self.local_world_joined = true;
         self.local_ui.joining = Some(name.clone());
-        self.pending_connect = Some(PendingConnect {
+        self.intents.join = Some(crate::session::JoinIntent {
             address: name,
             auth_cache: None,
             local_world: true,
         });
-        self.mark_connecting();
+        self.show_connecting();
     }
 }
 
@@ -272,7 +271,8 @@ mod tests {
         let mut worlds = LocalWorlds::default();
         menu.request_local_world_join("Home".to_owned());
         assert!(
-            menu.pending_connect
+            menu.intents
+                .join
                 .as_ref()
                 .is_some_and(|join| join.local_world)
         );
@@ -283,7 +283,7 @@ mod tests {
             Some(Progress::connecting("Home")),
             "the loading screen's last stage is the join"
         );
-        menu.connecting = false;
+        menu.intents.join = None;
         menu.sync_local_worlds(&mut worlds, false);
         assert!(!menu.local_world_active && !menu.local_world_joined);
     }

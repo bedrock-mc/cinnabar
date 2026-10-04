@@ -39,7 +39,7 @@ fn captured_inventory_keeps_pre_send_pixels_and_restores_post_send_authority() {
     player_runtime.inventory.ledger_mut().begin_session(2);
     let after_send = inventory_state(&player_runtime, &runtime);
     let actual = runtime.with_presentation_inventory(
-        &mut player_runtime,
+        &player_runtime,
         captured,
         |before_send, player_runtime| {
             deferred
@@ -70,16 +70,15 @@ fn inventory_authority_is_restored_on_render_error_and_unwind() {
         let after_send = inventory_state(&player_runtime, &runtime);
         if unwind {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                runtime.with_presentation_inventory(&mut player_runtime, captured, |_, _| {
+                runtime.with_presentation_inventory(&player_runtime, captured, |_, _| {
                     panic!("render panic")
                 })
             }));
             assert!(result.is_err());
         } else {
-            let result =
-                runtime.with_presentation_inventory(&mut player_runtime, captured, |_, _| {
-                    Err::<(), _>("render error")
-                });
+            let result = runtime.with_presentation_inventory(&player_runtime, captured, |_, _| {
+                Err::<(), _>("render error")
+            });
             assert_eq!(result, Err("render error"));
         }
         assert_eq!(inventory_state(&player_runtime, &runtime), after_send);
@@ -108,7 +107,7 @@ fn deferred_and_immediate_ui_match_across_retained_frames() {
         );
         let captured = runtime.capture_presentation_inventory(&player_runtime);
         let actual = runtime.with_presentation_inventory(
-            &mut player_runtime,
+            &player_runtime,
             captured,
             |runtime, player_runtime| {
                 deferred
@@ -148,26 +147,22 @@ fn publication_snapshot_shares_registry_and_creative_catalogs() {
         .items
         .as_ptr();
     let snapshot = runtime.capture_presentation_inventory(&player_runtime);
-    runtime.with_presentation_inventory(
-        &mut player_runtime,
-        snapshot,
-        |captured, player_runtime| {
-            assert!(std::ptr::eq(
-                entry,
-                captured
-                    .inventory_ledger(player_runtime)
-                    .negotiated_item_entry(first)
-                    .unwrap()
-            ));
-            assert_eq!(
-                creative,
-                captured
-                    .inventory_ledger(player_runtime)
-                    .creative_catalog()
-                    .unwrap()
-                    .items
-                    .as_ptr()
-            );
-        },
-    );
+    runtime.with_presentation_inventory(&player_runtime, snapshot, |captured, player_runtime| {
+        assert!(std::ptr::eq(
+            entry,
+            captured
+                .inventory_ledger(player_runtime)
+                .negotiated_item_entry(first)
+                .unwrap()
+        ));
+        assert_eq!(
+            creative,
+            captured
+                .inventory_ledger(player_runtime)
+                .creative_catalog()
+                .unwrap()
+                .items
+                .as_ptr()
+        );
+    });
 }

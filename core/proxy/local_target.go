@@ -2,15 +2,22 @@ package proxy
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-nethernet/endpoint"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
 // LocalTargetFunc supplies the local server's address and transport together.
@@ -69,4 +76,39 @@ type localNetherNetNetwork struct {
 
 func (n localNetherNetNetwork) PingContext(ctx context.Context, address string) ([]byte, error) {
 	return n.status.PingContext(ctx, address)
+}
+
+// DialContext is the signed-out dial. BDS refuses HTTP offers without an identity even with
+// online-mode off, but admits a self-signed one; signed-in dials present the account's instead.
+func (n localNetherNetNetwork) DialContext(ctx context.Context, address string) (net.Conn, error) {
+	identity, err := selfSignedIdentity(time.Now())
+	if err != nil {
+		return nil, err
+	}
+	n.Dialer.Identity = identity
+	return n.NetherNet.DialContext(ctx, address)
+}
+
+// selfSignedIdentity carries cpk as base64 DER: BDS rejects the JWK form.
+func selfSignedIdentity(now time.Time) (*nethernet.Identity, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("local NetherNet identity key: %w", err)
+	}
+	publicKey := login.MarshalPublicKey(&key.PublicKey)
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.ES384, Key: key}, (&jose.SignerOptions{}).WithHeader("x5u", publicKey))
+	if err != nil {
+		return nil, fmt.Errorf("local NetherNet identity signer: %w", err)
+	}
+	token, err := jwt.Signed(signer).Claims(struct {
+		jwt.Claims
+		PublicKey string `json:"cpk"`
+	}{
+		Claims:    jwt.Claims{IssuedAt: jwt.NewNumericDate(now), Expiry: jwt.NewNumericDate(now.Add(time.Minute))},
+		PublicKey: publicKey,
+	}).Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("local NetherNet identity token: %w", err)
+	}
+	return &nethernet.Identity{PrivateKey: key, Token: token, Domain: "self"}, nil
 }

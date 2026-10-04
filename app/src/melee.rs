@@ -12,7 +12,6 @@ use protocol::PlayerInputMode;
 use semantic_input::Action;
 
 use crate::{
-    game_mode_capabilities::SURVIVAL_ATTACK_REACH,
     interaction_authority::{BlockRayUnavailable, observe_block_ray, ray_is_current},
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
@@ -20,8 +19,9 @@ use crate::{
     movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
     runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
+use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
 
 pub(crate) use gameplay::melee::{
     Crosshair, PressContext, classify, obstructs_placement, pick_actor, press_admission,
@@ -102,7 +102,7 @@ pub(crate) fn produce_melee(
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     if let Err(reason) = press_admission(
         focused && !context.ui.ui_focused(&player_runtime),
-        context.ui.player_game_mode(&player_runtime),
+        player_runtime.facts.player_game_mode(),
     ) {
         drop(reason);
         runtime.cancel();
@@ -118,7 +118,7 @@ pub(crate) fn produce_melee(
         runtime.defer(input.frame_sequence);
         return;
     }
-    let caps = context.ui.game_mode_capabilities(&player_runtime);
+    let caps = player_runtime.facts.game_mode_capabilities();
     let input_mode = protocol_input_mode(input.input_mode);
     let (Some(crosshair), Some(stream)) = (
         resolve_crosshair(
@@ -146,7 +146,7 @@ pub(crate) fn produce_melee(
         player_position: sample.position,
         input_mode,
         local_runtime_id: stream.local_player_runtime_id(),
-        selection: hand_interaction_selection(&player_runtime, &context.ui),
+        selection: hand_interaction_selection(&player_runtime),
         swing_duration: swing_duration(context.effects.mining_effects()),
         now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
     };
@@ -185,7 +185,7 @@ fn resolve_crosshair(
     let origin = ray.origin().to_array();
     // Vanilla picks against the world it holds, where unreadable space is empty; an
     // unreadable block ray therefore neither blocks the swing nor occludes a target.
-    let observed = hand_interaction_selection(player_runtime, &context.ui).and_then(|selection| {
+    let observed = hand_interaction_selection(player_runtime).and_then(|selection| {
         match observe_block_ray(
             &context.origin,
             &context.ui,
@@ -217,7 +217,7 @@ fn resolve_crosshair(
             .sqrt()
     });
     let actor = pick_actor(
-        stream.remote_actors(),
+        stream.authority().remote_actors(),
         context.ui.gameplay_hud().mount_unique_id(),
         origin,
         ray.direction().to_array(),

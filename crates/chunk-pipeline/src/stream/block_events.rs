@@ -1,6 +1,6 @@
 //! Presentation access to authoritative block-event cues.
 
-pub use client_world::BlockEventCue;
+use client_world::BlockEventCue;
 use client_world::ingestion::BlockEventEvent;
 
 use super::WorldStream;

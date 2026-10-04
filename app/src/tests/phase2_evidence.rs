@@ -1,4 +1,4 @@
-use client_world::{
+use chunk_pipeline::{
     BuildProfileIdentity, CohortManifestIdentity, Phase2PresentationSnapshot,
     Phase2PublicationSnapshot, PresentModeIdentity, PublicationStageCounters, RequestClass,
     RequestClassDepth, RequestQueueEvidence, StageDurations, SubChunkOutcomeCounters,
@@ -7,7 +7,7 @@ use protocol::BlobCacheStats;
 use sha2::{Digest, Sha256};
 use world::ChunkKey;
 
-use crate::runtime::phase2_evidence::{
+use acceptance::phase2_evidence::{
     CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, generation_manifest_identity,
     graphics_identity_sha256, key_manifest_identity, phase2_publication_line_if_changed,
     phase2_publication_timing_line, sha256_identity_from_hex_or_text,

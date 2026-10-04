@@ -55,14 +55,21 @@ impl WorldStream {
         }
         eprintln!(
             "RUST_MCBE_STALE_LIGHT count={count} reason={reason} key={key:?} expected={identity:?} current_revision={:?} current_block_generation={:?} current_light_generation={:?} current_direct_generation={:?} resident={} pending={}",
-            self.light_revisions.dirty(key).map(|dirty| dirty.revision),
-            self.block_generations.get(&key),
-            self.light_store.light(key).map(|light| light.generation()),
-            self.direct_sky
+            self.lighting
+                .revisions
+                .dirty(key)
+                .map(|dirty| dirty.revision),
+            self.lighting.block_generations.get(&key),
+            self.lighting
+                .store
+                .light(key)
+                .map(|light| light.generation()),
+            self.lighting
+                .direct_sky
                 .get(&key)
                 .map(|direct| direct.light_revision),
             self.resident.contains(&key),
-            self.pending_light.contains_key(&key),
+            self.lighting.jobs.pending.contains_key(&key),
         );
     }
 }

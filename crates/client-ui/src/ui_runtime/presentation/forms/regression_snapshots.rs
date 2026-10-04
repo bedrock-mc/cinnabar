@@ -17,8 +17,10 @@ fn populated_hotbar_snapshot() {
     if let Some(pack) = pack_harness::env_pack() {
         presentation.set_server_ui_pack(&pack);
     }
-    let mut runtime = crate::ui_runtime::UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    let runtime = crate::ui_runtime::UiRuntime::new(1);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     player_runtime.inventory.set_local_selected_slot(0);
     let icon = IconRef {
         page: presentation.solid_texture_page,

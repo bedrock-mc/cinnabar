@@ -170,7 +170,7 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
         let simulator = sim::Simulator::default();
         let mut physics_clock = crate::actor_clock::ActorFrameClock::default();
         let mut previous_position = physics.0.position;
-        let mut stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+        let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: LOCAL_ID,
             local_player_unique_id: LOCAL_ID as i64,
@@ -239,6 +239,7 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
             let step = actor_clock.advance(elapsed);
             stream.advance_actor_interpolation_frame(step.ticks);
             let actor_feet = stream
+                .authority()
                 .actor(LOCAL_ID)
                 .unwrap()
                 .interpolated_position(step.partial_tick)

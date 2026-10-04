@@ -20,8 +20,9 @@ impl UiRuntime {
         // UpdateSoftEnum and AvailableCommands arrive unsolicited without an editor request
         // identity, so the immutable catalog is queried locally and applied only through the
         // session/input/request correlation below.
-        let command_permission = self
-            .local_abilities(player_runtime)
+        let command_permission = player_runtime
+            .facts
+            .local_abilities()
             .map(|update| update.command_permission);
         let context = CompletionContext {
             players: &self.known_player_names,

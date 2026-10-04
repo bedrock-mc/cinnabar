@@ -1,4 +1,5 @@
 use super::*;
+use client_world::COMMITTED_AUDIO_CAPACITY;
 
 fn audio_stream() -> WorldStream {
     WorldStream::new(WorldBootstrap {
@@ -82,7 +83,10 @@ fn camera_lifetime_latch_survives_drains_timing_resets_and_returning_dimensions(
     assert!(!stream.audio_default_camera_eligible());
     let fresh = audio_stream();
     assert!(fresh.audio_default_camera_eligible());
-    assert_ne!(fresh.actor_session_id(), stream.actor_session_id());
+    assert_ne!(
+        fresh.authority().actor_session_id(),
+        stream.authority().actor_session_id()
+    );
 }
 
 #[test]

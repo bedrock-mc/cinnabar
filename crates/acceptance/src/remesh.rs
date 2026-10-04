@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use client_world::ViewCohortStatus;
+use chunk_pipeline::ViewCohortStatus;
 use render::{PresentedFrameAck, RenderViewCohort, TargetRenderExpectation};
 use world::SubChunkKey;
 
@@ -20,7 +20,7 @@ pub struct FullViewRemeshPresentedCandidate {
 
 #[derive(Debug, Clone)]
 pub struct PendingFullViewRemesh {
-    pub manifest: client_world::ForcedRemeshManifest,
+    pub manifest: chunk_pipeline::ForcedRemeshManifest,
     pub cohort: ViewCohortStatus,
     pub source_cohort: Option<RenderViewCohort>,
     pub binding_manifest: Arc<[(SubChunkKey, u64)]>,
@@ -57,7 +57,7 @@ impl FullViewRemeshTracker {
         &mut self,
         binding: Option<&FullViewTeleportCompletion>,
         cohort: ViewCohortStatus,
-        manifest: client_world::ForcedRemeshManifest,
+        manifest: chunk_pipeline::ForcedRemeshManifest,
         frame_count: u64,
     ) -> bool {
         let Some(binding) = binding else {
@@ -102,12 +102,12 @@ impl FullViewRemeshTracker {
     pub fn reconcile_presented_expectation(
         &mut self,
         snapshot: TeleportReadySnapshot,
-        manifest_state: client_world::ForcedRemeshManifestState,
+        manifest_state: chunk_pipeline::ForcedRemeshManifestState,
         proposed: Option<TargetRenderExpectation>,
         now: Instant,
         _frame_count: u64,
     ) -> Option<TargetRenderExpectation> {
-        if manifest_state == client_world::ForcedRemeshManifestState::Invalid {
+        if manifest_state == chunk_pipeline::ForcedRemeshManifestState::Invalid {
             self.invalidate();
             return None;
         }
@@ -116,7 +116,7 @@ impl FullViewRemeshTracker {
             self.invalidate();
             return None;
         }
-        if manifest_state == client_world::ForcedRemeshManifestState::Pending
+        if manifest_state == chunk_pipeline::ForcedRemeshManifestState::Pending
             || !snapshot.is_ready()
         {
             let pending = self

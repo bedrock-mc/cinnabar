@@ -22,7 +22,6 @@ pub use inventory::inventory_ledger;
 pub use inventory::inventory_router;
 pub mod item_facts;
 pub mod json_ui_assets;
-pub mod local_abilities;
 pub mod oreui_assets;
 pub mod platform_clipboard;
 pub mod presentation;
@@ -559,13 +558,13 @@ impl UiRuntime {
         true
     }
 
-    pub fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) {
+    pub fn project_block_cracks(&mut self, snapshot: chunk_pipeline::BlockCrackSnapshot) {
         self.block_cracks.project(snapshot);
         self.block_cracks
             .report_status(self.session_id, self.block_cracks_status());
     }
 
-    pub fn block_crack_snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
+    pub fn block_crack_snapshot(&self) -> Option<&chunk_pipeline::BlockCrackSnapshot> {
         self.block_cracks.snapshot()
     }
 
@@ -579,11 +578,8 @@ impl UiRuntime {
             .report_status(self.session_id, self.block_cracks_status());
     }
 
-    pub fn begin_session(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        session_id: u64,
-    ) {
+    /// Resets UI session state for `session_id`; the session controller moves player authority with it.
+    pub fn begin_session(&mut self, session_id: u64) {
         if self.session_id == session_id {
             return;
         }
@@ -592,7 +588,6 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen = screen_state::ScreenState::default();
         self.experiences.reset();
-        player_runtime.begin_session(session_id);
         self.server_lang = None;
         self.session_icons = None;
         self.session_items = None;

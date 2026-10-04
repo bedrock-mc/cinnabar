@@ -110,12 +110,12 @@ fn install_source(
     direct: bool,
 ) -> [bool; 6] {
     install_current_light(stream, key, 0, 0, false);
-    let generation = stream.light_store.light(key).unwrap().generation();
+    let generation = stream.lighting.store.light(key).unwrap().generation();
     let replacement = SubChunkLight::uniform(block, sky, generation).unwrap();
     let replacement_direct = DirectSkyMask::Uniform(direct);
     let monotonic_faces = stream.monotonic_light_faces(key, &replacement, &replacement_direct);
-    stream.light_store.insert_known_air(key, replacement);
-    stream.direct_sky.get_mut(&key).unwrap().mask = Arc::new(replacement_direct);
+    stream.lighting.store.insert_known_air(key, replacement);
+    stream.lighting.direct_sky.get_mut(&key).unwrap().mask = Arc::new(replacement_direct);
     monotonic_faces
 }
 

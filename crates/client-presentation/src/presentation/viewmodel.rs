@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 /// World and gameplay facts sampled by the host at the viewmodel preparation boundary.
 pub struct ViewmodelWorld<'a> {
-    pub stream: Option<&'a client_world::WorldStream>,
+    pub stream: Option<&'a chunk_pipeline::WorldStream>,
     pub entity_assets: Option<&'a Arc<assets::RuntimeEntityAssets>>,
     pub runtime_assets: &'a Arc<assets::RuntimeAssets>,
     pub block_registry_hash: [u8; 32],
@@ -266,7 +266,7 @@ impl HandAdapter {
         }
         let stream = world.stream?;
         let entities = world.entity_assets?;
-        let canonical = stream.canonical_item_stack(stack)?;
+        let canonical = stream.authority().canonical_item_stack(stack)?;
         if diagnostic {
             self.cube_reason = 2;
         }
@@ -612,13 +612,13 @@ impl ViewmodelPublish<'_, '_> {
             .offhand_is_empty()
             .map_or(0, |empty| if empty { 2 } else { 1 });
         if let Some(stream) = &world.stream {
-            values[1] = i128::from(stream.actor_session_id());
+            values[1] = i128::from(stream.authority().actor_session_id());
             values[2] = i128::from(stream.current_dimension());
             values[3] = i128::from(stream.local_player_runtime_id());
-            if let Some(actor) = stream.actor(stream.local_player_runtime_id()) {
+            if let Some(actor) = stream.authority().actor(stream.local_player_runtime_id()) {
                 values[4] = 1;
                 values[5] = i128::from(actor.spawn_revision);
-                values[20] |= i128::from(stream.actor_health_by_unique(actor.unique_id).is_some_and(|(health, _)| health <= 0.))
+                values[20] |= i128::from(stream.authority().actor_health_by_unique(actor.unique_id).is_some_and(|(health, _)| health <= 0.))
                     | (i128::from(matches!(actor.metadata.get(&0), Some(protocol::ActorMetadataValue::Flags(flags)) if flags & ((1 << 4) | (1 << 5)) != 0)) << 2)
                     | (i128::from(actor.metadata.get(&38).is_some_and(|value| !matches!(value, protocol::ActorMetadataValue::Float(scale) if *scale == 1.0))) << 3);
             }
@@ -626,9 +626,14 @@ impl ViewmodelPublish<'_, '_> {
                 assets::NetworkIdMode::Sequential => 1,
                 assets::NetworkIdMode::Hashed => 2,
             };
-            values[24] = i128::from(stream.actor_rig(stream.local_player_runtime_id()).is_some());
+            values[24] = i128::from(
+                stream
+                    .authority()
+                    .actor_rig(stream.local_player_runtime_id())
+                    .is_some(),
+            );
         }
-        if let Some(selected) = runtime.selected_stack_snapshot(player_runtime) {
+        if let Some(selected) = player_runtime.selected_stack_snapshot() {
             values[7] = i128::from(selected.slot);
             match selected.state {
                 client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown => {}
@@ -703,21 +708,22 @@ impl ViewmodelPublish<'_, '_> {
             || !world.renders_game
             || !first_person
             || runtime.ui_focused(player_runtime)
-            || runtime
-                .player_game_mode(player_runtime)
+            || player_runtime
+                .facts
+                .player_game_mode()
                 .is_some_and(|mode| !mode.shows_hotbar())
         {
             return Err(HandFallback::Hidden);
         }
         let stream = world.stream.ok_or(HandFallback::Ownership)?;
-        let actor = stream.actor(stream.local_player_runtime_id());
+        let actor = stream.authority().actor(stream.local_player_runtime_id());
         if runtime.session_id() == 0
             || runtime.local_runtime_id(player_runtime) != Some(stream.local_player_runtime_id())
         {
             return Err(HandFallback::Ownership);
         }
         if actor
-            .and_then(|actor| stream.actor_health_by_unique(actor.unique_id))
+            .and_then(|actor| stream.authority().actor_health_by_unique(actor.unique_id))
             .is_some_and(|(health, _)| health <= 0.)
             || runtime
                 .hud()
@@ -743,8 +749,8 @@ impl ViewmodelPublish<'_, '_> {
         {
             return Err(HandFallback::Geometry);
         }
-        let selected = runtime
-            .selected_stack_snapshot(player_runtime)
+        let selected = player_runtime
+            .selected_stack_snapshot()
             .ok_or(HandFallback::ItemsUnknownOrHeld)?;
         if runtime.gameplay_hud().offhand_is_empty() != Some(true) {
             return Err(HandFallback::ItemsUnknownOrHeld);
@@ -780,7 +786,7 @@ impl ViewmodelPublish<'_, '_> {
             }
             Some(HandOwner::Local {
                 session,
-                actor_session: stream.actor_session_id(),
+                actor_session: stream.authority().actor_session_id(),
                 dimension: stream.current_dimension(),
                 runtime: visibility.runtime_id(),
                 epoch,
@@ -791,7 +797,7 @@ impl ViewmodelPublish<'_, '_> {
         let adapter = self.adapter.as_deref_mut().unwrap();
         let owner_identity =
             local_owner.unwrap_or(HandOwner::Actor(client_world::ActorLifetimeId {
-                session_id: stream.actor_session_id(),
+                session_id: stream.authority().actor_session_id(),
                 dimension: stream.current_dimension(),
                 runtime_id: actor.map_or(0, |actor| actor.runtime_id),
                 spawn_revision: actor.map_or(0, |actor| actor.spawn_revision),
@@ -803,9 +809,10 @@ impl ViewmodelPublish<'_, '_> {
             client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => {
                 let actor = actor.ok_or(HandFallback::Ownership)?;
                 let rig = stream
+                    .authority()
                     .actor_rig(actor.runtime_id)
                     .ok_or(HandFallback::Ownership)?;
-                if rig.actor.session_id != stream.actor_session_id()
+                if rig.actor.session_id != stream.authority().actor_session_id()
                     || rig.actor.spawn_revision != actor.spawn_revision
                     || rig.actor.runtime_id != actor.runtime_id
                 {
@@ -819,6 +826,7 @@ impl ViewmodelPublish<'_, '_> {
                     adapter.advance_revision().ok_or(HandFallback::Geometry)?;
                 }
                 let profile = stream
+                    .authority()
                     .actor_player_profile(actor.runtime_id)
                     .ok_or(HandFallback::Skin)?;
                 let protocol::PlayerSkin::Standard(raw) = &profile.skin else {

@@ -26,8 +26,8 @@ use crate::{
     movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
     runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) use gameplay::block_use::{
     LocalUse, RepeatClock, UseSurroundings, placement_cell, use_packets,
@@ -75,8 +75,8 @@ pub(crate) fn produce_block_use(
     runtime.synchronize(movement.interaction_authority_identity());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
-    let game_mode = context.ui.player_game_mode(&player_runtime);
-    let caps = context.ui.game_mode_capabilities(&player_runtime);
+    let game_mode = player_runtime.facts.player_game_mode();
+    let caps = player_runtime.facts.game_mode_capabilities();
     let Some((input, caps)) = context.input.snapshot().zip(caps).filter(|(input, caps)| {
         focused
             && !context.ui.ui_focused(&player_runtime)
@@ -288,7 +288,7 @@ fn use_surroundings(
         ),
         actor_boxes: stream
             .into_iter()
-            .flat_map(|stream| stream.remote_actors())
+            .flat_map(|stream| stream.authority().remote_actors())
             .filter(|actor| obstructs_placement(actor))
             .filter_map(|actor| actor.bounding_box())
             .map(|(min, max)| (min.map(f64::from), max.map(f64::from)))
@@ -335,11 +335,14 @@ pub(crate) fn verified_use_selection(
     let ledger = ui.inventory_ledger(player_runtime);
     if ledger.pending_request_id().is_some()
         || ledger.resync_required()
-        || ui.pending_hotbar_selection(player_runtime).is_some()
+        || player_runtime
+            .inventory
+            .pending_hotbar_selection()
+            .is_some()
     {
         return None;
     }
-    verified_selection(player_runtime, ui)
+    verified_selection(player_runtime)
 }
 
 #[cfg(test)]
@@ -348,7 +351,7 @@ mod tests;
 /// Adapts the published world to gameplay's switch prediction.
 fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
     clicked: u32,
 ) -> Option<u32> {
     gameplay::block_use::predicted_toggle(
@@ -360,7 +363,7 @@ fn predicted_toggle(
 /// Adapts the published world to gameplay's placement prediction.
 fn predicted_placement(
     collisions: &PhysicsCollisionRegistries,
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
     item_block: i32,
 ) -> Option<u32> {
     gameplay::block_use::predicted_placement(
@@ -370,7 +373,7 @@ fn predicted_placement(
     )
 }
 /// Resolves an item block through the production gameplay boundary.
-fn held_block_store_id(stream: &client_world::WorldStream, item_block: i32) -> Option<u32> {
+fn held_block_store_id(stream: &chunk_pipeline::WorldStream, item_block: i32) -> Option<u32> {
     gameplay::block_use::held_block_store_id(
         &crate::movement::GameplayWorldView(stream),
         item_block,

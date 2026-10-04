@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
+use client_presentation::{
+    camera::{AutoFly, PITCH_LIMIT},
+    local_player::LocalViewPose,
+};
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 
 use super::*;
@@ -211,7 +215,7 @@ fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
             .submit(index as u64 + 1, player(id, [1.0, 0.0, 0.0]))
             .unwrap();
     }
-    let players = nearest_players(stream.remote_actors(), Vec3::ZERO);
+    let players = nearest_players(stream.authority().remote_actors(), Vec3::ZERO);
     assert_eq!(players.len(), mod_host::MAX_GAMEPLAY_PLAYERS);
     assert_eq!(players.first().unwrap().runtime_id, 2);
     assert_eq!(
@@ -224,7 +228,7 @@ fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
     stream
         .submit(count as u64 + 1, player(near_id, [0.0; 3]))
         .unwrap();
-    let players = nearest_players(stream.remote_actors(), Vec3::ZERO);
+    let players = nearest_players(stream.authority().remote_actors(), Vec3::ZERO);
     assert_eq!(players.len(), mod_host::MAX_GAMEPLAY_PLAYERS);
     assert_eq!(players[0].runtime_id, near_id);
     assert_eq!(players[1].runtime_id, 2);
@@ -234,7 +238,7 @@ fn nearest_players_are_bounded_and_ties_use_runtime_identity() {
 fn malformed_actor_samples_do_not_enter_the_guest_snapshot() {
     let mut stream = stream();
     stream.submit(1, player(2, [1.0, 0.0, 0.0])).unwrap();
-    let valid = stream.remote_actors().next().unwrap().clone();
+    let valid = stream.authority().remote_actors().next().unwrap().clone();
     let mut zero_id = valid.clone();
     zero_id.runtime_id = 0;
     let mut non_finite = valid.clone();

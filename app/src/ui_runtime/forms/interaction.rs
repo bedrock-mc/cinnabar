@@ -1,8 +1,5 @@
 use super::{LocalFormAction, engine_focus, engine_input};
-use crate::{
-    menu::MenuRuntime,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
-};
+use crate::menu::MenuRuntime;
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     input::{
@@ -18,6 +15,7 @@ use bevy::{
     time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
@@ -91,7 +89,7 @@ pub(crate) fn drive_server_form_input(
         wheel.clear();
         keyboard.clear();
         if *owned_last_frame && !runtime.ui_focused(&player_runtime) && window.focused {
-            crate::ui_runtime::interaction::restore_gameplay_input_after_chat(
+            client_ui::ui_runtime::interaction::restore_gameplay_input_after_chat(
                 &mut cursor,
                 &mut keys,
                 &mut mouse,
@@ -210,7 +208,7 @@ pub(crate) fn drive_server_form_input(
     }
     // Also retain ownership through the answer frame; pending enqueue owns
     // input until the later network phase accepts it or retires the session.
-    crate::ui_runtime::interaction::suppress_gameplay_input_for_chat(
+    client_ui::ui_runtime::interaction::suppress_gameplay_input_for_chat(
         &player_runtime,
         &runtime,
         &mut cursor,

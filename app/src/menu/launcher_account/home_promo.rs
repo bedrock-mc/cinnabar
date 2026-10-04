@@ -62,19 +62,19 @@ fn snapshot_core_home_promo() {
     view.catalog_loading = false;
     presentation.sync_menu_artwork(vec![(badge.to_string_lossy().into_owned(), 256)]);
     presentation.finish_menu_artwork();
-    let runtime = crate::ui_runtime::UiRuntime::new(1);
+    let runtime = client_ui::ui_runtime::UiRuntime::new(1);
     let dpi = ui::DpiScale::new(2.0).unwrap();
     presentation.set_menu_view(Some(view.clone()));
     let before = presentation
         .build(&player_runtime, &runtime, 0, [2560, 1440], dpi)
         .unwrap();
-    let before_frame = crate::ui_runtime::presentation::forms::snapshot::rasterize(&before);
+    let before_frame = client_ui::ui_runtime::presentation::forms::snapshot::rasterize(&before);
     assert!(
         !before_frame
             .pixels()
             .any(|pixel| pixel.0 == [40, 90, 200, 255])
     );
-    crate::ui_runtime::presentation::forms::snapshot::write(&before, "home-promo-before");
+    client_ui::ui_runtime::presentation::forms::snapshot::write(&before, "home-promo-before");
     view.feeds.home = menu_home(&home, 0);
     for _ in 0..3 {
         presentation.set_menu_view(Some(view.clone()));
@@ -86,7 +86,7 @@ fn snapshot_core_home_promo() {
     let input = presentation
         .build(&player_runtime, &runtime, 0, [2560, 1440], dpi)
         .unwrap();
-    let frame = crate::ui_runtime::presentation::forms::snapshot::rasterize(&input);
+    let frame = client_ui::ui_runtime::presentation::forms::snapshot::rasterize(&input);
     assert!(
         frame
             .pixels()
@@ -95,7 +95,7 @@ fn snapshot_core_home_promo() {
             > 1_000,
         "promo badge was not rendered"
     );
-    crate::ui_runtime::presentation::forms::snapshot::write(&input, "home-promo");
+    client_ui::ui_runtime::presentation::forms::snapshot::write(&input, "home-promo");
     std::fs::remove_dir_all(scratch).unwrap();
 }
 

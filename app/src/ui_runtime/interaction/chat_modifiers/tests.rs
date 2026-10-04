@@ -209,7 +209,7 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
                         .app
                         .world_mut()
                         .resource_mut::<crate::player_runtime::PlayerRuntime>(),
-                    crate::ui_runtime::SequencedUiEvent {
+                    client_ui::ui_runtime::SequencedUiEvent {
                         session_id: 1,
                         fifo_sequence: 1,
                         local_millis: 1,

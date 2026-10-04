@@ -9,7 +9,8 @@ use bevy::{
     ecs::system::SystemParam,
     prelude::{Local, Res, ResMut},
 };
-use client_world::{BlockEntityKind, RopeKind, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::{BlockEntityKind, RopeKind};
 use render::{
     ChunkTextureAssets, DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene,
     DroppedItemShape, DroppedItemSpawnPose, DroppedItemSprite, ItemMeshVertex, MAX_ITEM_LAYERS,
@@ -231,7 +232,7 @@ impl DroppedItemPublisher<'_, '_> {
         };
         let cache = &mut *self.cache;
         cache.sync(
-            stream.actor_session_id(),
+            stream.authority().actor_session_id(),
             self.textures.as_ref().map(|textures| textures.identity()),
             icons.session_icon_generation(),
         );
@@ -239,7 +240,7 @@ impl DroppedItemPublisher<'_, '_> {
         let mode = stream.network_id_mode();
         let mut instances = Vec::new();
 
-        let dropped = stream.dropped_items(partial_tick);
+        let dropped = stream.authority().dropped_items(partial_tick);
         let live = dropped
             .iter()
             .map(|view| (view.runtime_id, view.spawn_revision))
@@ -285,6 +286,7 @@ impl DroppedItemPublisher<'_, '_> {
                 .or_insert_with(|| {
                     DroppedItemSpawnPose::new(
                         stream
+                            .authority()
                             .actor(view.runtime_id)
                             .map_or(view.position, |actor| {
                                 let mut native_origin = actor.position;
@@ -342,7 +344,7 @@ impl DroppedItemPublisher<'_, '_> {
         }
 
         if let Some(assets) = assets {
-            for view in stream.block_entities(partial_tick) {
+            for view in stream.authority().block_entities(partial_tick) {
                 let (id_mode, id, base_scale) = match &view.kind {
                     BlockEntityKind::Falling { block_runtime_id } => {
                         let Ok(id) = u32::try_from(*block_runtime_id) else {
@@ -379,7 +381,7 @@ impl DroppedItemPublisher<'_, '_> {
 
         let mut lines: Vec<ItemMeshVertex> = Vec::new();
         if let Some((camera, _)) = camera {
-            for rope in stream.ropes(partial_tick) {
+            for rope in stream.authority().ropes(partial_tick) {
                 let length = rope
                     .from
                     .iter()

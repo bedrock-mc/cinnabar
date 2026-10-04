@@ -76,8 +76,8 @@ pub use lang::{
     compile_language, vanilla_language_codes,
 };
 pub use pack::{
-    BlockTextureMap, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, PackSources,
-    TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,
+    BlockTextureMap, DEFAULT_BLEND_FRAMES, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS,
+    PackSources, TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,
 };
 pub use particle::{
     CompiledParticleCarrier, ParticleCompileReport, compile_particle_assets,

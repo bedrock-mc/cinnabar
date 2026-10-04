@@ -9,7 +9,7 @@ use crate::{
     camera::CameraSettingsAuthority,
     environment::{WeatherState, bind_session_generation},
     local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
-    menu::{CoreProcessGuard, MenuClipboard, MenuRuntime},
+    menu::{MenuClipboard, MenuRuntime},
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         MovementTicker, PhysicsCollisionRegistries,
@@ -22,12 +22,8 @@ use crate::{
         PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
         SemanticTouchTargets,
     },
-    server_camera::ServerCameraInstructions,
     settings_runtime::RuntimeSettings,
-    ui_runtime::{
-        LocalFormAction, flush_form_response,
-        presentation::{UiPresentationRuntime, tests::fixture_font},
-    },
+    ui_runtime::presentation::tests::fixture_font,
 };
 use bevy::{
     input::{
@@ -37,6 +33,10 @@ use bevy::{
     },
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+};
+use client_presentation::server_camera::ServerCameraInstructions;
+use client_ui::ui_runtime::{
+    LocalFormAction, flush_form_response, presentation::UiPresentationRuntime,
 };
 use protocol::{
     FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent, WorldBootstrap, WorldEvent,
@@ -227,7 +227,7 @@ fn prepare_ability_control_fixture(app: &mut App) {
         .init_resource::<crate::local_player::LocalAvatarPresentation>()
         .init_resource::<crate::movement::PhysicsAuthorityGate>()
         .insert_resource(crate::runtime::visibility::AppMetrics(
-            crate::metrics::MetricsCollector::new(),
+            diagnostics::metrics::MetricsCollector::new(),
         ))
         .insert_resource(crate::camera::AutoFly::new(false));
 }
@@ -402,7 +402,7 @@ fn actual_drain_retains_session_scoped_evidence_across_dimension_but_rejects_old
         Some(&ability_update(1, 0))
     );
     app.world_mut().resource_mut::<ClientWorld>().stream =
-        Some(client_world::WorldStream::new(WorldBootstrap {
+        Some(chunk_pipeline::WorldStream::new(WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 42,
             local_player_unique_id: 1,
@@ -629,7 +629,7 @@ fn fixture_app() -> (App, Entity) {
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
     bind_session_generation(&mut clock, &mut weather, 1);
-    let stream = client_world::WorldStream::new(WorldBootstrap {
+    let stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 42,
         local_player_unique_id: 1,
@@ -680,7 +680,7 @@ fn fixture_app() -> (App, Entity) {
         .init_resource::<InteractionOriginSnapshot>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<ServerCameraInstructions>()
-        .init_resource::<CoreProcessGuard>()
+        .init_resource::<crate::session::SessionController>()
         .init_resource::<ClientBlobCacheOwner>()
         .init_resource::<ResourcePackAdmissionState>()
         .init_resource::<MenuClipboard>()
@@ -785,7 +785,7 @@ fn rapid_dimension_return_skips_old_form_but_preserves_new_form_and_non_form_ui(
 
 #[test]
 fn transition_retires_full_local_and_busy_answers_and_stale_same_id_actions() {
-    use crate::ui_runtime::{FormRespondError, FormTransportError};
+    use client_ui::ui_runtime::{FormRespondError, FormTransportError};
     let (mut app, _) = fixture_app();
     submit_form(&mut app, 1);
     submit_form_id(&mut app, 2, 8);
@@ -870,9 +870,7 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
     app.insert_resource(clock).insert_resource(weather);
     app.world_mut()
         .resource_scope(|world, mut player: Mut<PlayerRuntime>| {
-            world
-                .resource_mut::<UiRuntime>()
-                .begin_session(&mut player, 2);
+            crate::session::begin_session(&mut world.resource_mut::<UiRuntime>(), &mut player, 2);
         });
     submit_form(&mut app, 1);
     app.update();
@@ -882,7 +880,7 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
     assert!(current.revision > old.revision);
     assert_eq!(
         runtime.respond_to_server_form(old, LocalFormAction::Dismiss),
-        Err(crate::ui_runtime::FormRespondError::StaleIdentity)
+        Err(client_ui::ui_runtime::FormRespondError::StaleIdentity)
     );
     assert!(
         !flush_form_response(&mut runtime, |_| panic!(
@@ -894,7 +892,7 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
 
 #[test]
 fn transition_without_successor_clears_display_and_definitely_unsent_busy_reply() {
-    use crate::ui_runtime::FormTransportError;
+    use client_ui::ui_runtime::FormTransportError;
     let (mut app, window) = fixture_app();
     submit_form(&mut app, 1);
     submit_form_id(&mut app, 2, 8);
@@ -1123,7 +1121,7 @@ fn committed_hunger_waits_for_fifo_and_rejected_updates_preserve_domain_facts() 
                 runtime
                     .apply_local_attributes(
                         player,
-                        crate::ui_runtime::SequencedLocalAttributes {
+                        client_ui::ui_runtime::SequencedLocalAttributes {
                             session_id,
                             fifo_sequence,
                             local_millis: 0,
@@ -1140,4 +1138,23 @@ fn committed_hunger_waits_for_fifo_and_rejected_updates_preserve_domain_facts() 
         );
     }
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+}
+
+/// Block cracks consume committed UI at the production dispatch point.
+#[test]
+fn block_crack_consumer_is_wired_to_the_production_committed_dispatch() {
+    let source = include_str!("../../world.rs");
+    let drive = source
+        .split_once("pub(crate) fn drive_world_stream(")
+        .unwrap()
+        .1;
+    let early = include_str!("../committed_ui.rs");
+    let authority = include_str!("../../../app/authority.rs");
+    assert!(early.contains("} => consume_committed_block_crack("));
+    assert!(early.contains("stream.take_committed_ui()"));
+    assert!(!drive.contains("stream.take_committed_ui()"));
+    assert!(authority.contains("drain_committed_ui_before_authority"));
+    assert!(authority.contains(".before(ClientFrameSet::UiAuthority)"));
+    assert!(drive.contains("reconcile_world_block_cracks(&mut ui_runtime, stream)"));
+    assert!(drive.contains("ui_runtime.clear_disconnected_block_cracks()"));
 }

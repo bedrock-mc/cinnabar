@@ -16,7 +16,7 @@ fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    let mut stream = client_world::WorldStream::new(WorldBootstrap {
+    let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         local_player_runtime_id: 1,
         dimension: 0,

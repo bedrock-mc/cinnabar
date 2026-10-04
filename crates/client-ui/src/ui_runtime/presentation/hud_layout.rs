@@ -230,8 +230,9 @@ impl<'a> HudLayout<'a> {
             return Ok(());
         }
         self.sleep_overlay(frame)?;
-        let mode_allows_hotbar = runtime
-            .player_game_mode(player_runtime)
+        let mode_allows_hotbar = player_runtime
+            .facts
+            .player_game_mode()
             .is_none_or(|mode| mode.shows_hotbar());
         if frame.first_person && mode_allows_hotbar {
             self.held_items(frame)?;

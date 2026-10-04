@@ -2,10 +2,11 @@
 use super::AudioEngine;
 use crate::{
     local_player::LocalViewPose, movement::PhysicsCollisionRegistries, particles::ParticleInbox,
-    runtime::world::ClientWorld, survival_mining::SurvivalMiningRuntime, ui_runtime::UiRuntime,
+    runtime::world::ClientWorld, survival_mining::SurvivalMiningRuntime,
 };
 use bevy::prelude::{Local, MessageReader, Res, ResMut, Time};
 use client_presentation::audio::predicted::{ConsumeAudio, LocalBlockCue, MiningAudio};
+use client_ui::ui_runtime::UiRuntime;
 use std::collections::HashSet;
 
 /// Borrows current owner facts and forwards them at the existing system boundary.

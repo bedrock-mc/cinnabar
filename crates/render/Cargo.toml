@@ -17,6 +17,7 @@ bevy.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 render-api = { path = "../render-api" }
 meshing = { path = "../meshing" }
+particles = { path = "../particles" }
 rayon.workspace = true
 serde_json = "1"
 sha2.workspace = true

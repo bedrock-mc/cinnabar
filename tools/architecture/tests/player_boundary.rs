@@ -135,7 +135,7 @@ fn ui_cannot_retain_authority_through_aliases_generics_or_enum_payloads() {
 }
 
 #[test]
-fn ui_can_borrow_authority_but_snapshot_exception_cannot_own_other_authority() {
+fn ui_can_borrow_authority_and_hold_a_captured_ledger_but_not_own_authority() {
     let temp = fixture();
     write(
         &temp.path().join("app/src/ui_runtime.rs"),
@@ -153,12 +153,13 @@ fn ui_can_borrow_authority_but_snapshot_exception_cannot_own_other_authority() {
         .join("crates/client-ui/src/ui_runtime/presentation_snapshot.rs");
     write(
         &snapshot,
-        "struct PresentationInventory { ledger: inventory::PlayerInventoryLedger }",
+        "struct PresentationInventory { ledger: player_state::CapturedLedger }",
     );
     assert_eq!(diagnostics(temp.path()), Vec::<String>::new());
 
     for source in [
         "struct UiRuntime { ledger: inventory::PlayerInventoryLedger }",
+        "struct PresentationInventory { ledger: inventory::PlayerInventoryLedger }",
         "struct PresentationInventory { facts: client_world::LocalPlayerFacts }",
         "struct PresentationInventory { session: inventory::InventorySession }",
     ] {

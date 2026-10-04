@@ -97,6 +97,7 @@ fn a_retired_session_discards_its_pending_book_and_screen_packets() {
     book.type_text(" edit");
     runtime.open_book(book);
     runtime.finish_book(&mut player_runtime, false);
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
     assert!(runtime.take_client_packet().is_none());
 }

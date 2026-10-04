@@ -1,4 +1,4 @@
-//! The death screen opens once per death and hands respawn to the session.
+//! Menu flows at the session boundary: death and respawn, local worlds, disconnect wording.
 use super::{MenuAction, MenuRuntime, MenuScreen};
 
 #[test]
@@ -70,4 +70,31 @@ fn sign_in_page_opens_once_per_device_code() {
     menu.control_auth = Some(awaiting("NEWCODE1"));
     menu.open_sign_in_page();
     assert_eq!(menu.sign_in_page_code.as_deref(), Some("NEWCODE1"));
+}
+
+const KICK: &str =
+    "server disconnected: We've detected movement cheats (network read failed: closed)";
+
+#[test]
+fn launcher_shows_the_server_reason_on_the_disconnect_screen() {
+    use super::disconnect::{DisconnectBody, describe};
+    let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+    assert!(menu.absorb_session_failure(KICK));
+    let error = menu.view().disconnect_message.unwrap();
+    assert_eq!(
+        describe(&error).body,
+        DisconnectBody::Server("We've detected movement cheats".to_owned())
+    );
+}
+
+#[test]
+fn launcher_words_a_transport_failure_as_vanilla_does() {
+    use super::disconnect::{DisconnectBody, describe};
+    let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+    assert!(menu.absorb_session_failure("network session failed: closed"));
+    let error = menu.view().disconnect_message.unwrap();
+    assert_eq!(
+        describe(&error).body,
+        DisconnectBody::Key("disconnect.closed")
+    );
 }

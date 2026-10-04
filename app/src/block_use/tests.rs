@@ -1,5 +1,5 @@
 use super::{held_block_store_id, verified_use_selection};
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent, NetworkItemStack,
     SlotIdentity,
@@ -38,8 +38,8 @@ fn inventory_slot(slot: u8, stack: NetworkItemStack) -> InventoryEvent {
 }
 
 /// Constructs an offline stream using the selected palette encoding.
-fn block_id_stream(hashed: bool) -> client_world::WorldStream {
-    client_world::WorldStream::new(protocol::WorldBootstrap {
+fn block_id_stream(hashed: bool) -> chunk_pipeline::WorldStream {
+    chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -78,7 +78,9 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
 
     let mut ui = UiRuntime::new(7);
-    ui.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     ui.inventory_ledger_mut(&mut player_runtime)
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
     assert!(
@@ -107,8 +109,9 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
 
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
     let mut pending_hotbar = UiRuntime::new(7);
-    pending_hotbar
-        .publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     pending_hotbar
         .inventory_ledger_mut(&mut player_runtime)
         .apply(&inventory_slot(4, NetworkItemStack::empty()));

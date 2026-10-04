@@ -68,8 +68,8 @@ The module gate parses Rust syntax. Production movement cannot import `ui_runtim
 or `ui`. Production UI struct, enum and union fields cannot own `InventorySession`,
 `PlayerInventoryLedger`, `LocalPlayerFacts`, `AbilitiesUpdate` or `PlayerRuntime`.
 It follows local and cross-file type/import aliases and nested generic containers;
-references remain borrowed views. The sole ledger exception is the existing
-`PresentationInventory` display snapshot. Comments, strings and test-only modules
+references remain borrowed views. The pre-send display snapshot holds an opaque
+`player_state::CapturedLedger`, which painting reads only through a presented copy. Comments, strings and test-only modules
 are excluded. Out-of-line modules inherit their parent declaration's `cfg(test)`,
 while a production declaration stays checked even if its filename ends in
 `_tests.rs`. This is a syntax gate, without macro expansion or Rust's full type

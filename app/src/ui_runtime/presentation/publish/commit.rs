@@ -4,7 +4,7 @@ use super::*;
 /// Publishes the captured UI without observing mutations from this frame's outbound actions.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
-    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
+    player_runtime: Res<crate::player_runtime::PlayerRuntime>,
     mut runtime: ResMut<UiRuntime>,
     mut prepared: ResMut<PreparedUiPublication>,
     mut presentation: ResMut<UiPresentationRuntime>,
@@ -23,7 +23,7 @@ pub(crate) fn publish_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
     let input = match client_ui::ui_runtime::presentation::render_prepared_ui(
-        &mut player_runtime,
+        &player_runtime,
         &mut runtime,
         &mut presentation,
         prepared,

@@ -14,7 +14,7 @@ use bevy::{
 };
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 
 type SaveResult = Result<String, String>;
 

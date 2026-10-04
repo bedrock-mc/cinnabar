@@ -1,9 +1,7 @@
 use super::{FormTransportError, flush_form_response};
-use crate::{
-    runtime::network::{NetworkHandle, PacketSendError},
-    ui_runtime::UiRuntime,
-};
+use crate::runtime::network::{NetworkHandle, PacketSendError};
 use bevy::prelude::{Res, ResMut};
+use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) fn flush_server_form_network(
     mut runtime: ResMut<UiRuntime>,

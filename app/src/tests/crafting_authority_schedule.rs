@@ -13,7 +13,6 @@ use crate::{
         MovementTicker, PhysicsCollisionRegistries,
     },
     runtime::{
-        audio::SequencedAudioEvent,
         network::{
             publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
             session::SequencedWorldEvent,
@@ -24,13 +23,13 @@ use crate::{
             reconcile_world_stream_before_physics,
         },
     },
-    server_camera::ServerCameraInstructions,
-    ui_runtime::{
-        CraftingPreview, UiRuntime, drain_inventory_authority,
-        inventory_ledger::PlayerInventorySlot,
-    },
+    ui_runtime::drain_inventory_authority,
 };
 use bevy::{ecs::system::RunSystemOnce, prelude::*, time::Real};
+use client_presentation::{
+    audio_ingress::SequencedAudioEvent, server_camera::ServerCameraInstructions,
+};
+use client_ui::ui_runtime::{CraftingPreview, UiRuntime, inventory_ledger::PlayerInventorySlot};
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent, ItemRegistryEvent,
     NetworkItemStack, SlotIdentity, WorldBootstrap, WorldEvent,
@@ -55,7 +54,7 @@ fn app() -> App {
         }),
         InventoryEvent::Authority(InventoryAuthority::Server)
     ));
-    let stream = client_world::WorldStream::new(WorldBootstrap {
+    let stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 42,
         local_player_unique_id: 1,
@@ -895,7 +894,7 @@ fn legacy_destructive_pop_remains_destructive_and_partial_updates_cannot_restore
 #[test]
 fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overflow() {
     fn transfer(overflow: bool) -> (Vec<u8>, u16, u16) {
-        use crate::ui_runtime::inventory_ledger::{
+        use client_ui::ui_runtime::inventory_ledger::{
             PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT,
         };
         let mut app = app();
@@ -1082,7 +1081,7 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
 /// from the output cell.
 #[test]
 fn output_click_crafts_the_unique_recipe_through_the_ledger() {
-    use crate::ui_runtime::{
+    use client_ui::ui_runtime::{
         dispatch_inventory_click,
         inventory_ledger::{CellGesture, PERSONAL_INVENTORY_WINDOW_TYPE},
         presentation::inventory_pointer::InventoryCellHit,

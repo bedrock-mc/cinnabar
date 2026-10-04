@@ -40,8 +40,10 @@ fn too_short_or_over_inset_viewports_fail_closed_to_no_hud() {
         ([600, 720], 1.0, None, insets(250.0, 0.0, 180.0, 0.0)),
     ] {
         let mut presentation = hud_presentation(preference, safe_area);
-        let mut runtime = UiRuntime::new(1);
-        runtime.publish_player_game_mode(&mut player_runtime, PlayerGameMode::Survival);
+        let runtime = UiRuntime::new(1);
+        player_runtime
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Survival);
         player_runtime.inventory.set_local_selected_slot(2);
         let input = presentation
             .build(

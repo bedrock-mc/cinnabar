@@ -9,11 +9,9 @@ use super::super::UiPresentationRuntime;
 use super::super::forms::pack_harness::{drawn_texts, engine_presentation};
 use crate::{
     menu::{LocalWorldAction, MenuAction, MenuClipboard, MenuField, MenuRuntime, MenuScreen},
-    ui_runtime::{
-        UiRuntime,
-        tests::menu_input_tests::{menu_input_app_with, press_key},
-    },
+    ui_runtime::tests::menu_input_tests::{menu_input_app_with, press_key},
 };
+use client_ui::ui_runtime::UiRuntime;
 
 const SIZE: [u32; 2] = [1280, 720];
 

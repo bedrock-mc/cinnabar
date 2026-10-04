@@ -8,7 +8,8 @@ mod material_shader;
 mod shader_source;
 
 use gpu_snapshot::{Draw, Gpu};
-use render::{LightmapInputs, ParticleInstance};
+use particles::ParticleInstance;
+use render::LightmapInputs;
 
 const TEXEL: [u8; 4] = [128, 192, 64, 255];
 const TINT: [f32; 4] = [0.75, 0.5, 1.0, 1.0];
@@ -44,14 +45,13 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
     let mut item_source = shader_source::standalone(include_str!("../src/dropped_item.wgsl"), &[])
         .replace("@vertex\nfn item_vertex", "fn item_vertex");
     item_source.push_str(ITEM_VERTEX);
-    let mut particle_source =
-        shader_source::standalone(include_str!("../src/particles/particles.wgsl"), &[])
-            .replace("@vertex\nfn particle_vertex", "fn particle_vertex")
-            .replace("@builtin(vertex_index) vertex_index:", "vertex_index:")
-            .replace(
-                "@builtin(instance_index) instance_index:",
-                "instance_index:",
-            );
+    let mut particle_source = shader_source::standalone(include_str!("../src/particles.wgsl"), &[])
+        .replace("@vertex\nfn particle_vertex", "fn particle_vertex")
+        .replace("@builtin(vertex_index) vertex_index:", "vertex_index:")
+        .replace(
+            "@builtin(instance_index) instance_index:",
+            "instance_index:",
+        );
     particle_source.push_str(PARTICLE_VERTEX);
     // The snapshot harness binds a single group; retain the actual shared uniforms.
     let flatten = |source: String| {

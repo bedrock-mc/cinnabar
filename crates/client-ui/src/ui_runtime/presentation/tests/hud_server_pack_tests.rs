@@ -14,7 +14,9 @@ const PACK_ENV: &str = "CINNABAR_HUD_PACK_DIRS";
 /// A populated session: stats, hotbar, sidebar, boss bar, title, and chat.
 fn session(player_runtime: &mut player_state::PlayerState, objective: &str) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(player_runtime, PlayerGameMode::Survival);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
     player_runtime.inventory.set_local_selected_slot(0);
     runtime.hud.set_stats(
         BoundedStat::new(20, 20),

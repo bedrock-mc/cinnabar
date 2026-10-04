@@ -21,8 +21,8 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// Mojang's HTTP exchange is a single full-ICE offer/answer. This in-process
-// offline listener verifies the same transport without Xbox service access.
+// Mojang's HTTP exchange is a single full-ICE offer/answer. This in-process listener refuses
+// anonymous offers as BDS does, verifying the signed-out transport without Xbox service access.
 func TestLocalNetherNetOfflineHTTPDialCarriesCompleteSDPAndData(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	handler := endpoint.HandlerConfig{Logger: log}.New()
@@ -30,15 +30,14 @@ func TestLocalNetherNetOfflineHTTPDialCarriesCompleteSDPAndData(t *testing.T) {
 	settings.SetIncludeLoopbackCandidate(true)
 	settings.SetIPFilter(func(ip net.IP) bool { return ip.IsLoopback() && ip.To4() != nil })
 	listener, err := (nethernet.ListenConfig{
-		API: webrtc.NewAPI(webrtc.WithSettingEngine(settings)), Log: log,
-		AllowAnonymous: true, DisableTrickleICE: true,
+		API: webrtc.NewAPI(webrtc.WithSettingEngine(settings)), Log: log, DisableTrickleICE: true,
 	}).Listen(handler)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 	var offers atomic.Int32
-	var complete, anonymous atomic.Bool
+	var complete, identified atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			offer, err := io.ReadAll(r.Body)
@@ -48,7 +47,7 @@ func TestLocalNetherNetOfflineHTTPDialCarriesCompleteSDPAndData(t *testing.T) {
 			}
 			offers.Add(1)
 			complete.Store(strings.Contains(string(offer), "a=candidate:"))
-			anonymous.Store(!strings.Contains(string(offer), "a=identity:"))
+			identified.Store(strings.Contains(string(offer), "a=identity:"))
 			r.Body = io.NopCloser(bytes.NewReader(offer))
 		}
 		handler.ServeHTTP(w, r)
@@ -78,7 +77,7 @@ func TestLocalNetherNetOfflineHTTPDialCarriesCompleteSDPAndData(t *testing.T) {
 	deadline, _ := ctx.Deadline()
 	_ = client.SetDeadline(deadline)
 	_ = peer.SetDeadline(deadline)
-	const payload = "offline local BDS transport"
+	const payload = "signed-out local BDS transport"
 	if _, err := client.Write([]byte(payload)); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +85,7 @@ func TestLocalNetherNetOfflineHTTPDialCarriesCompleteSDPAndData(t *testing.T) {
 	if _, err := io.ReadFull(peer, buf); err != nil || string(buf) != payload {
 		t.Fatalf("data channel payload = %q, %v", buf, err)
 	}
-	if offers.Load() != 1 || !complete.Load() || !anonymous.Load() {
-		t.Fatalf("full offline SDP: posts=%d, candidates=%v, anonymous=%v", offers.Load(), complete.Load(), anonymous.Load())
+	if offers.Load() != 1 || !complete.Load() || !identified.Load() {
+		t.Fatalf("full signed-out SDP: posts=%d, candidates=%v, identified=%v", offers.Load(), complete.Load(), identified.Load())
 	}
 }

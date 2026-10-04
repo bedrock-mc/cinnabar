@@ -6,7 +6,7 @@ use assets::{CellGlyph, GlyphSheet, SHEET_GRID, extract_cells, texel_size_64};
 use image::{ImageFormat, ImageReader, Limits};
 use resource_pack::LayeredPackView;
 
-use crate::ui_runtime::presentation::SessionGlyphSheets;
+use client_ui::ui_runtime::presentation::SessionGlyphSheets;
 
 mod mapping;
 mod metadata;

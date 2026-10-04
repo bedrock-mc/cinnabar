@@ -221,7 +221,7 @@ pub fn drain_live_named_audio(
 ) {
     let owner = world.stream.as_ref().map(|stream| AudioOwner {
         session: clock.session_generation(),
-        stream: stream.actor_session_id(),
+        stream: stream.authority().actor_session_id(),
         dimension: stream.current_dimension(),
         epoch: stream.form_dimension_epoch(),
     });

@@ -19,8 +19,8 @@ use crate::runtime::phase3_evidence::{
 use crate::semantic_controls::{
     SemanticInputAuthorityFrame, SemanticInputRuntime, SemanticTouchTargets,
 };
-use crate::ui_runtime::UiRuntime;
 use bevy::math::Mat4;
+use client_ui::ui_runtime::UiRuntime;
 use render::{ActorCullView, ActorRenderScene, ActorRenderSource, MAX_RENDERED_PLAYERS};
 use semantic_input::{
     Action, ControlSettings, ControllerFrame, DeviceFrame, InputContext, KeyboardMouseFrame,

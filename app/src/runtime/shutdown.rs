@@ -12,14 +12,14 @@ use bevy::{
 #[cfg(feature = "acceptance")]
 use render::TransparentSortMetrics;
 
-#[cfg(feature = "acceptance")]
-use crate::metrics::TransparentSortMetricsSnapshot;
 use crate::runtime::{
     network::NetworkHandle,
     world::{ClientWorld, ShutdownWatchdog, begin_bounded_shutdown},
 };
 #[cfg(feature = "acceptance")]
 use crate::{movement::MovementTicker, runtime::visibility::AppMetrics};
+#[cfg(feature = "acceptance")]
+use diagnostics::metrics::TransparentSortMetricsSnapshot;
 
 pub(crate) fn record_fatal_error(fatal_error: &mut Option<String>, error: String) {
     if fatal_error.is_none() {

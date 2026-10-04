@@ -1,5 +1,5 @@
 use bevy::prelude::Message;
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 
 /// App-facing audio transport seam. Playback and sound resolution intentionally
 /// live downstream of this packet-preserving ingress message.
@@ -18,7 +18,7 @@ pub fn drain_committed_audio(
     stream: &mut WorldStream,
     mut forward: impl FnMut(SequencedAudioEvent),
 ) {
-    let origin_stream_session_id = stream.actor_session_id();
+    let origin_stream_session_id = stream.authority().actor_session_id();
     for committed in stream.take_committed_audio() {
         forward(SequencedAudioEvent {
             origin_stream_session_id,

@@ -4,7 +4,7 @@ use bevy::{
     log::{debug, error, info},
     prelude::{Transform, Vec3},
 };
-use client_world::ViewCohortStatus;
+use chunk_pipeline::ViewCohortStatus;
 use render::{ChunkRenderQueue, PresentedFrameAck, PresentedFrameGate, TargetRenderExpectation};
 
 use super::{
@@ -512,7 +512,8 @@ pub fn observe_world_ready(
                     pending.source_cohort,
                 )
             });
-            let proposed = if manifest_state == client_world::ForcedRemeshManifestState::Complete {
+            let proposed = if manifest_state == chunk_pipeline::ForcedRemeshManifestState::Complete
+            {
                 proposal_target.and_then(|(target, source)| {
                     render_queue.freeze_target_expectation_for_columns(
                         target,

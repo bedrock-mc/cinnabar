@@ -472,7 +472,8 @@ mod tests {
             runtime.item_max_durability(Some("minecraft:iron_sword")),
             Some(250)
         );
-        runtime.begin_session(&mut player_runtime, 2);
+        player_runtime.begin_session(2);
+        runtime.begin_session(2);
         assert_eq!(runtime.localized_item_name("zeqa:gem"), "Gem");
     }
 

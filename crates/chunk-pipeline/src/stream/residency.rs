@@ -23,24 +23,17 @@ impl WorldStream {
         // Vanilla keeps chunk data across a teleport and drops only what the moved view no
         // longer covers (`NetworkChunkSubscriber::moveRegion`), so overlap stays presented.
         self.arrival_cohort = None;
-        self.transport_pending_requests = 0;
-        self.publisher_center = Some(center);
+        self.requests.transport_pending = 0;
+        self.publisher.center = Some(center);
         self.prune_column_deadlines();
         let stale = self
             .tracked_columns()
             .into_iter()
-            .chain(self.request_collision_failures.iter().copied())
+            .chain(self.requests.collision_failures.iter().copied())
             .filter(|column| !self.column_is_data_interesting(*column))
             .collect::<BTreeSet<_>>();
         self.evict_columns(stale.into_iter().collect());
-        self.committed_view_cohort = None;
-        self.required_columns.clear();
-        self.provisional_publisher_rebase = true;
-        self.local_resets_armed = self.local_resets_armed.saturating_add(1);
-        self.local_reset_dispatch_count = 0;
-        self.local_reset_dispatch_total = 0;
-        self.local_reset_dispatch_active = true;
-        self.local_reset_dispatch_classes = [None; MAX_LOCAL_RESET_DISPATCH_EVIDENCE];
+        self.publisher.begin_local_rebase();
     }
 
     pub(super) fn sync_resident(&mut self, key: SubChunkKey) {
@@ -73,10 +66,10 @@ impl WorldStream {
             self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);
             self.loaded_columns.remove(&column);
-            self.request_collision_failures.remove(&column);
+            self.requests.collision_failures.remove(&column);
         }
         self.block_entity_visuals.remove_chunks(&columns);
-        self.purge_sub_chunk_columns_state(&columns);
+        self.requests.purge_columns(&columns);
         let mut changed = self.resident_keys_in_columns(&columns);
         let removing_all = changed.len() == self.resident.len();
         let mut biome_dirty = BTreeSet::new();
@@ -122,7 +115,7 @@ impl WorldStream {
         let now = Instant::now();
         let mut light_dirty = BTreeSet::new();
         if removing_all {
-            self.retire_all_lighting();
+            self.lighting.retire_all();
         }
         for key in changed {
             if !removing_all {
@@ -134,7 +127,7 @@ impl WorldStream {
                     key.mesh_neighbourhood_dependents()
                         .filter(|key| self.resident.contains(key)),
                 );
-                self.remove_light_key_without_invalidation(key);
+                self.lighting.remove_key(key);
             }
             self.mark_dirty_exact(key, now);
         }
@@ -180,13 +173,13 @@ impl WorldStream {
             .collect::<BTreeSet<_>>();
         columns.extend(self.known_air.iter().map(|key| key.chunk()));
         columns.extend(self.loaded_columns.iter().copied());
-        columns.extend(self.requested_sub_chunks.keys().copied());
-        columns.extend(self.request_collision_failures.iter().copied());
+        columns.extend(self.requests.requested.keys().copied());
+        columns.extend(self.requests.collision_failures.iter().copied());
         self.evict_columns(columns);
     }
     pub(super) fn tracked_columns(&self) -> BTreeSet<ChunkKey> {
         let mut columns = self.loaded_columns.clone();
-        columns.extend(self.requested_sub_chunks.keys().copied());
+        columns.extend(self.requests.requested.keys().copied());
         columns.extend(self.resident.iter().map(|key| key.chunk()));
         columns.extend(self.known_air.iter().map(|key| key.chunk()));
         columns
@@ -216,7 +209,7 @@ impl WorldStream {
         self.light_diagnostics
             .columns
             .retain(|key, _| is_retained(key));
-        self.required_columns.retain(is_retained);
+        self.publisher.required_columns.retain(is_retained);
         self.unsent_column_deadlines
             .retain(|key, _| is_retained(key));
         let stale = self
@@ -238,7 +231,7 @@ impl WorldStream {
         )
     }
     pub(super) fn active_radius_chunks(&self) -> i32 {
-        match (self.publisher_radius_chunks, self.chunk_radius) {
+        match (self.publisher.radius_chunks, self.chunk_radius) {
             (Some(publisher), Some(chunk)) => publisher.min(chunk),
             (Some(radius), None) | (None, Some(radius)) => radius,
             (None, None) => PHASE0_MAX_VIEW_RADIUS_CHUNKS,
@@ -249,7 +242,7 @@ impl WorldStream {
         if key.dimension != self.authority.current_dimension() {
             return false;
         }
-        let Some(center) = self.publisher_center else {
+        let Some(center) = self.publisher.center else {
             return true;
         };
         let radius = u64::try_from(self.active_radius_chunks()).unwrap_or(0);
@@ -274,11 +267,6 @@ impl WorldStream {
                     [player.x, player.z],
                 )
             })
-    }
-    pub(super) fn is_expected_sub_chunk(&self, key: SubChunkKey) -> bool {
-        self.requested_sub_chunks
-            .get(&key.chunk())
-            .is_some_and(|expected| expected.contains_key(&key.y))
     }
     /// Drops deadlines outside the current retained view and publisher scope.
     pub(super) fn prune_column_deadlines(&mut self) {
@@ -314,7 +302,7 @@ impl WorldStream {
 
     /// Renews only for new data in the current publisher epoch and bounds.
     fn record_cohort_progress(&mut self, column: ChunkKey, y: Option<i32>, now: Instant) {
-        let Some(view) = self.committed_view_cohort else {
+        let Some(view) = self.publisher.cohort else {
             return;
         };
         if !view.contains_column(column.dimension, [column.x, column.z]) {
@@ -323,10 +311,10 @@ impl WorldStream {
         if self
             .arrival_cohort
             .as_ref()
-            .is_none_or(|cohort| cohort.epoch != self.publisher_epoch || cohort.view != view)
+            .is_none_or(|cohort| cohort.epoch != self.publisher.epoch || cohort.view != view)
         {
             self.arrival_cohort = Some(ArrivalCohort {
-                epoch: self.publisher_epoch,
+                epoch: self.publisher.epoch,
                 view,
                 seen: HashSet::new(),
                 deadline: now + UNSENT_COLUMN_GRACE,
@@ -354,12 +342,11 @@ impl WorldStream {
         if key.y < range.base_sub_chunk_y || key.y >= end {
             return false;
         }
-        if self.is_expected_sub_chunk(key) {
+        if self.requests.is_expected(key) {
             return true;
         }
         let column = key.chunk();
-        if self.loaded_columns.contains(&column) || self.requested_sub_chunks.contains_key(&column)
-        {
+        if self.loaded_columns.contains(&column) || self.requests.requested.contains_key(&column) {
             return false;
         }
         (self
@@ -367,15 +354,15 @@ impl WorldStream {
             .get(&column)
             .is_some_and(|deadline| now < *deadline)
             || self.arrival_cohort.as_ref().is_some_and(|cohort| {
-                cohort.epoch == self.publisher_epoch
-                    && Some(cohort.view) == self.committed_view_cohort
+                cohort.epoch == self.publisher.epoch
+                    && Some(cohort.view) == self.publisher.cohort
                     && cohort
                         .view
                         .contains_column(column.dimension, [column.x, column.z])
                     && now < cohort.deadline
             }))
             && self.column_is_data_interesting(column)
-            && self.committed_view_cohort.is_none_or(|cohort| {
+            && self.publisher.cohort.is_none_or(|cohort| {
                 let dx = i64::from(column.x) - i64::from(cohort.center[0]);
                 let dz = i64::from(column.z) - i64::from(cohort.center[1]);
                 let radius = i64::from(cohort.radius);

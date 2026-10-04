@@ -212,9 +212,9 @@ pub(crate) fn update_cursor_capture(
     mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mouse_motion: ResMut<AccumulatedMouseMotion>,
     auto_fly: ResMut<AutoFly>,
-    ui: Option<Res<crate::ui_runtime::UiRuntime>>,
+    ui: Option<Res<client_ui::ui_runtime::UiRuntime>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
-    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
+    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
 ) {
     let policy = client_presentation::observations::CursorPolicy {

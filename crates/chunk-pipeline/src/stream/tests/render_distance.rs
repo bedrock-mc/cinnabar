@@ -36,10 +36,10 @@ fn confirmed_chunk_radius_keeps_fog_independent_of_publisher_shrink() {
     submit_publisher(&mut stream, 3, 32);
 
     assert_eq!(stream.render_distance_blocks(), 128.0);
-    assert_eq!(stream.publisher_radius_blocks, Some(32));
-    assert_eq!(stream.publisher_radius_chunks, Some(2));
+    assert_eq!(stream.publisher.radius_blocks, Some(32));
+    assert_eq!(stream.publisher.radius_chunks, Some(2));
     assert_eq!(stream.active_radius_chunks(), 2);
-    assert_eq!(stream.publisher_epoch, 2);
+    assert_eq!(stream.publisher.epoch, 2);
     assert_eq!(stream.committed_view_cohort().unwrap().radius, 2);
 }
 

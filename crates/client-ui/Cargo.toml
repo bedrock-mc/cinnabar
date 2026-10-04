@@ -13,7 +13,9 @@ anyhow.workspace = true
 arboard = { version = "3", default-features = false }
 assets = { path = "../assets" }
 bevy.workspace = true
-client-world = { package = "chunk-pipeline", path = "../chunk-pipeline" }
+chunk-pipeline = { path = "../chunk-pipeline" }
+client-world = { path = "../client-world" }
+render-api = { path = "../render-api" }
 player-state = { path = "../player-state" }
 launcher = { path = "../launcher" }
 inventory = { path = "../inventory" }

@@ -12,10 +12,8 @@ pub(crate) use physical::{
     finalize_semantic_input_after_ui_authority, keyboard_usage, route_semantic_input,
 };
 
-use crate::{
-    menu::MenuRuntime, runtime::world::ClientWorld, settings_runtime::RuntimeSettings,
-    ui_runtime::UiRuntime,
-};
+use crate::{menu::MenuRuntime, runtime::world::ClientWorld, settings_runtime::RuntimeSettings};
+use client_ui::ui_runtime::UiRuntime;
 
 #[derive(Resource, Debug, Default, Clone)]
 pub struct SemanticInputSnapshot(Option<ActionSnapshot>);
@@ -321,7 +319,7 @@ pub(crate) fn synchronize_semantic_input_authority(
     mut runtime: ResMut<SemanticInputRuntime>,
     ui: Option<Res<UiRuntime>>,
     menu: Option<Res<MenuRuntime>>,
-    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
+    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     settings: Res<RuntimeSettings>,
     client_world: Option<Res<ClientWorld>>,
     mut touch_targets: ResMut<SemanticTouchTargets>,
@@ -333,7 +331,7 @@ pub(crate) fn synchronize_semantic_input_authority(
     let dimension = client_world
         .as_deref()
         .and_then(|world| world.stream.as_ref())
-        .map_or(0, client_world::WorldStream::current_dimension);
+        .map_or(0, chunk_pipeline::WorldStream::current_dimension);
     let context = if crate::screen_policy::absorbs_input(
         &player_runtime,
         Some(&ui),

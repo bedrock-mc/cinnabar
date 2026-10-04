@@ -19,7 +19,6 @@ use protocol::{
 };
 use semantic_input::Action;
 
-use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 use crate::{
     app::{
         ClientFrameSet, configure_client_frame_schedule, configure_client_production_frame_systems,
@@ -33,11 +32,14 @@ use crate::{
     },
     settings_runtime::RuntimeSettings,
     ui_runtime::{
-        UiRuntime, drain_inventory_authority, drive_chat_keyboard_input,
-        drive_inventory_ui_actions, flush_inventory_network, flush_inventory_send,
-        inventory_ledger::InventoryPendingState,
-        presentation::{UiPresentationRuntime, tests::fixture_font},
+        drain_inventory_authority, drive_chat_keyboard_input, drive_inventory_ui_actions,
+        flush_inventory_network, presentation::tests::fixture_font,
     },
+};
+use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+use client_ui::ui_runtime::{
+    UiRuntime, flush_inventory_send, inventory_ledger::InventoryPendingState,
+    presentation::UiPresentationRuntime,
 };
 use ui::UiPoint;
 
@@ -727,7 +729,7 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
                     gui,
                     physical_size,
                     1.0,
-                    crate::ui_runtime::presentation::inventory_pointer::InventoryScreen::Storage(
+                    client_ui::ui_runtime::presentation::inventory_pointer::InventoryScreen::Storage(
                         27,
                     ),
                 ) == Some(InventoryCellHit::Storage(2)))

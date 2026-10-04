@@ -58,7 +58,7 @@ fn named_clock_rows_keep_packet_fifo_and_survive_dimension_changes() {
             },
         ]
     );
-    assert!(stream.pending_mesh.is_empty());
+    assert!(stream.mesh_jobs.pending.is_empty());
     assert!(stream.mesh_changes.is_empty());
     stream
         .submit(

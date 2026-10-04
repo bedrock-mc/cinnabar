@@ -1,8 +1,6 @@
-use crate::{
-    runtime::audio::SequencedAudioEvent,
-    session_audio::{AudioOutcome, SessionAudio},
-};
+use crate::session_audio::{AudioOutcome, SessionAudio};
 use acceptance::audio_wire::WireEvidence;
+use client_presentation::audio_ingress::SequencedAudioEvent;
 use std::sync::Arc;
 
 fn event(session: u64, sequence: u64) -> SequencedAudioEvent {
@@ -22,8 +20,8 @@ fn event(session: u64, sequence: u64) -> SequencedAudioEvent {
     }
 }
 
-fn stream() -> client_world::WorldStream {
-    client_world::WorldStream::new(protocol::WorldBootstrap {
+fn stream() -> chunk_pipeline::WorldStream {
+    chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -34,7 +32,7 @@ fn stream() -> client_world::WorldStream {
     })
 }
 
-fn forwarded(stream: &mut client_world::WorldStream, sequence: u64) -> Vec<SequencedAudioEvent> {
+fn forwarded(stream: &mut chunk_pipeline::WorldStream, sequence: u64) -> Vec<SequencedAudioEvent> {
     stream
         .submit(
             sequence,
@@ -42,11 +40,11 @@ fn forwarded(stream: &mut client_world::WorldStream, sequence: u64) -> Vec<Seque
         )
         .unwrap();
     let mut events = Vec::new();
-    crate::runtime::audio::drain_committed_audio(stream, |event| events.push(event));
+    client_presentation::audio_ingress::drain_committed_audio(stream, |event| events.push(event));
     events
 }
 
-fn app(stream: client_world::WorldStream, enabled: bool) -> bevy::prelude::App {
+fn app(stream: chunk_pipeline::WorldStream, enabled: bool) -> bevy::prelude::App {
     let mut app = bevy::prelude::App::new();
     app.add_message::<SequencedAudioEvent>()
         .init_resource::<crate::environment::WorldClock>()
@@ -76,7 +74,7 @@ fn write(app: &mut bevy::prelude::App, events: impl IntoIterator<Item = Sequence
 #[test]
 fn production_forwarding_rejects_old_buffered_stream_after_fifo_restart() {
     let mut old = stream();
-    let old_id = old.actor_session_id();
+    let old_id = old.authority().actor_session_id();
     let old_events = forwarded(&mut old, 1);
     assert_eq!(old_events[0].origin_stream_session_id, old_id);
     let mut app = app(old, true);
@@ -96,7 +94,7 @@ fn production_forwarding_rejects_old_buffered_stream_after_fifo_restart() {
         forwarded(world.stream.as_mut().unwrap(), 2)
     };
     let mut replacement = stream();
-    let new_id = replacement.actor_session_id();
+    let new_id = replacement.authority().actor_session_id();
     assert_ne!(old_id, new_id);
     let new_events = forwarded(&mut replacement, 1);
     app.world_mut()

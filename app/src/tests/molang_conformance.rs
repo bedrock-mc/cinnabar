@@ -1,6 +1,6 @@
 //! Independently authored expressions compiled end to end and read back through bone angles.
 use assets::{RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use std::{fs, path::PathBuf, sync::Arc};
 
@@ -192,7 +192,7 @@ fn spawned(entity: &str, pack: &Pack) -> (WorldStream, Arc<RuntimeEntityAssets>)
 
 /// Authored X angle of a named bone, undoing the rig frame's mirrored X rotation.
 fn authored_x_angle(world: &WorldStream, entities: &RuntimeEntityAssets, name: &str) -> f32 {
-    let rig = world.actor_rig(5).unwrap();
+    let rig = world.authority().actor_rig(5).unwrap();
     let geometry =
         &entities.geometries()[entities.rig_geometries()[rig.rig.0 as usize].geometry as usize];
     let bone = geometry

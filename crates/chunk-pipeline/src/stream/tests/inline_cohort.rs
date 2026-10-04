@@ -39,7 +39,8 @@ fn inline_only_server_reaches_an_exact_required_cohort() {
     complete_pending_decode_jobs(&mut stream);
 
     let target = stream
-        .committed_view_cohort
+        .publisher
+        .cohort
         .expect("publisher update committed a view cohort");
     let status = stream.cohort_status(target);
     assert_eq!(status.expected, 3);
@@ -126,7 +127,7 @@ fn inline_replacement_and_shared_eviction_invalidate_then_restore_completeness()
     stream.submit(2, inline_air_event(0)).unwrap();
     complete_pending_decode_jobs(&mut stream);
 
-    let target = stream.committed_view_cohort.unwrap();
+    let target = stream.publisher.cohort.unwrap();
     assert!(stream.cohort_status(target).is_exact());
 
     // A replacement announcement for the same column counts once and keeps
@@ -169,7 +170,7 @@ fn mixed_inline_and_request_mode_announcements_form_one_exact_cohort() {
 
     complete_pending_decode_jobs(&mut stream);
 
-    let target = stream.committed_view_cohort.unwrap();
+    let target = stream.publisher.cohort.unwrap();
     let status = stream.cohort_status(target);
     assert_eq!(status.expected, 3);
     assert_eq!(status.loaded_target, 3);

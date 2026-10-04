@@ -20,7 +20,8 @@ use bevy::{
     log::{debug, error, info, warn},
     prelude::{Res, ResMut},
 };
-use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::SAFE_SERVER_HEIGHT;
 use protocol::WorldEvent;
 use render::{ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler};
 
@@ -33,12 +34,15 @@ use crate::{
     },
     movement::{MovementSource, PhysicsAuthorityGate, reset_start_game_prediction},
     runtime::{
-        publication::PublicationController, shutdown::record_fatal_error, world::AppWorldState,
+        publication::PublicationController,
+        shutdown::record_fatal_error,
+        world::{AppWorldState, TransferNotice},
     },
-    ui_runtime::{
-        UiRuntime,
-        inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
-    },
+    session::quiesce_local_player,
+};
+use client_ui::ui_runtime::{
+    UiRuntime,
+    inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
 };
 
 pub(crate) use inventory::{
@@ -61,7 +65,8 @@ pub(crate) use session::{
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
-const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
+const _: () =
+    assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == chunk_pipeline::MAX_ADMITTED_HEAVY_EVENTS);
 
 #[derive(SystemParam)]
 pub(crate) struct NetworkLocalPlayerState<'w> {
@@ -80,6 +85,18 @@ pub(crate) struct NetworkLocalPlayerState<'w> {
 pub(crate) use client_presentation::actor_clock::{
     ActorFrameClock, authoritative_local_actor_eye, publish_local_actor_visibility,
 };
+
+/// Why a network session ended; each reason latches its own follow-up.
+enum SessionEnd {
+    /// `remote_close`: the receive side terminated, so the server closed it.
+    Failed {
+        failure: String,
+        remote_close: bool,
+    },
+    /// The client ends the session to follow the server's transfer.
+    Transferred(TransferNotice),
+    Stopped,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum EquipmentIngress {
@@ -198,7 +215,7 @@ pub(crate) fn receive_network_events(
     let controls =
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
     for control in controls {
-        match control {
+        let (end, decode_error_count) = match control {
             NetworkControlEvent::Bootstrap {
                 session_generation,
                 world: bootstrap,
@@ -236,8 +253,8 @@ pub(crate) fn receive_network_events(
                     }
                 }
                 ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
-                ui_runtime.clear_local_abilities(&mut player_runtime);
+                player_runtime.facts.clear_block_breaking_mode();
+                player_runtime.facts.clear_local_abilities();
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
@@ -257,7 +274,11 @@ pub(crate) fn receive_network_events(
                     time.elapsed_secs_f64(),
                 );
                 bind_session_generation(&mut clock, &mut weather, session_generation);
-                ui_runtime.begin_session(&mut player_runtime, session_generation);
+                crate::session::begin_session(
+                    &mut ui_runtime,
+                    &mut player_runtime,
+                    session_generation,
+                );
                 movement_effects.begin_session(session_generation);
                 movement_speed.begin_session(session_generation, bootstrap.dimension);
                 item_diagnostics::session_registry(item_registry.as_ref());
@@ -279,8 +300,7 @@ pub(crate) fn receive_network_events(
                 }
                 resource_pack_admission.replace_for_generation(session_generation, packs.admission);
                 ui_runtime.experiences.marker = packs.extension_marker;
-                ui_runtime.publish_bootstrap_game_modes(
-                    &mut player_runtime,
+                player_runtime.facts.publish_bootstrap_game_modes(
                     player_game_mode,
                     world_default_game_mode,
                     player_game_mode_uses_world_default,
@@ -491,21 +511,20 @@ pub(crate) fn receive_network_events(
                     client_world.fatal_error.is_none(),
                 );
                 crate::audio::publish_server_sounds(packs.server_sounds);
-                ui_runtime.install_block_breaking_mode(
-                    &mut player_runtime,
+                player_runtime.facts.install_block_breaking_mode(
                     session_generation,
                     server_authoritative_block_breaking,
                     client_world.fatal_error.is_none(),
                 );
                 if let Some(stream) = client_world.stream.as_ref() {
-                    ui_runtime.bind_local_abilities(
-                        &mut player_runtime,
+                    player_runtime.facts.bind_local_abilities(
                         session_generation,
                         stream.biome_tint_identity().stream(),
                         bootstrap.local_player_unique_id,
                         client_world.fatal_error.is_none(),
                     );
                 }
+                continue;
             }
             NetworkControlEvent::SubChunkRequestSent {
                 chunk,
@@ -521,6 +540,7 @@ pub(crate) fn receive_network_events(
                         sent_at,
                     );
                 }
+                continue;
             }
             NetworkControlEvent::ChatPacketSent { session, sequence } => {
                 if !ui_runtime.acknowledge_chat_send(session, sequence) {
@@ -529,6 +549,7 @@ pub(crate) fn receive_network_events(
                         sequence, "ignored unrelated chat send acknowledgement"
                     );
                 }
+                continue;
             }
             NetworkControlEvent::ChatPacketSendFailed {
                 session,
@@ -543,6 +564,7 @@ pub(crate) fn receive_network_events(
                         sequence, "ignored unrelated chat send failure: {message}"
                     );
                 }
+                continue;
             }
             NetworkControlEvent::PhysicsPacketSent { identity } => {
                 if !movement.acknowledge_physics_send(identity) {
@@ -554,6 +576,7 @@ pub(crate) fn receive_network_events(
                         "ignored stale, duplicate, or out-of-order physics send acknowledgement"
                     );
                 }
+                continue;
             }
             NetworkControlEvent::PhysicsPacketCancelled {
                 identity,
@@ -569,83 +592,79 @@ pub(crate) fn receive_network_events(
                         "ignored stale, duplicate, or out-of-order physics cancellation"
                     );
                 }
+                continue;
             }
             NetworkControlEvent::BlobCacheTelemetry { enabled, stats } => {
                 client_world.client_blob_cache_enabled = enabled;
                 client_world.client_blob_cache = stats;
+                continue;
             }
             NetworkControlEvent::Failed {
                 message,
                 decode_error_count,
                 server_disconnect,
                 origin,
-            } => {
-                UiRuntime::retire_crafting_observation();
-                render::ViewmodelCompletionGate::retire_observation();
-                resource_pack_admission.clear_current();
-                if let Some(reload) = pack_reload.as_mut() {
-                    reload.end_session();
-                }
-                ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
-                ui_runtime.clear_local_abilities(&mut player_runtime);
-                // Only a receive-side termination is a remote-initiated close;
-                // latch it while the ticker still reports the live session.
-                if origin == NetworkFailureOrigin::Receive {
-                    movement.note_remote_session_close();
-                }
-                movement.deactivate();
-                local_physics.deactivate();
-                avatar.clear();
-                frame.reset(LocalPlayerFrameReset::Session);
-                interaction.invalidate();
-                let failure = session_failure_display(&message, server_disconnect.as_ref());
-                error!(decode_error_count, "{failure}");
-                client_world.network_decode_errors = decode_error_count;
-                record_fatal_error(&mut client_world.fatal_error, failure);
-            }
+            } => (
+                SessionEnd::Failed {
+                    failure: session_failure_display(&message, server_disconnect.as_ref()),
+                    remote_close: origin == NetworkFailureOrigin::Receive,
+                },
+                decode_error_count,
+            ),
             NetworkControlEvent::Transferred {
                 target: SessionTransferTarget { host, port },
                 decode_error_count,
-            } => {
-                UiRuntime::retire_crafting_observation();
-                render::ViewmodelCompletionGate::retire_observation();
-                resource_pack_admission.clear_current();
-                if let Some(reload) = pack_reload.as_mut() {
-                    reload.end_session();
-                }
-                ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
-                ui_runtime.clear_local_abilities(&mut player_runtime);
-                // The client chose to end this session, so this is not a
-                // remote-initiated transport failure and must not latch the
-                // remote-close movement classification.
-                movement.deactivate();
-                local_physics.deactivate();
-                avatar.clear();
-                frame.reset(LocalPlayerFrameReset::Session);
-                interaction.invalidate();
-                client_world.network_decode_errors = decode_error_count;
-                info!(host, port, "server transferred the session");
-                client_world.transfer_notice =
-                    Some(crate::runtime::world::TransferNotice { host, port });
-            }
+            } => (
+                SessionEnd::Transferred(TransferNotice { host, port }),
+                decode_error_count,
+            ),
             NetworkControlEvent::Stopped { decode_error_count } => {
-                UiRuntime::retire_crafting_observation();
-                render::ViewmodelCompletionGate::retire_observation();
-                resource_pack_admission.clear_current();
-                if let Some(reload) = pack_reload.as_mut() {
-                    reload.end_session();
-                }
-                ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
-                ui_runtime.clear_local_abilities(&mut player_runtime);
-                movement.deactivate();
-                local_physics.deactivate();
-                avatar.clear();
-                frame.reset(LocalPlayerFrameReset::Session);
-                interaction.invalidate();
-                client_world.network_decode_errors = decode_error_count;
+                (SessionEnd::Stopped, decode_error_count)
+            }
+        };
+        // Every terminal event retires the same session-owned state.
+        UiRuntime::retire_crafting_observation();
+        render::ViewmodelCompletionGate::retire_observation();
+        resource_pack_admission.clear_current();
+        if let Some(reload) = pack_reload.as_mut() {
+            reload.end_session();
+        }
+        ui_runtime.set_server_lang(None);
+        player_runtime.facts.clear_block_breaking_mode();
+        player_runtime.facts.clear_local_abilities();
+        // Only a receive-side termination is a remote-initiated close; latch it
+        // while the ticker still reports the live session.
+        if matches!(
+            end,
+            SessionEnd::Failed {
+                remote_close: true,
+                ..
+            }
+        ) {
+            movement.note_remote_session_close();
+        }
+        quiesce_local_player(
+            &mut movement,
+            &mut local_physics,
+            &mut frame,
+            &mut interaction,
+        );
+        avatar.clear();
+        client_world.network_decode_errors = decode_error_count;
+        match end {
+            SessionEnd::Failed { failure, .. } => {
+                error!(decode_error_count, "{failure}");
+                record_fatal_error(&mut client_world.fatal_error, failure);
+            }
+            SessionEnd::Transferred(notice) => {
+                info!(
+                    host = notice.host.as_str(),
+                    port = notice.port,
+                    "server transferred the session"
+                );
+                client_world.transfer_notice = Some(notice);
+            }
+            SessionEnd::Stopped => {
                 if client_world.fatal_error.is_none() {
                     client_world.fatal_error = Some("network session stopped unexpectedly".into());
                 }
@@ -884,7 +903,6 @@ mod glyph_sheets;
 mod inventory;
 mod item_diagnostics;
 mod item_icons;
-pub(crate) mod prepared_actor_artwork;
 pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
 mod local_pack;

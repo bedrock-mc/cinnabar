@@ -181,7 +181,7 @@ impl UiRuntime {
                 .use_on_identity_evidence
                 .note_inventory(sequence, event),
         }
-        let Some(slot) = self.selected_hotbar_slot(player_runtime) else {
+        let Some(slot) = player_runtime.selected_hotbar_slot() else {
             return;
         };
         if player_runtime

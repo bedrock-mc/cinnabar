@@ -3,13 +3,13 @@ use crate::{
     movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
     player_runtime::PlayerRuntime,
     runtime::world::ClientWorld,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
 };
 use bevy::{ecs::system::SystemParam, prelude::*};
 use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
 pub(crate) use client_presentation::actor_publication::{
     ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 /// App-owned inputs borrowed only while this frame's presentation is prepared.
 #[derive(SystemParam)]
@@ -122,7 +122,7 @@ pub(crate) fn prepare_actor_render_frame(
         |stream, partial_tick| {
             let consume = ui
                 .as_deref()
-                .and_then(|ui| crate::item_use::consume_ticks(&player, stream, ui));
+                .and_then(|_| crate::item_use::consume_ticks(&player, stream));
             let animation = ui
                 .as_deref()
                 .zip(item_use.as_deref())

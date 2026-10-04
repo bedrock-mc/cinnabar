@@ -544,45 +544,39 @@ fn development_layout_in(root: &Path) -> crate::install_layout::InstallLayout {
 }
 
 #[test]
-fn menu_runtime_binding_replaces_releases_and_drops_cleanly() {
+fn session_controller_binding_replaces_releases_and_drops_cleanly() {
     let root = TempRoot::new("menu-wiring");
     let layout = development_layout_in(root.path());
-    let mut menu = crate::menu::MenuRuntime::new_with_layout(
-        true,
-        Some(2),
-        "Player".to_owned(),
-        layout.clone(),
-        crate::player_skin::LocalPlayerSkin::generated_default("Player"),
-    );
+    let mut controller = crate::session::SessionController::default();
 
     let first = SessionDirectoryGuard::bind(layout.connect_socket_dir(process::id(), 1))
         .expect("bind first");
     let first_directory = first.directory.clone();
-    menu.bind_session_directory(first);
+    controller.bind_directory(first);
     assert!(first_directory.is_dir());
 
     // Binding a replacement releases the superseded session directory.
     let second = SessionDirectoryGuard::bind(layout.connect_socket_dir(process::id(), 2))
         .expect("bind second");
     let second_directory = second.directory.clone();
-    menu.bind_session_directory(second);
+    controller.bind_directory(second);
     assert!(
         !first_directory.exists(),
         "replaced binding removes the old session directory"
     );
     assert!(second_directory.exists());
 
-    menu.release_session_directory();
+    controller.release_directory();
     assert!(!second_directory.exists());
 
     let third = SessionDirectoryGuard::bind(layout.connect_socket_dir(process::id(), 3))
         .expect("bind third");
     let third_directory = third.directory.clone();
-    menu.bind_session_directory(third);
-    drop(menu);
+    controller.bind_directory(third);
+    drop(controller);
     assert!(
         !third_directory.exists(),
-        "dropping the menu runtime removes its session directory"
+        "dropping the session controller removes its session directory"
     );
     let _ = fs::remove_dir_all(root.path().join(".local"));
 }
