@@ -397,12 +397,13 @@ func (stack *selectedResourcePackStack) release() {
 // downstream connection. close is idempotent so cancellation and listener
 // shutdown cannot double-close an upstream session or target.
 type preparedConnection struct {
-	downstream    packetSession // attached when Accept transfers the prepared session
-	upstream      upstreamSession
-	releaseTarget func() error
-	packAdmission *resourcePackAdmissionTelemetry
-	packStack     *selectedResourcePackStack
-	telemetry     *joinTelemetry
+	downstream       packetSession // attached when Accept transfers the prepared session
+	upstream         upstreamSession
+	releaseTarget    func() error
+	releaseAdmission func()
+	packAdmission    *resourcePackAdmissionTelemetry
+	packStack        *selectedResourcePackStack
+	telemetry        *joinTelemetry
 
 	closeOnce sync.Once
 	closeErr  error
@@ -414,6 +415,9 @@ func (prepared *preparedConnection) close() error {
 		return nil
 	}
 	prepared.closeOnce.Do(func() {
+		if prepared.releaseAdmission != nil {
+			defer prepared.releaseAdmission()
+		}
 		prepared.closeErr = errors.Join(shutdownSession(prepared.downstream), finishPreparedResources(prepared.upstream, prepared.releaseTarget))
 		prepared.packAdmission.reportFinal()
 		prepared.packStack.release()
@@ -560,6 +564,13 @@ func (connections *preparedConnections) prepareConnection(
 	connections.prepareWG.Add(1)
 	connections.mu.Unlock()
 	defer connections.prepareWG.Done()
+	releaseAdmission := connections.selector.beginAdmission()
+	admissionOwned := true
+	defer func() {
+		if admissionOwned {
+			releaseAdmission()
+		}
+	}()
 	defer func() {
 		if err == nil || (ctx.Err() == nil && connections.shutdownCtx.Err() == nil) {
 			return
@@ -587,6 +598,8 @@ func (connections *preparedConnections) prepareConnection(
 			err = errors.Join(err, prepared.close())
 		}
 	}()
+	prepared.releaseAdmission = releaseAdmission
+	admissionOwned = false
 	if err = configureResourcePackOffer(downstream, prepared.packStack); err != nil {
 		prepared.packAdmission.observePolicyOutcome(prepared.packStack, false)
 		return err

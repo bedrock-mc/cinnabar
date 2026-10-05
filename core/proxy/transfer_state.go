@@ -216,6 +216,7 @@ type UpstreamSelector struct {
 	mu          sync.Mutex
 	target      string
 	preparation *selectedTransport
+	admissions  uint64
 }
 
 // Set selects target ("host:port", "realm_id/N" or "friend_xuid/X"); "" clears.

@@ -23,10 +23,12 @@
   A no-background comparison also failed; socket tracing captured an explicit
   peer close during active traffic. Encrypted regressions reproduce loss of a
   queued final reason; its fix is under native validation. The trigger is open.
-- A confirmed prepared Zeqa SDK join followed its real transfer and survived five
-  minutes of passive reads; Rust gameplay stability remains incomplete. Join now
-  consumes selection even before a preparation attaches. Immediate peer teardown
-  has failed-before regressions but remains an isolated dependency prototype.
+- Confirmed prepared Zeqa joins survived five minutes of passive SDK reads and
+  six minutes of real stationary Rust physics; a late preparation/cancel also
+  survived 100 seconds. Movement and foreground-menu stability remain incomplete.
+  Join consumes selection before attachment; an admission fence rejects delayed
+  preparation through exact resource teardown. The Connect-to-admission gap is
+  open. Immediate peer teardown remains an isolated dependency prototype.
 - Measurements and remaining release gates: [join performance](docs/join-performance.md).
 
 ## Held cube item consistency

@@ -222,6 +222,20 @@ Protocol-aware immediate teardown passes encrypted cancellation, failed-commit
 and retained-session tests in an isolated dependency prototype. Its dependency
 changes and the native session stability gate remain unlanded.
 
+A separate delayed-request regression started another speculative peer during
+game admission. Preparation now stays fenced until the exact admission resource
+owner finishes teardown, including stored offers and overlapping transfers.
+Matching ready prefixes remain claimable; failed or abandoned admission reopens
+menu preparation. The Connect-to-local-admission interval remains uncovered.
+
+The original Go preparation lifecycle also survived a six-minute Zeqa run with
+the real Rust loading path, client caching and over 7,000 physics input packets.
+A second 100-second run survived a late preparation and cancellation during the
+active session. Both consumed a ready prefix and followed the real transfer.
+The private Rust harness rendered to a GPU image without native windows or OS
+input; it remained stationary. These results narrow the trigger but do not close
+movement, foreground menu, visual or performance acceptance.
+
 The focused tests cover cancellation, capability preservation, secret-safe
 telemetry, wire order, signing, retained-buffer bounds, content/context cache
 invalidation, stale generations, spawn priority and GPU witness ordering.

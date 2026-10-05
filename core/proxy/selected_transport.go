@@ -52,7 +52,7 @@ func (selector *UpstreamSelector) PrepareTransport(address string) {
 		return
 	}
 	selector.mu.Lock()
-	if selector.preparation != nil {
+	if selector.preparation != nil && selector.admissions == 0 {
 		selector.preparation.set(address)
 	}
 	selector.mu.Unlock()
@@ -125,6 +125,9 @@ func (selected *selectedTransport) keep(target string) {
 	if selected.wanted != target {
 		selected.wanted = ""
 		selected.generation++
+		if selected.pending != nil {
+			selected.pending.prepared.cancel()
+		}
 		selected.signal()
 	}
 	selected.mu.Unlock()
