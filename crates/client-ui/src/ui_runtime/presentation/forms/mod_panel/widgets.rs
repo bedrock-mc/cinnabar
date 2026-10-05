@@ -227,7 +227,8 @@ pub(super) fn row(control: &Control, index: usize, width: f64, y: f64, palette: 
             ));
             button(&action, [width, 24.0], [0.0, y], controls)
         }
-        Control::Button { .. } | Control::Keybind { .. } => {
+        Control::Keybind { .. } => keybind_row(index, width, y, palette, 24.0, false),
+        Control::Button { .. } => {
             let mut value = label(
                 &label_key,
                 [width - 10.0, 12.0],
@@ -250,6 +251,60 @@ pub(super) fn row(control: &Control, index: usize, width: f64, y: f64, palette: 
             )
         }
     }
+}
+
+pub(super) fn keybind_row(
+    index: usize,
+    width: f64,
+    y: f64,
+    palette: Palette,
+    height: f64,
+    separator: bool,
+) -> Value {
+    let mut key = label(
+        &format!("#row_{index}_value"),
+        [29., 15.],
+        [0., 7.],
+        palette.text,
+        true,
+    );
+    key["text_alignment"] = json!("center");
+    key["font_scale_factor"] = json!(0.75);
+    let mut cap_palette = palette;
+    cap_palette.card = palette.raised;
+    let mut cap = chrome([32., 22.], cap_palette, 5.);
+    cap.push(named("value", key));
+    let mut controls = vec![
+        named(
+            "label",
+            label(
+                &format!("#row_{index}_label"),
+                [width - 38., 16.],
+                [0., 7.],
+                palette.muted,
+                true,
+            ),
+        ),
+        named(
+            "keycap",
+            button(
+                &format!("mod.control:{index}"),
+                [32., 22.],
+                [width - 32., 0.],
+                cap,
+            ),
+        ),
+    ];
+    if separator {
+        controls.insert(
+            0,
+            named(
+                "separator",
+                rounded([width, 0.5], [0., -3.], 0., palette.border),
+            ),
+        );
+    }
+    panel([width, height], [0., y], controls)
 }
 
 pub(super) fn row_height(control: &Control) -> f64 {

@@ -673,3 +673,134 @@ fn compact_short_pages_keep_mixed_controls_inside_the_viewport_and_separate() {
         );
     }
 }
+
+#[test]
+fn standard_keybind_displays_assigned_key_and_capture_state_without_rebuilding() {
+    let mut presentation = mini_engine_presentation();
+    let mut settings = panel();
+    settings.controls = vec![Control::Keybind {
+        id: "binding".into(),
+        label: "Keybind".into(),
+        key: "ControlRight".into(),
+        capturing: false,
+    }];
+    presentation.set_mod_panel(Some(&settings)).unwrap();
+    presentation.set_mod_panel_open(true);
+    let assigned = frame(&mut presentation, [1280, 720]);
+    let catalog = presentation
+        .form_presentation
+        .mod_panel
+        .as_ref()
+        .unwrap()
+        .catalog
+        .as_ref()
+        .unwrap()
+        .clone();
+    let keycap = point(&presentation, "mod.control:0", 0.5);
+    assert_eq!(
+        presentation.mod_panel_events(keycap, true, true),
+        vec![Event {
+            id: "binding".into(),
+            value: 1.
+        }]
+    );
+    if let Control::Keybind { capturing, .. } = &mut settings.controls[0] {
+        *capturing = true;
+    }
+    presentation.set_mod_panel(Some(&settings)).unwrap();
+    let capture = frame(&mut presentation, [1280, 720]);
+    assert_ne!(
+        assigned.vertices, capture.vertices,
+        "keycap must render its changing bound value"
+    );
+    assert!(Arc::ptr_eq(
+        &catalog,
+        presentation
+            .form_presentation
+            .mod_panel
+            .as_ref()
+            .unwrap()
+            .catalog
+            .as_ref()
+            .unwrap()
+    ));
+    assert_eq!(point(&presentation, "mod.control:0", 0.5), keycap);
+}
+
+#[test]
+fn smallest_compact_viewport_keeps_four_category_targets_and_close_usable() {
+    let mut settings = panel();
+    settings.style = ui::mod_panel::Style::Compact;
+    settings.controls = (0..4)
+        .map(|index| Control::Toggle {
+            id: format!("toggle{index}"),
+            label: "Enabled".into(),
+            value: false,
+        })
+        .collect();
+    settings.sections = (0..4)
+        .map(|index| ui::mod_panel::Section {
+            id: format!("section{index}"),
+            label: "Module".into(),
+            category: format!("Category {index}"),
+            icon: ui::mod_panel::Icon::Crosshair,
+            toggle: Some(format!("toggle{index}")),
+            controls: vec![],
+        })
+        .collect();
+    let mut presentation = mini_engine_presentation();
+    presentation.set_mod_panel(Some(&settings)).unwrap();
+    presentation.set_mod_panel_open(true);
+    frame(&mut presentation, [240, 640]);
+    let rendered = presentation
+        .form_presentation
+        .mod_panel
+        .as_ref()
+        .unwrap()
+        .frame
+        .as_ref()
+        .unwrap();
+    let navigation: Vec<_> = rendered
+        .hits
+        .iter()
+        .filter(|hit| {
+            hit.pressed
+                .as_deref()
+                .is_some_and(|action| action.starts_with("mod.category:") || action == "mod.close")
+        })
+        .collect();
+    assert_eq!(navigation.len(), 5);
+    for (index, hit) in navigation.iter().enumerate() {
+        assert!(
+            hit.rect.w >= 12. && hit.rect.h >= 20.,
+            "navigation target too small"
+        );
+        let left = rendered.origin[0] + hit.rect.x as f32 * rendered.scale;
+        let right = left + hit.rect.w as f32 * rendered.scale;
+        assert!(left >= 0. && right <= 240., "navigation clipped");
+        for other in &navigation[index + 1..] {
+            assert!(
+                hit.rect.x + hit.rect.w <= other.rect.x
+                    || other.rect.x + other.rect.w <= hit.rect.x,
+                "navigation targets overlap"
+            );
+        }
+    }
+    for category in 0..4 {
+        let target = point(&presentation, &format!("mod.category:{category}"), 0.5);
+        presentation.mod_panel_events(target, true, true);
+        frame(&mut presentation, [240, 640]);
+        assert_eq!(
+            presentation
+                .form_presentation
+                .mod_panel
+                .as_ref()
+                .unwrap()
+                .category,
+            category
+        );
+    }
+    let close = point(&presentation, "mod.close", 0.5);
+    presentation.mod_panel_events(close, true, true);
+    assert!(!presentation.mod_panel_open());
+}

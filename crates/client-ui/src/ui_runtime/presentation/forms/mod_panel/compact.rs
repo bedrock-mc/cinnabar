@@ -98,7 +98,7 @@ pub(super) fn catalog(
                 y
             };
             let mut node = if keybind {
-                key_row(*index, w - 20., position, palette)
+                keybind_row(*index, w - 20., position, palette, 28., true)
             } else if matches!(control, Control::Choice { .. }) {
                 choice_row(*index, w - 20., position, palette)
             } else {
@@ -188,55 +188,16 @@ fn choice_row(index: usize, width: f64, y: f64, palette: Palette) -> Value {
     )
 }
 
-fn key_row(index: usize, width: f64, y: f64, palette: Palette) -> Value {
-    let mut key = label(
-        &format!("#row_{index}_value"),
-        [29., 15.],
-        [0., 7.],
-        palette.text,
-        true,
-    );
-    key["text_alignment"] = json!("center");
-    key["font_scale_factor"] = json!(0.75);
-    let mut cap_palette = palette;
-    cap_palette.card = palette.raised;
-    let mut cap = chrome([32., 22.], cap_palette, 5.);
-    cap.push(named("value", key));
-    panel(
-        [width, 28.],
-        [0., y],
-        vec![
-            named(
-                "separator",
-                rounded([width, 0.5], [0., -3.], 0., palette.border),
-            ),
-            named(
-                "label",
-                label(
-                    &format!("#row_{index}_label"),
-                    [width - 38., 16.],
-                    [0., 7.],
-                    palette.muted,
-                    true,
-                ),
-            ),
-            named(
-                "keycap",
-                button(
-                    &format!("mod.control:{index}"),
-                    [32., 22.],
-                    [width - 32., 0.],
-                    cap,
-                ),
-            ),
-        ],
-    )
-}
-
 fn navigation(spec: &Panel, layout: &Layout<'_>, category: usize, palette: Palette) -> Value {
     let width = layout.width;
-    let mut nodes = vec![named("brand", icons::brand(18., [12., 9.], palette.accent))];
-    let title_width = (width * 0.34).min(150.);
+    let categories = layout.categories.len().max(1) as f64;
+    let regular_title = (width * 0.34).min(150.);
+    let narrow = (width - regular_title - 28.) / categories < 24.;
+    let title_width = if narrow { 4. } else { regular_title };
+    let mut nodes = Vec::new();
+    if !narrow {
+        nodes.push(named("brand", icons::brand(18., [12., 9.], palette.accent)));
+    }
     if title_width > 85. {
         nodes.push(named(
             "title",
@@ -250,14 +211,21 @@ fn navigation(spec: &Panel, layout: &Layout<'_>, category: usize, palette: Palet
         ));
     }
     let tab_space = width - title_width - 28.;
-    let tab_width = (tab_space / layout.categories.len().max(1) as f64).min(100.);
+    let tab_width = (tab_space / categories).min(100.);
+    let tab_gap = if narrow { 2. } else { 8. };
+    let hit_width = (tab_width - tab_gap).max(1.);
     for (index, name) in layout.categories.iter().enumerate() {
         let selected = index == category;
         let mut tab = Vec::new();
         if selected {
             tab.push(named(
                 "outline",
-                rounded([tab_width - 8., 24.], [0.; 2], 12., palette.accent),
+                rounded(
+                    [hit_width, 24.],
+                    [0.; 2],
+                    12.0_f64.min(hit_width * 0.5),
+                    palette.accent,
+                ),
             ));
             let fill = if spec.dark {
                 [0.22, 0.12, 0.14, 0.98]
@@ -266,7 +234,12 @@ fn navigation(spec: &Panel, layout: &Layout<'_>, category: usize, palette: Palet
             };
             tab.push(named(
                 "surface",
-                rounded([tab_width - 9., 23.], [0.5; 2], 11.5, fill),
+                rounded(
+                    [(hit_width - 1.).max(0.5), 23.],
+                    [0.5; 2],
+                    11.5_f64.min((hit_width - 1.) * 0.5),
+                    fill,
+                ),
             ));
         }
         let color = if selected {
@@ -279,19 +252,29 @@ fn navigation(spec: &Panel, layout: &Layout<'_>, category: usize, palette: Palet
             .iter()
             .find(|section| section.category == *name)
             .map_or(Icon::None, |section| section.icon);
+        let icon_size = if narrow {
+            (hit_width - 4.).clamp(4., 13.)
+        } else {
+            13.
+        };
         let icon_x = if tab_width > 65. {
             12.
         } else {
-            (tab_width - 21.) * 0.5
+            (hit_width - icon_size) * 0.5
         };
         tab.push(named(
             "icon",
             if icon == Icon::Settings {
-                icons::mark(Icon::Settings, 12., [icon_x, 6.], color)
+                icons::mark(
+                    Icon::Settings,
+                    icon_size.min(12.),
+                    [icon_x, (24. - icon_size.min(12.)) * 0.5],
+                    color,
+                )
             } else {
                 icons::sword(
-                    13.,
-                    [icon_x, 5.5],
+                    icon_size,
+                    [icon_x, (24. - icon_size) * 0.5],
                     if selected { palette.accent } else { color },
                 )
             },
@@ -306,7 +289,7 @@ fn navigation(spec: &Panel, layout: &Layout<'_>, category: usize, palette: Palet
             &format!("category_{index}"),
             button(
                 &format!("mod.category:{index}"),
-                [tab_width - 8., 24.],
+                [hit_width, 24.],
                 [title_width + index as f64 * tab_width, 6.],
                 tab,
             ),
