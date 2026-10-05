@@ -108,8 +108,10 @@ fn registry_wire_order_reuses_equivalent_compilation_inputs() {
             },
         )
     };
-    let mut inputs = client_session::PackInputs::default();
-    inputs.icons = vec![("a:item".into(), "a".into()), ("b:item".into(), "b".into())];
+    let mut inputs = client_session::PackInputs {
+        icons: vec![("a:item".into(), "a".into()), ("b:item".into(), "b".into())],
+        ..Default::default()
+    };
     inputs.blocks.vanilla_blocks = vec!["minecraft:stone".into(), "minecraft:dirt".into()].into();
     let (first, hit) = prepare(inputs.clone());
     assert!(!hit);
