@@ -63,7 +63,6 @@ impl ViewCohort {
     }
 
     /// Iterates the diagnostic classifier without materializing its column set.
-    #[must_use]
     pub fn classifier_columns_iter(self) -> impl Iterator<Item = ChunkKey> {
         let radius = self.radius.max(0);
         let doubled_limit = self.publisher_geometry.map_or_else(
