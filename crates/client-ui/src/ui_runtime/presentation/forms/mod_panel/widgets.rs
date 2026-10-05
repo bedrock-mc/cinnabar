@@ -163,7 +163,16 @@ pub(super) fn row(control: &Control, index: usize, width: f64, y: f64, palette: 
                 true,
             );
             value["text_alignment"] = json!("right");
-            controls.push(named("value", value));
+            value["offset"] = json!([0., 0.]);
+            controls.push(named(
+                "value",
+                button(
+                    &format!("mod.edit:{index}"),
+                    [width * 0.36, 12.0],
+                    [width * 0.64, 0.0],
+                    vec![named("text", value)],
+                ),
+            ));
             let mut fill = rounded([width, 2.0], [0.0, 3.5], 1.0, palette.accent);
             fill["bindings"] = json!([{"binding_name":format!("#row_{index}_fill"),"binding_name_override":"#size_binding_x"}]);
             let mut knob = rounded([5.0, 5.0], [0.0, 0.0], 2.5, palette.text);

@@ -18,6 +18,7 @@ pub(super) fn catalog(
     category: usize,
     page: usize,
     rows: usize,
+    editor: Option<&super::edit::Editor>,
 ) -> Result<(Catalog, usize), String> {
     let top = super::layout::top_offset(viewport);
     let layout = Layout::new(spec, [viewport[0], viewport[1] - top - 10.], category, rows);
@@ -124,11 +125,12 @@ pub(super) fn catalog(
             palette,
         ));
     }
-    let document = json!({"namespace":"cinnabar_personal","panel":{
+    let mut document = json!({"namespace":"cinnabar_personal","panel":{
         "type":"screen","size":["100%","100%"],"render_game_behind":true,"absorbs_input":true,"should_steal_mouse":false,
         "controls":[{"dialog":{"type":"panel","size":[width,height],"anchor_from":"top_left","anchor_to":"top_left",
             "offset":[((viewport[0]-width)*0.5).round(),top],"controls":controls}}]
     }});
+    super::edit::append_overlay(&mut document, spec, viewport, editor);
     let bytes = serde_json::to_vec(&document).map_err(|error| error.to_string())?;
     let catalog = Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),

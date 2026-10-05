@@ -197,15 +197,25 @@ pub(super) fn prepare_mod_input(
         }
         return;
     };
-    let mut pressed = Vec::new();
+    let mut panel_keys = Vec::new();
     if let Some(events) = keyboard_events {
         for event in physical.keys.read(&events) {
             if event.window == entity
                 && event.state == ButtonState::Pressed
-                && !event.repeat
                 && !matches!(event.key_code, KeyCode::Unidentified(_))
             {
-                pressed.push(format!("{:?}", event.key_code));
+                panel_keys.push((
+                    format!("{:?}", event.key_code),
+                    event
+                        .text
+                        .as_deref()
+                        .or_else(|| match &event.logical_key {
+                            bevy::input::keyboard::Key::Character(text) => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .map(str::to_owned),
+                    event.repeat,
+                ));
             }
         }
     }
@@ -228,6 +238,34 @@ pub(super) fn prepare_mod_input(
     );
     let was_open = physical.panel_owned;
     let mut open = extension.host.panel_open() && presentation.mod_panel_open();
+    let editing = open && presentation.mod_panel_editing();
+    let interrupt = editing
+        && panel_keys.iter().any(|(key, _, repeat)| {
+            !repeat && (key == "F10" || presentation.mod_panel_toggle_key() == Some(key.as_str()))
+        });
+    if !window.focused || absorbed || interrupt {
+        presentation.cancel_mod_panel_edit();
+    }
+    let mut pressed = Vec::new();
+    let mut events = Vec::new();
+    for (key, text, repeat) in panel_keys {
+        if open && window.focused && !absorbed && editing && !interrupt {
+            let edit_key = if key == "KeyA"
+                && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight))
+            {
+                "SelectAll"
+            } else {
+                key.as_str()
+            };
+            events.extend(presentation.mod_panel_key(edit_key, text.as_deref()));
+        } else if !repeat
+            && (!editing
+                || key == "F10"
+                || presentation.mod_panel_toggle_key() == Some(key.as_str()))
+        {
+            pressed.push(key);
+        }
+    }
     let close_requested = pressed.iter().any(|key| key == "Escape")
         && open
         && !extension
@@ -248,20 +286,23 @@ pub(super) fn prepare_mod_input(
     let was_held = mouse
         .as_ref()
         .is_some_and(|buttons| buttons.just_pressed(MouseButton::Left));
-    let events = if open && window.focused {
-        window.cursor_position().map_or_else(Vec::new, |position| {
-            presentation
-                .mod_panel_events(position.to_array(), was_held, physical.left_held)
-                .into_iter()
-                .map(|event| mod_host::ControlEvent {
-                    id: event.id,
-                    value: event.value,
-                })
-                .collect()
+    if open && window.focused {
+        if let Some(position) = window.cursor_position() {
+            events.extend(presentation.mod_panel_events(
+                position.to_array(),
+                was_held,
+                physical.left_held,
+            ));
+        }
+    }
+    let events = events
+        .into_iter()
+        .take(ui::mod_panel::MAX_PANEL_CONTROLS)
+        .map(|event| mod_host::ControlEvent {
+            id: event.id,
+            value: event.value,
         })
-    } else {
-        Vec::new()
-    };
+        .collect();
     open = presentation.mod_panel_open();
     extension.host.set_panel_open(open);
     let restore = physical.finish_panel(

@@ -2,6 +2,9 @@
 
 mod compact;
 mod data;
+mod edit;
+#[cfg(test)]
+mod edit_tests;
 mod icons;
 mod input;
 mod layout;
@@ -46,11 +49,13 @@ pub(super) struct ModPanel {
     data: Arc<DataSource>,
     pointer: Option<[f32; 2]>,
     held: bool,
+    edit: Option<edit::Editor>,
 }
 
 impl UiPresentationRuntime {
     pub(in super::super) fn invalidate_mod_panel_font(&mut self) {
         if let Some(panel) = &mut self.form_presentation.mod_panel {
+            panel.cancel_edit();
             panel.screen = CachedScreen::default();
             panel.frame = None;
             panel.drag = None;
@@ -70,6 +75,7 @@ impl UiPresentationRuntime {
                 return Ok(());
             }
             if !template::same_shape(&current.panel, panel) {
+                current.edit = None;
                 current.catalog = None;
                 current.frame = None;
                 current.drag = None;
@@ -81,6 +87,9 @@ impl UiPresentationRuntime {
                 }
                 current.view = ViewState::default();
                 current.pointer = None;
+            }
+            if panel.capture_key {
+                current.cancel_edit();
             }
             current.panel = panel.clone();
             current.data = Arc::new(control_data(panel));
@@ -101,6 +110,7 @@ impl UiPresentationRuntime {
                 data: Arc::new(control_data(panel)),
                 pointer: None,
                 held: false,
+                edit: None,
             });
         }
         Ok(())
@@ -110,6 +120,7 @@ impl UiPresentationRuntime {
         if let Some(panel) = self.form_presentation.mod_panel.as_mut() {
             panel.open = open;
             if !open {
+                panel.cancel_edit();
                 panel.frame = None;
                 panel.drag = None;
                 panel.view = ViewState::default();
@@ -174,6 +185,7 @@ impl UiPresentationRuntime {
         if viewport[0] < 120.0
             || viewport[1] - layout::top_offset(viewport) - 12.0 < CHROME_HEIGHT + ROW_HEIGHT + 8.0
         {
+            panel.cancel_edit();
             panel.frame = None;
             panel.open = false;
             panel.drag = None;
@@ -184,6 +196,7 @@ impl UiPresentationRuntime {
             / ROW_HEIGHT) as usize)
             .clamp(1, ui::mod_panel::MAX_PANEL_CONTROLS);
         if panel.viewport != viewport || panel.rows != rows {
+            panel.cancel_edit();
             panel.viewport = viewport;
             panel.rows = rows;
             panel.page = panel.page.min(panel.last_page());
@@ -193,7 +206,14 @@ impl UiPresentationRuntime {
             panel.pointer = None;
         }
         if panel.catalog.is_none() {
-            match template::catalog(&panel.panel, viewport, panel.category, panel.page, rows) {
+            match template::catalog(
+                &panel.panel,
+                viewport,
+                panel.category,
+                panel.page,
+                rows,
+                panel.edit.as_ref(),
+            ) {
                 Ok((catalog, pages)) => {
                     panel.pages = pages;
                     panel.page = panel.page.min(pages - 1);
@@ -259,6 +279,7 @@ fn out_of_render(
 ) {
     nodes.truncate(rollback.0);
     *next = rollback.1;
+    panel.cancel_edit();
     panel.frame = None;
     panel.drag = None;
     panel.open = false;

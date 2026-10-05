@@ -169,6 +169,11 @@ to three equal-height cards. Sections can select a bounded `icon` (`pointer`,
 `crosshair`, `ruler`, `settings` or `none`). A `keybind` control has `id`, `label`,
 `key` and optional `capturing` fields; pressing its keycap emits a button event,
 and the guest owns key capture and reservations. Key changes retain geometry.
+Choices open a host-owned option list. Slider numbers open a bounded text editor;
+Enter applies finite values within the declared range and normalizes the step.
+Escape or an outside click cancels an editor before closing the panel. Keyboard
+input belongs to the editor while it is open; reserved emergency and panel keys
+retain priority. The existing choice/slider event payloads are unchanged.
 Optional sections organize controls into category tabs and
 cards; omitting them keeps a flat panel. `input.read-controls` supplies current-window physical key
 edges and panel events. `input.reserve-keys` prevents selected bindings reaching
