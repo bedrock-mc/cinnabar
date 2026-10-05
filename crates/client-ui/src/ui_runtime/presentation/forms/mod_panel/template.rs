@@ -9,6 +9,7 @@ use super::{
 
 pub(super) fn same_shape(a: &Panel, b: &Panel) -> bool {
     a.title == b.title
+        && a.style == b.style
         && a.dark == b.dark
         && a.sections == b.sections
         && a.controls.len() == b.controls.len()
@@ -17,6 +18,7 @@ pub(super) fn same_shape(a: &Panel, b: &Panel) -> bool {
                 && a.label() == b.label()
                 && match (a, b) {
                     (Control::Toggle { .. }, Control::Toggle { .. })
+                    | (Control::Keybind { .. }, Control::Keybind { .. })
                     | (Control::Button { .. }, Control::Button { .. }) => true,
                     (
                         Control::Slider {
@@ -47,6 +49,9 @@ pub(super) fn catalog(
     page: usize,
     rows: usize,
 ) -> Result<(Catalog, usize), String> {
+    if panel.style == ui::mod_panel::Style::Compact {
+        return super::compact::catalog(panel, viewport, category, page, rows);
+    }
     let top = super::layout::top_offset(viewport);
     let layout = Layout::new(
         panel,
@@ -188,7 +193,13 @@ fn navigation(panel: &Panel, layout: &Layout<'_>, category: usize, palette: Pale
     super::widgets::panel([width, NAV_HEIGHT], [0.0; 2], contents)
 }
 
-fn pagination(width: f64, height: f64, page: usize, count: usize, palette: Palette) -> Vec<Value> {
+pub(super) fn pagination(
+    width: f64,
+    height: f64,
+    page: usize,
+    count: usize,
+    palette: Palette,
+) -> Vec<Value> {
     let y = height - 19.0;
     vec![
         named(

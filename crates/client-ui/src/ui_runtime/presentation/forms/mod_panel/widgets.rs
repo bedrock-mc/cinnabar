@@ -1,5 +1,5 @@
 use serde_json::{Value, json};
-use ui::mod_panel::{Control, FONT_NAME};
+use ui::mod_panel::{Control, FONT_NAME, Panel, Style};
 
 #[derive(Clone, Copy)]
 pub(super) struct Palette {
@@ -12,6 +12,18 @@ pub(super) struct Palette {
 }
 
 impl Palette {
+    pub fn for_panel(panel: &Panel) -> Self {
+        let mut palette = Self::new(panel.dark);
+        if panel.style == Style::Compact && panel.dark {
+            palette.card = [0.075, 0.09, 0.115, 0.96];
+            palette.border = [0.22, 0.26, 0.31, 0.9];
+            palette.raised = [0.16, 0.185, 0.22, 0.98];
+            palette.muted = [0.67, 0.71, 0.76, 1.];
+            palette.accent = [1., 0.34, 0.32, 1.];
+        }
+        palette
+    }
+
     pub fn new(dark: bool) -> Self {
         if dark {
             Self {
@@ -215,7 +227,7 @@ pub(super) fn row(control: &Control, index: usize, width: f64, y: f64, palette: 
             ));
             button(&action, [width, 24.0], [0.0, y], controls)
         }
-        Control::Button { .. } => {
+        Control::Button { .. } | Control::Keybind { .. } => {
             let mut value = label(
                 &label_key,
                 [width - 10.0, 12.0],

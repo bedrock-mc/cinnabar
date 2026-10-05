@@ -164,7 +164,12 @@ They are developer extension capabilities and do not change the vanilla client.
 
 `panel.set-content` retains a bounded JSON panel of toggles, sliders, buttons and
 choices. It uses the host's JSON-UI engine; guests cannot provide templates or
-binding expressions. Optional sections organize controls into category tabs and
+binding expressions. Optional `style: "compact"` renders a unified menu with up
+to three equal-height cards. Sections can select a bounded `icon` (`pointer`,
+`crosshair`, `ruler`, `settings` or `none`). A `keybind` control has `id`, `label`,
+`key` and optional `capturing` fields; pressing its keycap emits a button event,
+and the guest owns key capture and reservations. Key changes retain geometry.
+Optional sections organize controls into category tabs and
 cards; omitting them keeps a flat panel. `input.read-controls` supplies current-window physical key
 edges and panel events. `input.reserve-keys` prevents selected bindings reaching
 gameplay. The panel's `toggle_key` opens or closes it before the ordinary input

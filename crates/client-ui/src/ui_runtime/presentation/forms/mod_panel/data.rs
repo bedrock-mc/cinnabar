@@ -6,7 +6,7 @@ use super::widgets::Palette;
 
 pub(super) fn control_data(panel: &Panel) -> DataSource {
     let mut data = DataSource::new();
-    let palette = Palette::new(panel.dark);
+    let palette = Palette::for_panel(panel);
     for (index, control) in panel.controls.iter().enumerate() {
         let value = match control {
             Control::Toggle { value, .. } => if *value { "On" } else { "Off" }.to_owned(),
@@ -15,6 +15,13 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                 .trim_end_matches('.')
                 .to_owned(),
             Control::Button { .. } => String::new(),
+            Control::Keybind { key, capturing, .. } => {
+                if *capturing {
+                    "...".to_owned()
+                } else {
+                    key_label(key)
+                }
+            }
             Control::Choice { index, options, .. } => options[*index as usize].clone(),
         };
         data.set_global(
@@ -47,4 +54,90 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
         }
     }
     data
+}
+
+pub(super) fn key_label(key: &str) -> String {
+    let label = match key {
+        "ControlLeft" => "LCtrl",
+        "ControlRight" => "RCtrl",
+        "ShiftLeft" => "LShift",
+        "ShiftRight" => "RShift",
+        "AltLeft" => "LAlt",
+        "AltRight" => "RAlt",
+        "SuperLeft" | "MetaLeft" => "LWin",
+        "SuperRight" | "MetaRight" => "RWin",
+        "ArrowLeft" => "Left",
+        "ArrowRight" => "Right",
+        "ArrowUp" => "Up",
+        "ArrowDown" => "Down",
+        "Backspace" => "Bksp",
+        "CapsLock" => "Caps",
+        "Escape" => "Esc",
+        "PageUp" => "PgUp",
+        "PageDown" => "PgDn",
+        "PrintScreen" => "PrtSc",
+        "ScrollLock" => "ScrLk",
+        "NumLock" => "NumLk",
+        "ContextMenu" => "Menu",
+        "Delete" => "Del",
+        "Insert" => "Ins",
+        "Backquote" => "`",
+        "Backslash" => "\\",
+        "BracketLeft" => "[",
+        "BracketRight" => "]",
+        "Comma" => ",",
+        "Period" => ".",
+        "Slash" => "/",
+        "Semicolon" => ";",
+        "Quote" => "'",
+        "Minus" => "-",
+        "Equal" => "=",
+        "IntlBackslash" => "Intl\\",
+        "NumpadAdd" => "Num+",
+        "NumpadSubtract" => "Num-",
+        "NumpadMultiply" => "Num*",
+        "NumpadDivide" => "Num/",
+        "NumpadDecimal" => "Num.",
+        "NumpadEnter" => "NumEnt",
+        "NumpadEqual" => "Num=",
+        "NumpadComma" => "Num,",
+        "NumpadHash" => "Num#",
+        "NumpadParenLeft" => "Num(",
+        "NumpadParenRight" => "Num)",
+        "NumpadBackspace" => "NumBk",
+        "NumpadMemoryAdd" => "NumM+",
+        "NumpadMemorySubtract" => "NumM-",
+        "NumpadMemoryStore" => "NumMS",
+        "NumpadMemoryRecall" => "NumMR",
+        "NumpadMemoryClear" => "NumMC",
+        "NumpadClear" => "NumClr",
+        "NumpadClearEntry" => "NumCE",
+        "AudioVolumeMute" => "Mute",
+        "AudioVolumeUp" => "Vol+",
+        "AudioVolumeDown" => "Vol-",
+        "MediaPlayPause" => "Play",
+        "MediaStop" => "Stop",
+        "MediaTrackNext" => "Next",
+        "MediaTrackPrevious" => "Prev",
+        "LaunchMail" => "Mail",
+        "LaunchApp1" => "App1",
+        "LaunchApp2" => "App2",
+        "MediaSelect" => "Media",
+        "BrowserBack" => "Back",
+        "BrowserForward" => "Fwd",
+        "BrowserRefresh" => "Reload",
+        "BrowserStop" => "Stop",
+        "BrowserSearch" => "Search",
+        "BrowserFavorites" => "Fav",
+        "BrowserHome" => "Home",
+        _ => key
+            .strip_prefix("Key")
+            .or_else(|| key.strip_prefix("Digit"))
+            .unwrap_or(key),
+    };
+    if let Some(digit) = label.strip_prefix("Numpad") {
+        format!("Num{digit}")
+    } else {
+        label.to_owned()
+    }
 }

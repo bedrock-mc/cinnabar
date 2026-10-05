@@ -5,6 +5,7 @@ use ui::DpiScale;
 
 fn panel() -> Panel {
     Panel {
+        style: Default::default(),
         title: "Personal controls".into(),
         toggle_key: "ShiftRight".into(),
         dark: true,
@@ -296,6 +297,7 @@ fn grouped_cards_render_solid_chrome_and_categories_route_locally() {
     let mut settings = panel();
     settings.sections = vec![
         ui::mod_panel::Section {
+            icon: Default::default(),
             id: "module".into(),
             label: "Module".into(),
             category: "Combat".into(),
@@ -303,6 +305,7 @@ fn grouped_cards_render_solid_chrome_and_categories_route_locally() {
             controls: vec!["strength".into(), "mode".into()],
         },
         ui::mod_panel::Section {
+            icon: Default::default(),
             id: "settings".into(),
             label: "General".into(),
             category: "Settings".into(),
@@ -392,6 +395,7 @@ fn oversized_group_pages_keep_every_control_reachable_and_inside_the_viewport() 
         })
         .collect();
     settings.sections = vec![ui::mod_panel::Section {
+        icon: Default::default(),
         id: "group".into(),
         label: "Group".into(),
         category: "Controls".into(),
@@ -469,4 +473,203 @@ fn desktop_panel_geometry_stays_stable_across_game_gui_preferences_and_dpi() {
             .mod_panel_events(expected, true, true)
             .is_empty()
     );
+}
+
+#[test]
+fn compact_keybind_updates_retain_geometry_and_emit_capture_event() {
+    let mut presentation = mini_engine_presentation();
+    let mut settings = panel();
+    let mut legacy = serde_json::to_value(&settings).unwrap();
+    legacy.as_object_mut().unwrap().remove("style");
+    let parsed: Panel = serde_json::from_value(legacy).unwrap();
+    assert_eq!(parsed.style, ui::mod_panel::Style::Standard);
+    settings.style = ui::mod_panel::Style::Compact;
+    settings.controls[3] = Control::Keybind {
+        id: "binding".into(),
+        label: "Keybind".into(),
+        key: "KeyR".into(),
+        capturing: false,
+    };
+    presentation.set_mod_panel(Some(&settings)).unwrap();
+    presentation.set_mod_panel_open(true);
+    frame(&mut presentation, [1280, 720]);
+    let retained = presentation.form_presentation.mod_panel.as_ref().unwrap();
+    let catalog = retained.catalog.as_ref().unwrap().clone();
+    let binding = point(&presentation, "mod.control:3", 0.5);
+    let event = presentation.mod_panel_events(binding, true, true);
+    assert_eq!(
+        event,
+        vec![Event {
+            id: "binding".into(),
+            value: 1.
+        }]
+    );
+    if let Control::Keybind { key, capturing, .. } = &mut settings.controls[3] {
+        *key = "KeyV".into();
+        *capturing = true;
+    }
+    presentation.set_mod_panel(Some(&settings)).unwrap();
+    let retained = presentation.form_presentation.mod_panel.as_ref().unwrap();
+    assert!(Arc::ptr_eq(&catalog, retained.catalog.as_ref().unwrap()));
+    frame(&mut presentation, [1280, 720]);
+    assert_eq!(point(&presentation, "mod.control:3", 0.5), binding);
+}
+
+#[test]
+fn compact_module_cards_align_and_wrap_without_losing_bindings() {
+    use ui::mod_panel::{Icon, Section, Style};
+    let mut settings = panel();
+    settings.style = Style::Compact;
+    settings.controls.clear();
+    settings.sections = (0..3)
+        .map(|index| {
+            settings.controls.extend([
+                Control::Toggle {
+                    id: format!("enabled{index}"),
+                    label: "Enabled".into(),
+                    value: false,
+                },
+                Control::Keybind {
+                    id: format!("binding{index}"),
+                    label: "Keybind".into(),
+                    key: "F8".into(),
+                    capturing: false,
+                },
+            ]);
+            Section {
+                id: format!("section{index}"),
+                label: "Module".into(),
+                category: "Modules".into(),
+                icon: Icon::Pointer,
+                toggle: Some(format!("enabled{index}")),
+                controls: vec![format!("binding{index}")],
+            }
+        })
+        .collect();
+    let wide = layout::Layout::new(&settings, [600., 400.], 0, 10);
+    assert_eq!(wide.pages.len(), 1);
+    assert_eq!(wide.pages[0].len(), 3);
+    let baseline = wide.pages[0][0].offset[1] + wide.pages[0][0].height;
+    assert!(
+        wide.pages[0]
+            .iter()
+            .all(|card| card.offset[1] + card.height == baseline)
+    );
+    let narrow = layout::Layout::new(&settings, [260., 200.], 0, 3);
+    let bindings: Vec<_> = narrow
+        .pages
+        .iter()
+        .flatten()
+        .flat_map(|card| &card.controls)
+        .collect();
+    assert_eq!(bindings.len(), 3);
+    assert!(
+        narrow
+            .pages
+            .iter()
+            .flatten()
+            .all(|card| card.offset[0] + narrow.card_width <= narrow.width)
+    );
+}
+
+#[test]
+fn keycaps_use_readable_ascii_names_for_modifiers_and_extended_keys() {
+    for (physical, visible) in [
+        ("KeyR", "R"),
+        ("Digit9", "9"),
+        ("ControlRight", "RCtrl"),
+        ("ShiftLeft", "LShift"),
+        ("NumpadDivide", "Num/"),
+        ("ArrowRight", "Right"),
+        ("PrintScreen", "PrtSc"),
+        ("Numpad9", "Num9"),
+    ] {
+        assert_eq!(data::key_label(physical), visible);
+        assert!(visible.is_ascii());
+    }
+}
+
+#[test]
+fn compact_short_pages_keep_mixed_controls_inside_the_viewport_and_separate() {
+    for size in [[640, 480], [800, 600]] {
+        let mut presentation = mini_engine_presentation();
+        let mut settings = panel();
+        settings.style = ui::mod_panel::Style::Compact;
+        settings.controls[3] = Control::Keybind {
+            id: "binding".into(),
+            label: "Keybind".into(),
+            key: "KeyR".into(),
+            capturing: false,
+        };
+        settings.sections = vec![ui::mod_panel::Section {
+            id: "module".into(),
+            label: "Module".into(),
+            category: "Modules".into(),
+            icon: ui::mod_panel::Icon::Crosshair,
+            toggle: Some("enabled".into()),
+            controls: vec!["strength".into(), "mode".into(), "binding".into()],
+        }];
+        presentation.set_mod_panel(Some(&settings)).unwrap();
+        presentation.set_mod_panel_open(true);
+        frame(&mut presentation, size);
+        let count = presentation
+            .form_presentation
+            .mod_panel
+            .as_ref()
+            .unwrap()
+            .pages;
+        let mut seen = std::collections::HashSet::new();
+        for page in 0..count {
+            let rendered = presentation
+                .form_presentation
+                .mod_panel
+                .as_ref()
+                .unwrap()
+                .frame
+                .as_ref()
+                .unwrap();
+            let controls: Vec<_> = rendered
+                .hits
+                .iter()
+                .filter(|hit| {
+                    hit.pressed
+                        .as_deref()
+                        .is_some_and(|action| action.starts_with("mod.control:"))
+                })
+                .collect();
+            for (index, hit) in controls.iter().enumerate() {
+                seen.insert(hit.pressed.as_deref().unwrap().to_owned());
+                let right = rendered.origin[0] + (hit.rect.x + hit.rect.w) as f32 * rendered.scale;
+                let bottom = rendered.origin[1] + (hit.rect.y + hit.rect.h) as f32 * rendered.scale;
+                assert!(
+                    right <= size[0] as f32 && bottom <= size[1] as f32,
+                    "clipped control on {size:?} page{page}"
+                );
+                for other in &controls[index + 1..] {
+                    if hit.pressed == other.pressed {
+                        continue;
+                    }
+                    let overlap_x = hit.rect.x < other.rect.x + other.rect.w
+                        && other.rect.x < hit.rect.x + hit.rect.w;
+                    let overlap_y = hit.rect.y < other.rect.y + other.rect.h
+                        && other.rect.y < hit.rect.y + hit.rect.h;
+                    assert!(
+                        !(overlap_x && overlap_y),
+                        "overlapping controls on {size:?} page{page}"
+                    );
+                }
+            }
+            if page + 1 < count {
+                let next = point(&presentation, "mod.next", 0.5);
+                assert!(next[0] < size[0] as f32 && next[1] < size[1] as f32);
+                presentation.mod_panel_events(next, true, true);
+                frame(&mut presentation, size);
+            }
+        }
+        assert_eq!(
+            seen.len(),
+            settings.controls.len(),
+            "unreachable control on {size:?}"
+        );
+    }
 }

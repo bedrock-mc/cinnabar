@@ -98,7 +98,7 @@ impl ModPanel {
                 *index = (*index + 1) % options.len() as u32;
                 *index as f32
             }
-            Control::Button { .. } if pressed => 1.0,
+            Control::Button { .. } | Control::Keybind { .. } if pressed => 1.0,
             Control::Slider {
                 value,
                 min,

@@ -1,6 +1,8 @@
 //! A private JSON-UI catalog for bounded personal-extension controls.
 
+mod compact;
 mod data;
+mod icons;
 mod input;
 mod layout;
 mod template;
