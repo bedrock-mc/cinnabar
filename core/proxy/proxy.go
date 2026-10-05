@@ -533,6 +533,7 @@ func relayPackets(
 		case <-ctx.Done():
 		}
 	}
+	reportSessionTerminal(ctx, first.direction, first.err, downstream, upstream)
 	var delivery <-chan error
 	var deliveryErr error
 	var disconnect *upstreamRelayDisconnect

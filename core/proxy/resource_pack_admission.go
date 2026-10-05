@@ -402,6 +402,7 @@ type preparedConnection struct {
 	releaseTarget func() error
 	packAdmission *resourcePackAdmissionTelemetry
 	packStack     *selectedResourcePackStack
+	telemetry     *joinTelemetry
 
 	closeOnce sync.Once
 	closeErr  error
@@ -681,6 +682,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		releaseTarget: target.close,
 		packAdmission: packAdmission,
 		packStack:     packStack,
+		telemetry:     telemetry,
 	}
 	return result, nil
 }
@@ -786,6 +788,9 @@ func (connections *preparedConnections) shutdown() error {
 // servePreparedConnection attaches the downstream leg to its sole resource owner and runs the relay.
 func servePreparedConnection(ctx context.Context, downstream downstreamSession, prepared *preparedConnection) (err error) {
 	prepared.downstream = downstream
+	if prepared.telemetry != nil {
+		ctx = context.WithValue(ctx, joinTelemetryKey{}, prepared.telemetry)
+	}
 	defer func() { err = errors.Join(err, prepared.close()) }()
 	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() })
 }
