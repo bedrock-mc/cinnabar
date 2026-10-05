@@ -85,6 +85,21 @@ pub(in crate::stream) enum SnapshotBlock {
     Resident(Arc<SubChunk>),
 }
 
+impl SnapshotBlock {
+    pub(in crate::stream) fn is_known_air(&self, classifier: BlockClassifier) -> bool {
+        match self {
+            Self::KnownAir => true,
+            Self::Resident(sub_chunk) => sub_chunk.storages().iter().all(|storage| {
+                storage
+                    .palette()
+                    .values()
+                    .iter()
+                    .all(|&runtime_id| classifier.is_air(runtime_id))
+            }),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(in crate::stream) struct LightBlockSnapshot {
     pub(in crate::stream) dimension: i32,
@@ -364,14 +379,16 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             })
             .collect();
     }
-    // Mixed columns must be solved together: a lower resident sub-chunk may
-    // illuminate air above it, including air that otherwise looks uniform.
+    // Keep an air halo above every possible block source inside the dense mixed solve.
     let all_known_air = jobs.iter().all(|job| {
-        matches!(
-            job.blocks.blocks.get(&job.key),
-            Some(SnapshotBlock::KnownAir)
-        )
+        job.blocks
+            .blocks
+            .get(&job.key)
+            .is_some_and(|block| block.is_known_air(job.blocks.classifier))
     });
+    let highest_mixed_source = (!all_known_air)
+        .then(|| super::prefix::highest_mixed_block_source(&jobs))
+        .flatten();
     let mut solved_prefix = Vec::new();
     let mut remaining = Vec::new();
     let mut solved_above = None::<(SubChunkKey, Arc<SubChunkLight>, Arc<DirectSkyMask>)>;
@@ -389,9 +406,10 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             );
             job.prior.trusted_boundaries.insert(*key);
         }
-        let uniform = all_known_air
-            .then(|| uniform_known_air_light(&job))
-            .flatten();
+        let uniform = (all_known_air
+            || super::prefix::above_mixed_block_sources(job.key, highest_mixed_source))
+        .then(|| uniform_known_air_light(&job))
+        .flatten();
         let Some((replacement, direct_sky)) = uniform else {
             remaining.push(job);
             remaining.extend(candidates);
@@ -588,10 +606,12 @@ fn finish_solved_light_job(
 pub(in crate::stream) fn uniform_known_air_light(
     job: &PreparedLightJob,
 ) -> Option<(SubChunkLight, DirectSkyMask)> {
-    if !matches!(
-        job.blocks.blocks.get(&job.key),
-        Some(SnapshotBlock::KnownAir)
-    ) {
+    if !job
+        .blocks
+        .blocks
+        .get(&job.key)
+        .is_some_and(|block| block.is_known_air(job.blocks.classifier))
+    {
         return None;
     }
     let trusted_zero = BoundaryLightSample::trusted(0, false).ok()?;

@@ -119,7 +119,9 @@ pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite
             }),
         _ => false,
     };
-    if !cube || block.support != VisualSupport::Exact || block.animation != NO_ANIMATION {
+    let supported = block.support == VisualSupport::Exact
+        || (block.kind == VisualKind::Cube && block.support == VisualSupport::VanillaFallback);
+    if !cube || !supported || block.animation != NO_ANIMATION {
         return None;
     }
     let texture = overlay.texture.as_ref()?;

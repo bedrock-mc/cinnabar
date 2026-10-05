@@ -586,6 +586,22 @@ pub async fn connect_target(socket_dir: &Path, target: &ConnectTarget) -> Result
     Ok(())
 }
 
+/// Warms only the selected server's transport; `None` cancels it without selecting a join.
+pub async fn prepare_connect_target(
+    socket_dir: &Path,
+    target: Option<&ConnectTarget>,
+) -> Result<(), BridgeError> {
+    let params = target.map_or(
+        ConnectParams {
+            kind: "",
+            value: "",
+        },
+        ConnectTarget::params,
+    );
+    call::<Empty, _>(socket_dir, "prepare_connect.v1", Some(params)).await?;
+    Ok(())
+}
+
 /// Reads the sign-in state.
 pub async fn account_status(socket_dir: &Path) -> Result<Account, BridgeError> {
     let body: AccountBody = call::<_, ()>(socket_dir, "account_status.v1", None).await?;
@@ -858,3 +874,6 @@ mod tests {
         assert!(parse_response::<Empty>(neither).is_err());
     }
 }
+
+#[cfg(all(test, unix))]
+mod prepare_connect_tests;

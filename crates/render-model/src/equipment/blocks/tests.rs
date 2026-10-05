@@ -77,6 +77,51 @@ fn cube_sheets_preserve_blended_and_cutout_face_pixels() {
 }
 
 #[test]
+fn session_fallback_cubes_keep_resolved_face_sheets() {
+    let mut session_cube = overlay(
+        BlockFlags::CUBE_GEOMETRY,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        32,
+    );
+    session_cube.visuals[0].support = VisualSupport::VanillaFallback;
+    let sheet = overlay_sheet(&session_cube, 0)
+        .expect("resolved session cube faces retain their held block sheet");
+    assert_eq!([sheet.width, sheet.height], assets::BLOCK_ITEM_SHEET_SIZE);
+    assert!(
+        sheet
+            .rgba8
+            .chunks_exact(4)
+            .all(|pixel| pixel == [40, 80, 120, 128])
+    );
+
+    session_cube.visuals[0].faces[0] = DIAGNOSTIC_MATERIAL;
+    assert!(overlay_sheet(&session_cube, 0).is_none());
+    session_cube.visuals[0].faces[0] = 1;
+    session_cube.visuals[0].animation = 0;
+    assert!(overlay_sheet(&session_cube, 0).is_none());
+}
+
+#[test]
+fn incomplete_template_geometry_does_not_gain_session_cube_admission() {
+    let mut model = overlay(BlockFlags::CUBE_GEOMETRY, 0, 16);
+    model.visuals[0].kind = VisualKind::Model;
+    model.visuals[0].support = VisualSupport::VanillaFallback;
+    model.visuals[0].model_template = 0;
+    model.model_templates.push(assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 6,
+        flags: assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    });
+    assert!(overlay_sheet(&model, 0).is_none());
+    model.visuals[0].kind = VisualKind::Cube;
+    model.visuals[0].flags = BlockFlags::empty();
+    assert!(overlay_sheet(&model, 0).is_none());
+    model.visuals[0].flags = BlockFlags::CUBE_GEOMETRY;
+    model.visuals[0].support = VisualSupport::Diagnostic;
+    assert!(overlay_sheet(&model, 0).is_none());
+}
+
+#[test]
 fn unresolved_tint_and_non_cube_shapes_do_not_create_cube_sheets() {
     assert!(
         overlay_sheet(

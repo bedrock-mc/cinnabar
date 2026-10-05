@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// How long a join waits for the core to answer `connect.v1`.
-const SELECT_TIMEOUT: Duration = Duration::from_secs(3);
+pub(super) const SELECT_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_PORT: u16 = 19132;
 const LOCAL_SERVER: &str = if cfg!(windows) {
     "bedrock-local-server.exe"

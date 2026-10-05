@@ -32,6 +32,19 @@ Normal menu joins reuse the launcher's account core, so process-local verifier
 caches survive idle preparation and later joins. Direct-address fallback cores
 start fresh and have less preparation time.
 
+Six additional paired attempts compared current join-time overlap against an
+explicit selection 250 ms before Join. Zeno's upstream StartGame median fell
+from 635.677 to 551.332 ms; Zeqa's initial endpoint fell from 388.953 to
+364.873 ms. These exclude terrain and Zeqa's later transfer. A 3.149 s unfinished
+Zeqa transport outlier remains in the sample; it motivated consuming only
+completed, healthy preparations, with immediate ordinary-dial fallback otherwise.
+The paired measurements preceded that guard and do not measure its effect.
+
+The menu prepares only its explicitly selected server. One idle RakNet transport
+expires after five seconds and is cancelled on selection change or shutdown.
+No Login or Minecraft application packet is sent before Join. A successful claim
+detaches expiry and shutdown cleanup from the retained concrete connection.
+
 An existing native optimized build joined Zeno on macOS and rendered its lobby.
 The loading milestone occurred with zero opaque terrain, because this server
 streams terrain after initialization. Full-view delivery then grew from five
@@ -43,6 +56,16 @@ capture shared the machine with builds and does not qualify a release budget.
 Relative to native bootstrap, the player column was already loaded at 909 ms;
 the first terrain mesh arrived at 1,872 ms and its first GPU witness at 2,026 ms.
 The aggregate trace cannot identify the exact arrival of all nine spawn columns.
+
+The first updated debug client reproduced the user's longer waits. Four warm
+Zeno joins reached the near-terrain GPU witness in 2.161–2.527 s from the menu
+action. Unchanged pack presentation unexpectedly recompiled on every join,
+taking 201–291 ms; equivalent item registries arrived in different wire orders.
+Two Zeqa joins transferred to `pvp.inpvp.net:19132` and reached the near witness
+in approximately 9.25 and 7.42 s from the original action. The final endpoint's
+terrain phase consumed 4.95 and 4.81 s despite most column delivery finishing
+earlier, with thousands of lighting and meshing jobs pending. These captures
+are diagnostic debug evidence, not matched release or complete-view acceptance.
 
 ## Implemented changes
 
@@ -57,17 +80,28 @@ The aggregate trace cannot identify the exact arrival of all nine spawn columns.
   decryption identity, exact startup inputs, language and vanilla context.
   Admission and session-owned components remain fresh. Artwork reuse requires
   the same underlying pages and actor pack.
+- Compare the compiler's effective registry inputs: ignore irrelevant map/set
+  order while preserving ordered palettes, permutations and duplicate winners.
+  Prepare initial server UI catalogs on the worker against the exact carrier,
+  retaining bounded reuse for unchanged source and carrier identities.
 - Schedule the complete spawn columns and their lighting halo ahead of distant
   work, including late-arriving spawn work behind a bounded ingress backlog.
   Return to camera ordering once actual local terrain is ready.
+- Recheck higher-priority deferred startup jobs even while a ready queue remains
+  populated. Preserve urgency, stale-revision rejection and bounded scan work.
 - Coalesce repeated invalidations while lighting is queued; the first mutation
   of an in-flight snapshot still rejects its obsolete completion. Preserve
   pending age, urgency promotion and dependency wakeups.
 - Prove known-air lighting from trusted uniform boundary samples without
   scanning every face cell; retain the complete solver for mixed or packed
   boundaries, stale provenance and ambiguous sky input.
+- Recognize resident air only when every storage palette entry has the exact
+  air classification. Solve mixed-column upper air uniformly only beyond the
+  maximum possible block-light propagation distance, retaining a dense halo
+  above all potentially emitting or retained nonzero-light sources.
 - Record generation-fenced Join milestones and keep the GPU probe alive until
   terrain has a later completed frame, including servers that initialize first.
+  Record original-action elapsed time across automatic transfers as well.
 
 Deterministic scheduler coverage completes nine spawn columns after 216 section
 dispatches instead of 6,292 in a 6,936-section fixture. This measures work order,
@@ -79,6 +113,13 @@ presentation preparation with a glyph image took 8.900 ms versus 0.042 ms on a
 cache hit. These are warm same-process fixtures, not fresh admission or release
 join measurements. Owned 8 MiB deferred frames fell from 138 microseconds to
 0.792 microseconds in the focused fixture.
+
+An equivalent reordered 2,077-icon/98-name fixture with a glyph image took
+21.699 ms without reuse versus 0.998 ms with canonical input comparison. A mixed
+24-section resident-air lighting fixture took 46.460 ms through the full solver
+versus 18.014 ms through the prefix batch. Dense work decreased from 24 sections
+to 11, with exact full-solver comparisons including emitters, layered palettes,
+packed boundaries and stale trust. These fixtures do not establish live savings.
 
 The uniform direct-sky lighting fixture replaces 1,792 boundary-cell reads with
 seven uniform samples. Optimized test-profile median calls measured 41.524

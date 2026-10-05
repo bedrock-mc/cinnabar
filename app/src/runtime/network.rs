@@ -51,6 +51,7 @@ pub(crate) use inventory::{
 pub(crate) use pack_reload::{PackReload, reload_resource_packs};
 #[cfg(test)]
 pub(crate) use resource_packs::PackApplication;
+pub(crate) use resource_packs::ui_catalog::PackUiCatalog;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, active_language_code,
     classify_bootstrap_generation, set_active_language, set_base_material_keys,

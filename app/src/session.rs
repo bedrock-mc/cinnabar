@@ -92,6 +92,8 @@ pub(crate) struct SessionController {
     join_clock: Instant,
     join_timeline: Option<client_session::join_timing::JoinTimeline>,
     join_origin: JoinOrigin,
+    join_action_started: Duration,
+    join_action_offset: Duration,
 }
 
 impl Default for SessionController {
@@ -113,6 +115,8 @@ impl SessionController {
             join_clock: Instant::now(),
             join_timeline: None,
             join_origin: JoinOrigin::DirectSession,
+            join_action_started: Duration::ZERO,
+            join_action_offset: Duration::ZERO,
         }
     }
 
@@ -124,6 +128,10 @@ impl SessionController {
     }
 
     fn begin_join(&mut self, generation: u64, started: Duration, origin: JoinOrigin) {
+        if origin != JoinOrigin::ServerTransfer {
+            self.join_action_started = started;
+        }
+        self.join_action_offset = started.saturating_sub(self.join_action_started);
         self.join_timeline = Some(client_session::join_timing::JoinTimeline::new(
             generation, started,
         ));
@@ -184,8 +192,13 @@ impl SessionController {
             phase = milestone.phase.as_str(),
             elapsed_ms = milestone.since_previous.as_secs_f64() * 1_000.0,
             total_elapsed_ms = milestone.elapsed.as_secs_f64() * 1_000.0,
+            action_elapsed_ms = self.action_elapsed(milestone.elapsed).as_secs_f64() * 1_000.0,
             "join milestone"
         );
+    }
+
+    fn action_elapsed(&self, hop_elapsed: Duration) -> Duration {
+        self.join_action_offset.saturating_add(hop_elapsed)
     }
 
     fn publish(&self, menu: &mut MenuRuntime) {
@@ -356,6 +369,7 @@ pub(crate) struct SessionResources<'w> {
     interaction: ResMut<'w, InteractionOriginSnapshot>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
+    ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
 }
 
 impl SessionResources<'_> {
@@ -508,6 +522,7 @@ fn poll_join(
                 cache,
                 socket_dir,
                 session.actor_artwork.as_deref(),
+                session.ui_catalog.as_deref(),
             ) {
                 if owned_core {
                     let directory = controller.directory.take();
@@ -533,6 +548,7 @@ fn start_network(
     cache: &BlobCache,
     socket_dir: PathBuf,
     actor_artwork: Option<&render::ActorArtworkPages>,
+    ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
 ) -> Result<(), String> {
     let replacement = crate::runtime::network::spawn_network(NetworkConfig {
         session_generation,
@@ -541,6 +557,7 @@ fn start_network(
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin().clone(),
         actor_artwork: actor_artwork.cloned(),
+        ui_catalog: ui_catalog.map(|base| base.0.clone()),
     })
     .map_err(|error| error.to_string())?;
     commands.insert_resource(replacement.movement_ticker());

@@ -59,6 +59,8 @@ pub(crate) trait AccountControl {
     fn report_message(&mut self, _event: protocol::launcher_control::MessageEvent) {}
     /// The server rows `ping.v1` keeps fresh while the launcher shows them.
     fn set_ping_targets(&mut self, _targets: Vec<String>) {}
+    /// Warms the explicitly selected server; `None` cancels a selection that is no longer shown.
+    fn prepare_selected_server(&mut self, _address: Option<&str>) {}
     /// Pongs from the latest ping round, keyed by address.
     fn pings(&mut self) -> Option<Vec<(String, PingInfo)>> {
         None
@@ -134,6 +136,25 @@ impl MenuRuntime {
             Vec::new()
         };
         control.set_ping_targets(targets);
+        if !self.is_connecting() {
+            let selected =
+                (self.visible && self.is_launcher() && self.screen == super::MenuScreen::Servers)
+                    .then(|| {
+                        self.feeds
+                            .selected_saved
+                            .and_then(|index| self.servers.get(index))
+                            .map(|server| server.address.as_str())
+                            .or_else(|| {
+                                self.feeds
+                                    .selected_featured
+                                    .and_then(|index| self.featured.get(index))
+                                    .map(|server| server.address.as_str())
+                            })
+                    })
+                    .flatten()
+                    .filter(|address| !address.trim().is_empty());
+            control.prepare_selected_server(selected);
+        }
         // A round updates the rows it covered; others keep their last pong.
         if let Some(pings) = control.pings() {
             self.feeds.pings.extend(pings);
@@ -154,6 +175,7 @@ impl MenuRuntime {
             }
         }
         if std::mem::take(&mut self.sign_out_requested) {
+            control.prepare_selected_server(None);
             control.sign_out();
             self.finish_sign_out();
         }
@@ -194,9 +216,13 @@ mod tests {
     struct Fake {
         events: Vec<AccountEvent>,
         signed_out: bool,
+        prepared: Vec<Option<String>>,
     }
 
     impl AccountControl for Fake {
+        fn prepare_selected_server(&mut self, address: Option<&str>) {
+            self.prepared.push(address.map(str::to_owned));
+        }
         fn account_status(&mut self) -> Option<AuthState> {
             Some(AuthState::Authenticated)
         }
@@ -297,6 +323,7 @@ mod tests {
                 reason: "Server closed".into(),
             }],
             signed_out: false,
+            prepared: Vec::new(),
         };
         menu.sync_account_control(&mut control);
         let view = menu.view();
@@ -312,5 +339,75 @@ mod tests {
         assert!(control.signed_out);
         assert!(menu.friends.is_empty());
         assert_eq!(menu.view().screen, super::super::MenuScreen::Profile);
+    }
+
+    #[test]
+    fn selected_server_preparation_follows_only_explicit_shown_details() {
+        use super::super::{MenuAction, MenuScreen};
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.servers = vec![launcher::menu::view::SavedServer {
+            name: "Saved".into(),
+            address: "saved.test".into(),
+            favorite: false,
+            last_joined_unix: 0,
+        }];
+        menu.featured = vec![MenuServerCard {
+            name: "Featured".into(),
+            address: "featured.test".into(),
+            caption: String::new(),
+            image_path: String::new(),
+            icon: None,
+        }];
+        let mut control = Fake {
+            events: Vec::new(),
+            signed_out: false,
+            prepared: Vec::new(),
+        };
+        menu.enter(MenuScreen::Servers);
+        menu.sync_account_control(&mut control);
+        assert_eq!(
+            control.prepared.last().unwrap(),
+            &None,
+            "showing the catalog does not select a target"
+        );
+        menu.activate(MenuAction::SelectSaved(0));
+        menu.sync_account_control(&mut control);
+        assert_eq!(
+            control.prepared.last().unwrap().as_deref(),
+            Some("saved.test")
+        );
+        menu.activate(MenuAction::SelectSaved(9));
+        menu.sync_account_control(&mut control);
+        assert_eq!(control.prepared.last().unwrap(), &None);
+        menu.activate(MenuAction::SelectFeatured(0));
+        menu.sync_account_control(&mut control);
+        assert_eq!(
+            control.prepared.last().unwrap().as_deref(),
+            Some("featured.test")
+        );
+        assert!(
+            menu.take_join_intent().is_none(),
+            "selection prepares transport without joining"
+        );
+        menu.observe_session(crate::session::SessionStatus {
+            connecting: true,
+            owns_directory: false,
+        });
+        let selections = control.prepared.len();
+        menu.sync_account_control(&mut control);
+        assert_eq!(
+            control.prepared.len(),
+            selections,
+            "the join retains its warm target to claim"
+        );
+        menu.observe_session(crate::session::SessionStatus::default());
+        menu.enter(MenuScreen::Home);
+        menu.sync_account_control(&mut control);
+        assert_eq!(control.prepared.last().unwrap(), &None);
+        menu.enter(MenuScreen::Servers);
+        menu.activate(MenuAction::SignOut);
+        menu.sync_account_control(&mut control);
+        assert_eq!(control.prepared.last().unwrap(), &None);
+        assert!(control.signed_out);
     }
 }

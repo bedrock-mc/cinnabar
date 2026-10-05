@@ -35,14 +35,18 @@ func (source joinProfileTokenSource) MultiplayerToken(ctx context.Context, key *
 // TestJoinProfileLive measures authenticated StartGame arrival, before terrain or presentation readiness.
 // It copies credentials into a private scratch cache and never outputs packet payloads or tokens.
 func TestJoinProfileLive(t *testing.T) {
-	joinProfileLive(t, false)
+	joinProfileLive(t, false, false)
 }
 
 func TestJoinProfileLiveWarmup(t *testing.T) {
-	joinProfileLive(t, true)
+	joinProfileLive(t, true, false)
 }
 
-func joinProfileLive(t *testing.T, warmAuthentication bool) {
+func TestJoinProfileLiveHeadStart(t *testing.T) {
+	joinProfileLive(t, true, true)
+}
+
+func joinProfileLive(t *testing.T, warmAuthentication, selectedHeadStart bool) {
 	server := os.Getenv("CINNABAR_JOIN_PROFILE_SERVER")
 	if server == "" {
 		t.Skip("missing fixture: CINNABAR_JOIN_PROFILE_SERVER")
@@ -94,12 +98,23 @@ func joinProfileLive(t *testing.T, warmAuthentication bool) {
 		}
 	}
 	reportJoinProfileServer(t, ctx, server)
+	t.Log("JOIN_PROFILE measured_boundary=initial_endpoint_start_game final_session_ready=unmeasured")
 	const attempts = 13
 	for attempt := range attempts {
 		overlap := attempt > 0 && attempt%2 == 0
+		headStart := selectedHeadStart && overlap
+		var selector *UpstreamSelector
+		if headStart {
+			selector = new(UpstreamSelector)
+			selector.startTransportPreparation(ctx)
+			selector.PrepareTransport(server)
+			time.Sleep(250 * time.Millisecond)
+			selector.Set(server)
+			t.Logf("JOIN_PROFILE attempt=%d selected_transport_lead_ms=250", attempt)
+		}
 		started := time.Now()
 		report := func(phase string, duration time.Duration) {
-			t.Logf("JOIN_PROFILE attempt=%d overlap=%t phase=%s elapsed_ms=%.3f duration_ms=%.3f", attempt, overlap, phase, time.Since(started).Seconds()*1000, duration.Seconds()*1000)
+			t.Logf("JOIN_PROFILE attempt=%d overlap=%t head_start=%t phase=%s elapsed_ms=%.3f duration_ms=%.3f", attempt, overlap, headStart, phase, time.Since(started).Seconds()*1000, duration.Seconds()*1000)
 		}
 		dialCtx, cancelDial := context.WithCancelCause(ctx)
 		budget := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, cancelDial)
@@ -121,7 +136,10 @@ func joinProfileLive(t *testing.T, warmAuthentication bool) {
 		transfers := newProfilePackTransfers(minecraft.DefaultProtocol)
 		dialer.PacketFunc = transfers.wrap(dialer.PacketFunc)
 		var conn *minecraft.Conn
-		if overlap {
+		if headStart {
+			conn, err = dialWithSelectedTransport(dialCtx, selector, minecraft.RakNet{}, server, dialer.DialContextNetwork)
+			selector.stopTransportPreparation()
+		} else if overlap || selectedHeadStart {
 			conn, err = dialWithPreparedTransport(dialCtx, minecraft.RakNet{}, server, dialer.DialContextNetwork)
 		} else {
 			conn, err = dialer.DialContextNetwork(dialCtx, minecraft.RakNet{}, server)

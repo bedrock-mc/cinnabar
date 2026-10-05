@@ -256,8 +256,10 @@ mod sky_boundary;
 mod mesh_admission;
 
 mod backlog;
+mod mixed_prefix;
 mod mutation_summary;
 mod pending_coalescing;
+mod startup_lanes;
 mod uniform_air;
 
 /// Retired workers without tracked completions must release their slots before convergence retries.

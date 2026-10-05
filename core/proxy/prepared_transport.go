@@ -19,13 +19,19 @@ type preparedTransport struct {
 	done      chan struct{}
 	claimed   atomic.Bool
 	handedOff atomic.Bool
+	disposed  atomic.Bool
 	conn      net.Conn
 	err       error
+	dispose   func()
 }
 
 func newPreparedTransport(ctx context.Context, network minecraft.Network, address string) *preparedTransport {
+	return newOwnedPreparedTransport(ctx, network, address, nil)
+}
+
+func newOwnedPreparedTransport(ctx context.Context, network minecraft.Network, address string, dispose func()) *preparedTransport {
 	ctx, cancel := context.WithCancel(ctx)
-	prepared := &preparedTransport{Network: network, address: address, cancel: cancel, done: make(chan struct{})}
+	prepared := &preparedTransport{Network: network, address: address, cancel: cancel, done: make(chan struct{}), dispose: dispose}
 	go func() {
 		defer close(prepared.done)
 		defer func() {
@@ -54,8 +60,24 @@ func (prepared *preparedTransport) DialContext(ctx context.Context, address stri
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if connection, ok := prepared.conn.(interface{ Context() context.Context }); ok && connection.Context().Err() != nil {
+			return nil, net.ErrClosed
+		}
 		prepared.handedOff.Store(prepared.conn != nil && prepared.err == nil)
 		return prepared.conn, prepared.err
+	}
+}
+
+func (prepared *preparedTransport) ready() bool {
+	select {
+	case <-prepared.done:
+		if prepared.conn == nil || prepared.err != nil {
+			return false
+		}
+		connection, scoped := prepared.conn.(interface{ Context() context.Context })
+		return !scoped || connection.Context().Err() == nil
+	default:
+		return false
 	}
 }
 
@@ -63,8 +85,13 @@ func (prepared *preparedTransport) DialContext(ctx context.Context, address stri
 func (prepared *preparedTransport) finish(retained bool) {
 	prepared.cancel()
 	<-prepared.done
-	if prepared.conn != nil && (!retained || !prepared.handedOff.Load()) {
-		_ = prepared.conn.Close()
+	if (!retained || !prepared.handedOff.Load()) && prepared.disposed.CompareAndSwap(false, true) {
+		if prepared.dispose != nil {
+			prepared.dispose()
+		}
+		if prepared.conn != nil {
+			_ = prepared.conn.Close()
+		}
 	}
 }
 

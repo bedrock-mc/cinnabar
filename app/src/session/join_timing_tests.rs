@@ -7,6 +7,33 @@ use render::VisibilityDiagnosticsInput;
 use render_model::{VisibilityDiagnosticSnapshot, VisibilityKeyDigest};
 
 #[test]
+fn automatic_transfers_keep_original_action_time_and_a_user_join_resets_it() {
+    let mut controller = SessionController::default();
+    controller.begin_join(2, Duration::from_secs(10), JoinOrigin::MenuAction);
+    assert_eq!(
+        controller.action_elapsed(Duration::from_secs(1)),
+        Duration::from_secs(1)
+    );
+    controller.join_timeline = None;
+    controller.begin_join(3, Duration::from_secs(12), JoinOrigin::ServerTransfer);
+    assert_eq!(
+        controller.action_elapsed(Duration::from_secs(3)),
+        Duration::from_secs(5)
+    );
+    controller.join_timeline = None;
+    controller.begin_join(4, Duration::from_secs(16), JoinOrigin::ServerTransfer);
+    assert_eq!(
+        controller.action_elapsed(Duration::from_secs(2)),
+        Duration::from_secs(8)
+    );
+    controller.begin_join(5, Duration::from_secs(20), JoinOrigin::MenuAction);
+    assert_eq!(
+        controller.action_elapsed(Duration::from_secs(1)),
+        Duration::from_secs(1)
+    );
+}
+
+#[test]
 fn initial_join_timing_keeps_its_origin_and_does_not_restart() {
     let mut controller = SessionController::default();
     let generation = INITIAL_SESSION_GENERATION;

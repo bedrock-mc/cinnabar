@@ -30,6 +30,7 @@ mod home_promo;
 
 mod message_reports;
 pub(super) mod profile_worker;
+mod server_preparation;
 
 #[cfg(all(test, unix))]
 mod profile_polling_tests;
@@ -110,6 +111,7 @@ pub(crate) struct LauncherAccount {
     sign_out: Sender<()>,
     profile_refresh: Sender<()>,
     message_reports: Sender<MessageEvent>,
+    server_preparation: server_preparation::ServerPreparation,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
     socket_dir: PathBuf,
@@ -130,6 +132,8 @@ impl LauncherAccount {
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
         let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
+        let server_preparation =
+            server_preparation::ServerPreparation::start(socket_dir.clone(), stop.clone());
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
@@ -144,6 +148,7 @@ impl LauncherAccount {
             sign_out,
             profile_refresh,
             message_reports,
+            server_preparation,
             _alive: alive,
             socket_dir,
         }
@@ -537,6 +542,10 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
 }
 
 impl AccountControl for LauncherAccount {
+    fn prepare_selected_server(&mut self, address: Option<&str>) {
+        self.server_preparation.select(address);
+    }
+
     fn account_status(&mut self) -> Option<AuthState> {
         self.with(|snapshot| snapshot.account.as_ref().and_then(auth_state))
     }
@@ -954,6 +963,7 @@ mod tests {
             _alive: alive,
             socket_dir: PathBuf::new(),
             message_reports: crossbeam_channel::unbounded().0,
+            server_preparation: server_preparation::ServerPreparation::disconnected(),
         };
         assert!(account.sign_out());
         publish_account(&snapshot, generation, |snapshot| {

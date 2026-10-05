@@ -213,14 +213,18 @@ func (s *disconnectObservingSession) ReadBatchRaw(decode func(uint32) bool) ([]m
 
 // UpstreamSelector holds the client-chosen upstream for later connections. The zero value is ready.
 type UpstreamSelector struct {
-	mu     sync.Mutex
-	target string
+	mu          sync.Mutex
+	target      string
+	preparation *selectedTransport
 }
 
 // Set selects target ("host:port", "realm_id/N" or "friend_xuid/X"); "" clears.
 func (s *UpstreamSelector) Set(target string) {
 	s.mu.Lock()
 	s.target = target
+	if s.preparation != nil {
+		s.preparation.keep(target)
+	}
 	s.mu.Unlock()
 }
 

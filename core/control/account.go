@@ -15,6 +15,7 @@ const (
 	methodRealmsList     = "realms_list.v1"
 	methodFriendsList    = "friends_list.v1"
 	methodConnect        = "connect.v1"
+	methodPrepareConnect = "prepare_connect.v1"
 	methodAccountStatus  = "account_status.v1"
 	methodSignOut        = "sign_out.v1"
 	methodEvents         = "events.v1"
@@ -60,6 +61,11 @@ type Services interface {
 	Connect(ctx context.Context, kind, value string) error
 	// SignOut deletes the cached Microsoft tokens.
 	SignOut() error
+}
+
+// PrepareServices optionally prepares a selected transport without selecting a game session.
+type PrepareServices interface {
+	PrepareConnect(ctx context.Context, kind, value string) error
 }
 
 // AuthV1 is the sign-in state; secrets and raw errors never appear in it.
@@ -109,7 +115,7 @@ type emptyResultV1 struct {
 
 func isServiceMethod(method string) bool {
 	switch method {
-	case methodRealmsList, methodFriendsList, methodConnect, methodAccountStatus, methodSignOut, methodEvents:
+	case methodRealmsList, methodFriendsList, methodConnect, methodPrepareConnect, methodAccountStatus, methodSignOut, methodEvents:
 		return true
 	}
 	return isScreenMethod(method)
@@ -211,7 +217,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			friends = []catalog.Friend{}
 		}
 		return reply.ok(friendsResultV1{SchemaVersion: 1, Friends: friends})
-	case methodConnect:
+	case methodConnect, methodPrepareConnect:
 		var params struct {
 			Kind  *string `json:"kind"`
 			Value *string `json:"value"`
@@ -219,15 +225,28 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if !decodeParams(raw, &params) || params.Kind == nil || params.Value == nil {
 			return reply.invalid()
 		}
-		if len(*params.Value) == 0 || len(*params.Value) > maxTargetValueLen {
+		cancelPreparation := method == methodPrepareConnect && *params.Kind == "" && *params.Value == ""
+		if !cancelPreparation && (len(*params.Value) == 0 || len(*params.Value) > maxTargetValueLen) {
 			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
 		switch *params.Kind {
 		case TargetRakNet, TargetRealm, TargetFriend, TargetGathering:
+		case "":
+			if !cancelPreparation {
+				return reply.fail(codeInvalidTarget, "Invalid target")
+			}
 		default:
 			return reply.fail(codeInvalidTarget, "Invalid target")
 		}
-		if err := services.Connect(ctx, *params.Kind, *params.Value); err != nil {
+		connect := services.Connect
+		if method == methodPrepareConnect {
+			preparation, supported := services.(PrepareServices)
+			if !supported {
+				return reply.fail(codeServicesDisabled, "Launcher services unavailable")
+			}
+			connect = preparation.PrepareConnect
+		}
+		if err := connect(ctx, *params.Kind, *params.Value); err != nil {
 			return failService(err)
 		}
 		return reply.ok(emptyResultV1{SchemaVersion: 1})

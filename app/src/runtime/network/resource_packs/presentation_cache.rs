@@ -7,6 +7,9 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+mod compilation_inputs;
+use compilation_inputs::inputs_mismatch;
+
 static CONTEXT_GENERATION: AtomicU64 = AtomicU64::new(0);
 static CACHE: PresentationCache = PresentationCache(Mutex::new(None));
 static ARTWORK_CACHE: ArtworkCache = ArtworkCache(Mutex::new(None));
@@ -110,23 +113,38 @@ impl PresentationCache {
             .iter()
             .map(resource_pack::ValidatedPack::compilation_identity)
             .collect::<Vec<_>>();
-        {
+        let miss_reason = {
             let cached = self
                 .0
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(cached) = cached.as_ref()
-                && cached.stack == identity
-                && cached.context.matches(&context)
-                && same_inputs(&cached.application.inputs, &inputs)
-                && context_is_current(&context)
-            {
-                let mut application = cached.application.clone();
-                application.inputs = inputs;
-                application.admission = PackAdmission::Validated(stack);
-                return (application, true);
+            if let Some(entry) = cached.as_ref() {
+                let mismatch = if entry.stack != identity {
+                    Some("pack_stack")
+                } else if !entry.context.matches(&context) || !context_is_current(&context) {
+                    Some("context")
+                } else {
+                    inputs_mismatch(&entry.application.inputs, &inputs)
+                };
+                if let Some(reason) = mismatch {
+                    reason
+                } else {
+                    let mut application = entry.application.clone();
+                    application.inputs = inputs;
+                    application.admission = PackAdmission::Validated(stack);
+                    drop(cached);
+                    bevy::log::info!(cache_hit = true, "session pack presentation cache");
+                    return (application, true);
+                }
+            } else {
+                "empty"
             }
-        }
+        };
+        bevy::log::info!(
+            cache_hit = false,
+            miss_reason,
+            "session pack presentation cache"
+        );
         let application = compile(stack, inputs);
         if context_is_current(&context) {
             let mut compiled = application.clone();
@@ -144,13 +162,6 @@ impl PresentationCache {
         }
         (application, false)
     }
-}
-
-fn same_inputs(left: &client_session::PackInputs, right: &client_session::PackInputs) -> bool {
-    left.hashed == right.hashed
-        && left.blocks == right.blocks
-        && left.icons == right.icons
-        && left.block_items == right.block_items
 }
 
 pub(super) fn invalidate_context() {

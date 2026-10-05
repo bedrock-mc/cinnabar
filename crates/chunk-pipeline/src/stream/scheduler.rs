@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) const NEAR_CAMERA_RADIUS: i32 = 4;
 
-/// One scheduling lane: ready work first, deferred work once ready drains.
+/// Ready work leads during ordinary streaming; startup also rechecks higher-priority deferred work.
 #[derive(Default)]
 pub(super) struct Lane {
     pub(super) ready: BinaryHeap<PendingSchedulerCandidate>,
@@ -19,6 +19,32 @@ impl Lane {
             &mut self.deferred
         } else {
             &mut self.ready
+        }
+    }
+
+    fn prioritize_deferred(
+        &mut self,
+        budget: &mut usize,
+        deadline: Option<Instant>,
+        is_current: impl Fn(SubChunkKey, u64) -> bool,
+    ) {
+        let ready_best = self.ready.peek().copied();
+        let mut examined = false;
+        while *budget != 0
+            && (!examined || deadline.is_none_or(|deadline| Instant::now() < deadline))
+        {
+            let Some(candidate) = self.deferred.peek().copied() else {
+                break;
+            };
+            if ready_best.is_some_and(|ready| candidate <= ready) {
+                break;
+            }
+            self.deferred.pop();
+            *budget -= 1;
+            examined = true;
+            if is_current(candidate.key, candidate.revision) {
+                self.ready.push(candidate);
+            }
         }
     }
 }
@@ -205,9 +231,13 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
             let (lane, ready) = route(key, queued_revision, pending);
             self.lanes[lane].heap_mut(!ready).push(candidate);
         }
+        let mut deferred_budget = MAX_PENDING_SCHEDULER_SCANS_PER_POLL;
         for lane in &mut self.lanes {
             if lane.ready.is_empty() {
                 std::mem::swap(&mut lane.ready, &mut lane.deferred);
+            }
+            if view.startup_center.is_some() {
+                lane.prioritize_deferred(&mut deferred_budget, deadline, is_current);
             }
         }
         probe_near

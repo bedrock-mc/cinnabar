@@ -4,6 +4,9 @@
   `zenomc.org:19132`; upstream StartGame improves from 752 to 623 ms median.
 - Authentication preparation, RakNet overlap, immutable pack presentation reuse,
   owned deferred frames and spawn-first scheduling have focused regression coverage.
+- Selected-server transport preparation, effective registry comparison, worker UI
+  catalogs, deferred spawn priority and mixed resident-air lighting are implemented;
+  their combined native join measurement is pending.
 - Loading release and actual GPU terrain presentation have separate milestones.
 - Measurements and remaining release gates: [join performance](docs/join-performance.md).
 

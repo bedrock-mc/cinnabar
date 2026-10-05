@@ -18,6 +18,7 @@ type stubServices struct {
 	err         error
 	kind, value string
 	signedOut   bool
+	prepared    bool
 }
 
 func (s *stubServices) Realms(context.Context) ([]catalog.Realm, error)   { return s.realms, s.err }
@@ -28,6 +29,10 @@ func (s *stubServices) Connect(_ context.Context, kind, value string) error {
 }
 func (s *stubServices) SignOut() error {
 	s.signedOut = s.err == nil
+	return s.err
+}
+func (s *stubServices) PrepareConnect(_ context.Context, kind, value string) error {
+	s.prepared, s.kind, s.value = true, kind, value
 	return s.err
 }
 
@@ -138,6 +143,28 @@ func TestConnectValidatesAndForwardsTarget(t *testing.T) {
 		if reply := rpc(t, dir, methodConnect, params); reply.Error == nil || reply.Error.Code != -32602 {
 			t.Fatalf("params %q error = %+v", params, reply.Error)
 		}
+	}
+}
+
+func TestPrepareConnectValidatesForwardsAndCancelsWithoutConnecting(t *testing.T) {
+	stub := &stubServices{}
+	dir := startServices(t, NewStore(), stub)
+	if reply := rpc(t, dir, methodPrepareConnect, `{"kind":"raknet","value":"server.example:19132"}`); reply.Error != nil || !stub.prepared || stub.kind != TargetRakNet {
+		t.Fatalf("prepare = %+v kind=%q", reply.Error, stub.kind)
+	}
+	if reply := rpc(t, dir, methodPrepareConnect, `{"kind":"","value":""}`); reply.Error != nil || stub.kind != "" || stub.value != "" {
+		t.Fatalf("cancel preparation = %+v", reply.Error)
+	}
+	for _, method := range []string{methodConnect, methodPrepareConnect} {
+		if reply := rpc(t, dir, method, `{"kind":"raknet","value":""}`); reply.Error == nil || reply.Error.Code != codeInvalidTarget {
+			t.Fatalf("empty RakNet %s = %+v", method, reply.Error)
+		}
+	}
+	if reply := rpc(t, dir, methodConnect, `{"kind":"","value":""}`); reply.Error == nil || reply.Error.Code != codeInvalidTarget {
+		t.Fatal("prepare cancellation relaxed actual connect validation")
+	}
+	if reply := rpc(t, dir, methodPrepareConnect, `{"kind":"raknet","value":"server:1","extra":1}`); reply.Error == nil || reply.Error.Code != -32602 {
+		t.Fatal("preparation accepted unknown parameters")
 	}
 }
 
