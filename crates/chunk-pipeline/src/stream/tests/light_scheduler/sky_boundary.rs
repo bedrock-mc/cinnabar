@@ -179,6 +179,7 @@ fn overworld_seeds_direct_sky_from_known_cells_at_dimension_top() {
             SchedulerView {
                 position: [8.0, 296.0, 8.0],
                 forward: stream.view_forward,
+                startup_center: None,
             },
             false,
         ));

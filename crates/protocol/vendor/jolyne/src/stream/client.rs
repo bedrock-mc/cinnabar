@@ -52,6 +52,16 @@ use crate::valentine::{
 const DEFAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 const START_GAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
+#[cfg(test)]
+#[path = "client/login_concurrency_tests.rs"]
+mod login_concurrency_tests;
+#[cfg(test)]
+#[path = "client/login_optimization_tests.rs"]
+mod login_optimization_tests;
+#[path = "client/login_payload.rs"]
+mod login_payload;
+#[path = "client/login_timing.rs"]
+mod login_timing;
 // Built-in compatibility pack in the pinned gophertunnel conn.go exemption list.
 const CURRENT_BUILTIN_COMPATIBILITY_PACK: (&str, &str) =
     ("d34cfa4b-2ad1-453d-a0db-668b429a3ea0", "1.26.40");
@@ -97,7 +107,7 @@ impl DeferredPackets {
         }
 
         self.bytes = bytes;
-        self.packets.push(packet.into_compact());
+        self.packets.push(packet.into_retention_bounded());
         Ok(())
     }
 
@@ -161,7 +171,8 @@ impl ClientHandshakeConfig {
     /// Generates a configuration with a random identity key and UUID.
     /// Useful for testing or simple bots that don't need Xbox Live auth.
     pub fn random(server_addr: SocketAddr, display_name: impl Into<String>) -> Self {
-        Self {
+        let started = std::time::Instant::now();
+        let config = Self {
             server_addr,
             identity_key: SecretKey::random(&mut rand::thread_rng()),
             display_name: display_name.into(),
@@ -169,7 +180,13 @@ impl ClientHandshakeConfig {
             xbl_credentials: None,
             client_cache_enabled: false,
             skin: None,
-        }
+        };
+        tracing::info!(
+            stage = "identity_config",
+            elapsed_ms = started.elapsed().as_secs_f64() * 1e3,
+            "Bedrock login stage complete"
+        );
+        config
     }
 
     /// Creates a configuration with Xbox Live credentials for authenticated servers.
@@ -380,23 +397,28 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         config: ClientHandshakeConfig,
     ) -> Result<(BedrockStream<Play, Client, T>, GameData), JolyneError> {
         let key = config.identity_key.clone();
-
-        // 1. Settings
-        let login = self.request_settings().await?;
-
-        // 2. Login
-        let secure = login.send_login(&config).await?;
-
-        // 3. Encryption
-        let packs = secure
-            .await_handshake_with_client_cache(&key, config.client_cache_enabled)
+        let (login, packet) = self
+            .prepare_during_settings(login_payload::prepare(&config))
             .await?;
+        let secure = login_timing::measure("login_send", login.send_prepared_login(packet)).await?;
+        let packs = login_timing::measure(
+            "login_acceptance",
+            secure.await_handshake_with_client_cache(&key, config.client_cache_enabled),
+        )
+        .await?;
+        let start = login_timing::measure("resource_packs", packs.handle_packs()).await?;
+        login_timing::measure("start_game", start.await_start_game()).await
+    }
 
-        // 4. Resource Packs
-        let start = packs.handle_packs().await?;
-
-        // 5. Start Game - returns (stream, game_data)
-        start.await_start_game().await
+    async fn prepare_during_settings(
+        self,
+        preparation: impl std::future::Future<Output = Result<LoginPacket, JolyneError>>,
+    ) -> Result<(BedrockStream<Login, Client, T>, LoginPacket), JolyneError> {
+        // Payload signing is independent of compression, but Login remains behind settings.
+        tokio::try_join!(
+            login_timing::measure("network_settings", self.request_settings()),
+            login_timing::measure("login_payload", preparation),
+        )
     }
 }
 
@@ -405,42 +427,17 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
 impl<T: Transport> BedrockStream<Login, Client, T> {
     #[instrument(skip_all, level = "trace", fields(uuid = %config.uuid, display_name = %config.display_name))]
     pub async fn send_login(
-        mut self,
+        self,
         config: &ClientHandshakeConfig,
     ) -> Result<BedrockStream<SecurePending, Client, T>, JolyneError> {
-        // Generate JWT Chain - use Xbox Live auth if credentials provided
-        let (chain, client_token) = if let Some(xbl) = &config.xbl_credentials {
-            // Get Mojang-signed chain from Minecraft authentication service
-            tracing::debug!("Requesting Mojang-signed authentication chain...");
-            let mojang_chain = crate::auth::client::request_minecraft_chain(
-                &config.identity_key,
-                &xbl.token,
-                &xbl.user_hash,
-            )
-            .await?;
-            tracing::debug!("Got Mojang chain, encoding login request");
+        let packet = login_timing::measure("login_payload", login_payload::prepare(config)).await?;
+        login_timing::measure("login_send", self.send_prepared_login(packet)).await
+    }
 
-            // Encode the login request with the Mojang chain
-            crate::auth::client::encode_with_mojang_chain(
-                &config.identity_key,
-                &config.display_name,
-                config.uuid,
-                &mojang_chain,
-                config.skin.as_ref(),
-            )?
-        } else {
-            crate::auth::client::generate_self_signed_chain(
-                &config.identity_key,
-                &config.display_name,
-                config.uuid,
-                config.skin.as_ref(),
-            )?
-        };
-
-        let login_pkt = LoginPacket {
-            client_network_version: crate::valentine::PROTOCOL_VERSION,
-            connection_request: encode_connection_request(&chain, &client_token),
-        };
+    async fn send_prepared_login(
+        mut self,
+        login_pkt: LoginPacket,
+    ) -> Result<BedrockStream<SecurePending, Client, T>, JolyneError> {
         self.transport
             .send_batch(&[McpePacket::from(login_pkt)])
             .await?;

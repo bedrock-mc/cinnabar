@@ -607,6 +607,7 @@ impl<P> Drop for NetworkHandle<P> {
 
 mod start;
 pub use start::spawn_network;
+mod startup_timing;
 
 trait NetworkSession: Send {
     type Error: std::fmt::Display + Send;

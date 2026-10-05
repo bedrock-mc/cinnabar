@@ -5,6 +5,7 @@ fn urgent_scheduler_work_preempts_nearer_ordinary_work() {
     let camera = super::SchedulerView {
         position: [0.0; 3],
         forward: None,
+        startup_center: None,
     };
     let near = SubChunkKey::new(0, 0, 0, 0);
     let far = SubChunkKey::new(0, 16, 0, 0);
@@ -1112,7 +1113,7 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
     let latest = stream.lighting.jobs.pending[&keys[5]].revision;
     stream.mark_light_dirty_exact(keys[5]);
     assert_eq!(stream.lighting.jobs.pending.len(), keys.len());
-    assert_ne!(stream.lighting.jobs.pending[&keys[5]].revision, latest);
+    assert_eq!(stream.lighting.jobs.pending[&keys[5]].revision, latest);
 
     let expected = effective_light_job_cap().min(3);
     assert_eq!(

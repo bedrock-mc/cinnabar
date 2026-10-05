@@ -47,9 +47,9 @@ impl<const L: usize> SchedulerRefresh<L> {
         deadline: Option<Instant>,
         is_current: impl Fn(SubChunkKey, u64) -> bool,
     ) -> bool {
-        let moved = self
-            .view
-            .is_none_or(|previous| previous.cell() != view.cell());
+        let moved = self.view.is_none_or(|previous| {
+            previous.cell() != view.cell() || previous.startup_center != view.startup_center
+        });
         if self.previous.iter().all(Lane::is_empty) && moved {
             std::mem::swap(&mut self.previous, queues);
             self.view = Some(view);
@@ -78,7 +78,7 @@ impl<const L: usize> SchedulerRefresh<L> {
                 .pop()
                 .expect("nonempty refresh queue");
             if is_current(candidate.key, candidate.revision) {
-                candidate.distance_squared = view.rank(candidate.key);
+                candidate.refresh_rank(view);
                 queues[lane].heap_mut(deferred).push(candidate);
                 refreshed = true;
             }
@@ -136,7 +136,11 @@ impl<P, J, const L: usize> Default for KeyedJobs<P, J, L> {
 impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
     /// Replaces the key's pending record and queues it for ingress.
     pub(super) fn enqueue(&mut self, key: SubChunkKey, pending: P) {
-        self.rescan(key, pending.revision(), pending.urgent());
+        self.enqueue_prioritized(key, pending, false);
+    }
+
+    pub(super) fn enqueue_prioritized(&mut self, key: SubChunkKey, pending: P, startup: bool) {
+        self.rescan(key, pending.revision(), pending.urgent() || startup);
         self.pending.insert(key, pending);
     }
 
@@ -282,6 +286,7 @@ mod tests {
         let view = SchedulerView {
             position: [0.0; 3],
             forward: None,
+            startup_center: None,
         };
         let mut lanes = [Lane::default()];
         let mut refresh = SchedulerRefresh::<1>::default();
@@ -294,6 +299,7 @@ mod tests {
         let view = SchedulerView {
             position: [0.0; 3],
             forward: None,
+            startup_center: None,
         };
         let count = MAX_PENDING_SCHEDULER_SCANS_PER_POLL * 4;
         let mut lanes = [Lane {
@@ -320,6 +326,7 @@ mod tests {
         let turned = SchedulerView {
             position: [16_384.0, 0.0, 0.0],
             forward: None,
+            startup_center: None,
         };
         refresh.refresh(turned, &mut lanes, None, |key, _| key.x % 2 == 0);
         assert!(lanes[0].ready.len() <= MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
@@ -327,5 +334,83 @@ mod tests {
             refresh.refresh(turned, &mut lanes, None, |key, _| key.x % 2 == 0);
         }
         assert_eq!(lanes[0].ready.len(), count / 2);
+    }
+
+    #[test]
+    fn closing_loading_restores_camera_order_without_losing_jobs() {
+        let mut view = SchedulerView {
+            position: [8.0, 80.0, 8.0],
+            forward: None,
+            startup_center: Some(ChunkKey::new(0, 0, 0)),
+        };
+        let spawn = SubChunkKey::new(0, 1, 19, 0);
+        let halo = SubChunkKey::new(0, 2, 19, 0);
+        let distant = SubChunkKey::new(0, 3, 5, 0);
+        let mut lanes = [Lane::default()];
+        let mut refresh = SchedulerRefresh::<1>::default();
+        refresh.refresh(view, &mut lanes, None, |_, _| true);
+        for key in [spawn, halo, distant] {
+            lanes[0]
+                .ready
+                .push(PendingSchedulerCandidate::new(key, 1, view, false));
+        }
+        assert_eq!(lanes[0].ready.peek().unwrap().key, spawn);
+        view.startup_center = None;
+        assert!(refresh.refresh(view, &mut lanes, None, |_, _| true));
+        assert_eq!(lanes[0].ready.pop().unwrap().key, distant);
+        assert_eq!(lanes[0].ready.len(), 2);
+        assert!(!refresh.refresh(view, &mut lanes, None, |_, _| true));
+    }
+
+    #[test]
+    fn startup_order_work_witness() {
+        let view = SchedulerView {
+            position: [8.0, 80.0, 8.0],
+            forward: None,
+            startup_center: Some(ChunkKey::new(0, 0, 0)),
+        };
+        let ordinary = SchedulerView {
+            startup_center: None,
+            ..view
+        };
+        let range = vanilla_dimension_range(0).unwrap();
+        let keys: Vec<_> = (-8..=8)
+            .flat_map(|x| {
+                (-8..=8).flat_map(move |z| {
+                    (0..range.sub_chunk_count)
+                        .map(move |y| SubChunkKey::new(0, x, range.base_sub_chunk_y + y as i32, z))
+                })
+            })
+            .collect();
+        let needed = keys
+            .iter()
+            .filter(|key| view.startup_class(**key) == 0)
+            .count();
+        let work_until_spawn = |view: SchedulerView| {
+            let mut queue: BinaryHeap<_> = keys
+                .iter()
+                .map(|key| PendingSchedulerCandidate::new(*key, 1, view, false))
+                .collect();
+            let mut ready = 0;
+            let mut work = 0;
+            while ready < needed {
+                let next = queue.pop().unwrap();
+                work += 1;
+                if next.key.x.abs_diff(0) <= cohort::STARTUP_RADIUS as u32
+                    && next.key.z.abs_diff(0) <= cohort::STARTUP_RADIUS as u32
+                {
+                    ready += 1;
+                }
+            }
+            work
+        };
+        let before = work_until_spawn(ordinary);
+        let after = work_until_spawn(view);
+        eprintln!(
+            "join_scheduler_work sections={} before_spawn_complete={before} after_spawn_complete={after}",
+            keys.len()
+        );
+        assert!(before > after);
+        assert_eq!(after, needed);
     }
 }

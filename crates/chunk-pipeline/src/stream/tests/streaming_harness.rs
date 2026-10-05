@@ -768,6 +768,7 @@ fn scheduler_serves_sub_chunks_in_view_before_nearer_ones_behind() {
     let view = super::SchedulerView {
         position: [8.0, 72.0, 8.0],
         forward: Some([0.0, 0.0, 1.0]),
+        startup_center: None,
     };
     let ahead = SubChunkKey::new(0, 0, 4, 3);
     let behind = SubChunkKey::new(0, 0, 4, -2);

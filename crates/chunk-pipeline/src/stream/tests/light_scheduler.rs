@@ -257,6 +257,8 @@ mod mesh_admission;
 
 mod backlog;
 mod mutation_summary;
+mod pending_coalescing;
+mod uniform_air;
 
 /// Retired workers without tracked completions must release their slots before convergence retries.
 #[test]

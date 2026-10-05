@@ -137,9 +137,8 @@ pub fn custom_block_items(
 
 pub type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
 
-/// Identity of each pack as (uuid, version, subpack, content hash), in stack order.
+/// Identity of each pack's selected, decrypted compilation inputs, in stack order.
 pub fn stack_fingerprint(stack: &resource_pack::ValidatedPackStack) -> StackFingerprint {
-    use sha2::{Digest, Sha256};
     stack
         .packs()
         .iter()
@@ -148,7 +147,7 @@ pub fn stack_fingerprint(stack: &resource_pack::ValidatedPackStack) -> StackFing
                 pack.pack_id().to_string(),
                 pack.version().to_owned(),
                 pack.sub_pack_name().to_owned(),
-                Sha256::digest(&*pack.archive_bytes()).into(),
+                pack.compilation_identity(),
             )
         })
         .collect()

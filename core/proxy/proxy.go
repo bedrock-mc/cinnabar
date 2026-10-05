@@ -119,6 +119,8 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		return errors.Join(fmt.Errorf("proxy: listen: %w", err), prepared.shutdown())
 	}
 	reportListenerReady(logger, cfg.SocketDir)
+	authenticationWarmup := warmUpstreamAuthentication(serveCtx, cfg.Account, logger)
+	defer authenticationWarmup.stop()
 
 	accepted := make(chan acceptResult)
 	acceptDone := make(chan error, 1)

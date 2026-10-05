@@ -205,6 +205,7 @@ pub(crate) fn validate_archive_parts(
         keys: keys.into(),
         physical_entry_count: expected_entries,
         skipped_entries: skipped,
+        compilation_identity: Default::default(),
     };
     let manifest_bytes = pack
         .read_file_with_limit(manifest_path, MAX_MANIFEST_BYTES as u64)

@@ -56,6 +56,80 @@ fn deflated_zip_file(path: &str, bytes: &[u8]) -> Vec<u8> {
 fn validate_fixture(bytes: Vec<u8>, selected: &str) -> Result<ValidatedPack, AdmissionError> {
     validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, None).map(|(pack, _)| pack)
 }
+
+#[test]
+fn compilation_identity_reuses_a_digest_and_tracks_selected_content() {
+    let manifest =
+        manifest(r#", "subpacks":[{"folder_name":"high","name":"High","memory_tier":2}]"#);
+    let archive = zip_files(&[
+        ("manifest.json", manifest.as_bytes()),
+        ("a.txt", b"base"),
+        ("subpacks/high/a.txt", b"override"),
+    ]);
+    let base = validate_fixture(archive.clone(), "").unwrap();
+    let clone = base.clone();
+    assert!(base.compilation_identity.get().is_none());
+    let identity = base.compilation_identity();
+    assert_eq!(clone.compilation_identity.get(), Some(&identity));
+    assert_eq!(clone.compilation_identity(), identity);
+    assert_eq!(
+        validate_fixture(archive.clone(), "")
+            .unwrap()
+            .compilation_identity(),
+        identity
+    );
+    assert_ne!(
+        validate_fixture(archive, "high")
+            .unwrap()
+            .compilation_identity(),
+        identity
+    );
+    let changed = zip_files(&[
+        ("manifest.json", manifest.as_bytes()),
+        ("a.txt", b"changed"),
+    ]);
+    assert_ne!(
+        validate_fixture(changed, "")
+            .unwrap()
+            .compilation_identity(),
+        identity
+    );
+}
+
+#[test]
+fn compilation_identity_distinguishes_effective_file_decryption() {
+    const KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
+    let mut encrypted = b"private contents".to_vec();
+    crate::crypto::tests::encrypt(KEY, &mut encrypted);
+    let archive = zip_files(&[
+        ("manifest.json", manifest("").as_bytes()),
+        ("a.txt", &encrypted),
+        (
+            "contents.json",
+            br#"{"content":[{"path":"a.txt","key":"0123456789abcdefghijklmnopqrstuv"}]}"#,
+        ),
+    ]);
+    let plain = validate_fixture(archive.clone(), "").unwrap();
+    let decrypted = validate_archive_parts(
+        PACK_ID,
+        "1.2.3",
+        "",
+        archive,
+        Some(ContentKey::new(KEY).unwrap()),
+    )
+    .unwrap()
+    .0;
+    assert_eq!(&*plain.archive_bytes(), &*decrypted.archive_bytes());
+    assert_ne!(
+        plain.read_file("a.txt").unwrap(),
+        decrypted.read_file("a.txt").unwrap()
+    );
+    assert_ne!(
+        plain.compilation_identity(),
+        decrypted.compilation_identity()
+    );
+    assert!(!format!("{decrypted:?}").contains(std::str::from_utf8(KEY).unwrap()));
+}
 #[test]
 fn admits_jsonc_manifest_and_exposes_only_selected_logical_namespace() {
     let manifest = manifest(

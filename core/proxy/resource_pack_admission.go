@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
@@ -490,7 +491,13 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dialer.DialContextNetwork)
+			dial := dialer.DialContextNetwork
+			if dialer.TokenSource != nil {
+				dial = func(ctx context.Context, network minecraft.Network, address string) (*minecraft.Conn, error) {
+					return dialWithPreparedTransport(ctx, network, address, dialer.DialContextNetwork)
+				}
+			}
+			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dial)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack
@@ -593,6 +600,8 @@ func (connections *preparedConnections) prepareConnection(
 func (connections *preparedConnections) connect(ctx context.Context, downstream dialerDownstream) (result *preparedConnection, err error) {
 	packAdmission := newResourcePackAdmissionTelemetry(connections.attempts.Add(1), connections.resourcePackAdmission)
 	packAdmission.setUpdateCallback(connections.resourcePackAdmissionUpdate)
+	telemetry := &joinTelemetry{attempt: packAdmission.attemptID, started: time.Now(), logger: connections.logger}
+	ctx = context.WithValue(ctx, joinTelemetryKey{}, telemetry)
 	var target *resolvedUpstreamTarget
 	var upstream upstreamSession
 	var packStack *selectedResourcePackStack
@@ -620,7 +629,9 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		err = errors.Join(err, finishPreparedResources(upstream, releaseTarget))
 	}()
 
+	resolveStarted := time.Now()
 	target, err = connections.resolveTarget(withConnectProgress(ctx, report))
+	telemetry.report("resolve_target", time.Since(resolveStarted), err == nil)
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +653,9 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		target.clientData(&dialer.ClientData)
 	}
 	dialer = withResourcePackAcquisitionBudget(dialer, budget)
+	dialer = withJoinTelemetry(dialer, telemetry)
 	upstream, err = connections.dialTarget(dialCtx, target, dialer)
+	telemetry.report("upstream_ready", 0, err == nil)
 	budget.finish()
 	// The dialed upstream owns its own context; releasing dialCtx now cannot
 	// affect it and frees the cancellation goroutine on either outcome.

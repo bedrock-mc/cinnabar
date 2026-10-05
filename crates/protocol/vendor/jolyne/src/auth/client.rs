@@ -381,7 +381,8 @@ pub fn encode_with_mojang_chain(
     .to_string();
 
     // Generate client data token
-    let client_token = generate_client_data_token(key, display_name, uuid, skin)?;
+    let client_token =
+        generate_client_data_token(&encoding_key, public_key_b64, display_name, uuid, skin)?;
 
     Ok((chain_json, client_token))
 }
@@ -444,7 +445,7 @@ fn generate_chain_internal(
     };
 
     let mut header = Header::new(Algorithm::ES384);
-    header.x5u = Some(public_key_b64); // Self-signed: x5u is self
+    header.x5u = Some(public_key_b64.clone()); // Self-signed: x5u is self
 
     let identity_jwt = encode(&header, &identity_claims, &encoding_key)
         .map_err(|e| JolyneError::Auth(crate::error::AuthError::BadSignature(e.to_string())))?;
@@ -514,16 +515,7 @@ fn generate_chain_internal(
 
     // ClientData JWT - uses x5u to specify the signing key
     let mut client_header = Header::new(Algorithm::ES384);
-    client_header.x5u = Some(
-        STANDARD.encode(
-            key.public_key()
-                .to_public_key_der()
-                .map_err(|e| {
-                    JolyneError::Auth(crate::error::AuthError::BadSignature(e.to_string()))
-                })?
-                .as_bytes(),
-        ),
-    );
+    client_header.x5u = Some(public_key_b64);
 
     let client_jwt = encode(&client_header, &client_claims, &encoding_key)
         .map_err(|e| JolyneError::Auth(crate::error::AuthError::BadSignature(e.to_string())))?;
@@ -533,22 +525,12 @@ fn generate_chain_internal(
 
 /// Generates just the client data token (used with Mojang chain).
 fn generate_client_data_token(
-    key: &SecretKey,
+    encoding_key: &EncodingKey,
+    public_key_b64: String,
     display_name: &str,
     uuid: Uuid,
     skin: Option<&crate::stream::client::ClientSkin>,
 ) -> Result<String, JolyneError> {
-    let public_key_der = key
-        .public_key()
-        .to_public_key_der()
-        .map_err(|e| JolyneError::Auth(crate::error::AuthError::BadSignature(e.to_string())))?;
-    let public_key_b64 = STANDARD.encode(public_key_der.as_bytes());
-
-    let private_der = key
-        .to_pkcs8_der()
-        .map_err(|e| JolyneError::Auth(crate::error::AuthError::BadSignature(e.to_string())))?;
-    let encoding_key = EncodingKey::from_ec_der(private_der.as_bytes());
-
     let (skin_data_b64, skin_image_width, skin_image_height, arm_size) =
         client_data_skin_fields(skin);
     let device_id = Uuid::new_v4().to_string();
@@ -604,7 +586,7 @@ fn generate_client_data_token(
     let mut client_header = Header::new(Algorithm::ES384);
     client_header.x5u = Some(public_key_b64);
 
-    let client_jwt = encode(&client_header, &client_claims, &encoding_key)
+    let client_jwt = encode(&client_header, &client_claims, encoding_key)
         .map_err(|e| JolyneError::Auth(crate::error::AuthError::BadSignature(e.to_string())))?;
 
     Ok(client_jwt)

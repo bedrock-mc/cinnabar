@@ -695,7 +695,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin = crate::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let network = if connection_requested {
         match spawn_network(NetworkConfig {
-            session_generation: 1,
+            session_generation: crate::session::INITIAL_SESSION_GENERATION,
             socket_dir,
             display_name: args.display_name.clone(),
             client_blob_cache: client_blob_cache.cache(),
@@ -731,6 +731,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
+    let mut session_controller = SessionController::new(core_process);
+    if connection_requested {
+        session_controller.begin_initial_join();
+    }
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     app.add_plugins(
@@ -781,7 +785,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(SessionController::new(core_process))
+    .insert_resource(session_controller)
     .insert_resource(client_blob_cache)
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())

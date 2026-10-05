@@ -114,6 +114,7 @@ fn expired_mesh_slice_bounds_blocked_readiness_work() {
     let view = SchedulerView {
         position: [0.0; 3],
         forward: None,
+        startup_center: None,
     };
     stream
         .mesh_jobs
@@ -144,6 +145,7 @@ fn expired_reversed_camera_reaches_near_work_before_old_backlog() {
     let old_view = SchedulerView {
         position: [8.0; 3],
         forward: None,
+        startup_center: None,
     };
     let destination = SubChunkKey::new(1, 4_095, 0, 0);
     for x in 0..=destination.x {
@@ -202,6 +204,7 @@ fn near_light_column_keeps_its_nearest_members_priority_for_high_dependencies() 
         let view = SchedulerView {
             position: [8.0, 81.62, 8.0],
             forward: None,
+            startup_center: None,
         };
         stream.lighting.jobs.scan.clear();
         stream.lighting.jobs.lanes[0]
@@ -218,4 +221,92 @@ fn near_light_column_keeps_its_nearest_members_priority_for_high_dependencies() 
         assert!(stream.lighting.jobs.in_flight.contains_key(&top));
         assert!(!stream.lighting.jobs.in_flight.contains_key(&far));
     }
+}
+
+#[test]
+fn startup_meshes_finish_tall_spawn_columns_before_distant_terrain() {
+    for startup in [false, true] {
+        let mut stream = lit_stream(1);
+        let spawn = SubChunkKey::new(1, 1, 0, 0);
+        let distant = SubChunkKey::new(1, 3, 5, 0);
+        for key in [spawn, distant] {
+            stream
+                .authority
+                .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+                .unwrap();
+            install_current_light(&mut stream, key, 0, 0, false);
+            stream.mark_dirty_exact(key, Instant::now());
+        }
+        stream.set_startup_priority(startup);
+        assert_eq!(stream.dispatch_mesh_jobs([8.0, 80.0, 8.0], 1), 1);
+        let expected = if startup { spawn } else { distant };
+        assert!(stream.mesh_jobs.in_flight.contains_key(&expected));
+        let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        stream.accept_mesh_completion(completion);
+    }
+}
+
+#[test]
+fn startup_lighting_prioritizes_spawn_columns_without_a_near_height_member() {
+    let mut stream = lit_stream(0);
+    let range = vanilla_dimension_range(0).unwrap();
+    let spawn = SubChunkKey::new(
+        0,
+        1,
+        range.base_sub_chunk_y + range.sub_chunk_count as i32 - 1,
+        0,
+    );
+    let distant = SubChunkKey::new(0, 4, 5, 0);
+    for key in [spawn, distant] {
+        stream
+            .authority
+            .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_light_dirty_exact(key).unwrap();
+    }
+    stream.set_startup_priority(true);
+    assert_eq!(stream.dispatch_light_jobs([8.0, 80.0, 8.0], 1), 1);
+    assert!(stream.lighting.jobs.in_flight.contains_key(&spawn));
+    assert!(!stream.lighting.jobs.in_flight.contains_key(&distant));
+    let completion = stream
+        .lighting
+        .rx
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    stream.accept_light_completion(completion);
+}
+
+#[test]
+fn late_spawn_section_bypasses_the_distant_ingress_backlog() {
+    let mut stream = lit_stream(1);
+    stream.set_startup_priority(true);
+    let position = [8.0, 80.0, 8.0];
+    let view = stream.scheduler_view(position);
+    stream
+        .mesh_jobs
+        .refresh
+        .refresh(view, &mut stream.mesh_jobs.lanes, None, |_, _| true);
+    for x in 10..10 + MAX_PENDING_MESH_QUEUE_WORK_PER_POLL as i32 * 2 {
+        let key = SubChunkKey::new(1, x, 5, 0);
+        stream
+            .authority
+            .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let spawn = SubChunkKey::new(1, 1, 0, 0);
+    stream
+        .authority
+        .commit_sub_chunk(spawn, super::uniform_sub_chunk(2))
+        .unwrap();
+    install_current_light(&mut stream, spawn, 0, 0, false);
+    stream.mark_dirty_exact(spawn, Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs(position, 1), 1);
+    assert!(stream.mesh_jobs.in_flight.contains_key(&spawn));
+    assert!(stream.mesh_jobs.scan.len() > MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
+    assert!(!stream.mesh_jobs.pending[&SubChunkKey::new(1, 10, 5, 0)].urgent);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    stream.accept_mesh_completion(completion);
 }

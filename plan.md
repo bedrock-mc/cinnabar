@@ -1,3 +1,12 @@
+## Join sequence optimization
+
+- Incomplete 500 ms join and native performance acceptance. Warm Zeno probes use
+  `zenomc.org:19132`; upstream StartGame improves from 752 to 623 ms median.
+- Authentication preparation, RakNet overlap, immutable pack presentation reuse,
+  owned deferred frames and spawn-first scheduling have focused regression coverage.
+- Loading release and actual GPU terrain presentation have separate milestones.
+- Measurements and remaining release gates: [join performance](docs/join-performance.md).
+
 ## Flower-pot floor and lily-pad atlas tint
 
 - Flower pots now add the dirt surface four pixels above the block base, below the rim.

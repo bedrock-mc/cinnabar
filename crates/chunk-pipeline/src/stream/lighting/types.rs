@@ -595,24 +595,14 @@ pub(in crate::stream) fn uniform_known_air_light(
         return None;
     }
     let trusted_zero = BoundaryLightSample::trusted(0, false).ok()?;
+    let zero_or_unknown = |sample| {
+        sample == trusted_zero
+            || sample == BoundaryLightSample::unknown()
+            || sample == BoundaryLightSample::untrusted()
+    };
     for offset in LIGHT_NEIGHBOUR_OFFSETS {
-        let neighbour = offset_sub_chunk_key(job.key, offset)?;
-        if !job.prior.trusted_boundaries.contains(&neighbour) {
-            continue;
-        }
-        for a in 0_u8..16 {
-            for b in 0_u8..16 {
-                let position = light_boundary_position(job.key, offset, a, b)?;
-                let sample =
-                    job.prior
-                        .boundary_light(job.key.dimension, position, LightChannel::Block);
-                if sample != BoundaryLightSample::unknown()
-                    && sample != BoundaryLightSample::untrusted()
-                    && sample != trusted_zero
-                {
-                    return None;
-                }
-            }
+        if !boundary_face_accepts(job, offset, LightChannel::Block, zero_or_unknown)? {
+            return None;
         }
     }
 
@@ -624,40 +614,16 @@ pub(in crate::stream) fn uniform_known_air_light(
             (15, true)
         }
         DimensionLightProfile::Overworld { .. } => {
-            let direct_above = (0_u8..16).all(|x| {
-                (0_u8..16).all(|z| {
-                    let Some(position) = light_boundary_position(job.key, [0, 1, 0], x, z) else {
-                        return false;
-                    };
-                    job.prior
-                        .boundary_light(job.key.dimension, position, LightChannel::Sky)
-                        == BoundaryLightSample::trusted(15, true)
-                            .expect("constant sky nibble is valid")
-                })
-            });
+            let direct_above =
+                boundary_face_accepts(job, [0, 1, 0], LightChannel::Sky, |sample| {
+                    sample == BoundaryLightSample::trusted(15, true).unwrap()
+                })?;
             if direct_above {
                 (15, true)
             } else {
                 for offset in LIGHT_NEIGHBOUR_OFFSETS {
-                    let neighbour = offset_sub_chunk_key(job.key, offset)?;
-                    if !job.prior.trusted_boundaries.contains(&neighbour) {
-                        continue;
-                    }
-                    for a in 0_u8..16 {
-                        for b in 0_u8..16 {
-                            let position = light_boundary_position(job.key, offset, a, b)?;
-                            let sample = job.prior.boundary_light(
-                                job.key.dimension,
-                                position,
-                                LightChannel::Sky,
-                            );
-                            if sample != BoundaryLightSample::unknown()
-                                && sample != BoundaryLightSample::untrusted()
-                                && sample != trusted_zero
-                            {
-                                return None;
-                            }
-                        }
+                    if !boundary_face_accepts(job, offset, LightChannel::Sky, zero_or_unknown)? {
+                        return None;
                     }
                 }
                 (0, false)
@@ -669,6 +635,70 @@ pub(in crate::stream) fn uniform_known_air_light(
             .expect("constant light nibbles are valid"),
         DirectSkyMask::Uniform(direct),
     ))
+}
+
+fn boundary_face_accepts(
+    job: &PreparedLightJob,
+    offset: [i32; 3],
+    channel: LightChannel,
+    mut accepts: impl FnMut(BoundaryLightSample) -> bool,
+) -> Option<bool> {
+    let neighbour = offset_sub_chunk_key(job.key, offset)?;
+    if let Some(sample) = uniform_boundary_sample(&job.prior, neighbour, channel) {
+        if sample != BoundaryLightSample::unknown() && sample != BoundaryLightSample::untrusted() {
+            light_boundary_position(job.key, offset, 0, 0)?;
+            light_boundary_position(job.key, offset, 15, 15)?;
+        }
+        return Some(accepts(sample));
+    }
+    for a in 0_u8..16 {
+        for b in 0_u8..16 {
+            let position = light_boundary_position(job.key, offset, a, b)?;
+            if !accepts(
+                job.prior
+                    .boundary_light(job.key.dimension, position, channel),
+            ) {
+                return Some(false);
+            }
+        }
+    }
+    Some(true)
+}
+
+/// Proves a whole face from uniform storage; packed channels or provenance require sampling.
+pub(in crate::stream) fn uniform_boundary_sample(
+    prior: &LightPriorSnapshot,
+    key: SubChunkKey,
+    channel: LightChannel,
+) -> Option<BoundaryLightSample> {
+    if !prior.trusted_boundaries.contains(&key) {
+        return Some(if prior.light.kind(key) == LightSubChunkKind::Unknown {
+            BoundaryLightSample::unknown()
+        } else {
+            BoundaryLightSample::untrusted()
+        });
+    }
+    let Some(light) = prior.light.light(key) else {
+        return Some(BoundaryLightSample::unknown());
+    };
+    if !light.channel(channel).is_uniform() {
+        return None;
+    }
+    let direct = if channel == LightChannel::Sky {
+        match prior
+            .direct_sky
+            .get(&key)
+            .filter(|direct| direct.light_revision == light.generation())
+            .map(|direct| direct.mask.as_ref())
+        {
+            Some(DirectSkyMask::Packed(_)) => return None,
+            Some(DirectSkyMask::Uniform(direct)) => *direct,
+            None => false,
+        }
+    } else {
+        false
+    };
+    BoundaryLightSample::trusted(light.get(channel, 0, 0, 0)?, direct).ok()
 }
 
 pub(in crate::stream) fn light_boundary_position(

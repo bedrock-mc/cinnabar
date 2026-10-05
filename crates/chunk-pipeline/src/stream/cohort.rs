@@ -2,7 +2,7 @@ use super::diagnostics::deterministic_chunk_key_hash;
 use super::*;
 
 // ClientLoadingProgressTickingSystem::mChunksNeededForLoadOffsets covers nine columns.
-const STARTUP_RADIUS: i32 = 1;
+pub(super) const STARTUP_RADIUS: i32 = 1;
 
 /// Server publisher scope, the view cohort committed from it, and the columns it requires.
 #[derive(Default)]

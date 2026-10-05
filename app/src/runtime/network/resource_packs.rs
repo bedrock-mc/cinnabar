@@ -10,6 +10,7 @@ use super::{
 };
 use client_ui::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
+mod presentation_cache;
 mod ui;
 use ui::collect_server_ui;
 
@@ -69,9 +70,7 @@ impl PackApplication {
             {
                 return previous.clone();
             }
-            Arc::new(
-                client_presentation::prepared_actor_artwork::PreparedActorArtwork::new(base, pack),
-            )
+            presentation_cache::prepare_artwork(base, pack)
         });
     }
 }
@@ -131,7 +130,7 @@ pub(super) fn prepare_validated_application(
     stack: Arc<resource_pack::ValidatedPackStack>,
     inputs: Arc<super::pack_reload::PackInputs>,
 ) -> PackApplication {
-    prepare_changed_application(stack, inputs, None)
+    presentation_cache::prepare(stack, inputs)
 }
 
 /// Reuses each compiled subscriber whose contributing files have not changed.
@@ -289,8 +288,13 @@ pub(crate) fn set_base_material_keys(keys: assets::MaterialKeys) {
     let _ = BASE_MATERIAL_KEYS.set(keys);
 }
 
+pub(crate) use client_session::pack_language::active_language_code;
 use client_session::pack_language::merged_server_lang;
-pub(crate) use client_session::pack_language::{active_language_code, set_active_language};
+
+pub(crate) fn set_active_language(code: &str) {
+    client_session::pack_language::set_active_language(code);
+    presentation_cache::invalidate_context();
+}
 
 pub(super) use client_session::{StackFingerprint, stack_fingerprint};
 

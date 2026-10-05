@@ -151,6 +151,7 @@ const LIGHT_COLUMN_SOLVE_LIMITS: SolverLimits = SolverLimits::new(
 #[derive(Debug, Clone, Copy)]
 struct PendingSchedulerCandidate {
     distance_squared: f32,
+    startup_class: u8,
     key: SubChunkKey,
     revision: u64,
     urgent: bool,
@@ -160,16 +161,23 @@ impl PendingSchedulerCandidate {
     fn new(key: SubChunkKey, revision: u64, view: SchedulerView, urgent: bool) -> Self {
         Self {
             distance_squared: view.rank(key),
+            startup_class: view.startup_class(key),
             key,
             revision,
             urgent,
         }
+    }
+
+    fn refresh_rank(&mut self, view: SchedulerView) {
+        self.distance_squared = view.rank(self.key);
+        self.startup_class = view.startup_class(self.key);
     }
 }
 
 impl PartialEq for PendingSchedulerCandidate {
     fn eq(&self, other: &Self) -> bool {
         self.urgent == other.urgent
+            && self.startup_class == other.startup_class
             && self
                 .distance_squared
                 .total_cmp(&other.distance_squared)
@@ -189,13 +197,16 @@ impl PartialOrd for PendingSchedulerCandidate {
 
 impl Ord for PendingSchedulerCandidate {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.urgent.cmp(&other.urgent).then_with(|| {
-            other
-                .distance_squared
-                .total_cmp(&self.distance_squared)
-                .then_with(|| other.key.cmp(&self.key))
-                .then_with(|| other.revision.cmp(&self.revision))
-        })
+        self.urgent
+            .cmp(&other.urgent)
+            .then_with(|| other.startup_class.cmp(&self.startup_class))
+            .then_with(|| {
+                other
+                    .distance_squared
+                    .total_cmp(&self.distance_squared)
+                    .then_with(|| other.key.cmp(&self.key))
+                    .then_with(|| other.revision.cmp(&self.revision))
+            })
     }
 }
 
@@ -205,9 +216,26 @@ impl Ord for PendingSchedulerCandidate {
 struct SchedulerView {
     position: [f32; 3],
     forward: Option<[f32; 3]>,
+    startup_center: Option<ChunkKey>,
 }
 
 impl SchedulerView {
+    fn startup_class(self, key: SubChunkKey) -> u8 {
+        let Some(center) = self
+            .startup_center
+            .filter(|center| center.dimension == key.dimension)
+        else {
+            return 2;
+        };
+        let distance = key.x.abs_diff(center.x).max(key.z.abs_diff(center.z));
+        if distance <= cohort::STARTUP_RADIUS as u32 {
+            0
+        } else if distance <= (cohort::STARTUP_RADIUS + 1) as u32 {
+            1
+        } else {
+            2
+        }
+    }
     /// Squared distance, quadrupled (twice the distance) behind the view plane.
     fn rank(self, key: SubChunkKey) -> f32 {
         let distance = distance_squared(key, self.position);
@@ -280,6 +308,7 @@ pub struct WorldStream {
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,
+    startup_priority: bool,
     admitted_mesh_jobs: Arc<AtomicUsize>,
     mesh_memory: meshing::memory::MeshMemoryBudget,
     mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,

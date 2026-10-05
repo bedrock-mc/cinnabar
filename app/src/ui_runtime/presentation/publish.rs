@@ -22,6 +22,21 @@ pub(crate) fn observe_mount_jump_input(
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
     SafeArea::ZERO
 }
+
+pub(crate) fn update_startup_probe(
+    diagnostics: &mut VisibilityDiagnosticsInput,
+    startup: client_ui::ui_runtime::presentation::startup::StartupPresentationState,
+    connected: bool,
+    controller: Option<&crate::session::SessionController>,
+    generation: u64,
+) {
+    diagnostics.set_startup_probe_enabled(
+        startup.probe_enabled(connected)
+            || (connected
+                && controller
+                    .is_some_and(|controller| controller.needs_terrain_witness(generation))),
+    );
+}
 /// Resources beyond Bevy's sixteen-parameter limit.
 type PublishExtras<'w> = (
     Res<'w, WorldStreamFramePoll>,
@@ -29,6 +44,7 @@ type PublishExtras<'w> = (
     Res<'w, render::HandRigScene>,
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
+    Option<ResMut<'w, crate::session::SessionController>>,
     (
         Res<'w, crate::runtime::network::ActorFramePartialTick>,
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
@@ -66,6 +82,7 @@ pub(crate) fn prepare_ui_runtime(
         hand_rig,
         collisions,
         profiler,
+        mut session_controller,
         (
             actor_partial,
             local_frame,
@@ -173,9 +190,20 @@ pub(crate) fn prepare_ui_runtime(
             );
         if let Some(milestone) = loading_milestone {
             eprintln!("{milestone}");
+            if let Some(controller) = session_controller.as_mut() {
+                controller.observe_join(
+                    runtime.session_id(),
+                    client_session::join_timing::JoinPhase::LoadingReleased,
+                );
+            }
         }
-        diagnostics_input
-            .set_startup_probe_enabled(presentation.startup_mut().probe_enabled(connected));
+        update_startup_probe(
+            &mut diagnostics_input,
+            *presentation.startup_mut(),
+            connected,
+            session_controller.as_deref(),
+            runtime.session_id(),
+        );
         presentation.set_loading_stage(if !connected {
             Some(LoadingStage::Connecting)
         } else if startup_released {
@@ -185,6 +213,24 @@ pub(crate) fn prepare_ui_runtime(
         });
         if startup_released && !presentation.startup_mut().completion_queued {
             presentation.startup_mut().completion_queued = network.finish_loading();
+        }
+        if startup_released && let Some(stream) = client_world.stream.as_mut() {
+            let local_ready = stream.finish_startup_priority();
+            if let Some(controller) = session_controller.as_mut()
+                && controller.needs_terrain_witness(runtime.session_id())
+            {
+                let snapshot = visibility_diagnostics.snapshot();
+                controller.observe_join_terrain(
+                    runtime.session_id(),
+                    local_ready && stream.local_terrain_ready(),
+                    diagnostics_input
+                        .frame_generation()
+                        .max(snapshot.frame_generation),
+                    snapshot
+                        .gpu_completed_opaque
+                        .map(|_| snapshot.frame_generation),
+                );
+            }
         }
     }
     runtime.expire_gameplay_effects(now_millis);

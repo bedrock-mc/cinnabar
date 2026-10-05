@@ -24,7 +24,32 @@ use crate::{
 };
 use client_ui::ui_runtime::UiRuntime;
 
-use std::{path::PathBuf, time::Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
+
+#[cfg(test)]
+mod join_timing_tests;
+
+pub(crate) const INITIAL_SESSION_GENERATION: u64 = 1;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum JoinOrigin {
+    MenuAction,
+    DirectSession,
+    ServerTransfer,
+}
+
+impl JoinOrigin {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::MenuAction => "menu_action",
+            Self::DirectSession => "direct_session",
+            Self::ServerTransfer => "server_transfer",
+        }
+    }
+}
 
 /// Bounded number of consecutive automatic transfer-follow hops.
 ///
@@ -64,6 +89,9 @@ pub(crate) struct SessionController {
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
+    join_clock: Instant,
+    join_timeline: Option<client_session::join_timing::JoinTimeline>,
+    join_origin: JoinOrigin,
 }
 
 impl Default for SessionController {
@@ -79,10 +107,27 @@ impl SessionController {
             core,
             directory: None,
             join: None,
-            generation: 1,
+            generation: INITIAL_SESSION_GENERATION,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
+            join_clock: Instant::now(),
+            join_timeline: None,
+            join_origin: JoinOrigin::DirectSession,
         }
+    }
+
+    /// Times an initial direct session from controller creation, before app initialization.
+    pub(crate) fn begin_initial_join(&mut self) {
+        if self.generation == INITIAL_SESSION_GENERATION && self.join_timeline.is_none() {
+            self.begin_join(self.generation, Duration::ZERO, JoinOrigin::DirectSession);
+        }
+    }
+
+    fn begin_join(&mut self, generation: u64, started: Duration, origin: JoinOrigin) {
+        self.join_timeline = Some(client_session::join_timing::JoinTimeline::new(
+            generation, started,
+        ));
+        self.join_origin = origin;
     }
 
     pub(crate) fn status(&self) -> SessionStatus {
@@ -90,6 +135,57 @@ impl SessionController {
             connecting: self.connecting,
             owns_directory: self.directory.is_some(),
         }
+    }
+
+    pub(crate) fn observe_join(
+        &mut self,
+        generation: u64,
+        phase: client_session::join_timing::JoinPhase,
+    ) {
+        if let Some(milestone) = self
+            .join_timeline
+            .as_mut()
+            .and_then(|timeline| timeline.observe(generation, phase, self.join_clock.elapsed()))
+        {
+            self.log_join_milestone(milestone);
+        }
+    }
+
+    pub(crate) fn observe_join_terrain(
+        &mut self,
+        generation: u64,
+        local_ready: bool,
+        frame_generation: u64,
+        gpu_frame_generation: Option<u64>,
+    ) {
+        if let Some(milestone) = self.join_timeline.as_mut().and_then(|timeline| {
+            timeline.observe_terrain(
+                generation,
+                local_ready,
+                frame_generation,
+                gpu_frame_generation,
+                self.join_clock.elapsed(),
+            )
+        }) {
+            self.log_join_milestone(milestone);
+        }
+    }
+
+    pub(crate) fn needs_terrain_witness(&self, generation: u64) -> bool {
+        self.join_timeline
+            .as_ref()
+            .is_some_and(|timeline| timeline.needs_terrain_witness(generation))
+    }
+
+    fn log_join_milestone(&self, milestone: client_session::join_timing::JoinMilestone) {
+        bevy::log::info!(
+            session_generation = milestone.generation,
+            origin = self.join_origin.as_str(),
+            phase = milestone.phase.as_str(),
+            elapsed_ms = milestone.since_previous.as_secs_f64() * 1_000.0,
+            total_elapsed_ms = milestone.elapsed.as_secs_f64() * 1_000.0,
+            "join milestone"
+        );
     }
 
     fn publish(&self, menu: &mut MenuRuntime) {
@@ -274,6 +370,7 @@ impl SessionResources<'_> {
             .core
             .stop_detached(move || drop((join, directory)));
         controller.connecting = false;
+        controller.join_timeline = None;
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
@@ -307,6 +404,7 @@ fn attempt_connect(
     session: &mut SessionResources<'_>,
     cache: &BlobCache,
     intent: JoinIntent,
+    origin: JoinOrigin,
 ) {
     let JoinIntent {
         address,
@@ -315,8 +413,10 @@ fn attempt_connect(
     } = intent;
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
+    let started = session.controller.join_clock.elapsed();
     menu.show_home();
     let generation = session.retire();
+    session.controller.begin_join(generation, started, origin);
     session.runtime.experiences.select_destination(&address);
     menu.begin_join_progress(&address, local_world);
     let launcher = session.launcher.as_deref().and_then(|slot| {
@@ -393,6 +493,10 @@ fn poll_join(
             socket_dir,
             directory,
         } => {
+            controller.observe_join(
+                controller.generation,
+                client_session::join_timing::JoinPhase::BridgeReady,
+            );
             let owned_core = directory.is_some();
             if let Some(directory) = directory {
                 controller.bind_directory(directory);
@@ -503,7 +607,7 @@ fn drive_intents(
     if let Some(intent) = menu.take_join_intent() {
         // A user-initiated join always starts a fresh transfer chain.
         session.controller.begin_fresh_transfer_chain();
-        attempt_connect(menu, session, cache, intent);
+        attempt_connect(menu, session, cache, intent, JoinOrigin::MenuAction);
     }
     poll_join(commands, menu, session, cache);
 }
@@ -599,6 +703,7 @@ fn follow_transfer(
             auth_cache,
             local_world: false,
         },
+        JoinOrigin::ServerTransfer,
     );
     if session.controller.connecting {
         menu.show_transfer(&address);

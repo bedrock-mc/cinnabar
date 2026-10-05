@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use aes::cipher::{BlockEncrypt, KeyInit};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, MAX_PATH_BYTES, normalize_jsonc};
@@ -15,6 +16,10 @@ const CONTENTS_HEADER_BYTES: usize = 256;
 pub(crate) struct ContentKey(Box<[u8]>);
 
 impl ContentKey {
+    pub(crate) fn identity(&self) -> [u8; 32] {
+        Sha256::digest(&self.0).into()
+    }
+
     /// Accepts only AES-128/192/256 key lengths after trimming ASCII whitespace.
     pub(crate) fn new(bytes: &[u8]) -> Option<Self> {
         let trimmed = bytes.trim_ascii();

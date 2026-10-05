@@ -12,10 +12,7 @@ impl WorldStream {
             return 0;
         }
 
-        let view = SchedulerView {
-            position: camera_position,
-            forward: self.view_forward,
-        };
+        let view = self.scheduler_view(camera_position);
         let (resident, known_air) = (&self.resident, &self.known_air);
         let probe_near = self
             .mesh_jobs
@@ -61,7 +58,7 @@ impl WorldStream {
                 break;
             };
             let key = candidate.key;
-            candidate.distance_squared = view.rank(key);
+            candidate.refresh_rank(view);
             let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
                 continue;
             };

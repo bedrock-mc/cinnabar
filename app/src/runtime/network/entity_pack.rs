@@ -24,7 +24,7 @@ pub(crate) fn set_vanilla_refs(refs: assets::VanillaEntityRefs) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(refs));
 }
 
-fn vanilla_refs() -> Option<Arc<assets::VanillaEntityRefs>> {
+pub(super) fn vanilla_refs() -> Option<Arc<assets::VanillaEntityRefs>> {
     VANILLA_REFS
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)

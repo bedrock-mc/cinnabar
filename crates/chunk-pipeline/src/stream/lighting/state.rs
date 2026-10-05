@@ -271,6 +271,24 @@ impl WorldStream {
             return None;
         }
         self.lighting.failures.remove(&key);
+        // Pending jobs capture their inputs at dispatch, so later changes share one successor.
+        if let Some(pending) = self.lighting.jobs.pending.get(&key).copied()
+            && self.lighting.revisions.is_current(key, pending.revision)
+        {
+            let urgent = urgent
+                || self
+                    .lighting
+                    .jobs
+                    .in_flight
+                    .get(&key)
+                    .is_some_and(|identity| identity.urgent);
+            if urgent && !pending.urgent {
+                self.lighting.jobs.pending.get_mut(&key).unwrap().urgent = true;
+                self.lighting.jobs.rescan(key, pending.revision, true);
+                self.lighting.priority_wakeups.insert(key, pending.revision);
+            }
+            return Some(pending.revision);
+        }
         self.lighting.priority_wakeups.remove(&key);
         self.lighting.remove_waiter_target(key);
         let urgent = urgent
@@ -288,13 +306,15 @@ impl WorldStream {
                 .is_some_and(|identity| identity.urgent);
         let queued_at = Instant::now();
         let revision = self.lighting.revisions.mark_dirty(key, queued_at);
-        self.lighting.jobs.enqueue(
+        let startup = self.is_startup_dependency(key);
+        self.lighting.jobs.enqueue_prioritized(
             key,
             PendingLight {
                 revision,
                 queued_at,
                 urgent,
             },
+            startup,
         );
         Some(revision)
     }

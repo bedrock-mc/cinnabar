@@ -2,6 +2,39 @@ use super::*;
 use client_world::ingestion::PLAYER_NETWORK_OFFSET;
 
 impl WorldStream {
+    /// Prioritizes the complete spawn columns and their light halo while entry is pending.
+    pub fn set_startup_priority(&mut self, enabled: bool) {
+        self.startup_priority = enabled;
+    }
+
+    /// Some servers stream only after initialization; keep prioritizing until terrain arrives.
+    pub fn finish_startup_priority(&mut self) -> bool {
+        if self.startup_priority && !self.local_terrain_ready() {
+            return false;
+        }
+        self.startup_priority = false;
+        true
+    }
+
+    pub(super) fn scheduler_view(&self, position: [f32; 3]) -> SchedulerView {
+        let player = self.authority.resolved_server_position().position;
+        SchedulerView {
+            position,
+            forward: self.view_forward,
+            startup_center: self.startup_priority.then(|| {
+                ChunkKey::new(
+                    self.authority.current_dimension(),
+                    floor_to_i32(player[0]).div_euclid(16),
+                    floor_to_i32(player[2]).div_euclid(16),
+                )
+            }),
+        }
+    }
+
+    pub(super) fn is_startup_dependency(&self, key: SubChunkKey) -> bool {
+        self.startup_priority && self.scheduler_view([0.0; 3]).startup_class(key) < 2
+    }
+
     /// Mutation-through frontier for inactive inventory projections after polling.
     /// A popped asynchronous block update is not committed until its decode applies.
     #[must_use]

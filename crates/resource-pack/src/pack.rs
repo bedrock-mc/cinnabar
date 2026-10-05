@@ -3,9 +3,10 @@
 use std::{
     collections::HashMap,
     io::{Cursor, Read},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
@@ -38,6 +39,7 @@ pub struct ValidatedPack {
     pub(crate) keys: Arc<[ContentKey]>,
     pub(crate) physical_entry_count: usize,
     pub(crate) skipped_entries: usize,
+    pub(crate) compilation_identity: Arc<OnceLock<[u8; 32]>>,
 }
 
 impl std::fmt::Debug for ValidatedPack {
@@ -52,6 +54,37 @@ impl std::fmt::Debug for ValidatedPack {
 }
 
 impl ValidatedPack {
+    /// Identifies the immutable archive, selected files and their decryption inputs.
+    /// Clones share the digest; cache comparisons never expose the content keys.
+    #[must_use]
+    pub fn compilation_identity(&self) -> [u8; 32] {
+        *self.compilation_identity.get_or_init(|| {
+            let mut hash = Sha256::new();
+            hash.update(self.pack_id.as_bytes());
+            for bytes in [self.version.as_bytes(), self.sub_pack_name.as_bytes()] {
+                hash.update((bytes.len() as u64).to_le_bytes());
+                hash.update(bytes);
+            }
+            let archive = self.archive_bytes();
+            hash.update((archive.len() as u64).to_le_bytes());
+            hash.update(&*archive);
+            for path in &self.file_order {
+                let entry = &self.files[path];
+                hash.update((path.len() as u64).to_le_bytes());
+                hash.update(path.as_bytes());
+                hash.update((entry.archive_index as u64).to_le_bytes());
+                match entry.key {
+                    Some(key) => {
+                        hash.update([1]);
+                        hash.update(self.keys[key].identity());
+                    }
+                    None => hash.update([0]),
+                }
+            }
+            hash.finalize().into()
+        })
+    }
+
     #[must_use]
     pub const fn pack_id(&self) -> Uuid {
         self.pack_id

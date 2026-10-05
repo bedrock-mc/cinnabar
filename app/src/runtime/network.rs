@@ -182,6 +182,7 @@ pub(crate) fn receive_network_events(
     publication: Res<PublicationController>,
     local_player: NetworkLocalPlayerState,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    mut session_controller: Option<ResMut<crate::session::SessionController>>,
 ) {
     let _timer = profiler
         .as_deref()
@@ -251,6 +252,12 @@ pub(crate) fn receive_network_events(
                         );
                         continue;
                     }
+                }
+                if let Some(controller) = session_controller.as_mut() {
+                    controller.observe_join(
+                        session_generation,
+                        client_session::join_timing::JoinPhase::Bootstrap,
+                    );
                 }
                 ui_runtime.set_server_lang(None);
                 player_runtime.facts.clear_block_breaking_mode();
@@ -384,6 +391,7 @@ pub(crate) fn receive_network_events(
                     );
                 }
                 stream.begin_frame_work();
+                stream.set_startup_priority(true);
                 stream.set_startup_terrain_announced(terrain_before_spawn);
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);

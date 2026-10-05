@@ -30,14 +30,24 @@ fn fixture_stack(payload: &[u8]) -> Arc<resource_pack::ValidatedPackStack> {
 
 /// Measures warm compile-cache lookup costs on a stored 32 MiB archive.
 #[test]
-#[ignore = "offline cache timing fixture"]
 fn shared_stack_fingerprint_timing() {
+    use sha2::{Digest, Sha256};
     use std::{hint::black_box, time::Instant};
+    if std::env::var_os("CINNABAR_JOIN_CACHE_BENCH").is_none() {
+        eprintln!("missing fixture CINNABAR_JOIN_CACHE_BENCH; skipping pack cache timing");
+        return;
+    }
     let stack = fixture_stack(&vec![17; 32 * 1024 * 1024]);
     let view = LayeredPackView::new(Arc::clone(&stack));
     let blocks = protocol::CustomBlocks::default();
+    let mut repeated_hash_samples = Vec::new();
     let mut samples = Vec::new();
     for _ in 0..21 {
+        let started = Instant::now();
+        for pack in stack.packs() {
+            black_box(Sha256::digest(&*pack.archive_bytes()));
+        }
+        repeated_hash_samples.push(started.elapsed().as_secs_f64() * 1000.0);
         let started = Instant::now();
         let fingerprint = stack_fingerprint(&stack);
         black_box(cached_block_overlay(
@@ -53,11 +63,14 @@ fn shared_stack_fingerprint_timing() {
         ));
         samples.push(started.elapsed().as_secs_f64() * 1000.0);
     }
+    repeated_hash_samples.remove(0);
+    repeated_hash_samples.sort_by(f64::total_cmp);
     samples.remove(0);
     samples.sort_by(f64::total_cmp);
     println!(
-        "pack_cache_fingerprint bytes={} median_ms={:.3} p95_ms={:.3}",
+        "pack_cache_fingerprint bytes={} repeated_sha256_p50_ms={:.3} cached_lookup_p50_ms={:.3} cached_lookup_p95_ms={:.3}",
         stack.packs()[0].archive_bytes().len(),
+        repeated_hash_samples[10],
         samples[10],
         samples[19]
     );

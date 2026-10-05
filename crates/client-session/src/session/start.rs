@@ -1,4 +1,5 @@
 use super::*;
+use tracing::Instrument;
 
 /// Starts the login task and hands admitted world state to the play pump.
 pub fn spawn_network<P: Send + 'static>(
@@ -12,6 +13,7 @@ pub fn spawn_network<P: Send + 'static>(
     observation: SessionTrace,
 ) -> Result<NetworkHandle<P>, std::io::Error> {
     let session_generation = config.session_generation;
+    let timing = super::startup_timing::StartupTiming::new(session_generation);
     let (control_event_tx, control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (world_event_tx, world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
@@ -24,6 +26,7 @@ pub fn spawn_network<P: Send + 'static>(
     let thread = thread::Builder::new()
         .name("bedrock-network".to_owned())
         .spawn(move || {
+            let runtime_started = Instant::now();
             let runtime = match tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
@@ -31,6 +34,7 @@ pub fn spawn_network<P: Send + 'static>(
             {
                 Ok(runtime) => runtime,
                 Err(error) => {
+                    timing.record("network_runtime", runtime_started, false);
                     let _ = control_event_tx.try_send(NetworkControlEvent::Failed {
                         message: format!("failed to create network runtime: {error}"),
                         decode_error_count: 0,
@@ -40,20 +44,24 @@ pub fn spawn_network<P: Send + 'static>(
                     return;
                 }
             };
+            timing.record("network_runtime", runtime_started, true);
             run_session_runtime(runtime, async move {
+                let login_started = Instant::now();
                 let Some(login) = wait_for_login_or_cancel(
                     LoginSequence::connect_with_blob_cache(
                         &config.socket_dir,
                         &config.display_name,
                         config.client_blob_cache.clone(),
                         Some(config.player_skin),
-                    ),
+                    )
+                    .instrument(tracing::info_span!("bedrock_login", session_generation)),
                     &mut shutdown_rx,
                 )
                 .await
                 else {
                     return;
                 };
+                timing.record("protocol_login", login_started, login.is_ok());
                 let (mut session, game_data) = match login {
                     Ok(connected) => connected,
                     Err(error) => {
@@ -70,11 +78,21 @@ pub fn spawn_network<P: Send + 'static>(
                 // remains a live base-assets session, a required one ends it.
                 let handoff = session.take_resource_pack_handoff();
                 let cancelled = shutdown_rx.clone();
+                let packs_started = Instant::now();
                 let Some((preparation, game_data, packs)) = run_blocking_or_cancel(
                     move || {
+                        let validation_started = Instant::now();
                         let preparation = crate::prepare_session_packs(handoff, &game_data);
+                        timing.record("pack_validation", validation_started, true);
                         let packs = unless_cancelled(&cancelled, || {
-                            prepare_presentation(&preparation, &game_data)
+                            let presentation_started = Instant::now();
+                            let result = prepare_presentation(&preparation, &game_data);
+                            timing.record(
+                                "pack_presentation",
+                                presentation_started,
+                                result.is_ok(),
+                            );
+                            result
                         });
                         (preparation, game_data, packs)
                     },
@@ -84,6 +102,11 @@ pub fn spawn_network<P: Send + 'static>(
                 else {
                     return;
                 };
+                timing.record(
+                    "pack_preparation",
+                    packs_started,
+                    packs.as_ref().is_some_and(Result::is_ok),
+                );
                 let packs = match packs {
                     None => return,
                     Some(Ok(packs)) => packs,
@@ -93,6 +116,7 @@ pub fn spawn_network<P: Send + 'static>(
                         return;
                     }
                 };
+                let bootstrap_started = Instant::now();
                 let custom_blocks = preparation.inputs.blocks.clone();
                 let packs_applied = preparation.has_applied_packs();
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
@@ -141,6 +165,7 @@ pub fn spawn_network<P: Send + 'static>(
                 {
                     return;
                 }
+                timing.record("bootstrap_publish", bootstrap_started, true);
                 let sequencer = NetworkSequencer::new(
                     session_generation,
                     bootstrap.dimension,
@@ -164,7 +189,12 @@ pub fn spawn_network<P: Send + 'static>(
                     run_with_pack_report(pump, move |applied| {
                         let socket_dir = socket_dir.clone();
                         async move {
-                            protocol::report_pack_application(&socket_dir, applied).await;
+                            let report_started = Instant::now();
+                            let reported =
+                                protocol::report_pack_application(&socket_dir, applied).await;
+                            if applied {
+                                timing.record("pack_application_report", report_started, reported);
+                            }
                         }
                     })
                     .await;
