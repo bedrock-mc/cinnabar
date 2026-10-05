@@ -1,21 +1,11 @@
 //! Disk inventory and deletion boundary regressions.
 
 use super::*;
-use std::path::PathBuf;
 
-/// Gives each test a private, canonical data directory.
-fn fixture() -> PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "cinnabar-storage-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    fs::create_dir_all(&path).unwrap();
-    fs::canonicalize(path).unwrap()
-}
+#[path = "settings_storage/fixtures.rs"]
+mod fixtures;
+
+use fixtures::fixture;
 
 #[test]
 fn inventory_measures_nested_contents_and_cache_clear_preserves_other_data() {

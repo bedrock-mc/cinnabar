@@ -220,7 +220,9 @@ timeout; a Join arriving before preparation attachment left the selection
 eligible to finish and renew. The attachment race is fixed on this branch.
 Protocol-aware immediate teardown passes encrypted cancellation, failed-commit
 and retained-session tests in an isolated dependency prototype. Its dependency
-changes and the native session stability gate remain unlanded.
+changes are published in [the SDK PR](https://github.com/HashimTheArab/gophertunnel/pull/175)
+and [the transport PR](https://github.com/lunar-bedrock/go-raknet/pull/34); they remain
+unmerged. The shipped module pins and native session stability gate are unchanged.
 
 A separate delayed-request regression started another speculative peer during
 game admission. Preparation now stays fenced until the exact admission resource
@@ -228,13 +230,28 @@ owner finishes teardown, including stored offers and overlapping transfers.
 Matching ready prefixes remain claimable; failed or abandoned admission reopens
 menu preparation. The Connect-to-local-admission interval remains uncovered.
 
-The original Go preparation lifecycle also survived a six-minute Zeqa run with
-the real Rust loading path, client caching and over 7,000 physics input packets.
-A second 100-second run survived a late preparation and cancellation during the
-active session. Both consumed a ready prefix and followed the real transfer.
-The private Rust harness rendered to a GPU image without native windows or OS
-input; it remained stationary. These results narrow the trigger but do not close
-movement, foreground menu, visual or performance acceptance.
+Windowless Zeqa comparisons use the real Rust loading, control, movement and
+transfer paths with client caching. Each six-minute run consumed a confirmed
+ready prefix and followed the actual server transfer. Input enters through the
+ordinary control bindings; rendering targets a GPU image without OS input.
+
+| Go lifecycle | Rust scenario | Result |
+| --- | --- | --- |
+| Original | Bounded walk, sprint, jump and backward cycles | Six minutes; all ten cycles completed |
+| Cleanup prototype | Same movement; late preparation request | Six minutes; all cycles completed; extra preparation fenced |
+| Original | Real Servers selection worker, Join and Pause disconnect | Six minutes; movement stopped when simulation eligibility changed |
+| Cleanup prototype | Same menu path; ready prefix held over six seconds before Join | Six minutes; all movement cycles completed; normal Pause disconnect |
+
+The cleanup candidate also cancelled three ready prefixes, joined a fresh fourth,
+and survived five minutes with all movement cycles completed. The bounded codec
+observer logged no faults in these runs. A separate stationary original-lifecycle
+run survived late preparation/cancellation for 100 seconds.
+Earlier native failure traces have contiguous physics/input ticks and ordinary
+cadence immediately before the explicit peer close; successful windowless runs
+also contain longer stalls. These observations do not establish the live trigger.
+The harness does not exercise native focus, swapchain presentation or launcher
+child-process ownership. Native session stability, visual and performance
+acceptance remain open.
 
 The focused tests cover cancellation, capability preservation, secret-safe
 telemetry, wire order, signing, retained-buffer bounds, content/context cache
