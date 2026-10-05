@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft"
 )
 
@@ -118,6 +119,68 @@ func TestPreparedTransportPreservesFailureAndCancellation(t *testing.T) {
 	cancelled.finish(true)
 	if transport.closes.Load() != 1 {
 		t.Fatal("cancelled handoff retained an unused transport")
+	}
+}
+
+func TestPreparedTransportTypedNilFailurePreservesErrorAndCleansUp(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("typed-nil failed transport panicked instead of returning its error (type %T)", recovered)
+		}
+	}()
+	want := errors.New("fixture transport unavailable")
+	var disposed atomic.Int32
+	prepared := newOwnedPreparedTransport(t.Context(), transportFixture{dial: func(context.Context, string) (net.Conn, error) {
+		var conn *raknet.Conn
+		return conn, want
+	}}, "server", func() { disposed.Add(1) })
+	conn, err := prepared.DialContext(t.Context(), "server")
+	prepared.finish(false)
+	prepared.finish(false)
+	if conn != nil || !errors.Is(err, want) || prepared.ready() || disposed.Load() != 1 {
+		t.Fatalf("failed transport: nonnil=%v err=%v ready=%v disposed=%d", conn != nil, err, prepared.ready(), disposed.Load())
+	}
+}
+
+func TestPreparedTransportTypedNilAbandonedSetupClosesNoConnection(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("typed-nil abandoned setup panicked during cleanup (type %T)", recovered)
+		}
+	}()
+	prepared := newPreparedTransport(t.Context(), transportFixture{dial: func(context.Context, string) (net.Conn, error) {
+		var conn *raknet.Conn
+		return conn, errors.New("fixture transport unavailable")
+	}}, "server")
+	prepared.finish(false)
+	if prepared.ready() {
+		t.Fatal("typed-nil failed setup was ready")
+	}
+}
+
+func TestPreparedTransportNilSuccessIsUnavailable(t *testing.T) {
+	prepared := newPreparedTransport(t.Context(), transportFixture{dial: func(context.Context, string) (net.Conn, error) {
+		return nil, nil
+	}}, "server")
+	defer prepared.finish(false)
+	if conn, err := prepared.DialContext(t.Context(), "server"); conn != nil || !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("nil success: nonnil=%v err=%v", conn != nil, err)
+	}
+}
+
+func TestPreparedTransportFailedNonNilResultClosesOnce(t *testing.T) {
+	transport := new(countedTransport)
+	failure := errors.New("fixture transport unavailable")
+	prepared := newPreparedTransport(t.Context(), transportFixture{dial: func(context.Context, string) (net.Conn, error) {
+		return transport, failure
+	}}, "server")
+	if conn, err := prepared.DialContext(t.Context(), "server"); conn != nil || !errors.Is(err, failure) {
+		t.Fatalf("failed result: nonnil=%v err=%v", conn != nil, err)
+	}
+	prepared.finish(false)
+	prepared.finish(false)
+	if transport.closes.Load() != 1 {
+		t.Fatalf("failed connection closed %d times", transport.closes.Load())
 	}
 }
 

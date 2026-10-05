@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -41,6 +42,10 @@ func newOwnedPreparedTransport(ctx context.Context, network minecraft.Network, a
 		}()
 		started := time.Now()
 		prepared.conn, prepared.err = network.DialContext(ctx, address)
+		prepared.conn = usableTransport(prepared.conn)
+		if prepared.conn == nil && prepared.err == nil {
+			prepared.err = net.ErrClosed
+		}
 		reportJoinDuration(ctx, "transport", started, prepared.err == nil)
 	}()
 	return prepared
@@ -60,12 +65,30 @@ func (prepared *preparedTransport) DialContext(ctx context.Context, address stri
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if prepared.err != nil {
+			return nil, prepared.err
+		}
 		if connection, ok := prepared.conn.(interface{ Context() context.Context }); ok && connection.Context().Err() != nil {
 			return nil, net.ErrClosed
 		}
 		prepared.handedOff.Store(prepared.conn != nil && prepared.err == nil)
 		return prepared.conn, prepared.err
 	}
+}
+
+// Network implementations may return an interface containing a nil connection.
+func usableTransport(conn net.Conn) net.Conn {
+	if conn == nil {
+		return nil
+	}
+	value := reflect.ValueOf(conn)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if value.IsNil() {
+			return nil
+		}
+	}
+	return conn
 }
 
 func (prepared *preparedTransport) ready() bool {
