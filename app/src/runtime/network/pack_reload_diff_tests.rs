@@ -181,3 +181,35 @@ fn missing_layer_read_on_empty_stack_is_still_a_dependency() {
     };
     assert!(Changes::between(&after, Some(&previous)).blocks);
 }
+
+// An unchanged part is reused without polling; a cancelled one never starts its compile.
+#[test]
+fn compile_part_reuses_unchanged_output_and_skips_cancelled_work() {
+    let stack = stack(&[("texts/en_US.lang", b"a=b")]);
+    let polls = std::sync::atomic::AtomicUsize::new(0);
+    let poll = |answer| {
+        let polls = &polls;
+        move || {
+            polls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            answer
+        }
+    };
+    let reused = compile_part(&stack, &poll(true), false, Subscriber::Ui, 1, |_| -> i32 {
+        unreachable!("an unchanged subscriber is not compiled")
+    });
+    assert_eq!(reused, Some((1, None)));
+    assert_eq!(polls.load(std::sync::atomic::Ordering::Relaxed), 0);
+    let cancelled = compile_part(&stack, &poll(true), true, Subscriber::Ui, 1, |_| -> i32 {
+        unreachable!("a cancelled subscriber is not compiled")
+    });
+    assert_eq!(cancelled, None);
+    let (output, inputs) = compile_part(&stack, &poll(false), true, Subscriber::Ui, 1, |view| {
+        view.read("texts/en_US.lang").map_or(0, |bytes| bytes.len())
+    })
+    .unwrap();
+    assert_eq!(output, 3);
+    assert!(inputs.unwrap().contains(&PackDependency::File {
+        path: "texts/en_US.lang".into(),
+        limit: resource_pack::MAX_FILE_BYTES,
+    }));
+}

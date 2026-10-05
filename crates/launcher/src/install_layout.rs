@@ -236,6 +236,12 @@ impl InstallLayout {
         self.user_data_root.join("resource-packs/v1/objects")
     }
 
+    /// Join-time pack compilations reused across launches; safe to delete at any time.
+    #[must_use]
+    pub fn compiled_pack_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("resource-packs/compiled")
+    }
+
     /// Immutable extension bundles, separate from per-server trust settings.
     pub fn experience_cache_dir(&self) -> PathBuf {
         server_experience::cache::objects_dir(&self.user_data_root)

@@ -15,16 +15,6 @@ func hasLinkAttribute(info os.FileInfo) bool { return info.Mode()&os.ModeSymlink
 // canonicalPlatformPath preserves case-sensitive Unix paths.
 func canonicalPlatformPath(path string) string { return path }
 
-// syncDir persists an archive directory change.
-func syncDir(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return f.Sync()
-}
-
 // openRegular opens only an ordinary archive, without following a leaf link.
 func openRegular(path string) (*os.File, error) {
 	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)

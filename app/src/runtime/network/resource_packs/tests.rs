@@ -422,3 +422,114 @@ fn newer_generation_replaces_atomically_and_stale_results_are_ignored() {
     assert_eq!(state.generation(), 3);
     assert!(matches!(state.admission(), PackAdmission::None));
 }
+
+fn png(width: u32, height: u32) -> Vec<u8> {
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_fn(width, height, |x, y| {
+        image::Rgba([x as u8, y as u8, (x ^ y) as u8, 255])
+    })
+    .write_to(&mut png, image::ImageFormat::Png)
+    .unwrap();
+    png.into_inner()
+}
+
+/// A stack exercising every subscriber; `id` keeps each copy out of the in-memory caches.
+fn every_subscriber(id: u128) -> std::sync::Arc<resource_pack::ValidatedPackStack> {
+    let (texture, sheet) = (png(1, 1), png(128, 128));
+    resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![archive(
+        id,
+        &[
+            ("texts/en_US.lang", b"a=b"),
+            ("ui/_ui_defs.json", br#"{"ui_defs":["ui/x.json"]}"#),
+            ("ui/x.json", br#"{"namespace":"x","c":{"type":"label"}}"#),
+            ("sounds/sound_definitions.json", br#"{"sound_definitions":{"x.beep":{"sounds":["sounds/beep"]}}}"#),
+            ("textures/item_texture.json", br#"{"texture_data":{"gem":{"textures":"textures/items/gem"}}}"#),
+            ("textures/items/gem.png", &texture),
+            ("font/glyph_00.png", &sheet),
+            ("entity/fixture.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:actor","geometry":{"default":"geometry.fixture"},"materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/fixture"},"render_controllers":["controller.render.fixture"]}}}"#),
+            ("models/entity/fixture.json", br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":1,"texture_height":1},"bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#),
+            ("render_controllers/fixture.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#),
+            ("textures/entity/fixture.png", &texture),
+        ],
+    )]))
+}
+
+fn every_input() -> std::sync::Arc<super::super::pack_reload::PackInputs> {
+    std::sync::Arc::new(super::super::pack_reload::PackInputs {
+        icons: vec![("x:gem".into(), "gem".into())],
+        ..Default::default()
+    })
+}
+
+/// Everything a subscriber produced, in a deterministic form.
+fn summary(application: &super::PackApplication) -> String {
+    let icons = application.item_icons.as_ref().map(|icons| {
+        icons
+            .icons
+            .iter()
+            .map(|icon| (icon.identifier.clone(), icon.metadata, icon.rgba8.clone()))
+            .collect::<Vec<_>>()
+    });
+    let glyphs = application
+        .glyph_sheets
+        .as_ref()
+        .map(|glyphs| format!("{:?} {:?}", glyphs.cells, glyphs.named));
+    let entities = application
+        .entities
+        .as_ref()
+        .map(|pack| format!("{:?} {:?} {:?}", pack.assets, pack.textures, pack.bindings));
+    format!(
+        "{:?}\n{:?}\n{icons:?}\n{glyphs:?}\n{entities:?}\n{:?}\n{}",
+        application.dependencies,
+        application
+            .server_lang
+            .as_ref()
+            .and_then(|lang| lang.lookup("a")),
+        application
+            .server_ui
+            .as_ref()
+            .map(|ui| format!("{:?}", ui.ui_layers)),
+        application.server_sounds.is_some(),
+    )
+}
+
+// Subscribers compiled concurrently produce exactly what one thread compiling them in turn does.
+#[test]
+fn parallel_preparation_matches_a_serial_one() {
+    let _cache = overlay_cache();
+    let serial = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(|| super::prepare_validated_application(every_subscriber(21), every_input()));
+    let parallel = super::prepare_validated_application(every_subscriber(22), every_input());
+    for application in [&serial, &parallel] {
+        assert!(application.server_lang.is_some() && application.item_icons.is_some());
+        assert!(application.entities.is_some() && application.server_ui.is_some());
+    }
+    assert_eq!(summary(&serial), summary(&parallel));
+}
+
+// Cancellation that lands while a part compiles stops every later part and yields nothing.
+#[test]
+fn cancellation_mid_compile_skips_the_remaining_parts() {
+    let _cache = overlay_cache();
+    let polls = std::sync::atomic::AtomicUsize::new(0);
+    let cancel_after_first = || polls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0;
+    let prepared = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(|| {
+            super::compile_application(
+                every_subscriber(23),
+                every_input(),
+                None,
+                &cancel_after_first,
+            )
+        });
+    assert!(prepared.is_none());
+    assert!(
+        super::compile_application(every_subscriber(24), every_input(), None, &|| true).is_none()
+    );
+}

@@ -80,6 +80,8 @@ pub enum Effect {
     /// Its outcome is never surfaced.
     SetPaused(bool),
     LoadPrefs,
+    /// Waits briefly, then reloads preferences; repeats while the core is still detecting Docker.
+    PollPrefs,
     SetPrefs {
         dismiss_docker_prompt: bool,
         redetect: bool,
@@ -667,8 +669,14 @@ impl WorldsMenu {
                 self.prefs = prefs;
                 self.note_status(&status);
                 self.busy = self.mutation_pending;
+                // The Docker probe outlives core startup; keep reading until it reports a verdict.
+                let detecting = status
+                    .setup
+                    .as_ref()
+                    .is_some_and(|setup| setup.state == SetupState::CheckingRuntime);
+                let mut effects = Vec::new();
                 if self.screen == Screen::BackendPrompt && self.prompt().is_none() {
-                    return match self.pending.take() {
+                    effects = match self.pending.take() {
                         Some(pending) => self.proceed(pending),
                         None => {
                             self.screen = Screen::List;
@@ -676,7 +684,10 @@ impl WorldsMenu {
                         }
                     };
                 }
-                Vec::new()
+                if detecting {
+                    effects.push(Effect::PollPrefs);
+                }
+                effects
             }
             Event::EulaRequired => {
                 self.eula_for = self.opening.take();

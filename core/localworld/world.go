@@ -21,6 +21,7 @@ var (
 	ErrBackendUnavailable = errors.New("world backend is not available on this platform")
 	ErrVanillaNeedsBDS    = errors.New("default worlds need Bedrock Dedicated Server; create a superflat world instead")
 	ErrDockerNotRunning   = errors.New("Docker is not running")
+	ErrRuntimePending     = errors.New("still checking whether Docker is running; try again")
 )
 
 const (

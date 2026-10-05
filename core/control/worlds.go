@@ -193,7 +193,7 @@ func worldErrorCode(err error) int {
 	switch {
 	case errors.Is(err, localworld.ErrNotFound):
 		return codeWorldNotFound
-	case errors.Is(err, localworld.ErrBusy), errors.Is(err, localworld.ErrInUse), errors.Is(err, localworld.ErrNotOpen):
+	case errors.Is(err, localworld.ErrBusy), errors.Is(err, localworld.ErrInUse), errors.Is(err, localworld.ErrNotOpen), errors.Is(err, localworld.ErrRuntimePending):
 		return codeWorldBusy
 	case errors.Is(err, localworld.ErrInvalid):
 		return -32602
@@ -207,7 +207,7 @@ func worldErrorCode(err error) int {
 
 // worldErrorMessage exposes only sentinel-class messages; other errors may carry local paths.
 func worldErrorMessage(err error) string {
-	for _, known := range []error{localworld.ErrNotFound, localworld.ErrBusy, localworld.ErrInUse, localworld.ErrNotOpen, localworld.ErrEULARequired, localworld.ErrBackendUnavailable, localworld.ErrVanillaNeedsBDS} {
+	for _, known := range []error{localworld.ErrNotFound, localworld.ErrBusy, localworld.ErrInUse, localworld.ErrNotOpen, localworld.ErrRuntimePending, localworld.ErrEULARequired, localworld.ErrBackendUnavailable, localworld.ErrVanillaNeedsBDS} {
 		if errors.Is(err, known) {
 			return known.Error()
 		}

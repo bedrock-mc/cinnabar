@@ -78,11 +78,16 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             client_blob_cache: config.client_blob_cache,
             player_skin: config.player_skin.to_client_skin(),
         },
-        move |preparation, game_data| {
-            let mut packs =
-                super::resource_packs::prepare_session_presentation(preparation, game_data)?;
-            packs.prepare_actor_artwork(actor_artwork.as_ref());
-            Ok(packs)
+        move |preparation, game_data, cancelled| {
+            let packs = super::resource_packs::prepare_session_presentation(
+                preparation,
+                game_data,
+                cancelled,
+            )?;
+            Some(packs.map(|mut packs| {
+                packs.prepare_actor_artwork(actor_artwork.as_ref());
+                packs
+            }))
         },
         client_session::SessionTrace {
             movement_line: crate::movement::pending_trace_line,

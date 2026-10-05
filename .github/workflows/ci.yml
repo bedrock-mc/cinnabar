@@ -1,10 +1,7 @@
 name: CI
 
-# Pull requests and main; ci-cache.yml keeps dev's Rust caches warm for pull requests.
+# Pull requests; ci-cache.yml keeps dev's Rust caches warm for pull requests.
 on:
-  push:
-    branches:
-      - main
   pull_request:
   workflow_dispatch:
 
@@ -43,6 +40,11 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+          # Matches ci-cache.yml's desktop job, which saves this cache on dev.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            go.work.sum
       - name: Install Linux desktop development libraries
         if: runner.os == 'Linux'
         run: |
@@ -82,6 +84,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+          # Matches ci-cache.yml's windows-acceptance job, which saves this cache on dev.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/localserver/go.sum
+            go.work.sum
       - name: Test Windows PowerShell 5.1 acceptance harness and dry-run contract
         shell: powershell
         run: .\scripts\tests\acceptance.Tests.ps1
@@ -136,6 +144,14 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+          # Matches ci-cache.yml's verify job, which saves this cache on dev.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/chunkfix/go.sum
+            tools/localserver/go.sum
+            tools/bedsimtrace/go.sum
+            go.work.sum
       - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update
@@ -203,5 +219,10 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+          # Matches ci-cache.yml's desktop job, which saves this cache on dev.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            go.work.sum
       - name: Install and verify the manifest-owned physics carrier through Make
         run: make physics-assets

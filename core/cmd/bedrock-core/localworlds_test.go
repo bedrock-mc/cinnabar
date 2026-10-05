@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -131,5 +132,12 @@ func TestBDSDefaultDoesNotRequireDragonflyBinary(t *testing.T) {
 	manager, err := openLocalWorlds(options{localWorldsDir: t.TempDir(), localServerBin: "/nonexistent/x", localBackend: "bds"}, newLifecycleLogger(io.Discard))
 	if err != nil || manager == nil {
 		t.Fatalf("manager = %v, err = %v", manager, err)
+	}
+	// Without the binary a Dragonfly world could never open, so it is refused rather than saved.
+	if _, err := manager.Create(localworld.Spec{Name: "flat", Generator: localworld.GeneratorFlat, Backend: localworld.BackendDragonfly}); !errors.Is(err, localworld.ErrBackendUnavailable) {
+		t.Fatalf("create without binary: %v", err)
+	}
+	if worlds, _ := manager.List(); len(worlds) != 0 {
+		t.Fatalf("saved %v", worlds)
 	}
 }

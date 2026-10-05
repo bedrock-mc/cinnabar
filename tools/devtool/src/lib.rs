@@ -8,9 +8,11 @@ use std::{io, path::PathBuf};
 use thiserror::Error;
 
 pub use cli::{Options, parse_args, run};
-pub use commands::{CommandSpec, TestRunner, verification_commands};
-pub use metadata::packages_from_metadata;
-pub use selection::{Package, Selection, select_packages};
+pub use commands::{CommandSpec, TestRunner, extra_commands, verification_commands};
+pub use metadata::{go_modules, packages_from_metadata};
+pub use selection::{
+    ExtraChecks, GoModule, Package, Selection, select_extra_checks, select_packages,
+};
 
 #[derive(Debug, Error)]
 pub enum DevtoolError {

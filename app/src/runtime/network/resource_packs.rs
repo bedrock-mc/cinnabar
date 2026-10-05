@@ -79,20 +79,24 @@ impl PackApplication {
 #[cfg(test)]
 use client_session::required_packs_applied;
 
-/// Compiles presentation from already validated session-owned pack inputs.
+/// Compiles presentation from already validated session-owned pack inputs; `None` once cancelled.
 pub(super) fn prepare_session_presentation(
     preparation: &client_session::PackPreparation,
     game_data: &protocol::GameData,
-) -> Result<PackApplication, client_session::RequiredPackRejected> {
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Option<Result<PackApplication, client_session::RequiredPackRejected>> {
     preparation.prepare_application(
         |preparation| match &preparation.admission {
-            PackAdmission::None => PackApplication {
+            PackAdmission::None => Some(PackApplication {
                 inputs: Arc::clone(&preparation.inputs),
                 ..Default::default()
-            },
-            PackAdmission::Validated(stack) => {
-                prepare_validated_application(Arc::clone(stack), Arc::clone(&preparation.inputs))
-            }
+            }),
+            PackAdmission::Validated(stack) => compile_application(
+                Arc::clone(stack),
+                Arc::clone(&preparation.inputs),
+                None,
+                cancelled,
+            ),
         },
         |packs| {
             packs.item_components =
@@ -127,6 +131,7 @@ pub(super) fn prepare_pack_application(
 }
 
 /// Compiles an already admitted optional stack for a menu or an existing world.
+#[cfg(test)]
 pub(super) fn prepare_validated_application(
     stack: Arc<resource_pack::ValidatedPackStack>,
     inputs: Arc<super::pack_reload::PackInputs>,
@@ -140,14 +145,25 @@ pub(super) fn prepare_changed_application(
     inputs: Arc<super::pack_reload::PackInputs>,
     previous: Option<&PackApplication>,
 ) -> PackApplication {
-    let changes = super::pack_reload_diff::Changes::between(&stack, previous);
-    use super::pack_reload_diff::{Subscriber, compile};
+    compile_application(stack, inputs, previous, &|| false)
+        .expect("an uncancellable compile completes")
+}
+
+/// Compiles changed subscribers concurrently; icons follow blocks, whose thumbnails they use.
+/// Cancellation skips every part not yet started and yields `None`.
+fn compile_application(
+    stack: Arc<resource_pack::ValidatedPackStack>,
+    inputs: Arc<super::pack_reload::PackInputs>,
+    previous: Option<&PackApplication>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Option<PackApplication> {
+    use super::pack_reload_diff::{Changes, Subscriber, compile_part};
+    let changes = Changes::between(&stack, previous);
     let mut dependencies = previous
         .map(|old| old.dependencies.clone())
         .unwrap_or_default();
     let custom_blocks = &inputs.blocks;
     let icon_keys = &inputs.icons;
-    let block_items = &inputs.block_items;
     let hashed_block_ids = inputs.hashed;
     for rejection in stack.rejections() {
         bevy::log::warn!(
@@ -158,117 +174,189 @@ pub(super) fn prepare_changed_application(
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
     let fingerprint = stack_fingerprint(&stack);
-    let block_overlay = if !changes.blocks {
-        previous.and_then(|old| old.block_overlay.clone())
-    } else {
-        compile(Subscriber::Blocks, &stack, &mut dependencies, |view| {
-            cached_block_overlay(&fingerprint, view, custom_blocks, hashed_block_ids, || {
-                compile_block_overlay(
-                    view,
-                    custom_blocks,
-                    hashed_block_ids,
-                    BASE_MATERIAL_KEYS.get(),
-                )
-                .map(Arc::new)
-            })
-        })
-    };
-    if let Some(compiled) = &block_overlay
-        && compiled.gaps != Default::default()
-    {
-        bevy::log::warn!(gaps = ?compiled.gaps, "server block visuals are incomplete");
-    }
-    let block_icons = block_overlay
-        .as_deref()
-        .map_or_else(BlockIcons::default, |compiled| {
-            custom_block_icons(
-                &compiled.overlay,
-                custom_blocks,
-                hashed_block_ids,
-                block_items,
-            )
-        });
-    let item_icons = if changes.icons || changes.blocks {
-        compile(Subscriber::Icons, &stack, &mut dependencies, |view| {
-            compile_session_icons(view, icon_keys, block_icons)
-        })
-    } else {
-        previous.and_then(|old| old.item_icons.clone())
-    };
-    super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
-    PackApplication {
-        inputs,
-        server_lang: if changes.language {
-            compile(
-                Subscriber::Language,
+    let (mut blocks, mut icons, mut language, mut glyphs) = (None, None, None, None);
+    let (mut entities, mut artwork, mut ui, mut sounds) = (None, None, None, None);
+    rayon::scope(|scope| {
+        scope.spawn(|_| {
+            blocks = compile_part(
                 &stack,
-                &mut dependencies,
+                cancelled,
+                changes.blocks,
+                Subscriber::Blocks,
+                previous.and_then(|old| old.block_overlay.clone()),
+                |view| {
+                    cached_block_overlay(
+                        &fingerprint,
+                        view,
+                        custom_blocks,
+                        hashed_block_ids,
+                        || {
+                            compile_block_overlay(
+                                view,
+                                custom_blocks,
+                                hashed_block_ids,
+                                BASE_MATERIAL_KEYS.get(),
+                            )
+                            .map(Arc::new)
+                        },
+                    )
+                },
+            );
+            let Some((overlay, _)) = &blocks else { return };
+            if let Some(compiled) = overlay
+                && compiled.gaps != Default::default()
+            {
+                bevy::log::warn!(gaps = ?compiled.gaps, "server block visuals are incomplete");
+            }
+            let block_icons = overlay
+                .as_deref()
+                .map_or_else(BlockIcons::default, |compiled| {
+                    custom_block_icons(
+                        &compiled.overlay,
+                        custom_blocks,
+                        hashed_block_ids,
+                        &inputs.block_items,
+                    )
+                });
+            icons = compile_part(
+                &stack,
+                cancelled,
+                changes.icons || changes.blocks,
+                Subscriber::Icons,
+                previous.and_then(|old| old.item_icons.clone()),
+                |view| compile_session_icons(view, icon_keys, block_icons),
+            );
+        });
+        scope.spawn(|_| {
+            language = compile_part(
+                &stack,
+                cancelled,
+                changes.language,
+                Subscriber::Language,
+                previous.and_then(|old| old.server_lang.clone()),
                 merged_server_lang,
-            )
-        } else {
-            previous.and_then(|old| old.server_lang.clone())
-        },
+            );
+        });
+        scope.spawn(|_| {
+            glyphs = compile_part(
+                &stack,
+                cancelled,
+                changes.glyphs,
+                Subscriber::Glyphs,
+                previous.and_then(|old| old.glyph_sheets.clone()),
+                compile_session_glyphs,
+            );
+        });
+        scope.spawn(|_| {
+            entities = compile_part(
+                &stack,
+                cancelled,
+                changes.entities,
+                Subscriber::Entities,
+                previous.and_then(|old| old.entities.clone()),
+                |view| super::entity_pack::compile_session_entities(&fingerprint, view),
+            );
+        });
+        scope.spawn(|_| {
+            artwork = compile_part(
+                &stack,
+                cancelled,
+                changes.entities,
+                Subscriber::Entities,
+                previous.and_then(|old| old.entity_artwork.clone()),
+                super::entity_texture_reload::prepare,
+            );
+        });
+        scope.spawn(|_| {
+            ui = compile_part(
+                &stack,
+                cancelled,
+                changes.ui,
+                Subscriber::Ui,
+                previous.and_then(|old| old.server_ui.clone()),
+                collect_server_ui,
+            );
+        });
+        scope.spawn(|_| {
+            sounds = compile_part(
+                &stack,
+                cancelled,
+                changes.sounds,
+                Subscriber::Sounds,
+                previous.and_then(|old| old.server_sounds.clone()),
+                |view| crate::audio::ServerSoundPack::from_view(view).map(Arc::new),
+            );
+        });
+    });
+    fn record<T>(
+        dependencies: &mut super::pack_reload_diff::Dependencies,
+        subscriber: Subscriber,
+        (output, inputs): (
+            T,
+            Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
+        ),
+    ) -> T {
+        if let Some(inputs) = inputs {
+            dependencies.insert(subscriber, inputs);
+        }
+        output
+    }
+    let block_overlay = record(&mut dependencies, Subscriber::Blocks, blocks?);
+    let item_icons = record(&mut dependencies, Subscriber::Icons, icons?);
+    let server_lang = record(&mut dependencies, Subscriber::Language, language?);
+    let glyph_sheets = record(&mut dependencies, Subscriber::Glyphs, glyphs?);
+    let server_ui = record(&mut dependencies, Subscriber::Ui, ui?);
+    let server_sounds = record(&mut dependencies, Subscriber::Sounds, sounds?);
+    let entities = record(&mut dependencies, Subscriber::Entities, entities?);
+    // Artwork reads join the entity subscriber's rather than replacing them.
+    let (entity_artwork, artwork_inputs) = artwork?;
+    if let Some(inputs) = artwork_inputs {
+        dependencies
+            .entry(Subscriber::Entities)
+            .or_default()
+            .extend(inputs);
+    }
+    super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
+    Some(PackApplication {
         extension_marker: view
             .read_capped(
                 server_experience::policy::MARKER_PATH,
                 server_experience::policy::MAX_MARKER_BYTES as u64,
             )
             .map(Arc::from),
+        property_defaults: super::entity_pack::pack_property_defaults(&view),
+        prepared_actor_artwork: previous.and_then(|old| old.prepared_actor_artwork.clone()),
+        inputs,
+        server_lang,
         item_icons,
         item_components: None,
-        glyph_sheets: if changes.glyphs {
-            compile(
-                Subscriber::Glyphs,
-                &stack,
-                &mut dependencies,
-                compile_session_glyphs,
-            )
-        } else {
-            previous.and_then(|old| old.glyph_sheets.clone())
-        },
-        entities: if changes.entities {
-            compile(Subscriber::Entities, &stack, &mut dependencies, |view| {
-                super::entity_pack::compile_session_entities(&fingerprint, view)
-            })
-        } else {
-            previous.and_then(|old| old.entities.clone())
-        },
-        entity_artwork: if changes.entities {
-            {
-                let artwork_view = LayeredPackView::tracked(stack.clone());
-                let artwork = super::entity_texture_reload::prepare(&artwork_view);
-                dependencies
-                    .entry(Subscriber::Entities)
-                    .or_default()
-                    .extend(
-                        artwork_view
-                            .dependencies()
-                            .expect("tracked view")
-                            .snapshot(),
-                    );
-                artwork
-            }
-        } else {
-            previous.and_then(|old| old.entity_artwork.clone())
-        },
-        prepared_actor_artwork: previous.and_then(|old| old.prepared_actor_artwork.clone()),
-        property_defaults: super::entity_pack::pack_property_defaults(&view),
-        server_ui: if changes.ui {
-            compile(Subscriber::Ui, &stack, &mut dependencies, collect_server_ui)
-        } else {
-            previous.and_then(|old| old.server_ui.clone())
-        },
-        server_sounds: if changes.sounds {
-            compile(Subscriber::Sounds, &stack, &mut dependencies, |view| {
-                crate::audio::ServerSoundPack::from_view(view).map(Arc::new)
-            })
-        } else {
-            previous.and_then(|old| old.server_sounds.clone())
-        },
+        glyph_sheets,
+        entities,
+        entity_artwork,
+        server_ui,
+        server_sounds,
         admission: PackAdmission::Validated(stack),
         block_overlay,
         dependencies,
-    }
+    })
+}
+
+/// Compiled join results persist here across launches; unset, nothing is written.
+static COMPILE_CACHE: std::sync::OnceLock<client_session::compile_cache::CompileCache> =
+    std::sync::OnceLock::new();
+
+/// Bounds the persisted results; Zeqa's compiled entity pack is about 150 MB.
+const COMPILE_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
+
+pub(crate) fn set_compile_cache_dir(dir: std::path::PathBuf) {
+    let _ = COMPILE_CACHE.set(client_session::compile_cache::CompileCache::new(
+        dir,
+        COMPILE_CACHE_BYTES,
+    ));
+}
+
+pub(super) fn compile_cache() -> Option<&'static client_session::compile_cache::CompileCache> {
+    COMPILE_CACHE.get()
 }
 
 pub(super) fn install_server_ui(

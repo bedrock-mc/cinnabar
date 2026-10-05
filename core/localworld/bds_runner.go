@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -194,13 +193,7 @@ func linkWorld(link, target string) error {
 		return fmt.Errorf("localworld: prepare worlds folder: %w", err)
 	}
 	unlinkWorld(link)
-	if runtime.GOOS == "windows" {
-		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
-			return fmt.Errorf("localworld: link world folder: %w: %s", err, bytes.TrimSpace(out))
-		}
-		return nil
-	}
-	if err := os.Symlink(target, link); err != nil {
+	if err := createWorldLink(link, target); err != nil {
 		return fmt.Errorf("localworld: link world folder: %w", err)
 	}
 	return nil

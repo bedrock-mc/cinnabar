@@ -34,6 +34,27 @@ pub(super) fn compile<T>(
     output
 }
 
+/// One subscriber's output and, when compiled rather than reused, its reads; `None` once
+/// cancelled before it started.
+pub(super) fn compile_part<T>(
+    stack: &std::sync::Arc<ValidatedPackStack>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+    changed: bool,
+    subscriber: Subscriber,
+    reuse: T,
+    build: impl FnOnce(&resource_pack::LayeredPackView) -> T,
+) -> Option<(T, Option<BTreeSet<PackDependency>>)> {
+    if !changed {
+        return Some((reuse, None));
+    }
+    if cancelled() {
+        return None;
+    }
+    let mut inputs = Dependencies::new();
+    let output = compile(subscriber, stack, &mut inputs, build);
+    Some((output, inputs.remove(&subscriber)))
+}
+
 pub(super) struct Changes {
     pub(super) blocks: bool,
     pub(super) atmosphere: bool,

@@ -64,6 +64,14 @@ jobs:
         with:
           shared-key: desktop
           cache-on-failure: true
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          # Must match ci.yml's desktop and physics jobs.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            go.work.sum
       - name: Install Linux desktop development libraries
         if: runner.os == 'Linux'
         run: |
@@ -71,6 +79,11 @@ jobs:
           sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
       - run: cargo build --release -p bedrock-client --locked
       - run: cargo test -p bridge --locked --no-run
+      - name: Warm Go caches
+        shell: bash
+        run: |
+          go test -run '^$' ./core/...
+          go -C tools/registrygen build ./...
       - if: runner.os == 'macOS'
         run: cargo test --workspace --locked --no-run
       - if: runner.os == 'macOS'
@@ -92,6 +105,21 @@ jobs:
         with:
           shared-key: windows-acceptance
           cache-on-failure: true
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          # Must match ci.yml's windows-acceptance job.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/localserver/go.sum
+            go.work.sum
+      - name: Warm Go caches
+        shell: bash
+        run: |
+          go test -run '^$' ./core/...
+          go -C tools/registrygen test -run '^$' ./...
+          GOWORK=off go -C tools/localserver test -run '^$' ./...
       - run: cargo test --workspace --locked --no-run
       - continue-on-error: true
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -111,6 +139,24 @@ jobs:
         with:
           shared-key: verify
           cache-on-failure: true
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          # Must match ci.yml's verify job.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/chunkfix/go.sum
+            tools/localserver/go.sum
+            tools/bedsimtrace/go.sum
+            go.work.sum
+      - name: Warm Go caches
+        run: |
+          go test -run '^$' ./core/...
+          go -C tools/registrygen test -run '^$' ./...
+          for module in chunkfix localserver bedsimtrace; do
+            GOWORK=off go -C "tools/$module" test -run '^$' ./...
+          done
       - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update

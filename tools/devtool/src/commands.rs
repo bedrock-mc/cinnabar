@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Package, Selection};
+use crate::{ExtraChecks, Package, Selection};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TestRunner {
@@ -12,19 +12,31 @@ pub enum TestRunner {
 pub struct CommandSpec {
     pub program: String,
     pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
 }
 
 impl CommandSpec {
-    pub(crate) fn cargo(args: &[&str]) -> Self {
+    pub(crate) fn new(program: &str, args: Vec<String>) -> Self {
         Self {
-            program: "cargo".into(),
-            args: args.iter().map(|argument| (*argument).into()).collect(),
+            program: program.into(),
+            args,
+            env: Vec::new(),
         }
+    }
+
+    pub(crate) fn cargo(args: &[&str]) -> Self {
+        Self::new(
+            "cargo",
+            args.iter().map(|argument| (*argument).into()).collect(),
+        )
     }
 }
 
 impl fmt::Display for CommandSpec {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (key, value) in &self.env {
+            write!(formatter, "{key}={value} ")?;
+        }
         write!(formatter, "{}", self.program)?;
         for argument in &self.args {
             write!(formatter, " {argument}")?;
@@ -34,6 +46,7 @@ impl fmt::Display for CommandSpec {
 }
 
 /// Builds verification commands while respecting each package's Cargo doctest setting.
+/// Clippy type-checks every target, so there is no separate `cargo check`.
 #[must_use]
 pub fn verification_commands(
     selection: &Selection,
@@ -70,7 +83,6 @@ pub fn verification_commands(
     match selection {
         Selection::NoPackages => {}
         Selection::Workspace => {
-            commands.push(CommandSpec::cargo(&["check", "--workspace", "--locked"]));
             append_tests(&mut commands, runner, &[], true, &doctest_filters);
             commands.push(CommandSpec::cargo(&[
                 "clippy",
@@ -87,8 +99,6 @@ pub fn verification_commands(
             for name in names {
                 filters.extend(["-p".into(), package_spec(name, packages).to_owned()]);
             }
-            let mut check = vec!["check".into(), "--locked".into()];
-            check.extend(filters.clone());
             let mut clippy = vec!["clippy".into(), "--locked".into()];
             clippy.extend(filters.clone());
             clippy.extend([
@@ -97,16 +107,49 @@ pub fn verification_commands(
                 "-D".into(),
                 "warnings".into(),
             ]);
-            commands.push(CommandSpec {
-                program: "cargo".into(),
-                args: check,
-            });
             append_tests(&mut commands, runner, &filters, false, &doctest_filters);
-            commands.push(CommandSpec {
-                program: "cargo".into(),
-                args: clippy,
-            });
+            commands.push(CommandSpec::new("cargo", clippy));
         }
+    }
+    commands
+}
+
+/// Runs `go test` and `go vet` per selected module, then the packaging tests.
+#[must_use]
+pub fn extra_commands(checks: &ExtraChecks) -> Vec<CommandSpec> {
+    let mut commands = Vec::new();
+    for module in &checks.go_modules {
+        let dir = if module.dir.is_empty() {
+            "."
+        } else {
+            &module.dir
+        };
+        for action in ["test", "vet"] {
+            let mut command = CommandSpec::new(
+                "go",
+                vec!["-C".into(), dir.into(), action.into(), "./...".into()],
+            );
+            if !module.in_workspace {
+                command.env.push(("GOWORK".into(), "off".into()));
+            }
+            commands.push(command);
+        }
+    }
+    if checks.packaging {
+        commands.push(CommandSpec::new(
+            "python3",
+            [
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "packaging/tests",
+                "-p",
+                "test_*.py",
+            ]
+            .map(String::from)
+            .to_vec(),
+        ));
     }
     commands
 }
@@ -135,10 +178,7 @@ fn append_tests(
             }
             args.push("--locked".into());
             args.extend_from_slice(filters);
-            commands.push(CommandSpec {
-                program: "cargo".into(),
-                args,
-            });
+            commands.push(CommandSpec::new("cargo", args));
         }
         TestRunner::Nextest => {
             let mut args = vec!["nextest".into(), "run".into()];
@@ -147,27 +187,21 @@ fn append_tests(
             }
             args.push("--locked".into());
             args.extend_from_slice(filters);
-            commands.push(CommandSpec {
-                program: "cargo".into(),
-                args,
-            });
+            commands.push(CommandSpec::new("cargo", args));
             if doctest_filters.is_empty() {
                 return;
             }
             let mut args = vec!["test".into(), "--doc".into(), "--locked".into()];
             args.extend_from_slice(doctest_filters);
-            commands.push(CommandSpec {
-                program: "cargo".into(),
-                args,
-            });
+            commands.push(CommandSpec::new("cargo", args));
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{TestRunner, verification_commands};
-    use crate::Selection;
+    use super::{TestRunner, extra_commands, verification_commands};
+    use crate::{ExtraChecks, GoModule, Selection};
 
     #[test]
     fn package_commands_are_batched_and_strict() {
@@ -183,27 +217,24 @@ mod tests {
         );
         assert_eq!(
             commands[2].to_string(),
-            "cargo check --locked -p assets -p render"
-        );
-        assert_eq!(
-            commands[3].to_string(),
             "cargo test --locked -p assets -p render"
         );
         assert_eq!(
-            commands[4].to_string(),
+            commands[3].to_string(),
             "cargo clippy --locked -p assets -p render --all-targets -- -D warnings"
         );
+        assert_eq!(commands.len(), 4);
     }
 
     #[test]
     fn workspace_selection_uses_full_workspace_commands() {
         let commands = verification_commands(&Selection::Workspace, TestRunner::Cargo, &[]);
-        assert_eq!(commands[2].to_string(), "cargo check --workspace --locked");
-        assert_eq!(commands[3].to_string(), "cargo test --workspace --locked");
+        assert_eq!(commands[2].to_string(), "cargo test --workspace --locked");
         assert_eq!(
-            commands[4].to_string(),
+            commands[3].to_string(),
             "cargo clippy --workspace --all-targets --locked -- -D warnings"
         );
+        assert!(commands.iter().all(|command| command.args[0] != "check"));
     }
 
     #[test]
@@ -226,12 +257,35 @@ mod tests {
             )],
         );
         assert_eq!(
-            commands[3].to_string(),
+            commands[2].to_string(),
             "cargo nextest run --locked -p world"
         );
         assert_eq!(
-            commands[4].to_string(),
+            commands[3].to_string(),
             "cargo test --doc --locked -p world"
         );
+    }
+
+    #[test]
+    fn go_modules_outside_the_workspace_disable_go_work() {
+        let commands = extra_commands(&ExtraChecks {
+            go_modules: vec![
+                GoModule::new("core", true),
+                GoModule::new("tools/localserver", false),
+            ],
+            packaging: true,
+        });
+        let commands: Vec<_> = commands.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            commands,
+            [
+                "go -C core test ./...",
+                "go -C core vet ./...",
+                "GOWORK=off go -C tools/localserver test ./...",
+                "GOWORK=off go -C tools/localserver vet ./...",
+                "python3 -m unittest discover -s packaging/tests -p test_*.py",
+            ]
+        );
+        assert!(extra_commands(&ExtraChecks::default()).is_empty());
     }
 }

@@ -419,6 +419,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
+    crate::runtime::network::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);

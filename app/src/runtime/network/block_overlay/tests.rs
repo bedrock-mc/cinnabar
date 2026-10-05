@@ -816,3 +816,35 @@ fn review_geometry_catalog_accepts_json_escaped_identifiers() {
     let catalog = super::geometry::geometry_catalog(&view, &wanted);
     assert!(catalog.contains_key("geometry.gen"));
 }
+
+// Icons compile beside other subscribers but only once blocks supply their thumbnails.
+#[test]
+fn join_preparation_icons_carry_the_compiled_block_sheets() {
+    let lucky = block(
+        "test:lucky",
+        1,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("minecraft:geometry.full_block".into()),
+                materials: materials("lucky"),
+                ..CustomVisualComponents::default()
+            },
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let inputs = Arc::new(super::super::pack_reload::PackInputs {
+        blocks: CustomBlocks {
+            blocks: vec![lucky].into(),
+            vanilla_blocks: Default::default(),
+            skipped: 0,
+        },
+        block_items: vec![("test:lucky".into(), "test:lucky".into())],
+        ..Default::default()
+    });
+    let application =
+        super::super::resource_packs::prepare_validated_application(view().shared_stack(), inputs);
+    assert!(application.block_overlay.is_some());
+    let icons = application.item_icons.expect("block item icons");
+    assert_eq!(icons.block_sheets.len(), 1);
+    assert_eq!(icons.block_sheets[0].identifier.as_ref(), "test:lucky");
+}

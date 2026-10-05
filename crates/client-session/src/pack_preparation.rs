@@ -29,15 +29,18 @@ pub struct PackPreparation {
 
 impl PackPreparation {
     /// Compiles subscribers before required-pack rejection, then completes accepted payloads.
+    /// `None` when the compile was cancelled.
     pub fn prepare_application<P>(
         &self,
-        compile: impl FnOnce(&Self) -> P,
+        compile: impl FnOnce(&Self) -> Option<P>,
         complete: impl FnOnce(&mut P),
-    ) -> Result<P, RequiredPackRejected> {
-        let mut application = compile(self);
-        required_packs_applied(self.required, &self.admission)?;
+    ) -> Option<Result<P, RequiredPackRejected>> {
+        let mut application = compile(self)?;
+        if let Err(rejected) = required_packs_applied(self.required, &self.admission) {
+            return Some(Err(rejected));
+        }
         complete(&mut application);
-        Ok(application)
+        Some(Ok(application))
     }
 
     /// Reports whether the session must bracket its pump with pack-application reports.
@@ -261,10 +264,12 @@ mod tests {
                 required,
             };
             let order = RefCell::new(Vec::new());
-            let result = preparation.prepare_application(
-                |_| order.borrow_mut().push("compile"),
-                |_| order.borrow_mut().push("complete"),
-            );
+            let result = preparation
+                .prepare_application(
+                    |_| Some(order.borrow_mut().push("compile")),
+                    |_| order.borrow_mut().push("complete"),
+                )
+                .unwrap();
             assert_eq!(result.is_err(), required);
             assert_eq!(
                 order.into_inner(),

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,9 +43,78 @@ func (r BDSRunner) pinnedImage() (string, error) {
 }
 
 func (r BDSRunner) dockerCmd(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, r.dockerBin(), args...)
-	cmd.Env = append(os.Environ(), r.Env...)
+	return dockerCommand(ctx, r.dockerBin(), r.Env, args...)
+}
+
+// dockerDirs are where Docker Desktop, Homebrew and OrbStack put the CLI; a Finder-launched app's PATH has none.
+func dockerDirs(home string) []string {
+	dirs := []string{"/usr/local/bin", "/opt/homebrew/bin"}
+	if home != "" {
+		dirs = append(dirs, filepath.Join(home, ".docker", "bin"))
+	}
+	dirs = append(dirs, "/Applications/Docker.app/Contents/Resources/bin")
+	if home != "" {
+		dirs = append(dirs, filepath.Join(home, ".orbstack", "bin"))
+	}
+	return dirs
+}
+
+// findDocker returns the CLI's absolute path from PATH, else from dirs; a name with a separator is used as given.
+func findDocker(name string, dirs []string) (string, bool) {
+	if path, err := exec.LookPath(name); err == nil {
+		if abs, err := filepath.Abs(path); err == nil {
+			return abs, true
+		}
+		return path, true
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return "", false
+	}
+	for _, dir := range dirs {
+		candidate := filepath.Join(dir, name)
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func lookupDocker(name string) (string, bool) {
+	home, _ := os.UserHomeDir()
+	return findDocker(name, dockerDirs(home))
+}
+
+// dockerCommand runs docker by absolute path with its folder first on PATH, where its credential helpers live.
+func dockerCommand(ctx context.Context, docker string, env []string, args ...string) *exec.Cmd {
+	bin, found := lookupDocker(docker)
+	if !found {
+		bin = docker
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = append(os.Environ(), env...)
+	if found {
+		cmd.Env = append(cmd.Env, "PATH="+prependPath(filepath.Dir(bin), envValue(cmd.Env, "PATH")))
+	}
 	return cmd
+}
+
+func prependPath(dir, path string) string {
+	if path == "" {
+		return dir
+	}
+	return dir + string(os.PathListSeparator) + path
+}
+
+// envValue is key's last value in env, as exec resolves duplicates; Windows names are case-insensitive.
+func envValue(env []string, key string) string {
+	value := ""
+	for _, kv := range env {
+		name, v, ok := strings.Cut(kv, "=")
+		if ok && (name == key || runtime.GOOS == "windows" && strings.EqualFold(name, key)) {
+			value = v
+		}
+	}
+	return value
 }
 
 func containerName(worldID string) string { return "cinnabar-bds-" + worldID }

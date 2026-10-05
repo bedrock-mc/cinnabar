@@ -45,16 +45,25 @@ var (
 )
 
 // Cache is a persistent minecraft.ResourcePackCache. A Cache must be created
-// with New; its zero value is not usable.
+// with New; its zero value is not usable. Operations on different keys run
+// concurrently; processMu guards only the bookkeeping below.
 type Cache struct {
-	root   string
-	quota  uint64
-	pins   map[string]uint32
-	index  map[string]entry
-	used   uint64
-	clock  func() time.Time
-	lease  io.Closer
-	closed bool
+	root     string
+	quota    uint64
+	pins     map[string]uint32
+	keys     map[string]*keyLock // objects with an operation in flight; never evicted
+	inflight sync.WaitGroup      // operations Close waits out before releasing the lease
+	index    map[string]entry
+	used     uint64
+	clock    func() time.Time
+	lease    io.Closer
+	closed   bool
+}
+
+// keyLock serializes operations on one object; refs counts holders and waiters.
+type keyLock struct {
+	sync.Mutex
+	refs int
 }
 
 type entry struct {
@@ -109,7 +118,7 @@ func New(root string, options ...Option) (*Cache, error) {
 		return nil, fmt.Errorf("packcache: acquire root lease: %w", err)
 	}
 	openRoots[canonical] = struct{}{}
-	c := &Cache{root: canonical, quota: cfg.quota, pins: make(map[string]uint32), index: make(map[string]entry), clock: time.Now, lease: lease}
+	c := &Cache{root: canonical, quota: cfg.quota, pins: make(map[string]uint32), keys: make(map[string]*keyLock), index: make(map[string]entry), clock: time.Now, lease: lease}
 	if err := c.scan(); err != nil {
 		delete(openRoots, canonical)
 		_ = lease.Close()
@@ -154,11 +163,15 @@ func (c *Cache) Pin(key minecraft.ResourcePackCacheKey) (func(), error) {
 // with ErrClosed. Close is idempotent.
 func (c *Cache) Close() error {
 	processMu.Lock()
-	defer processMu.Unlock()
 	if c == nil || c.closed {
+		processMu.Unlock()
 		return nil
 	}
 	c.closed = true
+	processMu.Unlock()
+	c.inflight.Wait()
+	processMu.Lock()
+	defer processMu.Unlock()
 	delete(openRoots, c.root)
 	c.pins = nil
 	if c.lease == nil {
@@ -169,44 +182,68 @@ func (c *Cache) Close() error {
 	return err
 }
 
-// Load returns a verified pack or a cache miss. Corrupt and malformed entries
-// fail closed and are removed when safe so the caller can redownload them.
-func (c *Cache) Load(ctx context.Context, key minecraft.ResourcePackCacheKey) (*resource.Pack, error) {
+// acquire locks key's object for one operation, which then runs without processMu.
+func (c *Cache) acquire(key minecraft.ResourcePackCacheKey) (string, func(), error) {
 	processMu.Lock()
-	defer processMu.Unlock()
 	if err := c.checkOpen(); err != nil {
-		return nil, err
+		processMu.Unlock()
+		return "", nil, err
 	}
 	name, err := objectName(key)
 	if err != nil {
+		processMu.Unlock()
+		return "", nil, err
+	}
+	lock := c.keys[name]
+	if lock == nil {
+		lock = &keyLock{}
+		c.keys[name] = lock
+	}
+	lock.refs++
+	c.inflight.Add(1)
+	processMu.Unlock()
+	lock.Lock()
+	return name, func() {
+		lock.Unlock()
+		processMu.Lock()
+		if lock.refs--; lock.refs == 0 {
+			delete(c.keys, name)
+		}
+		processMu.Unlock()
+		c.inflight.Done()
+	}, nil
+}
+
+// Load returns a verified pack or a cache miss. Corrupt and malformed entries
+// fail closed and are removed when safe so the caller can redownload them.
+func (c *Cache) Load(ctx context.Context, key minecraft.ResourcePackCacheKey) (*resource.Pack, error) {
+	name, release, err := c.acquire(key)
+	if err != nil {
 		return nil, err
 	}
+	defer release()
 	path := filepath.Join(c.root, name)
 	pack, ok, err := readVerified(ctx, path, key)
 	if err != nil {
 		return nil, err
 	}
+	processMu.Lock()
+	defer processMu.Unlock()
 	if !ok {
 		c.drop(name, path)
 		return nil, nil
 	}
-	now := c.clock()
-	_ = os.Chtimes(path, now, now)
-	c.record(name, entry{size: key.Size, used: now})
+	c.touch(name, path, key.Size)
 	return pack, nil
 }
 
 // Store admits a matching pack without replacing an existing valid object.
 func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, pack *resource.Pack) error {
-	processMu.Lock()
-	defer processMu.Unlock()
-	if err := c.checkOpen(); err != nil {
-		return err
-	}
-	name, err := objectName(key)
+	name, release, err := c.acquire(key)
 	if err != nil {
 		return err
 	}
+	defer release()
 	if pack == nil || !key.Matches(pack) {
 		return errors.New("packcache: resource pack does not match key")
 	}
@@ -217,15 +254,34 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 	if _, ok, err := readVerified(ctx, dest, key); err != nil {
 		return err
 	} else if ok {
-		now := c.clock()
-		_ = os.Chtimes(dest, now, now)
-		c.record(name, entry{size: key.Size, used: now})
+		processMu.Lock()
+		c.touch(name, dest, key.Size)
+		processMu.Unlock()
 		return nil
 	}
+	processMu.Lock()
 	c.drop(name, dest)
 	if err := c.evict(key.Size); err != nil {
+		processMu.Unlock()
 		return err
 	}
+	c.record(name, entry{size: key.Size, used: c.clock()}) // reserves the quota while writing unlocked
+	processMu.Unlock()
+	if err := c.writeObject(ctx, key, pack, dest); err != nil {
+		processMu.Lock()
+		c.forget(name)
+		processMu.Unlock()
+		return err
+	}
+	processMu.Lock()
+	c.touch(name, dest, key.Size)
+	processMu.Unlock()
+	return nil
+}
+
+// writeObject publishes pack at dest through a private temporary file. Nothing is fsynced: a torn
+// object fails verification on load and is downloaded again.
+func (c *Cache) writeObject(ctx context.Context, key minecraft.ResourcePackCacheKey, pack *resource.Pack, dest string) error {
 	temp, err := os.CreateTemp(c.root, tempPrefix)
 	if err != nil {
 		return fmt.Errorf("packcache: create temporary object: %w", err)
@@ -239,9 +295,6 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 	n, copyErr := copyContext(ctx, temp, io.NewSectionReader(pack, 0, int64(key.Size)), key.Size)
 	if copyErr == nil && n != key.Size {
 		copyErr = errors.New("packcache: archive changed while storing")
-	}
-	if copyErr == nil {
-		copyErr = temp.Sync()
 	}
 	closeErr := temp.Close()
 	if copyErr != nil {
@@ -260,13 +313,13 @@ func (c *Cache) Store(ctx context.Context, key minecraft.ResourcePackCacheKey, p
 			return errors.New("packcache: existing object is invalid")
 		}
 	}
-	if err := syncDir(c.root); err != nil {
-		return fmt.Errorf("packcache: sync object directory: %w", err)
-	}
-	now := c.clock()
-	_ = os.Chtimes(dest, now, now)
-	c.record(name, entry{size: key.Size, used: now})
 	return nil
+}
+
+func (c *Cache) touch(name, path string, size uint64) {
+	now := c.clock()
+	_ = os.Chtimes(path, now, now)
+	c.record(name, entry{size: size, used: now})
 }
 
 func (c *Cache) checkOpen() error {
@@ -360,7 +413,7 @@ func (c *Cache) evict(incoming uint64) error {
 	}
 	items := make([]candidate, 0, len(c.index))
 	for name, entry := range c.index {
-		if c.pins[name] == 0 {
+		if c.pins[name] == 0 && c.keys[name] == nil {
 			items = append(items, candidate{name, entry})
 		}
 	}
@@ -392,18 +445,23 @@ func (c *Cache) evict(incoming uint64) error {
 	if c.used > c.quota-incoming {
 		return errors.New("packcache: quota occupied by pinned objects")
 	}
-	return syncDir(c.root)
+	return nil
 }
 
 func (c *Cache) drop(name, path string) {
+	c.forget(name)
+	if info, err := os.Lstat(path); err == nil && (regularNoLink(info) || hasLinkAttribute(info)) {
+		_ = os.Remove(path)
+	}
+}
+
+// forget removes name from the index, leaving any file in place.
+func (c *Cache) forget(name string) {
 	if old, ok := c.index[name]; ok {
 		if c.used >= old.size {
 			c.used -= old.size
 		}
 		delete(c.index, name)
-	}
-	if info, err := os.Lstat(path); err == nil && (regularNoLink(info) || hasLinkAttribute(info)) {
-		_ = os.Remove(path)
 	}
 }
 

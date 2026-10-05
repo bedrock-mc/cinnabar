@@ -153,5 +153,6 @@ line. Before pushing, check only what your change affects:
 cargo run -p devtool --locked -- verify-affected --base origin/dev
 ```
 
-It runs fmt, the architecture gate, clippy and tests for the affected crates. Contributor and
+It runs fmt, the architecture gate, clippy and tests for the affected crates, `go test` and
+`go vet` for changed Go modules, and the packaging tests when `packaging/` changes. Contributor and
 agent rules live in `AGENTS.md` and `docs/agents/`.

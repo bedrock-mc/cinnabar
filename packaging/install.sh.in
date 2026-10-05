@@ -1,6 +1,7 @@
 #!/bin/sh
 # Generated from packaging/install.sh.in and packaging/release-assets.json.
-# Install the Linux release for the current user. No sudo or FUSE is required.
+# Install the Linux release for the current user. No sudo or FUSE is required: the AppImage is
+# unpacked once into a versioned app folder, and the launcher runs its AppRun directly.
 set -eu
 
 repository='@REPOSITORY@'
@@ -13,6 +14,7 @@ stage=
 launcher_stage=
 desktop_stage=
 icon_stage=
+lock_link=
 
 fail() { printf 'Cinnabar: %s\n' "$*" >&2; exit 1; }
 usage() {
@@ -48,9 +50,16 @@ case "$(uname -m)" in
     x86_64|amd64) asset=$linux_x86_64_asset ;;
     *) fail "No Linux release is available for $(uname -m)" ;;
 esac
-for tool in curl awk sed mktemp; do
+for tool in awk sed mktemp; do
     command -v "$tool" >/dev/null 2>&1 || fail "Install $tool, then try again"
 done
+if command -v curl >/dev/null 2>&1; then
+    downloader=curl
+elif command -v wget >/dev/null 2>&1; then
+    downloader=wget
+else
+    fail 'Install curl or wget, then try again'
+fi
 if command -v sha256sum >/dev/null 2>&1; then
     digest_tool=sha256sum
 elif command -v shasum >/dev/null 2>&1; then
@@ -66,6 +75,16 @@ for path in "$data_home" "$bin_dir"; do
     case "$path" in *'
 '*) fail 'Installation paths must not contain newlines' ;; esac
 done
+while [ "${data_home%/}" != "$data_home" ]; do data_home=${data_home%/}; done
+while [ "${bin_dir%/}" != "$bin_dir" ]; do bin_dir=${bin_dir%/}; done
+# Pruning and the launcher would otherwise remove or shadow each other.
+app_dir="$data_home/cinnabar/app"
+case "$bin_dir/" in
+    "$app_dir/"*) fail "CINNABAR_BIN_DIR must not be inside the app folder: $bin_dir" ;;
+esac
+case "$app_dir/" in
+    "$bin_dir/cinnabar/"*) fail "CINNABAR_BIN_DIR must not contain the app folder: $bin_dir" ;;
+esac
 
 cleanup() {
     [ -z "$work" ] || rm -rf "$work"
@@ -73,14 +92,31 @@ cleanup() {
     [ -z "$launcher_stage" ] || rm -f "$launcher_stage"
     [ -z "$desktop_stage" ] || rm -f "$desktop_stage"
     [ -z "$icon_stage" ] || rm -f "$icon_stage"
+    [ -z "$lock_link" ] || rm -f "$lock_link"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 work=$(mktemp -d "${TMPDIR:-/tmp}/cinnabar-install.XXXXXX")
 fetch() {
-    curl --fail --location --silent --show-error --retry 3 \
-        --connect-timeout 15 --proto '=https' --proto-redir '=https' --output "$2" "$1"
+    if [ "$downloader" = curl ]; then
+        curl --fail --location --silent --show-error --retry 3 \
+            --connect-timeout 15 --proto '=https' --proto-redir '=https' --output "$2" "$1"
+    else
+        wget --quiet --tries=3 --timeout=15 --output-document="$2" "$1"
+    fi
+}
+# Prints the redirect target of $1 without following it.
+redirect_target() {
+    if [ "$downloader" = curl ]; then
+        curl --fail --head --location --silent --show-error --retry 3 \
+            --connect-timeout 15 --proto '=https' --proto-redir '=https' --output /dev/null \
+            --write-out '%{url_effective}' "$1"
+    else
+        wget --spider --server-response --max-redirect=0 --tries=3 --timeout=15 "$1" 2>&1 |
+            awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); target = $2 }
+                END { if (target == "") exit 1; print target }'
+    fi
 }
 release_base="https://github.com/$repository/releases"
 if [ -z "$version" ]; then
@@ -88,9 +124,7 @@ if [ -z "$version" ]; then
         version=nightly
     else
         printf 'Finding the latest stable Cinnabar release...\n'
-        resolved=$(curl --fail --head --location --silent --show-error --retry 3 \
-            --connect-timeout 15 --proto '=https' --proto-redir '=https' --output /dev/null \
-            --write-out '%{url_effective}' "$release_base/latest") ||
+        resolved=$(redirect_target "$release_base/latest") ||
             fail 'No stable release is available, or GitHub could not be reached'
         case "$resolved" in
             "$release_base/tag/"*) version=${resolved#"$release_base/tag/"} ;;
@@ -118,38 +152,92 @@ else
     actual=$(shasum -a 256 "$work/$asset" | awk '{ print $1 }')
 fi
 [ "$actual" = "$expected" ] || fail 'SHA-256 mismatch; nothing was installed. Please try again'
-chmod 755 "$work/$asset"
 printf 'Verified SHA-256. Preparing the application...\n'
-(cd "$work" && "./$asset" --appimage-extract cinnabar.png > /dev/null) ||
-    fail 'Could not extract the verified AppImage; the existing install was preserved'
-[ -f "$work/squashfs-root/cinnabar.png" ] || fail 'The AppImage is missing its application icon'
 
-app_dir="$data_home/cinnabar/app"
 desktop_dir="$data_home/applications"
 icon_dir="$data_home/icons/hicolor/256x256/apps"
 mkdir -p "$app_dir" "$bin_dir" "$desktop_dir" "$icon_dir"
 for path in "$app_dir" "$bin_dir" "$desktop_dir" "$icon_dir"; do
     [ -w "$path" ] || fail "Installation directory is not writable: $path"
 done
+# The digest keeps a rebuilt tag (nightly) from reusing an older unpacked build.
+build="$version-$(printf '%s' "$expected" | awk '{ print substr($0, 1, 12) }')"
 stage=$(mktemp -d "$app_dir/.install.XXXXXX")
-cp "$work/$asset" "$stage/Cinnabar.AppImage"
-cp "$work/squashfs-root/cinnabar.png" "$stage/cinnabar.png"
+# Serializes installs from here through pruning, so an overlapping run never prunes the
+# build another run just published.
+lock_install() {
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>> "$app_dir/.lock"
+        flock 9 && return
+    fi
+    # Without flock, a symlink naming the owner's pid is created atomically with its content.
+    # A lock is stale once its owner is dead and it is over 10 minutes old; it is reclaimed by
+    # renaming it to a unique tombstone and retrying. The residual race needs two runs to reclaim
+    # the same stale lock at once; flock, present on essentially every Linux, avoids it entirely.
+    waiting=
+    until ln -s "$$" "$app_dir/.lock.pid" 2>/dev/null; do
+        owner=$(readlink "$app_dir/.lock.pid" 2>/dev/null) || owner=
+        if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null &&
+            [ -n "$(find "$app_dir/.lock.pid" -prune -mmin +10 2>/dev/null)" ]; then
+            mv "$app_dir/.lock.pid" "$app_dir/.lock.stale.$$" 2>/dev/null &&
+                rm -f "$app_dir/.lock.stale.$$"
+            continue
+        fi
+        [ -n "$waiting" ] || printf 'Waiting for another Cinnabar install to finish...\n'
+        waiting=1
+        sleep 1
+    done
+    lock_link="$app_dir/.lock.pid"
+}
+lock_install
+# Written last during an unpack, so a build without it is partial or damaged.
+marker=.cinnabar-complete
+build_complete() {
+    [ -x "$1/AppRun" ] && [ -f "$1/cinnabar.png" ] && [ -f "$1/$marker" ]
+}
+if ! build_complete "$app_dir/$build"; then
+    # Unpack on the data filesystem, so a noexec or small /tmp never runs or holds the image.
+    cp "$work/$asset" "$stage/Cinnabar.AppImage"
+    chmod 755 "$stage/Cinnabar.AppImage"
+    (cd "$stage" && ./Cinnabar.AppImage --appimage-extract > /dev/null) ||
+        fail 'Could not unpack the verified AppImage; the existing install was preserved'
+    [ -x "$stage/squashfs-root/AppRun" ] || fail 'The AppImage is missing its AppRun'
+    [ -f "$stage/squashfs-root/cinnabar.png" ] || fail 'The AppImage is missing its application icon'
+    : > "$stage/squashfs-root/$marker"
+    # A damaged copy moves into the stage, which cleanup removes.
+    [ ! -e "$app_dir/$build" ] || mv "$app_dir/$build" "$stage/damaged"
+    mv "$stage/squashfs-root" "$app_dir/$build"
+fi
+read_pointer() {
+    value=
+    [ ! -f "$app_dir/$1" ] || IFS= read -r value < "$app_dir/$1" || true
+    printf '%s' "$value"
+}
+# Read under the lock. Reinstalling the current build keeps the recorded previous build, which may still be running.
+previous=$(read_pointer current)
+[ "$previous" != "$build" ] || previous=$(read_pointer previous)
 quote_shell() { printf "'"; printf '%s' "$1" | sed "s/'/'\\\\''/g"; printf "'"; }
 {
-    printf '#!/bin/sh\nappimage='
-    quote_shell "$app_dir/Cinnabar.AppImage"
+    printf '#!/bin/sh\napp_dir='
+    quote_shell "$app_dir"
     cat <<'EOF'
 
-# Extract-and-run works on distributions without FUSE, including Ubuntu 24.04.
-# Set APPIMAGE_EXTRACT_AND_RUN=0 to opt into the mounted AppImage runtime.
-if [ "${APPIMAGE_EXTRACT_AND_RUN:-1}" = 0 ]; then
-    unset APPIMAGE_EXTRACT_AND_RUN
-    exec "$appimage" "$@"
+# The installer and updater publish the unpacked build named in "current".
+build=
+IFS= read -r build 2>/dev/null < "$app_dir/current" || true
+case "$build" in
+    ''|*/*|.|..) build= ;;
+esac
+if [ -z "$build" ] || [ ! -x "$app_dir/$build/AppRun" ]; then
+    printf 'Cinnabar: the installation is incomplete; run the installer again\n' >&2
+    exit 1
 fi
-exec "$appimage" --appimage-extract-and-run "$@"
+exec "$app_dir/$build/AppRun" "$@"
 EOF
 } > "$stage/cinnabar"
-chmod 755 "$stage/cinnabar" "$stage/Cinnabar.AppImage"
+chmod 755 "$stage/cinnabar"
+printf '%s\n' "$build" > "$stage/current"
+printf '%s\n' "$previous" > "$stage/previous"
 desktop_exec=$(printf '%s' "$bin_dir/cinnabar" | sed \
     -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/`/\\`/g' -e 's/\$/\\$/g' -e 's/%/%%/g' |
     sed 's/\\/\\\\/g')
@@ -172,12 +260,24 @@ cp "$stage/cinnabar" "$launcher_stage"
 chmod 755 "$launcher_stage"
 cp "$stage/cinnabar.desktop" "$desktop_stage"
 chmod 644 "$desktop_stage"
-cp "$stage/cinnabar.png" "$icon_stage"
+cp "$app_dir/$build/cinnabar.png" "$icon_stage"
 chmod 644 "$icon_stage"
-mv -f "$stage/Cinnabar.AppImage" "$app_dir/Cinnabar.AppImage"
+mv -f "$stage/previous" "$app_dir/previous"
+mv -f "$stage/current" "$app_dir/current"
 mv -f "$launcher_stage" "$bin_dir/cinnabar"
 mv -f "$desktop_stage" "$desktop_dir/cinnabar.desktop"
 mv -f "$icon_stage" "$icon_dir/cinnabar.png"
+# Keep the replaced build, which may still be running; drop older builds and the legacy image.
+hex='[0-9a-f]'
+for entry in "$app_dir"/*; do
+    name=${entry##*/}
+    case "$name" in
+        "$build"|"$previous") ;;
+        Cinnabar.AppImage) [ ! -f "$entry" ] || [ -L "$entry" ] || rm -f "$entry" ;;
+        *-$hex$hex$hex$hex$hex$hex$hex$hex$hex$hex$hex$hex)
+            [ ! -d "$entry" ] || [ -L "$entry" ] || rm -rf "$entry" ;;
+    esac
+done
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
 fi

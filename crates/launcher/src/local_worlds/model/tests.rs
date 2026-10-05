@@ -306,6 +306,30 @@ fn prompt(kind: PromptKind, blocking: PromptFor) -> Option<Prompt> {
     Some(Prompt { kind, blocking })
 }
 
+/// The core probes Docker after startup, so the menu keeps reading prefs until a verdict arrives.
+#[test]
+fn prefs_are_polled_until_docker_detection_settles() {
+    let mut menu = loaded(&["a"]);
+    let mut checking = status(WorldState::Idle, "");
+    checking.setup = Some(setup(SetupState::CheckingRuntime));
+    assert_eq!(
+        menu.apply(Event::Prefs(Prefs::default(), checking)),
+        vec![Effect::PollPrefs]
+    );
+    assert!(
+        menu.apply(Event::Prefs(
+            Prefs::default(),
+            with_reason(UnavailableReason::DockerNotRunning)
+        ))
+        .is_empty()
+    );
+    assert!(menu.update(Input::BeginCreate).is_empty());
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::DockerNotRunning, PromptFor::BeginCreate)
+    );
+}
+
 #[test]
 fn no_backend_reason_never_shows_the_docker_modal() {
     let mut menu = loaded(&["a"]);

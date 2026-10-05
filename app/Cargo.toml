@@ -73,6 +73,7 @@ world = { path = "../crates/world" }
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
 [dev-dependencies]
+tempfile = "3"
 rodio = { version = "=0.20.1", default-features = false }
 acceptance = { path = "../crates/acceptance", features = ["test-support"] }
 client-presentation = { path = "../crates/client-presentation", features = ["test-support"] }

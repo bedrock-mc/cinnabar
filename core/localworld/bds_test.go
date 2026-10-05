@@ -13,9 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestServerPropertiesForLocalPlay(t *testing.T) {
@@ -71,10 +73,13 @@ type fakeMojang struct {
 	zip    []byte
 	hits   atomic.Int32
 	zipVer string
+	ranges chan string // Range header of each archive request
+	// stallAfter, when positive, sends that many archive bytes and then goes silent until the client gives up.
+	stallAfter atomic.Int64
 }
 
 func newFakeMojang(t *testing.T, zipVer string, archive []byte) *fakeMojang {
-	f := &fakeMojang{zip: archive, zipVer: zipVer}
+	f := &fakeMojang{zip: archive, zipVer: zipVer, ranges: make(chan string, 16)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/links", func(w http.ResponseWriter, r *http.Request) {
 		f.hits.Add(1)
@@ -88,7 +93,18 @@ func newFakeMojang(t *testing.T, zipVer string, archive []byte) *fakeMojang {
 			http.Error(w, "agent", http.StatusForbidden)
 			return
 		}
-		_, _ = w.Write(f.zip)
+		select {
+		case f.ranges <- r.Header.Get("Range"):
+		default:
+		}
+		if n := f.stallAfter.Load(); n > 0 {
+			w.Header().Set("Content-Length", strconv.Itoa(len(f.zip)))
+			_, _ = w.Write(f.zip[:n])
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(f.zip))
 	})
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
