@@ -2,22 +2,33 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-const selectedTransportTTL = 5 * time.Second
+const (
+	selectedPreparationTimeout = 8 * time.Second
+	selectedHealthInterval     = time.Second
+	selectedRetryMin           = time.Second
+	selectedRetryMax           = 30 * time.Second
+)
 
-func (selector *UpstreamSelector) startTransportPreparation(ctx context.Context) {
+var nextSelectedTransportID atomic.Uint64
+
+func (selector *UpstreamSelector) startTransportPreparation(ctx context.Context, logger *slog.Logger) {
 	if selector == nil {
 		return
 	}
 	selector.mu.Lock()
-	selector.preparation = newSelectedTransport(ctx, selectedTransportTTL, prepareSelectedRakNet)
+	selector.preparation = newSelectedTransport(ctx, 0, prepareSelectedRakNet)
+	selector.preparation.logger = logger
 	selector.mu.Unlock()
 }
 
@@ -34,7 +45,7 @@ func (selector *UpstreamSelector) stopTransportPreparation() {
 	}
 }
 
-// PrepareTransport gives an explicitly selected RakNet address a bounded head start; empty cancels.
+// PrepareTransport keeps one explicitly selected RakNet address ready; empty cancels.
 // It does not change the route selected by Set or authenticate a player.
 func (selector *UpstreamSelector) PrepareTransport(address string) {
 	if selector == nil {
@@ -60,9 +71,12 @@ func (selector *UpstreamSelector) claimTransport(address string) *preparedTransp
 }
 
 type transportSelection struct {
-	target   string
-	deadline time.Time
-	prepared *preparedTransport
+	target     string
+	deadline   time.Time
+	readySince time.Time
+	started    time.Time
+	id         uint64
+	prepared   *preparedTransport
 }
 
 // selectedTransport owns one idle transport, never an authenticated game session.
@@ -77,11 +91,14 @@ type selectedTransport struct {
 	cancel     context.CancelFunc
 	prepare    func(context.Context, string) *preparedTransport
 	ttl        time.Duration
+	ctx        context.Context
+	logger     *slog.Logger
 }
 
+// A positive lease permits one attempt; zero retains and renews the selected prefix until claimed or cleared.
 func newSelectedTransport(ctx context.Context, ttl time.Duration, prepare func(context.Context, string) *preparedTransport) *selectedTransport {
 	ctx, cancel := context.WithCancel(ctx)
-	selected := &selectedTransport{wake: make(chan struct{}, 1), done: make(chan struct{}), cancel: cancel, prepare: prepare, ttl: ttl}
+	selected := &selectedTransport{wake: make(chan struct{}, 1), done: make(chan struct{}), cancel: cancel, prepare: prepare, ttl: ttl, ctx: ctx}
 	go selected.run(ctx)
 	return selected
 }
@@ -116,7 +133,7 @@ func (selected *selectedTransport) keep(target string) {
 func (selected *selectedTransport) claim(target string) *preparedTransport {
 	selected.mu.Lock()
 	pending := selected.pending
-	if selected.closed || selected.wanted != target || pending == nil || pending.target != target || !time.Now().Before(pending.deadline) {
+	if selected.closed || selected.ctx.Err() != nil || selected.wanted != target || pending == nil || pending.target != target || selected.ttl > 0 && !time.Now().Before(pending.deadline) {
 		selected.mu.Unlock()
 		return nil
 	}
@@ -125,12 +142,18 @@ func (selected *selectedTransport) claim(target string) *preparedTransport {
 	selected.signal()
 	// A click falls back to a fresh ordinary dial instead of waiting on speculative retries.
 	if !pending.prepared.ready() {
+		status := "miss_not_ready"
+		if pending.prepared.failure() != nil {
+			status = "miss_failed"
+		}
 		pending.prepared.cancel()
 		selected.mu.Unlock()
+		selected.report(pending, status)
 		return nil
 	}
 	selected.pending = nil
 	selected.mu.Unlock()
+	selected.report(pending, "hit")
 	return pending.prepared
 }
 
@@ -144,7 +167,42 @@ func (selected *selectedTransport) run(ctx context.Context) {
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
 	defer timer.Stop()
+	const (
+		setup = iota
+		health
+		retry
+		lease
+	)
+	var action int
+	var setupDone <-chan struct{}
 	var processed uint64
+	delay := selectedRetryMin
+	begin := func(wanted string, generation uint64) {
+		prepared := selected.prepare(ctx, wanted)
+		var attached *transportSelection
+		selected.mu.Lock()
+		if selected.generation == generation && ctx.Err() == nil {
+			pending := &transportSelection{target: wanted, deadline: time.Now().Add(selected.ttl), prepared: prepared, started: time.Now(), id: nextSelectedTransportID.Add(1)}
+			selected.pending = pending
+			attached = pending
+			if selected.ttl > 0 {
+				action = lease
+				timer.Reset(selected.ttl)
+			} else {
+				action = setup
+				setupDone = prepared.done
+				timer.Reset(selectedPreparationTimeout)
+			}
+			prepared = nil
+		}
+		selected.mu.Unlock()
+		if attached != nil {
+			selected.report(attached, "started")
+		}
+		if prepared != nil {
+			prepared.finish(false)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -154,16 +212,66 @@ func (selected *selectedTransport) run(ctx context.Context) {
 			selected.pending = nil
 			selected.mu.Unlock()
 			if pending != nil {
+				selected.report(pending, "cancelled")
 				pending.prepared.finish(false)
 			}
 			return
+		case <-setupDone:
+			setupDone = nil
+			action = health
+			timer.Reset(0)
 		case <-timer.C:
 			selected.mu.Lock()
+			if selected.generation != processed || ctx.Err() != nil {
+				selected.mu.Unlock()
+				continue
+			}
+			if action == retry {
+				wanted := selected.wanted
+				selected.mu.Unlock()
+				if wanted != "" {
+					begin(wanted, processed)
+				}
+				continue
+			}
 			pending := selected.pending
+			if pending == nil {
+				selected.mu.Unlock()
+				continue
+			}
+			if action == health && pending.prepared.ready() {
+				first := pending.readySince.IsZero()
+				if first {
+					pending.readySince = time.Now()
+				} else if time.Since(pending.readySince) >= selectedPreparationTimeout {
+					delay = selectedRetryMin
+				}
+				timer.Reset(selectedHealthInterval)
+				selected.mu.Unlock()
+				if first {
+					selected.report(pending, "ready")
+				}
+				continue
+			}
 			selected.pending = nil
+			failure := pending.prepared.failure()
 			selected.mu.Unlock()
-			if pending != nil {
-				pending.prepared.finish(false)
+			setupDone = nil
+			status := "expired"
+			if action == setup {
+				status = "setup_timeout"
+			} else if action == health {
+				status = "unhealthy"
+				if failure != nil {
+					status = "failed"
+				}
+			}
+			selected.report(pending, status)
+			pending.prepared.finish(false)
+			if selected.ttl == 0 && retrySelectedPreparation(failure) {
+				action = retry
+				timer.Reset(delay)
+				delay = min(delay*2, selectedRetryMax)
 			}
 		case <-selected.wake:
 			for {
@@ -178,17 +286,36 @@ func (selected *selectedTransport) run(ctx context.Context) {
 				selected.pending = nil
 				selected.mu.Unlock()
 				timer.Stop()
+				setupDone = nil
+				delay = selectedRetryMin
 				if pending != nil {
+					selected.report(pending, "cancelled")
 					pending.prepared.finish(false)
 				}
-				selected.mu.Lock()
-				if selected.generation == processed && wanted != "" && ctx.Err() == nil {
-					selected.pending = &transportSelection{target: wanted, deadline: time.Now().Add(selected.ttl), prepared: selected.prepare(ctx, wanted)}
-					timer.Reset(selected.ttl)
+				if wanted != "" && ctx.Err() == nil {
+					begin(wanted, processed)
 				}
-				selected.mu.Unlock()
 			}
 		}
+	}
+}
+
+func retrySelectedPreparation(err error) bool {
+	var disconnect *minecraft.DisconnectPacketError
+	var transfer *minecraft.TransferError
+	if errors.As(err, &disconnect) {
+		return disconnect.Reason == packet.DisconnectReasonTimeout || disconnect.Reason == packet.DisconnectReasonExpiredToken
+	}
+	return !errors.As(err, &transfer)
+}
+
+func (selected *selectedTransport) report(pending *transportSelection, status string) {
+	if selected.logger != nil {
+		_ = callSafely("reporting selected transport", func() error {
+			selected.logger.Info("JOIN_PREPARATION", "preparation_id", pending.id, "status", status,
+				"elapsed_ms", time.Since(pending.started).Seconds()*1000)
+			return nil
+		})
 	}
 }
 

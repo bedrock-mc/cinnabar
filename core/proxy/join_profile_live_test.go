@@ -106,7 +106,7 @@ func joinProfileLive(t *testing.T, warmAuthentication, selectedHeadStart bool) {
 		var selector *UpstreamSelector
 		if headStart {
 			selector = new(UpstreamSelector)
-			selector.startTransportPreparation(ctx)
+			selector.startTransportPreparation(ctx, nil)
 			selector.PrepareTransport(server)
 			time.Sleep(250 * time.Millisecond)
 			selector.Set(server)

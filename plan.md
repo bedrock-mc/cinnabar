@@ -13,7 +13,10 @@
   Combined debug nearby milestones are 1.91 s on Zeno and 4.30 s on transferred
   Zeqa; these unmatched samples do not close the release performance gate.
 - The deeper proof-bound authentication/NetworkSettings prototype passes encrypted
-  loopback and native joins but awaits publication to the required dependency fork.
+  loopback and native joins but awaits merge into the required dependency fork.
+- Default/highlight preparation, healthy selected lifetime, returning-server pack
+  reuse and exact air fixed-point invalidation have regression coverage; combined
+  native validation is in progress.
 - Loading release, nearby GPU terrain and drained publisher view are distinct
   milestones; none alone closes the controllable complete-visible-terrain gate.
 - Measurements and remaining release gates: [join performance](docs/join-performance.md).

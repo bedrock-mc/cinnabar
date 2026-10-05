@@ -23,6 +23,7 @@ mod launcher_core;
 mod navigation;
 #[cfg(test)]
 mod server_input_tests;
+mod server_preparation;
 pub(crate) mod servers;
 #[cfg(test)]
 mod session_teardown_tests;

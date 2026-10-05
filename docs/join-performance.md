@@ -40,10 +40,12 @@ Zeqa transport outlier remains in the sample; it motivated consuming only
 completed, healthy preparations, with immediate ordinary-dial fallback otherwise.
 The paired measurements preceded that guard and do not measure its effect.
 
-The menu prepares only its explicitly selected server. One idle RakNet transport
-expires after five seconds and is cancelled on selection change or shutdown.
-No Login or Minecraft application packet is sent before Join. A successful claim
-detaches expiry and shutdown cleanup from the retained concrete connection.
+The menu prepares the displayed default or highlighted server when Servers opens,
+including mouse and keyboard selection. It retains one healthy idle RakNet
+transport while selected, cancels it on selection change or shutdown, and renews
+transient failures serially with bounded backoff. Unfinished setup is bounded;
+explicit rejection stops renewal. No Login or Minecraft application packet is
+sent before Join. A successful claim transfers the concrete connection's ownership.
 
 An existing native optimized build joined Zeno on macOS and rendered its lobby.
 The loading milestone occurred with zero opaque terrain, because this server
@@ -81,8 +83,8 @@ StartGame took 491 and 418 ms from Connect. Warm loading release and nearby GPU
 terrain took 838 ms and 2.125 s from Join. Zeqa's prepared entry hop took 184 ms,
 but its second connection and terrain still produced a 4.742 s nearby milestone.
 These are unmatched diagnostic samples. The prototype dependency remains local
-until it can be published to the required fork branch; it is not the module pin
-shipped by this PR.
+until [the dependency change](https://github.com/HashimTheArab/gophertunnel/pull/175)
+lands on the required fork branch; it is not the module pin shipped by this PR.
 
 The combined native development client reached Zeno's warm nearby milestone in
 1.912 s and transferred Zeqa's in 4.302 s from the original click. Both servers
@@ -98,6 +100,12 @@ the same rate, reaching about 860 columns 11.46 s after bootstrap. It therefore
 cannot certify final server delivery or complete visible terrain. The capture
 also exposes roughly 20,000 no-op lighting jobs for further investigation.
 
+Switching from Zeqa back to previously warm Zeno rebuilt pack presentation in
+372.588 ms, versus 6.925 ms on its subsequent repeat. The presentation cache now
+retains three recent immutable variants, with fresh admission and session facts
+on each reuse. A failed-before returning-server regression covers this case;
+native savings from that change are still unmeasured.
+
 ## Implemented changes
 
 - Prepare authentication while the core listener is available; overlap only
@@ -110,7 +118,8 @@ also exposes roughly 20,000 no-op lighting jobs for further investigation.
 - Cache immutable pack presentation by content, selected files, effective
   decryption identity, exact startup inputs, language and vanilla context.
   Admission and session-owned components remain fresh. Artwork reuse requires
-  the same underlying pages and actor pack.
+  the same underlying pages and actor pack. Recent variants use bounded LRU reuse;
+  obsolete context generations are retired.
 - Compare the compiler's effective registry inputs: ignore irrelevant map/set
   order while preserving ordered palettes, permutations and duplicate winners.
   Prepare initial server UI catalogs on the worker against the exact carrier,
@@ -123,6 +132,10 @@ also exposes roughly 20,000 no-op lighting jobs for further investigation.
 - Coalesce repeated invalidations while lighting is queued; the first mutation
   of an in-flight snapshot still rejects its obsolete completion. Preserve
   pending age, urgency promotion and dependency wakeups.
+- Preserve already-current maximal direct sky and zero block light across proven
+  air arrivals, retaining full work for uncertain or changing sources. Completion
+  propagation skips known air only when its own current values are already maximal,
+  so removing a roof still restores sky and removing emission still clears light.
 - Prove known-air lighting from trusted uniform boundary samples without
   scanning every face cell; retain the complete solver for mixed or packed
   boundaries, stale provenance and ambiguous sky input.
@@ -147,6 +160,11 @@ also exposes roughly 20,000 no-op lighting jobs for further investigation.
 Deterministic scheduler coverage completes nine spawn columns after 216 section
 dispatches instead of 6,292 in a 6,936-section fixture. This measures work order,
 not elapsed join time.
+
+Incremental nine-column air fixtures require 216 accepted lighting jobs instead
+of 504, eliminating 288 unchanged results with exact full-solver comparisons.
+In the warm native Zeno sample, no unchanged jobs preceded the nearby milestone;
+this optimization targets later streaming work rather than proving a faster join.
 
 A captured Zeno pack fixture's main-thread publication median fell from 10.463
 to 0.622 ms after retaining prepared policies. The policy regression reduces

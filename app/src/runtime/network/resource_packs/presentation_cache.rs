@@ -11,7 +11,8 @@ mod compilation_inputs;
 use compilation_inputs::inputs_mismatch;
 
 static CONTEXT_GENERATION: AtomicU64 = AtomicU64::new(0);
-static CACHE: PresentationCache = PresentationCache(Mutex::new(None));
+const PRESENTATION_CACHE_CAPACITY: usize = 3;
+static CACHE: PresentationCache = PresentationCache(Mutex::new(Vec::new()));
 static ARTWORK_CACHE: ArtworkCache = ArtworkCache(Mutex::new(None));
 
 #[derive(Default)]
@@ -91,7 +92,7 @@ struct CachedPresentation {
 }
 
 #[derive(Default)]
-struct PresentationCache(Mutex<Option<CachedPresentation>>);
+struct PresentationCache(Mutex<Vec<CachedPresentation>>);
 
 impl PresentationCache {
     fn prepare(
@@ -114,30 +115,47 @@ impl PresentationCache {
             .map(resource_pack::ValidatedPack::compilation_identity)
             .collect::<Vec<_>>();
         let miss_reason = {
-            let cached = self
+            let mut cached = self
                 .0
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(entry) = cached.as_ref() {
-                let mismatch = if entry.stack != identity {
-                    Some("pack_stack")
-                } else if !entry.context.matches(&context) || !context_is_current(&context) {
-                    Some("context")
-                } else {
-                    inputs_mismatch(&entry.application.inputs, &inputs)
-                };
-                if let Some(reason) = mismatch {
-                    reason
-                } else {
+            if !context_is_current(&context) {
+                "context"
+            } else {
+                let had_obsolete_context = cached
+                    .iter()
+                    .any(|entry| entry.context.generation != context.generation);
+                cached.retain(|entry| entry.context.generation == context.generation);
+                if let Some(index) = cached.iter().rposition(|entry| {
+                    entry.stack == identity
+                        && entry.context.matches(&context)
+                        && inputs_mismatch(&entry.application.inputs, &inputs).is_none()
+                }) {
+                    let entry = cached.remove(index);
                     let mut application = entry.application.clone();
                     application.inputs = inputs;
                     application.admission = PackAdmission::Validated(stack);
+                    cached.push(entry);
                     drop(cached);
                     bevy::log::info!(cache_hit = true, "session pack presentation cache");
                     return (application, true);
                 }
-            } else {
-                "empty"
+                cached.last().map_or(
+                    if had_obsolete_context {
+                        "context"
+                    } else {
+                        "empty"
+                    },
+                    |entry| {
+                        if entry.stack != identity {
+                            "pack_stack"
+                        } else if !entry.context.matches(&context) {
+                            "context"
+                        } else {
+                            inputs_mismatch(&entry.application.inputs, &inputs).unwrap_or("context")
+                        }
+                    },
+                )
             }
         };
         bevy::log::info!(
@@ -151,10 +169,20 @@ impl PresentationCache {
             compiled.admission = PackAdmission::None;
             compiled.item_components = None;
             compiled.prepared_actor_artwork = None;
-            *self
+            let mut cached = self
                 .0
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(CachedPresentation {
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            cached.retain(|entry| {
+                entry.context.generation == context.generation
+                    && !(entry.stack == identity
+                        && entry.context.matches(&context)
+                        && inputs_mismatch(&entry.application.inputs, &compiled.inputs).is_none())
+            });
+            if cached.len() == PRESENTATION_CACHE_CAPACITY {
+                cached.remove(0);
+            }
+            cached.push(CachedPresentation {
                 stack: identity,
                 context,
                 application: compiled,

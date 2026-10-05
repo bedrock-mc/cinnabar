@@ -543,7 +543,12 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
 
 impl AccountControl for LauncherAccount {
     fn prepare_selected_server(&mut self, address: Option<&str>) {
-        self.server_preparation.select(address);
+        let generation = self.with(|snapshot| {
+            snapshot.account.as_ref().and_then(|account| {
+                (account.state == CoreAuth::SignedIn).then_some(snapshot.auth_generation)
+            })
+        });
+        self.server_preparation.select(address, generation);
     }
 
     fn account_status(&mut self) -> Option<AuthState> {
@@ -555,6 +560,7 @@ impl AccountControl for LauncherAccount {
     }
 
     fn set_joining(&mut self, joining: bool) {
+        self.server_preparation.set_joining(joining);
         self.with(|snapshot| snapshot.joining = joining);
     }
 

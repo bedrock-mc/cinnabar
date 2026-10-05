@@ -137,23 +137,7 @@ impl MenuRuntime {
         };
         control.set_ping_targets(targets);
         if !self.is_connecting() {
-            let selected =
-                (self.visible && self.is_launcher() && self.screen == super::MenuScreen::Servers)
-                    .then(|| {
-                        self.feeds
-                            .selected_saved
-                            .and_then(|index| self.servers.get(index))
-                            .map(|server| server.address.as_str())
-                            .or_else(|| {
-                                self.feeds
-                                    .selected_featured
-                                    .and_then(|index| self.featured.get(index))
-                                    .map(|server| server.address.as_str())
-                            })
-                    })
-                    .flatten()
-                    .filter(|address| !address.trim().is_empty());
-            control.prepare_selected_server(selected);
+            control.prepare_selected_server(self.server_preparation_address());
         }
         // A round updates the rows it covered; others keep their last pong.
         if let Some(pings) = control.pings() {
@@ -342,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_server_preparation_follows_only_explicit_shown_details() {
+    fn selected_server_preparation_follows_the_visible_default_and_details() {
         use super::super::{MenuAction, MenuScreen};
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         menu.servers = vec![launcher::menu::view::SavedServer {
@@ -366,9 +350,9 @@ mod tests {
         menu.enter(MenuScreen::Servers);
         menu.sync_account_control(&mut control);
         assert_eq!(
-            control.prepared.last().unwrap(),
-            &None,
-            "showing the catalog does not select a target"
+            control.prepared.last().unwrap().as_deref(),
+            Some("featured.test"),
+            "the server displayed by default is already eligible"
         );
         menu.activate(MenuAction::SelectSaved(0));
         menu.sync_account_control(&mut control);
@@ -378,7 +362,10 @@ mod tests {
         );
         menu.activate(MenuAction::SelectSaved(9));
         menu.sync_account_control(&mut control);
-        assert_eq!(control.prepared.last().unwrap(), &None);
+        assert_eq!(
+            control.prepared.last().unwrap().as_deref(),
+            Some("featured.test")
+        );
         menu.activate(MenuAction::SelectFeatured(0));
         menu.sync_account_control(&mut control);
         assert_eq!(
@@ -409,5 +396,67 @@ mod tests {
         menu.sync_account_control(&mut control);
         assert_eq!(control.prepared.last().unwrap(), &None);
         assert!(control.signed_out);
+    }
+
+    #[test]
+    fn server_preparation_tracks_keyboard_pointer_and_active_tab_without_joining() {
+        use super::super::{MenuAction, MenuScreen, MenuServerTab};
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.servers = [
+            ("first.test", false, 0),
+            ("favorite.test", true, 0),
+            ("recent.test", false, 1),
+        ]
+        .into_iter()
+        .map(
+            |(address, favorite, last_joined_unix)| launcher::menu::view::SavedServer {
+                name: address.into(),
+                address: address.into(),
+                favorite,
+                last_joined_unix,
+            },
+        )
+        .collect();
+        let mut control = Fake {
+            events: Vec::new(),
+            signed_out: false,
+            prepared: Vec::new(),
+        };
+        menu.enter(MenuScreen::Servers);
+        menu.activate(MenuAction::SelectServerTab(MenuServerTab::Saved));
+        let focus = menu
+            .focus_actions()
+            .iter()
+            .position(|action| *action == MenuAction::PlaySaved(2))
+            .unwrap();
+        menu.move_focus(focus as i32);
+        menu.sync_account_control(&mut control);
+        assert_eq!(
+            control.prepared.last().unwrap().as_deref(),
+            Some("recent.test")
+        );
+        menu.hovered = Some(MenuAction::SelectSaved(1));
+        menu.sync_account_control(&mut control);
+        assert_eq!(
+            control.prepared.last().unwrap().as_deref(),
+            Some("favorite.test")
+        );
+        menu.hovered = None;
+        menu.activate(MenuAction::SelectServerTab(MenuServerTab::Favorites));
+        menu.sync_account_control(&mut control);
+        assert_eq!(
+            control.prepared.last().unwrap().as_deref(),
+            Some("favorite.test")
+        );
+        menu.activate(MenuAction::SelectServerTab(MenuServerTab::Recent));
+        menu.sync_account_control(&mut control);
+        assert_eq!(
+            control.prepared.last().unwrap().as_deref(),
+            Some("recent.test")
+        );
+        assert!(menu.take_join_intent().is_none());
+        menu.set_visible(false);
+        menu.sync_account_control(&mut control);
+        assert_eq!(control.prepared.last().unwrap(), &None);
     }
 }

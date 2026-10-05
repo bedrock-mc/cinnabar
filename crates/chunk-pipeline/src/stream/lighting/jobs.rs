@@ -597,7 +597,17 @@ impl WorldStream {
                 if neighbour_in_same_batch {
                     continue;
                 }
-                if completed_uniform_direct_sky && self.known_air_has_vertical_direct_sky(neighbour)
+                if completed_uniform_direct_sky
+                    && self.known_air.contains(&neighbour)
+                    && self.light_is_current(neighbour)
+                    && self.lighting.store.light(neighbour).is_some_and(|light| {
+                        self.lighting
+                            .direct_sky
+                            .get(&neighbour)
+                            .is_some_and(|direct| {
+                                is_uniform_direct_sky(light, direct.mask.as_ref())
+                            })
+                    })
                 {
                     continue;
                 }

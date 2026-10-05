@@ -93,6 +93,44 @@ fn unchanged_admission_reuses_every_compiled_subscriber() {
 }
 
 #[test]
+fn returning_to_a_recent_server_reuses_subscribers_with_fresh_admission() {
+    let cache = PresentationCache::default();
+    let compiles = Cell::new(0);
+    let prepare = |stack| {
+        cache.prepare(
+            stack,
+            Arc::default(),
+            context(),
+            |_| true,
+            |stack, inputs| {
+                compiles.set(compiles.get() + 1);
+                prepare_changed_application(stack, inputs, None)
+            },
+        )
+    };
+    let (first, _) = prepare(stack(b"recent=value-a"));
+    let (_, hit) = prepare(stack(b"recent=value-b"));
+    assert!(!hit);
+    let returning_stack = stack(b"recent=value-a");
+    let (returning, hit) = prepare(returning_stack.clone());
+    assert!(
+        hit,
+        "another server must not discard recent immutable subscribers"
+    );
+    assert_eq!(compiles.get(), 2);
+    assert!(Arc::ptr_eq(
+        first.server_lang.as_ref().unwrap(),
+        returning.server_lang.as_ref().unwrap()
+    ));
+    let PackAdmission::Validated(admitted) = returning.admission else {
+        panic!("fresh admission");
+    };
+    assert!(Arc::ptr_eq(&admitted, &returning_stack));
+    assert!(returning.item_components.is_none());
+    assert!(returning.prepared_actor_artwork.is_none());
+}
+
+#[test]
 fn registry_wire_order_reuses_equivalent_compilation_inputs() {
     let cache = PresentationCache::default();
     let compiles = Cell::new(0);
@@ -380,7 +418,9 @@ fn stack_precedence_is_part_of_the_cache_identity() {
     assert!(!hit);
     assert_eq!(reordered.server_lang.unwrap().lookup("key"), Some("left"));
     assert!(prepare(&right, &left).1);
-    assert!(!prepare(&left, &right).1);
+    let (restored, hit) = prepare(&left, &right);
+    assert!(hit);
+    assert_eq!(restored.server_lang.unwrap().lookup("key"), Some("right"));
 }
 
 #[test]
@@ -403,7 +443,49 @@ fn compilation_runs_without_cache_lock_and_changed_context_is_not_published() {
         );
         assert!(!hit);
     }
-    assert!(cache.0.lock().unwrap().is_none());
+    assert!(cache.0.lock().unwrap().is_empty());
+}
+
+#[test]
+fn recent_subscriber_cache_evicts_the_least_recently_used_and_retires_old_context() {
+    let cache = PresentationCache::default();
+    let prepare = |text: &[u8], context| {
+        cache
+            .prepare(
+                stack(text),
+                Arc::default(),
+                context,
+                |_| true,
+                |_, inputs| PackApplication {
+                    inputs,
+                    ..Default::default()
+                },
+            )
+            .1
+    };
+    let fixtures = (0..=PRESENTATION_CACHE_CAPACITY)
+        .map(|index| format!("bounded={index}").into_bytes())
+        .collect::<Vec<_>>();
+    for fixture in fixtures.iter().take(PRESENTATION_CACHE_CAPACITY) {
+        assert!(!prepare(fixture, context()));
+    }
+    assert!(prepare(&fixtures[0], context()));
+    assert!(!prepare(&fixtures[PRESENTATION_CACHE_CAPACITY], context()));
+    assert!(
+        prepare(&fixtures[0], context()),
+        "a hit retains recent subscribers"
+    );
+    assert!(
+        !prepare(&fixtures[1], context()),
+        "oldest untouched entry is evicted"
+    );
+    assert_eq!(cache.0.lock().unwrap().len(), PRESENTATION_CACHE_CAPACITY);
+    let mut next_context = context();
+    next_context.generation += 1;
+    assert!(!prepare(&fixtures[0], next_context));
+    let retained = cache.0.lock().unwrap();
+    assert_eq!(retained.len(), 1);
+    assert!(retained.iter().all(|entry| entry.context.generation == 1));
 }
 
 #[test]

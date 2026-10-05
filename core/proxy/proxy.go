@@ -81,7 +81,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cfg.Selector.startTransportPreparation(serveCtx)
+	cfg.Selector.startTransportPreparation(serveCtx, logger)
 	defer cfg.Selector.stopTransportPreparation()
 	sessionErr := make(chan error, 1)
 	prepared := newPreparedConnections(cfg.Upstream, cfg.Account, logger)

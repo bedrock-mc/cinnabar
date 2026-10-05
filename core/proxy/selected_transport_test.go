@@ -14,6 +14,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 )
 
+const selectedTransportTTL = 5 * time.Second
+
 func selectionFixture(ctx context.Context, ttl time.Duration, dial func(context.Context, string) (net.Conn, error)) *selectedTransport {
 	return newSelectedTransport(ctx, ttl, func(ctx context.Context, target string) *preparedTransport {
 		return newPreparedTransport(ctx, transportFixture{dial: dial}, target)

@@ -240,9 +240,11 @@ impl WorldStream {
             }
         }
         let dependents = sources
-            .into_iter()
+            .iter()
+            .copied()
             .flat_map(SubChunkKey::mesh_dependents)
             .filter(|key| self.resident.contains(key))
+            .filter(|key| !self.air_fixed_point_survives_sources(*key, &sources))
             .collect::<BTreeSet<_>>();
         for dependent in dependents {
             self.mark_light_dirty_exact_with_priority(dependent, urgent);

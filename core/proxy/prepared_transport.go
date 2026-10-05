@@ -104,6 +104,15 @@ func (prepared *preparedTransport) ready() bool {
 	}
 }
 
+func (prepared *preparedTransport) failure() error {
+	select {
+	case <-prepared.done:
+		return prepared.err
+	default:
+		return nil
+	}
+}
+
 // finish cancels unfinished setup and closes any transport the login did not retain.
 func (prepared *preparedTransport) finish(retained bool) {
 	prepared.cancel()
