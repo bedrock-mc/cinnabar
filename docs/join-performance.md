@@ -199,7 +199,12 @@ Rust decode error recorded. Encrypted selected and ordinary loopback connections
 survive preparation cancellation and menu cleanup. `SESSION_TERMINAL` records the
 first relay termination before teardown, retaining its attempt, direction,
 context state and safe typed receive metadata without packet or credential text.
-These diagnostics do not establish the live root cause or close session acceptance.
+A comparison with background preparation disabled also failed. The socket-level
+trace then captured an explicit peer disconnect while traffic was active, with
+108 ms RTT and less than 0.01 ms since the last received traffic. The final
+application reason can be lost when transport cancellation overtakes its queued
+batch; encrypted regressions reproduce that race. Preserving the reason is
+under native validation. The live trigger and session acceptance remain open.
 
 The focused tests cover cancellation, capability preservation, secret-safe
 telemetry, wire order, signing, retained-buffer bounds, content/context cache
