@@ -23,6 +23,10 @@
   A no-background comparison also failed; socket tracing captured an explicit
   peer close during active traffic. Encrypted regressions reproduce loss of a
   queued final reason; its fix is under native validation. The trigger is open.
+- A confirmed prepared Zeqa SDK join followed its real transfer and survived five
+  minutes of passive reads; Rust gameplay stability remains incomplete. Join now
+  consumes selection even before a preparation attaches. Immediate peer teardown
+  has failed-before regressions but remains an isolated dependency prototype.
 - Measurements and remaining release gates: [join performance](docs/join-performance.md).
 
 ## Held cube item consistency

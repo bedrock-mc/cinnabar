@@ -133,13 +133,18 @@ func (selected *selectedTransport) keep(target string) {
 func (selected *selectedTransport) claim(target string) *preparedTransport {
 	selected.mu.Lock()
 	pending := selected.pending
-	if selected.closed || selected.ctx.Err() != nil || selected.wanted != target || pending == nil || pending.target != target || selected.ttl > 0 && !time.Now().Before(pending.deadline) {
+	if selected.closed || selected.ctx.Err() != nil || selected.wanted != target {
 		selected.mu.Unlock()
 		return nil
 	}
+	// Invalidate a factory result that has not attached before falling back.
 	selected.wanted = ""
 	selected.generation++
 	selected.signal()
+	if pending == nil || pending.target != target || selected.ttl > 0 && !time.Now().Before(pending.deadline) {
+		selected.mu.Unlock()
+		return nil
+	}
 	// A click falls back to a fresh ordinary dial instead of waiting on speculative retries.
 	if !pending.prepared.ready() {
 		status := "miss_not_ready"

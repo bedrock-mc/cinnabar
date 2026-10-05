@@ -206,6 +206,22 @@ application reason can be lost when transport cancellation overtakes its queued
 batch; encrypted regressions reproduce that race. Preserving the reason is
 under native validation. The live trigger and session acceptance remain open.
 
+A headless account-mode Zeqa test exercised `prepare_connect.v1`, waited for a
+ready preparation, then called `connect.v1` and followed the actual transfer to
+`pvp.inpvp.net:19132` through the same core. The selected prefix was a confirmed
+hit and the final connection received 36,264 packets over five minutes, ending
+only at the fixture's deadline. Initial StartGame took 303 ms from Join; final
+spawn took 3.87 s including the transfer. This SDK fixture uses default client
+data and passive reads, so it does not qualify Rust gameplay or rendered joins.
+
+Regression fixtures exposed two preparation defects: abandoning a prefix
+disposed UDP before its protocol notification, leaving the peer until inactivity
+timeout; a Join arriving before preparation attachment left the selection
+eligible to finish and renew. The attachment race is fixed on this branch.
+Protocol-aware immediate teardown passes encrypted cancellation, failed-commit
+and retained-session tests in an isolated dependency prototype. Its dependency
+changes and the native session stability gate remain unlanded.
+
 The focused tests cover cancellation, capability preservation, secret-safe
 telemetry, wire order, signing, retained-buffer bounds, content/context cache
 invalidation, stale generations, spawn priority and GPU witness ordering.
