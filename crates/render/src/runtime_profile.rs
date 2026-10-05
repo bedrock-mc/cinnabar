@@ -47,7 +47,7 @@ pub enum RuntimeStage {
     Particles,
     Audio,
     BlockEntities,
-    /// Render-world CPU from drawable acquisition to cleanup.
+    /// Render-world wall time for one frame, excluding the drawable-acquisition wait.
     RenderFrame,
     /// First to last GPU timestamp of one rendered frame.
     GpuFrame,
@@ -350,8 +350,14 @@ impl RuntimeStageProfiler {
             if self.state.enabled {
                 self.state.stages[stage as usize].record(elapsed);
             }
-            if let Some(slow) = &self.state.slow {
-                slow.record(stage, elapsed);
+            if let Some(event) = self
+                .state
+                .slow
+                .as_ref()
+                .and_then(|slow| slow.record(stage, elapsed))
+                && let Some(trace) = &self.state.trace
+            {
+                trace.slow_frame(event);
             }
         }
         *self
@@ -418,18 +424,25 @@ impl RuntimeStageProfiler {
 
 /// Open spans timed across several systems, indexed by [`RuntimeStage`].
 #[derive(Resource, Debug)]
-pub struct RuntimeStageSpans([Option<Instant>; RuntimeStage::ALL.len()]);
+pub struct RuntimeStageSpans {
+    open: [Option<Instant>; RuntimeStage::ALL.len()],
+    /// Each stage's most recently closed span.
+    last: [Duration; RuntimeStage::ALL.len()],
+}
 
 impl Default for RuntimeStageSpans {
     fn default() -> Self {
-        Self([None; RuntimeStage::ALL.len()])
+        Self {
+            open: [None; RuntimeStage::ALL.len()],
+            last: [Duration::ZERO; RuntimeStage::ALL.len()],
+        }
     }
 }
 
 /// Opens the span of stage `S` (a `RuntimeStage as usize`); pair with [`end_stage_span`].
 pub fn begin_stage_span<const S: usize>(spans: Option<ResMut<RuntimeStageSpans>>) {
     if let Some(mut spans) = spans {
-        spans.0[S] = Some(Instant::now());
+        spans.open[S] = Some(Instant::now());
     }
 }
 
@@ -438,11 +451,41 @@ pub fn end_stage_span<const S: usize>(
     profiler: Option<Res<RuntimeStageProfiler>>,
     spans: Option<ResMut<RuntimeStageSpans>>,
 ) {
-    if let (Some(profiler), Some(started)) =
-        (profiler, spans.and_then(|mut spans| spans.0[S].take()))
+    let Some(mut spans) = spans else {
+        return;
+    };
+    let Some(started) = spans.open[S].take() else {
+        return;
+    };
+    let elapsed = started.elapsed();
+    spans.last[S] = elapsed;
+    if let Some(profiler) = profiler
         && profiler.active()
     {
-        record_stage(&profiler.state, RuntimeStage::ALL[S], started);
+        record_elapsed(&profiler.state, RuntimeStage::ALL[S], started, elapsed);
+    }
+}
+
+/// Closes the render-frame span, excluding the drawable-acquisition wait inside it.
+pub(crate) fn end_render_frame_span(
+    profiler: Option<Res<RuntimeStageProfiler>>,
+    spans: Option<ResMut<RuntimeStageSpans>>,
+) {
+    const FRAME: usize = RuntimeStage::RenderFrame as usize;
+    const SURFACE: usize = RuntimeStage::SurfacePreparation as usize;
+    let Some(mut spans) = spans else {
+        return;
+    };
+    let Some(started) = spans.open[FRAME].take() else {
+        return;
+    };
+    let wait = std::mem::take(&mut spans.last[SURFACE]);
+    let elapsed = started.elapsed().saturating_sub(wait);
+    spans.last[FRAME] = elapsed;
+    if let Some(profiler) = profiler
+        && profiler.active()
+    {
+        record_elapsed(&profiler.state, RuntimeStage::RenderFrame, started, elapsed);
     }
 }
 
@@ -463,7 +506,15 @@ impl Drop for RuntimeStageTimer<'_> {
 
 /// Records aggregate timing and an optional timestamped span together.
 fn record_stage(state: &RuntimeStageProfileState, stage: RuntimeStage, started: Instant) {
-    let elapsed = started.elapsed();
+    record_elapsed(state, stage, started, started.elapsed());
+}
+
+fn record_elapsed(
+    state: &RuntimeStageProfileState,
+    stage: RuntimeStage,
+    started: Instant,
+    elapsed: Duration,
+) {
     if state.enabled {
         state.stages[stage as usize].record(elapsed);
     }
@@ -509,6 +560,76 @@ mod tests {
         for stage in [RuntimeStage::GpuOpaque, RuntimeStage::GpuFrame] {
             assert_eq!(snapshot.samples[stage as usize].count, 1);
         }
+    }
+
+    #[test]
+    fn every_gpu_overrun_is_marked_in_the_trace() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("trace.json");
+        let profiler = RuntimeStageProfiler::for_gameplay(true, Some(path.clone()));
+        profiler.set_frame_interval(Duration::from_secs_f64(1.0 / 120.0));
+        let over = crate::gpu_timing::decode_spans([(RuntimeStage::GpuOpaque, 1, 7_000_001)], 1.0);
+        profiler.record_gpu_frame(&over);
+        profiler.record_gpu_frame(&over);
+        profiler.flush_trace();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let markers = saved["traceEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|event| event["name"] == "slow_frame")
+            .count();
+        assert_eq!(markers, 2);
+        assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 2);
+    }
+
+    /// Asset preparation counts as render CPU; the drawable-acquisition wait does not.
+    #[test]
+    fn render_cpu_includes_pre_acquisition_work_but_not_the_wait() {
+        use bevy::prelude::*;
+        use bevy::render::{Render, RenderSystems};
+        const FRAME: usize = RuntimeStage::RenderFrame as usize;
+        const SURFACE: usize = RuntimeStage::SurfacePreparation as usize;
+        // Backdated span starts stand in for 30 ms of asset work and a 50 ms wait.
+        fn asset_work(mut spans: ResMut<RuntimeStageSpans>) {
+            let started = spans.open[FRAME].expect("render frame open during PrepareAssets");
+            spans.open[FRAME] = Some(started - Duration::from_millis(80));
+        }
+        fn acquisition_wait(mut spans: ResMut<RuntimeStageSpans>) {
+            let started = spans.open[SURFACE].expect("surface span open");
+            spans.open[SURFACE] = Some(started - Duration::from_millis(50));
+        }
+        let profiler = RuntimeStageProfiler::new(true);
+        let mut app = App::new();
+        app.add_schedule(Render::base_schedule())
+            .insert_resource(profiler.clone());
+        crate::runtime_profile_trace::install_surface_trace(app.main_mut());
+        app.add_systems(
+            Render,
+            (
+                asset_work.in_set(RenderSystems::PrepareAssets),
+                acquisition_wait
+                    .after(begin_stage_span::<SURFACE>)
+                    .before(end_stage_span::<SURFACE>)
+                    .in_set(RenderSystems::ManageViews),
+            ),
+        );
+        app.world_mut().run_schedule(Render);
+        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
+        let render = snapshot.samples[FRAME];
+        assert_eq!(render.count, 1);
+        assert!(
+            render.total >= Duration::from_millis(30),
+            "{:?}",
+            render.total
+        );
+        assert!(
+            render.total < Duration::from_millis(50),
+            "{:?}",
+            render.total
+        );
+        assert!(snapshot.samples[SURFACE].total >= Duration::from_millis(50));
     }
 
     #[test]

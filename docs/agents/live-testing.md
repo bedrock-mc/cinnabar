@@ -128,7 +128,7 @@ the window where it completes. `surface_preparation` includes drawable
 acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
 small main work warrants checking the render stages and OS scheduling before
-changing gameplay. `render_frame` is render-world CPU after drawable acquisition.
+changing gameplay. `render_frame` is render-world time excluding drawable acquisition.
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the
