@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Restricted SSH receiver: publish only the five generated static files."""
+"""Restricted SSH receiver: publish static files and their Go server atomically."""
 
 import fcntl
 import os
@@ -11,8 +11,9 @@ import tarfile
 import tempfile
 
 
-FILES = {"index.html", "app.js", "downloads.js", "title.png", "texture.svg"}
-LIMIT = 5 * 1024 * 1024
+PUBLIC_FILES = {"index.html", "app.js", "downloads.js", "title.png", "texture.svg"}
+FILES = PUBLIC_FILES | {"server"}
+LIMIT = 16 * 1024 * 1024
 
 
 def deploy(root, release, stream):
@@ -28,6 +29,7 @@ def deploy(root, release, stream):
             raise ValueError("Release already exists")
         with tempfile.TemporaryDirectory(prefix=".incoming-", dir=releases) as temporary:
             staged = Path(temporary)
+            (staged / "public").mkdir(mode=0o755)
             seen = set()
             total = 0
             with tarfile.open(fileobj=stream, mode="r|gz") as archive:
@@ -38,8 +40,12 @@ def deploy(root, release, stream):
                     if total > LIMIT:
                         raise ValueError("Website payload exceeds size limit")
                     with archive.extractfile(member) as source:
-                        (staged / member.name).write_bytes(source.read())
-                    (staged / member.name).chmod(0o644)
+                        contents = source.read()
+                    if member.name == "server" and contents[:4] != b"\x7fELF":
+                        raise ValueError("Server is not a Linux executable")
+                    output = staged / member.name if member.name == "server" else staged / "public" / member.name
+                    output.write_bytes(contents)
+                    output.chmod(0o755 if member.name == "server" else 0o644)
                     seen.add(member.name)
             if seen != FILES:
                 raise ValueError("Website payload is incomplete")

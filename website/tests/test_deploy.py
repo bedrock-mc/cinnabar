@@ -13,7 +13,7 @@ RECEIVE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RECEIVE)
 
 
-def archive(names, symlink=False):
+def archive(names, symlink=False, server_bytes=b"\x7fELFfixture"):
     stream = io.BytesIO()
     with tarfile.open(fileobj=stream, mode="w:gz") as tar:
         for name in names:
@@ -23,8 +23,9 @@ def archive(names, symlink=False):
                 entry.linkname = "/etc/passwd"
                 tar.addfile(entry)
             else:
-                entry.size = 2
-                tar.addfile(entry, io.BytesIO(b"ok"))
+                contents = server_bytes if name == "server" else b"ok"
+                entry.size = len(contents)
+                tar.addfile(entry, io.BytesIO(contents))
     stream.seek(0)
     return stream
 
@@ -36,7 +37,9 @@ class DeploymentTests(unittest.TestCase):
             release = "a" * 40 + "-1-1"
             RECEIVE.deploy(root, release, archive(RECEIVE.FILES))
             current = (root / "current").resolve()
-            self.assertEqual((current / "index.html").read_bytes(), b"ok")
+            self.assertEqual((current / "public/index.html").read_bytes(), b"ok")
+            self.assertEqual((current / "server").stat().st_mode & 0o777, 0o755)
+            self.assertFalse((current / "public/server").exists())
             for names, symlink in [
                 (["../outside"], False),
                 (["index.html"], False),
@@ -50,6 +53,15 @@ class DeploymentTests(unittest.TestCase):
             RECEIVE.deploy(root, "c" * 40 + "-3-1", archive(RECEIVE.FILES))
             self.assertNotEqual((root / "current").resolve(), current)
             self.assertTrue(current.exists())
+
+    def test_invalid_executable_keeps_the_previous_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            RECEIVE.deploy(root, "a" * 40 + "-1-1", archive(RECEIVE.FILES))
+            previous = (root / "current").resolve()
+            with self.assertRaises(ValueError):
+                RECEIVE.deploy(root, "b" * 40 + "-2-1", archive(RECEIVE.FILES, server_bytes=b"bad"))
+            self.assertEqual((root / "current").resolve(), previous)
 
     def test_release_identifier_cannot_escape_release_root(self):
         with tempfile.TemporaryDirectory() as temporary:

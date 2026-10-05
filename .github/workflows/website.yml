@@ -33,11 +33,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: core/go.mod
+          cache: false
       - name: Test website and deployment boundary
         run: |
           python3 website/render.py
           node --test website/tests/app.test.cjs
           python3 -m unittest discover -s website/tests -p 'test_*.py' -v
+          go test -race website/server/main.go website/server/main_test.go
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o website/dist/server website/server/main.go
       - uses: actions/upload-artifact@v4
         with:
           name: website
@@ -71,7 +77,16 @@ jobs:
             -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30 \
             "cinnabar@$DEPLOY_HOST" "deploy $GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             < "$RUNNER_TEMP/website.tar.gz"
+          release="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ready=false
+          for attempt in $(seq 1 30); do
+            observed="$(curl -fsS "https://cinnabar.restartfu.com/healthz?release=$release" || true)"
+            if [ "$observed" = "$release" ]; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
           for file in dist/*; do
+            [ "$(basename "$file")" = server ] && continue
             curl --fail --retry 3 "https://cinnabar.restartfu.com/$(basename "$file")?release=$GITHUB_SHA" \
               -o "$RUNNER_TEMP/served"
             cmp "$file" "$RUNNER_TEMP/served"

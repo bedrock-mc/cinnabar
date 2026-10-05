@@ -1,15 +1,23 @@
 services:
   cinnabar-site:
-    image: nginx:1.29-alpine
+    image: busybox:1.37.0
     container_name: cinnabar-site
     restart: unless-stopped
     cpus: 0.25
     mem_limit: 64m
     memswap_limit: 64m
     pids_limit: 32
+    user: '65532:65532'
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: '0'
+    command: ['/bin/sh', '/serve.sh']
     volumes:
       - /home/cinnabar/site:/srv/site:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
+      - ./serve.sh:/serve.sh:ro,Z
     ports:
       - '127.0.0.1:18083:80'
     networks:
