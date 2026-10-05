@@ -109,6 +109,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if ext != nil {
 		deliverClientMessages(ext, srv.Player, host, logger)
 	}
+	registerChatCommands()
 	srv.Listen()
 	accepting := make(chan struct{})
 	go func() {

@@ -106,26 +106,25 @@ fn flying_hovers_without_gravity_and_jump_sneak_steer_vertically() {
     assert!(down.movement.y < 0.0);
 }
 
+/// A server-granted FlySpeed scales steady flight linearly, with no clamp to the default.
 #[test]
-fn faster_ability_speed_flies_farther() {
+fn ability_fly_speed_scales_steady_flight_velocity() {
     let world = empty(BlockPhysicsFlags::default());
-    let travel = |fly_speed| {
+    let steady = |fly_speed| {
         let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
-        tick(
-            &mut state,
-            MovementInput {
-                mode: MovementMode::Flying,
-                forward: 1.0,
-                fly_speed,
-                ..MovementInput::default()
-            },
-            &world,
-        )
-        .movement
-        .z
-        .abs()
+        let input = MovementInput {
+            mode: MovementMode::Flying,
+            forward: 1.0,
+            fly_speed,
+            ..MovementInput::default()
+        };
+        (0..100)
+            .map(|_| tick(&mut state, input, &world).movement.z.abs())
+            .last()
+            .unwrap()
     };
-    assert!(travel(Some(0.1)) > travel(None));
+    let ratio = steady(Some(0.5)) / steady(None);
+    assert!((ratio - 10.0).abs() < 0.05, "10x FlySpeed flew {ratio}x");
 }
 
 #[test]

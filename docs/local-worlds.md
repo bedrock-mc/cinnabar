@@ -53,6 +53,8 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
   keep running and status reports `pause_supported: false`.
+- **Test commands:** dragonfly worlds give every player `/speed [multiplier|reset]` (vanilla fly speed and movement
+  attribute ×0.1–100, sent as UpdateAbilities and UpdateAttributes), `/fly` and `/tp <x> <y> <z>`.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. Player-data persistence needs a stable client identity.
