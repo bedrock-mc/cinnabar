@@ -7,8 +7,8 @@ publish = false
 
 [features]
 publication-test-support = []
-# Compiles the hard-disabled Enhanced renderer.
-enhanced = []
+# Compiles the experimental Enhanced renderer; default builds keep it disabled.
+enhanced = ["render-model/enhanced"]
 
 [dependencies]
 mod-api = { path = "../mod-api" }

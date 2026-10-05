@@ -566,17 +566,11 @@ session-pack version selection and equal-minimum merging remain incomplete; this
 closes the reported model defect, not the broad animal parity gate. See
 `docs/reference/horse-rendering.md` for the vanilla rules and supported scope.
 
-2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
-WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
-Enhanced shader specialization and effect passes. The toggle is hidden, and saved
-settings, environment and CLI requests resolve to Vanilla. The GPU fault remains
-unresolved; Enhanced visual and performance gates remain incomplete.
-The disable was inspected on macOS 26.5.1/Metal at 2560x1440 content pixels
-(Retina 2x, automatic GUI scale), using the rebuilt client and a saved Enhanced
-preference. Home and Video settings remained legible with normal geometry,
-clipping, layering and colours; the Enhanced control was absent. Settings clicks,
-scrolling, hover focus and Escape navigation worked. This checks the disable,
-not gameplay performance or the unresolved GPU fault.
+2026-10-04 Enhanced rendering: available only in an explicit `enhanced` feature
+build; default builds still force Vanilla. This restores a local experimentation
+path after the earlier macOS GPU page faults and WindowServer watchdog panic; it
+does not resolve that fault. Enhanced visual and performance gates remain
+incomplete and the mode remains a non-parity extension.
 
 2026-10-02 native comparison follow-up (in progress; local and uncommitted,
 not pushed): both real Minecraft and Rust now join the same offline official BDS

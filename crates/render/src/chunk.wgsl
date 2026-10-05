@@ -54,6 +54,19 @@ struct AtmosphereUniform {
 @group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_0) var native_leaf_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_1) var native_leaf_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(NATIVE_LEAF_SAMPLER_BINDING) var native_leaf_sampler: sampler;
+@group(0) @binding(PBR_NORMAL_TEXTURE_BINDING_0) var pbr_normal_page_0: texture_2d_array<f32>;
+@group(0) @binding(PBR_NORMAL_TEXTURE_BINDING_1) var pbr_normal_page_1: texture_2d_array<f32>;
+@group(0) @binding(PBR_MER_TEXTURE_BINDING_0) var pbr_mer_page_0: texture_2d_array<f32>;
+@group(0) @binding(PBR_MER_TEXTURE_BINDING_1) var pbr_mer_page_1: texture_2d_array<f32>;
+@group(0) @binding(PBR_SAMPLER_BINDING) var pbr_sampler: sampler;
+@group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_0) var enhanced_color_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_1) var enhanced_color_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_NORMAL_TEXTURE_BINDING_0) var enhanced_normal_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_NORMAL_TEXTURE_BINDING_1) var enhanced_normal_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_MER_TEXTURE_BINDING_0) var enhanced_mer_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_MER_TEXTURE_BINDING_1) var enhanced_mer_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_SAMPLER_BINDING) var enhanced_sampler: sampler;
+@group(0) @binding(ENHANCED_TEXTURE_REF_BINDING) var<storage, read> enhanced_texture_refs: array<u32>;
 
 struct AnimationFrameSampleGpu {
     current_texture: u32,
@@ -310,9 +323,9 @@ fn apply_material_tint(
             // alpha-zero RGB contains the opaque dirt base.
             return vec4(mix(sampled.rgb, tinted, sampled.a), 1.0);
         }
-        return vec4(tinted, 1.0);
+        return vec4(tinted, sampled.a);
     }
-    return vec4(sampled.rgb, 1.0);
+    return vec4(sampled.rgb, sampled.a);
 }
 
 fn sample_texture_ref(
@@ -337,6 +350,16 @@ fn sample_material_texture_ref(
     material_flags: u32,
 ) -> vec4<f32> {
 #ifdef ENHANCED
+    let lookup_index = (texture_ref >> 31u) * 2048u + (texture_ref & 0x7ffu);
+    let authored_ref = enhanced_texture_refs[lookup_index];
+    if (authored_ref != 0xffffffffu) {
+        let authored_page = authored_ref >> 31u;
+        let authored_layer = i32(authored_ref & 0x7ffu);
+        if (authored_page == 0u) {
+            return textureSampleGrad(enhanced_color_page_0, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
+        }
+        return textureSampleGrad(enhanced_color_page_1, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
+    }
 #else
     if (material_uses_native_leaf_colour(material_flags)) {
         let layer = i32(texture_ref & 0x7ffu);
@@ -349,6 +372,45 @@ fn sample_material_texture_ref(
     return sample_texture_ref(texture_ref, uv, uv_dx, uv_dy);
 }
 
+#ifdef ENHANCED
+fn sample_pbr_texture(
+    normal_map: bool,
+    texture_ref: u32,
+    uv: vec2<f32>,
+    uv_dx: vec2<f32>,
+    uv_dy: vec2<f32>,
+) -> vec4<f32> {
+    let lookup_index = (texture_ref >> 31u) * 2048u + (texture_ref & 0x7ffu);
+    let authored_ref = enhanced_texture_refs[lookup_index];
+    if (authored_ref != 0xffffffffu) {
+        let authored_page = authored_ref >> 31u;
+        let authored_layer = i32(authored_ref & 0x7ffu);
+        if (normal_map) {
+            if (authored_page == 0u) {
+                return textureSampleGrad(enhanced_normal_page_0, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
+            }
+            return textureSampleGrad(enhanced_normal_page_1, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
+        }
+        if (authored_page == 0u) {
+            return textureSampleGrad(enhanced_mer_page_0, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
+        }
+        return textureSampleGrad(enhanced_mer_page_1, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
+    }
+    let page = texture_ref >> 31u;
+    let layer = i32(texture_ref & 0x7ffu);
+    if (normal_map) {
+        if (page == 0u) {
+            return textureSampleGrad(pbr_normal_page_0, pbr_sampler, uv, layer, uv_dx, uv_dy);
+        }
+        return textureSampleGrad(pbr_normal_page_1, pbr_sampler, uv, layer, uv_dx, uv_dy);
+    }
+    if (page == 0u) {
+        return textureSampleGrad(pbr_mer_page_0, pbr_sampler, uv, layer, uv_dx, uv_dy);
+    }
+    return textureSampleGrad(pbr_mer_page_1, pbr_sampler, uv, layer, uv_dx, uv_dy);
+}
+#endif
+
 fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
     let distance_to_camera = distance(world_position, view.world_position);
     return clamp(
@@ -360,7 +422,27 @@ fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
 }
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+#ifdef ENHANCED
+    let delta = world_position - view.world_position;
+    let direction = delta / max(length(delta), 1.0e-4);
+    let horizon = smoothstep(-0.3, 0.75, direction.y);
+    let sky = mix(
+        atmosphere.sky_horizon_thunder.rgb,
+        atmosphere.sky_zenith_rain.rgb,
+        smoothstep(0.12, 0.92, horizon),
+    );
+    let storm = atmosphere.sky_horizon_thunder.a;
+    let dusk = atmosphere.sunrise_band.rgb * atmosphere.sunrise_band.a
+        * smoothstep(-0.15, 0.75, direction.y) * 0.32;
+    let fog_colour = mix(
+        atmosphere.fog_color_start.rgb,
+        mix(atmosphere.fog_color_start.rgb, sky, 0.28 + 0.24 * horizon),
+        1.0 - 0.22 * storm,
+    ) + dusk;
+    return mix(colour, fog_colour, smoothstep(0.0, 1.0, distance_fog_amount(world_position)));
+#else
     return mix(colour, atmosphere.fog_color_start.rgb, distance_fog_amount(world_position));
+#endif
 }
 
 // Current atlas creation/upload uses RGBA8_UNORM,
@@ -418,6 +500,24 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
         discard;
     }
 #ifdef ENHANCED
+    var pbr_normal_sample = sample_pbr_texture(true, in.current_texture, in.uv, uv_dx, uv_dy);
+    var pbr_mer_sample = sample_pbr_texture(false, in.current_texture, in.uv, uv_dx, uv_dy);
+    if (in.frame_blend > 0.0) {
+        pbr_normal_sample = mix(pbr_normal_sample,
+            sample_pbr_texture(true, in.next_texture, in.uv, uv_dx, uv_dy), in.frame_blend);
+        pbr_mer_sample = mix(pbr_mer_sample,
+            sample_pbr_texture(false, in.next_texture, in.uv, uv_dx, uv_dy), in.frame_blend);
+    }
+    var tangent = vec3(1.0, 0.0, 0.0);
+    if (abs(in.normal.y) > 0.9) { tangent = vec3(0.0, 0.0, 1.0); }
+    let bitangent = normalize(cross(in.normal, tangent));
+    tangent = normalize(cross(bitangent, in.normal));
+    let tangent_normal = normalize(vec3(
+        pbr_normal_sample.xy * 2.0 - vec2(1.0),
+        max(pbr_normal_sample.z * 2.0 - 1.0, 0.05),
+    ));
+    let shading_normal = normalize(tangent * tangent_normal.x
+        + bitangent * tangent_normal.y + in.normal * tangent_normal.z);
     let colour = apply_material_tint(
         sampled,
         in.material_flags,
@@ -428,13 +528,15 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     );
     let shaded = shade_surface(
         colour.rgb,
-        in.normal,
+        shading_normal,
         in.world_position,
         in.clip_position.xy,
         in.lighting,
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
+        shading_normal,
+        pbr_mer_sample.rgb,
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else

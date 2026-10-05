@@ -18,6 +18,7 @@ pub(crate) const FEATURE_BLOOM: u32 = 1 << 1;
 pub(crate) const FEATURE_SHAFTS: u32 = 1 << 2;
 pub(crate) const FEATURE_WAVING: u32 = 1 << 3;
 pub(crate) const FEATURE_WATER: u32 = 1 << 4;
+pub(crate) const FEATURE_PBR: u32 = 1 << 5;
 
 /// Mirrors `EnhancedFrame` in `enhanced/common.wgsl`.
 #[repr(C)]
@@ -38,6 +39,9 @@ pub(crate) struct EnhancedFrameGpu {
     pub(crate) light_colour: Vec4,
     /// rgb sky-ambient tint, w rain level.
     pub(crate) ambient_colour: Vec4,
+    /// Linear sky colours used for the low-cost environment specular fallback.
+    pub(crate) sky_zenith: Vec4,
+    pub(crate) sky_horizon: Vec4,
     /// Width, height, and their reciprocals in physical pixels.
     pub(crate) viewport: Vec4,
     /// x warm(+)/cool(-) grade, y exposure, z bloom intensity, w shaft intensity.
@@ -282,6 +286,7 @@ pub(crate) fn build_frame(
         (settings.light_shafts && shadows, FEATURE_SHAFTS),
         (settings.waving, FEATURE_WAVING),
         (settings.water_reflections, FEATURE_WATER),
+        (settings.physically_based, FEATURE_PBR),
     ] {
         if enabled {
             features |= bit;
@@ -298,6 +303,8 @@ pub(crate) fn build_frame(
         light_direction: light.direction.extend(light.strength),
         light_colour: light.colour.extend(light.ambient),
         ambient_colour: light.ambient_colour.extend(light.rain),
+        sky_zenith: Vec3::from_array(atmosphere.sky_zenith()).extend(1.0),
+        sky_horizon: Vec3::from_array(atmosphere.sky_horizon()).extend(1.0),
         viewport: Vec4::new(width, height, 1.0 / width, 1.0 / height),
         grade: Vec4::new(light.warmth, 1.0, 0.08, 0.35),
         flags: UVec4::new(features, cascades, resolution, 0),

@@ -57,9 +57,9 @@ const OVERLAY: &str = r##"{
 mod tests {
     use super::*;
 
-    /// The disabled extension leaves the vanilla video settings unchanged.
+    /// The video toggle appears only in builds with the Enhanced feature.
     #[test]
-    fn disabled_enhanced_adds_no_video_control() {
+    fn enhanced_toggle_visibility_matches_build_feature() {
         let mut catalog = Catalog::default();
         catalog.overlay_text(
             "ui/general_section.json",
@@ -78,6 +78,9 @@ mod tests {
         );
         assert!(resolution.diagnostics.is_empty());
         let resolved = resolution.control.expect("video section");
-        assert!(resolved.children.is_empty());
+        assert_eq!(
+            resolved.children.is_empty(),
+            !render_model::ENHANCED_RENDERING_ENABLED
+        );
     }
 }

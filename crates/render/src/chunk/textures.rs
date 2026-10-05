@@ -1,9 +1,65 @@
 use crate::chunk::*;
 
+/// Authored Enhanced texture layers. The arrays are sparse: `texture_refs`
+/// maps the normal 16x16 atlas references to layers in these optional pages.
+/// Missing entries keep the generated material fallback, so a pack can ship
+/// PBR data for only the blocks it actually authors.
+#[derive(Clone, Debug)]
+pub struct EnhancedTextureAssets {
+    pub(crate) color_pages: [TextureArray; 2],
+    pub(crate) normal_pages: [TextureArray; 2],
+    pub(crate) mer_pages: [TextureArray; 2],
+    pub(crate) texture_refs: Box<[u32]>,
+}
+
+impl EnhancedTextureAssets {
+    /// Creates a sparse authored set. `texture_refs` is indexed by the packed
+    /// page/layer (page * 2048 + layer), with `u32::MAX` selecting fallback.
+    #[must_use]
+    pub fn new(
+        color_pages: [TextureArray; 2],
+        normal_pages: [TextureArray; 2],
+        mer_pages: [TextureArray; 2],
+        texture_refs: Box<[u32]>,
+    ) -> Option<Self> {
+        if texture_refs.len() != assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS
+            || color_pages
+                .iter()
+                .zip(normal_pages.iter())
+                .zip(mer_pages.iter())
+                .any(|((color, normal), mer)| {
+                    color.layers != normal.layers || color.layers != mer.layers
+                })
+            || texture_refs.iter().any(|&texture_ref| {
+                if texture_ref == u32::MAX {
+                    return false;
+                }
+                let page = (texture_ref >> 31) as usize;
+                let layer = (texture_ref & 0x7ff) as usize;
+                page >= assets::MAX_TEXTURE_PAGES || layer >= color_pages[page].layers as usize
+            })
+        {
+            return None;
+        }
+        Some(Self {
+            color_pages,
+            normal_pages,
+            mer_pages,
+            texture_refs,
+        })
+    }
+
+    #[must_use]
+    pub fn authored_layer_count(&self) -> usize {
+        self.color_pages[0].layers as usize
+    }
+}
+
 /// Immutable assets selected for the single global chunk texture array.
 #[derive(Resource, Clone)]
 pub struct ChunkTextureAssets {
     pub(in crate::chunk) assets: Arc<RuntimeAssets>,
+    pub(in crate::chunk) enhanced: Option<Arc<EnhancedTextureAssets>>,
     pub(in crate::chunk) revision: u64,
 }
 
@@ -18,13 +74,40 @@ impl ChunkTextureAssets {
     pub const fn new(assets: Arc<RuntimeAssets>) -> Self {
         Self {
             assets,
+            enhanced: None,
             revision: 0,
         }
     }
 
     #[must_use]
     pub const fn with_revision(assets: Arc<RuntimeAssets>, revision: u64) -> Self {
-        Self { assets, revision }
+        Self {
+            assets,
+            enhanced: None,
+            revision,
+        }
+    }
+
+    #[must_use]
+    pub fn with_optional_enhanced(
+        assets: Arc<RuntimeAssets>,
+        enhanced: Option<Arc<EnhancedTextureAssets>>,
+        revision: u64,
+    ) -> Self {
+        Self {
+            assets,
+            enhanced,
+            revision,
+        }
+    }
+
+    #[must_use]
+    pub fn with_enhanced(
+        assets: Arc<RuntimeAssets>,
+        enhanced: Arc<EnhancedTextureAssets>,
+        revision: u64,
+    ) -> Self {
+        Self::with_optional_enhanced(assets, Some(enhanced), revision)
     }
 
     #[must_use]
@@ -33,9 +116,18 @@ impl ChunkTextureAssets {
     }
 
     #[must_use]
+    pub fn enhanced(&self) -> Option<&Arc<EnhancedTextureAssets>> {
+        self.enhanced.as_ref()
+    }
+
+    #[must_use]
     pub fn identity(&self) -> ChunkTextureAssetIdentity {
         ChunkTextureAssetIdentity {
             pointer: Arc::as_ptr(&self.assets) as usize,
+            enhanced_pointer: self
+                .enhanced
+                .as_ref()
+                .map_or(0, |enhanced| Arc::as_ptr(enhanced) as usize),
             revision: self.revision,
         }
     }
@@ -47,6 +139,7 @@ impl bevy::render::extract_resource::ExtractResource for ChunkTextureAssets {
     fn extract_resource(source: &Self::Source) -> Self {
         Self {
             assets: Arc::clone(&source.assets),
+            enhanced: source.enhanced.as_ref().map(Arc::clone),
             revision: source.revision,
         }
     }
@@ -55,6 +148,7 @@ impl bevy::render::extract_resource::ExtractResource for ChunkTextureAssets {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChunkTextureAssetIdentity {
     pub(in crate::chunk) pointer: usize,
+    pub(in crate::chunk) enhanced_pointer: usize,
     pub(in crate::chunk) revision: u64,
 }
 
@@ -62,7 +156,11 @@ impl ChunkTextureAssetIdentity {
     #[cfg(test)]
     #[must_use]
     pub(in crate::chunk) const fn new(pointer: usize, revision: u64) -> Self {
-        Self { pointer, revision }
+        Self {
+            pointer,
+            enhanced_pointer: 0,
+            revision,
+        }
     }
 }
 

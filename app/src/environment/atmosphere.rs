@@ -165,7 +165,10 @@ pub(crate) fn derive_profiled_atmosphere_frame(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
-    time_override: Option<Res<super::VisualTimeOverride>>,
+    time_overrides: (
+        Option<Res<super::VisualTimeOverride>>,
+        Option<Res<super::DebugTimeOverride>>,
+    ),
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
@@ -184,6 +187,7 @@ pub(crate) fn update_atmosphere_frame(
     ),
     cameras: Query<&Transform, With<crate::camera::FlyCamera>>,
 ) {
+    let (time_override, debug_time_override) = time_overrides;
     let renderer_ticks = renderer_clock.advance(
         clock.server_time().map(|_| clock.session_generation),
         time.elapsed_secs_f64(),
@@ -191,6 +195,12 @@ pub(crate) fn update_atmosphere_frame(
     let clock = time_override
         .as_ref()
         .map_or(*clock, |value| value.rendering_clock(*clock));
+    let clock = debug_time_override
+        .as_ref()
+        .and_then(|value| value.ticks)
+        .map_or(clock, |ticks| {
+            super::VisualTimeOverride(Some(ticks)).rendering_clock(clock)
+        });
     let (menu, clouds) = preferences;
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
     if let Some(mut clouds) = clouds {

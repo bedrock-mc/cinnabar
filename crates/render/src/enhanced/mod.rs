@@ -81,6 +81,8 @@ pub struct EnhancedRendering {
     pub light_shafts: bool,
     pub waving: bool,
     pub water_reflections: bool,
+    /// Enables the Cook-Torrance material response and linear PBR atlas layers.
+    pub physically_based: bool,
 }
 
 pub const MAX_SHADOW_CASCADES: u32 = 3;
@@ -96,6 +98,7 @@ impl Default for EnhancedRendering {
             light_shafts: true,
             waving: true,
             water_reflections: true,
+            physically_based: true,
         }
     }
 }

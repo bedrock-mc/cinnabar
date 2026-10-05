@@ -16,6 +16,10 @@ POWERSHELL ?= powershell
 SOCKET_DIR ?= .local/run-zeqa
 AUTH_CACHE ?= .local/auth/microsoft-token.json
 NO_VSYNC ?= 0
+CLIENT_FEATURES ?=
+RENDER_MODE ?=
+CLIENT_CARGO_FEATURES = $(if $(strip $(CLIENT_FEATURES)),--features "$(CLIENT_FEATURES)")
+CLIENT_RENDER_MODE_ARGS = $(if $(strip $(RENDER_MODE)),--render-mode "$(RENDER_MODE)")
 # Passed to the client at launch only; it is never a compile input.
 RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_PLATFORM ?= $(if $(filter Windows_NT,$(OS)),windows,$(if $(findstring Darwin,$(shell uname -s)),macos,linux))
@@ -109,7 +113,7 @@ UI_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ui-as
 WEATHER_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- weather-assets --pack "$(PACK_DIR)" --out "$(WEATHER_ASSET_BLOB)"
 HUD_EXTRAS_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-extras-assets --pack "$(PACK_DIR)" --out "$(HUD_EXTRAS_ASSET_BLOB)"
 PARTICLE_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- particle-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(PARTICLE_ASSET_BLOB)" --report "$(PARTICLE_ASSET_REPORT)"
-CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) $(CLIENT_CARGO_FEATURES) -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(CLIENT_RENDER_MODE_ARGS) $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 ifeq ($(OS),Windows_NT)
 RUN_IF_ASSET_REPORT_STALE = $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/run-if-asset-report-stale.ps1 "$@" "$<"
@@ -348,7 +352,7 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 endif
 	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
-	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) $(CLIENT_CARGO_FEATURES) -p bedrock-client --locked -- $(CLIENT_RENDER_MODE_ARGS) $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client
 

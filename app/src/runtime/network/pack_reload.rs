@@ -298,8 +298,11 @@ pub(crate) fn reload_resource_packs(
                 if prepared.revision == reload.revision
                     && prepared.generation == reload.generation =>
             {
-                let candidate = render::ChunkTextureAssets::with_revision(
+                let candidate = render::ChunkTextureAssets::with_optional_enhanced(
                     prepared.assets.clone(),
+                    textures
+                        .as_ref()
+                        .and_then(|current| current.enhanced().cloned()),
                     prepared.revision,
                 );
                 if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref())

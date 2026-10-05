@@ -61,6 +61,12 @@ const LIQUID_MATERIAL_MASK: u32 = ~(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BI
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(14) var<storage, read> transparent_refs: array<TransparentDrawRef>;
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
+#ifdef ENHANCED
+@group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_0) var enhanced_color_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_1) var enhanced_color_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_SAMPLER_BINDING) var enhanced_sampler: sampler;
+@group(0) @binding(ENHANCED_TEXTURE_REF_BINDING) var<storage, read> enhanced_texture_refs: array<u32>;
+#endif
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -271,6 +277,18 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
 }
 
 fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+#ifdef ENHANCED
+    let lookup_index = (texture_ref >> 31u) * 2048u + (texture_ref & 0x7ffu);
+    let authored_ref = enhanced_texture_refs[lookup_index];
+    if (authored_ref != 0xffffffffu) {
+        let authored_page = authored_ref >> 31u;
+        let authored_layer = i32(authored_ref & 0x7ffu);
+        if (authored_page == 0u) {
+            return textureSampleGrad(enhanced_color_page_0, enhanced_sampler, uv, authored_layer, dx, dy);
+        }
+        return textureSampleGrad(enhanced_color_page_1, enhanced_sampler, uv, authored_layer, dx, dy);
+    }
+#endif
     let layer = i32(texture_ref & 0x7ffu);
     var sampled: vec4<f32>;
     if ((texture_ref >> 31u) == 0u) {
@@ -286,6 +304,32 @@ fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f
 }
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+#ifdef ENHANCED
+    let distance_to_camera = distance(world_position, view.world_position);
+    let fog = clamp(
+        (distance_to_camera - atmosphere.fog_color_start.w)
+            / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
+        0.0,
+        1.0,
+    );
+    let delta = world_position - view.world_position;
+    let direction = delta / max(length(delta), 1.0e-4);
+    let horizon = smoothstep(-0.3, 0.75, direction.y);
+    let sky = mix(
+        atmosphere.sky_horizon_thunder.rgb,
+        atmosphere.sky_zenith_rain.rgb,
+        smoothstep(0.12, 0.92, horizon),
+    );
+    let storm = atmosphere.sky_horizon_thunder.a;
+    let dusk = atmosphere.sunrise_band.rgb * atmosphere.sunrise_band.a
+        * smoothstep(-0.15, 0.75, direction.y) * 0.32;
+    let fog_colour = mix(
+        atmosphere.fog_color_start.rgb,
+        mix(atmosphere.fog_color_start.rgb, sky, 0.28 + 0.24 * horizon),
+        1.0 - 0.22 * storm,
+    ) + dusk;
+    return mix(colour, fog_colour, smoothstep(0.0, 1.0, fog));
+#else
     let distance_to_camera = distance(world_position, view.world_position);
     let fog = clamp(
         (distance_to_camera - atmosphere.fog_color_start.w)
@@ -294,6 +338,7 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
         1.0,
     );
     return mix(colour, atmosphere.fog_color_start.rgb, fog);
+#endif
 }
 
 #ifndef ENHANCED
@@ -341,6 +386,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @loc
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
+        vec3(0.0, 0.0, 1.0),
+        vec3(0.0, 0.8, 0.8),
     );
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
@@ -376,6 +423,8 @@ fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
+        vec3(0.0, 0.0, 1.0),
+        vec3(0.0, 0.8, 0.8),
     );
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);
 #else

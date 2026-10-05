@@ -73,7 +73,7 @@ fn enhanced_shaders_validate() {
 }
 
 #[test]
-#[ignore = "Enhanced disabled after GPU faults and system freezes"]
+#[ignore = "Run only during an explicit native GPU stability check"]
 fn enhanced_pipelines_build_on_native_adapter() {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
     let adapter =

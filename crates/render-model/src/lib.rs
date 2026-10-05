@@ -56,6 +56,5 @@ pub use visibility::{
     VisibilityKeyDelta, VisibilityKeyDigest,
 };
 
-/// Enhanced is disabled until the GPU faults and system freezes are resolved.
-/// Settings, launch flags and camera components cannot override this switch.
-pub const ENHANCED_RENDERING_ENABLED: bool = false;
+/// Enhanced is opt-in at build time while its GPU stability issues are unresolved.
+pub const ENHANCED_RENDERING_ENABLED: bool = cfg!(feature = "enhanced");

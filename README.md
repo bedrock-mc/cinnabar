@@ -29,6 +29,21 @@ the Go core, and opens the launcher menu. The first sign-in prints a Microsoft d
 token is cached in `.local/auth/`, which holds private credentials, so never share or commit it.
 `make play` builds with the fast `play` profile (parallel codegen, incremental rebuilds, sccache when
 installed); `make play PROFILE=release` builds the fully optimised shipped binary.
+To try experimental enhanced rendering while keeping the default Vanilla path, run
+`make play CLIENT_FEATURES=enhanced RENDER_MODE=enhanced`. The mode has known GPU stability risks
+and remains outside the vanilla parity gate.
+
+Enhanced can load an optional authored 512x color/PBR pack. Extract the base pack and its PBR
+extension, then set both roots (semicolon-separated on Windows) before starting:
+
+```powershell
+$env:CINNABAR_ENHANCED_PBR_DIR = 'C:\packs\XsRealism-512x-main;C:\packs\XsRealism-pbr-main'
+make play CLIENT_FEATURES=enhanced RENDER_MODE=enhanced
+```
+
+The loader accepts Java-style `_n` and `_s` maps, converts `_s` to Bedrock MER channels, and
+normalizes authored layers to 512x512. Blocks without a matching authored texture keep the
+renderer’s generated PBR fallback.
 
 To join one server directly without the menu, run the core and client in two terminals:
 

@@ -2,7 +2,7 @@
 // the HDR composite with grading and a filmic shoulder.
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
 #import cinnabar::enhanced_common::{
-    EnhancedFrame, FEATURE_SHAFTS, interleaved_gradient_noise,
+    EnhancedFrame, FEATURE_BLOOM, FEATURE_SHAFTS, interleaved_gradient_noise,
 }
 
 @group(0) @binding(0) var<uniform> frame: EnhancedFrame;
@@ -17,6 +17,8 @@
 const SHAFT_STEPS: u32 = 16u;
 const SHAFT_ANISOTROPY: f32 = 0.72;
 const SHAFT_DENSITY: f32 = 0.012;
+const MAX_BLOOM_RADIANCE: f32 = 8.0;
+const MAX_SCENE_RADIANCE: f32 = 32.0;
 
 // Linear Rec.709 luminance.
 fn luminance(colour: vec3<f32>) -> f32 {
@@ -80,6 +82,30 @@ fn filmic_shoulder(colour: vec3<f32>) -> vec3<f32> {
     return clamp(numerator / denominator, vec3(0.0), vec3(1.0));
 }
 
+// Normalize the ACES fit to a fixed 11.2 reference white. Without this white
+// point, bright emissive blocks can push the shoulder into a grey veil.
+fn calibrated_tonemap(colour: vec3<f32>) -> vec3<f32> {
+    let white = filmic_shoulder(vec3(11.2)).r;
+    return filmic_shoulder(colour) / max(white, 1.0e-4);
+}
+
+// Keep exposure stable across the day cycle while lifting moonlit scenes just
+// enough to retain material separation. The source remains HDR until here.
+fn calibrated_exposure() -> f32 {
+    let daylight = clamp(
+        enhanced_daylight(frame.light_direction.w, frame.light_colour.w),
+        0.0,
+        1.0,
+    );
+    let night_lift = mix(1.2, 0.94, daylight);
+    let dusk_lift = 1.0 + smoothstep(0.02, 0.32, frame.grade.x) * 0.08;
+    return frame.grade.y * night_lift * dusk_lift;
+}
+
+fn enhanced_daylight(direct: f32, ambient: f32) -> f32 {
+    return smoothstep(0.06, 1.15, direct + ambient * 0.9);
+}
+
 // Warm daylight and cool night balance with mild contrast.
 fn grade(colour: vec3<f32>, warmth: f32) -> vec3<f32> {
     let warm = vec3(1.06, 1.0, 0.9);
@@ -93,12 +119,21 @@ fn grade(colour: vec3<f32>, warmth: f32) -> vec3<f32> {
 
 @fragment
 fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    var colour = textureSampleLevel(source_texture, linear_sampler, in.uv, 0.0).rgb;
+    let uv = in.uv;
+    var colour = textureSampleLevel(source_texture, linear_sampler, uv, 0.0).rgb;
     if ((frame.flags.x & FEATURE_SHAFTS) != 0u) {
-        colour += textureSampleLevel(shaft_texture, linear_sampler, in.uv, 0.0).rgb;
+        colour += min(textureSampleLevel(shaft_texture, linear_sampler, uv, 0.0).rgb,
+            vec3(MAX_SCENE_RADIANCE));
     }
-    colour = filmic_shoulder(grade(colour * frame.grade.y, frame.grade.x));
-    let vignette = mix(1.0, (1.0 - smoothstep(0.3, 0.95, length(in.uv - vec2(0.5)))), 0.22);
+    if ((frame.flags.x & FEATURE_BLOOM) != 0u) {
+        let bloom = min(textureSampleLevel(bloom_texture, linear_sampler, uv, 0.0).rgb,
+            vec3(MAX_BLOOM_RADIANCE));
+        colour += bloom * frame.grade.z;
+    }
+    colour = min(max(colour, vec3(0.0)) * calibrated_exposure(), vec3(MAX_SCENE_RADIANCE));
+    colour = calibrated_tonemap(grade(colour, frame.grade.x));
+    let vignette_strength = 0.22;
+    let vignette = mix(1.0, (1.0 - smoothstep(0.3, 0.95, length(in.uv - vec2(0.5)))), vignette_strength);
     let dither = (interleaved_gradient_noise(in.position.xy) - 0.5) / 255.0;
     return vec4(max(colour * vignette + dither, vec3(0.0)), 1.0);
 }

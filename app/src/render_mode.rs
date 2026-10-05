@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use bevy::{
+    anti_alias::taa::TemporalAntiAliasing,
     camera::Camera3dDepthTextureUsage,
     ecs::system::lifetimeless::{Read, Write},
     post_process::bloom::Bloom,
@@ -21,10 +22,31 @@ use render_model::ENHANCED_RENDERING_ENABLED;
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
 
-use crate::{camera::FlyCamera, menu::MenuRuntime, settings_runtime::RuntimeSettings};
+use crate::{
+    camera::FlyCamera, environment::DebugTimeOverride, menu::MenuRuntime,
+    settings_runtime::RuntimeSettings,
+};
 
 pub(crate) const RENDER_MODE_ENV: &str = "CINNABAR_RENDER_MODE";
 const MAX_GRAPHICS_FILE_BYTES: u64 = 4096;
+// The right bracket is currently unclaimed by the built-in debug, modding, and
+// experience controls, so the probe does not change existing shortcuts.
+const ENHANCED_TIME_KEY: KeyCode = KeyCode::BracketRight;
+
+const ENHANCED_TIME_PRESETS: [(Option<u32>, &str); 8] = [
+    (Some(1_000), "Morning"),
+    (Some(6_000), "Noon"),
+    (Some(9_000), "Afternoon"),
+    (Some(12_000), "Sunset"),
+    (Some(12_500), "Twilight"),
+    (Some(15_000), "Night"),
+    (Some(18_000), "Midnight"),
+    (None, "Server"),
+];
+
+/// Systems that update render-mode state before the shared atmosphere frame.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct RenderModeUpdateSet;
 
 #[derive(Serialize, Deserialize)]
 struct GraphicsFile {
@@ -112,6 +134,7 @@ impl Plugin for RenderModePlugin {
                 attributable: self.attributable,
                 path: None,
             })
+            .init_resource::<DebugTimeOverride>()
             .add_systems(Startup, seed_render_mode)
             .add_systems(
                 Update,
@@ -119,8 +142,10 @@ impl Plugin for RenderModePlugin {
                     apply_menu_render_mode,
                     apply_render_mode_to_cameras,
                     sync_enhanced_bloom,
+                    cycle_enhanced_time,
                 )
-                    .chain(),
+                    .chain()
+                    .in_set(RenderModeUpdateSet),
             );
     }
 }
@@ -207,6 +232,7 @@ fn apply_render_mode_to_cameras(
                     .into();
                 commands.entity(entity).insert((
                     EnhancedRendering::default(),
+                    TemporalAntiAliasing::default(),
                     Hdr,
                     VanillaDepthUsage(original),
                 ));
@@ -214,9 +240,13 @@ fn apply_render_mode_to_cameras(
                 if let Some(VanillaDepthUsage(original)) = vanilla_depth {
                     camera.depth_texture_usages = *original;
                 }
-                commands
-                    .entity(entity)
-                    .remove::<(EnhancedRendering, Hdr, Bloom, VanillaDepthUsage)>();
+                commands.entity(entity).remove::<(
+                    EnhancedRendering,
+                    TemporalAntiAliasing,
+                    Hdr,
+                    Bloom,
+                    VanillaDepthUsage,
+                )>();
             }
         }
     }
@@ -243,11 +273,64 @@ fn sync_enhanced_bloom(
     }
 }
 
+/// Cycles local lighting presets without changing server time or gameplay.
+fn cycle_enhanced_time(
+    settings: Res<RuntimeSettings>,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    menu: Option<Res<MenuRuntime>>,
+    mut debug_time: ResMut<DebugTimeOverride>,
+    mut next_preset: Local<usize>,
+) {
+    let enhanced = ENHANCED_RENDERING_ENABLED
+        && settings.user_settings_update().1.video.render_mode == RenderMode::Enhanced;
+    if !enhanced {
+        *next_preset = 0;
+        debug_time.ticks = None;
+        return;
+    }
+    let focused = windows.iter().next().is_none_or(|window| window.focused);
+    if !focused || menu.as_ref().is_some_and(|menu| menu.is_visible()) {
+        return;
+    }
+    if !keys.just_pressed(ENHANCED_TIME_KEY) {
+        return;
+    }
+    let (ticks, label) = ENHANCED_TIME_PRESETS[*next_preset];
+    *next_preset = (*next_preset + 1) % ENHANCED_TIME_PRESETS.len();
+    debug_time.ticks = ticks;
+    debug!(target: "cinnabar::enhanced", ?ticks, preset = label, "changed debug time preset");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Every startup source is forced to Vanilla while Enhanced is disabled.
+    #[test]
+    fn enhanced_time_presets_cycle_through_daylight_and_server_clock() {
+        let mut index = 0;
+        let mut values = Vec::new();
+        for _ in 0..ENHANCED_TIME_PRESETS.len() {
+            values.push(ENHANCED_TIME_PRESETS[index]);
+            index = (index + 1) % ENHANCED_TIME_PRESETS.len();
+        }
+        assert_eq!(
+            values,
+            [
+                (Some(1_000), "Morning"),
+                (Some(6_000), "Noon"),
+                (Some(9_000), "Afternoon"),
+                (Some(12_000), "Sunset"),
+                (Some(12_500), "Twilight"),
+                (Some(15_000), "Night"),
+                (Some(18_000), "Midnight"),
+                (None, "Server"),
+            ]
+        );
+    }
+
+    /// Startup requests cannot enable Enhanced in a default build.
+    #[cfg(not(feature = "enhanced"))]
     #[test]
     fn disabled_enhanced_ignores_cli_environment_and_saved_settings() {
         for cli in [None, Some(RenderMode::Vanilla), Some(RenderMode::Enhanced)] {
@@ -266,6 +349,43 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The opt-in feature permits explicit Enhanced requests while evidence runs stay vanilla.
+    #[cfg(feature = "enhanced")]
+    #[test]
+    fn enhanced_feature_respects_startup_precedence() {
+        assert_eq!(
+            startup_render_mode(
+                Some(RenderMode::Enhanced),
+                Some(OsStr::new("vanilla")),
+                Some(RenderMode::Vanilla),
+                true,
+            ),
+            RenderMode::Enhanced,
+        );
+        assert_eq!(
+            startup_render_mode(
+                None,
+                Some(OsStr::new("enhanced")),
+                Some(RenderMode::Vanilla),
+                false,
+            ),
+            RenderMode::Enhanced,
+        );
+        assert_eq!(
+            startup_render_mode(None, None, Some(RenderMode::Enhanced), false),
+            RenderMode::Enhanced,
+        );
+        assert_eq!(
+            startup_render_mode(
+                None,
+                Some(OsStr::new("enhanced")),
+                Some(RenderMode::Enhanced),
+                true,
+            ),
+            RenderMode::Vanilla,
+        );
     }
 
     #[test]
@@ -289,6 +409,7 @@ mod tests {
     }
 
     /// Stale settings and camera components cannot enable the disabled renderer.
+    #[cfg(not(feature = "enhanced"))]
     #[test]
     fn disabled_enhanced_clears_camera_effects_and_rejects_runtime_requests() {
         let mut app = App::new();
@@ -351,5 +472,56 @@ mod tests {
         assert!(app.world().get::<EnhancedRendering>(camera).is_none());
         assert!(app.world().get::<Hdr>(camera).is_none());
         assert!(app.world().get::<Bloom>(camera).is_none());
+    }
+
+    /// Explicit Enhanced mode adds camera effects and Vanilla restores the original camera.
+    #[cfg(feature = "enhanced")]
+    #[test]
+    fn enhanced_mode_applies_and_clears_camera_effects() {
+        let mut app = App::new();
+        app.init_resource::<RuntimeSettings>().add_systems(
+            Update,
+            (apply_render_mode_to_cameras, sync_enhanced_bloom).chain(),
+        );
+        let original = Camera3d::default().depth_texture_usages;
+        let camera = app
+            .world_mut()
+            .spawn((Camera3d::default(), FlyCamera::default()))
+            .id();
+
+        set_render_mode(
+            &mut app.world_mut().resource_mut::<RuntimeSettings>(),
+            RenderMode::Enhanced,
+        );
+        app.update();
+        assert!(app.world().get::<EnhancedRendering>(camera).is_some());
+        assert!(app.world().get::<Hdr>(camera).is_some());
+        assert!(app.world().get::<Bloom>(camera).is_some());
+        let enhanced_depth = TextureUsages::from(
+            app.world()
+                .get::<Camera3d>(camera)
+                .unwrap()
+                .depth_texture_usages,
+        );
+        assert!(enhanced_depth.contains(TextureUsages::TEXTURE_BINDING));
+        assert!(enhanced_depth.contains(TextureUsages::COPY_SRC));
+
+        set_render_mode(
+            &mut app.world_mut().resource_mut::<RuntimeSettings>(),
+            RenderMode::Vanilla,
+        );
+        app.update();
+        assert!(app.world().get::<EnhancedRendering>(camera).is_none());
+        assert!(app.world().get::<Hdr>(camera).is_none());
+        assert!(app.world().get::<Bloom>(camera).is_none());
+        assert_eq!(
+            TextureUsages::from(
+                app.world()
+                    .get::<Camera3d>(camera)
+                    .unwrap()
+                    .depth_texture_usages
+            ),
+            TextureUsages::from(original),
+        );
     }
 }

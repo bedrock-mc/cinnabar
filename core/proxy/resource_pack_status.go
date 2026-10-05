@@ -154,7 +154,7 @@ func (telemetry *resourcePackAdmissionTelemetry) observeOffer(upstream upstreamS
 		}
 	}
 	telemetry.mu.Lock()
-	telemetry.offer, telemetry.packCount, telemetry.totalBytes = offer, uint32(min(count, math.MaxUint32)), total
+	telemetry.offer, telemetry.packCount, telemetry.totalBytes = offer, uint32(min(uint64(count), uint64(math.MaxUint32))), total
 	telemetry.acquisition = acquisition
 	telemetry.mu.Unlock()
 }

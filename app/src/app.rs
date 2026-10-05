@@ -13,7 +13,7 @@ use std::{ffi::OsStr, fs, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
-    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
+    anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin, taa::TemporalAntiAliasPlugin},
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
@@ -324,7 +324,8 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 LocalPlayerFrameSet::Interaction,
             )
                 .chain()
-                .after(FlyCameraUpdateSet),
+                .after(FlyCameraUpdateSet)
+                .after(crate::render_mode::RenderModeUpdateSet),
         )
         .add_systems(
             Update,
@@ -617,6 +618,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let weather_textures =
         environment::load_optional_weather_textures(&loaded_assets.selected_path);
+    let enhanced_textures = loaded_assets.enhanced_textures.clone();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
@@ -742,9 +744,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 ..default()
             })
             .set(render_plugin())
-            // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
-            // graph requires post-process nodes that are intentionally absent
-            // from this compact custom renderer.
+            // Keep the umbrella bundle disabled so Enhanced can opt into TAA
+            // without also enabling SMAA/CAS and their extra graph passes.
             .disable::<AntiAliasPlugin>()
             // The launcher owns the production process lifecycle. Keeping the
             // OS default SIGINT action also preserves a real developer escape
@@ -752,6 +753,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .disable::<TerminalCtrlCHandlerPlugin>(),
     );
     app.add_plugins(FxaaPlugin);
+    app.add_plugins(TemporalAntiAliasPlugin);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
@@ -853,7 +855,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         atmosphere_identity,
     ))
     .insert_resource(startup_biome_tints(&runtime_assets))
-    .insert_resource(ChunkTextureAssets::new(runtime_assets))
+    .insert_resource(match enhanced_textures {
+        Some(enhanced) => ChunkTextureAssets::with_enhanced(runtime_assets, enhanced, 0),
+        None => ChunkTextureAssets::new(runtime_assets),
+    })
     .insert_resource(CaveVisibilityCache::default())
     .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
     .insert_resource(runtime_config)

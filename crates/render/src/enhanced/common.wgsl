@@ -11,6 +11,8 @@ struct EnhancedFrame {
     light_direction: vec4<f32>,
     light_colour: vec4<f32>,
     ambient_colour: vec4<f32>,
+    sky_zenith: vec4<f32>,
+    sky_horizon: vec4<f32>,
     viewport: vec4<f32>,
     grade: vec4<f32>,
     flags: vec4<u32>,
@@ -22,6 +24,7 @@ const FEATURE_BLOOM: u32 = 2u;
 const FEATURE_SHAFTS: u32 = 4u;
 const FEATURE_WAVING: u32 = 8u;
 const FEATURE_WATER: u32 = 16u;
+const FEATURE_PBR: u32 = 32u;
 
 // Mirrors enhanced/materials.rs.
 const CLASS_EMISSION_MASK: u32 = 15u;

@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+enhanced = []
+
 [dependencies]
 assets = { path = "../assets" }
 bytemuck = { version = "1", features = ["derive"] }

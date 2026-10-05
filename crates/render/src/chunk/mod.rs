@@ -244,9 +244,10 @@ use queue::{
 use textures::{ANIMATION_TICK_MODULUS, ANIMATION_TICKS_PER_SECOND};
 pub use textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
-    TextureArrayLimits, TextureLimitError, TextureMipUploadPlan, TexturePageBinding,
-    TextureUploadPlanError, diagnostic_texture_page, greedy_texture_uv, plan_texture_mip_uploads,
-    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
+    EnhancedTextureAssets, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
+    TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page, greedy_texture_uv,
+    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
+    texture_asset_needs_rebuild,
 };
 #[allow(unused_imports)]
 use transparent::liquid::{
