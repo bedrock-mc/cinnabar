@@ -193,6 +193,14 @@ dimensions, packed boundaries, and stale trust/generation fallback.
 
 ## Verification and remaining gate
 
+Post-join Zeqa closures remain unresolved. Six native failures occurred 3–35 seconds
+after the final endpoint's StartGame on ordinary, unselected connections, with no
+Rust decode error recorded. Encrypted selected and ordinary loopback connections
+survive preparation cancellation and menu cleanup. `SESSION_TERMINAL` records the
+first relay termination before teardown, retaining its attempt, direction,
+context state and safe typed receive metadata without packet or credential text.
+These diagnostics do not establish the live root cause or close session acceptance.
+
 The focused tests cover cancellation, capability preservation, secret-safe
 telemetry, wire order, signing, retained-buffer bounds, content/context cache
 invalidation, stale generations, spawn priority and GPU witness ordering.

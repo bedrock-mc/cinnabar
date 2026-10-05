@@ -33,6 +33,20 @@ func reportSessionTerminal(ctx context.Context, direction string, err error, dow
 		if errors.As(err, &disconnect) && disconnect != nil {
 			attrs = append(attrs, "disconnect_reason", disconnect.Reason)
 		}
+		var receive interface{ ReceiveStage() string }
+		if errors.As(err, &receive) {
+			stage := receive.ReceiveStage()
+			switch stage {
+			case "decoder", "packet", "callback":
+			default:
+				stage = "unknown"
+			}
+			attrs = append(attrs, "receive_stage", stage)
+			var packet interface{ PacketID() uint32 }
+			if errors.As(err, &packet) && packet.PacketID() > 0 {
+				attrs = append(attrs, "protocol_packet_id", packet.PacketID())
+			}
+		}
 		telemetry.logger.Info("SESSION_TERMINAL", attrs...)
 		return nil
 	})

@@ -19,6 +19,9 @@
   native validation is in progress.
 - Loading release, nearby GPU terrain and drained publisher view are distinct
   milestones; none alone closes the controllable complete-visible-terrain gate.
+- Incomplete Zeqa session stability: post-join closures are under investigation.
+  First-terminal tracing preserves attempt, direction and safe receive metadata;
+  selected cleanup has not reproduced the live failure in encrypted loopback.
 - Measurements and remaining release gates: [join performance](docs/join-performance.md).
 
 ## Held cube item consistency

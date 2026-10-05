@@ -77,6 +77,36 @@ func TestPreparedConnectionRetainsTerminalAttemptIdentity(t *testing.T) {
 	}
 }
 
+type telemetryReceiveFailure struct{ stage string }
+
+func (failure telemetryReceiveFailure) Error() string        { return "private credential" }
+func (failure telemetryReceiveFailure) ReceiveStage() string { return failure.stage }
+func (failure telemetryReceiveFailure) PacketID() uint32     { return packet.IDPlaySound }
+
+func TestRelayReportsSafeReceiveMetadata(t *testing.T) {
+	for _, stage := range []string{"decoder", "packet", "callback", "private credential"} {
+		t.Run(stage, func(t *testing.T) {
+			var output bytes.Buffer
+			telemetry := &joinTelemetry{started: time.Now(), logger: slog.New(slog.NewJSONHandler(&output, nil))}
+			ctx := context.WithValue(t.Context(), joinTelemetryKey{}, telemetry)
+			downstream, upstream := newFakeSession(), newFakeSession()
+			upstream.reads <- packetResult{err: fmt.Errorf("private credential: %w", telemetryReceiveFailure{stage: stage})}
+			_ = relayWithSessions(ctx, &downstream, &upstream)
+			row := readSessionTerminal(t, &output)
+			want := stage
+			if stage == "private credential" {
+				want = "unknown"
+			}
+			if row["receive_stage"] != want || row["protocol_packet_id"] != float64(packet.IDPlaySound) {
+				t.Fatalf("lost typed receive metadata: %v", row)
+			}
+			if strings.Contains(output.String(), "private credential") {
+				t.Fatal("receive metadata exposed packet contents")
+			}
+		})
+	}
+}
+
 func readSessionTerminal(t *testing.T, output *bytes.Buffer) map[string]any {
 	t.Helper()
 	decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
