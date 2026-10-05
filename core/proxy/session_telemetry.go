@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"time"
 
@@ -47,9 +48,44 @@ func reportSessionTerminal(ctx context.Context, direction string, err error, dow
 				attrs = append(attrs, "protocol_packet_id", packet.PacketID())
 			}
 		}
+		attrs = appendTransportTerminal(attrs, err)
 		telemetry.logger.Info("SESSION_TERMINAL", attrs...)
 		return nil
 	})
+}
+
+func appendTransportTerminal(attrs []any, err error) []any {
+	var transport interface{ TransportCloseReason() string }
+	if !errors.As(err, &transport) {
+		return attrs
+	}
+	reason := transport.TransportCloseReason()
+	switch reason {
+	case "remote_disconnect", "inactivity_timeout", "local_close", "listener_closed", "dial_cancelled", "raw_read_closed", "raw_read_deadline":
+	default:
+		reason = "unknown"
+	}
+	attrs = append(attrs, "transport_close_reason", reason)
+	var timings interface {
+		TransportIdleMilliseconds() float64
+		TransportRTTMilliseconds() float64
+		TransportCloseDelayMilliseconds() float64
+	}
+	if errors.As(err, &timings) {
+		for _, value := range []struct {
+			name string
+			ms   float64
+		}{
+			{"transport_idle_ms", timings.TransportIdleMilliseconds()},
+			{"transport_rtt_ms", timings.TransportRTTMilliseconds()},
+			{"transport_close_delay_ms", timings.TransportCloseDelayMilliseconds()},
+		} {
+			if value.ms >= 0 && !math.IsNaN(value.ms) && !math.IsInf(value.ms, 0) {
+				attrs = append(attrs, value.name, value.ms)
+			}
+		}
+	}
+	return attrs
 }
 
 func sessionTerminalCause(err error) string {

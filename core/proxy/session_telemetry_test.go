@@ -107,6 +107,39 @@ func TestRelayReportsSafeReceiveMetadata(t *testing.T) {
 	}
 }
 
+type telemetryTransportClose struct{ reason string }
+
+func (failure telemetryTransportClose) Error() string                            { return "private credential" }
+func (failure telemetryTransportClose) Unwrap() error                            { return context.Canceled }
+func (failure telemetryTransportClose) TransportCloseReason() string             { return failure.reason }
+func (failure telemetryTransportClose) TransportIdleMilliseconds() float64       { return 5120 }
+func (failure telemetryTransportClose) TransportRTTMilliseconds() float64        { return 60 }
+func (failure telemetryTransportClose) TransportCloseDelayMilliseconds() float64 { return 500 }
+
+func TestRelayReportsSafeTransportCloseMetadata(t *testing.T) {
+	for _, reason := range []string{"remote_disconnect", "inactivity_timeout", "local_close", "listener_closed", "dial_cancelled", "raw_read_closed", "raw_read_deadline", "private credential"} {
+		t.Run(reason, func(t *testing.T) {
+			var output bytes.Buffer
+			telemetry := &joinTelemetry{started: time.Now(), logger: slog.New(slog.NewJSONHandler(&output, nil))}
+			ctx := context.WithValue(t.Context(), joinTelemetryKey{}, telemetry)
+			downstream, upstream := newFakeSession(), newFakeSession()
+			upstream.reads <- packetResult{err: fmt.Errorf("private credential: %w", telemetryTransportClose{reason: reason})}
+			_ = relayWithSessions(ctx, &downstream, &upstream)
+			row := readSessionTerminal(t, &output)
+			want := reason
+			if reason == "private credential" {
+				want = "unknown"
+			}
+			if row["transport_close_reason"] != want || row["transport_idle_ms"] != float64(5120) || row["transport_rtt_ms"] != float64(60) || row["transport_close_delay_ms"] != float64(500) {
+				t.Fatalf("lost transport terminal metadata: %v", row)
+			}
+			if strings.Contains(output.String(), "private credential") {
+				t.Fatal("transport telemetry exposed error contents")
+			}
+		})
+	}
+}
+
 func readSessionTerminal(t *testing.T, output *bytes.Buffer) map[string]any {
 	t.Helper()
 	decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
