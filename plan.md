@@ -5,9 +5,17 @@
 - Authentication preparation, RakNet overlap, immutable pack presentation reuse,
   owned deferred frames and spawn-first scheduling have focused regression coverage.
 - Selected-server transport preparation, effective registry comparison, worker UI
-  catalogs, deferred spawn priority and mixed resident-air lighting are implemented;
-  their combined native join measurement is pending.
-- Loading release and actual GPU terrain presentation have separate milestones.
+  catalogs, deferred spawn priority and mixed resident-air lighting are implemented.
+  Debug nearby-terrain witnesses are 2.28 s on Zeno and 4.63 s on transferred Zeqa;
+  complete-visible-terrain acceptance remains open.
+- Direct resident-air publication, retained screen policies and hidden-world
+  pipeline preparation have regressions and rendered macOS/Metal witnesses.
+  Combined debug nearby milestones are 1.91 s on Zeno and 4.30 s on transferred
+  Zeqa; these unmatched samples do not close the release performance gate.
+- The deeper proof-bound authentication/NetworkSettings prototype passes encrypted
+  loopback and native joins but awaits publication to the required dependency fork.
+- Loading release, nearby GPU terrain and drained publisher view are distinct
+  milestones; none alone closes the controllable complete-visible-terrain gate.
 - Measurements and remaining release gates: [join performance](docs/join-performance.md).
 
 ## Held cube item consistency

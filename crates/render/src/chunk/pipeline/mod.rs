@@ -3,6 +3,7 @@ pub(crate) mod layouts;
 pub(in crate::chunk) mod liquid;
 pub(in crate::chunk) mod model;
 pub(in crate::chunk) mod opaque;
+pub(in crate::chunk) mod preparation;
 
 use crate::chunk::*;
 

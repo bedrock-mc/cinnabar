@@ -43,6 +43,9 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+#[cfg(test)]
+mod allocation_count;
+
 pub use anim::{
     AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,
     NodeAnim, Written,

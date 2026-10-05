@@ -107,6 +107,14 @@ fn startup_probe_survives_empty_loading_release_until_terrain_is_presented() {
     assert!(!startup.probe_enabled(true));
     controller.observe_join(generation, JoinPhase::LoadingReleased);
 
+    let clock = controller.join_clock;
+    controller.join_clock -= Duration::from_secs(31);
+    assert!(!controller.needs_view_witness(generation));
+    assert!(controller.needs_terrain_witness(generation));
+    update_probe(&mut diagnostics, startup, &controller, generation);
+    assert!(diagnostics.startup_probe_enabled());
+    controller.join_clock = clock;
+
     update_probe(&mut diagnostics, startup, &controller, generation);
     let loading_frame = diagnostics.frame_generation();
     diagnostics.advance([], []);
@@ -123,6 +131,22 @@ fn startup_probe_survives_empty_loading_release_until_terrain_is_presented() {
         Some(diagnostics.frame_generation()),
     );
     assert!(!controller.needs_terrain_witness(generation));
+    update_probe(&mut diagnostics, startup, &controller, generation);
+    assert!(diagnostics.startup_probe_enabled());
+    controller.observe_join_view(
+        generation,
+        true,
+        diagnostics.frame_generation(),
+        Some(diagnostics.frame_generation()),
+    );
+    diagnostics.advance([], []);
+    controller.observe_join_view(
+        generation,
+        true,
+        diagnostics.frame_generation(),
+        Some(diagnostics.frame_generation()),
+    );
+    assert!(!controller.needs_view_witness(generation));
     update_probe(&mut diagnostics, startup, &controller, generation);
     assert!(!diagnostics.startup_probe_enabled());
     let completed_frame = diagnostics.frame_generation();

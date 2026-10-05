@@ -28,6 +28,9 @@ pub fn render_prepared_ui(
     presentation: &mut UiPresentationRuntime,
     prepared: PendingUiPublication,
 ) -> Result<UiRenderInput, UiPresentationError> {
+    let timed = trace_ui_frame(presentation, runtime);
+    let started = timed.then(std::time::Instant::now);
+    let source_changed = timed && presentation.server_ui_changed(runtime.server_ui());
     let preview = prepared.preview;
     presentation.sync_player_preview(
         preview.skin.as_deref(),
@@ -36,6 +39,7 @@ pub fn render_prepared_ui(
         preview.hands,
         prepared.now_millis as f64 / 1000.0,
     );
+    let preview_ms = started.map(|started| started.elapsed().as_secs_f64() * 1_000.0);
     let icon = presentation.player_preview_icon();
     let (left, right) = presentation.player_hand_icons();
     presentation.hud_frame.player_preview = icon;
@@ -45,19 +49,73 @@ pub fn render_prepared_ui(
         menu.profile_icon = icon;
     }
     publish_item_viewmodels(presentation, prepared.item_icons);
-    runtime.with_presentation_inventory(
+    let viewmodel_ms = started
+        .map(|started| started.elapsed().as_secs_f64() * 1_000.0 - preview_ms.unwrap_or_default());
+    let input = runtime.with_presentation_inventory(
         player_runtime,
         prepared.inventory,
         |runtime, player_runtime| {
-            presentation.build(
+            presentation.build_profiled(
                 player_runtime,
                 runtime,
                 prepared.now_millis,
                 prepared.physical_size,
                 prepared.dpi_scale,
+                timed,
             )
         },
-    )
+    );
+    if let Some(started) = started {
+        bevy::log::info!(
+            session_generation = runtime.session_id(),
+            source_changed,
+            preview_ms,
+            viewmodel_ms,
+            build_ms = started.elapsed().as_secs_f64() * 1_000.0
+                - preview_ms.unwrap_or_default()
+                - viewmodel_ms.unwrap_or_default(),
+            total_ms = started.elapsed().as_secs_f64() * 1_000.0,
+            "session UI frame prepared",
+        );
+    }
+    input
+}
+
+fn trace_ui_frame(presentation: &UiPresentationRuntime, runtime: &UiRuntime) -> bool {
+    presentation.texture_session != Some(runtime.session_id())
+        || presentation.server_ui_changed(runtime.server_ui())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_publication_is_observed_after_a_prebootstrap_frame_in_the_same_session() {
+        let mut presentation = crate::test_support::mini_engine_presentation();
+        let player = player_state::PlayerState::new(2);
+        let mut runtime = UiRuntime::new(2);
+        let viewport = [640, 480];
+        let scale = DpiScale::new(1.0).unwrap();
+        assert!(trace_ui_frame(&presentation, &runtime));
+        presentation
+            .build(&player, &runtime, 0, viewport, scale)
+            .unwrap();
+        assert!(!trace_ui_frame(&presentation, &runtime));
+        let base = presentation.pack_catalog_base().unwrap();
+        runtime.set_server_ui(Some(forms::ServerUiPack::default().prepare_catalog(&base)));
+        assert!(trace_ui_frame(&presentation, &runtime));
+        presentation
+            .build(&player, &runtime, 1, viewport, scale)
+            .unwrap();
+        assert!(!trace_ui_frame(&presentation, &runtime));
+        runtime.set_server_ui(None);
+        assert!(trace_ui_frame(&presentation, &runtime));
+        presentation
+            .build(&player, &runtime, 2, viewport, scale)
+            .unwrap();
+        assert!(!trace_ui_frame(&presentation, &runtime));
+    }
 }
 
 /// Renders the captured held-item icons and updates the frame's raster references.

@@ -37,6 +37,8 @@ pub mod pack_harness;
 pub mod pages;
 pub mod panorama;
 #[cfg(test)]
+mod publication_tests;
+#[cfg(test)]
 pub mod regression_snapshots;
 pub use panorama::{built_in_faces, launcher_view};
 mod accounts;
@@ -185,6 +187,7 @@ impl UiPresentationRuntime {
     /// carrier's from reserved dynamic pages, so the static texture identity the
     /// renderer pins never changes. An empty pack restores vanilla.
     pub fn set_server_ui_pack(&mut self, pack: &ServerUiPack) {
+        let started = std::time::Instant::now();
         let first = self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE;
         let Some(engine) = self.form_presentation.engine.as_mut() else {
             return;
@@ -194,22 +197,41 @@ impl UiPresentationRuntime {
         } else {
             engine.set_server_pack(&pack.ui_layers);
         }
+        let catalog_ms = started.elapsed().as_secs_f64() * 1_000.0;
         // Palette-only reloads can leave every cached text node unchanged.
         self.last_frame = None;
+        let indexing = std::time::Instant::now();
         let atlas = server_pack::ServerAtlas::new(
             &pack.textures,
             pack.view.clone(),
             dynamic_textures::SERVER_UI_PAGES,
         );
+        let texture_index_ms = indexing.elapsed().as_secs_f64() * 1_000.0;
+        engine.set_server_atlas(atlas, first as u16);
+        let settings = std::time::Instant::now();
+        if let Some(settings) = pack
+            .screen_settings
+            .as_ref()
+            .and_then(|settings| settings.for_inputs(engine.catalog(), engine.context()))
+        {
+            self.form_presentation.screen_settings = settings;
+        } else {
+            self.refresh_screen_settings();
+        }
+        let screen_settings_ms = settings.elapsed().as_secs_f64() * 1_000.0;
+        let pages = std::time::Instant::now();
+        self.sync_server_ui_pages();
         bevy::log::info!(
             layers = pack.ui_layers.len(),
             ui_files = pack.ui_layers.iter().map(Vec::len).sum::<usize>(),
             textures = pack.textures.len(),
+            catalog_ms,
+            texture_index_ms,
+            screen_settings_ms,
+            pages_ms = pages.elapsed().as_secs_f64() * 1_000.0,
+            total_ms = started.elapsed().as_secs_f64() * 1_000.0,
             "server resource-pack UI applied to the form engine"
         );
-        engine.set_server_atlas(atlas, first as u16);
-        self.refresh_screen_settings();
-        self.sync_server_ui_pages();
     }
 
     /// Draws oversized server textures from their server-page downscale again.
@@ -316,6 +338,14 @@ impl UiPresentationRuntime {
             .engine
             .as_ref()
             .map_or(&[], |engine| &engine.server_pages)
+    }
+
+    /// Whether the next build must install a different immutable server UI source.
+    pub(super) fn server_ui_changed(&self, pack: Option<&Arc<ServerUiPack>>) -> bool {
+        self.form_presentation
+            .engine
+            .as_deref()
+            .is_some_and(|engine| engine.server_source_changed(pack))
     }
 
     /// Applies the runtime's server UI pack when it changes identity.

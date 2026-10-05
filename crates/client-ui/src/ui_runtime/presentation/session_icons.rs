@@ -161,13 +161,17 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
     if unchanged {
         return;
     }
+    let started = std::time::Instant::now();
     let page_index =
         (runtime.textures.dynamic_start() + dynamic_textures::SESSION_ICON_PAGE) as u16;
     let packed = icons.and_then(|icons| Some((icons, pack(icons, page_index)?)));
+    let packing_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let preparing_models = std::time::Instant::now();
     let models = packed
         .as_ref()
         .map(|(icons, packed)| block_cubes(icons, packed))
         .unwrap_or_default();
+    let models_ms = preparing_models.elapsed().as_secs_f64() * 1_000.0;
     let (page, refs) = packed.map_or((None, HashMap::new()), |(_, packed)| {
         (Some(packed.page), packed.refs)
     });
@@ -178,7 +182,17 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
         page,
         generation: runtime.session_icons.generation.wrapping_add(1),
     };
+    let publishing = std::time::Instant::now();
     dynamic_textures::rebuild(runtime);
+    bevy::log::info!(
+        icons = icons.map_or(0, |icons| icons.icons.len()),
+        block_sheets = icons.map_or(0, |icons| icons.block_sheets.len()),
+        packing_ms,
+        models_ms,
+        pages_ms = publishing.elapsed().as_secs_f64() * 1_000.0,
+        total_ms = started.elapsed().as_secs_f64() * 1_000.0,
+        "session icon presentation prepared",
+    );
 }
 
 /// The session page's pixels and where each icon and block sheet landed on it.

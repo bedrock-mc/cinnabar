@@ -2,12 +2,15 @@
 
 use std::time::Duration;
 
+const VIEW_WITNESS_WINDOW: Duration = Duration::from_secs(30);
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum JoinPhase {
     BridgeReady,
     Bootstrap,
     LoadingReleased,
     TerrainReady,
+    ViewDrained,
 }
 
 impl JoinPhase {
@@ -17,6 +20,7 @@ impl JoinPhase {
             Self::Bootstrap => "bootstrap",
             Self::LoadingReleased => "loading_released",
             Self::TerrainReady => "terrain_ready",
+            Self::ViewDrained => "view_drained",
         }
     }
 }
@@ -36,6 +40,7 @@ pub struct JoinTimeline {
     previous: Duration,
     phase: Option<JoinPhase>,
     terrain_frame: Option<u64>,
+    view_frame: Option<u64>,
 }
 
 impl JoinTimeline {
@@ -46,11 +51,21 @@ impl JoinTimeline {
             previous: started,
             phase: None,
             terrain_frame: None,
+            view_frame: None,
         }
     }
 
     pub fn needs_terrain_witness(&self, generation: u64) -> bool {
-        generation == self.generation && self.phase != Some(JoinPhase::TerrainReady)
+        generation == self.generation
+            && self
+                .phase
+                .is_none_or(|phase| phase < JoinPhase::TerrainReady)
+    }
+
+    pub fn needs_view_witness(&self, generation: u64, now: Duration) -> bool {
+        generation == self.generation
+            && self.phase != Some(JoinPhase::ViewDrained)
+            && now.saturating_sub(self.started) <= VIEW_WITNESS_WINDOW
     }
 
     /// Emits each forward milestone once, ignoring stale generations and clock regressions.
@@ -84,7 +99,7 @@ impl JoinTimeline {
         gpu_frame_generation: Option<u64>,
         now: Duration,
     ) -> Option<JoinMilestone> {
-        if generation != self.generation || self.phase == Some(JoinPhase::TerrainReady) {
+        if !self.needs_terrain_witness(generation) {
             return None;
         }
         if !local_ready {
@@ -98,11 +113,79 @@ impl JoinTimeline {
             None
         }
     }
+
+    /// A drained publisher view needs a later GPU frame independently of local terrain.
+    pub fn observe_view(
+        &mut self,
+        generation: u64,
+        view_drained: bool,
+        frame_generation: u64,
+        gpu_frame_generation: Option<u64>,
+        now: Duration,
+    ) -> Option<JoinMilestone> {
+        if !self.needs_view_witness(generation, now) || self.phase != Some(JoinPhase::TerrainReady)
+        {
+            return None;
+        }
+        if !view_drained {
+            self.view_frame = None;
+            return None;
+        }
+        let baseline = *self.view_frame.get_or_insert(frame_generation);
+        if gpu_frame_generation.is_some_and(|frame| frame > baseline) {
+            self.observe(generation, JoinPhase::ViewDrained, now)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_terrain_cannot_close_the_drained_view_witness() {
+        let mut timeline = JoinTimeline::new(2, Duration::ZERO);
+        timeline.observe(2, JoinPhase::TerrainReady, Duration::from_millis(500));
+        assert!(!timeline.needs_terrain_witness(2));
+        assert!(timeline.needs_view_witness(2, Duration::from_secs(1)));
+        assert!(!timeline.needs_view_witness(1, Duration::from_secs(1)));
+        let mut observe = |generation, ready, frame, gpu| {
+            timeline.observe_view(generation, ready, frame, gpu, Duration::from_secs(1))
+        };
+        assert!(observe(2, false, 8, Some(10)).is_none());
+        assert!(observe(1, true, 8, Some(10)).is_none());
+        assert!(observe(2, true, 10, Some(10)).is_none());
+        assert!(observe(2, false, 11, Some(12)).is_none());
+        assert!(observe(2, true, 12, Some(12)).is_none());
+        assert_eq!(
+            observe(2, true, 13, Some(13)).unwrap().phase,
+            JoinPhase::ViewDrained
+        );
+        assert!(!timeline.needs_view_witness(2, Duration::from_secs(1)));
+        assert!(!timeline.needs_terrain_witness(2));
+        assert!(
+            timeline
+                .observe_view(2, true, 14, Some(14), Duration::from_secs(2))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn an_unfinished_view_cannot_leave_normal_play_diagnostics_enabled_forever() {
+        let start = Duration::from_secs(10);
+        let mut timeline = JoinTimeline::new(2, start);
+        timeline.observe(2, JoinPhase::TerrainReady, start);
+        assert!(timeline.needs_view_witness(2, start + VIEW_WITNESS_WINDOW));
+        let expired = start + VIEW_WITNESS_WINDOW + Duration::from_nanos(1);
+        assert!(!timeline.needs_view_witness(2, expired));
+        assert!(
+            timeline
+                .observe_view(2, true, 1, Some(3), expired)
+                .is_none()
+        );
+    }
 
     #[test]
     fn join_elapsed_includes_provisioning_and_terrain_after_bootstrap() {

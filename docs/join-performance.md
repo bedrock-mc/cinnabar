@@ -67,6 +67,37 @@ terrain phase consumed 4.95 and 4.81 s despite most column delivery finishing
 earlier, with thousands of lighting and meshing jobs pending. These captures
 are diagnostic debug evidence, not matched release or complete-view acceptance.
 
+The next native debug build reused warm presentation in 9.5–11.3 ms. Zeno's
+near-terrain GPU milestones were 2.280 and 2.313 s from Join. Warm Zeqa reached
+that milestone in 4.633 s across both endpoints, with 1.817 s after final-endpoint
+bootstrap. Its distant light and mesh queues remained active beyond the nearby
+milestone, so these results do not establish complete visible terrain.
+
+A separate local pre-login prototype prepares a fresh proof-bound authentication
+key and RequestNetworkSettings on the selected connection before Join. Login is
+sent only when that exact healthy connection is claimed for the same account.
+Two Zeno preparations took 386 and 429 ms before the click; subsequent upstream
+StartGame took 491 and 418 ms from Connect. Warm loading release and nearby GPU
+terrain took 838 ms and 2.125 s from Join. Zeqa's prepared entry hop took 184 ms,
+but its second connection and terrain still produced a 4.742 s nearby milestone.
+These are unmatched diagnostic samples. The prototype dependency remains local
+until it can be published to the required fork branch; it is not the module pin
+shipped by this PR.
+
+The combined native development client reached Zeno's warm nearby milestone in
+1.912 s and transferred Zeqa's in 4.302 s from the original click. Both servers
+successfully consumed the prototype connection after approximately six seconds
+on the selected detail screen. This verifies those samples, not a universal
+peer timeout. Zeqa's Transfer header arrived 991 ms after entry StartGame; the
+next connection began about 22 ms later, attributing that wait to server delivery.
+
+The new `view_drained` marker denotes the first quiescent admitted publisher
+subset with an opaque GPU witness. Zeno reached it near eight seconds, then
+announced more columns. Cold and warm column delivery continued at essentially
+the same rate, reaching about 860 columns 11.46 s after bootstrap. It therefore
+cannot certify final server delivery or complete visible terrain. The capture
+also exposes roughly 20,000 no-op lighting jobs for further investigation.
+
 ## Implemented changes
 
 - Prepare authentication while the core listener is available; overlap only
@@ -99,13 +130,28 @@ are diagnostic debug evidence, not matched release or complete-view acceptance.
   air classification. Solve mixed-column upper air uniformly only beyond the
   maximum possible block-light propagation distance, retaining a dense halo
   above all potentially emitting or retained nonzero-light sources.
+- Publish proven resident-air sections through tracked empty-mesh results without
+  a mesh worker, worker credit or neighboring lighting snapshots. Preserve the
+  resident payload, revision, connectivity and normal GPU acknowledgement.
+- Resolve screen policies without copying unused descendant controls and retain
+  worker-prepared immutable policies for the exact catalog and context.
+- Prepare the actual view's terrain pipeline variants while the world is hidden,
+  and attribute synchronous pipeline processing separately from render submission.
 - Record generation-fenced Join milestones and keep the GPU probe alive until
   terrain has a later completed frame, including servers that initialize first.
   Record original-action elapsed time across automatic transfers as well.
+- Keep a bounded, separate publisher-view witness after nearby terrain completes.
+  It requires drained admitted work and a later opaque GPU frame; it does not
+  certify transparent rendering, future server delivery or controllability.
 
 Deterministic scheduler coverage completes nine spawn columns after 216 section
 dispatches instead of 6,292 in a 6,936-section fixture. This measures work order,
 not elapsed join time.
+
+A captured Zeno pack fixture's main-thread publication median fell from 10.463
+to 0.622 ms after retaining prepared policies. The policy regression reduces
+26,665 allocations to 39 for a screen with 1,024 unused descendant controls.
+These isolated fixtures do not account for the whole native UI publication span.
 
 Local fixture medians: repeated hashing of an unchanged 32 MiB archive took
 17.126 ms versus 0.011 ms for a cached fingerprint and subscriber lookup;

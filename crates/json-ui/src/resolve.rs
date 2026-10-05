@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use crate::anim;
 use crate::catalog::{Catalog, RawControl, child_controls};
 use crate::env::{Env, evaluate, substitute};
-use crate::merge::{Layering, flatten_def, inherit};
+use crate::merge::{Layering, flatten_def, flatten_properties, inherit};
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
 const MAX_DEPTH: usize = 256;
@@ -80,7 +80,7 @@ impl<'a> Resolver<'a> {
         name: &str,
         root_env: &Env,
     ) -> Option<(Option<String>, std::collections::BTreeMap<String, Value>)> {
-        let (control, _) = flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
+        let control = flatten_properties(self.catalog, namespace, name, &mut self.diagnostics)?;
         // As in `resolve_root`, `ignored` reads the scope before the control's own `$` values.
         if self.is_ignored(&control, root_env) {
             return None;

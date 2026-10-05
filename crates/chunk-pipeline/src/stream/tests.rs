@@ -898,6 +898,7 @@ mod cases_11;
 mod cases_12;
 mod forced_remesh;
 mod inline_cohort;
+mod startup_readiness;
 mod inventory_commit_fence;
 mod lenient_decode;
 mod local_abilities;

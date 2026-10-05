@@ -33,8 +33,10 @@ pub(crate) fn update_startup_probe(
     diagnostics.set_startup_probe_enabled(
         startup.probe_enabled(connected)
             || (connected
-                && controller
-                    .is_some_and(|controller| controller.needs_terrain_witness(generation))),
+                && controller.is_some_and(|controller| {
+                    controller.needs_terrain_witness(generation)
+                        || controller.needs_view_witness(generation)
+                })),
     );
 }
 /// Resources beyond Bevy's sixteen-parameter limit.
@@ -223,6 +225,29 @@ pub(crate) fn prepare_ui_runtime(
                 controller.observe_join_terrain(
                     runtime.session_id(),
                     local_ready && stream.local_terrain_ready(),
+                    diagnostics_input
+                        .frame_generation()
+                        .max(snapshot.frame_generation),
+                    snapshot
+                        .gpu_completed_opaque
+                        .map(|_| snapshot.frame_generation),
+                );
+            }
+            if let Some(controller) = session_controller.as_mut()
+                && controller.needs_view_witness(runtime.session_id())
+            {
+                let snapshot = visibility_diagnostics.snapshot();
+                let view_drained = stream_work_drained
+                    && render_work_drained
+                    && stream.startup_view_complete()
+                    && !snapshot.frustum_overflowed
+                    && !snapshot.submitted_overflowed
+                    && snapshot.frustum_visible_opaque.is_some()
+                    && snapshot.frustum_visible_opaque == snapshot.submitted_opaque
+                    && snapshot.submitted_opaque == snapshot.gpu_completed_opaque;
+                controller.observe_join_view(
+                    runtime.session_id(),
+                    view_drained,
                     diagnostics_input
                         .frame_generation()
                         .max(snapshot.frame_generation),

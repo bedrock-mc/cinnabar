@@ -298,6 +298,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     let pack = super::ServerUiPack {
+        screen_settings: None,
         catalog: None,
         ui_layers: vec![vec![(
             "ui/server_form.json".to_owned(),

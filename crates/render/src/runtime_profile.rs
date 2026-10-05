@@ -47,10 +47,11 @@ pub enum RuntimeStage {
     Particles,
     Audio,
     BlockEntities,
+    PipelinePreparation,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 32] = [
+    pub const ALL: [Self; Self::PipelinePreparation as usize + 1] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -83,6 +84,7 @@ impl RuntimeStage {
         Self::Particles,
         Self::Audio,
         Self::BlockEntities,
+        Self::PipelinePreparation,
     ];
 
     #[must_use]
@@ -120,6 +122,7 @@ impl RuntimeStage {
             Self::Particles => "particles",
             Self::Audio => "audio",
             Self::BlockEntities => "block_entities",
+            Self::PipelinePreparation => "pipeline_preparation",
         }
     }
 }
@@ -283,8 +286,14 @@ impl RuntimeStageProfiler {
 }
 
 /// Open spans timed across several systems, indexed by [`RuntimeStage`].
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug)]
 pub struct RuntimeStageSpans([Option<Instant>; RuntimeStage::ALL.len()]);
+
+impl Default for RuntimeStageSpans {
+    fn default() -> Self {
+        Self([None; RuntimeStage::ALL.len()])
+    }
+}
 
 /// Opens the span of stage `S` (a `RuntimeStage as usize`); pair with [`end_stage_span`].
 pub fn begin_stage_span<const S: usize>(spans: Option<ResMut<RuntimeStageSpans>>) {

@@ -19,6 +19,7 @@ type joinTelemetry struct {
 	logger   *slog.Logger
 	seen     [7]atomic.Bool
 	complete atomic.Bool
+	transfer atomic.Bool
 }
 
 type joinTelemetryKey struct{}
@@ -54,6 +55,13 @@ func (source measuredMultiplayerTokenSource) MultiplayerToken(ctx context.Contex
 func withJoinTelemetry(dialer minecraft.Dialer, telemetry *joinTelemetry) minecraft.Dialer {
 	if source, ok := dialer.TokenSource.(minecraft.MultiplayerTokenSource); ok {
 		dialer.TokenSource = measuredMultiplayerTokenSource{TokenSource: dialer.TokenSource, multiplayer: source, telemetry: telemetry}
+	}
+	accept := dialer.AcceptPacketHeader
+	dialer.AcceptPacketHeader = func(header packet.Header) bool {
+		if header.PacketID == packet.IDTransfer && telemetry.transfer.CompareAndSwap(false, true) {
+			telemetry.report("transfer_ingress", 0, true)
+		}
+		return accept == nil || accept(header)
 	}
 	observe := dialer.PacketFunc
 	dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {

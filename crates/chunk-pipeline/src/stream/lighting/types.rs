@@ -89,13 +89,7 @@ impl SnapshotBlock {
     pub(in crate::stream) fn is_known_air(&self, classifier: BlockClassifier) -> bool {
         match self {
             Self::KnownAir => true,
-            Self::Resident(sub_chunk) => sub_chunk.storages().iter().all(|storage| {
-                storage
-                    .palette()
-                    .values()
-                    .iter()
-                    .all(|&runtime_id| classifier.is_air(runtime_id))
-            }),
+            Self::Resident(sub_chunk) => classifier.is_sub_chunk_air(sub_chunk),
         }
     }
 }

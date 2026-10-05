@@ -90,6 +90,46 @@ func TestJoinTelemetryPreservesKeyBoundTokenSource(t *testing.T) {
 	}
 }
 
+func TestJoinTelemetryRecordsTransferIngressOnceAfterStartGame(t *testing.T) {
+	var output bytes.Buffer
+	telemetry := &joinTelemetry{attempt: 7, started: time.Now(), logger: slog.New(slog.NewJSONHandler(&output, nil))}
+	var headers int
+	dialer := withJoinTelemetry(minecraft.Dialer{AcceptPacketHeader: func(header packet.Header) bool {
+		headers++
+		return header.PacketID != packet.IDTransfer
+	}}, telemetry)
+	dialer.PacketFunc(packet.Header{PacketID: packet.IDStartGame}, nil, nil, nil)
+	dialer.PacketFunc(packet.Header{PacketID: packet.IDTransfer}, []byte("private destination"), nil, nil)
+	if strings.Contains(output.String(), "transfer_ingress") {
+		t.Fatal("outbound transfer was counted as inbound wire ingress")
+	}
+	for range 2 {
+		if dialer.AcceptPacketHeader(packet.Header{PacketID: packet.IDTransfer}) {
+			t.Fatal("measuring ingress changed the current header filter")
+		}
+	}
+	var phases []string
+	decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
+	for {
+		var row map[string]any
+		if err := decoder.Decode(&row); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if row["attempt_id"] != float64(7) {
+			t.Fatal("transfer ingress replaced the original join clock")
+		}
+		phases = append(phases, row["phase"].(string))
+	}
+	if headers != 2 || !slices.Equal(phases, []string{"start_game", "transfer_ingress"}) {
+		t.Fatalf("observed %d headers; phases=%v", headers, phases)
+	}
+	if strings.Contains(output.String(), "private destination") {
+		t.Fatal("transfer timing exposed packet data")
+	}
+}
+
 func TestCompletedJoinTelemetryDoesNoAllocationsOrLogging(t *testing.T) {
 	var output bytes.Buffer
 	telemetry := &joinTelemetry{logger: slog.New(slog.NewJSONHandler(&output, nil))}
@@ -101,6 +141,9 @@ func TestCompletedJoinTelemetryDoesNoAllocationsOrLogging(t *testing.T) {
 	payload := []byte{1, 2, 3}
 	allocations := testing.AllocsPerRun(1000, func() {
 		dialer.PacketFunc(packet.Header{PacketID: packet.IDLevelChunk}, payload, nil, nil)
+		if dialer.AcceptPacketHeader != nil && !dialer.AcceptPacketHeader(packet.Header{PacketID: packet.IDLevelChunk}) {
+			t.Fatal("measuring ingress rejected an ordinary packet")
+		}
 	})
 	if allocations != 0 || output.Len() != 0 || calls == 0 {
 		t.Fatalf("completed telemetry allocated %g times, logged %d bytes, observer calls %d", allocations, output.Len(), calls)

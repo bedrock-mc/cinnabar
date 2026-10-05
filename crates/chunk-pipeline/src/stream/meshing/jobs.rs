@@ -14,10 +14,19 @@ impl WorldStream {
 
         let view = self.scheduler_view(camera_position);
         let (resident, known_air) = (&self.resident, &self.known_air);
+        let terrain = self.authority.terrain();
+        let classifier = self.classifier;
+        let requires_geometry = |key| {
+            resident.contains(&key)
+                && !known_air.contains(&key)
+                && terrain
+                    .sub_chunk(key)
+                    .is_none_or(|source| !classifier.is_sub_chunk_air(&source))
+        };
         let probe_near = self
             .mesh_jobs
             .ingress(view, self.poll_deadline, |key, _, pending| {
-                let lane = if resident.contains(&key) && !known_air.contains(&key) {
+                let lane = if requires_geometry(key) {
                     RESIDENT_MESH_LANE
                 } else {
                     MESH_REMOVAL_LANE
@@ -33,8 +42,7 @@ impl WorldStream {
             scheduler::near_camera_keys(view, self.authority.current_dimension())
                 .filter_map(|key| {
                     let pending = self.mesh_jobs.pending.get(&key).copied()?;
-                    (self.resident.contains(&key)
-                        && !self.known_air.contains(&key)
+                    (requires_geometry(key)
                         && !self.mesh_jobs.in_flight.contains_key(&key)
                         && self.revisions.is_current(key, pending.revision))
                     .then_some((
@@ -50,8 +58,8 @@ impl WorldStream {
         resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
         resident_candidates.truncate(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
         let mut removal_candidates = Vec::new();
-        for _ in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
-            if worker_budget == 0 && self.poll_budget_exhausted() {
+        for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+            if index != 0 && worker_budget == 0 && self.poll_budget_exhausted() {
                 break;
             }
             let Some(mut candidate) = self.mesh_jobs.lanes[RESIDENT_MESH_LANE].ready.pop() else {
@@ -65,13 +73,19 @@ impl WorldStream {
             if pending.revision != candidate.revision {
                 continue;
             }
-            if !self.revisions.is_current(key, pending.revision)
-                || self.mesh_jobs.in_flight.contains_key(&key)
-            {
+            if !self.revisions.is_current(key, pending.revision) {
                 self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                     .deferred
                     .push(candidate);
-            } else if self.resident.contains(&key) && !self.known_air.contains(&key) {
+            } else if !requires_geometry(key) {
+                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
+                    .ready
+                    .push(candidate);
+            } else if self.mesh_jobs.in_flight.contains_key(&key) {
+                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                    .deferred
+                    .push(candidate);
+            } else {
                 if let Some((_, _, queued)) = resident_candidates
                     .iter_mut()
                     .find(|(entry, _, _)| entry.key == key)
@@ -80,10 +94,6 @@ impl WorldStream {
                 } else {
                     resident_candidates.push((candidate, pending, true));
                 }
-            } else {
-                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
-                    .ready
-                    .push(candidate);
             }
         }
         let removal_authority = self
@@ -127,7 +137,7 @@ impl WorldStream {
                 self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
                     .deferred
                     .push(candidate);
-            } else if self.resident.contains(&key) && !self.known_air.contains(&key) {
+            } else if requires_geometry(key) {
                 self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                     .ready
                     .push(candidate);
@@ -301,7 +311,13 @@ impl WorldStream {
             };
             self.mesh_jobs.pending.remove(&key);
             removed = true;
-            if self.known_air.contains(&key) {
+            let resident_air = self.resident.contains(&key)
+                && self
+                    .authority
+                    .terrain()
+                    .sub_chunk(key)
+                    .is_some_and(|source| self.classifier.is_sub_chunk_air(&source));
+            if self.known_air.contains(&key) || resident_air {
                 self.set_connectivity(key, Some(FaceConnectivity::all()));
                 let registered = self.register_mesh_dependency_mask(
                     key,

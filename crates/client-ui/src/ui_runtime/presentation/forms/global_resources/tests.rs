@@ -149,6 +149,7 @@ fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
     snapshot::write(&before, "hud-before");
     let definition = br##"{"namespace":"hud","root_panel":{"modifications":[{"array_name":"controls","operation":"insert_back","value":[{"live_pack_marker":{"type":"image","texture":"textures/ui/cinnabar_live_marker","size":[96,32],"offset":[0,40],"anchor_from":"top_middle","anchor_to":"top_middle","layer":100}}]}]}}"##.to_vec();
     let pack = super::super::ServerUiPack {
+        screen_settings: None,
         ui_layers: vec![vec![
             (
                 "ui/_ui_defs.json".into(),

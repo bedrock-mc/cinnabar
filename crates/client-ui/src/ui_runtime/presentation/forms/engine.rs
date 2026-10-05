@@ -146,13 +146,17 @@ impl FormEngine {
 
     /// Records `pack` as the applied source; `true` when it differs from the last.
     pub(super) fn take_server_source(&mut self, pack: Option<&Arc<ServerUiPack>>) -> bool {
-        let same = match (&self.server_source, pack) {
-            (Some(current), Some(next)) => Arc::ptr_eq(current, next),
-            (None, None) => true,
-            _ => false,
-        };
+        let changed = self.server_source_changed(pack);
         self.server_source = pack.cloned();
-        !same
+        changed
+    }
+
+    pub(super) fn server_source_changed(&self, pack: Option<&Arc<ServerUiPack>>) -> bool {
+        match (&self.server_source, pack) {
+            (Some(current), Some(next)) => !Arc::ptr_eq(current, next),
+            (None, None) => false,
+            _ => true,
+        }
     }
 
     /// Which catalog forms resolve against, for the render-path log.

@@ -145,7 +145,16 @@ impl WorldStream {
     #[must_use]
     pub fn startup_view_complete(&self) -> bool {
         match self.publisher.cohort {
-            Some(target) => self.cohort_status(target).target_is_complete(),
+            Some(target) if target.publisher_geometry.is_some() => {
+                !self.publisher.required_columns.is_empty()
+                    && self
+                        .publisher
+                        .required_columns
+                        .is_subset(&self.loaded_columns)
+            }
+            Some(target) => target
+                .classifier_columns_iter()
+                .all(|key| self.loaded_columns.contains(&key)),
             None => !self.startup_terrain_announced,
         }
     }

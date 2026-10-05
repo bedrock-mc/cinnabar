@@ -22,6 +22,9 @@ use render_model::UiTexturePage;
 
 use super::remote_images::{RemoteImages, RemoteState, is_remote};
 
+mod prepared_settings;
+pub use prepared_settings::PreparedScreenSettings;
+
 /// Image extensions a texture path may resolve to, in lookup order.
 const IMAGE_EXTENSIONS: [&str; 4] = [".png", ".tga", ".jpg", ".jpeg"];
 /// Where vanilla's in-package resource pack sits; its files read from the local
@@ -43,6 +46,8 @@ pub struct ServerUiPack {
     /// The session's pack stack, which texture files read from on first draw.
     pub view: Option<resource_pack::LayeredPackView>,
     pub catalog: Option<Arc<json_ui::Catalog>>,
+    /// Immutable screen policies prepared alongside the matching catalog.
+    pub screen_settings: Option<Arc<PreparedScreenSettings>>,
 }
 
 impl ServerUiPack {
@@ -61,10 +66,12 @@ impl ServerUiPack {
     /// Resolves pack definitions on the reload worker against the immutable carrier catalog.
     pub fn prepare_catalog(&self, base: &json_ui::Catalog) -> Arc<Self> {
         let mut prepared = self.clone();
-        prepared.catalog = Some(Arc::new(super::engine::layer_pack_catalog(
-            base,
-            &self.ui_layers,
+        let catalog = Arc::new(super::engine::layer_pack_catalog(base, &self.ui_layers));
+        prepared.screen_settings = Some(Arc::new(PreparedScreenSettings::new(
+            catalog.clone(),
+            super::menu_screens::retail_context(),
         )));
+        prepared.catalog = Some(catalog);
         Arc::new(prepared)
     }
 

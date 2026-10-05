@@ -110,7 +110,11 @@ pub(super) fn observe(
     if unchanged {
         return;
     }
+    let started = std::time::Instant::now();
     let prepared = sheets.map(|sheets| sheets.prepared());
+    let prepared_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let glyphs = prepared.map_or(0, |atlas| atlas.glyphs.len());
+    let named_fonts = prepared.map_or(0, |atlas| atlas.named.len());
     let pages = prepared
         .map(|atlas| atlas.pages.clone())
         .unwrap_or_default();
@@ -118,9 +122,21 @@ pub(super) fn observe(
         source: sheets.cloned(),
         pages,
     };
+    let merging = std::time::Instant::now();
     runtime.font = font(runtime);
+    let font_ms = merging.elapsed().as_secs_f64() * 1_000.0;
     runtime.nametag_atlas.reset();
+    let pages = std::time::Instant::now();
     dynamic_textures::rebuild(runtime);
+    bevy::log::info!(
+        glyphs,
+        named_fonts,
+        prepared_ms,
+        font_ms,
+        pages_ms = pages.elapsed().as_secs_f64() * 1_000.0,
+        total_ms = started.elapsed().as_secs_f64() * 1_000.0,
+        "session glyph presentation prepared",
+    );
 }
 
 /// Reconstructs current server fonts and the private alias without moving atlas ownership.

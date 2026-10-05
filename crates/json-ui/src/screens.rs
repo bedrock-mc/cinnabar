@@ -136,6 +136,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn screen_settings_do_not_allocate_for_unused_child_trees() {
+        let catalog = |children: usize| {
+            let controls: Vec<_> = (0..children)
+                .map(|index| {
+                    serde_json::json!({
+                        format!("child{index}"): {
+                            "type":"panel", "controls":[{"label":{"type":"label","text":"unused"}}]
+                        }
+                    })
+                })
+                .collect();
+            let bytes = serde_json::to_vec(&serde_json::json!({
+                "namespace":"settings",
+                "base":{"type":"screen", "$capture":true, "absorbs_input":"$capture", "controls":controls},
+                "screen@base":{"should_steal_mouse":false}
+            }))
+            .unwrap();
+            Catalog::from_files([
+                ("ui/_global_variables.json", b"{}".as_slice()),
+                (
+                    "ui/_ui_defs.json",
+                    br#"{"ui_defs":["ui/settings.json"]}"#.as_slice(),
+                ),
+                ("ui/settings.json", bytes.as_slice()),
+            ])
+            .unwrap()
+        };
+        let small = catalog(0);
+        let large = catalog(1_024);
+        let context = Context::empty();
+        let (small, small_allocations) = crate::allocation_count::count(|| {
+            screen_settings("settings.screen", &small, &context).unwrap()
+        });
+        let (large, large_allocations) = crate::allocation_count::count(|| {
+            screen_settings("settings.screen", &large, &context).unwrap()
+        });
+        assert_eq!(small, large);
+        assert!(large.absorbs_input);
+        assert!(!large.should_steal_mouse);
+        assert_eq!(
+            large_allocations, small_allocations,
+            "screen policies consume root properties independently of descendant count"
+        );
+    }
+
+    #[test]
     fn the_gameplay_hud_is_an_engine_screen() {
         assert!(is_engine_screen("hud.hud_screen"));
         assert!(is_engine_screen("hud_crosshair.hud_crosshair_screen"));

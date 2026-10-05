@@ -59,31 +59,35 @@ impl ViewCohort {
     /// policy; other servers may announce a different set.
     #[must_use]
     pub fn classifier_columns(self) -> BTreeSet<ChunkKey> {
+        self.classifier_columns_iter().collect()
+    }
+
+    /// Iterates the diagnostic classifier without materializing its column set.
+    #[must_use]
+    pub fn classifier_columns_iter(self) -> impl Iterator<Item = ChunkKey> {
         let radius = self.radius.max(0);
         let doubled_limit = self.publisher_geometry.map_or_else(
             || i64::from(radius).saturating_mul(2),
             |_| i64::from(radius).saturating_mul(2).saturating_sub(1),
         );
-        (-radius..=radius)
-            .flat_map(|x_offset| {
-                (-radius..=radius)
-                    .filter(move |z_offset| {
-                        let x = i64::from(x_offset).unsigned_abs().saturating_mul(2);
-                        let z = i64::from(*z_offset).unsigned_abs().saturating_mul(2);
-                        x.saturating_mul(x).saturating_add(z.saturating_mul(z))
-                            <= doubled_limit
-                                .unsigned_abs()
-                                .saturating_mul(doubled_limit.unsigned_abs())
-                    })
-                    .map(move |z_offset| {
-                        ChunkKey::new(
-                            self.dimension,
-                            self.center[0].saturating_add(x_offset),
-                            self.center[1].saturating_add(z_offset),
-                        )
-                    })
-            })
-            .collect()
+        (-radius..=radius).flat_map(move |x_offset| {
+            (-radius..=radius)
+                .filter(move |z_offset| {
+                    let x = i64::from(x_offset).unsigned_abs().saturating_mul(2);
+                    let z = i64::from(*z_offset).unsigned_abs().saturating_mul(2);
+                    x.saturating_mul(x).saturating_add(z.saturating_mul(z))
+                        <= doubled_limit
+                            .unsigned_abs()
+                            .saturating_mul(doubled_limit.unsigned_abs())
+                })
+                .map(move |z_offset| {
+                    ChunkKey::new(
+                        self.dimension,
+                        self.center[0].saturating_add(x_offset),
+                        self.center[1].saturating_add(z_offset),
+                    )
+                })
+        })
     }
 }
 

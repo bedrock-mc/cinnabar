@@ -185,6 +185,32 @@ impl SessionController {
             .is_some_and(|timeline| timeline.needs_terrain_witness(generation))
     }
 
+    pub(crate) fn needs_view_witness(&self, generation: u64) -> bool {
+        self.join_timeline.as_ref().is_some_and(|timeline| {
+            timeline.needs_view_witness(generation, self.join_clock.elapsed())
+        })
+    }
+
+    pub(crate) fn observe_join_view(
+        &mut self,
+        generation: u64,
+        view_drained: bool,
+        frame_generation: u64,
+        gpu_frame_generation: Option<u64>,
+    ) {
+        if let Some(milestone) = self.join_timeline.as_mut().and_then(|timeline| {
+            timeline.observe_view(
+                generation,
+                view_drained,
+                frame_generation,
+                gpu_frame_generation,
+                self.join_clock.elapsed(),
+            )
+        }) {
+            self.log_join_milestone(milestone);
+        }
+    }
+
     fn log_join_milestone(&self, milestone: client_session::join_timing::JoinMilestone) {
         bevy::log::info!(
             session_generation = milestone.generation,

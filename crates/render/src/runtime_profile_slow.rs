@@ -30,7 +30,7 @@ impl Default for SlowFrameRecorder {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct FrameWindow {
     started: Option<Instant>,
     baseline: [u64; STAGES],
@@ -40,6 +40,21 @@ struct FrameWindow {
     last_log: Option<Instant>,
     suppressed: u64,
     sequence: u64,
+}
+
+impl Default for FrameWindow {
+    fn default() -> Self {
+        Self {
+            started: None,
+            baseline: [0; STAGES],
+            main: None,
+            focused: false,
+            occluded: false,
+            last_log: None,
+            suppressed: 0,
+            sequence: 0,
+        }
+    }
 }
 
 impl SlowFrameRecorder {

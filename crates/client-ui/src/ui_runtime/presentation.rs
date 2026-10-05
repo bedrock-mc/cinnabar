@@ -510,14 +510,38 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
+        self.build_profiled(
+            player_runtime,
+            runtime,
+            now_millis,
+            physical_size,
+            dpi_scale,
+            false,
+        )
+    }
+
+    fn build_profiled(
+        &mut self,
+        player_runtime: &player_state::PlayerState,
+        runtime: &UiRuntime,
+        now_millis: u64,
+        physical_size: [u32; 2],
+        dpi_scale: DpiScale,
+        timed: bool,
+    ) -> Result<UiRenderInput, UiPresentationError> {
+        let started = timed.then(std::time::Instant::now);
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
         session_glyphs::observe(self, runtime.session_glyphs());
+        let source_ms = started.map_or(0.0, |started| started.elapsed().as_secs_f64() * 1_000.0);
         // Install artwork before any screen resolves its pixel UVs.
         if self.menu_artwork_loader.poll() {
             self.rebuild_dynamic_textures();
         }
+        let artwork_ms = started.map_or(0.0, |started| {
+            started.elapsed().as_secs_f64() * 1_000.0 - source_ms
+        });
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =
@@ -553,7 +577,12 @@ impl UiPresentationRuntime {
         let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
         self.scene_clocks.observe(&open, self.menu_seconds);
         let mut menu_hit_targets = Vec::new();
+        let scene_policy_ms = started.map_or(0.0, |started| {
+            started.elapsed().as_secs_f64() * 1_000.0 - source_ms - artwork_ms
+        });
+        let mut scene_ms = [0.0; 4];
         for scene in &scenes {
+            let scene_started = timed.then(std::time::Instant::now);
             self.scene_clock = self.scene_clocks.clocks(*scene);
             let (nodes, next) = (&mut nodes, &mut next_id);
             match scene {
@@ -669,6 +698,15 @@ impl UiPresentationRuntime {
                     )?;
                 }
             }
+            if let Some(started) = scene_started {
+                let index = match scene {
+                    Scene::Loading => 0,
+                    Scene::Hud | Scene::Crosshair => 1,
+                    Scene::Menu(_) => 2,
+                    _ => 3,
+                };
+                scene_ms[index] += started.elapsed().as_secs_f64() * 1_000.0;
+            }
         }
         if !scenes.contains(&Scene::Chat) {
             self.close_chat_screen();
@@ -709,6 +747,33 @@ impl UiPresentationRuntime {
         // Every screen has painted: retire animation state nothing touched.
         self.end_animation_frame();
         self.apply_gui_models(&mut nodes);
+        let tree_started = timed.then(std::time::Instant::now);
+        let overlays_ms = started.map_or(0.0, |started| {
+            started.elapsed().as_secs_f64() * 1_000.0
+                - source_ms
+                - artwork_ms
+                - scene_policy_ms
+                - scene_ms.iter().sum::<f64>()
+        });
+        let report = |retained: bool| {
+            if let (Some(started), Some(tree_started)) = (started, tree_started) {
+                bevy::log::info!(
+                    session_generation = runtime.session_id(),
+                    source_ms,
+                    artwork_ms,
+                    scene_policy_ms,
+                    loading_ms = scene_ms[0],
+                    hud_ms = scene_ms[1],
+                    menu_ms = scene_ms[2],
+                    other_scenes_ms = scene_ms[3],
+                    overlays_ms,
+                    tree_ms = tree_started.elapsed().as_secs_f64() * 1_000.0,
+                    total_ms = started.elapsed().as_secs_f64() * 1_000.0,
+                    retained,
+                    "session UI build prepared"
+                );
+            }
+        };
         // Unchanged nodes build the same frame unless §k text re-rolls its glyphs, so tree,
         // layout and draw-list construction are skipped.
         let frame = (physical_size, dpi_scale.get(), safe_area);
@@ -716,6 +781,7 @@ impl UiPresentationRuntime {
             && last.same(frame, &self.textures, &nodes)
         {
             self.menu_hit_targets = menu_hit_targets;
+            report(true);
             return Ok(input.clone());
         }
         self.last_frame = (!obfuscated(&nodes)).then(|| BuiltFrame {
@@ -749,6 +815,7 @@ impl UiPresentationRuntime {
         .map_err(UiPresentationError::Adapter)?;
         let input = self.stabilize_revision(input);
         self.menu_hit_targets = menu_hit_targets;
+        report(false);
         Ok(input)
     }
 }
