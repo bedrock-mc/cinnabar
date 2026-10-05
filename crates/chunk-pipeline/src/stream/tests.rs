@@ -898,12 +898,12 @@ mod cases_11;
 mod cases_12;
 mod forced_remesh;
 mod inline_cohort;
-mod startup_readiness;
 mod inventory_commit_fence;
 mod lenient_decode;
 mod local_abilities;
 mod prediction;
 mod render_distance;
+mod startup_readiness;
 mod streaming_harness;
 
 #[path = "tests/ordered_commits.rs"]
