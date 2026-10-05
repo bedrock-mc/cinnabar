@@ -480,7 +480,7 @@ pub(crate) fn end_render_frame_span(
         return;
     };
     let wait = std::mem::take(&mut spans.last[SURFACE]);
-    let elapsed = started.elapsed().saturating_sub(wait);
+    let elapsed = render_frame_elapsed(started, Instant::now(), wait);
     spans.last[FRAME] = elapsed;
     if let Some(profiler) = profiler
         && profiler.active()
@@ -505,6 +505,11 @@ impl Drop for RuntimeStageTimer<'_> {
 }
 
 /// Records aggregate timing and an optional timestamped span together.
+/// Time from `started` to `now`, less the acquisition wait measured inside it.
+fn render_frame_elapsed(started: Instant, now: Instant, wait: Duration) -> Duration {
+    now.saturating_duration_since(started).saturating_sub(wait)
+}
+
 fn record_stage(state: &RuntimeStageProfileState, stage: RuntimeStage, started: Instant) {
     record_elapsed(state, stage, started, started.elapsed());
 }
@@ -584,52 +589,48 @@ mod tests {
         assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 2);
     }
 
-    /// Asset preparation counts as render CPU; the drawable-acquisition wait does not.
     #[test]
-    fn render_cpu_includes_pre_acquisition_work_but_not_the_wait() {
+    fn render_frame_excludes_only_the_acquisition_wait() {
+        let started = Instant::now();
+        let now = started + Duration::from_millis(80);
+        let elapsed = render_frame_elapsed(started, now, Duration::from_millis(50));
+        assert_eq!(elapsed, Duration::from_millis(30));
+        assert_eq!(
+            render_frame_elapsed(started, now, Duration::from_millis(90)),
+            Duration::ZERO
+        );
+    }
+
+    /// The render-frame span is open from asset preparation through rendering, closed by Cleanup.
+    #[test]
+    fn render_frame_span_covers_asset_preparation_through_cleanup() {
         use bevy::prelude::*;
         use bevy::render::{Render, RenderSystems};
         const FRAME: usize = RuntimeStage::RenderFrame as usize;
-        const SURFACE: usize = RuntimeStage::SurfacePreparation as usize;
-        // Backdated span starts stand in for 30 ms of asset work and a 50 ms wait.
-        fn asset_work(mut spans: ResMut<RuntimeStageSpans>) {
-            let started = spans.open[FRAME].expect("render frame open during PrepareAssets");
-            spans.open[FRAME] = Some(started - Duration::from_millis(80));
-        }
-        fn acquisition_wait(mut spans: ResMut<RuntimeStageSpans>) {
-            let started = spans.open[SURFACE].expect("surface span open");
-            spans.open[SURFACE] = Some(started - Duration::from_millis(50));
+        #[derive(Resource, Default)]
+        struct Open(Vec<bool>);
+        fn probe(spans: Res<RuntimeStageSpans>, mut open: ResMut<Open>) {
+            open.0.push(spans.open[FRAME].is_some());
         }
         let profiler = RuntimeStageProfiler::new(true);
         let mut app = App::new();
         app.add_schedule(Render::base_schedule())
-            .insert_resource(profiler.clone());
+            .insert_resource(profiler.clone())
+            .init_resource::<Open>();
         crate::runtime_profile_trace::install_surface_trace(app.main_mut());
         app.add_systems(
             Render,
             (
-                asset_work.in_set(RenderSystems::PrepareAssets),
-                acquisition_wait
-                    .after(begin_stage_span::<SURFACE>)
-                    .before(end_stage_span::<SURFACE>)
-                    .in_set(RenderSystems::ManageViews),
-            ),
+                probe.in_set(RenderSystems::PrepareAssets),
+                probe.in_set(RenderSystems::Render),
+                probe.in_set(RenderSystems::PostCleanup),
+            )
+                .chain(),
         );
         app.world_mut().run_schedule(Render);
+        assert_eq!(app.world().resource::<Open>().0, [true, true, false]);
         let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
-        let render = snapshot.samples[FRAME];
-        assert_eq!(render.count, 1);
-        assert!(
-            render.total >= Duration::from_millis(30),
-            "{:?}",
-            render.total
-        );
-        assert!(
-            render.total < Duration::from_millis(50),
-            "{:?}",
-            render.total
-        );
-        assert!(snapshot.samples[SURFACE].total >= Duration::from_millis(50));
+        assert_eq!(snapshot.samples[FRAME].count, 1);
     }
 
     #[test]

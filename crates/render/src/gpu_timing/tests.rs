@@ -143,3 +143,42 @@ fn draw_overflow_drops_categories_but_keeps_passes() {
     );
     assert_eq!(timestamps.slots[slot].stages[0], RuntimeStage::GpuOpaque);
 }
+
+/// Pipelined rendering removes the render app during cleanup, before later plugins' hooks.
+#[test]
+fn nodes_are_wrapped_inside_the_render_app_under_pipelined_rendering() {
+    use bevy::render::pipelined_rendering::{PipelinedRenderingPlugin, RenderAppChannels};
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let (device, queue) = noop_device(wgpu::Features::empty());
+    let mut core = RenderGraph::default();
+    core.add_node(Node3d::MainOpaquePass, CountingNode(Arc::default()));
+    let mut graph = RenderGraph::default();
+    graph.add_sub_graph(Core3d, core);
+    let mut render_app = bevy::app::SubApp::new();
+    render_app
+        .add_schedule(bevy::ecs::schedule::Schedule::new(RenderStartup))
+        .insert_resource(graph)
+        .insert_resource(device)
+        .insert_resource(queue);
+    let mut app = App::new();
+    app.insert_sub_app(RenderApp, render_app);
+    app.insert_resource(RuntimeStageProfiler::new(false));
+    app.add_plugins((PipelinedRenderingPlugin, GpuTimingPlugin));
+    app.finish();
+    app.cleanup();
+    assert!(app.get_sub_app(RenderApp).is_none());
+
+    let mut channels = app
+        .world_mut()
+        .remove_resource::<RenderAppChannels>()
+        .unwrap();
+    let mut render_app = bevy::tasks::block_on(channels.recv()).unwrap();
+    render_app.world_mut().run_schedule(RenderStartup);
+    let graph = render_app.world().resource::<RenderGraph>();
+    let state = graph
+        .get_sub_graph(Core3d)
+        .unwrap()
+        .get_node_state(Node3d::MainOpaquePass)
+        .unwrap();
+    assert!(state.node.downcast_ref::<TimedNode>().is_some());
+}

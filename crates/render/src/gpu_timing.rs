@@ -62,7 +62,9 @@ impl Plugin for GpuTimingPlugin {
         };
         render_app
             .insert_resource(profiler)
-            .add_systems(RenderStartup, init_gpu_timestamps)
+            // RenderStartup runs inside the render app after every plugin has built the graph,
+            // and still reaches it after pipelined rendering moves the app to its own thread.
+            .add_systems(RenderStartup, (init_gpu_timestamps, wrap_timed_nodes))
             .add_systems(
                 Render,
                 (
@@ -72,13 +74,6 @@ impl Plugin for GpuTimingPlugin {
                         .after(render_system),
                 ),
             );
-    }
-
-    /// Wraps nodes only after every plugin has finished installing or replacing them.
-    fn cleanup(&self, app: &mut App) {
-        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            wrap_timed_nodes(render_app.world_mut());
-        }
     }
 }
 
