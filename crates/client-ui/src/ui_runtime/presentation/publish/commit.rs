@@ -86,38 +86,6 @@ fn trace_ui_frame(presentation: &UiPresentationRuntime, runtime: &UiRuntime) -> 
         || presentation.server_ui_changed(runtime.server_ui())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pack_publication_is_observed_after_a_prebootstrap_frame_in_the_same_session() {
-        let mut presentation = crate::test_support::mini_engine_presentation();
-        let player = player_state::PlayerState::new(2);
-        let mut runtime = UiRuntime::new(2);
-        let viewport = [640, 480];
-        let scale = DpiScale::new(1.0).unwrap();
-        assert!(trace_ui_frame(&presentation, &runtime));
-        presentation
-            .build(&player, &runtime, 0, viewport, scale)
-            .unwrap();
-        assert!(!trace_ui_frame(&presentation, &runtime));
-        let base = presentation.pack_catalog_base().unwrap();
-        runtime.set_server_ui(Some(forms::ServerUiPack::default().prepare_catalog(&base)));
-        assert!(trace_ui_frame(&presentation, &runtime));
-        presentation
-            .build(&player, &runtime, 1, viewport, scale)
-            .unwrap();
-        assert!(!trace_ui_frame(&presentation, &runtime));
-        runtime.set_server_ui(None);
-        assert!(trace_ui_frame(&presentation, &runtime));
-        presentation
-            .build(&player, &runtime, 2, viewport, scale)
-            .unwrap();
-        assert!(!trace_ui_frame(&presentation, &runtime));
-    }
-}
-
 /// Renders the captured held-item icons and updates the frame's raster references.
 fn publish_item_viewmodels(
     presentation: &mut UiPresentationRuntime,
@@ -149,4 +117,36 @@ pub fn refresh_hud_frame(
         ItemIconFrames::default(),
     );
     publish_item_viewmodels(presentation, icons);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_publication_is_observed_after_a_prebootstrap_frame_in_the_same_session() {
+        let mut presentation = crate::test_support::mini_engine_presentation();
+        let player = player_state::PlayerState::new(2);
+        let mut runtime = UiRuntime::new(2);
+        let viewport = [640, 480];
+        let scale = DpiScale::new(1.0).unwrap();
+        assert!(trace_ui_frame(&presentation, &runtime));
+        presentation
+            .build(&player, &runtime, 0, viewport, scale)
+            .unwrap();
+        assert!(!trace_ui_frame(&presentation, &runtime));
+        let base = presentation.pack_catalog_base().unwrap();
+        runtime.set_server_ui(Some(forms::ServerUiPack::default().prepare_catalog(&base)));
+        assert!(trace_ui_frame(&presentation, &runtime));
+        presentation
+            .build(&player, &runtime, 1, viewport, scale)
+            .unwrap();
+        assert!(!trace_ui_frame(&presentation, &runtime));
+        runtime.set_server_ui(None);
+        assert!(trace_ui_frame(&presentation, &runtime));
+        presentation
+            .build(&player, &runtime, 2, viewport, scale)
+            .unwrap();
+        assert!(!trace_ui_frame(&presentation, &runtime));
+    }
 }
