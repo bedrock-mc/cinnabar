@@ -7,6 +7,17 @@
 - Loading release and actual GPU terrain presentation have separate milestones.
 - Measurements and remaining release gates: [join performance](docs/join-performance.md).
 
+## Held cube item consistency
+
+- Cube admission now ignores unrelated gameplay flags and terrain occlusion.
+- Authored carried faces fall back to ordinary pack faces; transparent cube templates
+  and cutout/blended sheets retain block geometry in both hands.
+- First-person material modes preserve ice blending and cutout holes.
+- Regressions reproduce the previous gameplay-flag, alpha and missing-sheet failures.
+- Rebuilt macOS/Metal frames show cube geometry; the user confirmed the live fix.
+- Non-cube, animated and high-resolution carried geometry parity remains open.
+- Vanilla rules: [held block items](docs/reference/held-block-items.md).
+
 ## Flower-pot floor and lily-pad atlas tint
 
 - Flower pots now add the dirt surface four pixels above the block base, below the rim.

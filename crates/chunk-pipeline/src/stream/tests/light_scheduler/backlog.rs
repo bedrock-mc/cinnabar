@@ -170,7 +170,10 @@ fn large_lighting_backlog_drains() {
     stream.mark_changed_sources(keys.iter().copied(), Instant::now());
     let started = Instant::now();
     let mut polls = Vec::new();
-    for frame in 0_u64.. {
+    // Eight passes cover initial dirtiness, two relights and neighbour propagation.
+    // Shared-worker delays do not consume the convergence work budget.
+    let work_budget = keys.len() * 8;
+    for frame in 0..work_budget {
         if frame == 8 || frame == 16 {
             stream.mark_light_changed_sources(keys.iter().copied());
         }
@@ -190,6 +193,12 @@ fn large_lighting_backlog_drains() {
                 stream.stats.stale_mesh_jobs
             );
         }
+        let stages = &stream.stats.phase2_stages;
+        assert!(
+            stages.light_jobs_dispatched + stages.mesh_jobs_dispatched <= work_budget as u64,
+            "backlog exceeded its work budget: {:?}",
+            stream.stats()
+        );
         if frame > 16
             && stream.mesh_jobs.pending.is_empty()
             && stream.mesh_jobs.in_flight.is_empty()
@@ -209,12 +218,37 @@ fn large_lighting_backlog_drains() {
             assert!(keys.iter().all(|key| stream.light_is_current(*key)));
             return;
         }
-        assert!(
-            started.elapsed() < Duration::from_secs(60),
-            "backlog failed to drain: {:?}",
-            stream.stats()
-        );
-        std::thread::sleep(Duration::from_millis(2));
+        wait_for_backlog_completion(&mut stream);
+    }
+    panic!(
+        "backlog exceeded its scheduler-turn budget: {:?}",
+        stream.stats()
+    );
+}
+
+/// Waits for real worker progress instead of spending scheduler turns on timer wakeups.
+fn wait_for_backlog_completion(stream: &mut WorldStream) {
+    if stream.lighting.jobs.in_flight.is_empty()
+        && stream.mesh_jobs.in_flight.is_empty()
+        && stream.lighting.running_jobs.load(Ordering::Acquire) == 0
+        && stream.admitted_mesh_jobs.load(Ordering::Acquire) == 0
+        && stream.lighting.rx.is_empty()
+        && stream.mesh_rx.is_empty()
+    {
+        return;
+    }
+    let light = stream.lighting.rx.clone();
+    let mesh = stream.mesh_rx.clone();
+    crossbeam_channel::select! {
+        recv(light) -> completion => {
+            stream.accept_light_completion(completion.expect("light worker completion"));
+        }
+        recv(mesh) -> completion => {
+            stream.accept_mesh_completion(completion.expect("mesh worker completion"));
+        }
+        default(Duration::from_secs(5)) => {
+            panic!("backlog workers made no progress: {:?}", stream.stats());
+        }
     }
 }
 

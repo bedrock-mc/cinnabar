@@ -102,6 +102,39 @@ fn sheet_pixel(sheet: &IconSprite, face: BlockFace, x: usize, y: usize) -> &[u8]
     &sheet.rgba8[offset..offset + 4]
 }
 
+fn transparent_cube_template(source: &mut CompiledAssets, material: u32) -> u32 {
+    let positions = [
+        [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]],
+        [[256, 0, 0], [256, 256, 0], [256, 256, 256], [256, 0, 256]],
+        [[0, 0, 0], [256, 0, 0], [256, 0, 256], [0, 0, 256]],
+        [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+        [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        [[0, 0, 256], [256, 0, 256], [256, 256, 256], [0, 256, 256]],
+    ];
+    let mut templates = source.model_templates.to_vec();
+    let mut quads = source.model_quads.to_vec();
+    let template = templates.len() as u32;
+    templates.push(ModelTemplate {
+        quad_start: quads.len() as u32,
+        quad_count: positions.len() as u32,
+        flags: MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    });
+    quads.extend(
+        BlockFace::ALL
+            .into_iter()
+            .zip(positions)
+            .map(|(face, positions)| ModelQuad {
+                positions,
+                uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                material,
+                flags: face.model_quad_face_id(),
+            }),
+    );
+    source.model_templates = templates.into();
+    source.model_quads = quads.into();
+    template
+}
+
 #[test]
 fn carried_overlay_sheet_masks_tint_without_coloring_or_hiding_soil() {
     let pack = grass_pack(serde_json::json!({
@@ -205,13 +238,14 @@ fn carried_overlay_unknown_metadata_and_malformed_colors_remain_unresolved() {
 }
 
 #[test]
-fn carried_overlay_does_not_grant_held_cube_geometry_to_nonopaque_shapes() {
+fn carried_overlay_does_not_grant_held_cube_geometry_to_noncube_shapes() {
     let pack = grass_pack(serde_json::json!({
         "path":"textures/blocks/side", "overlay_color":"#79c05a"
     }));
     let entity = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     let (mut source, visual) = grass_world(&entity);
-    source.visuals[visual.0 as usize].flags = BlockFlags::CUBE_GEOMETRY;
+    source.visuals[visual.0 as usize].flags = BlockFlags::empty();
+    source.visuals[visual.0 as usize].kind = VisualKind::Invisible;
     let compiled =
         compile_icon_assets_with_blocks(pack.path(), MANIFEST, &runtime(&source)).unwrap();
     let catalog = RuntimeIconCatalog::decode(&compiled.bytes).unwrap();
@@ -221,4 +255,144 @@ fn carried_overlay_does_not_grant_held_cube_geometry_to_nonopaque_shapes() {
             .iter()
             .any(|sheet| sheet.visual == visual)
     );
+}
+
+#[test]
+fn native_cube_sheets_follow_shape_and_preserve_carried_alpha() {
+    let pack = pack();
+    let cases = [
+        (
+            "black_wool",
+            BlockFlags::CUBE_GEOMETRY
+                | BlockFlags::OCCLUDES_FULL_FACE
+                | BlockFlags::FIRE_FLAMMABLE
+                | BlockFlags::FIRE_TOP_SUPPORT,
+            0,
+            [30, 30, 30, 255],
+            false,
+        ),
+        (
+            "ice",
+            BlockFlags::empty(),
+            MATERIAL_FLAG_ALPHA_BLEND,
+            [150, 180, 255, 96],
+            false,
+        ),
+        (
+            "oak_leaves",
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL | BlockFlags::FIRE_FLAMMABLE,
+            MATERIAL_FLAG_ALPHA_CUTOUT
+                | MATERIAL_FLAG_FOLIAGE_TINT
+                | MATERIAL_FLAG_SEASONAL_FOLIAGE
+                | MATERIAL_FLAG_EXPOSED_FOLIAGE
+                | MATERIAL_FLAG_TWO_SIDED
+                | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
+                | MATERIAL_FLAG_LEAF_ISOTROPIC,
+            [70, 130, 40, 255],
+            true,
+        ),
+    ];
+    let mut blocks = serde_json::Map::new();
+    let mut terrain = serde_json::Map::new();
+    for (name, _, _, pixel, carried) in cases {
+        let mut block = serde_json::json!({"textures":name});
+        if carried {
+            block["carried_textures"] = format!("{name}_carried").into();
+            terrain.insert(
+                format!("{name}_carried"),
+                serde_json::json!({"textures":format!("textures/blocks/{name}")}),
+            );
+        }
+        blocks.insert(name.into(), block);
+        terrain.insert(
+            name.into(),
+            serde_json::json!({"textures":format!("textures/blocks/{name}")}),
+        );
+        let mut pixels = pixel.repeat((TILE_SIZE as usize).pow(2));
+        if carried {
+            pixels[3] = 0;
+        }
+        let path = pack.path().join(format!("textures/blocks/{name}.png"));
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        image::save_buffer(path, &pixels, TILE_SIZE, TILE_SIZE, image::ColorType::Rgba8).unwrap();
+    }
+    write(
+        pack.path(),
+        "blocks.json",
+        &serde_json::to_vec(&blocks).unwrap(),
+    );
+    write(
+        pack.path(),
+        "textures/terrain_texture.json",
+        &serde_json::to_vec(&serde_json::json!({"texture_data":terrain})).unwrap(),
+    );
+    write(pack.path(), "textures/flipbook_textures.json", b"[]");
+    let entity = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let mut source = world(&entity);
+    let mut bindings = Vec::new();
+    for (name, flags, material_flags, pixel, carried) in cases {
+        let identifier = format!("minecraft:{name}");
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = entity
+            .item_visuals
+            .iter()
+            .find(|item| item.key.identifier.as_ref() == identifier)
+            .unwrap()
+            .route
+        else {
+            panic!("native cube requires a block item route");
+        };
+        let mut materials = source.materials.to_vec();
+        let material = materials.len() as u32;
+        materials.push(Material {
+            flags: material_flags,
+            ..materials[1]
+        });
+        source.materials = materials.into();
+        let template = if name == "ice" {
+            transparent_cube_template(&mut source, material)
+        } else {
+            NO_MODEL_TEMPLATE
+        };
+        source.visuals[block_visual.0 as usize] = BlockVisual {
+            faces: [material; 6],
+            flags,
+            kind: if template == NO_MODEL_TEMPLATE {
+                VisualKind::Cube
+            } else {
+                VisualKind::Model
+            },
+            support: VisualSupport::Exact,
+            contributor_role: ContributorRole::Primary,
+            model_template: template,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        bindings.push((identifier, block_visual, pixel, carried));
+    }
+    let compiled =
+        compile_icon_assets_with_blocks(pack.path(), MANIFEST, &runtime(&source)).unwrap();
+    let catalog = RuntimeIconCatalog::decode(&compiled.bytes).unwrap();
+    for (name, visual, pixel, cutout) in bindings {
+        let binding = catalog
+            .block_sheets()
+            .iter()
+            .find(|sheet| sheet.visual == visual)
+            .unwrap_or_else(|| panic!("native cube {name} requires six carried faces"));
+        let sheet = &catalog.sprites()[binding.sprite as usize];
+        for face in BlockFace::ALL {
+            assert_eq!(sheet_pixel(sheet, face, 1, 0), &pixel);
+            if cutout {
+                assert_eq!(sheet_pixel(sheet, face, 0, 0)[3], 0);
+            }
+        }
+        let icon = catalog.lookup(&name, 0).unwrap();
+        if pixel[3] < 255 {
+            assert!(
+                icon.rgba8
+                    .chunks_exact(4)
+                    .any(|pixel| pixel[3] > 0 && pixel[3] < 255)
+            );
+            assert!(icon.rgba8.chunks_exact(4).all(|pixel| pixel[3] < 255));
+        }
+    }
 }

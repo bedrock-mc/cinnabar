@@ -50,6 +50,7 @@ fn block_sheet_items_draw_the_gui_cube_over_their_thumbnail() {
             rgba8: vec![255; (width * height * 4) as usize].into(),
         }],
         misses: HashMap::new(),
+        ..Default::default()
     });
     observe(&mut presentation, Some(&icons));
     let bounds = UiRect::new(
@@ -98,6 +99,7 @@ fn large_session_icons_install_without_blocking_later_server_ui_textures() {
         icons: (0..600).map(sprite).collect(),
         block_sheets: Vec::new(),
         misses: HashMap::new(),
+        ..Default::default()
     });
     observe(&mut presentation, Some(&icons));
     let icon = presentation.item_icon("test:variant", 599).unwrap();

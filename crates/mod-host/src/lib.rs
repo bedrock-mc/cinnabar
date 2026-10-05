@@ -2,6 +2,8 @@
 
 pub mod helper;
 #[cfg(feature = "execution")]
+mod load;
+#[cfg(feature = "execution")]
 mod runtime;
 #[cfg(feature = "execution")]
 pub mod server;
@@ -44,7 +46,7 @@ use {
         io::Read,
         path::{Path, PathBuf},
     },
-    wasmtime::{Config, Engine},
+    wasmtime::Engine,
 };
 
 /// Maximum bytes accepted before compilation or allocation of a package buffer.
@@ -83,40 +85,11 @@ pub struct ModHost {
     attempted: [u8; 32],
     grants: ModGrants,
     settings_writer: Option<settings::SettingsWriter>,
+    settings_seed: Option<String>,
 }
 
 #[cfg(feature = "execution")]
 impl ModHost {
-    /// Loads a local component with HUD and demo input, denying optional capabilities.
-    pub fn load(path: &Path) -> Result<Self> {
-        Self::load_with_grants(path, ModGrants::default())
-    }
-
-    /// Loads a component with the developer's explicit per-mod capability grants.
-    pub fn load_with_grants(path: &Path, grants: ModGrants) -> Result<Self> {
-        let bytes = read_component(path)?;
-        let mut config = Config::new();
-        config.wasm_component_model(true).consume_fuel(true);
-        config.max_wasm_stack(256 * 1024);
-        let engine = Engine::new(&config)?;
-        let instance = Instance::new(&engine, &bytes, grants, read_settings(path, grants)?)?;
-        let settings_writer = if grants.settings {
-            Some(settings::SettingsWriter::new(path).context("start mod settings writer")?)
-        } else {
-            None
-        };
-        let mut host = Self {
-            engine,
-            instance,
-            path: path.to_owned(),
-            attempted: Sha256::digest(&bytes).into(),
-            grants,
-            settings_writer,
-        };
-        host.queue_settings();
-        Ok(host)
-    }
-
     /// Runs one bounded callback; a trap revokes its presentation and disables the guest.
     pub fn frame(&mut self, pressed: bool) -> Result<()> {
         self.frame_with_gameplay(pressed, None)
@@ -145,6 +118,7 @@ impl ModHost {
 
     fn queue_settings(&mut self) {
         if let Some(writer) = &self.settings_writer
+            && writer.is_active()
             && let Some(json) = self.instance.settings_write()
         {
             writer.submit(json.to_owned());

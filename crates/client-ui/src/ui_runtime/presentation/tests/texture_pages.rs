@@ -151,9 +151,17 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
 fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     let font = independent_font(&[1024, 2048, 2048, 2048]);
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
+    let font_bytes: usize = font.pages().iter().map(|page| page.rgba8.len()).sum();
+    let page_bytes = |side: u32| side as usize * side as usize * 4;
+    let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
+    let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
+        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
     assert_eq!(
         presentation.textures.plan().bytes(),
-        60 * 1024 * 1024 + 35 * 256 * 256 * 4
+        font_bytes
+            + small_page_bytes
+            + dynamic_bytes
+            + render_model::MAX_UI_ART_PAGES * page_bytes(render_model::UI_ART_PAGE_SIDE)
     );
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];

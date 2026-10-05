@@ -68,6 +68,7 @@ pub(super) fn publish_hand_rig(
             };
             item.texture_layer = layer.presentation.location.layer()
                 | render::HAND_ITEM_LAYER_FLAG
+                | layer.alpha_mode.texture_layer_flag()
                 | if index == 1 {
                     render::HAND_OFFHAND_LAYER_FLAG
                 } else {

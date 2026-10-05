@@ -4,8 +4,8 @@
 use std::{collections::BTreeMap, path::Path};
 
 use assets::{
-    AssetError, BlockVisualId, CompiledEntityAssets, IconBlockSheet, IconSprite, RuntimeAssets,
-    compose_block_item_sheet,
+    AssetError, BlockVisualId, CompiledEntityAssets, IconBlockSheet, IconSprite, NetworkIdMode,
+    RuntimeAssets, compose_block_item_sheet,
 };
 use sha2::{Digest, Sha256};
 
@@ -51,10 +51,7 @@ pub(super) fn run(
         for &visual in block_plan.keys() {
             let id = BlockVisualId(visual);
             if blocks.is_carried_cube(world, id)
-                && let Some(tiles) = blocks.carried_tiles(root, id)?
-                && tiles
-                    .iter()
-                    .all(|tile| tile.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255))
+                && let Some(tiles) = blocks.carried_cube_tiles(root, id)?
             {
                 carried_tiles.insert(visual, tiles);
             }
@@ -65,8 +62,11 @@ pub(super) fn run(
         for (&visual, plan) in block_plan {
             let raster = if let Some(tiles) = carried_tiles.get(&visual) {
                 Some(
-                    model::Model::cube(tiles.clone().map(|tile| tile.rgba8.to_vec().into()))
-                        .raster(),
+                    model::Model::cube(
+                        tiles.clone().map(|tile| tile.rgba8.to_vec().into()),
+                        cube_blending(world, BlockVisualId(visual)),
+                    )
+                    .raster(),
                 )
             } else if plan.is_ok() {
                 continue;
@@ -204,8 +204,7 @@ fn preflight(
     Ok(())
 }
 
-/// A refused opaque cube may still have model geometry or cutout carried
-/// faces (leaves). Only ordinary opaque cubes are published as held sheets.
+/// A refused opaque thumbnail may still have model geometry or explicit carried faces.
 fn model_raster(
     root: &Path,
     world: &RuntimeAssets,
@@ -221,6 +220,19 @@ fn model_raster(
         return Ok(None);
     };
     Ok(blocks.carried_tiles(root, visual)?.map(|tiles| {
-        model::Model::cube(tiles.map(|tile| tile.rgba8.to_vec().into_boxed_slice())).raster()
+        model::Model::cube(
+            tiles.map(|tile| tile.rgba8.to_vec().into_boxed_slice()),
+            cube_blending(world, visual),
+        )
+        .raster()
     }))
+}
+
+fn cube_blending(world: &RuntimeAssets, visual: BlockVisualId) -> [bool; 6] {
+    let block = world.resolve(NetworkIdMode::Sequential, visual.0);
+    assets::BlockFace::ALL.map(|face| {
+        world.materials()[block.face(face).material_id() as usize].flags
+            & assets::MATERIAL_FLAG_ALPHA_BLEND
+            != 0
+    })
 }

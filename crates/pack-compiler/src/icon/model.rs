@@ -143,8 +143,8 @@ impl<'a> Model<'a> {
         Ok(Self { faces })
     }
 
-    /// A cutout full cube from six 16x16 tiles in `BlockFace` order.
-    pub(super) fn cube(tiles: [Box<[u8]>; 6]) -> Model<'static> {
+    /// A full cube from six 16x16 tiles and their alpha modes in `BlockFace` order.
+    pub(super) fn cube(tiles: [Box<[u8]>; 6], blending: [bool; 6]) -> Model<'static> {
         let faces = BlockFace::ALL
             .into_iter()
             .zip(tiles)
@@ -155,7 +155,7 @@ impl<'a> Model<'a> {
                     uvs,
                     tile: Cow::Owned(tile.into_vec()),
                     side: usize::from(assets::BLOCK_ITEM_FACE_SIDE),
-                    blend: false,
+                    blend: blending[face as usize],
                 }
             })
             .collect();

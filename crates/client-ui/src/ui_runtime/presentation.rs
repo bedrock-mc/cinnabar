@@ -28,6 +28,7 @@ pub mod item_viewmodel;
 pub mod menu;
 pub mod menu_artwork;
 pub mod menu_scroll;
+mod mod_panel_font;
 pub use menu_artwork::BUILT_IN_TITLE;
 pub mod nametag_atlas;
 pub mod nametags;
@@ -105,6 +106,7 @@ pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
     /// The startup font without the session's glyph sheets.
     base_font: Arc<RuntimeFontCatalog>,
+    mod_panel_font: Option<mod_panel_font::InstalledFont>,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
     blank_dynamic_page: render_model::UiTexturePage,
@@ -232,6 +234,7 @@ impl UiPresentationRuntime {
         Ok(Self {
             obfuscation: ObfuscationGlyphs::from_catalog(&font),
             base_font: Arc::clone(&font),
+            mod_panel_font: None,
             font,
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,

@@ -210,6 +210,72 @@ fn block_items_beat_short_name_guesses() {
     assert!(icons.misses["t:broken"].contains("no drawable visual"));
 }
 
+#[test]
+fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
+    use assets::{
+        BlockFlags, BlockOverlay, BlockVisual, ContributorRole, Material, TextureArray, TextureMip,
+        TextureRef, VisualKind, VisualSupport,
+    };
+    for flags in [
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ALPHA_BLEND,
+    ] {
+        let overlay = BlockOverlay {
+            visuals: vec![BlockVisual {
+                faces: [1; 6],
+                flags: BlockFlags::CUBE_GEOMETRY,
+                kind: VisualKind::Cube,
+                support: VisualSupport::Exact,
+                contributor_role: ContributorRole::Primary,
+                model_template: assets::NO_MODEL_TEMPLATE,
+                animation: assets::NO_ANIMATION,
+                variant: 0,
+            }],
+            materials: vec![
+                Material::unvaried(),
+                Material {
+                    texture: TextureRef::new(1, 0).unwrap(),
+                    flags,
+                    ..Material::unvaried()
+                },
+            ],
+            texture: Some(TextureArray {
+                layers: 1,
+                mips: [16, 8, 4, 2, 1]
+                    .into_iter()
+                    .map(|size| TextureMip {
+                        size,
+                        rgba8: vec![127; (size * size * 4) as usize].into(),
+                    })
+                    .collect(),
+            }),
+            ..Default::default()
+        };
+        let blocks = protocol::CustomBlocks {
+            blocks: vec![protocol::CustomBlock {
+                name: Arc::from("test:custom_cube"),
+                state_count: 1,
+                collides: true,
+                collision_box: None,
+                selection: Default::default(),
+                visual: Default::default(),
+            }]
+            .into(),
+            vanilla_blocks: Default::default(),
+            skipped: 0,
+        };
+        let items = [(Arc::from("test:custom_cube"), Arc::from("test:custom_cube"))];
+        let compiled = super::custom_block_icons(&overlay, &blocks, false, &items);
+        assert_eq!(compiled.block_sheets.len(), 1);
+        let icons = compile_session_icons(&view(), &[], compiled).unwrap();
+        assert_eq!(
+            icons.block_material_flags.get("test:custom_cube"),
+            Some(&flags)
+        );
+        assert_eq!(icons.block_sheets.len(), 1);
+    }
+}
+
 // A registry item named after a custom block is that block's item; others are not.
 #[test]
 fn registry_items_named_after_custom_blocks_are_block_items() {

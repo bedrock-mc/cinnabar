@@ -53,7 +53,7 @@ mod viewmodel;
 mod viewmodel_render;
 
 pub use hand_rig_render::{
-    HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAtlas, HandRigLight,
+    HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAlphaMode, HandItemAtlas, HandRigLight,
     HandRigRenderPlugin, HandRigScene,
 };
 pub use particle_render::{

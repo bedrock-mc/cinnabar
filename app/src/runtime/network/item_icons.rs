@@ -1,7 +1,10 @@
 //! Session icons for server-defined items: the stack's item_texture.json, and custom block
 //! items drawn as their block.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 mod catalog;
 mod vanilla;
@@ -27,6 +30,7 @@ pub(super) fn compile_session_icons(
     let BlockIcons {
         icons: block_icons,
         block_sheets,
+        block_material_flags,
         misses: block_misses,
     } = block_icons;
     let block_rendered = block_icons
@@ -102,6 +106,7 @@ pub(super) fn compile_session_icons(
         Arc::new(SessionIcons {
             icons,
             block_sheets,
+            block_material_flags,
             misses,
         })
     })
@@ -112,6 +117,7 @@ pub(super) fn compile_session_icons(
 pub(super) struct BlockIcons {
     pub(super) icons: Vec<SessionIcon>,
     pub(super) block_sheets: Vec<SessionIcon>,
+    pub(super) block_material_flags: BTreeMap<Arc<str>, u32>,
     pub(super) misses: Vec<(Arc<str>, Box<str>)>,
 }
 
@@ -120,7 +126,7 @@ use client_session::custom_block_items;
 
 /// Thumbnails of each block item's block in its default (first) state, whose overlay index is
 /// the block's first palette state, or first `hashed_states` entry in a hashed session. A plain
-/// opaque cube state also yields the six-face sheet slots and hands draw as that cube.
+/// cube state also yields the six-face sheet hands draw as that cube.
 pub(super) fn custom_block_icons(
     overlay: &assets::BlockOverlay,
     blocks: &protocol::CustomBlocks,
@@ -150,7 +156,18 @@ pub(super) fn custom_block_icons(
     let mut result = BlockIcons::default();
     for (identifier, block) in block_items.iter().take(MAX_SESSION_ICONS) {
         let visual = first_state.get(block).copied();
-        if let Some(sheet) = visual.and_then(|visual| overlay_sheet(overlay, visual)) {
+        if let Some(visual) = visual
+            && let Some(sheet) = overlay_sheet(overlay, visual)
+        {
+            let material_flags = overlay.visuals[visual]
+                .faces
+                .iter()
+                .fold(0, |flags, material| {
+                    flags | overlay.materials[*material as usize].flags
+                });
+            result
+                .block_material_flags
+                .insert(Arc::clone(identifier), material_flags);
             result.block_sheets.push(session_icon(identifier, sheet));
         }
         match visual.and_then(|visual| pack_compiler::overlay_block_icon(overlay, visual)) {

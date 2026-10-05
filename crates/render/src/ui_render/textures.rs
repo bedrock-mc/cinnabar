@@ -349,6 +349,58 @@ mod tests {
     }
 
     #[test]
+    fn local_font_replacement_writes_one_reserved_page_without_static_reallocation() {
+        use render_model::{
+            MAX_UI_DYNAMIC_PAGES, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
+            UI_LOCAL_FONT_PAGE_SIDE,
+        };
+
+        let page = |side, value| {
+            UiTexturePage::owned(
+                [side; 2],
+                vec![value; side as usize * side as usize * 4].into(),
+            )
+            .unwrap()
+        };
+        let mut pages = vec![page(1, 255)];
+        pages.extend((0..MAX_UI_DYNAMIC_PAGES).map(|offset| {
+            page(
+                if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+                    UI_LOCAL_FONT_PAGE_SIDE
+                } else {
+                    UI_DYNAMIC_PAGE_SIDE
+                },
+                0,
+            )
+        }));
+        let base = UiTextureCatalog::new(pages, 1).unwrap();
+        let mut state = TextureUploadState::default();
+        let dirty = state.dirty(&base).unwrap();
+        state
+            .execute(&base, &dirty, |_, _, _| Ok::<_, ()>(()))
+            .unwrap();
+        let mut replacement = base.pages()[base.dynamic_start()..].to_vec();
+        replacement[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_LOCAL_FONT_PAGE_SIDE, 41);
+        let changed = base.replace_dynamic(replacement).unwrap();
+        assert_eq!(changed.static_identity(), base.static_identity());
+        assert_eq!(changed.plan(), base.plan());
+        let target = base.dynamic_start() + UI_LOCAL_FONT_PAGE_OFFSET;
+        assert_eq!(state.dirty(&changed).unwrap(), [target]);
+        let mut written = Vec::new();
+        state
+            .execute(&changed, &[target], |index, _, _| {
+                written.push(index);
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        assert_eq!(written, [target]);
+        assert!(state.dirty(&changed).unwrap().is_empty());
+        let mut wrong = base.pages()[base.dynamic_start()..].to_vec();
+        wrong[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_DYNAMIC_PAGE_SIDE, 0);
+        assert!(base.replace_dynamic(wrong).is_err());
+    }
+
+    #[test]
     fn recording_executor_writes_only_changed_layers_and_retries_refusal() {
         let base = catalog(0);
         let mut state = TextureUploadState::default();

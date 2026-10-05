@@ -582,8 +582,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     }
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
-    #[cfg(feature = "local-mods")]
-    let font_runtime = crate::modding::font::with_optional_font(font_runtime);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),

@@ -36,6 +36,32 @@ fn light() -> HandRigLight {
 }
 
 #[test]
+fn first_person_target_blends_translucent_block_texels_over_the_scene() {
+    let pipeline = pipeline_descriptor(hand_rig_layout());
+    let target = pipeline.fragment.unwrap().targets.remove(0).unwrap();
+    assert_eq!(target.blend, Some(BlendState::ALPHA_BLENDING));
+}
+
+#[test]
+fn held_alpha_selectors_preserve_each_hands_artwork_layer() {
+    for alpha_mode in [
+        HandItemAlphaMode::Opaque,
+        HandItemAlphaMode::Cutout,
+        HandItemAlphaMode::Blend,
+    ] {
+        for hand in [0, HAND_OFFHAND_LAYER_FLAG] {
+            let layer = 17 | HAND_ITEM_LAYER_FLAG | hand | alpha_mode.texture_layer_flag();
+            assert_eq!(layer & HAND_TEXTURE_LAYER_MASK, 17);
+            assert_eq!(layer & HAND_OFFHAND_LAYER_FLAG, hand);
+            assert_eq!(
+                layer & (HAND_BLEND_LAYER_FLAG | HAND_CUTOUT_LAYER_FLAG),
+                alpha_mode.texture_layer_flag(),
+            );
+        }
+    }
+}
+
+#[test]
 fn publish_accepts_a_single_instance_lit_rig_and_activates() {
     let mut scene = HandRigScene::default();
     assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 7));

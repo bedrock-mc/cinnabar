@@ -1,16 +1,18 @@
-//! Plain opaque block cubes held in hand and drawn in slots: six 16-texel tiles composed into one
-//! 48x32 sheet, for vanilla block items and for server custom block items alike.
+//! Full block cubes held in hand and drawn in slots, with six independently authored faces.
 
 use std::collections::BTreeMap;
 
 use assets::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BlockFace, BlockFlags, BlockOverlay,
     DIAGNOSTIC_MATERIAL, IconSprite, ItemVisualDefinitionRoute, Material, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, RuntimeEntityAssets, TextureArray, TextureMip,
-    VisualKind, VisualSupport, compose_block_item_sheet,
+    NetworkIdMode, RuntimeAssets, RuntimeEntityAssets, TextureArray, TextureMip, VisualKind,
+    VisualSupport, compose_block_item_sheet,
 };
 
 const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
+
+#[cfg(test)]
+mod tests;
 
 /// Composed block-item sheets and the visual IDs that select them.
 pub struct BlockSheets {
@@ -19,8 +21,7 @@ pub struct BlockSheets {
     pub by_visual: BTreeMap<u32, usize>,
 }
 
-/// A sheet per distinct set of face tiles, for every block item whose block is an ordinary
-/// opaque cube; other blocks are skipped.
+/// Shares face sheets across cube items independently of their terrain occlusion and alpha.
 pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSheets {
     let mut sheets = Vec::new();
     let mut by_materials = BTreeMap::<[u32; 6], usize>::new();
@@ -55,14 +56,22 @@ pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSh
     BlockSheets { sheets, by_visual }
 }
 
-/// Selects exact opaque cubes whose six faces can share an item sheet.
+/// Selects exact cube geometry, including the carrier's transparent cube templates.
 fn cube_materials(world: &RuntimeAssets, visual: u32) -> Option<[u32; 6]> {
     let block = world.resolve(NetworkIdMode::Sequential, visual);
+    let cube = match block.kind() {
+        VisualKind::Cube => block.flags().contains(BlockFlags::CUBE_GEOMETRY),
+        VisualKind::Model => block
+            .model_template()
+            .and_then(|id| world.model_templates().get(id as usize))
+            .is_some_and(|template| {
+                template.flags & assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0
+            }),
+        _ => false,
+    };
     if !block.is_known()
-        || block.kind() != VisualKind::Cube
+        || !cube
         || block.support() != VisualSupport::Exact
-        || block.flags() != (BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
-        || block.model_template().is_some()
         || block.animation().is_some()
     {
         return None;
@@ -88,21 +97,29 @@ fn compose_sheet(world: &RuntimeAssets, materials: &[u32; 6]) -> Option<IconSpri
         tiles.push(face_tile(
             material,
             &page.texture,
-            page.texture.mips.first()?,
+            page.texture
+                .mips
+                .iter()
+                .find(|mip| mip.size as usize == TILE)?,
         )?);
     }
     compose_block_item_sheet(&tiles.try_into().ok()?)
 }
 
-/// The sheet of a session overlay's state `visual` when it is a plain opaque cube, held and
-/// drawn in slots like a vanilla block item's (`collect`); `None` for any other shape.
+/// A session cube's face sheet, including blended and cutout cube templates.
 pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite> {
     let block = overlay.visuals.get(visual)?;
-    if block.kind != VisualKind::Cube
-        || block.flags != (BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
-        || block.model_template != NO_MODEL_TEMPLATE
-        || block.animation != NO_ANIMATION
-    {
+    let cube = match block.kind {
+        VisualKind::Cube => block.flags.contains(BlockFlags::CUBE_GEOMETRY),
+        VisualKind::Model => overlay
+            .model_templates
+            .get(block.model_template as usize)
+            .is_some_and(|template| {
+                template.flags & assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0
+            }),
+        _ => false,
+    };
+    if !cube || block.support != VisualSupport::Exact || block.animation != NO_ANIMATION {
         return None;
     }
     let texture = overlay.texture.as_ref()?;
@@ -120,9 +137,10 @@ pub fn overlay_sheet(overlay: &BlockOverlay, visual: usize) -> Option<IconSprite
     compose_block_item_sheet(&tiles.try_into().ok()?)
 }
 
-/// `material`'s 16-texel layer of `mip`; tinted, alpha-flagged or animated materials have none.
+/// Preserves face alpha; unresolved world tint and animation require authored carried faces.
 fn face_tile(material: &Material, texture: &TextureArray, mip: &TextureMip) -> Option<IconSprite> {
-    if material.flags != 0
+    if material.flags & !(assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT)
+        != 0
         || material.animation != NO_ANIMATION
         || mip.size as usize != TILE
         || material.texture.layer() >= texture.layers

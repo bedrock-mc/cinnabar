@@ -33,19 +33,39 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 #[cfg(feature = "local-mods")]
+mod registration;
+
+#[cfg(feature = "local-mods")]
 #[derive(Resource)]
 struct ModRuntime {
     host: ModHost,
     last_reload: Instant,
     grants: ModGrants,
     controls: mod_host::ControlFrame,
+    reload_on_main: bool,
+    registration_identity: Option<[u8; 32]>,
+    registration_request: Option<(u64, String)>,
+    suspended: bool,
 }
 
 /// Installs the developer extension only when its component path is explicit.
 pub(crate) fn configure_from_environment(app: &mut App) {
     let path = std::env::var_os(COMPONENT_ENV);
     #[cfg(feature = "local-mods")]
-    configure(app, path.as_deref().map(Path::new));
+    if let Some(path) = path.as_deref() {
+        configure(app, Some(Path::new(path)));
+    } else {
+        match launcher::install_layout::InstallLayout::discover()
+            .map_err(|error| error.to_string())
+            .and_then(|layout| registration::Watcher::start(layout.user_config_root))
+        {
+            Ok(watcher) => {
+                app.insert_resource(watcher);
+                configure_systems(app, true);
+            }
+            Err(error) => eprintln!("Local extension watcher unavailable: {error}"),
+        }
+    }
     #[cfg(not(feature = "local-mods"))]
     if path.is_some() {
         let _ = app;
@@ -79,23 +99,59 @@ fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) 
                     last_reload: Instant::now(),
                     grants,
                     controls: mod_host::empty_controls(),
+                    reload_on_main: true,
+                    registration_identity: None,
+                    registration_request: None,
+                    suspended: false,
                 })
-                .init_resource::<interaction::ModInteraction>()
-                .add_systems(
-                    Update,
-                    input::prepare_mod_input.before(ClientFrameSet::RawInput),
-                )
-                .add_systems(
-                    Update,
-                    drive_mod
-                        .in_set(crate::camera::ModCameraInputSet)
-                        .after(ClientFrameSet::SemanticFinalize)
-                        .before(ClientFrameSet::UiPublication)
-                        .before(crate::environment::update_atmosphere_frame),
-                );
+                .init_resource::<interaction::ModInteraction>();
+            if grants.controls
+                && let Some(path) = std::env::var_os(font::FONT_ENV)
+            {
+                match font::load(Path::new(&path)).and_then(|font| {
+                    app.world_mut()
+                        .get_resource_mut::<UiPresentationRuntime>()
+                        .ok_or_else(|| "presentation is unavailable".to_owned())?
+                        .set_mod_panel_font(Some(std::sync::Arc::new(font)))
+                        .map_err(|error| error.to_string())
+                }) {
+                    Ok(()) => {}
+                    Err(error) => eprintln!("Optional personal-panel font unavailable: {error}"),
+                }
+            }
+            configure_systems(app, false);
         }
         Err(error) => eprintln!("Cinnabar extension {} disabled: {error:#}", path.display()),
     }
+}
+
+#[cfg(feature = "local-mods")]
+fn configure_systems(app: &mut App, watching: bool) {
+    if watching {
+        app.add_systems(
+            Update,
+            (
+                registration::install_pending,
+                ApplyDeferred,
+                input::prepare_mod_input,
+            )
+                .chain()
+                .before(ClientFrameSet::RawInput),
+        );
+    } else {
+        app.add_systems(
+            Update,
+            input::prepare_mod_input.before(ClientFrameSet::RawInput),
+        );
+    }
+    app.add_systems(
+        Update,
+        drive_mod
+            .in_set(crate::camera::ModCameraInputSet)
+            .after(ClientFrameSet::SemanticFinalize)
+            .before(ClientFrameSet::UiPublication)
+            .before(crate::environment::update_atmosphere_frame),
+    );
 }
 
 /// Runs the bounded guest and publishes only its validated presentation output.
@@ -106,17 +162,26 @@ fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) 
 #[cfg(feature = "local-mods")]
 fn drive_mod(
     player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
-    mut extension: ResMut<ModRuntime>,
+    extension: Option<ResMut<ModRuntime>>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<(&Window, Option<&CursorOptions>), With<PrimaryWindow>>,
     ui: Res<UiRuntime>,
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationRuntime>,
-    mut time_override: ResMut<VisualTimeOverride>,
+    time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
-    mut interaction: ResMut<interaction::ModInteraction>,
+    interaction: Option<ResMut<interaction::ModInteraction>>,
+    watcher: Option<Res<registration::Watcher>>,
 ) {
-    if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
+    let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
+        (extension, time_override, interaction)
+    else {
+        return;
+    };
+    if extension.suspended {
+        return;
+    }
+    if extension.reload_on_main && extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
         if let Err(error) = extension.host.reload_if_changed() {
             eprintln!("Cinnabar extension reload rejected: {error:#}");
@@ -141,10 +206,18 @@ fn drive_mod(
             .host
             .frame_with_controls(pressed, snapshot, controls)
     {
+        if let Some((generation, request_id)) = &extension.registration_request
+            && let Some(watcher) = watcher.as_ref()
+        {
+            watcher.quarantine(*generation, request_id.clone(), format!("{error:#}"));
+        }
         eprintln!("Cinnabar extension callback failed: {error:#}");
     }
     if let Some(error) = extension.host.take_settings_error() {
         eprintln!("Cinnabar extension preferences could not be saved: {error}");
+    }
+    if let Some(watcher) = watcher.as_ref() {
+        watcher.remember_settings(Some(&extension.host));
     }
     let output = extension.host.take_interaction();
     interaction.attack_reach = output.attack_reach;

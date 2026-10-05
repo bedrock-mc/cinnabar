@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use render_model::{
     MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, UI_DYNAMIC_PAGE_SIDE,
-    UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET,
-    UI_SESSION_ICON_PAGE_OFFSET, UiRenderRejectReason, UiTextureCatalog, UiTexturePage,
-    UiTexturePlan,
+    UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
+    UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET,
+    UiRenderRejectReason, UiTextureCatalog, UiTexturePage, UiTexturePlan,
 };
 
 #[test]
@@ -33,8 +33,9 @@ fn planner_checks_entire_catalog_and_all_limits() {
     assert!(UiTexturePage::owned([1, 1], vec![0; 3].into()).is_err());
     assert!(UiTexturePage::owned([4097, 1], vec![0; 4].into()).is_err());
     assert!(UiTextureCatalog::new(Vec::new(), 0).is_err());
-    let reserved = UiTexturePage::owned([256, 256], vec![0; 256 * 256 * 4].into()).unwrap();
-    assert!(UiTextureCatalog::new(vec![reserved; MAX_UI_DYNAMIC_PAGES + 1], 0).is_err());
+    let mut reserved = reserved_dynamic_pages();
+    reserved.push(rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0));
+    assert!(UiTextureCatalog::new(reserved, 0).is_err());
     let unreserved = UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap();
     assert!(UiTextureCatalog::new(vec![unreserved], 0).is_err());
 }
@@ -84,7 +85,7 @@ fn art_pages_follow_the_small_dynamic_pages_within_their_own_cap() {
     let side = render_model::UI_ART_PAGE_SIDE;
     let art =
         UiTexturePage::owned([side, side], vec![0; (side * side * 4) as usize].into()).unwrap();
-    let mut pages = vec![small.clone(); MAX_UI_DYNAMIC_PAGES];
+    let mut pages = reserved_dynamic_pages();
     pages.extend(std::iter::repeat_n(
         art.clone(),
         render_model::MAX_UI_ART_PAGES,
@@ -104,12 +105,23 @@ fn rgba_page(dimensions: [u32; 2], value: u8) -> UiTexturePage {
     .unwrap()
 }
 
+fn reserved_dynamic_pages() -> Vec<UiTexturePage> {
+    let small = rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0);
+    let font = rgba_page([UI_LOCAL_FONT_PAGE_SIDE; 2], 0);
+    (0..MAX_UI_DYNAMIC_PAGES)
+        .map(|offset| {
+            if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+                font.clone()
+            } else {
+                small.clone()
+            }
+        })
+        .collect()
+}
+
 fn model_catalog() -> UiTextureCatalog {
     let mut pages = vec![rgba_page([16; 2], 255)];
-    pages.extend(vec![
-        rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0);
-        MAX_UI_DYNAMIC_PAGES
-    ]);
+    pages.extend(reserved_dynamic_pages());
     UiTextureCatalog::with_source_identity(pages, 1, [41; 32]).unwrap()
 }
 
@@ -216,6 +228,15 @@ fn native_model_slots_cannot_expand_other_reservations_or_admit_malformed_extent
             UI_MODEL_ATLAS_PAGE_OFFSET,
             [render_model::UI_ART_PAGE_SIDE; 2],
         ),
+        (UI_LOCAL_FONT_PAGE_OFFSET, [UI_DYNAMIC_PAGE_SIDE; 2]),
+        (
+            UI_LOCAL_FONT_PAGE_OFFSET,
+            [render_model::UI_ART_PAGE_SIDE; 2],
+        ),
+        (
+            UI_LOCAL_FONT_PAGE_OFFSET,
+            [UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_FONT_PAGE_SIDE / 2],
+        ),
     ] {
         let mut pages = base.pages()[base.dynamic_start()..].to_vec();
         pages[offset] = rgba_page(dimensions, 0);
@@ -229,6 +250,11 @@ fn native_model_slots_cannot_expand_other_reservations_or_admit_malformed_extent
     assert!(base.replace_dynamic(shorter).is_err());
     let pixels = vec![0; (UI_MODEL_ATLAS_SIDE * UI_MODEL_ATLAS_SIDE * 4) as usize - 1];
     assert!(UiTexturePage::owned([UI_MODEL_ATLAS_SIDE; 2], pixels.into()).is_err());
+    let mut invalid_font = reserved_dynamic_pages();
+    invalid_font[UI_LOCAL_FONT_PAGE_OFFSET] = rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0);
+    assert!(UiTextureCatalog::new(invalid_font, 0).is_err());
+    let pixels = vec![0; (UI_LOCAL_FONT_PAGE_SIDE * UI_LOCAL_FONT_PAGE_SIDE * 4) as usize - 1];
+    assert!(UiTexturePage::owned([UI_LOCAL_FONT_PAGE_SIDE; 2], pixels.into()).is_err());
 }
 
 #[test]
@@ -266,10 +292,7 @@ fn session_icon_resize_rejects_over_budget_catalog_without_mutating_it() {
         rgba_page([render_model::MAX_UI_TEXTURE_SIDE / 2; 2], 0),
     ];
     let dynamic_start = pages.len();
-    pages.extend(vec![
-        rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0);
-        MAX_UI_DYNAMIC_PAGES
-    ]);
+    pages.extend(reserved_dynamic_pages());
     let base = UiTextureCatalog::new(pages, dynamic_start).unwrap();
     let before = base.clone();
     let mut replacement = base.pages()[dynamic_start..].to_vec();

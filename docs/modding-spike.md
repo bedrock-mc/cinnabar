@@ -21,7 +21,7 @@ CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p bedrock-client --fe
 Route local builds through the shared limiter as required by
 `docs/agents/multi-agent-workflow.md`. No Go core or server is needed for `probe`,
 `bench` or the tests. Launching the client still requires its normal pinned carriers.
-No mod is loaded when the environment variable is absent; builds without `local-mods`
+No mod is loaded without an environment selection or enabled local registration; builds without `local-mods`
 do not compile Wasmtime and ignore it with a warning.
 
 The last command opens the launcher. Select a server only in a separately
@@ -138,7 +138,7 @@ module and embedded WIT metadata to a component. The guest's actual imports
 declare its requirements; unknown imports fail linking. The prototype's
 grant is HUD, the demo action and environment for the developer-selected mod,
 with separate explicit opt-ins for gameplay reads and camera writes. It has
-no permission prompt or install manifest yet.
+no marketplace permission prompt or signed package format.
 
 The host admits no WASI, filesystem, network, Bevy or GPU import. Gameplay data
 arrives only as a bounded app-owned snapshot, not a world handle. Each
@@ -150,8 +150,9 @@ The label's original host-owned JSON template goes through the existing JSON-UI
 engine and compiled carrier. Guest strings never become JSON or binding expressions.
 
 The app integration sits after semantic input finalization and before UI
-publication, between physical look and movement. With the switch absent it
-installs no mod resource or update system.
+publication, between physical look and movement. Without an active selection it
+installs no guest runtime or gameplay output. A `local-mods` build watches its
+local registration on a background worker; default builds have no watcher.
 Required vanilla carriers remain required. The extension adds no protocol types
 or dependencies on gameplay state to the component host.
 
@@ -185,9 +186,45 @@ Successful callbacks commit settings in memory immediately. One worker coalesces
 atomic disk writes, reports failures separately, and flushes the last value on exit.
 
 With an explicit component and controls grant, `CINNABAR_MOD_FONT` may select a
-bounded local outline font for the personal panel. It is rasterized once at startup
-into a private atlas alias with filtered sampling. Panel sizing follows display DPI
+bounded local outline font for the personal panel. It is rasterized once per
+selected font into an isolated atlas alias with filtered sampling. Panel sizing follows display DPI
 independently of the game GUI scale; vanilla and server glyph ownership are preserved.
+
+## Attach a local component to a running client
+
+A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root`
+(on an installed Windows client, `%LOCALAPPDATA%/Cinnabar/`). Write it atomically:
+
+```json
+{
+  "version": 1,
+  "request_id": "local-request-1",
+  "enabled": true,
+  "component": "C:/Local/mod.component.wasm",
+  "font": "C:/Local/panel.ttf",
+  "grants": {
+    "environment": false,
+    "players": true,
+    "camera": true,
+    "controls": true,
+    "interaction": true,
+    "settings": true
+  }
+}
+```
+
+The registration is bounded to 16 KiB, paths must be absolute, and grants default
+to false. Component compilation, source polling, font rasterization and status
+writes run on the worker. The current generation is installed before physical
+input sampling; deleting, disabling or invalidating the registration revokes its
+runtime and restores input ownership. A request-ID-only change preserves guest
+state. An environment-selected component takes precedence over registration.
+
+`local-mod.status.json` reports the request ID, client PID and `loaded`, `error`
+or `disabled` state. `loaded` acknowledges actual installation, rather than only
+successful compilation. The guest still has no filesystem or process access.
+This loader cannot be added to an executable that is already running without it;
+older clients require one update and restart.
 
 ## Verification and limits
 
@@ -219,7 +256,7 @@ CINNABAR_MOD_SNAPSHOT_COMPONENT=/tmp/cinnabar-hello.wasm \
 This alternates warmed baseline/sample batches at the same viewport and reports
 both totals and paired differences. It includes the guest callback, label adapter
 and JSON-UI build; it excludes Bevy scheduling, reload polling, rasterization and
-GPU work. No-mod scheduling installs zero extension systems. These development
+GPU work. Default builds install zero extension systems. These development
 profile measurements are diagnostic, not a release frame-budget acceptance test.
 
 The host tests execute actual components, including traps, endless loops,
@@ -231,7 +268,8 @@ costs. Its development-profile figures are spike evidence, not a release frame
 budget or vanilla performance acceptance.
 
 This in-process spike cannot contain compiler OOM, host defects or runtime native
-crashes. Compilation and file reads are synchronous. Before admitting downloaded
+crashes. Environment-selected reload compilation and file reads remain synchronous;
+registration loading uses its bounded worker. Before admitting downloaded
 mods, move compilation/execution to a restricted helper with process memory/time
 limits, bounded IPC and watchdog restart. Recheck the runtime's security support
 and advisories before release. The design also requires signed packages, explicit

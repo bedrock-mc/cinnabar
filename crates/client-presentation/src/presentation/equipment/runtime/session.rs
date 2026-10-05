@@ -14,6 +14,7 @@ pub struct StagedSessionIcons {
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     block_sheets: BTreeMap<Box<str>, usize>,
+    block_alpha: BTreeMap<Box<str>, render::HandItemAlphaMode>,
     atlas: SpriteAtlas,
 }
 
@@ -25,6 +26,7 @@ impl StagedSessionIcons {
         let mut sprites = Vec::new();
         let mut by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>> = BTreeMap::new();
         let mut block_sheets = BTreeMap::new();
+        let mut block_alpha = BTreeMap::new();
         for icon in icons.icons.iter().take(MAX_SESSION_MESHES) {
             let (Ok(width), Ok(height)) = (u16::try_from(icon.width), u16::try_from(icon.height))
             else {
@@ -55,6 +57,15 @@ impl StagedSessionIcons {
                 continue;
             }
             block_sheets.insert(Box::from(sheet.identifier.as_ref()), sprites.len());
+            let flags = icons
+                .block_material_flags
+                .get(sheet.identifier.as_ref())
+                .copied()
+                .unwrap_or_default();
+            block_alpha.insert(
+                Box::from(sheet.identifier.as_ref()),
+                alpha::mode_for_material_flags(flags),
+            );
             sprites.push(IconSprite {
                 width,
                 height,
@@ -66,6 +77,7 @@ impl StagedSessionIcons {
             sprites,
             by_identifier,
             block_sheets,
+            block_alpha,
         })
     }
 
@@ -83,6 +95,7 @@ pub(super) struct SessionLayer {
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     /// Custom block item to its cube sheet's index in `sprites`.
     block_sheets: BTreeMap<Box<str>, usize>,
+    block_alpha: BTreeMap<Box<str>, render::HandItemAlphaMode>,
     placements: Vec<Option<Placement>>,
     locations: Vec<Option<ActorArtworkLocation>>,
 }
@@ -127,6 +140,7 @@ impl EquipmentRuntime {
             layer.sprites = icons.sprites;
             layer.by_identifier = icons.by_identifier;
             layer.block_sheets = icons.block_sheets;
+            layer.block_alpha = icons.block_alpha;
             layer.placements = icons.atlas.placements;
             layer.locations = locations;
         }
@@ -189,6 +203,13 @@ impl EquipmentRuntime {
 
     pub(super) fn session_sprite_pixels(&self, index: usize) -> Option<&IconSprite> {
         self.session.sprites.get(index)
+    }
+
+    pub(super) fn session_block_alpha(
+        &self,
+        identifier: &str,
+    ) -> Option<render::HandItemAlphaMode> {
+        self.session.block_alpha.get(identifier).copied()
     }
 }
 

@@ -27,6 +27,11 @@ struct HandLight {
     pad: u32,
 }
 
+struct HandMaterial {
+    texture_flags: vec4<u32>,
+    layer_mask: vec4<u32>,
+}
+
 @group(0) @binding(0) var<uniform> view: HandView;
 @group(0) @binding(1) var<storage, read> instance_words: array<u32>;
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
@@ -35,7 +40,7 @@ struct HandLight {
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
-@group(0) @binding(8) var<uniform> material_class: vec4<u32>;
+@group(0) @binding(8) var<uniform> hand_material: HandMaterial;
 @group(0) @binding(9) var<uniform> hand_light: HandLight;
 // Instances whose texture layer has its top bit set sample this equipment atlas page instead.
 @group(0) @binding(10) var item_atlas: texture_2d_array<f32>;
@@ -129,19 +134,23 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if (input.valid == 0u) {
         discard;
     }
-    if (!front && input.back_uv.x < -1.0e8) {
+    let cutout = (input.skin_layer & hand_material.texture_flags.w) != 0u;
+    let reverse_cube = !front && input.back_uv.x < -1.0e8;
+    if (reverse_cube && !cutout) {
         discard;
     }
-    let uv = select(input.back_uv, input.uv, front);
-    let layer = i32(input.skin_layer & material_class.w);
+    let uv = select(input.back_uv, input.uv, front || reverse_cube);
+    let layer = i32(input.skin_layer & hand_material.layer_mask.x);
     let skin_color = textureSample(skins, skin_sampler, uv, layer);
     let main_color = textureSample(item_atlas, skin_sampler, uv, layer);
     let off_color = textureSample(offhand_atlas, skin_sampler, uv, layer);
-    let item_color = select(main_color, off_color, (input.skin_layer & material_class.z) != 0u);
-    let color = select(skin_color, item_color, (input.skin_layer & material_class.y) != 0u);
-    if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
+    let item_color = select(main_color, off_color, (input.skin_layer & hand_material.texture_flags.y) != 0u);
+    let is_item = (input.skin_layer & hand_material.texture_flags.x) != 0u;
+    let color = select(skin_color, item_color, is_item);
+    if ((!is_item || cutout) && color.a < 0.5) {
         discard;
     }
     let lit = lit_colour(color.rgb, light_colour(hand_light.block_level | (hand_light.sky_level << 4u)));
-    return vec4(lit, color.a);
+    let blend = is_item && (input.skin_layer & hand_material.texture_flags.z) != 0u;
+    return vec4(lit, select(1.0, color.a, blend));
 }

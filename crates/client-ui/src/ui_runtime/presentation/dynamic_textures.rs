@@ -14,7 +14,7 @@ pub(super) const FIRST_GLYPH_PAGE: usize = SESSION_ICON_PAGE + 1;
 /// Dynamic page offset of the server resource-pack UI textures, after the glyphs.
 pub(super) const SERVER_UI_PAGE: usize = FIRST_GLYPH_PAGE + GLYPH_PAGES;
 /// Dynamic pages reserved for server resource-pack UI textures.
-pub(super) const SERVER_UI_PAGES: usize = render_model::MAX_UI_DYNAMIC_PAGES - SERVER_UI_PAGE;
+pub(super) const SERVER_UI_PAGES: usize = render_model::UI_LOCAL_FONT_PAGE_OFFSET - SERVER_UI_PAGE;
 
 pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
     let changed = runtime
@@ -238,6 +238,12 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
+    dynamic.push(
+        runtime
+            .mod_panel_font
+            .as_ref()
+            .map_or_else(super::mod_panel_font::blank_page, |font| font.page.clone()),
+    );
     // Unused art pages keep their old pixels; nothing references them.
     let art_pages = previous
         .len()
