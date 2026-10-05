@@ -12,6 +12,9 @@ const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json")
 #[path = "item_visuals/spawn_eggs.rs"]
 mod spawn_eggs;
 
+#[path = "item_visuals/beds.rs"]
+mod beds;
+
 fn write(root: &Path, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();

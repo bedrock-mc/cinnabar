@@ -288,6 +288,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
             protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 70.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();

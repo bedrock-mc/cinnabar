@@ -22,9 +22,11 @@ mod geometry;
 mod item;
 mod item_bindings;
 mod json;
+mod legacy_block_geometry;
 mod legacy_icons;
 mod molang;
 mod native_bind_pose;
+mod native_dragon_geometry;
 mod pack;
 mod sanitize;
 mod source;
@@ -105,6 +107,7 @@ pub fn compile_entity_assets_with_report(
     let mut selected = Vec::new();
     collect_family(root, "entity", &["json"], &mut selected)?;
     collect_family(root, "models/entity", &["json"], &mut selected)?;
+    collect_optional_file(root, assets::LEGACY_ENTITY_GEOMETRY_PATH, &mut selected)?;
     collect_family(root, "animations", &["json"], &mut selected)?;
     collect_family(root, "animation_controllers", &["json"], &mut selected)?;
     collect_family(root, "render_controllers", &["json"], &mut selected)?;
@@ -169,6 +172,7 @@ pub fn compile_entity_assets_with_report(
         // Pinned vanilla samples occasionally omit a legacy cube bind transform that
         // the shipped native base pack retains. This is never applied to session packs.
         native_bind_pose::restore_sample_defaults(&relative_path, &bytes, &mut geometries);
+        native_dragon_geometry::expand_sample(&relative_path, &bytes, &mut geometries);
         source_payloads.insert(relative_path, bytes.into_boxed_slice());
         debug_assert_eq!(source_index + 1, sources.len());
     }
@@ -523,7 +527,9 @@ fn parse_source(
         return Ok(());
     }
 
-    let value = if relative_path.starts_with("models/entity/") {
+    let value = if relative_path.starts_with("models/entity/")
+        || relative_path == assets::LEGACY_ENTITY_GEOMETRY_PATH
+    {
         parse_fully_unique_json(absolute_path, bytes)?
     } else {
         parse_unique_json(absolute_path, bytes)?
@@ -541,6 +547,14 @@ fn parse_source(
             &value,
             symbols,
             EntityAssetKind::Entity,
+        )
+    } else if relative_path == assets::LEGACY_ENTITY_GEOMETRY_PATH {
+        legacy_block_geometry::parse(
+            relative_path,
+            absolute_path,
+            &value,
+            symbols,
+            geometry_payloads,
         )
     } else if relative_path.starts_with("models/entity/") {
         parse_geometry(

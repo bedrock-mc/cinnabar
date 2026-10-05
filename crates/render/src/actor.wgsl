@@ -25,7 +25,7 @@ struct BoneMatrix {
 @group(0) @binding(8) var<uniform> material_class: vec4<u32>;
 
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) skin_layer: u32,
     @location(2) @interpolate(flat) valid: u32,
@@ -38,6 +38,10 @@ struct VertexOutput {
     @location(9) world_position: vec3<f32>,
     @location(10) @interpolate(flat) multitexture_layers: vec2<u32>,
     @location(11) native_lighting: vec3<f32>,
+    @location(12) @interpolate(flat) material: u32,
+    @location(13) @interpolate(flat) dissolve_multiplier: f32,
+    @location(14) @interpolate(flat) surface: u32,
+    @location(15) back_native_lighting: vec3<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -91,7 +95,11 @@ fn actor_vertex(
     out.overlay = unpack4x8unorm(overlay_rgba8);
     out.light = instance_words[instance_base + 24u];
     out.native_lighting = vec3(1.0);
+    out.back_native_lighting = vec3(1.0);
+    out.surface = 0u;
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
+    out.material = instance_words[instance_base + 27u];
+    out.dissolve_multiplier = word_f32(instance_base + 28u);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
     let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
     let uv_scale = vec2(word_f32(instance_base + 22u), word_f32(instance_base + 23u));
@@ -105,8 +113,8 @@ fn actor_vertex(
         return out;
     }
 
-    // ActorRigVertex is eleven packed words (position, normal, front/back UV, bone).
-    let vertex_base = (span.first_vertex + vertex_index) * 11u;
+    // ActorRigVertex uses its Rust stride for both the actor and hand vertex pullers.
+    let vertex_base = (span.first_vertex + vertex_index) * ACTOR_RIG_VERTEX_WORDS;
     let local = vec3(
         bitcast<f32>(vertex_words[vertex_base]),
         bitcast<f32>(vertex_words[vertex_base + 1u]),
@@ -128,6 +136,7 @@ fn actor_vertex(
     // A one-sided plane's back keeps its sentinel so the fragment stage can discard it.
     out.back_uv = select(uv_offset + raw_back_uv * uv_scale, raw_back_uv, raw_back_uv.x < -1.0e8);
     let bone_index = vertex_words[vertex_base + 10u];
+    out.surface = vertex_words[vertex_base + 11u];
     let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
     let current = transform_point(current_bones[current_bone_base + bone_index], local);
     let posed = mix(previous, current, partial_tick);
@@ -154,6 +163,10 @@ fn actor_vertex(
         dot(instance_row(instance_base, 2u).xyz, posed_normal),
     ));
     out.native_lighting = actor_lighting(out.light, out.world_normal, out.overlay.a);
+    out.back_native_lighting = out.native_lighting;
+    if (out.surface != 0u) {
+        out.back_native_lighting = actor_lighting(out.light, -out.world_normal, out.overlay.a);
+    }
     out.valid = 1u;
     return out;
 }
@@ -166,6 +179,10 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (!front && input.back_uv.x < -1.0e8) {
         discard;
     }
+    let one_sided_material = input.material == ACTOR_MATERIAL_DRAGON || input.material == ACTOR_MATERIAL_DISSOLVE_DEPTH || input.material == ACTOR_MATERIAL_DISSOLVE_COLOR;
+    if (!front && one_sided_material && input.surface == 0u) {
+        discard;
+    }
     var uv = select(input.back_uv, input.uv, front);
     // Every uv_anim material vanilla and packs ship samples with repeat wrap (scrolling armor).
     if (input.uv_wrap != 0u) {
@@ -174,9 +191,15 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     // Ordinary native actor materials compose gamma RGB. Undo Bevy's texture
     // decode before dye/overlay products, then transfer once at the output.
     var color = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.skin_layer)));
+    if (input.material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
+        if (color.a * input.dissolve_multiplier < 0.5) { discard; }
+        return vec4(0.0);
+    }
+    if (input.material == ACTOR_MATERIAL_DISSOLVE_COLOR && color.a < 0.5) { discard; }
+    if (input.material == ACTOR_MATERIAL_DRAGON && all(color == vec4(0.0))) { discard; }
     let color_mask_material = material_class.y != 0u;
     let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
-    if (!color_mask_material && !multitexture_material && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
+    if (!color_mask_material && !multitexture_material && input.material == ACTOR_MATERIAL_DEFAULT && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
         discard;
     }
     if (input.tint != 0u) {
@@ -199,6 +222,9 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
-    let lit_gamma = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.native_lighting;
+    let overlay = select(input.overlay, vec4(0.0), input.material == ACTOR_MATERIAL_DISSOLVE_COLOR);
+    let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
+    let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), input.material == ACTOR_MATERIAL_DRAGON);
+    let lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
     return tint_to_linear(vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a));
 }

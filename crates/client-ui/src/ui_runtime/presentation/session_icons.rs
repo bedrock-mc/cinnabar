@@ -35,10 +35,10 @@ pub struct SessionIcon {
 #[derive(Debug, Default)]
 pub struct SessionIcons {
     pub icons: Vec<SessionIcon>,
-    /// Six-face sheets (`assets::BLOCK_ITEM_SHEET_SIZE`) of custom block items whose block is
-    /// a plain opaque cube. Slots and hands draw these as that cube, as vanilla block items
-    /// draw their sheet; the item's `icons` entry is the flat thumbnail behind it.
+    /// Six-face sheets (`assets::BLOCK_ITEM_SHEET_SIZE`) for custom held cubes.
     pub block_sheets: Vec<SessionIcon>,
+    /// Admitted face material flags for each custom block item's sheet.
+    pub block_material_flags: BTreeMap<Arc<str>, u32>,
     /// Why an item's icon key did not resolve to an image, for diagnostics.
     pub misses: HashMap<Arc<str>, Box<str>>,
 }

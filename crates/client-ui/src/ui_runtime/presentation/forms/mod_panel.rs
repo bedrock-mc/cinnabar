@@ -47,6 +47,15 @@ pub(super) struct ModPanel {
 }
 
 impl UiPresentationRuntime {
+    pub(in super::super) fn invalidate_mod_panel_font(&mut self) {
+        if let Some(panel) = &mut self.form_presentation.mod_panel {
+            panel.screen = CachedScreen::default();
+            panel.frame = None;
+            panel.drag = None;
+            panel.pointer = None;
+        }
+    }
+
     /// Replaces validated control data, retaining the open state across value updates.
     pub fn set_mod_panel(&mut self, panel: Option<&Panel>) -> Result<(), String> {
         let Some(panel) = panel else {

@@ -371,8 +371,9 @@ pub(crate) fn drive_menu_input(
         })
         .unwrap_or_default();
     if runtime.as_ref().is_some_and(|runtime| {
-        runtime.server_forms().owns_input()
-            && (!menu.is_visible() || runtime.server_forms().settings_form_active())
+        runtime.credits().owns_input()
+            || runtime.server_forms().owns_input()
+                && (!menu.is_visible() || runtime.server_forms().settings_form_active())
     }) {
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;

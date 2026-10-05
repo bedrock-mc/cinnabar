@@ -2,7 +2,7 @@
 use crate::dropped_item::{
     DroppedItemModel, DroppedItemScene, ITEM_MESH_VERTEX_BYTES, ItemMeshVertex,
     MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
-    cube_mesh, extruded_sprite_mesh, native_dropped_sprite_mesh,
+    block_mesh, cube_mesh, extruded_sprite_mesh, native_dropped_sprite_mesh,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -42,6 +42,11 @@ use bevy::{
 use std::ops::Range;
 
 const ITEM_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b7c1b0e-2f3d-4a61-9d1e-7a8f2c4e5b13");
+pub(crate) mod terrain_items;
+use terrain_items::{TerrainItemMeshGenerations, TerrainItemSessionSet};
+
+#[cfg(all(test, feature = "publication-test-support"))]
+mod terrain_tests;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DroppedItemRenderPlugin;
@@ -79,11 +84,16 @@ fn install(app: &mut App) {
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
         .init_resource::<ItemPipeline>()
+        .init_resource::<TerrainItemMeshGenerations>()
         .add_render_command::<Opaque3d, DrawItemCommands>()
         .add_systems(RenderStartup, init_gpu)
         .add_systems(
             Render,
             (
+                terrain_items::begin_frame
+                    .in_set(TerrainItemSessionSet)
+                    .after(RenderSystems::ExtractCommands)
+                    .before(RenderSystems::Queue),
                 prepare_items.in_set(RenderSystems::PrepareResources),
                 prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_items
@@ -224,6 +234,28 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
                 std::array::from_fn(|face| push_layer(atlas, tile, tile, &cube.faces[face]));
             cube_mesh(layers, cube.tints, cube.tile, side)
         }
+        DroppedItemModel::Block(block) => {
+            for (sprite, _) in block.materials.iter() {
+                if sprite.width == 0
+                    || sprite.height == 0
+                    || sprite.width > side
+                    || sprite.height > side
+                    || sprite.rgba8.len() != (sprite.width * sprite.height * 4) as usize
+                {
+                    return None;
+                }
+            }
+            let vertices = block_mesh(block, layers_used as u32)?;
+            for (sprite, _) in block.materials.iter() {
+                push_layer(
+                    atlas,
+                    sprite.width as usize,
+                    sprite.height as usize,
+                    &sprite.rgba8,
+                );
+            }
+            Some(vertices)
+        }
     }
 }
 
@@ -286,6 +318,7 @@ fn rebuild_models(
 
 fn prepare_items(
     scene: Res<DroppedItemScene>,
+    terrain: Res<TerrainItemMeshGenerations>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut gpu: ResMut<ItemGpu>,
@@ -295,7 +328,18 @@ fn prepare_items(
     }
     let mut instances = Vec::with_capacity(scene.instances.len() + 1);
     let mut draws = Vec::with_capacity(scene.instances.len());
-    for instance in scene.instances.iter() {
+    for instance in scene
+        .instances
+        .iter()
+        .chain(
+            scene
+                .terrain_instances
+                .iter()
+                .filter(|candidate| terrain.visible(candidate))
+                .map(|candidate| &candidate.instance),
+        )
+        .take(MAX_DROPPED_ITEM_INSTANCES)
+    {
         let Some(range) = gpu
             .ranges
             .get(instance.model as usize)
@@ -576,7 +620,8 @@ fn prepare_bind_group(
 struct QueueItemParams<'w, 's> {
     pipeline_cache: Res<'w, PipelineCache>,
     pipeline: ResMut<'w, ItemPipeline>,
-    gpu: Res<'w, ItemGpu>,
+    scene: Res<'w, DroppedItemScene>,
+    terrain: Res<'w, TerrainItemMeshGenerations>,
     phases: ResMut<'w, ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<'w, DrawFunctions<Opaque3d>>,
     views: Query<
@@ -592,8 +637,13 @@ struct QueueItemParams<'w, 's> {
 }
 
 fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) {
-    if (params.gpu.draws.is_empty() && params.gpu.dynamic_count == 0)
-        || params.gpu.bind_group.is_none()
+    if params.scene.instances.is_empty()
+        && params.scene.dynamic.is_empty()
+        && !params
+            .scene
+            .terrain_instances
+            .iter()
+            .any(|candidate| params.terrain.visible(candidate))
     {
         return;
     }

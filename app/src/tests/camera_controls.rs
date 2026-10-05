@@ -53,9 +53,11 @@ fn start_game_and_dimension_change_reset_perspective_to_first_person() {
     let mut pending_surface_spawn = None;
     apply_committed_control(
         CommittedControlEvent::ChangeDimension {
+            sequence: 1,
             change: protocol::ChangeDimensionEvent {
                 dimension: 1,
                 position: [16.0, 80.0, 24.0],
+                ..Default::default()
             },
             resolved: client_world::ResolvedServerPosition {
                 position: [16.0, 80.0, 24.0],

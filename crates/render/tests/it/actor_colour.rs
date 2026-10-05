@@ -285,10 +285,15 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
         ..Default::default()
     });
     let sampler = gpu.device.create_sampler(&Default::default());
-    let actor = include_str!("../../src/actor.wgsl").replace(
-        "ACTOR_GPU_INSTANCE_WORDS",
-        &render::ACTOR_GPU_INSTANCE_WORDS.to_string(),
-    );
+    let actor = include_str!("../../src/actor.wgsl")
+        .replace(
+            "ACTOR_GPU_INSTANCE_WORDS",
+            &render::ACTOR_GPU_INSTANCE_WORDS.to_string(),
+        )
+        .replace(
+            "ACTOR_RIG_VERTEX_WORDS",
+            &render_model::ACTOR_RIG_VERTEX_WORDS.to_string(),
+        );
     // Test-only resource remapping lets the shared single-group readback helper run
     // production actor_fragment unchanged, including its actual imported helpers.
     let actor = shader_source::standalone(&actor, &[])

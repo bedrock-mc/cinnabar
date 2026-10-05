@@ -80,6 +80,10 @@ fn first_person_arm_offset_lands_ahead_and_right_of_the_camera() {
 struct JumpPhysics(sim::PlayerState);
 
 impl crate::observations::PhysicsObservation for JumpPhysics {
+    fn mode(&self) -> sim::MovementMode {
+        sim::MovementMode::Walking
+    }
+
     /// Returns the last completed simulation state.
     fn state(&self) -> Option<&sim::PlayerState> {
         Some(&self.0)

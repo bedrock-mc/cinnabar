@@ -175,6 +175,7 @@ fn request_modes_use_vanilla_dimension_base_and_bounded_counts() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();

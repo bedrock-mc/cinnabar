@@ -25,8 +25,6 @@ struct AtmosphereUniform {
 // 2*distance*tan(diameter/2).
 const SUN_HALF_EXTENT: f32 = tan(28.08 * 0.0174532924 * 0.5);
 const MOON_HALF_EXTENT: f32 = tan(18.924 * 0.0174532924 * 0.5);
-// Vanilla dims the End sky texture to roughly this fraction of its stored brightness.
-const END_SKY_BRIGHTNESS: f32 = 0.157;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -173,7 +171,8 @@ fn native_star_colour(vertex_alpha: f32) -> vec4<f32> {
     return vec4(vec3(vertex_alpha * atmosphere.sky_extra.x), vertex_alpha);
 }
 
-fn end_sky(ray: vec3<f32>) -> vec3<f32> {
+// The world-aligned cube repeats its texture sixteen times on each face.
+fn end_sky_uv(ray: vec3<f32>) -> vec2<f32> {
     let magnitude = abs(ray);
     var plane: vec2<f32>;
     var major: f32;
@@ -187,8 +186,13 @@ fn end_sky(ray: vec3<f32>) -> vec3<f32> {
         plane = ray.xy;
         major = magnitude.z;
     }
-    let uv = plane / major * 0.5 + vec2(0.5);
-    return textureSampleLevel(end_sky_texture, atmosphere_sampler, uv, 0.0).rgb * END_SKY_BRIGHTNESS;
+    return (plane / major * 0.5 + vec2(0.5)) * 16.0;
+}
+
+fn end_sky(ray: vec3<f32>) -> vec3<f32> {
+    let sampled = textureSampleLevel(end_sky_texture, atmosphere_sampler, end_sky_uv(ray), 0.0);
+    let fog = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+    return tint_to_gamma(sampled).rgb * (2.0 * fog);
 }
 
 @fragment
@@ -207,7 +211,7 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4(atmosphere.sky_horizon_thunder.rgb, 1.0);
     }
     if (kind == 2u) {
-        return vec4(atmosphere.sky_zenith_rain.rgb + end_sky(ray), 1.0);
+        return sky_output(end_sky(ray));
     }
     var colour = native_sky_colour(native_sky_fog_weight(ray));
 

@@ -400,6 +400,26 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         }
         if visual.model_template != NO_MODEL_TEMPLATE {
             let template_flags = compiled.model_templates[visual.model_template as usize].flags;
+            if template_flags == crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL {
+                if visual.kind != VisualKind::Model
+                    || !matches!(
+                        visual.variant,
+                        0 | crate::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN
+                    )
+                {
+                    return Err(invalid("portal visual has invalid kind or transform"));
+                }
+                if visual.variant == crate::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN
+                    && compiled
+                        .model_templates
+                        .get(visual.model_template as usize + 1)
+                        .is_none_or(|next| next.flags != crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL)
+                {
+                    return Err(invalid(
+                        "unknown-axis portal has no alternate-axis template",
+                    ));
+                }
+            }
             let connected_flag = template_flags
                 & (MODEL_TEMPLATE_FLAG_PANE
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
@@ -459,6 +479,8 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             || (template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_SNOW_LAYER && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_LILY_PAD && template.quad_count != 2)
+            || (template.flags == crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                && template.quad_count != 6)
         {
             return Err(invalid("model template spans are not canonical"));
         }

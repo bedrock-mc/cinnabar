@@ -401,6 +401,7 @@ mod tests {
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
             status: Default::default(),
+            dragon_animation: None,
         }
     }
 

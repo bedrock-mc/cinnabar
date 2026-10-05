@@ -24,48 +24,59 @@ pub fn block_pick_reach(default: f64, actor_reach: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::sync::Arc;
 
-    use client_world::{ActorPose, ActorSnapshot, game_mode_capabilities::SURVIVAL_ATTACK_REACH};
+    use client_world::{
+        ActorSnapshot, WorldAuthority, game_mode_capabilities::SURVIVAL_ATTACK_REACH,
+    };
     use gameplay::melee::{Crosshair, classify, pick_actor};
 
     use super::*;
 
     fn player(distance: f32) -> ActorSnapshot {
-        let pose = ActorPose {
-            position: [0.0, 0.0, -distance],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-        };
-        ActorSnapshot {
+        let position = [0.0, 0.0, -distance];
+        let mut authority = WorldAuthority::new(
+            protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 0,
+                local_player_unique_id: 0,
+                player_position: position,
+                world_spawn_position: [0; 3],
+                air_network_id: protocol::air_network_id(false),
+                block_network_ids_are_hashes: false,
+            },
+            Arc::new(assets::RuntimeAssets::diagnostic()),
+            None,
+            position,
+            None,
+        );
+        let spawn = protocol::ActorSpawnEvent {
+            dimension: 0,
             unique_id: 9,
             runtime_id: 9,
-            spawn_revision: 0,
-            movement_revision: 0,
             kind: protocol::ActorKind::Player {
                 uuid: [0; 16],
                 username: "remote".into(),
             },
-            position: pose.position,
+            position,
             velocity: [0.0; 3],
             pitch: 0.0,
             yaw: 0.0,
             head_yaw: 0.0,
-            previous_pose: pose,
-            received_pose: pose,
-            interpolation_ticks_remaining: 0,
             body_yaw: 0.0,
-            on_ground: None,
-            teleported: false,
-            player_mode: None,
-            source_tick: None,
-            metadata: HashMap::new(),
-            attributes: HashMap::new(),
-            int_properties: HashMap::new(),
-            float_properties: HashMap::new(),
-            status: Default::default(),
-        }
+            held_item: Default::default(),
+            metadata: Arc::from([]),
+            attributes: Arc::from([]),
+            properties: Arc::from([]),
+            links: Arc::from([]),
+        };
+        authority
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)),
+                Some(1),
+            )
+            .unwrap();
+        authority.actor(9).expect("remote player admitted").clone()
     }
 
     fn crosshair(

@@ -78,6 +78,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
         axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let body = ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -205,6 +206,168 @@ fn carried_block_sheet_rejects_a_stale_manifest_or_out_of_range_visual() {
             ActorArtworkPages::default(),
         );
         assert!(runtime.block_sheets.is_empty());
+    }
+}
+
+#[test]
+fn carried_cube_alpha_mode_follows_world_materials_for_both_hands() {
+    use assets::{
+        BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties, Material,
+        TextureArray, TextureMip, TextureRef, VisualKind, VisualSupport,
+    };
+    use render::HandItemAlphaMode;
+
+    let (base, body, mut item) = block_fixture();
+    let flags = [
+        0,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ALPHA_BLEND,
+    ];
+    let overlay = BlockOverlay {
+        visuals: (0..flags.len())
+            .map(|material| BlockVisual {
+                faces: [material as u32; 6],
+                flags: BlockFlags::CUBE_GEOMETRY,
+                kind: VisualKind::Cube,
+                support: VisualSupport::Exact,
+                contributor_role: ContributorRole::Primary,
+                model_template: assets::NO_MODEL_TEMPLATE,
+                animation: assets::NO_ANIMATION,
+                variant: 0,
+            })
+            .collect(),
+        light_properties: vec![LightProperties::OPAQUE_DARK; flags.len()],
+        materials: flags
+            .into_iter()
+            .map(|flags| Material {
+                texture: TextureRef::new(1, 0).unwrap(),
+                flags,
+                ..Material::unvaried()
+            })
+            .collect(),
+        texture: Some(TextureArray {
+            layers: 1,
+            mips: [16, 8, 4, 2, 1]
+                .into_iter()
+                .map(|size| TextureMip {
+                    size,
+                    rgba8: vec![127; (size * size * 4) as usize].into(),
+                })
+                .collect(),
+        }),
+        ..Default::default()
+    };
+    let world = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &overlay)
+        .unwrap();
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
+    let sheet = IconSprite {
+        width,
+        height,
+        rgba8: vec![127; usize::from(width) * usize::from(height) * 4].into(),
+    };
+    let mappings = (1..=flags.len() as u32)
+        .map(|visual| assets::IconBlockSheet {
+            visual: assets::BlockVisualId(visual),
+            sprite: 0,
+        })
+        .collect::<Vec<_>>();
+    let icons = RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog_with_block_sheets(
+            base.assets.source_manifest_sha256(),
+            &[sheet],
+            &[],
+            &mappings,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let (mut runtime, _, _) = EquipmentRuntime::build(
+        Arc::clone(&base.assets),
+        None,
+        Arc::new(icons),
+        Some(Arc::new(world)),
+        None,
+        ActorArtworkPages::default(),
+    );
+    runtime.register_skin_rig(body.input.rig, vec!["rightItem".into()]);
+    let mut rigs = Vec::new();
+    for (visual, expected) in (1..).zip([
+        HandItemAlphaMode::Opaque,
+        HandItemAlphaMode::Cutout,
+        HandItemAlphaMode::Blend,
+    ]) {
+        item.kind = HeldKind::Block(visual);
+        let main = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap();
+        let off = runtime.first_person_offhand(&body, &item).unwrap();
+        assert_eq!(main.alpha_mode, expected);
+        assert_eq!(off.alpha_mode, expected);
+        rigs.push(main.presentation.submission.input.rig);
+        assert_eq!(main.presentation.location, off.presentation.location);
+        assert_eq!(
+            main.presentation.submission.input.rig,
+            off.presentation.submission.input.rig
+        );
+    }
+    assert_eq!(runtime.take_pending_geometries().len(), rigs.len());
+    for (visual, rig) in (1..).zip(rigs) {
+        item.kind = HeldKind::Block(visual);
+        let repeated = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap();
+        assert_eq!(repeated.presentation.submission.input.rig, rig);
+    }
+    assert!(runtime.take_pending_geometries().is_empty());
+}
+
+#[test]
+fn session_block_sheets_preserve_material_alpha_modes_for_both_hands() {
+    use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
+    use render::HandItemAlphaMode;
+
+    let (mut runtime, body, mut item) = block_fixture();
+    item.identifier = Arc::from("test:custom_cube");
+    for (flags, expected) in [
+        (0, HandItemAlphaMode::Opaque),
+        (
+            assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+            HandItemAlphaMode::Cutout,
+        ),
+        (assets::MATERIAL_FLAG_ALPHA_BLEND, HandItemAlphaMode::Blend),
+    ] {
+        let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+        let items = crate::session_assets::SessionItems {
+            components: Arc::new(Default::default()),
+            icons: Some(Arc::new(SessionIcons {
+                block_sheets: vec![SessionIcon {
+                    identifier: Arc::clone(&item.identifier),
+                    metadata: 0,
+                    width,
+                    height,
+                    rgba8: vec![127; (width * height * 4) as usize].into(),
+                }],
+                block_material_flags: BTreeMap::from([(Arc::clone(&item.identifier), flags)]),
+                ..Default::default()
+            })),
+        };
+        let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+        let (_, locations) = ActorArtworkPages::default().with_equipment_rasters(staged.rasters());
+        runtime.set_session_items(Some(&items), Some(staged), locations);
+        for kind in [HeldKind::Other, HeldKind::Sprite] {
+            item.kind = kind;
+            let main = runtime
+                .first_person_item(&body, &item, ItemAnimationState::default())
+                .unwrap();
+            let off = runtime.first_person_offhand(&body, &item).unwrap();
+            assert_eq!(main.alpha_mode, expected);
+            assert_eq!(off.alpha_mode, expected);
+            assert_eq!(
+                main.presentation.submission.input.rig,
+                off.presentation.submission.input.rig
+            );
+        }
     }
 }
 

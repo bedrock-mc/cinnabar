@@ -108,6 +108,9 @@ struct VisualCompiler {
     cross_templates: BTreeMap<([u32; 2], bool), u32>,
     kelp_templates: BTreeMap<[u32; 6], u32>,
     transparent_cube_templates: BTreeMap<[u32; 6], u32>,
+    portal_templates: BTreeMap<[u32; 6], u32>,
+    dragon_egg_templates: BTreeMap<[u32; 6], u32>,
+    end_portal_frame_templates: BTreeMap<super::end_portal_frame::TemplateKey, u32>,
     flowerbed_templates: BTreeMap<[u32; 4], u32>,
     slab_templates: BTreeMap<[u32; 7], u32>,
     stair_templates: BTreeMap<[u32; 7], u32>,
@@ -125,6 +128,8 @@ struct VisualCompiler {
     thin_templates: BTreeMap<ThinTemplateKey, u32>,
     lily_pad_templates: BTreeMap<u32, u32>,
     fire_templates: BTreeMap<[u32; 2], u32>,
+    flower_pot_templates: BTreeMap<[u32; 7], u32>,
+    flower_pot_soil: Option<u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
 }
 
@@ -151,6 +156,15 @@ impl VisualCompiler {
             return Ok(CompileRuleResult::Compiled(visual));
         }
 
+        ordered_rule!(super::dragon_egg::compile_rule(
+            record,
+            inputs,
+            &mut self.dragon_egg_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::entity_drawn::compile_rule(
             record,
             inputs,
@@ -173,6 +187,34 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.fire_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::portal::compile_rule(
+            record,
+            inputs,
+            &mut self.portal_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::end_portal_frame::compile_rule(
+            record,
+            inputs,
+            &mut self.end_portal_frame_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::flower_pot::compile_rule(
+            record,
+            inputs,
+            self.flower_pot_soil,
+            &mut self.flower_pot_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
@@ -434,6 +476,7 @@ pub(in crate::compiler) fn compile_visuals(
         vanilla_fallback_material,
         fallback,
     };
+    compiler.flower_pot_soil = super::flower_pot::soil_material(records, &inputs);
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {

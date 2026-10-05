@@ -276,4 +276,4 @@ pub(super) fn bind_roots(bones: &mut [RuntimeBone], names: &[Box<str>], owner_na
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::actor_animation) mod tests;

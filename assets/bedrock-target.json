@@ -7,7 +7,7 @@
   "codec_feature": "bedrock_1_26_51",
   "hashes": {
     "block_registry": "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53",
-    "light_registry": "f189af342f9222374ff6d0ede4bc654cdb6f6e007b36536946f39de76b244bf9",
+    "light_registry": "5e1ed1073fbc5b8f16da2a4fc7316f088bb27ea649560b2c3b27bbbcc1793d62",
     "biome_registry": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a",
     "physics_registry": "3b695c48c6e0ced01ce296269e7d4e3e3d459d7d45235d7e9e8c3898fd1bb6d1",
     "fallback_inventory": "6f8af2cfe1b984c3c57b8ed7bb8d12032184ba02b469f168d86dbc18237f4a74",

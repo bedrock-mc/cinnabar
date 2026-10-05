@@ -102,6 +102,11 @@ pub(crate) fn advance_local_physics(
             item_use_modifier: item_use
                 .as_deref()
                 .and_then(|item_use| item_use.movement_modifier()),
+            hold: (client_world.dimension_transfer.active() || client_world.respawn.input_held())
+                .then(|| gameplay::movement::PhysicsFrameHold {
+                    registry: collisions.registry(stream.network_id_mode()).identity(),
+                    withhold_input: client_world.respawn.input_held(),
+                }),
         },
         &mut physics,
         &mut movement_ticker,

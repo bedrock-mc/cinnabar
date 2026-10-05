@@ -19,6 +19,7 @@ client-world = { path = "../client-world" }
 rayon.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 world = { path = "../world" }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]

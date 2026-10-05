@@ -46,11 +46,10 @@ fn render_bone() -> RenderBoneTransform {
 }
 
 fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
-    ActorSnapshot {
+    let mut actor = super::actor_snapshot(protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: runtime_id as i64,
         runtime_id,
-        spawn_revision: 3,
-        movement_revision,
         kind: ActorKind::Player {
             uuid: [runtime_id as u8; 16],
             username: "player".into(),
@@ -60,30 +59,24 @@ fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
         pitch: 0.0,
         yaw: 90.0,
         head_yaw: 90.0,
-        previous_pose: ActorPose {
-            position: [2.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-        },
-        received_pose: ActorPose {
-            position: [4.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 90.0,
-            head_yaw: 90.0,
-        },
-        interpolation_ticks_remaining: 0,
         body_yaw: 90.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: Some(41),
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
-    }
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    });
+    actor.spawn_revision = 3;
+    actor.movement_revision = movement_revision;
+    actor.on_ground = Some(true);
+    actor.source_tick = Some(41);
+    actor.previous_pose = ActorPose {
+        position: [2.0, 64.0, -2.0],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+    };
+    actor
 }
 
 fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
@@ -140,6 +133,7 @@ fn rig<'a>(
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
     ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
@@ -626,7 +620,6 @@ fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
 
 #[test]
 fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
-    let bones = [model_bone([0.0; 3])];
     for identifier in [
         "minecraft:arrow",
         "minecraft:ender_pearl",
@@ -636,24 +629,43 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
         actor.kind = ActorKind::Entity {
             identifier: identifier.into(),
         };
-        let rig = ActorRigSnapshot {
-            previous_body_yaw: 90.0,
-            body_yaw: 90.0,
-            ..rig(42, &bones, &bones)
-        };
-        let presentation =
-            entity_rig_presentation(&rig, &actor, &render::ActorArtworkPages::default(), 1.0)
+        for pitch in [-90.0_f32, -35.0, 0.0, 90.0] {
+            let rotation = (Quat::from_rotation_y(73.0_f32.to_radians())
+                * Quat::from_rotation_x(pitch.to_radians()))
+            .to_array();
+            let bones = [BoneTransform {
+                rotation,
+                ..model_bone([0.0; 3])
+            }];
+            for body_yaw in [-120.0, 0.0, 90.0] {
+                let rig = ActorRigSnapshot {
+                    previous_body_yaw: body_yaw,
+                    body_yaw,
+                    ..rig(42, &bones, &bones)
+                };
+                let presentation = entity_rig_presentation(
+                    &rig,
+                    &actor,
+                    &render::ActorArtworkPages::default(),
+                    1.0,
+                )
                 .unwrap();
-        let rows = presentation.submission.world_from_actor;
-        let basis = if identifier == "minecraft:arrow" {
-            -1.0
-        } else {
-            1.0
-        };
-        assert!((rows[0][0] - basis).abs() < 1e-6, "{identifier}");
-        assert!(rows[0][2].abs() < 1e-6, "{identifier}");
-        assert!(rows[2][0].abs() < 1e-6, "{identifier}");
-        assert!((rows[2][2] - basis).abs() < 1e-6, "{identifier}");
+                let rows = presentation.submission.world_from_actor;
+                assert_eq!(presentation.world_yaw_degrees, 0.0, "{identifier}");
+                assert!((rows[0][0] + 1.0).abs() < 1e-6, "{identifier}");
+                assert!(rows[0][2].abs() < 1e-6, "{identifier}");
+                assert!(rows[2][0].abs() < 1e-6, "{identifier}");
+                assert!((rows[2][2] + 1.0).abs() < 1e-6, "{identifier}");
+                assert_eq!(
+                    presentation.submission.input.current_bones[0].rotation, rotation,
+                    "{identifier} keeps its authored rotation at pitch {pitch}"
+                );
+                assert_eq!(
+                    presentation.submission.input.previous_bones[0].rotation,
+                    rotation
+                );
+            }
+        }
     }
 }
 

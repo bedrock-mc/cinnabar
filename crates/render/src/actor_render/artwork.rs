@@ -113,13 +113,15 @@ pub(super) fn draw_spans(
     let mut spans: Vec<ActorDrawSpan> = Vec::new();
     let mut last_geometry = None;
     for (index, (page, instance)) in pages.iter().copied().zip(instances).enumerate() {
-        if let Some(span) = spans
-            .last_mut()
-            .filter(|span| span.page == page && last_geometry == Some(instance.geometry_id))
-        {
+        if let Some(span) = spans.last_mut().filter(|span| {
+            span.page == page
+                && last_geometry == Some(instance.geometry_id)
+                && span.material == instance.material
+        }) {
             span.count += 1;
         } else {
             spans.push(ActorDrawSpan {
+                material: instance.material,
                 page,
                 first: index as u32,
                 count: 1,
@@ -136,6 +138,34 @@ pub(super) fn draw_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn coplanar_dissolve_passes_have_separate_ordered_draw_spans() {
+        let instances = [
+            assets::EntityRenderMaterial::DissolveDepth,
+            assets::EntityRenderMaterial::DissolveColor,
+        ]
+        .map(|material| crate::actor::ActorGpuInstance {
+            material: material as u32,
+            ..Default::default()
+        });
+        let spans = draw_spans(
+            &[1, 1],
+            &instances,
+            &[crate::actor::ActorRigGeometrySpan {
+                first_vertex: 0,
+                vertex_count: 36,
+            }],
+        );
+        assert_eq!(spans.len(), 2);
+        assert_eq!(
+            (spans[0].first, spans[0].count, spans[0].material),
+            (0, 1, instances[0].material)
+        );
+        assert_eq!(
+            (spans[1].first, spans[1].count, spans[1].material),
+            (1, 1, instances[1].material)
+        );
+    }
     #[test]
     fn spans_split_on_page_and_geometry_and_carry_exact_vertex_counts() {
         let instance = |geometry_id| crate::actor::ActorGpuInstance {
@@ -164,6 +194,7 @@ mod tests {
             &geometry,
         );
         let span = |page, first, count, vertex_count| ActorDrawSpan {
+            material: 0,
             page,
             first,
             count,

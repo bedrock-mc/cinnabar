@@ -239,6 +239,7 @@ pub(crate) fn apply_environment_control(
         CommittedControlEvent::MovePlayer { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
+        | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::Respawn { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }

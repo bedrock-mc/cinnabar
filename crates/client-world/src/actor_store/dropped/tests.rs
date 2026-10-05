@@ -141,6 +141,7 @@ fn spawn_absolute_and_partial_move_keep_feet_and_restore_the_same_native_origin(
                 teleported: true,
                 player_mode: None,
                 source_tick: None,
+                interpolation: Default::default(),
             }),
         );
         let actor = store.get(7).unwrap();

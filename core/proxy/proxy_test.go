@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"net"
 	"path/filepath"
@@ -975,6 +976,62 @@ func (s *fakeSession) ReadBatch() ([]packet.Packet, error) {
 	case result := <-s.batchReads:
 		return result.packets, result.err
 	}
+}
+
+func (s *fakeSession) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
+	values, err := s.ReadBatch()
+	return rawBatch(values, decode), err
+}
+
+func (s *fakeSession) WritePacketRaw(data []byte) error { return s.WritePacket(packetFromRaw(data)) }
+
+// testRawPackets maps an encoded test packet's first byte to the value it encodes, so fakes forwarding raw
+// bytes hand back the exact packet a test queued.
+var testRawPackets sync.Map
+
+var testPacketPool = func() packet.Pool {
+	pool := minecraft.DefaultProtocol.Packets(false)
+	maps.Copy(pool, minecraft.DefaultProtocol.Packets(true))
+	return pool
+}()
+
+// rawBatch is what a raw read of values returns: each packet encoded, the selected ones also decoded.
+func rawBatch(values []packet.Packet, decode func(uint32) bool) []minecraft.RawPacket {
+	if values == nil {
+		return nil
+	}
+	batch := make([]minecraft.RawPacket, len(values))
+	for index, value := range values {
+		batch[index] = minecraft.RawPacket{ID: value.ID(), Data: encodeTestPacket(value)}
+		testRawPackets.Store(&batch[index].Data[0], value)
+		if decode != nil && decode(value.ID()) {
+			batch[index].Decoded = []packet.Packet{value}
+		}
+	}
+	return batch
+}
+
+func encodeTestPacket(value packet.Packet) []byte {
+	buf := new(bytes.Buffer)
+	_ = (&packet.Header{PacketID: value.ID()}).Write(buf)
+	value.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
+	return buf.Bytes()
+}
+
+// packetFromRaw returns the queued value behind data, decoding bytes no fake produced.
+func packetFromRaw(data []byte) packet.Packet {
+	if value, ok := testRawPackets.Load(&data[0]); ok {
+		return value.(packet.Packet)
+	}
+	buf := bytes.NewBuffer(data)
+	var header packet.Header
+	_ = header.Read(buf)
+	var value packet.Packet = &packet.Unknown{PacketID: header.PacketID}
+	if newPacket, ok := testPacketPool[header.PacketID]; ok {
+		value = newPacket()
+	}
+	value.Marshal(minecraft.DefaultProtocol.NewReader(buf, 0, false))
+	return value
 }
 
 func (s *fakeSession) WritePacket(p packet.Packet) error {

@@ -142,6 +142,45 @@ fn respawn_commits_as_a_local_position_authority_change() {
 }
 
 #[test]
+fn respawn_search_and_unknown_phases_keep_live_position_authority() {
+    let position = [3.5, 70.0, -4.5];
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: position,
+        world_spawn_position: [3, 70, -5],
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    for (sequence, state) in [(1, 0), (2, 2), (3, u8::MAX)] {
+        let respawn = RespawnEvent {
+            position: [300.5, 32_767.0, 400.5],
+            state,
+            runtime_entity_id: 0,
+        };
+        stream
+            .submit(sequence, WorldEvent::Respawn(respawn))
+            .unwrap();
+        assert_eq!(stream.resolved_server_position().position, position);
+        let controls = stream.take_committed_controls();
+        let [
+            CommittedControlEvent::Respawn {
+                respawn: observed,
+                resolved,
+                ..
+            },
+        ] = controls.as_slice()
+        else {
+            panic!("ordered phase control");
+        };
+        assert_eq!(*observed, respawn);
+        assert_eq!(resolved.position, position);
+        assert_eq!(resolved.surface_anchor, None);
+    }
+}
+
+#[test]
 fn older_movement_correction_tick_cannot_rewind_newer_correction() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,

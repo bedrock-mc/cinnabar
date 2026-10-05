@@ -19,9 +19,8 @@ const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
 pub const MAX_MOLANG_OPS_PER_WORLD_TICK: usize = 262_144;
-/// Ordinary actor rendering only interpolates completed tick snapshots. Native held
-/// attachables instead evaluate render-time item queries under the actor evaluation budget.
-pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = 0;
+/// World-wide ceiling for authored render-time layer expressions; pose histories stay tick-owned.
+pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = MAX_MOLANG_OPS_PER_WORLD_TICK;
 pub const MAX_ACTOR_ACTION_HISTORY: usize = 32;
 const MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK: usize = 4_096;
 const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
@@ -227,6 +226,9 @@ struct ActorRigState {
     skin: Option<skin::SkinModel>,
     skin_layers: Vec<SkinRenderLayer>,
     variables: MolangVariables,
+    samples_render_frames: bool,
+    samples_camera_poses: bool,
+    render_frame: Option<render_frame::FrameState>,
     initialized: bool,
     /// Outside the animation view at its last tick, holding its pose.
     culled: bool,
@@ -294,6 +296,7 @@ struct EvaluatedState {
     controllers: Vec<ControllerState>,
     clip_clocks: clock::ClipClocks,
     variables: MolangVariables,
+    render_frame: Option<render_frame::FrameState>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -685,6 +688,7 @@ impl ActorAnimationStore {
                     state.clip_clocks = evaluated.clip_clocks;
                     state.scale = evaluated.scale;
                     state.variables = evaluated.variables;
+                    state.render_frame = evaluated.render_frame;
                     skin_layers::carry(
                         &state.skin_layers,
                         &mut evaluated.skin_layers,
@@ -895,6 +899,8 @@ mod motion;
 mod pose;
 mod query;
 mod render;
+mod render_frame;
+pub use render_frame::ActorRenderFrame;
 mod skin;
 mod skin_layers;
 mod tick;
@@ -919,3 +925,6 @@ mod tests;
 #[cfg(test)]
 #[path = "actor_animation/crystal_tests.rs"]
 mod crystal_tests;
+
+#[cfg(test)]
+mod dragon_tests;

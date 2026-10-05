@@ -211,6 +211,8 @@ pub(super) struct ServerAtlas {
     extra_sidecars: RefCell<BTreeMap<String, Option<TextureMeta>>>,
     /// The local vanilla resource pack vanilla image paths read from.
     vanilla: Option<PathBuf>,
+    /// Referenced encoded images retained beside the carrier's UI JSON.
+    carrier: Option<Arc<assets::RuntimeUiAssets>>,
     remote: Option<RemoteImages>,
     resident: BTreeMap<String, ServerTexture>,
     pages: Vec<Page>,
@@ -361,6 +363,11 @@ impl ServerAtlas {
         self
     }
 
+    pub(super) fn with_carrier(mut self, carrier: Option<Arc<assets::RuntimeUiAssets>>) -> Self {
+        self.carrier = carrier;
+        self
+    }
+
     /// Whether the pack has an image at `key`, without reading it.
     pub(super) fn has_image(&self, key: &str) -> bool {
         self.sources.contains_key(key)
@@ -443,16 +450,25 @@ impl ServerAtlas {
                 RemoteState::Loading => (None, false),
             }
         } else {
-            let root = self.vanilla.as_ref()?;
             let relative = key.strip_prefix(VANILLA_IN_PACKAGE).unwrap_or(key);
             let found = (key.starts_with("textures/") || relative != key).then(|| {
-                IMAGE_EXTENSIONS.iter().find_map(|extension| {
-                    let path = vanilla_path(root, &format!("{relative}{extension}"))?;
-                    (std::fs::metadata(&path).ok()?.len() <= MAX_PACK_TEXTURE_BYTES)
-                        .then_some(())?;
-                    exact_case(&path).then_some(())?;
-                    source(std::fs::read(path).ok()?.into())
-                })
+                self.carrier
+                    .as_ref()
+                    .and_then(|carrier| {
+                        IMAGE_EXTENSIONS.iter().find_map(|extension| {
+                            source(carrier.ui_file(&format!("{relative}{extension}"))?.into())
+                        })
+                    })
+                    .or_else(|| {
+                        let root = self.vanilla.as_ref()?;
+                        IMAGE_EXTENSIONS.iter().find_map(|extension| {
+                            let path = vanilla_path(root, &format!("{relative}{extension}"))?;
+                            (std::fs::metadata(&path).ok()?.len() <= MAX_PACK_TEXTURE_BYTES)
+                                .then_some(())?;
+                            exact_case(&path).then_some(())?;
+                            source(std::fs::read(path).ok()?.into())
+                        })
+                    })
             });
             (found.flatten(), true)
         };

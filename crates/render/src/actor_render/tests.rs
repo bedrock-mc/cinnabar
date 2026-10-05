@@ -43,6 +43,39 @@ fn shared_skin_layer_prepares_one_texture_layer_for_multiple_actors() {
 }
 
 #[test]
+fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() {
+    use bevy::prelude::Msaa;
+    use bevy::render::render_resource::{ColorWrites, CompareFunction, Specializer};
+    for material in [
+        assets::EntityRenderMaterial::DissolveDepth,
+        assets::EntityRenderMaterial::DissolveColor,
+    ] {
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                    material: material as u32,
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        let depth = descriptor.depth_stencil.unwrap();
+        let target = descriptor.fragment.unwrap().targets[0].clone().unwrap();
+        assert!(depth.depth_write_enabled);
+        assert_eq!(target.blend, None);
+        if material == assets::EntityRenderMaterial::DissolveDepth {
+            assert_eq!(target.write_mask, ColorWrites::empty());
+            assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+        } else {
+            assert_eq!(target.write_mask, ColorWrites::ALL);
+            assert_eq!(depth.depth_compare, CompareFunction::Equal);
+        }
+    }
+}
+
+#[test]
 fn skin_upload_preparation_rejects_misaligned_bytes_and_out_of_range_layers() {
     let mut frame = crate::actor::ActorRenderFrame::default();
     frame.rig.instances = Arc::from([crate::actor::ActorGpuInstance {
@@ -121,6 +154,7 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
             uv: [0.0; 2],
             back_uv: [0.0; 2],
             bone_index: 0,
+            surface: Default::default(),
         }; 3],
     );
     frame.rig.geometry_spans = Arc::from([crate::actor::ActorRigGeometrySpan {
@@ -219,6 +253,7 @@ fn standalone_actor_shader_source() -> String {
         ACTOR_SHADER_SOURCE,
         "actor.wgsl",
         crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
     );
     let bevy::shader::Source::Wgsl(source) = shader.source else {
         panic!("actor source is WGSL");
@@ -286,6 +321,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
     ActorPipelineSpecializer
         .specialize(
             ActorPipelineKey {
+                material: 0,
                 msaa: Msaa::Sample4,
                 hdr: true,
             },
@@ -308,13 +344,15 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
 
 #[test]
 fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
-    assert_eq!(std::mem::size_of::<render_model::ActorRigVertex>(), 44);
+    assert_eq!(
+        std::mem::size_of::<render_model::ActorRigVertex>(),
+        render_model::ACTOR_RIG_VERTEX_WORDS * 4
+    );
     assert_eq!(
         std::mem::offset_of!(render_model::ActorRigVertex, bone_index),
         40
     );
     assert!(ACTOR_SHADER_SOURCE.contains("instance_index * ACTOR_GPU_INSTANCE_WORDS"));
-    assert!(ACTOR_SHADER_SOURCE.contains("(span.first_vertex + vertex_index) * 11u"));
     assert!(ACTOR_SHADER_SOURCE.contains("vertex_words[vertex_base + 10u]"));
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 0u && color.a < 0.1"));
     // The one-sided plane sentinel lies below the shader's discard threshold.
@@ -351,6 +389,6 @@ fn native_multitexture_mixes_rgb_once_without_using_base_alpha_as_coverage() {
     assert!(ACTOR_SHADER_SOURCE.contains("!color_mask_material && !multitexture_material &&"));
     assert_eq!(
         std::mem::offset_of!(crate::actor::ActorGpuInstance, multitexture_layers) / 4,
-        crate::actor::ACTOR_GPU_INSTANCE_WORDS - 2
+        std::mem::offset_of!(crate::actor::ActorGpuInstance, material) / 4 - 2
     );
 }

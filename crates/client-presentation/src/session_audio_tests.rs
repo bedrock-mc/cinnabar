@@ -81,6 +81,7 @@ fn play_with(sequence: u64, name: &str, volume: f32, pitch: f32) -> SequencedAud
         origin_stream_session_id: 1,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         sequence,
         event: AudioEvent::Play(PlayAudioEvent {
             name: Arc::from(name),
@@ -102,6 +103,7 @@ fn stop_named(sequence: u64, name: &str, stop_all_sounds: bool) -> SequencedAudi
         origin_stream_session_id: 1,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         sequence,
         event: AudioEvent::Stop(StopAudioEvent {
             name: Arc::from(name),
@@ -116,6 +118,7 @@ fn level(sequence: u64) -> SequencedAudioEvent {
         origin_stream_session_id: 1,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         sequence,
         event: AudioEvent::Level(LevelAudioEvent {
             sound_event: Arc::from("step.stone"),
@@ -477,6 +480,7 @@ fn audio_event(session: u64, sequence: u64) -> SequencedAudioEvent {
         origin_stream_session_id: session,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         sequence,
         event: protocol::AudioEvent::Play(protocol::PlayAudioEvent {
             name: Arc::from("game.player.attack.critical"),

@@ -41,6 +41,7 @@ const ACTOR_FLAG_USING_ITEM: u32 = 4;
 const ACTOR_FLAG_SPRINTING: u32 = 3;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
+pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
@@ -63,7 +64,7 @@ pub(crate) enum ActorApplyResult {
 }
 
 /// Steps a remote actor takes to reach each absolute movement target.
-pub(crate) const ACTOR_INTERPOLATION_TICKS: u8 = 3;
+pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {
@@ -87,7 +88,7 @@ pub struct ActorSnapshot {
     pub head_yaw: f32,
     pub previous_pose: ActorPose,
     pub received_pose: ActorPose,
-    pub interpolation_ticks_remaining: u8,
+    pub interpolation_ticks_remaining: u32,
     pub body_yaw: f32,
     pub on_ground: Option<bool>,
     pub teleported: bool,
@@ -98,9 +99,36 @@ pub struct ActorSnapshot {
     pub int_properties: HashMap<u32, i32>,
     pub float_properties: HashMap<u32, f32>,
     pub status: ActorStatus,
+    pub(crate) dragon_animation: Option<Box<dragon_animation::State>>,
 }
 
 impl ActorSnapshot {
+    /// Whether damage or ordinary mob death applies the red actor overlay.
+    #[must_use]
+    pub fn hurt_overlay_active(&self) -> bool {
+        if self.is_dying_dragon() {
+            self.status.hurt_time > 0 && !self.status.skip_red_flash
+        } else {
+            self.status.overlay_active()
+        }
+    }
+
+    /// Dragons retain their authored death pose while ordinary mobs tip onto their side.
+    #[must_use]
+    pub fn death_rotation_progress(&self, partial_tick: f32) -> Option<f32> {
+        if self.is_dying_dragon() {
+            None
+        } else {
+            self.status.death_progress(partial_tick)
+        }
+    }
+
+    pub(crate) fn is_dying_dragon(&self) -> bool {
+        self.status.dead
+            && matches!(&self.kind, ActorKind::Entity { identifier }
+            if identifier.as_ref() == "minecraft:ender_dragon")
+    }
+
     /// Native StateVector units for tick-driven engine animation components.
     pub(crate) fn native_velocity(&self) -> [f32; 3] {
         self.status.native_velocity
@@ -128,8 +156,15 @@ impl ActorSnapshot {
     }
 
     fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
+        let terrain_interlock =
+            terrain_interlock::TerrainInterlock::attached(&spawn.kind, std::time::Instant::now());
+        let mut position = spawn.position;
+        if matches!(&spawn.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:falling_block")
+        {
+            position[1] -= FALLING_BLOCK_NETWORK_OFFSET;
+        }
         let pose = ActorPose {
-            position: spawn.position,
+            position,
             pitch: spawn.pitch,
             yaw: spawn.yaw,
             head_yaw: spawn.head_yaw,
@@ -140,7 +175,7 @@ impl ActorSnapshot {
             spawn_revision,
             movement_revision: 0,
             kind: spawn.kind,
-            position: spawn.position,
+            position,
             velocity: spawn.velocity,
             pitch: spawn.pitch,
             yaw: spawn.yaw,
@@ -159,8 +194,10 @@ impl ActorSnapshot {
             float_properties: HashMap::new(),
             status: ActorStatus {
                 native_velocity: spawn.velocity,
+                terrain_interlock,
                 ..ActorStatus::default()
             },
+            dragon_animation: None,
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
@@ -212,6 +249,7 @@ impl ActorSnapshot {
                 native_velocity: feed.velocity,
                 ..ActorStatus::default()
             },
+            dragon_animation: None,
         };
         snapshot.apply_local_flags(feed);
         snapshot
@@ -607,23 +645,37 @@ pub(crate) struct ActorStore {
     local_knockback: Option<(u64, [f32; 2])>,
     /// Status events awaiting a particle or sound consumer.
     status_notices: Vec<ActorStatusNotice>,
+    particle_effects: std::collections::VecDeque<crate::CommittedParticleEvent>,
+    synchronized_audio: synchronized_audio::SynchronizedAudio,
 }
 
+mod cloud_particles;
 mod crystal_beam;
 pub use crystal_beam::CrystalBeamView;
+pub(crate) mod dragon_animation;
+mod dragon_beam;
+mod dragon_death;
+pub use dragon_death::DragonDeathView;
+mod dragon_fireball_particles;
+mod dragon_particles;
 mod dropped;
 mod entities;
 mod fire;
 mod hurt;
 mod lifecycle;
 mod lightning;
+mod movement_interpolation;
 mod placement;
 mod projectile;
 pub(crate) mod properties;
 mod query;
+mod synchronized_audio;
+mod terrain_interlock;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
-pub use entities::{BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation};
+pub use entities::{
+    BlockEntityCandidate, BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation,
+};
 pub use fire::FIRE_FADE_TICKS;
 pub use hurt::{
     ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
@@ -678,4 +730,10 @@ mod projectile_tests;
 mod review_tests;
 
 #[cfg(test)]
+mod terrain_interlock_tests;
+
+#[cfg(test)]
 mod velocity_tests;
+
+#[cfg(test)]
+mod movement_duration_tests;

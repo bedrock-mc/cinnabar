@@ -190,6 +190,7 @@ fn block_crack_production_dimension_round_trip_does_not_resurrect_start() {
                 WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                     dimension,
                     position: [0.0; 3],
+                    ..Default::default()
                 }),
             )
             .unwrap();

@@ -107,9 +107,11 @@ impl WorldStream {
             fatal_error: None,
             revisions: RevisionTracker::default(),
             applied_mesh_generations: HashMap::new(),
+            actor_block_syncs: actor_block_sync::ActorBlockSyncs::default(),
             mesh_dependency_masks: HashMap::new(),
             mesh_jobs: Default::default(),
             view_forward: None,
+            dimension_transfer_priority: None,
             admitted_mesh_jobs: Arc::new(AtomicUsize::new(0)),
             mesh_cancellations: HashMap::new(),
             urgent_mesh_in_flight: HashSet::new(),
@@ -190,6 +192,7 @@ impl WorldStream {
                 | WorldEvent::ChunkResync(_)
                 | WorldEvent::SubChunks(_)
                 | WorldEvent::BlockUpdates(_)
+                | WorldEvent::SyncedBlockUpdates(_)
                 | WorldEvent::BlockEntityUpdate(_)
         );
         let creates_request = match &event {

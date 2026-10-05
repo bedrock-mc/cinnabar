@@ -1697,6 +1697,7 @@ dependencies = [
  "render-api",
  "sha2",
  "thiserror 2.0.18",
+ "tracing",
  "windows-sys 0.61.2",
  "world",
 ]
@@ -5418,6 +5419,7 @@ dependencies = [
  "assets",
  "bytemuck",
  "glam",
+ "image",
  "pack-compiler",
  "render-api",
  "serde_json",

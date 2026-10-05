@@ -99,6 +99,7 @@ impl EquipmentRuntime {
                 0,
             ),
             camera_space: false,
+            alpha_mode: render::HandItemAlphaMode::Cutout,
         })
     }
 }

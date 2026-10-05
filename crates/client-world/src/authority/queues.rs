@@ -7,6 +7,7 @@ impl WorldAuthority {
             .len()
             .saturating_add(self.committed_ui.len())
             .saturating_add(self.committed_audio.len())
+            .saturating_add(self.actors.synchronized_audio_count())
             .saturating_add(self.committed_camera.len())
     }
 

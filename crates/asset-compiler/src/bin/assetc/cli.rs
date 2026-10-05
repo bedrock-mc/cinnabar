@@ -161,7 +161,7 @@ pub(super) enum Command {
         #[arg(long)]
         report: PathBuf,
     },
-    /// Compile unconditional neutral binary-alpha actor artwork.
+    /// Compile actor artwork from geometry and material contracts.
     ActorAssets {
         #[arg(long)]
         pack: PathBuf,

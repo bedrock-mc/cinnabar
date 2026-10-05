@@ -54,6 +54,7 @@ pub struct EquipmentPresentation {
 pub struct FirstPersonItem {
     pub presentation: EquipmentPresentation,
     pub camera_space: bool,
+    pub alpha_mode: render::HandItemAlphaMode,
 }
 
 /// Which first-person arms the player render controller shows.

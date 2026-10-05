@@ -798,6 +798,7 @@ fn decode_world_raw_with(
             | McpePacketName::LevelChunkPacket
             | McpePacketName::SubChunkPacket
             | McpePacketName::UpdateBlockPacket
+            | McpePacketName::UpdateBlockSyncedPacket
             | McpePacketName::UpdateSubChunkBlocksPacket
             | McpePacketName::BlockActorDataPacket
             | McpePacketName::BlockEventPacket
@@ -806,6 +807,8 @@ fn decode_world_raw_with(
             | McpePacketName::ChunkRadiusUpdatedPacket
             | McpePacketName::NetworkChunkPublisherUpdatePacket
             | McpePacketName::ChangeDimensionPacket
+            | McpePacketName::ShowCreditsPacket
+            | McpePacketName::PlayerActionPacket
             | McpePacketName::RespawnPacket
             | McpePacketName::MovePlayerPacket
             | McpePacketName::CorrectPlayerMovePredictionPacket
@@ -984,3 +987,9 @@ mod game_mode_ingress_tests;
 
 #[cfg(test)]
 mod inventory_transaction_ingress_tests;
+
+#[cfg(test)]
+mod credits_ingress_tests;
+
+#[cfg(test)]
+mod block_sync_tests;

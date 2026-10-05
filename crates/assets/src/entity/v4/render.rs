@@ -11,11 +11,29 @@ pub const MAX_ENTITY_RENDER_CANDIDATES: usize = 262_144;
 pub const MAX_ENTITY_RENDER_VISIBILITY: usize = 262_144;
 pub const MAX_ENTITY_RENDER_PATTERN_BYTES: usize = 64;
 
+/// Supported entity shader and depth contracts selected by authored materials.
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+#[repr(u32)]
+pub enum EntityRenderMaterial {
+    #[default]
+    Default,
+    Dragon,
+    DissolveDepth,
+    DissolveColor,
+}
+
 /// One render controller of a rig: the expressions that pick its textures, hidden parts and
 /// colours each tick. Layers of a rig are contiguous and ordered by `rig`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityRenderLayer {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub material: EntityRenderMaterial,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hurt_color: Option<[u32; 4]>,
     /// Index into the rig bindings.
     pub rig: u32,
     /// The entity's activation expression for this controller; absent means always.
@@ -127,6 +145,7 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
             || !colors_valid(&layer.color)
             || !colors_valid(&layer.overlay_color)
             || !colors_valid(&layer.on_fire_color)
+            || !colors_valid(&layer.hurt_color)
             || !colors_valid(&layer.uv_anim)
             || !range_in_bounds(
                 layer.first_geometry,

@@ -1,5 +1,6 @@
 //! Composition adapters for the presentation audio plugin.
 mod predicted;
+mod synchronized;
 mod systems;
 pub use client_presentation::audio::{
     AudioCategory, AudioEngine, AudioSettings, BLOCK_ECHO_SECONDS, EchoLedger, EchoOrigin,

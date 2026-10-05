@@ -436,6 +436,11 @@ impl<P> NetworkHandle<P> {
         self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 
+    /// Queues a transfer acknowledgement without invalidating it on a physics reanchor.
+    pub fn send_dimension_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
+    }
+
     /// Queues an inventory, swing or interaction packet ahead of this frame's movement.
     pub fn send_inventory_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
         self.send_packet_with_confirmation(packet, None, None, None, None, None)

@@ -86,6 +86,7 @@ bytes = "1"
 futures = "0.3"
 anyhow = "1"
 thiserror = "2"
+tracing = "0.1"
 rayon = "1.11"
 sha2 = "=0.10.9"
 uuid = { version = "1", features = ["v4"] }

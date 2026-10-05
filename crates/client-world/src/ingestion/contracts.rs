@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, time::Duration};
 
-use protocol::{LevelChunkEvent, WorldEvent};
+use protocol::{LevelChunkEvent, SyncedBlockUpdateEvent, WorldEvent};
 use thiserror::Error;
 use world::{
     BlockEntityError, BlockEntityKey, BlockEntityNbt, DecodedBiomeColumn, DecodedBlockEntities,
@@ -33,6 +33,11 @@ pub enum PreparedWorldEvent {
     BlockEntityUpdate {
         key: BlockEntityKey,
         decoded: Result<BlockEntityNbt, BlockEntityError>,
+        duration: Duration,
+    },
+    SyncedBlockUpdates {
+        result: Result<PreparedBlockMutations, MutationError>,
+        events: Vec<SyncedBlockUpdateEvent>,
         duration: Duration,
     },
     Immediate(WorldEvent),

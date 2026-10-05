@@ -41,9 +41,12 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
     assert!(speed.apply(7, 1, 0, 0.25, None));
     let position = [10.0, 80.0, 20.0];
     let control = CommittedControlEvent::ChangeDimension {
+        sequence: 1,
         change: protocol::ChangeDimensionEvent {
             dimension: 1,
             position,
+            respawn: false,
+            loading_screen_id: None,
         },
         resolved: ResolvedServerPosition {
             position,
@@ -58,6 +61,7 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
         speed: &mut speed,
         session_generation: 7,
         dimension: 1,
+        dimension_transfer_active: false,
     }
     .apply(control, &NoQueries, |observation| {
         observations.push(observation)
@@ -73,7 +77,62 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
     ] if *observed == control && *target == position));
     assert_eq!(speed.current(), None);
     assert_eq!(physics.network_position(), Some(position));
+    assert_eq!(movement.completed_tick(), 100);
     assert!(movement.physics_is_authorized());
+}
+
+#[test]
+fn dimension_destination_and_ready_respawn_preserve_the_global_input_clock() {
+    let position = [10.0, 80.0, 20.0];
+    let resolved = ResolvedServerPosition {
+        position,
+        surface_anchor: None,
+    };
+    let controls = [
+        CommittedControlEvent::MovePlayer {
+            sequence: 1,
+            source_cohort: None,
+            movement: protocol::MovePlayerEvent {
+                runtime_id: 42,
+                position,
+                yaw: 0.0,
+                pitch: 0.0,
+                on_ground: false,
+                teleported: true,
+                source_tick: 0,
+                ..Default::default()
+            },
+            resolved,
+        },
+        CommittedControlEvent::Respawn {
+            sequence: 2,
+            respawn: protocol::RespawnEvent {
+                position,
+                state: 1,
+                runtime_entity_id: 0,
+            },
+            resolved,
+        },
+    ];
+    for control in controls {
+        let (mut movement, mut physics, mut effects, mut speed) = owners();
+        let disposition = CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 1,
+            dimension_transfer_active: true,
+        }
+        .apply(control, &NoQueries, |_| {});
+        assert_eq!(
+            disposition,
+            ControlDisposition::Spatial(SpatialReset::Correction)
+        );
+        assert_eq!(movement.completed_tick(), 100);
+        assert_eq!(physics.network_position(), Some(position));
+    }
 }
 
 #[test]
@@ -93,6 +152,7 @@ fn motion_is_observed_without_a_frame_reset_and_only_updates_authorized_physics(
             speed: &mut speed,
             session_generation: 7,
             dimension: 0,
+            dimension_transfer_active: false,
         }
         .apply(
             CommittedControlEvent::LocalActorMotion {
@@ -146,6 +206,7 @@ fn a_correction_outside_retained_history_keeps_prediction_and_still_resets_the_f
         speed: &mut speed,
         session_generation: 7,
         dimension: 0,
+        dimension_transfer_active: false,
     }
     .apply(control, &NoQueries, |observation| {
         observations.push(observation)
@@ -184,6 +245,7 @@ fn world_clock_and_weather_cycle_controls_stay_with_the_environment_adapter() {
             speed: &mut speed,
             session_generation: 7,
             dimension: 0,
+            dimension_transfer_active: false,
         }
         .apply(control, &NoQueries, |_| {
             panic!("environment control emitted a spatial observation")

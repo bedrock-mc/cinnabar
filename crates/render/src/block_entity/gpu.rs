@@ -1,5 +1,5 @@
-//! The wgpu pass: one atlas texture, two storage-buffered vertex lists (cutout models in
-//! the opaque phase, blended overlays in the transparent phase).
+//! Atlas-backed model, portal and overlay passes with separate vertex lists.
+//! Models and portal planes draw in the opaque phase; overlays draw afterward.
 
 use std::mem::size_of;
 
@@ -49,6 +49,7 @@ use super::{
 const SHADER_HANDLE: Handle<Shader> = uuid_handle!("6f0c1c1e-3b6d-4a7e-9b1e-2f4f8a1d5c33");
 const VERTEX_BYTES: u64 = (BLOCK_ENTITY_VERTEX_WORDS * size_of::<f32>()) as u64;
 const MIN_BUFFER_VERTICES: u64 = 1024;
+const PORTAL_PARAMETER_BYTES: u64 = size_of::<[[f32; 4]; 4]>() as u64;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BlockEntityRenderPlugin;
@@ -91,6 +92,7 @@ fn install(app: &mut App) {
         .insert_resource(BlockEntityRenderInstalled)
         .init_resource::<BlockEntityPipeline>()
         .add_render_command::<Opaque3d, DrawSolidCommands>()
+        .add_render_command::<Opaque3d, DrawPortalCommands>()
         .add_render_command::<Transparent3d, DrawOverlayCommands>()
         .add_render_command::<Transparent3d, DrawCrackCommands>()
         .add_render_command::<Transparent3d, DrawAdditiveCommands>()
@@ -159,7 +161,9 @@ struct BlockEntityGpu {
     solid: VertexList,
     overlay: VertexList,
     crack: VertexList,
+    portal: VertexList,
     additive: VertexList,
+    portal_uniform: Buffer,
     texture: Option<Texture>,
     view: Option<TextureView>,
     atlas_identity: [u8; 32],
@@ -176,7 +180,14 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         solid: VertexList::new(),
         overlay: VertexList::new(),
         crack: VertexList::new(),
+        portal: VertexList::new(),
         additive: VertexList::new(),
+        portal_uniform: render_device.create_buffer(&BufferDescriptor {
+            label: Some("portal projector parameters"),
+            size: PORTAL_PARAMETER_BYTES,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
         texture: None,
         view: None,
         atlas_identity: [0; 32],
@@ -201,10 +212,24 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
 fn prepare_resources(
     frame: Res<BlockEntityFrame>,
     selection: Res<BlockSelectionFrame>,
+    atmosphere: Option<Res<crate::AtmosphereFrame>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<BlockEntityGpu>,
 ) {
+    let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
+    let [red, green, blue] = atmosphere.fog_color();
+    let portal_parameters = [
+        frame.portal_star_rect,
+        [frame.portal_time_seconds, 0.0, 0.0, 0.0],
+        [red, green, blue, atmosphere.fog_start()],
+        [atmosphere.fog_end(), 0.0, 0.0, 0.0],
+    ];
+    render_queue.write_buffer(
+        &gpu.portal_uniform,
+        0,
+        bytemuck::cast_slice(&portal_parameters),
+    );
     let atlas = frame
         .atlas
         .as_ref()
@@ -241,6 +266,7 @@ fn prepare_resources(
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
         gpu.crack.bind_group = None;
+        gpu.portal.bind_group = None;
         gpu.additive.bind_group = None;
     }
     let dynamic_rows = atlas.size[1].saturating_sub(atlas.static_height);
@@ -266,11 +292,17 @@ fn prepare_resources(
             &render_queue,
             "block-entity solid vertices",
         );
+        gpu.portal.upload(
+            &frame.portal,
+            &render_device,
+            &render_queue,
+            "portal encoded plane vertices",
+        );
         gpu.additive.upload(
             &frame.additive,
             &render_device,
             &render_queue,
-            "block-entity additive vertices",
+            "dragon death additive vertices",
         );
     }
     if gpu.frame_revision != frame.revision || gpu.selection_revision != selection.revision {
@@ -352,6 +384,7 @@ enum PipelineMode {
     Solid,
     Overlay,
     Crack,
+    Portal,
     Additive,
 }
 
@@ -403,6 +436,16 @@ impl FromWorld for BlockEntityPipeline {
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: BufferSize::new(PORTAL_PARAMETER_BYTES),
+                    },
+                    count: None,
+                },
             ],
         );
         let descriptor = RenderPipelineDescriptor {
@@ -449,12 +492,21 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        descriptor.primitive.cull_mode =
+            matches!(key.mode, PipelineMode::Portal | PipelineMode::Additive)
+                .then_some(bevy::render::render_resource::Face::Back);
+        descriptor.vertex.entry_point = Some(if key.mode == PipelineMode::Portal {
+            "portal_vertex".into()
+        } else {
+            "block_entity_vertex".into()
+        });
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.entry_point = Some(
             match key.mode {
                 PipelineMode::Solid => "block_entity_solid",
                 PipelineMode::Overlay => "block_entity_overlay",
                 PipelineMode::Crack => "block_entity_crack",
+                PipelineMode::Portal => "portal_fragment",
                 PipelineMode::Additive => "block_entity_additive",
             }
             .into(),
@@ -467,19 +519,20 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
         };
         target.blend = match key.mode {
             PipelineMode::Solid => None,
-            PipelineMode::Overlay => Some(BlendState::ALPHA_BLENDING),
-            PipelineMode::Additive => Some(BlendState {
+            PipelineMode::Portal => Some(BlendState {
                 color: BlendComponent {
                     src_factor: BlendFactor::One,
-                    dst_factor: BlendFactor::One,
+                    dst_factor: BlendFactor::OneMinusSrcAlpha,
                     operation: BlendOperation::Add,
                 },
                 alpha: BlendComponent {
-                    src_factor: BlendFactor::Zero,
-                    dst_factor: BlendFactor::One,
+                    src_factor: BlendFactor::One,
+                    dst_factor: BlendFactor::OneMinusSrcAlpha,
                     operation: BlendOperation::Add,
                 },
             }),
+            PipelineMode::Overlay => Some(BlendState::ALPHA_BLENDING),
+            PipelineMode::Additive => Some(super::dragon_death::DRAGON_DEATH_BLEND),
             // Twice source times destination, like the classic destroy overlay.
             PipelineMode::Crack => Some(BlendState {
                 color: BlendComponent {
@@ -498,7 +551,7 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
             .depth_stencil
             .as_mut()
             .unwrap()
-            .depth_write_enabled = key.mode == PipelineMode::Solid;
+            .depth_write_enabled = matches!(key.mode, PipelineMode::Solid | PipelineMode::Portal);
         Ok(key)
     }
 }
@@ -514,6 +567,7 @@ fn prepare_bind_groups(
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
         gpu.crack.bind_group = None;
+        gpu.portal.bind_group = None;
         gpu.additive.bind_group = None;
         return;
     };
@@ -525,6 +579,7 @@ fn prepare_bind_groups(
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
         gpu.crack.bind_group = None;
+        gpu.portal.bind_group = None;
         gpu.additive.bind_group = None;
         gpu.view_buffer_id = Some(view_buffer.id());
     }
@@ -532,7 +587,9 @@ fn prepare_bind_groups(
         solid,
         overlay,
         crack,
+        portal,
         additive,
+        portal_uniform,
         view,
         sampler,
         ..
@@ -541,6 +598,7 @@ fn prepare_bind_groups(
         solid.bind_group = None;
         overlay.bind_group = None;
         crack.bind_group = None;
+        portal.bind_group = None;
         additive.bind_group = None;
         return;
     };
@@ -549,7 +607,8 @@ fn prepare_bind_groups(
         (solid, "block-entity solid bind group"),
         (overlay, "block-entity overlay bind group"),
         (crack, "block-entity crack bind group"),
-        (additive, "block-entity additive bind group"),
+        (portal, "portal bind group"),
+        (additive, "dragon death additive bind group"),
     ] {
         let (Some(buffer), None) = (list.buffer.as_ref(), list.bind_group.as_ref()) else {
             continue;
@@ -574,6 +633,10 @@ fn prepare_bind_groups(
                     binding: 3,
                     resource: BindingResource::Sampler(sampler),
                 },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: portal_uniform.as_entire_binding(),
+                },
             ],
         ));
     }
@@ -588,43 +651,59 @@ fn queue_solid(
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
     mut next_tick: Local<Tick>,
 ) {
-    if gpu.solid.count == 0 || gpu.solid.bind_group.is_none() {
+    if gpu.solid.count == 0 && gpu.portal.count == 0 {
         return;
     }
-    let draw_function = draw_functions.read().id::<DrawSolidCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
-        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
+    let functions = draw_functions.read();
+    for (list, mode, draw_function) in [
+        (
+            &gpu.solid,
+            PipelineMode::Solid,
+            functions.id::<DrawSolidCommands>(),
+        ),
+        (
+            &gpu.portal,
+            PipelineMode::Portal,
+            functions.id::<DrawPortalCommands>(),
+        ),
+    ] {
+        if list.count == 0 || list.bind_group.is_none() {
             continue;
-        };
-        let Ok(pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
-            BlockEntityPipelineKey {
-                mode: PipelineMode::Solid,
-                msaa: *msaa,
-                hdr: view.hdr,
-            },
-        ) else {
-            continue;
-        };
-        let this_tick = next_tick.get() + 1;
-        next_tick.set(this_tick);
-        phase.add(
-            Opaque3dBatchSetKey {
-                draw_function,
-                pipeline: pipeline_id,
-                material_bind_group_index: None,
-                lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
-            },
-            Opaque3dBinKey {
-                asset_id: AssetId::<Shader>::invalid().untyped(),
-            },
-            (view_entity, *main_entity),
-            InputUniformIndex::default(),
-            BinnedRenderPhaseType::NonMesh,
-            *next_tick,
-        );
+        }
+        for (view_entity, main_entity, view, msaa) in &views {
+            let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
+                continue;
+            };
+            let Ok(pipeline_id) = pipeline.variants.specialize(
+                &pipeline_cache,
+                BlockEntityPipelineKey {
+                    mode,
+                    msaa: *msaa,
+                    hdr: view.hdr,
+                },
+            ) else {
+                continue;
+            };
+            let this_tick = next_tick.get() + 1;
+            next_tick.set(this_tick);
+            phase.add(
+                Opaque3dBatchSetKey {
+                    draw_function,
+                    pipeline: pipeline_id,
+                    material_bind_group_index: None,
+                    lightmap_slab: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                },
+                Opaque3dBinKey {
+                    asset_id: AssetId::<Shader>::invalid().untyped(),
+                },
+                (view_entity, *main_entity),
+                InputUniformIndex::default(),
+                BinnedRenderPhaseType::NonMesh,
+                *next_tick,
+            );
+        }
     }
 }
 
@@ -742,6 +821,11 @@ type DrawCrackCommands = (
     crate::lighting::SetWorldLightmap,
     DrawList<CRACK>,
 );
+type DrawPortalCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawList<PORTAL>,
+);
 type DrawAdditiveCommands = (
     SetItemPipeline,
     crate::lighting::SetWorldLightmap,
@@ -751,7 +835,8 @@ type DrawAdditiveCommands = (
 const SOLID: u8 = 0;
 const OVERLAY: u8 = 1;
 const CRACK: u8 = 2;
-const ADDITIVE: u8 = 3;
+const PORTAL: u8 = 3;
+const ADDITIVE: u8 = 4;
 
 struct DrawList<const LIST: u8>;
 
@@ -771,6 +856,7 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
         let list = match LIST {
             OVERLAY => &gpu.overlay,
             CRACK => &gpu.crack,
+            PORTAL => &gpu.portal,
             ADDITIVE => &gpu.additive,
             _ => &gpu.solid,
         };

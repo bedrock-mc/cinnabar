@@ -141,6 +141,7 @@ pub fn chat_input_packet(
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
+    ShowCredits(crate::ShowCreditsEvent),
     Text(TextEvent),
     CommandOutput(CommandOutputEvent),
     RawText(RawTextEvent),
@@ -592,6 +593,23 @@ pub(crate) fn normalize_score(packet: SetScorePacket) -> Result<UiEvent, UiPacke
 }
 
 pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacketError> {
+    // Removal consumes only identity. Unused presentation fields must not
+    // prevent the client from retiring a tracked boss.
+    if packet.event_type == EnumsBossEventUpdateType::Remove {
+        return Ok(UiEvent::Boss(BossEvent {
+            target_entity_id: packet.target_actor_id.actor_unique_id,
+            action: BossAction::Hide,
+            title: Arc::from(""),
+            filtered_title: Arc::from(""),
+            progress: 0.0,
+            style: BossStyle {
+                color: BossColor::Pink,
+                overlay: BossOverlay::Progress,
+                darken_sky: None,
+                create_world_fog: None,
+            },
+        }));
+    }
     if !packet.health_percent.is_finite() {
         return Err(UiPacketError::NonFiniteBossProgress {
             bits: packet.health_percent.to_bits(),
@@ -852,7 +870,9 @@ pub(crate) fn validate_borrowed_ui_packet(
             validate_utf8(&packet.platform_online_id, "set_title.platform_online_id")?;
             validate_utf8(&packet.filtered_title_message, "set_title.filtered_message")
         }
-        BorrowedMcpePacketData::BossEventPacket(packet) => {
+        BorrowedMcpePacketData::BossEventPacket(packet)
+            if packet.event_type != EnumsBossEventUpdateType::Remove =>
+        {
             validate_utf8(&packet.name, "boss.title")?;
             validate_utf8(&packet.filtered_name, "boss.filtered_title")
         }

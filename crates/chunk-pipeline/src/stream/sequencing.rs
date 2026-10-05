@@ -309,6 +309,29 @@ impl WorldStream {
                     }
                 }
             }
+            PreparedWorldEvent::SyncedBlockUpdates {
+                result,
+                events,
+                duration,
+            } => {
+                self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                match result {
+                    Ok(prepared) => {
+                        if !self.commit_block_mutations_with_relight(
+                            prepared.mutations,
+                            &prepared.relight,
+                        ) {
+                            self.record_normalization_error(
+                                NormalizationErrorReason::BlockMutationFailure,
+                            );
+                        } else {
+                            self.queue_actor_block_syncs(events);
+                        }
+                    }
+                    Err(_) => self
+                        .record_normalization_error(NormalizationErrorReason::BlockMutationFailure),
+                }
+            }
             PreparedWorldEvent::BlockEntityUpdate {
                 key,
                 decoded,
@@ -384,7 +407,7 @@ impl WorldStream {
                     self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
                 }
             }
-            WorldEvent::BlockUpdates(_) => {
+            WorldEvent::BlockUpdates(_) | WorldEvent::SyncedBlockUpdates(_) => {
                 unreachable!("block-update batches are prepared on workers")
             }
             WorldEvent::BlockEntityUpdate(_) => {
@@ -443,6 +466,8 @@ impl WorldStream {
             }
             WorldEvent::ChangeDimension(change) => {
                 let sequence = sequence.expect("sequenced dimension changes commit through submit");
+                self.dimension_transfer_priority = None;
+                self.actor_block_syncs = actor_block_sync::ActorBlockSyncs::default();
                 self.replace_block_crack_dimension(sequence);
                 self.clear_block_events();
                 self.evict_all_resident();
@@ -455,15 +480,31 @@ impl WorldStream {
                 self.last_retention_radius = None;
                 self.authority
                     .push_committed_control(CommittedControlEvent::ChangeDimension {
+                        sequence,
                         change,
                         resolved,
                     });
             }
+            WorldEvent::DimensionChangeAck { .. } => {
+                // Native selects the session's local player by subclient and
+                // intentionally ignores the action's runtime actor ID.
+                self.authority
+                    .push_committed_control(CommittedControlEvent::DimensionChangeAck {
+                        sequence: sequence
+                            .expect("dimension acknowledgement commits through submit"),
+                        dimension_epoch: self.authority.form_dimension_epoch(),
+                    });
+            }
             WorldEvent::Respawn(respawn) => {
                 let sequence = sequence.expect("sequenced respawns commit through submit");
-                let resolved = self.authority.resolve_position(respawn.position);
-                self.provisionally_rebase_for_local_teleport(resolved.position);
-                self.reevaluate_chunk_retention();
+                let resolved = if respawn.ready_to_spawn() {
+                    let resolved = self.authority.resolve_position(respawn.position);
+                    self.provisionally_rebase_for_local_teleport(resolved.position);
+                    self.reevaluate_chunk_retention();
+                    resolved
+                } else {
+                    self.authority.resolved_server_position()
+                };
                 self.authority
                     .push_committed_control(CommittedControlEvent::Respawn {
                         sequence,

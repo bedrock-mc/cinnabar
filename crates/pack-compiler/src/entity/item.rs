@@ -86,8 +86,12 @@ pub(super) fn compile(
         })
         .chain(routes.placers.iter().cloned())
         .collect::<BTreeSet<_>>();
-    let block_wins =
-        |key: &ItemVisualKey| routes.routes.contains_key(key) && !sprite_first.contains(key);
+    // Beds select their atlas sprite by dye aux even though all dyes place the same block.
+    let block_wins = |key: &ItemVisualKey| {
+        routes.routes.contains_key(key)
+            && !sprite_first.contains(key)
+            && key.identifier.as_ref() != "minecraft:bed"
+    };
     let binding_source = *source_indices
         .get(item_bindings::SOURCE_PATH)
         .ok_or_else(|| invalid("reviewed default sprite binding source is absent"))?;

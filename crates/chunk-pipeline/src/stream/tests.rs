@@ -94,6 +94,7 @@ fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
 
 mod block_cracks;
 mod commit_budget;
+mod dimension_transfer;
 mod light_scheduler;
 mod neighbour_deadlines;
 
@@ -571,6 +572,10 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
                     duration: std::time::Duration::ZERO,
                 },
             ),
+            job @ super::DecodeJob::SyncedBlockUpdates { .. } => {
+                let completion = job.run(Instant::now());
+                (completion.sequence, completion.event)
+            }
             super::DecodeJob::BlockEntityUpdate { sequence, event } => {
                 let key = BlockEntityKey::new(
                     event.dimension,
@@ -905,5 +910,6 @@ mod prediction;
 mod render_distance;
 mod streaming_harness;
 
+mod actor_block_sync;
 #[path = "tests/ordered_commits.rs"]
 mod ordered_commits;

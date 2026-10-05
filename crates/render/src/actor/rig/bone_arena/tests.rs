@@ -33,6 +33,7 @@ fn reference_matrices(
 /// Creates a complete actor submission without any equipment or asset dependency.
 fn submission(runtime_id: u64, bones: usize) -> ActorRigSubmission {
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -135,6 +136,8 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             light: input.light,
             overlay_rgba8: input.overlay_rgba8,
             multitexture_layers: [u32::MAX; 2],
+            material: input.material.kind as u32,
+            dissolve_multiplier: input.material.dissolve_multiplier,
         });
         manifest.push(ActorDrawManifestEntry {
             identity: input.input.identity,

@@ -23,7 +23,9 @@ impl ViewmodelGeometry {
         if !block.is_known()
             || block.kind() != VisualKind::Cube
             || block.support() != VisualSupport::Exact
-            || block.flags() != (BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
+            || !block
+                .flags()
+                .contains(BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
             || block.model_template().is_some()
             || block.animation().is_some()
         {

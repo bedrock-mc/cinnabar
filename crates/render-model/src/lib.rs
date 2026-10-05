@@ -14,11 +14,12 @@ mod ui_textures;
 mod visibility;
 
 pub use actor::{
-    ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, ActorSkinPixels, ActorVertex,
-    DEFAULT_PLAYER_SKIN_PATH, DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId,
-    MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, ONE_SIDED_BACK_UV,
-    RenderBoneTransform, STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
-    UNIT_AXIS_SCALE, append_entity_cube_vertices, attachable_geometry, default_actor_skin_rgba8,
+    ACTOR_RIG_VERTEX_WORDS, ActorRigGeometry, ActorRigGeometryError, ActorRigSurface,
+    ActorRigVertex, ActorSkinPixels, ActorVertex, DEFAULT_PLAYER_SKIN_PATH,
+    DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId, MAX_ACTOR_RIG_VERTICES,
+    MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, ONE_SIDED_BACK_UV, RenderBoneTransform,
+    STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
+    append_entity_cube_vertices, attachable_geometry, default_actor_skin_rgba8,
     diagnostic_geometry, entity_geometry, equipment_geometry, equipment_rig_id,
     find_geometry_index, geometry_bone_names, geometry_bone_pivots, geometry_from_geometry_index,
     geometry_from_runtime_assets, install_default_player_skin, is_equipment_rig_id,
@@ -30,7 +31,7 @@ pub use actor::{
 pub use chunk_metrics::{
     ModelWorkloadCount, ModelWorkloadMetricsSnapshot, TransparentSortMetricsSnapshot,
 };
-pub use dropped_item::{DroppedItemCube, DroppedItemSprite, OPAQUE_WHITE};
+pub use dropped_item::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite, OPAQUE_WHITE};
 pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_ATLAS_SIDE,
@@ -46,9 +47,10 @@ pub use ui::{
 };
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_TEXTURE_BUCKETS,
-    UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
-    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog,
-    UiTextureLocation, UiTexturePage, UiTexturePlan,
+    UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
+    UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET,
+    UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureLocation,
+    UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,

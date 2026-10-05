@@ -37,6 +37,11 @@ pub(crate) fn drive_sign_editor(
     collisions: Option<Res<crate::movement::PhysicsCollisionRegistries>>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    if runtime.credits().owns_input() {
+        keyboard.clear();
+        *owned_last_frame = false;
+        return;
+    }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
         runtime.sign_editor_mut().close();
         keyboard.clear();

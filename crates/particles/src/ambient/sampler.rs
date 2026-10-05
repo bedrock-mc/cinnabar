@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::random::AmbientRandom;
 
-pub(super) const MIN_SAMPLES: u32 = 100;
+pub const MIN_SAMPLES: u32 = 100;
 pub(super) const NEAR_SAMPLES: u32 = 667;
 pub(super) const MAX_SAMPLES: u32 = NEAR_SAMPLES * 2;
 const NEAR_RADIUS: u32 = 16;

@@ -224,6 +224,23 @@ fn provenance_and_hidden_face_eligibility_are_fail_closed() {
 }
 
 #[test]
+fn cube_gameplay_flags_do_not_change_thumbnail_geometry() {
+    let pack = pack();
+    let entity = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let mut source = world(&entity);
+    let baseline =
+        compile_icon_assets_with_blocks(pack.path(), MANIFEST, &runtime(&source)).unwrap();
+    for visual in source.visuals.iter_mut() {
+        if visual.kind == VisualKind::Cube {
+            visual.flags |= BlockFlags::FIRE_FLAMMABLE | BlockFlags::FIRE_TOP_SUPPORT;
+        }
+    }
+    let with_gameplay =
+        compile_icon_assets_with_blocks(pack.path(), MANIFEST, &runtime(&source)).unwrap();
+    assert_eq!(with_gameplay.bytes, baseline.bytes);
+}
+
+#[test]
 fn command_world_input_reencodes_and_refuses_output_collision_atomically() {
     let pack = pack();
     let entity = compile_entity_assets(pack.path(), MANIFEST).unwrap();
@@ -393,4 +410,32 @@ fn pinned_block_items_resolve_icons_when_requested() {
     let sprite = &catalog.sprites()[binding.sprite as usize];
     assert_eq!([sprite.width, sprite.height], BLOCK_ITEM_SHEET_SIZE);
     assert!(sprite.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255));
+    let entity = compile_entity_assets(&pack, MANIFEST).unwrap();
+    for name in [
+        "black_wool",
+        "white_wool",
+        "ice",
+        "glass",
+        "oak_leaves",
+        "spruce_leaves",
+        "birch_leaves",
+    ] {
+        let identifier = format!("minecraft:{name}");
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = entity
+            .item_visuals
+            .iter()
+            .find(|visual| visual.key.identifier.as_ref() == identifier)
+            .unwrap_or_else(|| panic!("missing pinned item {name}"))
+            .route
+        else {
+            panic!("pinned {name} requires a block item route");
+        };
+        let binding = catalog
+            .block_sheets()
+            .iter()
+            .find(|sheet| sheet.visual == block_visual)
+            .unwrap_or_else(|| panic!("native cube {name} requires six carried faces"));
+        let sprite = &catalog.sprites()[binding.sprite as usize];
+        assert_eq!([sprite.width, sprite.height], BLOCK_ITEM_SHEET_SIZE);
+    }
 }

@@ -54,7 +54,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("is_shaking", 40),
     ("is_shaking_wetness", 40),
     ("is_sheared", 31),
-    ("is_sitting", 24),
+    ("is_sitting", crate::actor_store::ACTOR_FLAG_SITTING),
     ("is_sneaking", FLAG_SNEAKING),
     ("is_sniffing", 105),
     ("is_sonic_boom", 107),
@@ -294,8 +294,11 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         return *idle;
     }
     match name {
+        "frame_alpha" => context.frame_alpha,
         "anim_time" => evaluator.anim_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32(),
-        "life_time" => evaluator.life_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32(),
+        "life_time" => {
+            (evaluator.life_tick as f32 + context.frame_alpha) * ACTOR_TICK_DURATION.as_secs_f32()
+        }
         "delta_time" => {
             context.animation_elapsed_ticks.unwrap_or(1) as f32 * ACTOR_TICK_DURATION.as_secs_f32()
         }
@@ -304,6 +307,10 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "walk_distance" => input.walk_distance,
         "ground_speed" => input.velocity[0].hypot(input.velocity[2]),
         "vertical_speed" => input.velocity[1],
+        "wing_flap_position" => actor
+            .dragon_animation
+            .as_ref()
+            .map_or(0.0, |state| state.flap_phase),
         "position_delta" => argument(0)
             .filter(|axis| (0.0..3.0).contains(axis))
             .map_or(0.0, |axis| input.position_delta[axis as usize]),
@@ -335,7 +342,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "texture_frame_index" => texture_frame_index(actor),
         // Client-derived from the Hurt event; streamed metadata is not authoritative.
         "overlay_alpha" => {
-            if actor.status.overlay_active() {
+            if actor.hurt_overlay_active() {
                 crate::actor_store::HURT_OVERLAY_ALPHA
             } else {
                 0.0
@@ -358,7 +365,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                 .saturating_sub(input.item_use_ticks) as f32
                 * ACTOR_TICK_DURATION.as_secs_f32()
         }
-        "death_ticks" => f32::from(actor.status.death_time),
+        "death_ticks" => f32::from(actor.status.death_ticks()),
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
         "has_target" => truth(has_target(actor)),
@@ -523,14 +530,13 @@ fn texture_frame_index(actor: &ActorSnapshot) -> f32 {
     if !is_orb {
         return 0.0;
     }
-    let value = metadata_number(actor, KEY_ACTOR_VALUE).unwrap_or(0.0);
-    // Value bands per the public Experience Orb documentation.
-    const UPPER_BOUNDS: [f32; 10] = [
-        2.0, 6.0, 16.0, 36.0, 72.0, 148.0, 306.0, 616.0, 1236.0, 2476.0,
-    ];
+    let Some(ActorMetadataValue::Int(value)) = actor.metadata.get(&KEY_ACTOR_VALUE) else {
+        return 0.0;
+    };
+    const UPPER_BOUNDS: [i32; 10] = [2, 6, 16, 36, 72, 148, 306, 616, 1236, 2476];
     UPPER_BOUNDS
         .iter()
-        .position(|bound| value <= *bound)
+        .position(|bound| value <= bound)
         .unwrap_or(UPPER_BOUNDS.len()) as f32
 }
 

@@ -11,8 +11,6 @@ use super::{
 #[cfg(test)]
 #[path = "inherited_cube_tests.rs"]
 mod inherited_cube_tests;
-#[path = "material.rs"]
-mod material;
 #[cfg(test)]
 #[path = "quadruped_geometry_tests.rs"]
 mod quadruped_geometry_tests;
@@ -102,7 +100,6 @@ pub fn geometry_from_geometry_index(
             }
         }
     }
-    material::apply_native_arrow_material(assets, geometry_index, &mut vertices);
     let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
 }
@@ -347,7 +344,7 @@ mod tests {
             geometry
                 .vertices
                 .iter()
-                .all(|vertex| vertex.back_uv == super::super::geometry::ONE_SIDED_BACK_UV)
+                .all(|vertex| vertex.back_uv == vertex.uv)
         );
     }
 

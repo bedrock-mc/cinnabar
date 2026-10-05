@@ -149,6 +149,22 @@ impl ActorStore {
     pub(crate) fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.animation.get(runtime_id)
     }
+    pub(crate) fn render_frame(&self, partial_tick: f32) -> crate::ActorRenderFrame<'_> {
+        crate::ActorRenderFrame::new(self, partial_tick)
+    }
+    pub(crate) fn render_layers(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        remaining_ops: &mut usize,
+    ) -> Option<std::borrow::Cow<'_, [crate::RenderTextureLayer]>> {
+        self.animation.render_layers(
+            self.actors.get(&runtime_id)?,
+            partial_tick,
+            self.camera_rotation,
+            remaining_ops,
+        )
+    }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.
     pub(crate) fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
         self.animation.ui_pose(runtime_id)

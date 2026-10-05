@@ -7,6 +7,7 @@ mod camera_packets;
 mod chat_send;
 mod crafting_data;
 mod creative_content;
+mod credits;
 mod disconnect_wire;
 mod fixtures;
 mod form_element_images;

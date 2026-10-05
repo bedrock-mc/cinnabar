@@ -1,6 +1,7 @@
 // Full-screen camera overlays composited back to front in one pass.
 // Fire follows the native cube and admitted texture timeline. Other procedural
 // patterns remain provisional and need native measurement.
+// Portal: native FullScreenEffectRenderer unit cube and the active atlas flipbook.
 
 struct Layer {
     // rgb tint, alpha
@@ -16,6 +17,9 @@ struct Overlays {
     fire: vec4<f32>,
     // perspective ray scales X/Y
     projection: vec4<f32>,
+    // current layer, next layer, frame blend, portal texture present
+    portal_frames: vec4<f32>,
+    portal_from_clip: mat4x4<f32>,
     layers: array<Layer, 8>,
 }
 
@@ -24,6 +28,8 @@ struct Overlays {
 @group(0) @binding(2) var overlay_sampler: sampler;
 @group(0) @binding(3) var fire_textures: texture_2d_array<f32>;
 @group(0) @binding(4) var fire_sampler: sampler;
+@group(0) @binding(5) var portal_textures: texture_2d_array<f32>;
+@group(0) @binding(6) var portal_sampler: sampler;
 
 const KIND_POWDER_SNOW: u32 = 1u;
 const KIND_FIRE: u32 = 2u;
@@ -98,6 +104,20 @@ fn camera_fire(uv: vec2<f32>) -> vec4<f32> {
     return mix(current, next, overlays.fire.z);
 }
 
+// Six unit-cube quads share the repeated portal texture tile.
+fn portal_cube_uv(uv: vec2<f32>) -> vec2<f32> {
+    let ray = (overlays.portal_from_clip * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0)).xyz;
+    let magnitude = abs(ray);
+    let hit = ray / max(max(magnitude.x, magnitude.y), magnitude.z);
+    if magnitude.x >= magnitude.y && magnitude.x >= magnitude.z {
+        return vec2<f32>(select(hit.z, -hit.z, ray.x > 0.0), -hit.y) * 0.5 + vec2<f32>(0.5);
+    }
+    if magnitude.y >= magnitude.z {
+        return vec2<f32>(hit.x, -hit.z) * 0.5 + vec2<f32>(0.5);
+    }
+    return vec2<f32>(hit.x, -hit.y) * 0.5 + vec2<f32>(0.5);
+}
+
 // Returns rgb and coverage for one layer before its own alpha scale.
 fn shade(kind: u32, tint: vec3<f32>, uv: vec2<f32>, aspect: f32, clock: f32, textured: bool) -> vec4<f32> {
     let centred = uv - vec2<f32>(0.5);
@@ -109,9 +129,11 @@ fn shade(kind: u32, tint: vec3<f32>, uv: vec2<f32>, aspect: f32, clock: f32, tex
         let flame = camera_fire(uv);
         result = vec4<f32>(flame.rgb * tint, flame.a);
     } else if kind == KIND_PORTAL {
-        let swirl = value_noise(uv * vec2<f32>(aspect, 1.0) * 6.0 + vec2<f32>(clock * 0.4, -clock * 0.3));
-        let pulse = 0.55 + 0.45 * sin(clock * 2.0 + swirl * 6.0);
-        result = vec4<f32>(vec3<f32>(0.45, 0.2, 0.85) * tint, 0.6 + 0.4 * pulse * swirl);
+        let portal_uv = portal_cube_uv(uv);
+        let current = textureSampleLevel(portal_textures, portal_sampler, portal_uv, i32(overlays.portal_frames.x), 0.0);
+        let next = textureSampleLevel(portal_textures, portal_sampler, portal_uv, i32(overlays.portal_frames.y), 0.0);
+        let texel = mix(current, next, overlays.portal_frames.z);
+        result = vec4<f32>(texel.rgb * tint, texel.a * overlays.portal_frames.w);
     } else if kind == KIND_PUMPKIN {
         let texel = textureSampleLevel(overlay_textures, overlay_sampler, uv, 0, 0.0);
         let procedural = vec4<f32>(0.04, 0.02, 0.0, smoothstep(0.35, 0.8, round_r));

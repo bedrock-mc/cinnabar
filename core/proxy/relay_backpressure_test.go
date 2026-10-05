@@ -17,15 +17,15 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// countingSource counts ReadBatch calls on the wrapped session.
+// countingSource counts batch reads on the wrapped session.
 type countingSource struct {
 	*fakeDownstream
 	reads atomic.Int32
 }
 
-func (s *countingSource) ReadBatch() ([]packet.Packet, error) {
+func (s *countingSource) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
 	s.reads.Add(1)
-	return s.fakeDownstream.ReadBatch()
+	return s.fakeDownstream.ReadBatchRaw(decode)
 }
 
 // gatedSink blocks writes until gate closes or the session is torn down.
@@ -39,14 +39,14 @@ func newGatedSink() *gatedSink {
 	return &gatedSink{fakeUpstream: newFakeUpstream(nil), gate: make(chan struct{}), entered: make(chan struct{}, 64)}
 }
 
-func (s *gatedSink) WritePacket(value packet.Packet) error {
+func (s *gatedSink) WritePacketRaw(data []byte) error {
 	s.entered <- struct{}{}
 	select {
 	case <-s.gate:
 	case <-s.closed:
 		return net.ErrClosed
 	}
-	return s.fakeUpstream.WritePacket(value)
+	return s.fakeUpstream.WritePacketRaw(data)
 }
 
 func stamps(n int) [][]packet.Packet {
@@ -174,7 +174,8 @@ type eventSink struct {
 	stall  time.Duration
 }
 
-func (s *eventSink) WritePacket(value packet.Packet) error {
+func (s *eventSink) WritePacketRaw(data []byte) error {
+	value := packetFromRaw(data)
 	if value == s.slow {
 		time.Sleep(s.stall)
 	}

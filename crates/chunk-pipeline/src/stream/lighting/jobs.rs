@@ -2,7 +2,7 @@ use super::super::*;
 
 impl WorldStream {
     /// Keeps nearby pending work's priority while executing its highest light dependency.
-    fn near_light_column_candidate(
+    pub(in crate::stream) fn near_light_column_candidate(
         &self,
         key: SubChunkKey,
         view: SchedulerView,
@@ -73,13 +73,13 @@ impl WorldStream {
                     (0, pending.urgent || wakeups.get(&key) == Some(&revision))
                 });
 
-        let mut near = if probe_near {
-            scheduler::near_light_columns(view, self.authority.current_dimension())
-                .filter_map(|key| self.near_light_column_candidate(key, view))
-                .collect::<BinaryHeap<_>>()
-        } else {
-            BinaryHeap::new()
-        };
+        let mut near = self.transfer_light_candidates();
+        if probe_near {
+            near.extend(
+                scheduler::near_light_columns(view, self.authority.current_dimension())
+                    .filter_map(|key| self.near_light_column_candidate(key, view)),
+            );
+        }
         let mut prepared_batches = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
         let mut scanned = 0;
@@ -125,6 +125,7 @@ impl WorldStream {
                     highest_pending.urgent || priority.urgent,
                 );
                 candidate.distance_squared = priority.distance_squared;
+                candidate.transfer = priority.transfer;
             }
             let key = candidate.key;
             let revision = candidate.revision;

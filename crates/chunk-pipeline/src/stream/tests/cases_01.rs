@@ -45,6 +45,7 @@ fn biome_definition_snapshot_commits_in_fifo_and_survives_dimension_changes() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 64.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();

@@ -7,6 +7,7 @@ use assets::{MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_LILY_PAD, TILE_SI
 pub(super) struct Installed {
     pub pages: Box<[TexturePage]>,
     pub material_keys: Vec<(u32, Box<str>)>,
+    pub fixed_tints: Vec<(Box<str>, [u8; 3])>,
 }
 
 pub(super) struct Inputs<'a> {
@@ -32,6 +33,7 @@ pub(super) fn install(
         templates,
     } = inputs;
     let mut material_keys = Vec::new();
+    let mut fixed_tints = Vec::new();
     for (template_id, template) in templates
         .iter()
         .enumerate()
@@ -82,11 +84,15 @@ pub(super) fn install(
         }) {
             visual.faces = [top; 6];
         }
+        if let Some(tint) = tint {
+            fixed_tints.push((descriptor.texture_key.clone(), tint));
+        }
         material_keys.push((top, descriptor.texture_key));
     }
     Ok(Installed {
         pages: pages.into_boxed_slice(),
         material_keys,
+        fixed_tints,
     })
 }
 
@@ -114,21 +120,13 @@ fn copy_chain(
                 .to_vec();
             // TextureAtlas::updateTextureAtUVs multiplies RGB only.
             // UNORM bytes are truncated after tinting; holes keep their alpha.
-            for pixel in rgba8.chunks_exact_mut(4) {
-                multiply_rgb(pixel, tint);
-            }
+            crate::apply_atlas_tint(&mut rgba8, tint);
             Ok(TextureMip {
                 size: mip.size,
                 rgba8: rgba8.into_boxed_slice(),
             })
         })
         .collect()
-}
-
-fn multiply_rgb(pixel: &mut [u8], tint: [u8; 3]) {
-    for (component, tint) in pixel[..3].iter_mut().zip(tint) {
-        *component = (f32::from(*component) * (f32::from(tint) / 255.0)) as u8;
-    }
 }
 
 fn append_layer(

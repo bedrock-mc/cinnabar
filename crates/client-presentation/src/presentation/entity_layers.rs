@@ -1,8 +1,10 @@
 //! Render-controller layers of entity bodies: the first replaces the body's default texture
 //! (and model, when its controller picks another), later layers draw after it.
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
-use client_world::{ActorRigSnapshot, BoneTransform, RenderTextureLayer};
+#[cfg(any(test, feature = "test-support"))]
+use client_world::ActorRigSnapshot;
+use client_world::{BoneTransform, RenderTextureLayer};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission,
     pack_overlay_rgba8,
@@ -26,6 +28,7 @@ struct LayerModel {
 
 #[derive(Debug)]
 struct ResolvedLayer {
+    material: render::ActorMaterial,
     location: ActorArtworkLocation,
     tint: u32,
     overlay: Option<u32>,
@@ -163,7 +166,12 @@ fn resolve(
             .iter()
             .filter_map(|layer| {
                 let model = match layer.geometry {
-                    None => None,
+                    None if layer.pose.is_empty() => None,
+                    None => Some(LayerModel {
+                        rig: submission.input.rig,
+                        previous: cache.convert(&layer.previous_pose)?,
+                        current: cache.convert(&layer.pose)?,
+                    }),
                     Some(geometry) => Some(LayerModel {
                         rig: layer_geometry_rig_id(submission.input.rig, geometry),
                         previous: cache.convert(&layer.previous_pose)?,
@@ -171,6 +179,10 @@ fn resolve(
                     }),
                 };
                 Some(ResolvedLayer {
+                    material: render::ActorMaterial {
+                        kind: layer.material,
+                        dissolve_multiplier: layer.overlay[3],
+                    },
                     model,
                     ignore_lighting: layer.ignore_lighting,
                     location: match layer.multitexture {
@@ -217,12 +229,25 @@ fn layered(
         submission.input.current_bones = Arc::clone(&model.current);
     }
     submission.texture_layer = layer.location.layer();
+    submission.material = layer.material;
+    if matches!(
+        layer.material.kind,
+        assets::EntityRenderMaterial::DissolveDepth | assets::EntityRenderMaterial::DissolveColor
+    ) {
+        submission.overlay_rgba8 = 0;
+    }
     submission.tint = layer.tint;
     submission.uv_anim = layer.uv_anim;
     if layer.ignore_lighting {
         submission.light = 0;
     }
-    if let Some(overlay) = layer.overlay {
+    if let Some(overlay) = layer.overlay
+        && !matches!(
+            layer.material.kind,
+            assets::EntityRenderMaterial::DissolveDepth
+                | assets::EntityRenderMaterial::DissolveColor
+        )
+    {
         submission.overlay_rgba8 = overlay;
     }
     if !layer.hidden_bones.is_empty() {
@@ -242,13 +267,18 @@ pub fn apply_render_layers<'a>(
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     artwork: &ActorArtworkPages,
 ) {
-    apply_render_layers_cached(batch, rig_of, artwork, &mut LayerPoseCache::default());
+    apply_render_layers_cached(
+        batch,
+        |id| rig_of(id).map(|rig| Cow::Borrowed(rig.render)),
+        artwork,
+        &mut LayerPoseCache::default(),
+    );
 }
 
 /// [`apply_render_layers`] reusing `cache`'s conversions across frames.
 pub fn apply_render_layers_cached<'a>(
     batch: &mut ActorPresentationBatch,
-    rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
+    mut layers_of: impl FnMut(u64) -> Option<Cow<'a, [RenderTextureLayer]>>,
     artwork: &ActorArtworkPages,
     cache: &mut LayerPoseCache,
 ) {
@@ -260,10 +290,10 @@ pub fn apply_render_layers_cached<'a>(
         if identity.layer != ACTOR_LAYER_BODY || !batch.artwork.contains_key(&identity) {
             continue;
         }
-        let Some(rig) = rig_of(identity.runtime_id) else {
+        let Some(layers) = layers_of(identity.runtime_id) else {
             continue;
         };
-        resolve(body, rig.render, artwork, cache, &mut resolved);
+        resolve(body, &layers, artwork, cache, &mut resolved);
         if resolved.is_empty() {
             continue;
         }

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
-use client_world::{ActorPose, ActorSnapshot};
+use client_world::{ActorSnapshot, WorldAuthority};
 use protocol::{ActorKind, ActorMetadataValue};
 
 use super::*;
@@ -11,12 +11,6 @@ fn actor(
     feet: [f32; 3],
     size: Option<(f32, f32)>,
 ) -> ActorSnapshot {
-    let pose = ActorPose {
-        position: feet,
-        pitch: 0.0,
-        yaw: 0.0,
-        head_yaw: 0.0,
-    };
     let metadata = size
         .map(|(width, height)| {
             HashMap::from([
@@ -25,11 +19,25 @@ fn actor(
             ])
         })
         .unwrap_or_default();
-    ActorSnapshot {
+    let mut authority = WorldAuthority::new(
+        protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 0,
+            local_player_unique_id: 0,
+            player_position: feet,
+            world_spawn_position: [0; 3],
+            air_network_id: protocol::air_network_id(false),
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(assets::RuntimeAssets::diagnostic()),
+        None,
+        feet,
+        None,
+    );
+    let spawn = protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: runtime_id as i64 * 10,
         runtime_id,
-        spawn_revision: 0,
-        movement_revision: 0,
         kind: ActorKind::Entity {
             identifier: identifier.into(),
         },
@@ -38,20 +46,28 @@ fn actor(
         pitch: 0.0,
         yaw: 0.0,
         head_yaw: 0.0,
-        previous_pose: pose,
-        received_pose: pose,
-        interpolation_ticks_remaining: 0,
         body_yaw: 0.0,
-        on_ground: None,
-        teleported: false,
-        player_mode: None,
-        source_tick: None,
-        metadata,
-        attributes: HashMap::new(),
-        int_properties: HashMap::new(),
-        float_properties: HashMap::new(),
-        status: Default::default(),
-    }
+        held_item: Default::default(),
+        metadata: metadata
+            .into_iter()
+            .map(|(key, value)| protocol::ActorMetadata { key, value })
+            .collect(),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    };
+    authority
+        .apply_ordered_event(
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)),
+            Some(1),
+        )
+        .unwrap();
+    let mut actor = authority
+        .actor(runtime_id)
+        .expect("spawn committed")
+        .clone();
+    actor.spawn_revision = 0;
+    actor
 }
 
 const EYE: [f32; 3] = [0.0, 1.62, 0.0];

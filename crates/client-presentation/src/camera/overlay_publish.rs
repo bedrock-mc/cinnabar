@@ -7,14 +7,17 @@ use std::{
 
 use bevy::{
     log::warn,
-    prelude::{Local, Projection, Query, Res, ResMut, Time, With},
+    prelude::{Local, Mat4, Projection, Query, Res, ResMut, Time, Transform, With},
 };
 use render::{
     ChunkTextureAssetIdentity, ChunkTextureAssets, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenFireTexture,
     ScreenOverlayKind, ScreenOverlayLayer, ScreenOverlayScene, ScreenOverlayTextures,
 };
 
-use super::overlay::{OverlayKind, OverlayLayer, ScreenOverlays};
+use super::{
+    FlyCamera,
+    overlay::{OverlayKind, OverlayLayer, ScreenOverlays},
+};
 use launcher::install_layout::InstallLayout;
 
 fn overlay_kind(kind: OverlayKind) -> ScreenOverlayKind {
@@ -98,9 +101,9 @@ fn pinned_fire_state() -> Option<u32> {
 pub fn publish_screen_overlays(
     time: Res<Time>,
     overlays: Res<ScreenOverlays>,
+    cameras: Query<(&Projection, &Transform), With<FlyCamera>>,
     scene: Option<ResMut<ScreenOverlayScene>>,
     textures: Option<Res<ChunkTextureAssets>>,
-    cameras: Query<&Projection, With<super::FlyCamera>>,
     mut fire_source: Local<Option<(ChunkTextureAssetIdentity, u32)>>,
 ) {
     let Some(mut scene) = scene else {
@@ -124,13 +127,18 @@ pub fn publish_screen_overlays(
             }
         }
     }
-    if let Some(Projection::Perspective(projection)) = cameras.iter().next() {
+    if let Some((Projection::Perspective(projection), _)) = cameras.iter().next() {
         scene.set_fire_projection(projection.fov, projection.aspect_ratio);
     }
     scene.set_layers(
         overlays.layers.iter().map(render_layer),
         time.elapsed_secs(),
     );
+    if let Ok((projection, transform)) = cameras.single() {
+        scene.set_portal_from_clip(
+            Mat4::from_quat(transform.rotation) * projection.get_clip_from_view().inverse(),
+        );
+    }
 }
 
 #[cfg(test)]

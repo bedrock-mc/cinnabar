@@ -10,8 +10,11 @@ use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEvent
 use crate::runtime::visibility::AppMetrics;
 mod committed_ui;
 mod control_apply;
+mod dimension;
+mod respawn;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
 use committed_ui::refresh_player_list_cache_for_controls;
+pub(crate) use dimension::advance_dimension_transfer;
 #[cfg(test)]
 mod player_list_tests;
 mod shutdown_watchdog;
@@ -103,6 +106,8 @@ pub(crate) struct ClientWorld {
     /// The session's custom item facts and pack icons for held and worn items.
     pub(crate) session_items: Option<Arc<crate::runtime::network::entity_pack::SessionItems>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
+    pub(crate) dimension_transfer: dimension::DimensionTransfer,
+    pub(crate) respawn: respawn::RespawnLifecycle,
     pub(crate) fatal_error: Option<String>,
     pub(crate) transfer_notice: Option<TransferNotice>,
     pub(crate) network_decode_errors: u64,
@@ -127,6 +132,8 @@ impl ClientWorld {
             prepared_actor_artwork: None,
             session_items: None,
             pending_surface_spawn: None,
+            dimension_transfer: dimension::DimensionTransfer::default(),
+            respawn: respawn::RespawnLifecycle::default(),
             fatal_error: None,
             transfer_notice: None,
             network_decode_errors: 0,
@@ -306,6 +313,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
     let ClientWorld {
         stream,
         pending_surface_spawn,
+        dimension_transfer,
+        respawn,
         fatal_error,
         ..
     } = &mut *client_world;
@@ -369,6 +378,13 @@ pub(crate) fn reconcile_world_stream_before_physics(
 
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {
+        if let CommittedControlEvent::DimensionChangeAck {
+            dimension_epoch, ..
+        } = control
+        {
+            dimension_transfer.acknowledge(dimension_epoch);
+            continue;
+        }
         if let CommittedControlEvent::NetworkStackLatency { creation_time, .. } = control {
             let Some(network) = network.as_ref() else {
                 movement.set_control_fence_pending(true);
@@ -390,6 +406,31 @@ pub(crate) fn reconcile_world_stream_before_physics(
             continue;
         }
         crate::movement::trace_server_control(&movement, &local_physics, &control);
+        if respawn.consume_nonspatial_phase(
+            clock.session_generation(),
+            &control,
+            stream.local_player_runtime_id(),
+            &mut movement,
+        ) {
+            continue;
+        }
+        if let CommittedControlEvent::ChangeDimension {
+            sequence,
+            change,
+            resolved,
+        } = control
+        {
+            dimension_transfer.begin(
+                clock.session_generation(),
+                sequence,
+                protocol::ChangeDimensionEvent {
+                    position: resolved.position,
+                    ..change
+                },
+                stream.local_player_runtime_id(),
+                time.elapsed(),
+            );
+        }
         let world = sim::PaletteWorld::new(
             stream.collision_store(),
             collisions.registry(stream.network_id_mode()),
@@ -402,6 +443,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             speed: &mut movement_speed,
             session_generation: clock.session_generation(),
             dimension: stream.current_dimension(),
+            dimension_transfer_active: dimension_transfer.active(),
         }
         .apply(control, &world, |observation| {
             use gameplay::committed_control::ControlObservation;

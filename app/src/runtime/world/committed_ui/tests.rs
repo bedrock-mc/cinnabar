@@ -45,6 +45,9 @@ use render::ChunkUploadBudget;
 use semantic_input::Action;
 use std::sync::Arc;
 
+mod boss_lifetime;
+mod credits_identity;
+
 #[derive(Clone, Copy, Debug)]
 enum InputCase {
     Move,
@@ -652,6 +655,8 @@ fn fixture_app() -> (App, Entity) {
         .unwrap();
     configure_client_frame_schedule(&mut app);
     configure_client_authority_systems(&mut app);
+    let (network, command_receiver) = NetworkHandle::with_command_capacity(64);
+    app.insert_non_send_resource(command_receiver);
     app.add_message::<KeyboardInput>()
         .add_message::<AppExit>()
         .insert_resource(ClientWorld {
@@ -665,7 +670,7 @@ fn fixture_app() -> (App, Entity) {
         .insert_resource(player_runtime)
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .insert_resource(menu)
-        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(network)
         .insert_resource(AcceptanceRun::new(Some(900), None, false, false))
         .insert_resource(ModelWitnessFileSource::new(None))
         .init_resource::<MovementTicker>()
@@ -753,6 +758,7 @@ fn submit_transition(app: &mut App, sequence: u64, dimension: i32) {
             WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                 dimension,
                 position: [0.0, 70.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();

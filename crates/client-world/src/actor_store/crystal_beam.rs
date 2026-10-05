@@ -11,13 +11,15 @@ const CRYSTAL_TARGET_METADATA_KEY: u32 = 47;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CrystalBeamView {
     pub runtime_id: u64,
+    /// Interpolated position of the body that owns and admits this effect.
+    pub owner_position: [f32; 3],
     pub target: [f32; 3],
     pub crystal: [f32; 3],
     pub age_ticks: f32,
 }
 
 impl ActorStore {
-    /// Publishes the additional beam for crystals with a nonzero block target.
+    /// Publishes crystal target beams and the dragons' retained healing beams.
     pub(crate) fn crystal_beams(&self, partial_tick: f32) -> Vec<CrystalBeamView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
         let mut beams = self.actors.values().filter_map(|actor| {
@@ -34,11 +36,12 @@ impl ActorStore {
             // and ends at the interpolated actor origin.
             Some(CrystalBeamView {
                 runtime_id: actor.runtime_id,
+                owner_position: actor.interpolated_position(alpha)?,
                 target: [target[0] as f32, target[1] as f32 + 1.0, target[2] as f32],
                 crystal: actor.interpolated_position(alpha)?,
                 age_ticks: actor.status.age_ticks as f32 + alpha,
             })
-        }).collect::<Vec<_>>();
+        }).chain(self.dragon_healing_beams(alpha)).collect::<Vec<_>>();
         beams.sort_unstable_by_key(|beam| beam.runtime_id);
         beams
     }

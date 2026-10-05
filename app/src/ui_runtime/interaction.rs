@@ -157,7 +157,7 @@ pub(crate) fn drive_inventory_ui_actions(
     }
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
-    if runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
         return;
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
@@ -380,6 +380,55 @@ pub(crate) fn drive_chat_keyboard_input(
     emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    if runtime.credits().owns_input() {
+        let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let finished = runtime.credits().active().is_some_and(|active| {
+            presentation
+                .as_ref()
+                .is_some_and(|view| view.credits_finished(runtime.session_id(), active.sequence))
+        });
+        runtime.credits_mut().observe(now, finished);
+        if window.focused {
+            let cancel = keys.just_pressed(KeyCode::Escape)
+                || gamepads
+                    .iter()
+                    .any(|pad| pad.just_pressed(GamepadButton::East));
+            let select = keys.just_pressed(KeyCode::Enter)
+                || keys.just_pressed(KeyCode::Space)
+                || gamepads
+                    .iter()
+                    .any(|pad| pad.just_pressed(GamepadButton::South));
+            if mouse_buttons.just_pressed(MouseButton::Left) {
+                let skip_hit = runtime.credits().active().is_some_and(|active| {
+                    active.skip_visible(now)
+                        && window.cursor_position().is_some_and(|point| {
+                            presentation.as_ref().is_some_and(|view| {
+                                view.credits_skip_contains(
+                                    runtime.session_id(),
+                                    active.sequence,
+                                    point.to_array(),
+                                )
+                            })
+                        })
+                });
+                if skip_hit {
+                    runtime.credits_mut().skip(now);
+                } else {
+                    runtime.credits_mut().select(now, false);
+                }
+            } else if cancel || select {
+                runtime.credits_mut().select(now, cancel);
+            }
+        }
+        modifiers.reset_all();
+        keyboard_messages.clear();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        mouse_motion.delta = Vec2::ZERO;
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
+        return;
+    }
     if runtime.server_forms().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)

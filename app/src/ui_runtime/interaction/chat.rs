@@ -18,7 +18,7 @@ pub(crate) fn drive_chat_ui_actions(
     mut presentation: ResMut<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
-    if runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
         return;
     }
     let pointer = window

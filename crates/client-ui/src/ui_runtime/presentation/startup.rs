@@ -77,6 +77,13 @@ impl fmt::Display for StartupLoadingMilestone {
 }
 
 impl StartupPresentationState {
+    /// A dimension transfer needs new destination terrain and a later GPU frame,
+    /// even though it remains in the same network session.
+    pub fn restart(&mut self, frame_generation: u64) {
+        self.reset(frame_generation);
+        self.loading_started_millis = None;
+    }
+
     pub fn observe_with_milestone(
         &mut self,
         input: StartupReadinessInput,
@@ -497,6 +504,36 @@ mod tests {
                 .loading_wait_ms,
             0
         );
+    }
+
+    #[test]
+    fn dimension_restart_requires_destination_readiness_and_a_new_gpu_frame_in_same_session() {
+        let mut state = StartupPresentationState::default();
+        let mut ready = startup_input(7, 10, 10, 3);
+        ready.local_terrain_ready = true;
+        assert!(!state.observe(ready));
+        ready.diagnostics_frame_generation = 11;
+        ready.snapshot.frame_generation = 11;
+        assert!(state.observe(ready));
+        state.completion_queued = true;
+
+        state.restart(12);
+        assert!(state.probe_enabled(true));
+        assert!(!state.completion_queued);
+        ready.diagnostics_frame_generation = 12;
+        assert!(
+            !state.observe(ready),
+            "old GPU completion cannot close destination screen"
+        );
+        ready.snapshot.frame_generation = 13;
+        ready.diagnostics_frame_generation = 13;
+        ready.world_entry_held = true;
+        assert!(
+            !state.observe(ready),
+            "dimension-done handshake still pending"
+        );
+        ready.world_entry_held = false;
+        assert!(state.observe(ready));
     }
 
     #[test]

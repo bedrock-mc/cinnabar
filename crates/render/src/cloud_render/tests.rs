@@ -127,6 +127,28 @@ fn viewport_records_are_identity_cached_with_exact_diagnostic_layout() {
 }
 
 #[test]
+fn dimension_changes_remove_clouds_and_restore_them_only_in_the_overworld() {
+    let mut world = world();
+    let view = spawn_view(&mut world, Vec3::ZERO);
+    let base = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+    world.run_system_once(prepare_cloud_records).unwrap();
+    assert!(world.resource::<CloudGpu>().views[&view].record_count > 0);
+
+    for kind in [crate::SkyKind::End, crate::SkyKind::Nether] {
+        world.insert_resource(base.with_sky_kind(kind));
+        world.run_system_once(prepare_cloud_records).unwrap();
+        assert!(
+            world.resource::<CloudGpu>().views.is_empty(),
+            "clouds survived the switch to {kind:?}"
+        );
+
+        world.insert_resource(base.with_sky_kind(crate::SkyKind::Overworld));
+        world.run_system_once(prepare_cloud_records).unwrap();
+        assert!(world.resource::<CloudGpu>().views[&view].record_count > 0);
+    }
+}
+
+#[test]
 fn per_view_cache_does_not_churn_on_subpixel_moves_and_is_pruned_on_removal() {
     let mut world = world();
     let first = spawn_view(&mut world, Vec3::ZERO);

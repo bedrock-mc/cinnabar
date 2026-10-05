@@ -71,12 +71,19 @@ impl WorldAuthority {
             }
             WorldEvent::Audio(event) => {
                 let sequence = sequence.expect("sequenced audio events commit through submit");
-                self.push_committed_audio(CommittedAudioEvent {
+                let committed = CommittedAudioEvent {
                     sequence,
                     dimension: self.current_dimension,
                     dimension_epoch: self.form_dimension_epoch,
+                    actor_synchronization: None,
                     event,
-                });
+                };
+                if matches!(&committed.event, AudioEvent::Level(level) if level.fire_at_position.is_some())
+                {
+                    self.actors.queue_synchronized_audio(committed);
+                } else {
+                    self.push_committed_audio(committed);
+                }
             }
             WorldEvent::Camera(event) => {
                 self.audio_nondefault_camera_observed = true;
@@ -213,6 +220,11 @@ impl WorldAuthority {
                 // A game-mode update changes the UI only when its unique ID matches
                 // the local player.
                 let event = match event {
+                    UiEvent::ShowCredits(event)
+                        if event.runtime_id != self.local_player_runtime_id =>
+                    {
+                        return Ok(());
+                    }
                     UiEvent::PlayerGameMode {
                         actor_unique_id,
                         event,

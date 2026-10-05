@@ -233,6 +233,8 @@ pub struct WorldStreamNormalizationStats {
     pub retry_request_encoding_failures: u64,
     pub biome_definition_resolution_failures: u64,
     pub biome_tint_revision_overflows: u64,
+    pub invalid_actor_block_syncs: u64,
+    pub actor_block_sync_capacity_failures: u64,
 }
 
 impl WorldStreamNormalizationStats {
@@ -259,6 +261,8 @@ impl WorldStreamNormalizationStats {
             self.retry_request_encoding_failures,
             self.biome_definition_resolution_failures,
             self.biome_tint_revision_overflows,
+            self.invalid_actor_block_syncs,
+            self.actor_block_sync_capacity_failures,
         ]
         .into_iter()
         .fold(0, u64::saturating_add)
@@ -285,6 +289,8 @@ pub(super) enum NormalizationErrorReason {
     RetryRequestEncodingFailure,
     BiomeDefinitionResolutionFailure,
     BiomeTintRevisionOverflow,
+    InvalidActorBlockSync,
+    ActorBlockSyncCapacity,
 }
 
 impl WorldStreamNormalizationStats {
@@ -328,6 +334,10 @@ impl WorldStreamNormalizationStats {
             }
             NormalizationErrorReason::BiomeTintRevisionOverflow => {
                 &mut self.biome_tint_revision_overflows
+            }
+            NormalizationErrorReason::InvalidActorBlockSync => &mut self.invalid_actor_block_syncs,
+            NormalizationErrorReason::ActorBlockSyncCapacity => {
+                &mut self.actor_block_sync_capacity_failures
             }
         };
         *counter = counter.saturating_add(1);

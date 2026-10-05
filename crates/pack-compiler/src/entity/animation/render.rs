@@ -5,7 +5,8 @@ use std::{collections::BTreeMap, path::Path};
 use assets::{
     AssetError, EntityAssetKind, EntityAssetSource, EntityAssetSymbol, EntityGeometry,
     EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderSlot, EntityRenderVisibility, EntityRigBinding, EntityRigGeometryBinding,
+    EntityRenderMaterial, EntityRenderSlot, EntityRenderVisibility, EntityRigBinding,
+    EntityRigGeometryBinding,
 };
 use serde_json::{Map, Value};
 
@@ -284,6 +285,8 @@ pub(super) fn compile_render(
                 }
             }
             layers.push(EntityRenderLayer {
+                material: native_material(description, definition),
+                hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
                 first_slot: first_slot as u32,
@@ -310,6 +313,34 @@ pub(super) fn compile_render(
         visibility: visibility.into_boxed_slice(),
         geometries: layer_geometries.into_boxed_slice(),
     })
+}
+
+fn native_material(
+    description: &Map<String, Value>,
+    controller: &Map<String, Value>,
+) -> EntityRenderMaterial {
+    let Some(alias) = controller
+        .get("materials")
+        .and_then(Value::as_array)
+        .and_then(|rules| rules.iter().rev().find_map(|rule| rule.get("*")?.as_str()))
+        .and_then(|alias| alias.strip_prefix("Material."))
+    else {
+        return EntityRenderMaterial::Default;
+    };
+    match description
+        .get("materials")
+        .and_then(|materials| materials.get(alias))
+        .and_then(Value::as_str)
+    {
+        Some("ender_dragon") => EntityRenderMaterial::Dragon,
+        Some("entity_dissolve_layer0.skinning" | "entity_dissolve_layer0") => {
+            EntityRenderMaterial::DissolveDepth
+        }
+        Some("entity_dissolve_layer1.skinning" | "entity_dissolve_layer1") => {
+            EntityRenderMaterial::DissolveColor
+        }
+        _ => EntityRenderMaterial::Default,
+    }
 }
 
 /// Appends the geometries a controller's `geometry` expression selects, each with the condition

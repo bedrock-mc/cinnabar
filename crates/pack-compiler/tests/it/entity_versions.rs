@@ -92,6 +92,53 @@ fn selected_geometry(root: &Path) -> String {
 }
 
 #[test]
+fn legacy_bed_geometry_is_retained_without_overriding_modern_actor_geometry() {
+    let pack = pack(
+        json!([1, 20, 0]),
+        &[("entity/horse.json", Value::Null, "geometry.fixture")],
+    );
+    write(
+        pack.path(),
+        assets::LEGACY_ENTITY_GEOMETRY_PATH,
+        json!({
+            "format_version":"1.8.0",
+            (assets::BED_GEOMETRY_IDENTIFIER):{
+                "texturewidth":64,"textureheight":64,
+                "bones":[{"name":"bed","cubes":[{
+                    "origin":[0,0,0],"size":[16,32,6],"uv":[0,0]
+                }]}]
+            },
+            "geometry.fixture":{
+                "texturewidth":32,"textureheight":32,
+                "bones":[{"name":"obsolete"}]
+            }
+        }),
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let assets = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let bed = assets
+        .geometries()
+        .iter()
+        .find(|geometry| geometry.identifier.as_ref() == assets::BED_GEOMETRY_IDENTIFIER)
+        .expect("legacy bed geometry must be available to its block renderer");
+    assert_eq!(
+        bed.bones[0].cubes[0].size.map(|value| value.get()),
+        [16.0, 32.0, 6.0]
+    );
+    let actor = assets
+        .geometries()
+        .iter()
+        .filter(|geometry| geometry.identifier.as_ref() == "geometry.fixture")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actor.len(),
+        1,
+        "legacy actor copies must not override modern rigs"
+    );
+    assert_eq!(actor[0].bones[0].name.as_ref(), "body");
+}
+
+#[test]
 fn horse_uses_the_highest_compatible_definition_instead_of_the_first_filename() {
     let pack = pack(
         json!([1, 20, 0]),

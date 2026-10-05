@@ -19,6 +19,13 @@ type ChangedChunkInstances<'w, 's> =
 pub(in crate::chunk) struct ChunkInstanceQueries<'w, 's> {
     queries: ParamSet<'w, 's, (AllChunkInstances<'w, 's>, ChangedChunkInstances<'w, 's>)>,
 }
+#[derive(SystemParam)]
+pub(in crate::chunk) struct ChunkUploadPublication<'w> {
+    acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
+    gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
+    terrain_generations:
+        Option<ResMut<'w, crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>>,
+}
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_gpu_chunks(
     mut commands: Commands,
@@ -30,14 +37,18 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     mut upload_stats: ResMut<ChunkGpuUploadStats>,
     biome_tints: Res<ChunkBiomeTints>,
     texture_assets: Res<ChunkTextureAssets>,
-    acknowledgements: Res<ChunkUploadAcknowledgements>,
-    gpu_removals: Res<ChunkGpuRemovalQueue>,
+    publication: ChunkUploadPublication,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     retirement_fence: Res<TransparentRetirementFence>,
     mut fairness: ResMut<GpuUpdateFairness>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let ChunkUploadPublication {
+        acknowledgements,
+        gpu_removals,
+        mut terrain_generations,
+    } = publication;
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::GpuPreparation));
@@ -92,8 +103,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     );
 
     arena.pending_removals.extend(removed_instances.read());
-    let retirement_pressure =
-        prepare_publication_removals(&mut arena, *budget, &gpu_removals, &acknowledgements);
+    let retirement_pressure = prepare_publication_removals(
+        &mut arena,
+        *budget,
+        &gpu_removals,
+        &acknowledgements,
+        terrain_generations.as_deref_mut(),
+    );
 
     let mut writes = ArenaWrites::default();
     let mut applied_tokens = Vec::new();
@@ -519,6 +535,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let applied_at = Instant::now();
     for (key, token, uploaded_bytes) in applied_tokens {
         acknowledgements.complete_with_bytes(key, token, applied_at, uploaded_bytes);
+        if let Some(terrain) = terrain_generations.as_deref_mut() {
+            terrain.record(key, token.generation);
+        }
     }
     for permit in applied_publication_permits {
         let retired = permit.retire();

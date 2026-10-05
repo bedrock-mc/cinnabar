@@ -24,6 +24,7 @@ mod pack;
 mod particle;
 mod ui;
 mod weather_textures;
+pub use pack::{apply_atlas_tint, parse_atlas_tint};
 
 pub use actor::{
     ActorCompileReport, ActorFallback, ActorPackCompilation, ActorTextureEvidence,

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use jolyne::GameData;
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::LevelChunkPacketView;
 use valentine::bedrock::version::v1_26_51::{
     EnumsPlayerRespawnState as RespawnPacketState,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
@@ -39,6 +38,7 @@ use crate::{
 
 mod biomes;
 mod block_side;
+mod block_updates;
 mod clocks;
 mod custom_blocks;
 mod diagnostics;
@@ -46,6 +46,7 @@ mod environment;
 mod events;
 mod game_mode;
 mod game_rules;
+mod level_chunk;
 mod requests;
 
 pub use self::clocks::{
@@ -60,20 +61,22 @@ pub use self::custom_blocks::{
 pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};
 pub use self::environment::WorldEnvironmentBootstrap;
 pub use self::events::{
-    ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
-    BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
-    ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, GameRulesEvent, LevelChunkEvent,
-    LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent,
-    MovePlayerMode, MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent,
-    air_network_id, vanilla_dimension_range,
+    ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
+    BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
+    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
+    GameRulesEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES,
+    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, NETHER_DIMENSION_ID,
+    OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
+    RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
+    WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 use self::game_rules::{daylight_cycle_rule_update, hud_rules, weather_cycle_rule_update};
+use self::level_chunk::level_chunk_mode;
+pub(crate) use self::level_chunk::normalize_borrowed_level_chunk;
+use self::requests::checked_sub_chunk_position;
 pub use self::requests::request_sub_chunk_column;
-use self::requests::{checked_sub_chunk_position, normalize_layer};
 use biomes::canonical_biome_name;
 
 /// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
@@ -347,6 +350,12 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::ShowCreditsPacket(packet) => {
+            let Some(event) = crate::credits::normalize(&packet) else {
+                return Ok(None);
+            };
+            WorldEvent::Ui(UiEvent::ShowCredits(event))
+        }
         McpePacketData::ScriptMessagePacket(message) => {
             if packet.header.from_subclient != 0 || packet.header.to_subclient != 0 {
                 return Ok(None);
@@ -698,39 +707,10 @@ pub fn into_world_event(
                     .collect(),
             )
         }
-        McpePacketData::UpdateBlockPacket(packet) => {
-            let layer = normalize_layer(packet.layer)?;
-            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
-                dimension: current_dimension,
-                position: [
-                    packet.block_position.x,
-                    packet.block_position.y,
-                    packet.block_position.z,
-                ],
-                layer,
-                network_id: packet.block_runtime_id,
-            }])
-        }
-        McpePacketData::UpdateSubChunkBlocksPacket(packet) => {
-            // The two block lists moved into a nested `blocks_changed` struct;
-            // gophertunnel packet/update_sub_chunk_blocks.go still writes
-            // Blocks (layer 0) then Extra (layer 1) back to back.
-            let standards = packet.blocks_changed.blocks_changed_standards;
-            let extras = packet.blocks_changed.blocks_changed_extras;
-            let mut updates = Vec::with_capacity(standards.len() + extras.len());
-            updates.extend(standards.into_iter().map(|update| BlockUpdateEvent {
-                dimension: current_dimension,
-                position: [update.pos.x, update.pos.y, update.pos.z],
-                layer: 0,
-                network_id: update.runtime_id,
-            }));
-            updates.extend(extras.into_iter().map(|update| BlockUpdateEvent {
-                dimension: current_dimension,
-                position: [update.pos.x, update.pos.y, update.pos.z],
-                layer: 1,
-                network_id: update.runtime_id,
-            }));
-            WorldEvent::BlockUpdates(updates)
+        packet @ (McpePacketData::UpdateBlockPacket(_)
+        | McpePacketData::UpdateBlockSyncedPacket(_)
+        | McpePacketData::UpdateSubChunkBlocksPacket(_)) => {
+            return block_updates::normalize(packet, current_dimension);
         }
         McpePacketData::BlockActorDataPacket(packet) => {
             WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
@@ -773,7 +753,16 @@ pub fn into_world_event(
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: packet.dimension_id.value,
                 position: [packet.position.x, packet.position.y, packet.position.z],
+                respawn: packet.respawn,
+                loading_screen_id: packet.loading_screen_id,
             })
+        }
+        McpePacketData::PlayerActionPacket(action) => {
+            return Ok(crate::dimension::normalize_ack(
+                &action,
+                packet.header.from_subclient,
+                packet.header.to_subclient,
+            ));
         }
         McpePacketData::RespawnPacket(packet) => WorldEvent::Respawn(RespawnEvent {
             position: [packet.position.x, packet.position.y, packet.position.z],
@@ -948,46 +937,4 @@ pub fn into_world_event(
         _ => return Ok(None),
     };
     Ok(Some(event))
-}
-
-fn level_chunk_mode(
-    request_limit: Option<i32>,
-    subchunks_count: u32,
-) -> Result<LevelChunkMode, WorldPacketError> {
-    match request_limit {
-        Some(-1) => Ok(LevelChunkMode::LimitlessRequests),
-        Some(limit) => Ok(LevelChunkMode::LimitedRequests {
-            highest: u16::try_from(limit)
-                .map_err(|_| WorldPacketError::InvalidSubChunkCount(limit))?,
-        }),
-        None => {
-            let count = usize::try_from(subchunks_count)
-                .map_err(|_| WorldPacketError::InvalidSubChunkCount(i32::MAX))?;
-            // Vanilla bounds the inline count only while decoding the payload.
-            Ok(LevelChunkMode::Inline { count })
-        }
-    }
-}
-
-pub(crate) fn normalize_borrowed_level_chunk(
-    packet: LevelChunkPacketView,
-) -> Result<(LevelChunkEvent, bytes::Bytes), WorldPacketError> {
-    if packet.cache_enabled {
-        return Err(WorldPacketError::CachedChunksUnsupported);
-    }
-    let mode = level_chunk_mode(
-        packet.client_request_sub_chunk_limit,
-        packet.subchunks_count,
-    )?;
-    let payload = packet.serialized_chunk_data;
-    Ok((
-        LevelChunkEvent {
-            dimension: packet.dimension_id.value,
-            x: packet.chunk_position.x,
-            z: packet.chunk_position.z,
-            mode,
-            payload: Vec::new(),
-        },
-        payload,
-    ))
 }

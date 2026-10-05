@@ -637,6 +637,9 @@ pub(in crate::chunk) fn update_chunk_animation_clock(
 pub(in crate::chunk) struct RenderQueueRuntime<'w> {
     gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
     acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
+    immediate_terrain: Option<
+        ResMut<'w, crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>,
+    >,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
 }
 
@@ -649,6 +652,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     runtime: RenderQueueRuntime,
     reload: Option<Res<ChunkTextureReload>>,
 ) {
+    let mut runtime = runtime;
+    if let Some(immediate) = runtime.immediate_terrain.as_deref_mut() {
+        immediate.0.clear();
+    }
     if !queue.session_reset_pending
         && reload
             .as_ref()
@@ -659,6 +666,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     let RenderQueueRuntime {
         gpu_removals,
         acknowledgements,
+        mut immediate_terrain,
         profiler,
     } = runtime;
     let _timer = profiler
@@ -750,6 +758,9 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = token {
                 acknowledgements.complete(key, token, Instant::now());
+                if let Some(immediate) = immediate_terrain.as_deref_mut() {
+                    immediate.0.push((key, token.generation));
+                }
             }
             zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;
@@ -817,6 +828,9 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = pending.token {
                 acknowledgements.complete(key, token, Instant::now());
+                if let Some(immediate) = immediate_terrain.as_deref_mut() {
+                    immediate.0.push((key, token.generation));
+                }
             }
             zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;

@@ -30,6 +30,7 @@ use crate::{
 };
 
 mod classification;
+mod descriptors;
 mod leaf_mips;
 mod lily_pad_textures;
 mod seasonal_leaves;
@@ -47,6 +48,7 @@ use classification::{
     liquid_material_flags, record_has_deferred_material, source_is_deferred,
     translucent_cube_material_flags,
 };
+use descriptors::descriptor_for;
 
 use visuals::{
     bee_housing::{
@@ -296,6 +298,12 @@ fn compile_pack_inner(
             || visuals::literal::is_literal_cube(record)
             || fallback.contains(record)
     }) {
+        if visuals::end_portal_frame::is_record(record)
+            && let Some((descriptor, key)) =
+                visuals::end_portal_frame::eye_descriptor(&pack, record)
+        {
+            descriptor_keys.insert(descriptor, key);
+        }
         if fallback.contains(record) {
             for face in BlockFace::ALL {
                 if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {
@@ -466,6 +474,7 @@ fn compile_pack_inner(
     let lily_pad_textures::Installed {
         pages: texture_pages,
         material_keys: lily_pad_keys,
+        fixed_tints: lily_pad_tints,
     } = lily_pad_textures::install(
         lily_pad_textures::Inputs {
             pack: &pack,
@@ -508,7 +517,8 @@ fn compile_pack_inner(
                     .filter_map(move |&(id, key)| (id == original).then_some((copy, key)))
             })),
     )
-    .with_aliases(material_keys.aliases());
+    .with_aliases(material_keys.aliases())
+    .with_fixed_tints(lily_pad_tints);
     if light_properties.len() != visuals.len() {
         return Err(AssetError::InvalidCompiledAssets {
             detail: "light-property count does not match sequential visual span".into(),
@@ -570,80 +580,6 @@ fn validate_records(records: &[RegistryRecord]) -> Result<(), AssetError> {
         }
     }
     Ok(())
-}
-
-fn descriptor_for(
-    fallback: &visuals::fallback::FallbackInventory,
-    pack: &PackSources,
-    record: &RegistryRecord,
-    face: BlockFace,
-) -> Option<(Descriptor, Box<str>)> {
-    let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
-    let key = key?;
-    let (path, state_variant) = if is_model_visual(record) {
-        pack.terrain.get_for_model_record(&key, record)?
-    } else {
-        pack.terrain.get_for_record_variant(&key, record)?
-    };
-    if !is_model_visual(record)
-        && !is_liquid(record)
-        && !fallback.contains(record)
-        && source_is_deferred(pack, record, &key, path)
-    {
-        return None;
-    }
-    let mut flags = if rotate_uv {
-        MATERIAL_FLAG_ROTATE_UV
-    } else {
-        0
-    };
-    if let Some(fallback_flags) = fallback.material_flags(record) {
-        flags |= fallback_flags;
-    } else if is_stained_glass_cube(record) {
-        flags |= MATERIAL_FLAG_ALPHA_BLEND;
-    } else if is_copper_grate(record) {
-        flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
-    } else if is_translucent_cube(record) {
-        flags |= translucent_cube_material_flags(&record.name);
-    } else if let Some(named_flags) = named_block_material_flags(record) {
-        flags |= named_flags;
-    } else if is_pane(record) {
-        flags |= if record.name.contains("stained_glass_pane") {
-            MATERIAL_FLAG_ALPHA_BLEND
-        } else {
-            MATERIAL_FLAG_ALPHA_CUTOUT
-        };
-    } else if is_fence(record) && record.name.contains("bamboo") {
-        flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
-    } else if is_cutout_model_visual(record) {
-        flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cutout_model_tint_flags(&record.name);
-    } else if is_liquid(record) {
-        flags |= liquid_material_flags(&record.name);
-    } else if record.flags.contains(BlockFlags::LEAF_MODEL) {
-        flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
-        flags |= leaf_tint_flags(&record.name);
-    }
-    if record.name.as_ref() == "minecraft:glass" {
-        flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
-    }
-    if record.name.as_ref() == "minecraft:grass_block" {
-        flags |= match face {
-            BlockFace::Down => 0,
-            BlockFace::Up => MATERIAL_FLAG_GRASS_TINT,
-            BlockFace::West | BlockFace::East | BlockFace::North | BlockFace::South => {
-                MATERIAL_FLAG_GRASS_TINT | MATERIAL_FLAG_OVERLAY_MASK
-            }
-        };
-    }
-    Some((
-        Descriptor {
-            state_variant,
-            path: path.into(),
-            texture_key: key.clone(),
-            flags,
-        },
-        key,
-    ))
 }
 
 fn flowerbed_material_descriptors(

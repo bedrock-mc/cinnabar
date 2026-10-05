@@ -62,6 +62,7 @@ impl WorldStream {
         if columns.is_empty() {
             return;
         }
+        self.actor_block_syncs.remove_columns(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);

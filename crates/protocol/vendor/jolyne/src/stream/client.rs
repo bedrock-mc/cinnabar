@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::batch::BatchCompression;
 use crate::error::{JolyneError, ProtocolError};
 use crate::gamedata::GameData;
-use crate::raw::{MAX_RAW_BATCH_PACKETS, RawPacket};
+use crate::raw::RawPacket;
 #[cfg(feature = "raknet")]
 use crate::stream::transport::RakNetTransport;
 use crate::stream::{
@@ -80,13 +80,9 @@ struct DeferredPackets {
 
 impl DeferredPackets {
     fn push(&mut self, packet: RawPacket) -> Result<(), JolyneError> {
-        if self.packets.len() == MAX_RAW_BATCH_PACKETS {
-            return Err(ProtocolError::TooManyPackets {
-                max: MAX_RAW_BATCH_PACKETS,
-            }
-            .into());
-        }
-
+        // Spawn prerequisites can follow many independently validated batches.
+        // The per-batch packet limit belongs to decode_packets_raw; this queue
+        // bounds the compact frames it retains across those batches by bytes.
         let bytes = self.bytes.saturating_add(packet.inner_frame().len());
         if bytes > MAX_DEFERRED_PACKET_BYTES {
             return Err(ProtocolError::BatchTooLarge {
@@ -796,6 +792,7 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
 mod tests {
     use super::*;
     use crate::batch::{decode_batch, encode_batch_multi};
+    use crate::raw::MAX_RAW_BATCH_PACKETS;
     use crate::stream::transport::{BedrockTransport, TransportMessage, TransportRecvMessage};
     use bytes::{BufMut, Bytes, BytesMut};
     use std::collections::VecDeque;
@@ -1272,32 +1269,65 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_game_caps_aggregate_deferred_packet_count() {
-        let deferred = McpePacket::from(crate::valentine::SetTimePacket { time: 1 });
+    async fn start_game_preserves_fifo_across_batches_exceeding_the_per_batch_limit() {
+        let deferred = |time: usize| {
+            McpePacket::from(crate::valentine::SetTimePacket {
+                time: i32::try_from(time).expect("fixture time fits i32"),
+            })
+        };
         let first_count = MAX_RAW_BATCH_PACKETS / 2;
         let mut first = vec![start_game_packet()];
-        first.extend(std::iter::repeat_n(deferred.clone(), first_count));
-        let mut second = Vec::new();
-        second.extend(std::iter::repeat_n(
-            deferred,
-            MAX_RAW_BATCH_PACKETS - first_count + 1,
-        ));
+        first.extend((0..first_count).map(deferred));
+        let mut second = (first_count..=MAX_RAW_BATCH_PACKETS)
+            .map(deferred)
+            .collect::<Vec<_>>();
         second.extend(spawn_completion_packets());
+        // This packet remains in the transport's current-batch receive queue
+        // when spawning completes; all deferred packets must precede it.
+        second.push(McpePacket::from(crate::valentine::SetTimePacket {
+            time: -1,
+        }));
+        assert!(first.len() <= MAX_RAW_BATCH_PACKETS);
+        assert!(second.len() <= MAX_RAW_BATCH_PACKETS);
 
         let stream = start_game_stream(vec![
             uncompressed_frame(&first),
             uncompressed_frame(&second),
         ]);
-        let error = match stream.await_start_game().await {
-            Ok(_) => panic!("exceeding the deferred packet budget must fail"),
-            Err(error) => error,
-        };
-        assert!(matches!(
-            error,
-            JolyneError::Protocol(ProtocolError::TooManyPackets {
-                max: MAX_RAW_BATCH_PACKETS
-            })
-        ));
+        let (mut play, _) = stream
+            .await_start_game()
+            .await
+            .expect("valid batches may exceed one batch's limit before spawn");
+        for expected in 0..=MAX_RAW_BATCH_PACKETS {
+            let raw = play
+                .transport
+                .recv_packet_raw()
+                .await
+                .expect("deferred time");
+            let packet = raw.decode(&play.transport.session).expect("decode time");
+            let McpePacketData::SetTimePacket(time) = packet.data else {
+                panic!("deferred FIFO must retain every SetTime before radius");
+            };
+            assert_eq!(
+                time.time,
+                i32::try_from(expected).expect("fixture time fits i32")
+            );
+        }
+        let radius = play
+            .transport
+            .recv_packet_raw()
+            .await
+            .expect("deferred radius");
+        assert_eq!(radius.id, McpePacketName::ChunkRadiusUpdatedPacket);
+        let trailing = play
+            .transport
+            .recv_packet_raw()
+            .await
+            .expect("post-spawn time");
+        let packet = trailing
+            .decode(&play.transport.session)
+            .expect("decode trailing time");
+        assert!(matches!(packet.data, McpePacketData::SetTimePacket(time) if time.time == -1));
     }
 
     #[tokio::test]

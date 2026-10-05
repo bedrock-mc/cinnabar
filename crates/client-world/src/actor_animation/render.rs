@@ -7,6 +7,7 @@ use super::{
 /// One texture layer a rig draws this tick, from its render controllers in controller order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderTextureLayer {
+    pub material: assets::EntityRenderMaterial,
     /// Entity-catalog source index of the raster.
     pub source: u32,
     /// Additional samplers of the witnessed native three-texture material, not extra draws.
@@ -22,6 +23,7 @@ pub struct RenderTextureLayer {
     /// Catalog geometry this layer draws when its controller picks another than the rig's;
     /// `hidden_bones` and the poses then index that geometry's bones.
     pub geometry: Option<u32>,
+    /// Empty for the tick-owned body; populated for alternate geometry or a frame-sampled body.
     pub previous_pose: Arc<[BoneTransform]>,
     pub pose: Arc<[BoneTransform]>,
     /// The controller draws unlit.
@@ -184,8 +186,8 @@ fn color(
         return Ok(default);
     };
     let mut value = [0.0; 4];
-    for (slot, expression) in value.iter_mut().zip(components) {
-        let number = evaluator.number(expression as usize, variables, 0.0, budget)?;
+    for ((slot, expression), this) in value.iter_mut().zip(components).zip(default) {
+        let number = evaluator.number(expression as usize, variables, this, budget)?;
         *slot = if number.is_finite() { number } else { 0.0 };
     }
     Ok(value)
@@ -266,6 +268,7 @@ pub(super) fn evaluate_render(
             .collect();
         let tint = color(evaluator, variables, layer.color, [1.0; 4], budget)?;
         let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
+        let overlay = color(evaluator, variables, layer.hurt_color, overlay, budget)?;
         let uv_anim = color(
             evaluator,
             variables,
@@ -318,6 +321,7 @@ pub(super) fn evaluate_render(
         };
         for &source in selected_sources.iter().take(count) {
             output.push(RenderTextureLayer {
+                material: layer.material,
                 source,
                 multitexture: grouped,
                 color: tint,

@@ -41,6 +41,23 @@ impl WorldStream {
                     self.apply_prepared_with_sequence(event, Some(sequence));
                     self.finish_ordered_commit(sequence);
                 }
+                CommitStep::SyncedBlockUpdates { sequence, events } => {
+                    let (batches, events) = self.snapshot_synced_block_mutation_batches(events);
+                    if batches.is_empty() {
+                        self.finish_ordered_commit(sequence);
+                    } else {
+                        let ids = self.decode_ids(self.authority.current_dimension());
+                        self.predictions.begin_server_batch();
+                        self.enqueue_decode_job(DecodeJob::SyncedBlockUpdates {
+                            sequence,
+                            batches,
+                            events,
+                            ids,
+                        });
+                        self.order.defer_block_updates(sequence);
+                        break;
+                    }
+                }
                 CommitStep::BlockUpdates { sequence, events } => {
                     let batches = self.snapshot_block_mutation_batches(events);
                     if batches.is_empty() {

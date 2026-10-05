@@ -18,6 +18,7 @@ use ui::{SafeArea, TextLayoutCache, TextShadow, UiNode, UiNodeId, UiVisual};
 use super::super::player_preview::PreviewView;
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
+pub(super) mod credits_renderer;
 mod fill_renderers;
 mod formatting_colors;
 pub mod hud_renderers;
@@ -59,6 +60,7 @@ pub struct FormEngine {
     pub(super) passes: [usize; 2],
     /// The title splash, picked once per launch.
     splash: std::sync::OnceLock<Option<String>>,
+    credits: std::sync::OnceLock<Arc<super::credits_content::Content>>,
     screens: screen_cache::ScreenCache,
     /// Animation state of every drawn control, keyed by layout key.
     animator: std::sync::Mutex<json_ui::Animator>,
@@ -108,10 +110,11 @@ impl FormEngine {
     pub(super) fn new(assets: Arc<RuntimeUiAssets>, mut catalog: Catalog, first_page: u16) -> Self {
         super::global_resources::extend_catalog(&mut catalog);
         super::accounts::extend_catalog(&mut catalog);
+        super::credits_screen::extend_catalog(&mut catalog);
         let vanilla = Arc::new(catalog);
         let base = Arc::new(hud_renderers::with_java_hud(&vanilla, &Default::default()));
         Self {
-            textures: TextureSet::new(first_page),
+            textures: TextureSet::new(first_page).with_carrier(Arc::clone(&assets)),
             assets,
             catalog: Arc::clone(&base),
             formatting_palette: formatting_colors::from_catalog(&base),
@@ -124,6 +127,7 @@ impl FormEngine {
             cache: None,
             passes: [0; 2],
             splash: std::sync::OnceLock::new(),
+            credits: std::sync::OnceLock::new(),
             animator: std::sync::Mutex::default(),
         }
     }
@@ -152,6 +156,9 @@ impl FormEngine {
             _ => false,
         };
         self.server_source = pack.cloned();
+        if !same {
+            self.credits = std::sync::OnceLock::new();
+        }
         !same
     }
 
@@ -435,6 +442,9 @@ fn render_with<R: Borrow<FormRender>>(
             Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
                 Some(tooltip::BACKGROUND_TEXTURE)
             }
+            Draw::Custom { renderer, .. } if renderer == credits_renderer::RENDERER => {
+                Some(credits_renderer::TITLE_TEXTURE)
+            }
             _ => None,
         })
         .chain(
@@ -536,6 +546,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,
+    pub(super) credits: Option<&'a super::credits_screen::CreditsPaint>,
     pub(super) edit: Option<host_edit::Feedback>,
 }
 
@@ -615,6 +626,10 @@ impl Painter<'_> {
         match renderer {
             "cinnabar_rounded_rectangle" => {
                 Some((self.rounded_rectangle(data, dest, &alpha)?, dest))
+            }
+            credits_renderer::RENDERER => {
+                self.credits(dest, &alpha);
+                None
             }
             "inventory_item_renderer" => {
                 let icon = item_renderer::icon(data, self.art.icons, self.art.id_aux)?;

@@ -14,9 +14,16 @@ pub(crate) fn from_wgsl(source: impl Into<Cow<'static, str>>, path: impl Into<St
 
 /// Both actor and hand shaders pull the same packed Rust instances. Substitute their single
 /// layout source before parsing, without disabling the checked WGSL constructor.
-pub(crate) fn from_actor_wgsl(source: &str, path: impl Into<String>, words: usize) -> Shader {
+pub(crate) fn from_actor_wgsl(
+    source: &str,
+    path: impl Into<String>,
+    words: usize,
+    vertex_words: usize,
+) -> Shader {
     from_wgsl(
-        source.replace("ACTOR_GPU_INSTANCE_WORDS", &format!("{words}u")),
+        crate::material_shader::source(source)
+            .replace("ACTOR_GPU_INSTANCE_WORDS", &format!("{words}u"))
+            .replace("ACTOR_RIG_VERTEX_WORDS", &format!("{vertex_words}u")),
         path,
     )
 }
@@ -56,6 +63,7 @@ mod tests {
         let shader = from_actor_wgsl(
             "const WORDS: u32 = ACTOR_GPU_INSTANCE_WORDS;",
             "actor.wgsl",
+            words,
             words,
         );
         assert!(matches!(shader.validate_shader, ValidateShader::Enabled));

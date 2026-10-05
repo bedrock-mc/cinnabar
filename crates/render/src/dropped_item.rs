@@ -1,11 +1,13 @@
 //! Dropped-item scene data: extruded sprite meshes drawn as world-space instances.
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
-use render_model::{DroppedItemCube, DroppedItemSprite};
+use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
 use std::sync::Arc;
 
+mod block;
 mod mesh;
 mod native;
 mod rope;
+pub(crate) use block::block_mesh;
 
 pub use mesh::{
     ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, cube_mesh, extruded_sprite_mesh,
@@ -31,6 +33,7 @@ pub enum DroppedItemModel {
     /// Native TextureTessellator frame after the ordinary dropped-item default transform.
     NativeSprite(DroppedItemSprite),
     Cube(DroppedItemCube),
+    Block(DroppedItemBlock),
 }
 
 /// One drawn copy of a model: `world_from_item` maps the unit model into the world.
@@ -44,12 +47,29 @@ pub struct DroppedItemInstance {
     pub overlay_rgba8: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerrainItemTransition {
+    pub key: world::SubChunkKey,
+    pub generation: u64,
+    pub visible: bool,
+}
+
+/// A candidate whose visibility follows its ordered terrain publications.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerrainItemInstance {
+    pub instance: DroppedItemInstance,
+    pub visible: bool,
+    pub transitions: Arc<[TerrainItemTransition]>,
+}
+
 /// The frame's dropped items. `models_revision` must change whenever `models` changes.
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
 pub struct DroppedItemScene {
     pub(crate) models_revision: u64,
     pub(crate) models: Arc<[DroppedItemModel]>,
     pub(crate) instances: Arc<[DroppedItemInstance]>,
+    pub(crate) terrain_session_id: Option<u64>,
+    pub(crate) terrain_instances: Arc<[TerrainItemInstance]>,
     /// World-space geometry drawn as-is this frame (fishing line, leads).
     pub(crate) dynamic: Arc<[ItemMeshVertex]>,
     pub(crate) daylight: f32,
@@ -84,6 +104,19 @@ impl DroppedItemScene {
     pub fn clear(&mut self) {
         self.instances = Arc::from([]);
         self.dynamic = Arc::from([]);
+        self.terrain_instances = Arc::from([]);
+        self.terrain_session_id = None;
+    }
+
+    /// Retains bounded candidates separately; transition lists come from bounded world admission.
+    pub fn publish_terrain_instances(
+        &mut self,
+        session_id: u64,
+        instances: &[TerrainItemInstance],
+    ) {
+        self.terrain_session_id = Some(session_id);
+        let count = instances.len().min(MAX_DROPPED_ITEM_INSTANCES);
+        self.terrain_instances = Arc::from(&instances[..count]);
     }
 
     #[must_use]

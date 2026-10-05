@@ -43,6 +43,7 @@ impl Plugin for ChunkRenderPlugin {
     fn build(&self, app: &mut App) {
         install_atmosphere(app);
         app.init_resource::<ChunkRenderQueue>()
+            .init_resource::<crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>()
             .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<ChunkGpuRemovalQueue>()
             .init_resource::<PresentedFrameGate>()
@@ -123,6 +124,8 @@ impl Plugin for ChunkRenderPlugin {
             .insert_resource(visibility_diagnostics)
             .insert_resource(transparent_witness_evidence)
             .init_resource::<ChunkPipeline>()
+            .init_resource::<crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>(
+            )
             .init_resource::<ChunkGpuUploadStats>()
             .init_resource::<GpuUpdateFairness>()
             .init_resource::<ChunkGpuTextureAssets>()
@@ -173,6 +176,7 @@ impl Plugin for ChunkRenderPlugin {
                     prepare_chunk_biome_tints.in_set(ChunkPublicationStage::Attributes),
                     prepare_gpu_chunks
                         .in_set(ChunkPublicationStage::Geometry)
+                        .after(crate::dropped_item_render::terrain_items::TerrainItemSessionSet)
                         .after(prepare_chunk_texture_assets),
                     prepare_transparent_sorts.in_set(ChunkPublicationStage::LiquidSort),
                     prepare_transparent_model_sorts.in_set(ChunkPublicationStage::ModelSort),

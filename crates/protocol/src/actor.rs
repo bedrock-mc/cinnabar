@@ -157,7 +157,17 @@ pub struct ActorMoveEvent {
     pub teleported: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
     pub source_tick: Option<u64>,
+    pub interpolation: ActorInterpolation,
 }
+
+/// Server-requested actor movement duration and completion ordering.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActorInterpolation {
+    pub ticks: u64,
+    pub force_completion: bool,
+}
+
+const MOVE_FORCE_COMPLETION: u8 = 1 << 3;
 
 /// Coordinate space carried by an actor movement position.
 ///
@@ -455,6 +465,10 @@ pub(crate) fn normalize_move_entity(
         teleported: move_data.header & 2 != 0,
         player_mode: None,
         source_tick: None,
+        interpolation: ActorInterpolation {
+            force_completion: move_data.header & MOVE_FORCE_COMPLETION != 0,
+            ..Default::default()
+        },
     }))
 }
 
@@ -507,6 +521,10 @@ pub(crate) fn normalize_move_entity_body(
         teleported: flags & 2 != 0,
         player_mode: None,
         source_tick: None,
+        interpolation: ActorInterpolation {
+            force_completion: flags & MOVE_FORCE_COMPLETION != 0,
+            ..Default::default()
+        },
     }))
 }
 
@@ -532,8 +550,7 @@ pub(crate) fn normalize_move_entity_delta(
             move_data.new_position_y,
             move_data.new_position_z,
         ],
-        // `MoveActorDeltaData::parseDeltas` merges into the previous absolute
-        // data, so deltas share the absolute network origin.
+        // Partial movement retains the same coordinate origin as absolute movement.
         position_origin: ActorPositionOrigin::NetworkOffset,
         pitch: move_data.rotation_x.map(signed_byte_rotation_degrees),
         yaw: move_data.rotation_y.map(signed_byte_rotation_degrees),
@@ -549,6 +566,10 @@ pub(crate) fn normalize_move_entity_delta(
         teleported: move_data.force_move,
         player_mode: None,
         source_tick: None,
+        interpolation: ActorInterpolation {
+            ticks: move_data.ticks,
+            force_completion: move_data.force_completion,
+        },
     }))
 }
 

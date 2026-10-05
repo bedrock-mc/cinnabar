@@ -94,6 +94,12 @@ struct Laid {
 }
 
 impl CachedScreen {
+    /// Texture metadata participates in layout, including tiled sprite sizes.
+    fn invalidate_textures(&mut self) {
+        self.laid = None;
+        self.measures = json_ui::MeasureCache::default();
+    }
+
     /// Whether the bound HUD has content for an extension to accompany.
     pub(super) fn has_visible_content(&self) -> bool {
         self.laid.as_ref().is_some_and(|laid| {
@@ -237,6 +243,16 @@ pub(super) struct HudScreens {
     model: Option<HudModel>,
     opacity: Option<i32>,
     data: Arc<DataSource>,
+}
+
+impl HudScreens {
+    /// Preserve bindings while relaying out screens for a changed texture pack.
+    pub(super) fn invalidate_textures(&mut self) {
+        self.hud.invalidate_textures();
+        self.crosshair.invalidate_textures();
+        self.toast.invalidate_textures();
+        self.loading.invalidate_textures();
+    }
 }
 
 impl UiPresentationRuntime {

@@ -2,9 +2,11 @@
 
 pub mod bed;
 pub mod book_screen;
+mod boss;
 pub mod chat_completion;
 pub mod chat_send;
 pub mod crafting_observation;
+pub mod credits;
 pub mod emotes;
 pub mod presentation_snapshot;
 pub use inventory::CraftingPreview;
@@ -153,6 +155,7 @@ pub struct UiRuntime {
     chat: ChatStore,
     scoreboards: ScoreboardStore,
     boss_bars: BossBarStore,
+    boss_responses: boss::Responses,
     chat_editor: ChatEditor,
     chat_history: ChatHistory,
     chat_input_revision: u64,
@@ -174,6 +177,7 @@ pub struct UiRuntime {
     gameplay_hud: GameplayHudState,
     use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
+    credits: credits::CreditsState,
     sign_editor: sign_editor::SignEditor,
     inventory_pointer_gui: Option<[f32; 2]>,
     inventory_keys: interaction::InventoryKeys,
@@ -234,6 +238,7 @@ impl UiRuntime {
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
             boss_bars: BossBarStore::default(),
+            boss_responses: boss::Responses::default(),
             chat_editor: ChatEditor::new(MAX_CHAT_INPUT_BYTES)
                 .expect("the reviewed chat input bound is valid"),
             chat_history: ChatHistory::default(),
@@ -262,6 +267,7 @@ impl UiRuntime {
             use_on_identity_evidence:
                 use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
             forms: ServerFormStore::default(),
+            credits: credits::CreditsState::default(),
             sign_editor: sign_editor::SignEditor::default(),
             inventory_pointer_gui: None,
             inventory_keys: interaction::InventoryKeys::default(),
@@ -604,6 +610,8 @@ impl UiRuntime {
         self.last_local_millis = None;
         self.last_server_tick = None;
         self.last_tick_observed_millis = None;
+        self.chat_source_name = Arc::from("");
+        self.chat_xuid = Arc::from("");
         self.chat_focused = false;
         self.inventory_open = false;
         self.score_owner_names.clear();
@@ -613,6 +621,7 @@ impl UiRuntime {
         self.chat.clear();
         self.scoreboards.clear();
         self.boss_bars.clear();
+        self.boss_responses = boss::Responses::default();
         self.chat_editor.clear();
         self.chat_history.clear_navigation();
         self.chat_input_revision = 0;
@@ -635,6 +644,7 @@ impl UiRuntime {
         self.gameplay_hud.clear();
         self.use_on_identity_evidence.reset(session_id);
         self.forms.clear();
+        self.credits = credits::CreditsState::default();
         self.inventory_pointer_gui = None;
         self.last_health_drop_millis = None;
         self.hurt_pending = false;
@@ -819,11 +829,7 @@ impl UiRuntime {
                     .apply(envelope.fifo_sequence, scoreboard_adapter::score(event))
                     .map_err(UiRuntimeError::RetainedUiSequence)?,
             ),
-            UiEvent::Boss(event) => scoreboard_adapter::apply_outcome(
-                self.boss_bars
-                    .apply(envelope.fifo_sequence, scoreboard_adapter::boss(event))
-                    .map_err(UiRuntimeError::RetainedUiSequence)?,
-            ),
+            UiEvent::Boss(event) => self.apply_boss(envelope.fifo_sequence, event)?,
             UiEvent::GameMode(event) => self.apply_game_mode_update(player_runtime, event.update),
             // Targeted mode updates must pass the world stream's local-unique-ID
             // admission first; a direct UI injection cannot establish that identity.
@@ -839,6 +845,11 @@ impl UiRuntime {
                 UiApplyOutcome::Applied
             }
             UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),
+            UiEvent::ShowCredits(event) => {
+                self.credits
+                    .open(event.runtime_id, envelope.fifo_sequence, event_millis);
+                UiApplyOutcome::Applied
+            }
             UiEvent::Form(event) => {
                 bevy::log::info!(
                     target: "server_form",

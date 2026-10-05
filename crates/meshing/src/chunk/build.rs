@@ -274,12 +274,15 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                 if visible_quad_mask & bit == 0 {
                                     continue;
                                 }
-                                let cull_flags =
-                                    if template.flags & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0 {
-                                        (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4
-                                    } else {
-                                        quad.flags
-                                    };
+                                let cull_flags = if template.flags
+                                    & (MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+                                        | assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL)
+                                    != 0
+                                {
+                                    (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4
+                                } else {
+                                    quad.flags
+                                };
                                 let Some(cull_face) =
                                     model_quad_cull_face(cull_flags, entry.variant & 3)
                                 else {
@@ -303,9 +306,19 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                             & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
                                             != 0
                                         && neighbour.network_value == entry.network_value;
-                                if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                                let equal_portal =
+                                    template.flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0
+                                        && model_template_flags(visuals, neighbour)
+                                            & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                                            != 0;
+                                let inset_portal_face =
+                                    template.flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0
+                                        && quad.flags & assets::MODEL_QUAD_FLAG_CULL_FACE_MASK == 0;
+                                if (neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                                    && !inset_portal_face)
                                     || equal_pane
                                     || equal_transparent_cube
+                                    || equal_portal
                                     || snow_side_is_covered(visuals, entry, neighbour, cull_face)
                                 {
                                     visible_quad_mask &= !bit;
@@ -318,18 +331,32 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             else {
                                 continue;
                             };
-                            let Some(template_lighting) = crate::lighting::bake_template(
-                                &lighting,
-                                visuals,
-                                [x as i32, y as i32, z as i32],
-                                part_template,
-                                entry.variant & 3,
-                                visuals
-                                    .resolve(network_id_mode, entry.network_value)
-                                    .light_properties()
-                                    .emission()
-                                    > 0,
-                            ) else {
+                            let emission = visuals
+                                .resolve(network_id_mode, entry.network_value)
+                                .light_properties()
+                                .emission();
+                            let baked = if template.flags
+                                & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                                != 0
+                            {
+                                crate::lighting::bake_portal_template(
+                                    &lighting,
+                                    visuals,
+                                    [x as i32, y as i32, z as i32],
+                                    part_template,
+                                    emission,
+                                )
+                            } else {
+                                crate::lighting::bake_template(
+                                    &lighting,
+                                    visuals,
+                                    [x as i32, y as i32, z as i32],
+                                    part_template,
+                                    entry.variant & 3,
+                                    emission > 0,
+                                )
+                            };
+                            let Some(template_lighting) = baked else {
                                 continue;
                             };
                             let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {

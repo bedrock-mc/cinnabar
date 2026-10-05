@@ -87,6 +87,7 @@ impl WorldStream {
             self.applied_mesh_generations.remove(&key);
         }
         self.revisions.clear_if_current(key, generation);
+        self.acknowledge_actor_block_syncs(key, generation);
         self.stats.phase2_stages.mesh_uploads_acknowledged = self
             .stats
             .phase2_stages

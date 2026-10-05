@@ -105,37 +105,47 @@ impl IconBlocks {
             .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id))
     }
 
-    /// Ordinary opaque full cubes may carry an authored six-face item sheet.
-    /// The carried tiles replace biome-dependent world materials, not geometry.
+    /// Full cube item geometry is independent of terrain occlusion, material and animation.
     pub(super) fn is_carried_cube(&self, world: &RuntimeAssets, visual: BlockVisualId) -> bool {
         let block = world.resolve(NetworkIdMode::Sequential, visual.0);
-        if !block.is_known()
-            || block.kind() != VisualKind::Cube
-            || block.support() != VisualSupport::Exact
-            || block.flags() != (BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
-            || block.model_template().is_some()
-            || block.animation().is_some()
-        {
+        if !block.is_known() || block.support() != VisualSupport::Exact {
             return false;
         }
-        BlockFace::ALL.into_iter().all(|face| {
-            let id = block.face(face).material_id();
-            id != assets::DIAGNOSTIC_MATERIAL
-                && world.materials().get(id as usize).is_some_and(|material| {
-                    material.animation == assets::NO_ANIMATION
-                        && material.flags
-                            & !(assets::MATERIAL_FLAG_TINT_MASK
-                                | assets::MATERIAL_FLAG_OVERLAY_MASK)
-                            == 0
-                })
-        })
+        match block.kind() {
+            VisualKind::Cube => block.flags().contains(BlockFlags::CUBE_GEOMETRY),
+            VisualKind::Model => block
+                .model_template()
+                .and_then(|id| world.model_templates().get(id as usize))
+                .is_some_and(|template| {
+                    template.flags & assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0
+                }),
+            _ => false,
+        }
     }
 
-    /// Resolves and colors carried faces once, for inventory and held geometry.
+    /// A cube defaults to its ordinary pack faces when it has no carried override.
+    pub(super) fn carried_cube_tiles(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<[IconSprite; 6]>, AssetError> {
+        self.tiles(root, visual, true)
+    }
+
+    /// Resolves explicit carried faces for shapes whose world model cannot supply an icon.
     pub(super) fn carried_tiles(
         &self,
         root: &Path,
         visual: BlockVisualId,
+    ) -> Result<Option<[IconSprite; 6]>, AssetError> {
+        self.tiles(root, visual, false)
+    }
+
+    fn tiles(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+        world_fallback: bool,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
         let (Some(pack), Some(record)) = (self.pack.as_ref(), self.records.get(visual.0 as usize))
         else {
@@ -143,10 +153,18 @@ impl IconBlocks {
         };
         let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
         for face in BlockFace::ALL {
-            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face) else {
+            let world = resolve_texture_key(&pack.blocks, record, face).key;
+            let variant = world
+                .as_ref()
+                .and_then(|key| pack.terrain.get_for_model_record(key, record))
+                .map_or(0, |(_, variant)| variant as usize);
+            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
+                .map(String::into_boxed_str)
+                .or_else(|| world_fallback.then_some(world).flatten())
+            else {
                 return Ok(None);
             };
-            let Some((path, overlay)) = pack.terrain.get_clamped_carried(&key, 0) else {
+            let Some((path, overlay)) = pack.terrain.get_clamped_carried(&key, variant) else {
                 return Ok(None);
             };
             let Some(tile) = super::carried::tile(root, path, overlay)? else {

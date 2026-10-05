@@ -147,6 +147,7 @@ impl WorldStream {
         let mut dispatched = 0;
         let mut examined = false;
         let now = Instant::now();
+        self.prioritize_transfer_mesh_candidates(&mut resident_candidates);
         resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
         for (candidate, pending, queued) in resident_candidates {
             let key = candidate.key;

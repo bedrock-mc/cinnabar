@@ -1,3 +1,6 @@
+#[path = "../src/material_shader.rs"]
+#[allow(dead_code, reason = "shared checked shader constructor dependencies")]
+mod material_shader;
 #[path = "../src/shader_safety.rs"]
 #[allow(dead_code, reason = "shared checked shader constructors")]
 mod shader_safety;

@@ -196,6 +196,7 @@ fn build_artwork(
     let mut table = BTreeMap::<u32, usize>::new();
     let render = &entities.render;
     let crystal_sources = native_crystal_sources(entities);
+    let dissolve_masks = assets::actor_dissolve_mask_sources(render);
     for (rig_index, rig) in entities.rig_bindings.iter().enumerate() {
         let reject = |fallbacks: &mut Vec<ActorFallback>, reason: &str| {
             fallbacks.push(ActorFallback {
@@ -250,6 +251,7 @@ fn build_artwork(
                 if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                     let path = entities.sources[source as usize].path.as_ref();
                     let binary_alpha = !lenient
+                        && !dissolve_masks.contains(&source)
                         && !assets::native_actor_texture_uses_color_mask(
                             &entities.sources[source as usize],
                         )
@@ -327,6 +329,7 @@ fn build_artwork(
             if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                 let path = entities.sources[source as usize].path.as_ref();
                 let binary_alpha = !lenient
+                    && !dissolve_masks.contains(&source)
                     && !assets::native_actor_texture_uses_color_mask(
                         &entities.sources[source as usize],
                     )

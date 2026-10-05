@@ -8,10 +8,13 @@ use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
 #[path = "entity/inherited_cubes.rs"]
 mod inherited_cubes;
+mod source_paths;
 #[path = "entity/texture_mesh.rs"]
 mod texture_mesh;
 #[path = "entity/v4.rs"]
 mod v4;
+pub use source_paths::{BED_GEOMETRY_IDENTIFIER, LEGACY_ENTITY_GEOMETRY_PATH};
+use source_paths::{validate_relative_path, validate_symbol_source};
 pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
 
 use v4::validate_extended_payload;
@@ -22,8 +25,8 @@ pub use v4::{
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
     EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
     EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    EntityRenderMaterial, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
+    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
@@ -930,43 +933,6 @@ const fn dependency_asset_kind(kind: EntityDependencyKind) -> EntityAssetKind {
         EntityDependencyKind::RenderController => EntityAssetKind::RenderController,
         EntityDependencyKind::Texture => EntityAssetKind::Texture,
     }
-}
-
-fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), AssetError> {
-    let matches = match kind {
-        EntityAssetKind::Entity => path.starts_with("entity/") && path.ends_with(".json"),
-        EntityAssetKind::Attachable => path.starts_with("attachables/") && path.ends_with(".json"),
-        EntityAssetKind::Geometry => path.starts_with("models/entity/") && path.ends_with(".json"),
-        EntityAssetKind::Animation => path.starts_with("animations/") && path.ends_with(".json"),
-        EntityAssetKind::AnimationController => {
-            path.starts_with("animation_controllers/") && path.ends_with(".json")
-        }
-        EntityAssetKind::RenderController => {
-            path.starts_with("render_controllers/") && path.ends_with(".json")
-        }
-        EntityAssetKind::Texture => {
-            path.starts_with("textures/") && (path.ends_with(".png") || path.ends_with(".tga"))
-        }
-    };
-    if matches {
-        Ok(())
-    } else {
-        Err(invalid("entity symbol kind does not match its source path"))
-    }
-}
-
-fn validate_relative_path(path: &str) -> Result<(), AssetError> {
-    if path.is_empty()
-        || path.len() > MAX_ENTITY_ASSET_PATH_BYTES
-        || path.starts_with('/')
-        || path.contains('\\')
-        || path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(invalid("entity source path is unsafe or exceeds its bound"));
-    }
-    Ok(())
 }
 
 fn validate_identifier(identifier: &str) -> Result<(), AssetError> {

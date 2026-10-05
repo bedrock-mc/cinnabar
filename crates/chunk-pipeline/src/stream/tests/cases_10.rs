@@ -33,6 +33,7 @@ fn transition(dimension: i32) -> WorldEvent {
     WorldEvent::ChangeDimension(ChangeDimensionEvent {
         dimension,
         position: [0.0; 3],
+        ..Default::default()
     })
 }
 

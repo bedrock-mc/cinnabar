@@ -103,10 +103,12 @@ impl Plugin for FlyCameraPlugin {
                     .chain()
                     .in_set(FlyCameraUpdateSet),
                 (
+                    facts::collect_portal_contact,
                     presentation::advance_presentation_state,
                     presentation::update_screen_overlays,
-                    overlay_publish::publish_screen_overlays,
                     presentation::apply_camera_presentation,
+                    overlay_publish::publish_screen_overlays,
+                    facts::diagnose_portal,
                 )
                     .chain()
                     .after(resolve_camera_pose)

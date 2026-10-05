@@ -22,6 +22,7 @@ mod locomotion;
 mod outbox;
 mod physics;
 mod prediction_sync;
+mod respawn;
 mod speed_authority;
 mod state;
 mod teleport_ack;
@@ -918,4 +919,4 @@ mod zeqa_tests;
 pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
-pub use frame::{LocomotionState, PhysicsFrameInput};
+pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput};

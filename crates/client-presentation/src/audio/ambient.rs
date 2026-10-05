@@ -9,6 +9,10 @@ pub(super) struct MusicScheduler {
 }
 
 impl MusicScheduler {
+    pub(super) fn context(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+
     /// True when a track should start now; `delay` is `(min, max)` seconds for `key`.
     pub(super) fn update(
         &mut self,
@@ -82,7 +86,15 @@ pub(super) fn dimension_ambience(dimension: i32) -> Option<&'static str> {
 }
 
 /// Music key of `music_definitions.json` for the current context.
-pub(super) fn music_key(in_world: bool, dimension: i32, creative: bool) -> &'static str {
+pub(super) fn music_key(
+    in_world: bool,
+    dimension: i32,
+    creative: bool,
+    credits: bool,
+) -> &'static str {
+    if credits && in_world {
+        return "credits";
+    }
     match (in_world, dimension, creative) {
         (false, _, _) => "menu",
         (true, 1, _) => "nether",
@@ -124,9 +136,17 @@ mod tests {
 
     #[test]
     fn keys_follow_context() {
-        assert_eq!(music_key(false, 0, false), "menu");
-        assert_eq!(music_key(true, 1, true), "nether");
-        assert_eq!(music_key(true, 0, true), "creative");
-        assert_eq!(music_key(true, 0, false), "game");
+        assert_eq!(music_key(false, 0, false, false), "menu");
+        assert_eq!(music_key(true, 1, true, false), "nether");
+        assert_eq!(music_key(true, 0, true, false), "creative");
+        assert_eq!(music_key(true, 0, false, false), "game");
+    }
+
+    #[test]
+    fn credits_music_context_overrides_dimension_and_creative_until_completion() {
+        assert_eq!(music_key(true, 2, false, true), "credits");
+        assert_eq!(music_key(true, 0, true, true), "credits");
+        assert_eq!(music_key(true, 2, false, false), "end");
+        assert_eq!(music_key(false, 0, false, false), "menu");
     }
 }

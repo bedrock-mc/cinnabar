@@ -8,6 +8,8 @@ use super::super::{LoadingStage, UiPresentationRuntime, menu_artwork};
 use super::{pack_harness, snapshot};
 use crate::ui_runtime::UiRuntime;
 
+mod carrier;
+
 /// Encodes a test texture with a distinctive opaque color.
 fn png(size: [u32; 2], color: [u8; 4]) -> Vec<u8> {
     let mut bytes = Cursor::new(Vec::new());
@@ -52,6 +54,7 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
     frame(&player_runtime, &mut presentation);
     presentation.finish_menu_artwork();
     let before = snapshot::rasterize(&frame(&player_runtime, &mut presentation));
+    let [title_x, title_y] = carrier::center(&presentation, title);
 
     // A completed worker atlas is installed while the next frame is being built.
     let path = std::env::temp_dir().join(format!("loading-repack-{}.png", std::process::id()));
@@ -66,8 +69,8 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
     let after = snapshot::rasterize(&transition);
     std::fs::remove_file(path).unwrap();
     assert_eq!(
-        before.get_pixel(640, 170),
-        after.get_pixel(640, 170),
+        before.get_pixel(title_x, title_y),
+        after.get_pixel(title_x, title_y),
         "the title sampled another artwork's region"
     );
     presentation.set_server_ui_pack(&super::ServerUiPack {
@@ -76,7 +79,7 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
     });
     let replaced = snapshot::rasterize(&settled(&player_runtime, &mut presentation));
     assert_eq!(
-        *replaced.get_pixel(640, 170),
+        *replaced.get_pixel(title_x, title_y),
         image::Rgba([20, 30, 220, 255]),
         "same-key pack replacement kept old artwork"
     );
@@ -97,7 +100,8 @@ fn settled(
             .unwrap()
             .textures
             .lock();
-        let ready = atlas.placement("textures/blocks/dirt").is_some()
+        let ready = (!atlas.has_image("textures/blocks/dirt")
+            || atlas.placement("textures/blocks/dirt").is_some())
             && atlas.placement("textures/ui/loading_bar").is_some();
         drop(atlas);
         if ready {

@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use bevy::{
+    prelude::{Mat4, Resource},
+    render::extract_resource::ExtractResource,
+};
 
 pub const MAX_SCREEN_OVERLAY_LAYERS: usize = 8;
 /// Both overlay textures are square RGBA8 of this side.
@@ -57,6 +60,8 @@ pub struct ScreenOverlayScene {
     pub(crate) fire: Option<Arc<crate::ScreenFireTexture>>,
     pub(crate) fire_revision: u64,
     pub(crate) fire_projection: [f32; 2],
+    /// Direction transform for the native unit-cube portal overlay.
+    pub(crate) portal_from_clip: Mat4,
 }
 
 impl ScreenOverlayScene {
@@ -97,6 +102,14 @@ impl ScreenOverlayScene {
             (vertical_fov * 0.5).tan() * aspect,
             (vertical_fov * 0.5).tan(),
         ];
+    }
+
+    pub fn set_portal_from_clip(&mut self, matrix: Mat4) {
+        self.portal_from_clip = if matrix.is_finite() {
+            matrix
+        } else {
+            Mat4::IDENTITY
+        };
     }
 
     #[must_use]

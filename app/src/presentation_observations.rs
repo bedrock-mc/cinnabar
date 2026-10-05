@@ -14,6 +14,9 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
         self.latest_sneak_sprint()
     }
+    fn mode(&self) -> sim::MovementMode {
+        std::ops::Deref::deref(self).mode()
+    }
     /// Borrows the collision frontier used by the completed tick.
     fn last_world_identity(&self) -> Option<&sim::WorldCollisionIdentity> {
         std::ops::Deref::deref(self).last_world_identity()

@@ -12,6 +12,8 @@ const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json")
 mod color_mask;
 #[path = "actor/crystal.rs"]
 mod crystal;
+#[path = "actor/dragon.rs"]
+mod dragon;
 #[path = "actor/fish.rs"]
 mod fish;
 #[path = "actor/multitexture.rs"]

@@ -6,7 +6,7 @@ fn scalar(value: f32) -> EntityGeometryScalar {
     EntityGeometryScalar::new(value).unwrap()
 }
 
-fn compiled_fixture() -> CompiledEntityAssets {
+pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
     let sources = [
         "animations/item.json",
         "attachables/item.json",
@@ -181,6 +181,8 @@ fn compiled_fixture() -> CompiledEntityAssets {
         item_visual_aliases: Box::new([]),
         render: EntityRenderData {
             layers: vec![EntityRenderLayer {
+                material: Default::default(),
+                hurt_color: None,
                 rig: 0,
                 condition: None,
                 first_slot: 0,

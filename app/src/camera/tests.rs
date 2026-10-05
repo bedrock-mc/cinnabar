@@ -681,6 +681,49 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
 }
 
 #[test]
+fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
+    let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::new(true));
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        CursorOptions::default(),
+        PrimaryWindow,
+    ));
+    app.update();
+    let start = app.world().resource::<LocalViewPose>().eye_translation();
+    let step = Duration::from_millis(250);
+    let mut elapsed = Duration::ZERO;
+
+    for real_clock_present in [false, true, false] {
+        if real_clock_present {
+            let mut real_clock = Time::<bevy::time::Real>::default();
+            real_clock.advance_by(Duration::from_secs(10));
+            app.insert_resource(real_clock);
+        } else {
+            app.world_mut().remove_resource::<Time<bevy::time::Real>>();
+        }
+        app.world_mut().resource_mut::<Time>().advance_by(step);
+        elapsed += step;
+        app.update();
+
+        let actual = app.world().resource::<LocalViewPose>().eye_translation();
+        let expected = start + camera::auto_fly_offset(elapsed.as_secs_f32());
+        assert!(actual.abs_diff_eq(expected, 1.0e-4));
+        assert!(
+            app.world()
+                .resource::<camera::ScreenOverlays>()
+                .layers
+                .is_empty()
+        );
+    }
+}
+
+#[test]
 fn stable_presentation_pause_ignores_held_movement_and_look_input() {
     let mut app = App::new();
     app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));

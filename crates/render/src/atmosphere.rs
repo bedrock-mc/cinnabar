@@ -41,8 +41,6 @@ const PROVISIONAL_FLASH_COLOUR: [f32; 3] = [0.85, 0.87, 1.0];
 const BLINDNESS_FOG_END: f32 = 5.0;
 const DARKNESS_FOG_END_SCALE: f32 = 0.4;
 const NETHER_FOG_RGB8: u32 = 0x0033_0808;
-/// Provisional flat end sky until `end_sky.png` is carried; needs native calibration.
-const PROVISIONAL_END_SKY: [f32; 3] = [0.035, 0.028, 0.05];
 
 /// Which sky model the shader draws.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,6 +51,10 @@ pub enum SkyKind {
 }
 
 impl SkyKind {
+    pub(crate) const fn has_clouds(self) -> bool {
+        matches!(self, Self::Overworld)
+    }
+
     #[must_use]
     pub const fn from_dimension(dimension: i32) -> Self {
         match dimension {
@@ -325,7 +327,7 @@ impl AtmosphereFrame {
         self.sky_extra.x = 0.0;
         let colour = match kind {
             SkyKind::Nether => rgb8_to_linear(NETHER_FOG_RGB8),
-            SkyKind::End | SkyKind::Overworld => PROVISIONAL_END_SKY,
+            SkyKind::End | SkyKind::Overworld => [0.0; 3],
         };
         self.sky_zenith_rain = Vec4::new(colour[0], colour[1], colour[2], self.sky_zenith_rain.w);
         self.sky_horizon_thunder =

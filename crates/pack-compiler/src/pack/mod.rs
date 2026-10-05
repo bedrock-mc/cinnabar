@@ -4,6 +4,7 @@ mod flipbook;
 mod parse;
 mod terrain;
 mod variations;
+pub use fixed_tint::{apply_atlas_tint, parse_atlas_tint};
 
 use std::path::Path;
 

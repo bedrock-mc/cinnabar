@@ -30,6 +30,14 @@ pub struct PhysicsFrameInput {
     pub toggle_sneak: bool,
     pub facts: LocalMovementFacts,
     pub item_use_modifier: Option<f64>,
+    pub hold: Option<PhysicsFrameHold>,
+}
+
+/// Loading freezes movement; spawn search also suppresses wire input.
+#[derive(Clone, Copy)]
+pub struct PhysicsFrameHold {
+    pub registry: sim::CollisionRegistryIdentity,
+    pub withhold_input: bool,
 }
 
 /// Persistent movement-mode input latches and collision-blocker diagnostics.
@@ -71,75 +79,97 @@ impl LocomotionState {
             facts,
             ..
         } = frame;
-        if !active {
-            self.controls.reset();
-        }
-        let fly_toggle = jump.pressed && self.fly_tap.press(now);
-        if let Some(server) = physics.take_server_control_flags() {
-            movement_speed.adopt_server_sprinting(server.sprinting);
-            self.controls
-                .adopt_server_flags(server.sprinting, server.sneaking);
-        }
-        let retain_sprint = physics
-            .retains_swim_sprint(world)
-            .unwrap_or_else(|_| physics.mode() == sim::MovementMode::Swimming);
-        let controlled = self.controls.update(ControlObservation {
-            now,
-            forward: movement[1],
-            sprint_pressed: sprint.pressed,
-            sprint_held: sprint.held,
-            sneak_pressed: sneak.pressed,
-            sneak_held: sneak.held,
-            toggle_sprint: frame.toggle_sprint,
-            always_sprint: active && frame.always_sprint,
-            toggle_sneak: frame.toggle_sneak,
-            sprint_blocked: facts.sprint_blocked,
-            flying: physics.mode() == sim::MovementMode::Flying,
-            retain_sprint,
-        });
-        let mut input = physics_movement_input(
-            movement,
-            yaw,
-            active,
-            jump.held,
-            controlled.sneaking,
-            controlled.sprint_request,
-            frame.item_use_modifier,
-        );
-        if retain_sprint {
-            input.sprinting = controlled.sprint_request;
-        }
-        movement_speed.set_sprinting(input.sprinting);
-        input.movement_speed = movement_speed.prediction_speed();
-        let frame = physics.advance_with_context_and_effects(
-            frame.delta,
-            input,
-            PhysicsSampleContext {
-                pitch: frame.pitch,
-                head_yaw: yaw,
-                camera_orientation: frame.camera_orientation,
-                input_mode,
-                raw_move_vector: raw_movement,
-                analogue_move_vector: analogue_movement,
-                mode_intent: ModeIntent {
-                    ride: facts.ride,
-                    ride_seat: facts.ride_seat,
-                    can_fly: facts.can_fly,
-                    server_flying: facts.server_flying,
-                    fly_toggle,
-                    fly_speed: facts.fly_speed,
-                    vertical_fly_speed: facts.vertical_fly_speed,
-                    creative_flight: facts.creative_flight,
-                    elytra_ready: facts.elytra_ready,
-                    depth_strider: facts.depth_strider,
-                    soul_speed: facts.soul_speed,
-                    swim_hunger_blocked: facts.swim_hunger_blocked,
+        let withhold_input = frame.hold.is_some_and(|hold| hold.withhold_input);
+        let requested_speed;
+        let frame = if let Some(hold) = frame.hold {
+            self.reset();
+            movement_speed.set_sprinting(false);
+            requested_speed = movement_speed.prediction_speed();
+            physics.advance_dimension_wait(
+                frame.delta,
+                yaw,
+                PhysicsSampleContext {
+                    pitch: frame.pitch,
+                    head_yaw: yaw,
+                    camera_orientation: frame.camera_orientation,
+                    input_mode,
+                    ..PhysicsSampleContext::default()
                 },
-                sneak_button: active && sneak.held,
-            },
-            world,
-            movement_effects,
-        );
+                hold.registry,
+                movement_effects,
+            )
+        } else {
+            if !active {
+                self.controls.reset();
+            }
+            let fly_toggle = jump.pressed && self.fly_tap.press(now);
+            if let Some(server) = physics.take_server_control_flags() {
+                movement_speed.adopt_server_sprinting(server.sprinting);
+                self.controls
+                    .adopt_server_flags(server.sprinting, server.sneaking);
+            }
+            let retain_sprint = physics
+                .retains_swim_sprint(world)
+                .unwrap_or_else(|_| physics.mode() == sim::MovementMode::Swimming);
+            let controlled = self.controls.update(ControlObservation {
+                now,
+                forward: movement[1],
+                sprint_pressed: sprint.pressed,
+                sprint_held: sprint.held,
+                sneak_pressed: sneak.pressed,
+                sneak_held: sneak.held,
+                toggle_sprint: frame.toggle_sprint,
+                always_sprint: active && frame.always_sprint,
+                toggle_sneak: frame.toggle_sneak,
+                sprint_blocked: facts.sprint_blocked,
+                flying: physics.mode() == sim::MovementMode::Flying,
+                retain_sprint,
+            });
+            let mut input = physics_movement_input(
+                movement,
+                yaw,
+                active,
+                jump.held,
+                controlled.sneaking,
+                controlled.sprint_request,
+                frame.item_use_modifier,
+            );
+            if retain_sprint {
+                input.sprinting = controlled.sprint_request;
+            }
+            movement_speed.set_sprinting(input.sprinting);
+            input.movement_speed = movement_speed.prediction_speed();
+            requested_speed = input.movement_speed;
+            physics.advance_with_context_and_effects(
+                frame.delta,
+                input,
+                PhysicsSampleContext {
+                    pitch: frame.pitch,
+                    head_yaw: yaw,
+                    camera_orientation: frame.camera_orientation,
+                    input_mode,
+                    raw_move_vector: raw_movement,
+                    analogue_move_vector: analogue_movement,
+                    mode_intent: ModeIntent {
+                        ride: facts.ride,
+                        ride_seat: facts.ride_seat,
+                        can_fly: facts.can_fly,
+                        server_flying: facts.server_flying,
+                        fly_toggle,
+                        fly_speed: facts.fly_speed,
+                        vertical_fly_speed: facts.vertical_fly_speed,
+                        creative_flight: facts.creative_flight,
+                        elytra_ready: facts.elytra_ready,
+                        depth_strider: facts.depth_strider,
+                        soul_speed: facts.soul_speed,
+                        swim_hunger_blocked: facts.swim_hunger_blocked,
+                    },
+                    sneak_button: active && sneak.held,
+                },
+                world,
+                movement_effects,
+            )
+        };
         if let Some(sample) = frame.samples.last() {
             self.controls
                 .adopt_tick_sprinting(sample.processed.sprinting);
@@ -148,7 +178,7 @@ impl LocomotionState {
         super::control_trace::trace_physics_frame(
             movement_ticker.session_generation,
             now,
-            input.movement_speed,
+            requested_speed,
             movement_speed.current(),
             &frame,
         );
@@ -183,7 +213,12 @@ impl LocomotionState {
             return false;
         }
         for sample in frame.samples {
-            if let Err(fault) = movement_ticker.enqueue_completed_physics(sample) {
+            let admitted = if withhold_input {
+                movement_ticker.withhold_respawn_input(sample)
+            } else {
+                movement_ticker.enqueue_completed_physics(sample)
+            };
+            if let Err(fault) = admitted {
                 debug!(?fault, "local Physics movement authority failed closed");
                 physics.deactivate();
                 return false;

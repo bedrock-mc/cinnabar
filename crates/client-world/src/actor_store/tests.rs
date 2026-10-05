@@ -73,6 +73,7 @@ fn network_move(runtime_id: u64, y: f32, teleported: bool) -> ActorEvent {
         teleported,
         player_mode: None,
         source_tick: None,
+        interpolation: Default::default(),
     })
 }
 
@@ -93,6 +94,7 @@ pub(super) fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEve
             protocol::MovePlayerMode::Normal
         }),
         source_tick: Some(10),
+        interpolation: Default::default(),
     })
 }
 
@@ -177,6 +179,7 @@ fn player_network_position_is_normalized_to_spawn_feet_space() {
             teleported: false,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
 
@@ -264,6 +267,7 @@ fn spawn_and_partial_positions_never_apply_network_offsets() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
     assert_eq!(store.get(42).unwrap().position[1], 64.375);
@@ -373,6 +377,7 @@ fn feet_origin_y_is_not_shifted_like_a_network_position() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
 
@@ -398,6 +403,7 @@ fn non_player_network_position_is_unchanged_without_entity_offset_metadata() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
 
@@ -423,6 +429,7 @@ fn player_network_teleport_snaps_to_feet_space() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         }),
     );
 
@@ -534,6 +541,7 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
                 teleported: false,
                 player_mode: None,
                 source_tick: None,
+                interpolation: Default::default(),
             }),
         ),
         ActorApplyResult::Updated
@@ -627,6 +635,7 @@ fn consecutive_teleport_packets_retain_distinct_movement_revisions() {
             teleported: true,
             player_mode: None,
             source_tick: None,
+            interpolation: Default::default(),
         })
     };
 
@@ -1073,6 +1082,7 @@ fn remote_rotation_steps_the_short_way_across_the_wrap() {
             teleported: false,
             player_mode: None,
             source_tick: Some(sequence),
+            interpolation: Default::default(),
         })
     };
     store.apply(11, 2, turn(2, 170.0));

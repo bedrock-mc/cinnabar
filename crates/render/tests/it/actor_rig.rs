@@ -51,6 +51,7 @@ fn geometry() -> ActorRigGeometry {
 
 fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
     ActorRigSubmission {
+        material: Default::default(),
         input: input(runtime_id, spawn_revision, 2),
         world_from_actor: [
             [1.0, 0.0, 0.0, 0.0],
@@ -88,6 +89,14 @@ fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
         MAX_ACTOR_BONE_ARENA_BYTES,
         MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * 48
     );
+}
+
+#[test]
+fn rig_catalog_rejects_unknown_surface_contract_words() {
+    let mut cube = geometry();
+    Arc::make_mut(&mut cube.vertices)[0].surface =
+        bytemuck::pod_read_unaligned(&2_u32.to_le_bytes());
+    assert!(ActorRigGeometry::new(cube.id, cube.vertices, cube.bone_pivots).is_err());
 }
 
 #[test]

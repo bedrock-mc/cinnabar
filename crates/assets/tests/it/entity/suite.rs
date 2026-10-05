@@ -669,6 +669,8 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         .into_boxed_slice(),
         render: entity::EntityRenderData {
             layers: Box::new([entity::EntityRenderLayer {
+                material: Default::default(),
+                hurt_color: None,
                 rig: 0,
                 condition: None,
                 first_slot: 0,

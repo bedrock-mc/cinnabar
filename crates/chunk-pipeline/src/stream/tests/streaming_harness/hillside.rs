@@ -126,17 +126,7 @@ fn reference_sky(known: &BTreeSet<ChunkKey>) -> HashMap<[i32; 3], u8> {
 
 /// Steps until the stream drains, failing instead of hanging when work never settles.
 fn settle(harness: &mut Harness) {
-    for _ in 0..4_000 {
-        if harness.idle() {
-            return;
-        }
-        harness.step();
-    }
-    panic!(
-        "stream did not settle: pending light {}, pending meshes {}",
-        harness.stream.lighting.jobs.pending.len(),
-        harness.stream.mesh_jobs.pending.len()
-    );
+    harness.step_until(Harness::idle);
 }
 
 fn assert_matches_reference(harness: &Harness) {

@@ -1,5 +1,6 @@
 //! Bounded, ordered world admission and synchronous mutation progress.
 
+mod block_sync;
 mod contracts;
 mod decode;
 mod decode_diagnostics;
@@ -29,14 +30,14 @@ mod tests;
 
 // Wire records accepted by the world ingress adapter. Decoding remains in this crate.
 pub use protocol::{
-    ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent,
-    BiomeDefinitionsEvent, BlockCrackAction, BlockCrackEvent, BlockEntityUpdateEvent,
-    BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
-    DimensionHeightDiagnostic, DimensionRange, HeightmapDiagnostic, ItemRegistryEvent,
-    LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MapDataEvent, MovePlayerEvent,
-    NetworkItemStack, OpenSignEvent, PLAYER_NETWORK_OFFSET, Packet, ParticleEvent,
+    ActorAttribute, ActorBlockSyncMessage, ActorEvent, ActorHandedness, AudioEvent,
+    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockCrackAction, BlockCrackEvent,
+    BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    DaylightCycleUpdateEvent, DimensionHeightDiagnostic, DimensionRange, HeightmapDiagnostic,
+    ItemRegistryEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MapDataEvent,
+    MovePlayerEvent, NetworkItemStack, OpenSignEvent, PLAYER_NETWORK_OFFSET, Packet, ParticleEvent,
     PlayerMovementCorrectionEvent, RespawnEvent, SetTimeEvent, SubChunkBatchEvent,
-    SubChunkDiagnostic, SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, UiEvent,
-    WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
-    vanilla_dimension_range,
+    SubChunkDiagnostic, SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable,
+    SyncedBlockUpdateEvent, UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent,
+    request_sub_chunk_column, vanilla_dimension_range,
 };

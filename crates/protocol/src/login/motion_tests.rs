@@ -8,7 +8,8 @@ use bytes::{Buf, BufMut, BytesMut};
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, McpePacketName, NetworkStackLatencyPacket, PlayerInputTick,
+    ActorRuntimeId, McpePacketName, MoveActorAbsoluteData, MoveActorAbsolutePacket,
+    MoveActorDeltaData, MoveActorDeltaPacket, NetworkStackLatencyPacket, PlayerInputTick,
     SetActorMotionPacket, Vec3 as WireVec3,
 };
 
@@ -82,4 +83,84 @@ fn set_actor_motion_normalizes_impulses_skips_non_finite_and_keeps_truncation_fa
         decode_world_raw_with(truncated, 0, |raw| raw.decode(&session)).is_err(),
         "truncated motion wire stays fatal"
     );
+}
+
+#[test]
+fn raw_actor_delta_keeps_server_duration_and_completion_ordering() {
+    let session = BedrockSession { shield_item_id: 0 };
+    for ticks in [0, 10, u64::MAX] {
+        let packet: Packet = MoveActorDeltaPacket {
+            move_data: MoveActorDeltaData {
+                actor_runtime_id: ActorRuntimeId {
+                    actor_runtime_id: 7,
+                },
+                new_position_x: Some(12.0),
+                force_completion: true,
+                ticks,
+                ..Default::default()
+            },
+        }
+        .into();
+        let mut batch = crate::encode(&packet, &session).unwrap();
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).unwrap();
+        let Some(WorldEvent::Actor(crate::ActorEvent::Move(movement))) =
+            decode_world_raw_with(raw, 2, |raw| raw.decode(&session)).unwrap()
+        else {
+            panic!("raw actor movement must reach its owner")
+        };
+        assert_eq!(
+            movement.interpolation,
+            crate::ActorInterpolation {
+                ticks,
+                force_completion: true
+            }
+        );
+        assert_eq!(movement.position, [Some(12.0), None, None]);
+        assert!(
+            !movement.teleported,
+            "completion ordering does not teleport"
+        );
+    }
+}
+
+#[test]
+fn raw_absolute_completion_keeps_the_fast_path_and_default_duration() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = MoveActorAbsolutePacket {
+        move_data: MoveActorAbsoluteData {
+            actor_runtime_id: ActorRuntimeId {
+                actor_runtime_id: 7,
+            },
+            header: 1 << 3,
+            position: WireVec3 {
+                x: 12.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            rotation_x: 0,
+            rotation_y: 0,
+            rotation_y_head: 0,
+        },
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).unwrap();
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).unwrap();
+    let Some(WorldEvent::Actor(crate::ActorEvent::Move(movement))) =
+        decode_world_raw_with(raw, 2, |_| {
+            panic!("absolute movement must keep its direct decoder")
+        })
+        .unwrap()
+    else {
+        panic!("raw actor movement must reach its owner")
+    };
+    assert_eq!(
+        movement.interpolation,
+        crate::ActorInterpolation {
+            force_completion: true,
+            ..Default::default()
+        }
+    );
+    assert!(!movement.teleported);
 }

@@ -9,10 +9,10 @@ use protocol::{AbilitiesUpdate, AbilityLayersEvidence};
 
 use super::{fov::CameraFovInputs, presentation::ScreenEffectFacts};
 
+mod portal;
 const ABILITY_FLYING_BIT: u32 = 1 << 9;
 const BOW_IDENTIFIER: &str = "minecraft:bow";
 const SPYGLASS_IDENTIFIER: &str = "minecraft:spyglass";
-const NETHER_PORTAL_IDENTIFIER: &str = "minecraft:portal";
 
 /// How long the current item has been held in use with the same stack identity.
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
@@ -53,11 +53,9 @@ fn flying_from_abilities(update: &AbilitiesUpdate) -> bool {
 pub fn collect_screen_effect_facts(
     player_runtime: &player_state::PlayerState,
     time: Res<bevy::prelude::Time>,
-    view: Res<LocalViewPose>,
     item_use: Option<&dyn crate::observations::ItemUseObservation>,
     ui: Option<&client_ui::ui_runtime::UiRuntime>,
     client_world: Option<crate::observations::WorldObservation<'_>>,
-    collisions: Option<&dyn crate::observations::CollisionLookup>,
     mut clock: ResMut<ItemUseClock>,
     mut facts: ResMut<ScreenEffectFacts>,
     mut fov: ResMut<CameraFovInputs>,
@@ -69,25 +67,6 @@ pub fn collect_screen_effect_facts(
     facts.on_fire = stream
         .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         .is_some_and(client_world::ActorSnapshot::is_on_fire);
-
-    facts.in_portal = match (stream, collisions) {
-        (Some(stream), Some(collisions)) => {
-            let world = sim::PaletteWorld::new(
-                stream.collision_store(),
-                collisions.registry(stream.network_id_mode()),
-                stream.current_dimension(),
-            );
-            let eye = view.eye_translation();
-            [eye.y, view.feet_translation().y].into_iter().any(|y| {
-                let block = [eye.x.floor() as i32, y.floor() as i32, eye.z.floor() as i32];
-                world.primary_runtime_id(block).is_ok_and(|runtime_id| {
-                    collisions.block_identifier(stream.network_id_mode(), runtime_id)
-                        == Some(NETHER_PORTAL_IDENTIFIER)
-                })
-            })
-        }
-        _ => false,
-    };
 
     let selected = ui.and_then(|_| {
         let stack = player_runtime.selected_stack()?;
@@ -102,6 +81,63 @@ pub fn collect_screen_effect_facts(
     fov.flying = ui
         .and_then(|_| player_runtime.facts.local_abilities())
         .is_some_and(flying_from_abilities);
+}
+
+pub(super) fn portal_body(
+    physics: Option<&dyn crate::observations::PhysicsObservation>,
+    view: &LocalViewPose,
+) -> sim::Aabb {
+    physics
+        .and_then(|physics| {
+            let state = physics.state()?;
+            let sneaking = physics
+                .latest_sneak_sprint()
+                .is_some_and(|(sneak, _)| sneak);
+            Some(sim::Aabb::player_with_height_at(
+                state.position,
+                physics.mode().hitbox_height(sneaking),
+            ))
+        })
+        .unwrap_or_else(|| {
+            let feet = view.feet_translation();
+            sim::Aabb::player_at(sim::Vec3::new(
+                f64::from(feet.x),
+                f64::from(feet.y),
+                f64::from(feet.z),
+            ))
+        })
+}
+
+/// Samples body contact after this frame's physics and camera-pose resolution.
+pub fn collect_portal_contact(
+    player_runtime: &player_state::PlayerState,
+    view: &LocalViewPose,
+    physics: Option<&dyn crate::observations::PhysicsObservation>,
+    client_world: Option<crate::observations::WorldObservation<'_>>,
+    collisions: Option<&dyn crate::observations::CollisionLookup>,
+    facts: &mut ScreenEffectFacts,
+) {
+    let stream = client_world.as_ref().and_then(|world| world.stream);
+    facts.in_portal = match (stream, collisions) {
+        (Some(stream), Some(collisions))
+            if player_runtime.facts.player_game_mode()
+                != Some(protocol::PlayerGameMode::Spectator)
+                && physics.is_none_or(|physics| physics.mode() != sim::MovementMode::Riding) =>
+        {
+            let world = sim::PaletteWorld::new(
+                stream.collision_store(),
+                collisions.registry(stream.network_id_mode()),
+                stream.current_dimension(),
+            );
+            portal::touches_portal(portal_body(physics, view), |block| {
+                world.primary_runtime_id(block).is_ok_and(|runtime_id| {
+                    collisions.block_identifier(stream.network_id_mode(), runtime_id)
+                        == Some(assets::NETHER_PORTAL_IDENTIFIER)
+                })
+            })
+        }
+        _ => false,
+    };
 }
 
 #[cfg(test)]

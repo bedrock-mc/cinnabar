@@ -1,4 +1,4 @@
-//! Native fixed-tick leaf and fire animation triggers.
+//! Fixed-tick ambient block animation triggers.
 //! Other block animateTick callbacks and unclassified native materials remain unsupported.
 
 use std::time::{Duration, Instant};
@@ -19,6 +19,7 @@ use crate::movement::{MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, PhysicsCollisionRegistr
 mod color;
 mod diagnostics;
 mod fire;
+mod portal;
 
 #[derive(Default)]
 pub(super) struct AmbientParticles {
@@ -50,7 +51,8 @@ impl AmbientParticles {
         let due = self.due_ticks(elapsed);
         let leaf_effect_present = system.has_effect(LEAF_EFFECT);
         let fire_effect_present = system.has_effect(FIRE_SMOKE_EFFECT);
-        let effect_present = leaf_effect_present || fire_effect_present;
+        let effect_present =
+            leaf_effect_present || fire_effect_present || portal::effects_present(system);
         let view_valid = valid_view(view);
         self.diagnostics.enabled = bevy::log::tracing::enabled!(
             target: "bedrock_client::ambient_leaves",
@@ -75,6 +77,10 @@ impl AmbientParticles {
                 }
                 if leaf_effect_present {
                     self.try_leaf(block, stream, world, collisions, system);
+                }
+                // Legacy block callbacks use only the nearest sample cohort.
+                if index < particles::ambient::MIN_SAMPLES {
+                    self.try_portal(block, stream, world, collisions, system);
                 }
             }
             self.sampler.finish(view.position, started.elapsed());

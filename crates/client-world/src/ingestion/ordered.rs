@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use protocol::{BlockUpdateEvent, WorldEvent};
+use protocol::{BlockUpdateEvent, SyncedBlockUpdateEvent, WorldEvent};
 
 use super::{
     MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS, PreparedSubChunk, PreparedWorldEvent,
@@ -25,6 +25,10 @@ pub enum CommitStep {
     BlockUpdates {
         sequence: u64,
         events: Vec<BlockUpdateEvent>,
+    },
+    SyncedBlockUpdates {
+        sequence: u64,
+        events: Vec<SyncedBlockUpdateEvent>,
     },
 }
 
@@ -174,7 +178,11 @@ impl OrderedCommitState {
         event: PreparedWorldEvent,
     ) -> Result<DecodeCommit, WorldStreamError> {
         if self.blocking_block_updates == Some(sequence)
-            && matches!(&event, PreparedWorldEvent::BlockUpdates { .. })
+            && matches!(
+                &event,
+                PreparedWorldEvent::BlockUpdates { .. }
+                    | PreparedWorldEvent::SyncedBlockUpdates { .. }
+            )
         {
             self.blocking_block_updates = None;
             self.release_block_update_admission(sequence);
@@ -250,6 +258,11 @@ impl OrderedCommitState {
                 self.block_update_range_end = Some(self.next.saturating_sub(1));
                 self.applying = Some(sequence);
                 CommitStep::BlockUpdates { sequence, events }
+            }
+            PreparedWorldEvent::Immediate(WorldEvent::SyncedBlockUpdates(events)) => {
+                self.block_update_range_end = Some(sequence);
+                self.applying = Some(sequence);
+                CommitStep::SyncedBlockUpdates { sequence, events }
             }
             event => {
                 self.applying = Some(sequence);

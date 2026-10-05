@@ -9,9 +9,11 @@ use thiserror::Error;
 
 mod controller_frame;
 mod correction;
+mod dimension_wait;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
+mod fixed_ticks;
 mod timeline;
 
 pub use timeline::ServerControlFlags;
@@ -237,6 +239,7 @@ pub struct LocalPhysicsController {
     /// Locomotion mode selector and the previous tick's sampled environment it reads.
     modes: ModeTracker,
     last_environment: sim::MovementEnvironment,
+    dimension_waiting: bool,
     pub(super) prediction_sync: super::prediction_sync::PredictionSyncCountdown,
 }
 
@@ -265,6 +268,7 @@ impl Default for LocalPhysicsController {
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
+            dimension_waiting: false,
             prediction_sync: Default::default(),
         }
     }
@@ -310,6 +314,7 @@ impl LocalPhysicsController {
         self.server_control_flags = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
+        self.dimension_waiting = false;
         self.anchor_state.reset();
         self.history = PredictionHistory::new(self.history_capacity)
             .expect("local physics history capacity is non-zero");
@@ -360,6 +365,7 @@ impl LocalPhysicsController {
         self.server_motions.clear();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
+        self.dimension_waiting = false;
         // Every hard anchor starts a fresh bounded probe epoch: the new
         // position is probed before its first simulated tick, and any prior
         // failure budget or frozen embedded-anchor hold is replaced.
@@ -419,6 +425,7 @@ impl LocalPhysicsController {
         world: &impl CollisionWorld,
         effects: &mut impl MovementEffectSource,
     ) -> LocalPhysicsFrame {
+        self.dimension_waiting = false;
         let Some(state) = self.state.as_mut() else {
             return LocalPhysicsFrame::default();
         };
@@ -429,23 +436,14 @@ impl LocalPhysicsController {
         input.jump_pressed = self.jump_edge_pending;
         self.fly_toggle_pending ^= context.mode_intent.fly_toggle;
 
-        if self.discard_next_elapsed {
-            self.discard_next_elapsed = false;
-            return LocalPhysicsFrame::default();
-        }
-
-        self.accumulated_seconds += elapsed.as_secs_f64();
-        let due = ((self.accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
-            .floor()
-            .clamp(0.0, u64::MAX as f64) as u64;
-        self.accumulated_seconds -= due as f64 * LOCAL_PHYSICS_TICK_SECONDS;
-        let allowed = due.min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
-        let mut frame = LocalPhysicsFrame {
-            due_ticks: due,
-            dropped_ticks: due.saturating_sub(allowed as u64),
-            samples: Vec::with_capacity(allowed),
-            ..LocalPhysicsFrame::default()
-        };
+        let mut frame = fixed_ticks::frame(
+            elapsed,
+            &mut self.accumulated_seconds,
+            &mut self.discard_next_elapsed,
+        );
+        let allowed = frame
+            .due_ticks
+            .min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
 
         let sprint_request = input.sprinting;
         let requested_movement_speed = input.movement_speed;

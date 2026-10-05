@@ -30,9 +30,9 @@ pub use gpu::{
 };
 pub use rig::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,
-    ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometrySpan,
-    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    ActorRigVertexSegments, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES,
+    ActorGpuInstance, ActorMaterial, ActorRenderIdentity, ActorRigFrameBuilder,
+    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, ActorRigVertexSegments, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES,
     MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible, actor_rig_submission_is_visible,
     pack_actor_light, pack_overlay_rgba8,
 };
@@ -393,6 +393,7 @@ impl ActorRenderScene {
             let yaw = wrap_degrees(pose.yaw_degrees).to_radians();
             let (sine, cosine) = yaw.sin_cos();
             rig_submissions.push(ActorRigSubmission {
+                material: Default::default(),
                 culling_bounds: Default::default(),
                 input: ActorRigRenderInput {
                     identity: ActorRenderIdentity {

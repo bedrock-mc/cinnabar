@@ -110,8 +110,27 @@ pub(super) fn observe(
     if unchanged {
         return;
     }
-    let first_page = runtime.textures.dynamic_start() + FIRST_GLYPH_PAGE;
     let prepared = sheets.map(|sheets| sheets.prepared());
+    let pages = prepared
+        .map(|atlas| atlas.pages.clone())
+        .unwrap_or_default();
+    runtime.session_glyphs = SessionGlyphPages {
+        source: sheets.cloned(),
+        pages,
+    };
+    runtime.font = font(runtime);
+    runtime.nametag_atlas.reset();
+    dynamic_textures::rebuild(runtime);
+}
+
+/// Reconstructs current server fonts and the private alias without moving atlas ownership.
+pub(super) fn font(runtime: &UiPresentationRuntime) -> Arc<assets::RuntimeFontCatalog> {
+    let first_page = runtime.textures.dynamic_start() + FIRST_GLYPH_PAGE;
+    let prepared = runtime
+        .session_glyphs
+        .source
+        .as_ref()
+        .map(|sheets| sheets.prepared());
     let shifted = |glyphs: &[assets::SheetGlyph]| {
         glyphs
             .iter()
@@ -122,7 +141,7 @@ pub(super) fn observe(
             })
             .collect::<Vec<_>>()
     };
-    runtime.font = prepared.map_or_else(
+    let font = prepared.map_or_else(
         || runtime.base_font.clone(),
         |atlas| {
             let default = runtime
@@ -138,20 +157,18 @@ pub(super) fn observe(
                     )
                 })
                 .collect();
-            // Startup-only aliases keep their own pages when a server updates its glyph sheets.
+            // Immutable carrier aliases keep their own pages across server glyph updates.
             named.extend(runtime.base_font.named_fonts().clone());
             Arc::new(default.with_named_fonts(named))
         },
     );
-    runtime.nametag_atlas.reset();
-    let pages = prepared
-        .map(|atlas| atlas.pages.clone())
-        .unwrap_or_default();
-    runtime.session_glyphs = SessionGlyphPages {
-        source: sheets.cloned(),
-        pages,
-    };
-    dynamic_textures::rebuild(runtime);
+    if let Some(private) = &runtime.mod_panel_font {
+        let mut named = font.named_fonts().clone();
+        named.insert(ui::mod_panel::FONT_NAME.into(), private.alias.clone());
+        Arc::new((*font).clone().with_named_fonts(named))
+    } else {
+        font
+    }
 }
 
 impl SessionGlyphPages {

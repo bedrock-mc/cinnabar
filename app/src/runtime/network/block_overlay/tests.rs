@@ -1,6 +1,6 @@
 use std::{io::Write, sync::Arc};
 
-use assets::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind};
+use assets::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind, VisualSupport};
 use protocol::{
     CustomBlock, CustomBlockVisuals, CustomBlocks, CustomMaterialInstance, CustomPermutation,
     CustomStateAxis, CustomStateValue, CustomTransformation, CustomVisualComponents,
@@ -38,13 +38,19 @@ fn view() -> LayeredPackView {
 
 /// Builds the normal overlay fixture with an alternate geometry document.
 fn view_with_geometry(geometry: &[u8]) -> LayeredPackView {
+    view_with_catalog(
+        geometry,
+        r#"{"texture_data": {
+        "lucky": {"textures": "textures/blocks/lucky"},
+        "gen": {"textures": ["textures/blocks/gen"]}}}"#,
+    )
+}
+
+fn view_with_catalog(geometry: &[u8], terrain: &str) -> LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000001";
     let manifest = format!(
         r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
     );
-    let terrain = r#"{"texture_data": {
-        "lucky": {"textures": "textures/blocks/lucky"},
-        "gen": {"textures": ["textures/blocks/gen"]}}}"#;
     let flipbook = r#"[{"flipbook_texture": "textures/blocks/gen", "atlas_tile": "gen",
         "frames": [1, 0], "ticks_per_frame": 15}]"#;
     let lucky = png(16, 16, |x, _| [x as u8 * 16, 200, 0, 255]);
@@ -78,6 +84,36 @@ fn view_with_geometry(geometry: &[u8]) -> LayeredPackView {
     LayeredPackView::new(resource_pack::validate_handoff(
         protocol::ResourcePackHandoff::from_archives(vec![archive]),
     ))
+}
+
+#[test]
+fn terrain_replacement_applies_literal_atlas_tint_once_and_keeps_alpha() {
+    let view = view_with_catalog(
+        GEOMETRY.as_bytes(),
+        r##"{"texture_data":{"lucky":{"textures":[{"path":"textures/blocks/lucky","tint_color":"#ff80ff"}]}}}"##,
+    );
+    let catalog = super::textures::TextureCatalog::new(&view, None);
+    let image = catalog.decode("lucky").unwrap();
+    assert_eq!(&image.rgba8[..4], &[0, 100, 0, 255]);
+}
+
+#[test]
+fn raster_only_replacement_retains_the_base_lily_tint() {
+    let view = view_with_catalog(GEOMETRY.as_bytes(), r#"{"texture_data":{}}"#);
+    let keys = assets::MaterialKeys::from_entries([(1, "pad")])
+        .with_aliases([("pad", "textures/blocks/lucky")])
+        .with_fixed_tints([("pad", [32, 128, 48])]);
+    let catalog = super::textures::TextureCatalog::new(&view, Some(&keys));
+    let image = catalog.decode("pad").unwrap();
+    assert_eq!(&image.rgba8[..4], &[0, 100, 0, 255]);
+    let compiled =
+        compile_block_overlay(&view, &CustomBlocks::default(), false, Some(&keys)).unwrap();
+    assert_eq!(compiled.overlay.material_overrides.len(), 1);
+    let texture = compiled.overlay.material_overrides[0].texture;
+    let page = compiled.overlay.texture.as_ref().unwrap();
+    let mip = &page.mips[0];
+    let start = texture.layer() as usize * (mip.size * mip.size * 4) as usize;
+    assert_eq!(&mip.rgba8[start..start + 4], &[0, 100, 0, 255]);
 }
 
 fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
@@ -518,6 +554,7 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
         pair("test:lucky_placer", "test:lucky"),
     ];
     let compiled = compiled();
+    assert_eq!(compiled.overlay.visuals[0].support, VisualSupport::Exact);
     assert!(
         compiled.overlay.texture.as_ref().unwrap().mips[0].size
             > u32::from(assets::BLOCK_ITEM_FACE_SIDE),
@@ -554,6 +591,106 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
                 "face {face} texel {x},{y} is lucky's own texel"
             );
         }
+    }
+}
+
+#[test]
+fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support() {
+    use super::super::item_icons::custom_block_icons;
+
+    let identity = CustomTransformation {
+        rotation: [0; 3],
+        scale: [1.0; 3],
+        translation: [0.0; 3],
+    };
+    let material = |render_method: Option<&str>,
+                    tint_method: Option<&str>|
+     -> Option<Box<[CustomMaterialInstance]>> {
+        Some(Box::new([CustomMaterialInstance {
+            name: "*".into(),
+            texture: "lucky".into(),
+            render_method: render_method.map(Into::into),
+            tint_method: tint_method.map(Into::into),
+        }]))
+    };
+    for (case, transformation, materials, thumbnail) in [
+        (
+            "rotation",
+            Some(CustomTransformation {
+                rotation: [0, 1, 0],
+                ..identity
+            }),
+            material(None, None),
+            true,
+        ),
+        (
+            "scale",
+            Some(CustomTransformation {
+                scale: [0.5; 3],
+                ..identity
+            }),
+            material(None, None),
+            true,
+        ),
+        (
+            "translation",
+            Some(CustomTransformation {
+                translation: [0.25, 0.0, 0.0],
+                ..identity
+            }),
+            material(None, None),
+            true,
+        ),
+        ("blend", None, material(Some("blend"), None), true),
+        (
+            "unknown method",
+            None,
+            material(Some("unknown"), None),
+            true,
+        ),
+        (
+            "unresolved tint",
+            None,
+            material(None, Some("grass")),
+            false,
+        ),
+    ] {
+        let blocks = CustomBlocks {
+            blocks: vec![block(
+                "test:cube",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        geometry: Some(super::FULL_BLOCK.into()),
+                        materials,
+                        transformation,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+        assert_eq!(
+            compiled.overlay.visuals[0].support,
+            VisualSupport::VanillaFallback,
+            "{case}"
+        );
+        let icons = custom_block_icons(
+            &compiled.overlay,
+            &blocks,
+            false,
+            &[("test:cube".into(), "test:cube".into())],
+        );
+        assert_eq!(
+            icons.icons.len(),
+            usize::from(thumbnail),
+            "{case}: only an untinted fallback has a drawable thumbnail"
+        );
+        assert_eq!(icons.misses.len(), usize::from(!thumbnail), "{case}");
+        assert!(icons.block_sheets.is_empty(), "{case}");
     }
 }
 

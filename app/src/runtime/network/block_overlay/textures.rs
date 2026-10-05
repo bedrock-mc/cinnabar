@@ -7,6 +7,7 @@ use serde_json::Value;
 
 pub(super) use super::super::resource_packs::DecodedTexture;
 mod diagnostics;
+mod tint;
 use super::super::resource_packs::{
     MAX_CATALOG_ENTRIES, decode_pack_texture, parse_pack_json, texture_key_paths,
 };
@@ -23,14 +24,21 @@ pub(super) struct Flipbook {
 pub(super) struct TextureCatalog<'a> {
     view: &'a LayeredPackView,
     terrain: HashMap<String, String>,
+    tints: HashMap<String, [u8; 3]>,
     server_keys: HashSet<String>,
     flipbooks: HashMap<String, Flipbook>,
     diagnostics: TextureDiagnostics,
 }
 
 impl<'a> TextureCatalog<'a> {
-    pub(super) fn new(view: &'a LayeredPackView) -> Self {
+    pub(super) fn new(view: &'a LayeredPackView, base: Option<&assets::MaterialKeys>) -> Self {
         let mut terrain = super::super::resource_packs::base_terrain_catalog();
+        if let Some(base) = base {
+            terrain.extend(
+                base.aliases()
+                    .map(|(key, path)| (key.to_owned(), path.to_owned())),
+            );
+        }
         let server_terrain = texture_key_paths(view, "textures/terrain_texture.json");
         let server_keys = server_terrain.keys().cloned().collect();
         terrain.extend(server_terrain);
@@ -72,6 +80,7 @@ impl<'a> TextureCatalog<'a> {
         Self {
             view,
             terrain,
+            tints: tint::catalog_tints(view, base),
             server_keys,
             flipbooks,
             diagnostics,
@@ -92,7 +101,12 @@ impl<'a> TextureCatalog<'a> {
             self.diagnostics.failure(key, None, "terrain_key_missing");
             return None;
         };
-        let texture = decode_pack_texture(self.view, path);
+        let mut texture = decode_pack_texture(self.view, path);
+        if let Some(tint) = self.tints.get(key)
+            && let Some(texture) = texture.as_mut()
+        {
+            pack_compiler::apply_atlas_tint(&mut texture.rgba8, *tint);
+        }
         if texture.is_none() {
             let reason = diagnostics::failure_reason(self.view, path);
             // Base aliases have no server raster until a pack overrides them.

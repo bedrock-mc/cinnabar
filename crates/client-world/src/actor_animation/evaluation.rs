@@ -77,6 +77,8 @@ pub(super) struct EngineSlots {
     pub(super) horse_stand_anim: Option<usize>,
     pub(super) horse_shake_tail: Option<usize>,
     pub(super) horse_open_mouth: Option<usize>,
+    /// Dense slots for each requested dragon historical frame's yaw or height.
+    pub(super) dragon_history: Vec<(usize, usize, usize)>,
 }
 
 // Client-owned variables seeded on construction and needing independent measurement; remote third-person actors keep these values because
@@ -166,6 +168,24 @@ impl VariableLayout {
                 horse_stand_anim: slot("variable.stand_anim"),
                 horse_shake_tail: slot("variable.shake_tail"),
                 horse_open_mouth: slot("variable.open_mouth"),
+                dragon_history: symbols[variable_base..variable_base + variable_count]
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(slot, symbol)| {
+                        let name = symbol
+                            .identifier
+                            .strip_prefix("variable.historical_frame_")?;
+                        let (offset, component) = name.split_once('.')?;
+                        let offset = offset.parse::<usize>().ok()?;
+                        let axis = match component {
+                            "rot_y" => 0,
+                            "pos_y" => 1,
+                            _ => return None,
+                        };
+                        (offset < crate::actor_store::dragon_animation::HISTORICAL_VARIABLES)
+                            .then_some((slot, offset, axis))
+                    })
+                    .collect(),
             },
         }
     }

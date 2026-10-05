@@ -9,7 +9,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     path::PathBuf,
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use assets::RuntimeUiAssets;
@@ -31,6 +31,8 @@ pub(super) struct TextureSet {
     /// Texture page of the first reserved server page.
     pub(super) server_page: u16,
     vanilla: Option<PathBuf>,
+    /// Encoded carrier images too large for its sprite atlas.
+    carrier: Option<Arc<RuntimeUiAssets>>,
     pub(super) remote: RemoteImages,
     /// Full-resolution art-page copies of server textures too big for a server page.
     full_res: HashMap<String, IconRef>,
@@ -44,6 +46,13 @@ impl TextureSet {
             first_page,
             ..Self::default()
         }
+    }
+
+    pub(super) fn with_carrier(mut self, carrier: Arc<RuntimeUiAssets>) -> Self {
+        self.carrier = Some(carrier);
+        let atlas = std::mem::take(self.atlas_mut());
+        self.set_atlas(atlas, self.server_page);
+        self
     }
 
     pub(super) fn lock(&self) -> MutexGuard<'_, ServerAtlas> {
@@ -67,11 +76,14 @@ impl TextureSet {
     /// residency, for laying out a no-pack screen on another thread.
     pub(super) fn detached(&self) -> Self {
         let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
-        let atlas = ServerAtlas::new(&[], None, pages).with_fallbacks(self.vanilla.clone(), None);
+        let atlas = ServerAtlas::new(&[], None, pages)
+            .with_fallbacks(self.vanilla.clone(), None)
+            .with_carrier(self.carrier.clone());
         Self {
             atlas: Mutex::new(atlas),
             icons: self.icons.clone(),
             vanilla: self.vanilla.clone(),
+            carrier: self.carrier.clone(),
             remote: RemoteImages::default(),
             full_res: HashMap::new(),
             ..*self
@@ -85,7 +97,9 @@ impl TextureSet {
 
     /// Install a server atlas, wired to the vanilla and remote fallbacks.
     pub(super) fn set_atlas(&mut self, atlas: ServerAtlas, server_page: u16) {
-        let atlas = atlas.with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()));
+        let atlas = atlas
+            .with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()))
+            .with_carrier(self.carrier.clone());
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
         self.full_res.clear();
@@ -125,6 +139,13 @@ impl Textures<'_> {
     }
 
     fn image(&self, path: &str) -> Option<IconRef> {
+        // Cinnabar's shipped logo is a base-pack replacement. Actual server
+        // titles still win, including while their pixels decode asynchronously.
+        if texture_key(path) == super::super::menu_artwork::TITLE_KEY
+            && self.atlas.has_image(texture_key(path))
+        {
+            return None;
+        }
         let images = self.images?;
         images
             .get(path)

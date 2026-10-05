@@ -60,6 +60,23 @@ fn cube_carrier() -> assets::CompiledAssets {
 }
 
 #[test]
+fn opaque_cube_gameplay_flags_do_not_change_held_geometry() {
+    for flag in [
+        assets::BlockFlags::FIRE_FLAMMABLE,
+        assets::BlockFlags::FIRE_TOP_SUPPORT,
+        assets::BlockFlags::SEASONAL_REPLACEABLE,
+    ] {
+        let mut source = cube_carrier();
+        source.visuals[1].flags |= flag;
+        let runtime =
+            assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+        let (geometry, _) = ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1))
+            .expect("gameplay flags preserve opaque cube geometry");
+        assert_eq!(geometry.vertices.len(), 36);
+    }
+}
+
+#[test]
 fn opaque_cube_transports_all_six_face_layers_without_sprite_extrusion() {
     let source = cube_carrier();
     let runtime = assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();

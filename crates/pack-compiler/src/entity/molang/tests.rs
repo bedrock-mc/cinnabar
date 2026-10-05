@@ -4,6 +4,26 @@ fn compiles(source: &str) -> bool {
     MolangCompiler::default().compile(source).is_ok()
 }
 
+#[test]
+fn long_authored_scripts_compile_as_one_program_with_ordered_assignments() {
+    let mut compiler = MolangCompiler::default();
+    let assignment = "variable.long_authored_script_value = variable.long_authored_script_value + query.wing_flap_position + query.life_time;";
+    let entries = vec![assignment; 250];
+    let (expression, dropped) = compiler.compile_script(&entries).unwrap();
+    assert_eq!(dropped, 0);
+    let payload = compiler.finish().unwrap();
+    let expression = &payload.expressions[expression.expect("complete script retained") as usize];
+    let program = &payload.ops[expression.first_op as usize..][..usize::from(expression.op_count)];
+    assert!(program.len() <= MAX_MOLANG_OPS_PER_EXPRESSION);
+    assert_eq!(
+        program
+            .iter()
+            .filter(|op| matches!(op, MolangOp::StoreVariable(_)))
+            .count(),
+        entries.len()
+    );
+}
+
 fn constant(source: &str) -> f32 {
     MolangCompiler::evaluate_default(source).unwrap_or_else(|| panic!("{source} folds"))
 }

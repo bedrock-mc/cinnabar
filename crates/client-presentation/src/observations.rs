@@ -18,6 +18,8 @@ pub trait PhysicsObservation {
     fn state(&self) -> Option<&PlayerState>;
     /// Returns the sneak and sprint flags of the last completed tick.
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)>;
+    /// Returns the pose selected by the completed simulation tick.
+    fn mode(&self) -> sim::MovementMode;
     /// Returns the collision identity used by the completed tick.
     fn last_world_identity(&self) -> Option<&WorldCollisionIdentity>;
     /// Reports whether gameplay currently owns player translation.

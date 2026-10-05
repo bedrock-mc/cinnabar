@@ -22,6 +22,41 @@ pub const LOADING_SCREENS: [&str; 3] = [
 ];
 pub const LOADING_SCREEN: &str = LOADING_SCREENS[0];
 
+/// The shipped brand layout stays below server UI files, as the other menus do.
+pub(super) fn install_brand_layout(catalog: &mut json_ui::Catalog) {
+    catalog.overlay_text("ui/cinnabar_loading_brand.json", BRAND_LAYOUT);
+}
+
+// Reuse the pack's dialog and image controls. The desktop title in the pinned
+// common-art file starts ten percent from the top. The user's loading layout
+// lowers that group slightly while keeping the logo and dialog near the top.
+const BRAND_LAYOUT: &str = r##"{
+  "namespace": "progress",
+  "cinnabar_loading_group": {
+    "type": "stack_panel", "orientation": "vertical", "use_child_anchors": true,
+    "size": ["100%", "100%c"],
+    "anchor_from": "top_middle", "anchor_to": "top_middle",
+    "offset": [0, "15%"],
+    "controls": [
+      {"cinnabar_loading_title@common_art.title_image": {
+        "size": ["55%", 64], "keep_ratio": true,
+        "anchor_from": "top_middle", "anchor_to": "top_middle"
+      }},
+      {"cinnabar_loading_title_padding": {"type": "panel", "size": [0, 16]}},
+      {"world_modal_progress_panel@progress.world_modal_progress_panel": {
+        "$modal_button_panel_type": "progress.modal_button_panel"
+      }}
+    ]
+  },
+  "world_convert_modal_progress_screen_content": {
+    "modifications": [
+      {"array_name": "controls", "operation": "replace", "control_name": "title_panel_content",
+       "value": {"cinnabar_loading_group@progress.cinnabar_loading_group": {}}},
+      {"array_name": "controls", "operation": "remove", "control_name": "world_modal_progress_panel"}
+    ]
+  }
+}"##;
+
 /// Which part of joining the loading screen reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadingStage {
@@ -105,6 +140,7 @@ impl UiPresentationRuntime {
             ScreenArt {
                 now: self.menu_seconds,
                 clocks: Some(&self.scene_clock),
+                images: Some(&self.menu_artwork.refs),
                 ..ScreenArt::default()
             },
             inputs,

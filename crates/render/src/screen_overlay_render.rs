@@ -2,6 +2,8 @@
 use crate::screen_overlay::{
     MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayScene,
 };
+use crate::screen_overlay_portal::PortalTexture;
+use crate::{ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -46,6 +48,8 @@ struct OverlayUniform {
     header: [f32; 4],
     fire: [f32; 4],
     projection: [f32; 4],
+    portal_frames: [f32; 4],
+    portal_from_clip: [[f32; 4]; 4],
     layers: [[f32; 8]; MAX_SCREEN_OVERLAY_LAYERS],
 }
 
@@ -108,6 +112,11 @@ struct OverlayGpu {
     fire_sampler: Sampler,
     fire_revision: Option<u64>,
     fire_present: bool,
+    _portal_texture: Texture,
+    portal_texture_view: TextureView,
+    portal_sampler: Sampler,
+    portal: Option<PortalTexture>,
+    portal_identity: Option<ChunkTextureAssetIdentity>,
     textures_revision: Option<u64>,
     layer_count: u32,
     bind_group: Option<BindGroup>,
@@ -151,6 +160,7 @@ fn texture_array(
 fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<RenderQueue>) {
     let (texture, texture_view) = texture_array(&device, &queue, 1, 2, &[255; 8]);
     let (fire_texture, fire_view) = texture_array(&device, &queue, 1, 1, &[0; 4]);
+    let (portal_texture, portal_texture_view) = texture_array(&device, &queue, 1, 1, &[0; 4]);
     commands.insert_resource(OverlayGpu {
         uniform: device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("screen overlay layers"),
@@ -179,6 +189,17 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<Render
         }),
         fire_revision: None,
         fire_present: false,
+        _portal_texture: portal_texture,
+        portal_texture_view,
+        portal_sampler: device.create_sampler(&SamplerDescriptor {
+            label: Some("portal overlay atlas sampler"),
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
+            ..default()
+        }),
+        portal: None,
+        portal_identity: None,
         textures_revision: None,
         layer_count: 0,
         bind_group: None,
@@ -188,7 +209,8 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<Render
 
 fn prepare_overlay(
     scene: Res<ScreenOverlayScene>,
-    clock: Option<Res<crate::ChunkAnimationClock>>,
+    assets: Option<Res<ChunkTextureAssets>>,
+    clock: Option<Res<ChunkAnimationClock>>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut gpu: ResMut<OverlayGpu>,
@@ -231,6 +253,30 @@ fn prepare_overlay(
         gpu.fire_revision = Some(scene.fire_revision);
         gpu.bind_group = None;
     }
+    let identity = assets.as_deref().map(ChunkTextureAssets::identity);
+    if gpu.portal_identity != identity {
+        let portal = assets
+            .as_deref()
+            .and_then(|assets| PortalTexture::from_assets(assets.assets()))
+            .filter(|portal| portal.layer_count() <= device.limits().max_texture_array_layers);
+        let (texture, view) = portal.as_ref().map_or_else(
+            || texture_array(&device, &queue, 1, 1, &[0; 4]),
+            |portal| {
+                texture_array(
+                    &device,
+                    &queue,
+                    portal.side,
+                    portal.layer_count(),
+                    &portal.pixels,
+                )
+            },
+        );
+        gpu._portal_texture = texture;
+        gpu.portal_texture_view = view;
+        gpu.portal = portal;
+        gpu.portal_identity = identity;
+        gpu.bind_group = None;
+    }
     let count = scene.layers.len().min(MAX_SCREEN_OVERLAY_LAYERS);
     gpu.layer_count = count as u32;
     if count == 0 {
@@ -251,6 +297,16 @@ fn prepare_overlay(
             if scene.textures.is_some() { 1.0 } else { 0.0 },
             0.0,
         ],
+        portal_frames: gpu.portal.as_ref().zip(assets.as_deref()).map_or(
+            [0.0; 4],
+            |(portal, assets)| {
+                portal.frame_uniform(
+                    assets.assets(),
+                    clock.as_deref().copied().unwrap_or_default(),
+                )
+            },
+        ),
+        portal_from_clip: scene.portal_from_clip.to_cols_array_2d(),
         layers: [[0.0; 8]; MAX_SCREEN_OVERLAY_LAYERS],
     };
     for (slot, layer) in uniform.layers.iter_mut().zip(&scene.layers) {
@@ -319,6 +375,22 @@ impl FromWorld for OverlayPipeline {
                 },
                 BindGroupLayoutEntry {
                     binding: 4,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 6,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
@@ -423,6 +495,14 @@ fn prepare_bind_group(
             BindGroupEntry {
                 binding: 4,
                 resource: BindingResource::Sampler(&gpu.fire_sampler),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: BindingResource::TextureView(&gpu.portal_texture_view),
+            },
+            BindGroupEntry {
+                binding: 6,
+                resource: BindingResource::Sampler(&gpu.portal_sampler),
             },
         ],
     ));
@@ -575,7 +655,7 @@ mod tests {
 
     #[test]
     fn uniform_matches_the_wgsl_layout() {
-        assert_eq!(UNIFORM_BYTES, 3 * 16 + MAX_SCREEN_OVERLAY_LAYERS * 32);
+        assert_eq!(UNIFORM_BYTES, 4 * 16 + 64 + MAX_SCREEN_OVERLAY_LAYERS * 32);
     }
 
     #[test]

@@ -21,7 +21,7 @@ pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
 pub const MAX_ENTITY_CONTROLLER_ANIMATIONS: usize = 524_288;
 pub const MAX_MOLANG_EXPRESSIONS: usize = 65_536;
-pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 1_024;
+pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 2_048;
 pub const MAX_MOLANG_OPS: usize = 1_048_576;
 pub const MAX_MOLANG_STACK_DEPTH: u8 = 32;
 pub const MAX_MOLANG_COLLECTION_ITEMS: usize = 32;
@@ -44,7 +44,7 @@ mod render;
 use render::validate_render_payload;
 pub use render::{
     EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderSlot, EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES,
+    EntityRenderMaterial, EntityRenderSlot, EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES,
     MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS,
     MAX_ENTITY_RENDER_VISIBILITY,
 };

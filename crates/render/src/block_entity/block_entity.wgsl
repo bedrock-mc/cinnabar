@@ -6,6 +6,13 @@
 @group(0) @binding(1) var<storage, read> vertex_words: array<u32>;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
 @group(0) @binding(3) var atlas_sampler: sampler;
+struct PortalParameters {
+    star_rect: vec4<f32>,
+    time: vec4<f32>,
+    fog_color_start: vec4<f32>,
+    fog_end: vec4<f32>,
+}
+@group(0) @binding(4) var<uniform> portal: PortalParameters;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -65,6 +72,12 @@ fn block_entity_overlay(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn block_entity_additive(input: VertexOutput) -> @location(0) vec4<f32> {
+    let gamma = input.color.rgb * input.native_lighting;
+    return tint_to_linear(vec4(actor_distance_fog(gamma, input.world_position, view.world_position), input.color.a));
+}
+
+@fragment
 fn block_entity_crack(input: VertexOutput) -> @location(0) vec4<f32> {
     if (input.uv.x < 0.0) { return input.color; }
     let texel = textureSample(atlas, atlas_sampler, input.uv);
@@ -74,8 +87,52 @@ fn block_entity_crack(input: VertexOutput) -> @location(0) vec4<f32> {
     return vec4(texel.rgb, 1.0);
 }
 
+struct PortalOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) @interpolate(perspective, centroid) color_uv: vec2<f32>,
+    @location(1) @interpolate(perspective, centroid) parallax_uv: vec2<f32>,
+    @location(2) phase: f32,
+    @location(3) fog: f32,
+}
+
+@vertex
+fn portal_vertex(@builtin(vertex_index) vertex_index: u32) -> PortalOutput {
+    let base = vertex_index * BLOCK_ENTITY_VERTEX_WORDS;
+    let world_position = vec3(vertex_f32(base), vertex_f32(base + 1u), vertex_f32(base + 2u));
+    let encoded_normal = vec3(vertex_f32(base + 5u), vertex_f32(base + 6u), vertex_f32(base + 7u));
+    let normal = (encoded_normal - vec3(0.5)) * 2.0;
+    let phase = vertex_f32(base + 8u);
+    let depth = phase * 32.0;
+    let ray = world_position - view.world_position;
+    let intersection = dot(ray - depth * normal, normal) / dot(ray, normal);
+    let projected = intersection * ray + view.world_position;
+    let mask = abs(normal);
+    let plane_uv = (projected.yz * mask.x + projected.xz * mask.y + projected.xy * mask.z) / 16.0;
+    let angle = depth * 2.2439947;
+    let sine = sin(angle);
+    let cosine = cos(angle);
+    var uv = vec2(plane_uv.x * cosine + plane_uv.y * sine, -plane_uv.x * sine + plane_uv.y * cosine);
+    uv += vec2(cosine, sine) * depth;
+    uv.y += portal.time.x / 256.0;
+    // Native fmod keeps the sign; atlas wrapping happens after interpolation.
+    uv -= trunc(uv / 64.0) * 64.0;
+    var out: PortalOutput;
+    out.position = view.clip_from_world * vec4(world_position, 1.0);
+    out.color_uv = vec2(vertex_f32(base + 3u), vertex_f32(base + 4u));
+    out.parallax_uv = uv;
+    out.phase = phase;
+    out.fog = clamp((length(ray) - portal.fog_color_start.w) / max(portal.fog_end.x - portal.fog_color_start.w, 0.0001), 0.0, 1.0);
+    return out;
+}
+
 @fragment
-fn block_entity_additive(input: VertexOutput) -> @location(0) vec4<f32> {
-    let texel = textureSample(atlas, atlas_sampler, input.uv);
-    return vec4(texel.rgb * input.color.rgb, 1.0);
+fn portal_fragment(input: PortalOutput) -> @location(0) vec4<f32> {
+    // One/OneMinusSrcAlpha clears the surface with the base, then adds the stars.
+    if (input.phase * 32.0 > 31.0) {
+        return vec4(portal.fog_color_start.rgb * input.fog, 1.0);
+    }
+    let uv = portal.star_rect.xy + fract(input.parallax_uv) * portal.star_rect.zw;
+    let stars = textureSample(atlas, atlas_sampler, uv).rgb;
+    let palette = textureSample(atlas, atlas_sampler, input.color_uv).rgb;
+    return vec4(stars * palette * (1.0 - input.phase) * (1.0 - input.fog), 0.0);
 }

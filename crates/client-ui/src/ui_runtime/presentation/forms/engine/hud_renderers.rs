@@ -285,6 +285,7 @@ pub(super) fn with_java_hud(
         .into_iter()
         .chain(super::menu_renderers::NO_COPYRIGHT_OVERLAYS),
     );
+    super::super::loading_screen::install_brand_layout(&mut catalog);
     super::super::enhanced_setting::install(&mut catalog);
     catalog
 }

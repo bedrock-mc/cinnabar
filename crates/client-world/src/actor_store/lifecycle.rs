@@ -102,6 +102,8 @@ impl ActorStore {
             property_registry: Default::default(),
             local_knockback: None,
             status_notices: Vec::new(),
+            particle_effects: Default::default(),
+            synchronized_audio: Default::default(),
         }
     }
 
@@ -156,6 +158,7 @@ impl ActorStore {
                 *current_username = username;
             }
             actor.received_pose = pose;
+            actor.status.movement_interpolation = Default::default();
             actor.velocity = feed.velocity;
             actor.status.native_velocity = feed.velocity;
             actor.on_ground = Some(feed.on_ground);
@@ -238,6 +241,8 @@ impl ActorStore {
         self.items.clear();
         self.actions.clear();
         self.status_notices.clear();
+        self.particle_effects.clear();
+        self.synchronized_audio.clear();
     }
     pub(crate) fn reset_dimension(
         &mut self,
@@ -263,6 +268,8 @@ impl ActorStore {
         self.items.clear_actor_state();
         self.actions.clear();
         self.status_notices.clear();
+        self.particle_effects.clear();
+        self.synchronized_audio.clear();
         ActorApplyResult::Reset
     }
     pub(crate) fn apply(
@@ -290,7 +297,21 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
-                let mut received = actor.received_pose;
+                let Some(duration) =
+                    super::movement_interpolation::duration(movement.interpolation)
+                else {
+                    let previous = self.ignored_movement_components;
+                    self.ignored_movement_components = previous.saturating_add(1);
+                    if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
+                        eprintln!(
+                            "ignored unsupported actor movement duration (total {})",
+                            self.ignored_movement_components
+                        );
+                    }
+                    return ActorApplyResult::Updated;
+                };
+                let previous_received = actor.last_received_pose();
+                let mut received = previous_received;
                 let network_position_offset =
                     if movement.position_origin == ActorPositionOrigin::NetworkOffset {
                         actor.network_position_offset()
@@ -351,7 +372,7 @@ impl ActorStore {
                     [0.0; 3]
                 } else {
                     std::array::from_fn(|axis| {
-                        (received.position[axis] - actor.received_pose.position[axis])
+                        (received.position[axis] - previous_received.position[axis])
                             / elapsed_seconds
                     })
                 };
@@ -363,14 +384,12 @@ impl ActorStore {
                         [0.0; 3]
                     };
                 }
-                actor.received_pose = received;
-                if movement.teleported {
-                    actor.previous_pose = received;
-                    actor.set_current_pose(received);
-                    actor.interpolation_ticks_remaining = 0;
-                } else {
-                    actor.interpolation_ticks_remaining = ACTOR_INTERPOLATION_TICKS;
-                }
+                actor.start_movement_interpolation(
+                    received,
+                    duration,
+                    movement.interpolation.force_completion,
+                    movement.teleported,
+                );
                 actor.movement_revision = sequence;
                 actor.teleported = movement.teleported;
                 actor.player_mode = movement.player_mode;
@@ -501,6 +520,7 @@ impl ActorStore {
                 teleported: movement.teleported || movement.mode == protocol::MovePlayerMode::Reset,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),
+                interpolation: Default::default(),
             }),
         )
     }
@@ -531,6 +551,7 @@ impl ActorStore {
         let links = std::sync::Arc::clone(&spawn.links);
         let mut replaced = false;
         if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
+            self.synchronized_audio.remove_runtime(previous.runtime_id);
             let lifetime = self.lifetime_for(&previous);
             self.unique_to_runtime.remove(&previous.unique_id);
             self.animation.remove_runtime(previous.runtime_id);
@@ -541,6 +562,7 @@ impl ActorStore {
         }
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
             if let Some(previous) = self.actors.remove(&previous_runtime) {
+                self.synchronized_audio.remove_runtime(previous.runtime_id);
                 let lifetime = self.lifetime_for(&previous);
                 self.items.remove(lifetime);
                 self.actions.remove(lifetime);
@@ -581,6 +603,7 @@ impl ActorStore {
             return ActorApplyResult::MissingActor;
         };
         if let Some(actor) = self.actors.remove(&runtime_id) {
+            self.synchronized_audio.remove_runtime(runtime_id);
             let lifetime = self.lifetime_for(&actor);
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
@@ -831,7 +854,7 @@ impl ActorStore {
             .map(|actor| self.lifetime_for(actor))
     }
 
-    const fn lifetime_for(&self, actor: &ActorSnapshot) -> ActorLifetimeId {
+    pub(super) const fn lifetime_for(&self, actor: &ActorSnapshot) -> ActorLifetimeId {
         ActorLifetimeId {
             session_id: self.session_id,
             dimension: self.dimension,

@@ -54,19 +54,36 @@ fn finish<T>(future: impl Future<Output = T>) -> T {
     }
 }
 
+fn fixture_adapter<T>(name: &str, result: Result<T, wgpu::RequestAdapterError>) -> Option<T> {
+    match result {
+        Ok(adapter) => Some(adapter),
+        Err(error @ wgpu::RequestAdapterError::NotFound { .. }) => {
+            eprintln!("skipping {name}: missing native GPU adapter fixture ({error})");
+            None
+        }
+        Err(error) => panic!("{name}: GPU fixture adapter request failed: {error}"),
+    }
+}
+
 impl Gpu {
     /// Creates a physical device for explicitly requested snapshot fixtures.
     pub fn new() -> Option<Self> {
+        Self::for_fixture("native GPU snapshot")
+    }
+
+    /// Skips absent hardware while preserving adapter, device and rendering errors.
+    pub fn for_fixture(name: &str) -> Option<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()));
-        let adapter = adapter.expect("snapshot fixtures require a native GPU adapter");
-        assert_ne!(
-            adapter.get_info().backend,
-            wgpu::Backend::Noop,
-            "native GPU required"
-        );
-        let (device, queue) =
-            finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let adapter = fixture_adapter(
+            name,
+            finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default())),
+        )?;
+        if adapter.get_info().backend == wgpu::Backend::Noop {
+            eprintln!("skipping {name}: missing native GPU adapter fixture (Noop adapter)");
+            return None;
+        }
+        let (device, queue) = finish(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .unwrap_or_else(|error| panic!("{name}: GPU fixture device creation failed: {error}"));
         Some(Self { device, queue })
     }
 
@@ -299,4 +316,35 @@ pub fn view(matrix: bevy::math::Mat4, eye: bevy::math::Vec3) -> Vec<f32> {
         SNAPSHOT_SIDE as f32,
     ]);
     words
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixture_admission_skips_only_a_missing_adapter() {
+        let missing = wgpu::RequestAdapterError::NotFound {
+            active_backends: wgpu::Backends::empty(),
+            requested_backends: wgpu::Backends::empty(),
+            supported_backends: wgpu::Backends::empty(),
+            no_fallback_backends: wgpu::Backends::empty(),
+            no_adapter_backends: wgpu::Backends::empty(),
+            incompatible_surface_backends: wgpu::Backends::empty(),
+        };
+        assert_eq!(
+            fixture_adapter::<()>("missing-adapter policy", Err(missing)),
+            None
+        );
+        assert_eq!(fixture_adapter("present-adapter policy", Ok(())), Some(()));
+    }
+
+    #[test]
+    #[should_panic(expected = "GPU fixture adapter request failed")]
+    fn fixture_admission_preserves_other_adapter_errors() {
+        fixture_adapter::<()>(
+            "adapter-error policy",
+            Err(wgpu::RequestAdapterError::EnvNotSet),
+        );
+    }
 }

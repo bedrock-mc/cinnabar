@@ -233,6 +233,7 @@ impl NetworkSequencer {
                     teleported: movement.teleported,
                     player_mode: Some(movement.mode),
                     source_tick: Some(movement.source_tick),
+                    interpolation: Default::default(),
                 }))
             }
             event => event,

@@ -43,6 +43,33 @@ fn host(menu: Option<MenuScreen>) -> SceneHost {
     }
 }
 
+#[test]
+fn credits_own_gameplay_input_until_the_session_bound_completion_is_sent() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = in_world(&mut player, vanilla_like_table());
+    assert!(runtime.credits_mut().open(42, 8, 0));
+    assert!(!runtime.gameplay_input(&player, None));
+    assert!(!runtime.steals_mouse(&player, None));
+    assert_eq!(
+        runtime
+            .scenes(&player, host(Some(MenuScreen::Pause)))
+            .top()
+            .unwrap()
+            .key,
+        Scene::Credits
+    );
+    runtime.credits_mut().skip(10);
+    assert_eq!(
+        runtime
+            .credits_mut()
+            .flush(Some(42), |_| Err(super::super::FormTransportError::Full)),
+        Err(super::super::FormTransportError::Full)
+    );
+    assert!(!runtime.gameplay_input(&player, None));
+    runtime.credits_mut().flush(Some(42), |_| Ok(())).unwrap();
+    assert!(runtime.gameplay_input(&player, None));
+}
+
 // Only the HUD over the world: clicks reach gameplay and the mouse is captured.
 #[test]
 fn hud_only_routes_clicks_to_gameplay() {

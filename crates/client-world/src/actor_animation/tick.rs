@@ -4,6 +4,8 @@ use assets::EntityControllerAnimationTarget;
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ActorTickContext {
+    /// Frame fraction supplied only to scratch render-layer evaluation.
+    pub(crate) frame_alpha: f32,
     /// Full elapsed visual interval; absent for an explicit single-tick evaluation.
     pub(crate) animation_elapsed_ticks: Option<u32>,
     pub(crate) is_riding: bool,
@@ -292,6 +294,15 @@ pub(super) fn evaluate_state(
     }
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
+    let mut render_frame = state
+        .samples_render_frames
+        .then(|| super::render_frame::FrameState {
+            variables: variables.clone(),
+            context: context.clone(),
+            input,
+            anim_tick,
+            clips: Vec::new(),
+        });
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
     }
@@ -426,6 +437,11 @@ pub(super) fn evaluate_state(
         &mut weighted_clips,
         budget,
     )?;
+    if state.samples_camera_poses
+        && let Some(frame) = render_frame.as_mut()
+    {
+        frame.clips.clone_from(&weighted_clips);
+    }
     let local = sample_clips(
         &evaluator,
         &mut variables,
@@ -468,6 +484,7 @@ pub(super) fn evaluate_state(
         controllers,
         clip_clocks,
         variables,
+        render_frame,
     })
 }
 
@@ -540,6 +557,16 @@ pub(super) fn apply_engine_variables(
             truth(super::horse::mouth_open(actor)),
         );
     }
+    if let Some(state) = &actor.dragon_animation {
+        let dead = actor.status.dead
+            || actor
+                .attributes
+                .get("minecraft:health")
+                .is_some_and(|health| health.current <= 0.0);
+        for &(slot, offset, axis) in &engine.dragon_history {
+            variables.set(Some(slot), state.historical_frame(offset, dead)[axis]);
+        }
+    }
 }
 
 fn is_native_fish(actor: &ActorSnapshot) -> bool {
@@ -548,6 +575,7 @@ fn is_native_fish(actor: &ActorSnapshot) -> bool {
 }
 
 /// A clip to sample, its blend weight, and the animation tick its controller state began.
+#[derive(Clone, Copy, Debug)]
 pub(super) struct WeightedClip {
     pub(super) clip: usize,
     pub(super) weight: f32,

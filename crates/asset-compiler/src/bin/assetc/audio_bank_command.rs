@@ -1,4 +1,4 @@
-//! `assetc audio-bank`: packs the sound routing JSON and FSB sound files into MCBESND1.
+//! `assetc audio-bank`: packs the sound routing JSON and encoded sound files into MCBESND1.
 
 use std::path::Path;
 

@@ -1,39 +1,18 @@
 //! Optional local typography for the explicitly granted personal controls panel.
 
-use std::{fs::File, io::Read, path::Path, sync::Arc};
+use std::{fs::File, io::Read, path::Path};
 
 use assets::{CellGlyph, FontTexturePage, RuntimeFontCatalog, encode_font_catalog, pack_cells};
 use sha2::{Digest, Sha256};
 
-const FONT_ENV: &str = "CINNABAR_MOD_FONT";
-const MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024;
-const ATLAS_SIDE: u32 = 512;
+pub(super) const FONT_ENV: &str = "CINNABAR_MOD_FONT";
+pub(super) const MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024;
+const ATLAS_SIDE: u32 = render_model::UI_LOCAL_FONT_PAGE_SIDE;
 const FONT_EM: f32 = 18.0;
 const RASTER_SCALE: u32 = 2;
 
-/// Reads and rasterizes once before UI texture ownership is initialized.
-pub(crate) fn with_optional_font(base: Arc<RuntimeFontCatalog>) -> Arc<RuntimeFontCatalog> {
-    if std::env::var_os(super::COMPONENT_ENV).is_none()
-        || !std::env::var(super::CONTROLS_ENV).is_ok_and(|value| value == "1")
-    {
-        return base;
-    }
-    let Some(path) = std::env::var_os(FONT_ENV) else {
-        return base;
-    };
-    match load(Path::new(&path)).and_then(|font| {
-        base.with_named_font(ui::mod_panel::FONT_NAME, &font)
-            .map_err(|error| error.to_string())
-    }) {
-        Ok(font) => Arc::new(font),
-        Err(error) => {
-            eprintln!("Optional personal-panel font unavailable: {error}");
-            base
-        }
-    }
-}
-
-fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
+/// Reads and rasterizes a bounded local source on the registration worker.
+pub(crate) fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
     let file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let mut bytes = Vec::new();
     file.take((MAX_SOURCE_BYTES + 1) as u64)
@@ -45,7 +24,10 @@ fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
     rasterize(&bytes)
 }
 
-fn rasterize(bytes: &[u8]) -> Result<RuntimeFontCatalog, String> {
+pub(super) fn rasterize(bytes: &[u8]) -> Result<RuntimeFontCatalog, String> {
+    if bytes.len() > MAX_SOURCE_BYTES {
+        return Err("font source exceeds local byte limit".into());
+    }
     rasterize_at(bytes, RASTER_SCALE)
 }
 
@@ -152,10 +134,16 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn invalid_and_oversized_optional_fonts_fail_before_attachment() {
         assert!(rasterize(b"not a font").is_err());
+        assert!(
+            rasterize(&vec![0; MAX_SOURCE_BYTES + 1])
+                .unwrap_err()
+                .contains("byte limit")
+        );
         let path =
             std::env::temp_dir().join(format!("cinnabar-optional-font-{}.ttf", std::process::id()));
         let file = std::fs::OpenOptions::new()

@@ -42,6 +42,7 @@ use bevy::prelude::{Query, Transform, With};
 /// The exact stream and immutable artwork snapshots borrowed for actor publication.
 pub struct ActorWorld<'a> {
     pub stream: Option<&'a mut WorldStream>,
+    pub collisions: Option<&'a dyn crate::observations::CollisionLookup>,
     pub entity_assets: Option<&'a assets::RuntimeEntityAssets>,
     pub pack_entities: Option<Arc<assets::SessionEntityPack>>,
     pub session_items: Option<Arc<crate::session_assets::SessionItems>>,
@@ -351,11 +352,7 @@ pub fn prepare_actor_render_frame(
         if let Some(ticks) = input.swing_started {
             stream.start_local_player_swing(ticks);
         }
-        let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
-        stream.set_actor_camera_rotation([
-            -pitch.to_degrees(),
-            (180.0 - yaw.to_degrees()).rem_euclid(360.0),
-        ]);
+        stream.set_actor_camera_rotation(actor_camera_rotation(view.rotation()));
         if let Ok((transform, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
@@ -400,12 +397,11 @@ pub fn prepare_actor_render_frame(
         view.rotation(),
         &mut local_visibility,
     );
-    // Vanilla projects the hand with its own fixed FOV, ignoring the FOV option and modifiers.
+    // The hand's independent perspective survives the world's portal projection.
     let hand_camera_fov = camera
         .single()
         .ok()
-        .filter(|(_, projection)| matches!(projection, Projection::Perspective(_)))
-        .map(|_| HAND_FOV_DEGREES.to_radians());
+        .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection));
     let preparation = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
@@ -597,10 +593,7 @@ pub fn prepare_actor_render_frame(
         if visibility.runtime_id() != local_runtime_id {
             return (false, None);
         }
-        // Native camera and body transforms sample the same actor origin at render alpha
-        // (26.30 VanillaOffsetSystem::getCameraPosition / Actor::getActorToWorldTransform).
-        // Keep the rig's body yaw and animation, but use the physics render sample rather
-        // than interpolating the local position again on the remote actor clock.
+        // Camera and body share the physics render sample while the rig retains its animation.
         let local = canonical_local
             .map(|mut local| {
                 place_local_actor_at_render_feet(&mut local, visibility.feet());
@@ -635,7 +628,7 @@ pub fn prepare_actor_render_frame(
         .stream
         .as_ref()
         .and_then(|stream| stream.authority().actor(local_runtime_id))
-        .and_then(|actor| actor.status.death_progress(step.partial_tick));
+        .and_then(|actor| actor.death_rotation_progress(step.partial_tick));
     let local = local.map(|mut local| {
         if let (Some(pose), Some(stream)) = (&local_emote_pose, &client_world.stream)
             && let (Some(rig), Some(actor)) = (
@@ -725,18 +718,17 @@ pub fn prepare_actor_render_frame(
     }
     // After equipment, which rides the rig's own model even when a controller draws another.
     if let Some(stream) = client_world.stream.as_ref() {
+        let mut render_frame = stream.authority().actor_render_frame(step.partial_tick);
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
             |runtime_id| {
-                stream.authority().actor_rig(runtime_id).map(|rig| {
-                    if runtime_id == local_runtime_id
-                        && let Some(pose) = &local_emote_pose
-                    {
-                        pose.snapshot(rig)
-                    } else {
-                        rig
-                    }
-                })
+                if runtime_id == local_runtime_id
+                    && let Some(pose) = &local_emote_pose
+                {
+                    Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
+                } else {
+                    render_frame.layers(runtime_id)
+                }
             },
             artwork,
             &mut layer_poses,
@@ -818,6 +810,7 @@ pub fn prepare_actor_render_frame(
     );
     dropped_items.publish(
         client_world.stream.as_deref(),
+        client_world.collisions,
         camera_position.map(|position| {
             let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
             (position, (180.0 - yaw.to_degrees()).rem_euclid(360.0))
@@ -852,6 +845,14 @@ fn local_equipment(
 /// Rigs this far outside the view on every side still animate, so only a turn faster than this
 /// in one tick shows a rig its held pose for that tick.
 const ANIMATION_GUARD_DEGREES: f32 = 30.0;
+
+fn actor_camera_rotation(rotation: bevy::math::Quat) -> [f32; 2] {
+    let (yaw, pitch, _) = rotation.to_euler(bevy::math::EulerRot::YXZ);
+    [
+        -pitch.to_degrees(),
+        (180.0 - yaw.to_degrees()).rem_euclid(360.0),
+    ]
+}
 
 /// The camera's frustum widened by the guard band, with the render distances.
 fn animation_view(
@@ -923,3 +924,9 @@ fn place_local_actor_at_render_feet(presentation: &mut ActorRigPresentation, fee
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod xp_orb_tests;
+
+#[cfg(test)]
+mod billboard_frame_tests;

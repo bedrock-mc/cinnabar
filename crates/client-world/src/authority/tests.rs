@@ -35,6 +35,43 @@ fn block_interactions_encode_the_current_session_palette() {
 }
 
 #[test]
+fn credits_admission_targets_the_live_local_runtime_actor() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 2,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    for (sequence, runtime_id) in [(7, 72), (8, 41)] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Ui(UiEvent::ShowCredits(protocol::ShowCreditsEvent {
+                    runtime_id,
+                })),
+                Some(sequence),
+            )
+            .unwrap();
+    }
+    let events = authority.take_committed_ui();
+    assert!(matches!(
+        events.as_slice(),
+        [CommittedUiEvent::Ui {
+            sequence: 8,
+            event: UiEvent::ShowCredits(protocol::ShowCreditsEvent { runtime_id: 41 })
+        }]
+    ));
+}
+
+#[test]
 fn biome_tint_revision_overflow_keeps_the_previous_atomic_snapshot() {
     let mut authority = WorldAuthority::new(
         WorldBootstrap {

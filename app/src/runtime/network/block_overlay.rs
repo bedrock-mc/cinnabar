@@ -75,7 +75,7 @@ pub(super) fn compile_block_overlay(
         .filter(|identifier| !identifier.starts_with("minecraft:"))
         .collect::<HashSet<_>>();
     let mut builder = Builder {
-        catalog: TextureCatalog::new(view),
+        catalog: TextureCatalog::new(view, vanilla_keys),
         geometries: geometry_catalog(view, &wanted),
         overlay: BlockOverlay::default(),
         sources: Vec::new(),
@@ -212,11 +212,25 @@ impl Builder<'_> {
         }
         let mut flags = BlockFlags::CUBE_GEOMETRY;
         flags.set(BlockFlags::OCCLUDES_FULL_FACE, opaque);
+        let exact = components.transformation.is_none_or(|transform| {
+            transform.rotation == [0; 3]
+                && transform.scale == [1.0; 3]
+                && transform.translation == [0.0; 3]
+        }) && components.materials.as_deref().is_some_and(|materials| {
+            materials.iter().all(|material| {
+                matches!(material.render_method.as_deref(), None | Some("opaque"))
+                    && matches!(material.tint_method.as_deref(), None | Some("none"))
+            })
+        });
         BlockVisual {
             faces,
             flags,
             kind: VisualKind::Cube,
-            support: VisualSupport::VanillaFallback,
+            support: if exact {
+                VisualSupport::Exact
+            } else {
+                VisualSupport::VanillaFallback
+            },
             contributor_role: ContributorRole::Primary,
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,

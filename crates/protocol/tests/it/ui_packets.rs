@@ -25,6 +25,38 @@ const TITLE_FIXTURE: &[u8] = include_bytes!("../../fixtures/set_title.bin");
 const BOSS_FIXTURE: &[u8] = include_bytes!("../../fixtures/boss_event.bin");
 const FORM_FIXTURE: &[u8] = include_bytes!("../../fixtures/modal_form_request.bin");
 
+#[test]
+fn boss_remove_ignores_unused_invalid_presentation_fields() {
+    for packet in [
+        BossEventPacket {
+            health_percent: f32::NAN,
+            ..Default::default()
+        },
+        BossEventPacket {
+            color: EnumsBossBarColor::Unknown(u8::MAX),
+            overlay: EnumsBossBarOverlay::Unknown(u8::MAX),
+            ..Default::default()
+        },
+        BossEventPacket {
+            name: "x".repeat(MAX_UI_TEXT_BYTES + 1),
+            ..Default::default()
+        },
+    ] {
+        let UiEvent::Boss(event) = ui(BossEventPacket {
+            target_actor_id: ActorUniqueId {
+                actor_unique_id: -17,
+            },
+            event_type: EnumsBossEventUpdateType::Remove,
+            ..packet
+        })
+        .expect("removal only consumes the boss identity") else {
+            panic!("expected boss event");
+        };
+        assert_eq!(event.action, BossAction::Hide);
+        assert_eq!(event.target_entity_id, -17);
+    }
+}
+
 /// gophertunnel's `LevelEventStartBlockCracking` / `LevelEventStopBlockCracking`
 /// / `LevelEventUpdateBlockCracking` (`minecraft/protocol/packet/level_event.go`).
 /// 1.26.40 carries LevelEvent as a raw `event_id` rather than a named enum.

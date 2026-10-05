@@ -118,6 +118,9 @@ pub(crate) fn prepare_actor_render_frame(
     client_presentation::actor_publication::prepare_actor_render_frame(
         ActorWorld {
             stream: stream.as_mut(),
+            collisions: collisions
+                .as_deref()
+                .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
             entity_assets: entity_assets.as_deref(),
             pack_entities: pack_entities.clone(),
             session_items: session_items.clone(),

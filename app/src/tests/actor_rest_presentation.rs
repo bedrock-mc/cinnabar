@@ -270,6 +270,7 @@ fn static_clock_survives_invalid_first_eval_but_requires_real_tick_after_reset_o
                 teleported: true,
                 player_mode: None,
                 source_tick: Some(2),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();

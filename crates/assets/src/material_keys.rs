@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 /// Sidecar wire version; part of the world carrier's prepared identity.
-pub const MATERIAL_KEYS_SCHEMA: u32 = 2;
+pub const MATERIAL_KEYS_SCHEMA: u32 = 3;
 /// Largest sidecar file the runtime reads.
 pub const MAX_MATERIAL_KEYS_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -18,6 +18,7 @@ struct Wire {
     materials: u32,
     keys: BTreeMap<String, Vec<u32>>,
     aliases: BTreeMap<String, String>,
+    fixed_tints: BTreeMap<String, [u8; 3]>,
 }
 
 /// Material ids by the terrain texture key they were compiled from.
@@ -26,6 +27,7 @@ pub struct MaterialKeys {
     keys: BTreeMap<Box<str>, Box<[u32]>>,
     /// Every vanilla terrain key's variant-zero image path.
     aliases: BTreeMap<Box<str>, Box<str>>,
+    fixed_tints: BTreeMap<Box<str>, [u8; 3]>,
 }
 
 impl MaterialKeys {
@@ -49,6 +51,7 @@ impl MaterialKeys {
         Self {
             keys,
             aliases: BTreeMap::new(),
+            fixed_tints: BTreeMap::new(),
         }
     }
 
@@ -62,6 +65,25 @@ impl MaterialKeys {
             .map(|(key, path)| (key.as_ref().into(), path.as_ref().into()))
             .collect();
         self
+    }
+
+    #[must_use]
+    pub fn with_fixed_tints<K: AsRef<str>>(
+        mut self,
+        tints: impl IntoIterator<Item = (K, [u8; 3])>,
+    ) -> Self {
+        self.fixed_tints = tints
+            .into_iter()
+            .map(|(key, tint)| (key.as_ref().into(), tint))
+            .collect();
+        self
+    }
+
+    /// Literal atlas multipliers already baked into the base material textures.
+    pub fn fixed_tints(&self) -> impl Iterator<Item = (&str, [u8; 3])> {
+        self.fixed_tints
+            .iter()
+            .map(|(key, tint)| (key.as_ref(), *tint))
     }
 
     /// Serializes the sidecar for a carrier with `material_count` materials.
@@ -79,6 +101,11 @@ impl MaterialKeys {
                 .aliases
                 .iter()
                 .map(|(key, path)| (key.to_string(), path.to_string()))
+                .collect(),
+            fixed_tints: self
+                .fixed_tints
+                .iter()
+                .map(|(key, tint)| (key.to_string(), *tint))
                 .collect(),
         };
         serde_json::to_vec(&wire).expect("material key sidecar serializes")
@@ -104,7 +131,16 @@ impl MaterialKeys {
             .into_iter()
             .map(|(key, path)| (key.into_boxed_str(), path.into_boxed_str()))
             .collect();
-        Some(Self { keys, aliases })
+        let fixed_tints = wire
+            .fixed_tints
+            .into_iter()
+            .map(|(key, tint)| (key.into_boxed_str(), tint))
+            .collect();
+        Some(Self {
+            keys,
+            aliases,
+            fixed_tints,
+        })
     }
 
     /// Material ids compiled from `key`; empty when the key is unknown.
@@ -151,8 +187,13 @@ mod tests {
     #[test]
     fn aliases_round_trip_and_alias_free_sidecars_are_rejected() {
         let keys = MaterialKeys::from_entries([(0, "stone")])
-            .with_aliases([("stone", "textures/blocks/stone"), ("unused", "textures/x")]);
+            .with_aliases([("stone", "textures/blocks/stone"), ("unused", "textures/x")])
+            .with_fixed_tints([("stone", [20, 80, 30])]);
         let decoded = MaterialKeys::from_json(&keys.to_json(1), 1).unwrap();
+        assert_eq!(
+            decoded.fixed_tints().collect::<Vec<_>>(),
+            [("stone", [20, 80, 30])]
+        );
         assert_eq!(
             decoded.aliases().collect::<Vec<_>>(),
             [("stone", "textures/blocks/stone"), ("unused", "textures/x")]

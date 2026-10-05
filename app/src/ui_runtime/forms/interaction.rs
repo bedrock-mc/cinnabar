@@ -40,6 +40,13 @@ pub(crate) fn drive_server_form_input(
     mut stick: Local<[bool; 4]>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    if runtime.credits().owns_input() {
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *owned_last_frame = false;
+        return;
+    }
     // Buttons are reset every owned frame, so a physical release never surfaces
     // as `just_released`; raw messages carry the edges instead.
     let mut pointer = engine_input::PointerButtons {

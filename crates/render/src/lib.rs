@@ -44,6 +44,7 @@ mod runtime_profile_slow;
 mod runtime_profile_trace;
 mod screen_fire;
 mod screen_overlay;
+mod screen_overlay_portal;
 mod screen_overlay_render;
 mod shader_safety;
 #[cfg(test)]
@@ -55,7 +56,7 @@ mod viewmodel;
 mod viewmodel_render;
 
 pub use hand_rig_render::{
-    HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAtlas, HandRigLight,
+    HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAlphaMode, HandItemAtlas, HandRigLight,
     HandRigRenderPlugin, HandRigScene,
 };
 pub use particle_render::{
@@ -79,11 +80,11 @@ use meshing::{
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_CANDIDATE_RADIUS_BLOCKS, ACTOR_GPU_INSTANCE_WORDS,
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorDrawFrame,
-    ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness, ActorPresentationGate,
-    ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity, ActorRenderInstance,
-    ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder, ActorRigGeometrySpan,
-    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    ActorRuntimeWitness, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
+    ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness, ActorMaterial,
+    ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity,
+    ActorRenderInstance, ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder,
+    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, ActorRuntimeWitness, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
     actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
@@ -104,13 +105,14 @@ pub use block_entity::{
     BlockEntityKind, BlockEntityLight, BlockEntityRenderPlugin, BlockEntityScene,
     BlockEntitySubmission, BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget,
     ChestModel, ChestPair, ChestVariant, ConduitModel, CopperAge, CrackInstance, CrackQuad,
-    CrackShape, CrystalBeamModel, DecoratedPotModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
-    MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
-    SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
-    StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
-    banner_color, bed_color, block_matrix, crack_shape_from_template, crack_texture_name,
-    floor_yaw_degrees, item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture,
-    sherd_pattern, shulker_color_from_block_name, skull_geometry, swing_degrees,
+    CrackShape, CrystalBeamModel, DRAGON_DEATH_BLEND, DecoratedPotModel, DragonDeathModel, Facing,
+    ItemFrameModel, MAX_BANNER_LAYERS, MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS,
+    SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind, SkullModel, SkullMount,
+    SpawnerModel, StaticItemPlacement, StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL,
+    TEXT_SLOT_COUNT, TextureRef, banner_color, bed_color, block_matrix, crack_shape_from_template,
+    crack_texture_name, floor_yaw_degrees, item_frame_item_transform, lid_angle_radians,
+    matrix_rows, pattern_texture, sherd_pattern, shulker_color_from_block_name, skull_geometry,
+    swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,
@@ -154,8 +156,8 @@ pub use cloud_config::{
 pub use dropped_item::{
     DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,
     DroppedItemSpawnPose, ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES,
-    MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, WHITE_LAYER, dropped_item_transform,
-    native_dropped_item_transform, rope_color, rope_point, rope_ribbon,
+    MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition, WHITE_LAYER,
+    dropped_item_transform, native_dropped_item_transform, rope_color, rope_point, rope_ribbon,
 };
 pub use dropped_item_render::DroppedItemRenderPlugin;
 pub use lightning::{

@@ -29,12 +29,18 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 			continue
 		}
 		current := properties[index]
-		// TopSnowBlock sets light dampening to zero. Its
-		// inherited light getter and height-specific connection
-		// component leave that value intact, unlike Dragonfly's filter=2.
-		// Ice constructors start at zero, but final native registrations
-		// set light dampening to three before the inherited
-		// getter reads it. Packed/blue ice remain excluded.
+		// Every portal axis emits eleven and transmits light, including the
+		// unknown-axis state absent from Dragonfly's block implementation.
+		if record.Name == "minecraft:portal" {
+			const nativePortalLight byte = 11
+			if current != nativePortalLight {
+				properties[index] = nativePortalLight
+				changed++
+			}
+			continue
+		}
+		// Snow layers transmit light regardless of their height. Ice uses
+		// dampening three; packed and blue ice retain their separate rules.
 		isSnowLayer := record.Name == "minecraft:snow_layer"
 		isTransparentIce := record.Name == "minecraft:ice" || record.Name == "minecraft:frosted_ice"
 		isStillWater := record.Name == "minecraft:water"

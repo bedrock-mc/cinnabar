@@ -1,4 +1,8 @@
 use bytes::{Buf, Bytes, BytesMut};
+#[path = "world_packets/block_sync.rs"]
+mod block_sync;
+#[path = "world_packets/dimension.rs"]
+mod dimension;
 #[path = "world_packets/lighting_diagnostics.rs"]
 mod lighting_diagnostics;
 #[path = "world_packets/weather_cycle.rs"]
@@ -887,15 +891,16 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
             blocks_changed_extras: vec![entry(17, -63, -31, 5)],
         },
     };
-    let WorldEvent::BlockUpdates(updates) = into_world_event(batch.into(), 0).unwrap().unwrap()
+    let WorldEvent::SyncedBlockUpdates(updates) =
+        into_world_event(batch.into(), 0).unwrap().unwrap()
     else {
         panic!("expected BlockUpdates event")
     };
     assert_eq!(updates.len(), 2);
-    assert_eq!(updates[0].layer, 0);
-    assert_eq!(updates[0].network_id, 4);
-    assert_eq!(updates[1].layer, 1);
-    assert_eq!(updates[1].network_id, 5);
+    assert_eq!(updates[0].update.layer, 0);
+    assert_eq!(updates[0].update.network_id, 4);
+    assert_eq!(updates[1].update.layer, 1);
+    assert_eq!(updates[1].update.network_id, 5);
 }
 
 #[test]
@@ -946,7 +951,8 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
             y: 80.0,
             z: -2.5,
         },
-        ..Default::default()
+        respawn: true,
+        loading_screen_id: Some(0),
     };
     let WorldEvent::ChangeDimension(change) =
         into_world_event(dimension.into(), 0).unwrap().unwrap()
@@ -955,6 +961,8 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
     };
     assert_eq!(change.dimension, 1);
     assert_eq!(change.position, [1.5, 80.0, -2.5]);
+    assert!(change.respawn);
+    assert_eq!(change.loading_screen_id, Some(0));
 }
 
 #[test]

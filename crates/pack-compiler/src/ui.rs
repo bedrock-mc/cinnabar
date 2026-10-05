@@ -2,15 +2,15 @@
 //! gutter-separated atlas pages, ingests their nine-slice sidecars, and stores
 //! the raw `ui/*.json` catalog verbatim into the hash-pinned UI carrier.
 //!
-//! Textures wider or taller than [`MAX_UI_TEXTURE_SIDE`] (full-screen art,
-//! panoramas, animation strips) are not form sprites and are skipped and
-//! counted, mirroring the icon compiler's bounded-source policy. The six menu
-//! panorama faces and their overlay are also stored beside the ui json as raw
-//! files, for the panorama pass to decode at full resolution. The raw ui
+//! Textures wider or taller than [`MAX_UI_TEXTURE_SIDE`] are skipped from the
+//! sprite atlas and counted. Images referenced by UI JSON, including non-UI
+//! textures and oversized artwork or animation strips, stay in the carrier:
+//! small images join the atlas and oversized ones retain their encoded bytes.
+//! The six panorama faces and their overlay also stay as raw files. The raw ui
 //! json is kept unresolved because a joined server pack overrides it at runtime.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{Cursor, Read},
     path::Path,
@@ -72,7 +72,7 @@ pub fn compile_ui_assets(
         return Err(invalid("ui source manifest digest is unset"));
     }
 
-    let textures_dir = pack.join("textures/ui");
+    let textures_dir = pack.join("textures");
     let ui_dir = pack.join("ui");
 
     let mut png_paths = Vec::new();
@@ -98,12 +98,34 @@ pub fn compile_ui_assets(
     if pack.join(SPLASHES).is_file() {
         ui_paths.push(SPLASHES.to_owned());
     }
+    ui_paths.extend(
+        assets::UI_CREDITS_FILES
+            .into_iter()
+            .filter(|path| pack.join(path).is_file())
+            .map(str::to_owned),
+    );
 
-    let (textures, textures_skipped_oversized, textures_skipped_undecodable) =
-        read_textures(pack, &png_paths)?;
+    let (mut files, mut ui_files_skipped) = read_ui_files(pack, &ui_paths)?;
+    let referenced = referenced_textures(&files);
+    png_paths.retain(|path| {
+        path.starts_with("textures/ui/") || referenced.contains(strip_extension(path))
+    });
+    sidecar_paths.retain(|path| {
+        path.starts_with("textures/ui/") || referenced.contains(strip_extension(path))
+    });
+    let (textures, oversized, textures_skipped_undecodable) = read_textures(pack, &png_paths)?;
+    let textures_skipped_oversized = oversized.len();
+    let raw_paths = oversized
+        .into_iter()
+        .filter(|path| referenced.contains(strip_extension(path)))
+        .filter(|path| !files.iter().any(|file| file.path.as_ref() == path.as_str()))
+        .collect::<Vec<_>>();
+    let (raw, skipped) = read_ui_files(pack, &raw_paths)?;
+    files.extend(raw);
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    ui_files_skipped += skipped;
     let packed = pack_atlas(textures)?;
     let (sidecars, sidecars_skipped) = read_sidecars(pack, &sidecar_paths)?;
-    let (files, ui_files_skipped) = read_ui_files(pack, &ui_paths)?;
 
     let atlas_pixel_bytes = packed.pages.iter().map(|page| page.rgba8.len()).sum();
     let bytes = encode_ui_catalog(
@@ -155,21 +177,47 @@ enum TextureOutcome {
 }
 
 /// Decoded texture counts: the packable set plus the two skip tallies.
-type TextureSet = (Vec<DecodedUiTexture>, usize, usize);
+type TextureSet = (Vec<DecodedUiTexture>, Vec<String>, usize);
 
 fn read_textures(pack: &Path, png_paths: &[String]) -> Result<TextureSet, AssetError> {
     let mut textures = Vec::new();
-    let mut oversized = 0usize;
+    let mut oversized = Vec::new();
     let mut undecodable = 0usize;
     for relative in png_paths {
         let path = pack.join(relative);
         match decode_ui_texture(&path, strip_extension(relative))? {
             TextureOutcome::Packed(texture) => textures.push(texture),
-            TextureOutcome::Oversized => oversized += 1,
+            TextureOutcome::Oversized => oversized.push(relative.clone()),
             TextureOutcome::Undecodable => undecodable += 1,
         }
     }
     Ok((textures, oversized, undecodable))
+}
+
+/// UI variables can carry image paths too, so collect literal strings throughout
+/// the catalog. Only files discovered by the bounded texture walk are admitted.
+fn referenced_textures(files: &[UiFile]) -> BTreeSet<String> {
+    fn visit(value: &Value, paths: &mut BTreeSet<String>) {
+        match value {
+            Value::String(path) if path.starts_with("textures/") => {
+                paths.insert(path.strip_suffix(".png").unwrap_or(path).to_owned());
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, paths)),
+            Value::Object(values) => values.values().for_each(|value| visit(value, paths)),
+            _ => {}
+        }
+    }
+    let mut paths = BTreeSet::new();
+    for file in files.iter().filter(|file| file.path.starts_with("ui/")) {
+        let bytes = file
+            .bytes
+            .strip_prefix(b"\xef\xbb\xbf")
+            .unwrap_or(&file.bytes);
+        if let Ok(value) = serde_json::from_slice(&assets::strip_json_comments(bytes)) {
+            visit(&value, &mut paths);
+        }
+    }
+    paths
 }
 
 /// Read and decode one UI png. Host I/O failure is fatal; an oversized or
@@ -571,6 +619,25 @@ mod tests {
     }
 
     #[test]
+    fn credits_runtime_documents_are_retained_without_becoming_json_ui_definitions() {
+        let pack = synthetic_pack();
+        let documents: [&[u8]; 3] = [
+            b"line PLAYERNAME\n\nnext",
+            br#"[{"section":"team","disciplines":[]}]"#,
+            b"last",
+        ];
+        for (path, bytes) in assets::UI_CREDITS_FILES.into_iter().zip(documents) {
+            write(pack.path(), path, bytes);
+        }
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        let carrier = decode_ui_carrier(&compiled.bytes).unwrap();
+        for (path, bytes) in assets::UI_CREDITS_FILES.into_iter().zip(documents) {
+            assert_eq!(carrier.ui_file(path), Some(bytes));
+        }
+        assert!(carrier.ui_file("ui/hud_screen.json").is_some());
+    }
+
+    #[test]
     fn compiles_packs_and_round_trips_a_synthetic_pack() {
         let pack = synthetic_pack();
         let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
@@ -618,6 +685,51 @@ mod tests {
         assert_eq!(
             assets.ui_file("textures/ui/panorama_0.png").unwrap(),
             face.as_slice()
+        );
+    }
+
+    #[test]
+    fn referenced_loading_images_survive_without_the_extracted_pack() {
+        let pack = synthetic_pack();
+        let dirt = png(16, 16, [90, 60, 30, 255]);
+        let title = png(600, 100, [20, 160, 240, 255]);
+        let bar = png(640, 8, [40, 200, 80, 255]);
+        for (path, bytes) in [
+            ("textures/blocks/dirt.png", &dirt),
+            ("textures/blocks/unused.png", &dirt),
+            ("textures/ui/title.png", &title),
+            ("textures/ui/loading_bar.png", &bar),
+        ] {
+            write(pack.path(), path, bytes);
+        }
+        let json = br#"{
+            "namespace": "progress",
+            // "texture": "textures/blocks/unused"
+            "$background": "textures/blocks/dirt.png",
+            "screen": {"controls": [
+                {"title": {"texture": "textures/ui/title"}},
+                {"bar": {"texture": "textures/ui/loading_bar"}}
+            ]}
+        }"#;
+        write(pack.path(), "ui/progress_screen.json", json);
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        let carrier = decode_ui_carrier(&compiled.bytes).unwrap();
+        std::fs::remove_dir_all(pack.path()).unwrap();
+        let background = carrier.texture("textures/blocks/dirt").unwrap();
+        let page = &carrier.atlas_pages()[usize::from(background.page)];
+        let at = (usize::from(background.y) * page.width as usize + usize::from(background.x)) * 4;
+        assert_eq!(&page.rgba8[at..at + 4], &[90, 60, 30, 255]);
+        assert!(carrier.texture("textures/blocks/unused").is_none());
+        for (path, bytes) in [
+            ("textures/ui/title", title.as_slice()),
+            ("textures/ui/loading_bar", bar.as_slice()),
+        ] {
+            assert!(carrier.texture(path).is_none());
+            assert_eq!(carrier.ui_file(&format!("{path}.png")), Some(bytes));
+        }
+        assert_eq!(
+            carrier.ui_file("ui/progress_screen.json"),
+            Some(json.as_slice())
         );
     }
 

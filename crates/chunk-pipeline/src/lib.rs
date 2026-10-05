@@ -6,19 +6,19 @@ mod stream;
 pub use culling::CaveVisibilityScratch;
 
 pub use stream::{
-    ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, BuildProfileIdentity,
-    CohortManifestIdentity, DECODE_DISPATCH_BUDGET_PER_POLL, DEFERRED_RETRY_CAPACITY,
-    ForcedRemeshManifest, ForcedRemeshManifestState, LIGHT_DISPATCH_BUDGET_PER_POLL,
-    MAX_ACTIVE_BLOCK_CRACKS, MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS,
-    MAX_IN_FLIGHT_DECODE_JOBS, MAX_IN_FLIGHT_LIGHT_JOBS, MAX_LOCAL_RESET_DISPATCH_EVIDENCE,
-    MAX_PENDING_MESH_CHANGES, MAX_SUB_CHUNK_RETRIES, OUTBOUND_REQUEST_CAPACITY,
-    PHASE0_MAX_VIEW_RADIUS_CHUNKS, PendingSubChunkRequest, Phase2PresentationSnapshot,
-    Phase2PublicationSnapshot, PresentModeIdentity, PublicationAllowance, PublicationPermit,
-    PublicationPermitStage, PublicationServiceConfig, PublicationStageCounters, RequestClass,
-    RequestClassDepth, RequestQueueEvidence, SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations,
-    SubChunkOutcomeCounters, ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream,
-    WorldStreamError, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
-    WorldStreamStats,
+    ActiveBlockCrack, ActorBlockSyncFence, BlockCrackSnapshot, BlockCrackStatus,
+    BuildProfileIdentity, CohortManifestIdentity, DECODE_DISPATCH_BUDGET_PER_POLL,
+    DEFERRED_RETRY_CAPACITY, ForcedRemeshManifest, ForcedRemeshManifestState,
+    LIGHT_DISPATCH_BUDGET_PER_POLL, MAX_ACTIVE_BLOCK_CRACKS, MAX_ADMITTED_HEAVY_EVENTS,
+    MAX_ADMITTED_WORLD_EVENTS, MAX_IN_FLIGHT_DECODE_JOBS, MAX_IN_FLIGHT_LIGHT_JOBS,
+    MAX_LOCAL_RESET_DISPATCH_EVIDENCE, MAX_PENDING_MESH_CHANGES, MAX_SUB_CHUNK_RETRIES,
+    OUTBOUND_REQUEST_CAPACITY, PHASE0_MAX_VIEW_RADIUS_CHUNKS, PendingSubChunkRequest,
+    Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
+    PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
+    PublicationStageCounters, RequestClass, RequestClassDepth, RequestQueueEvidence,
+    SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations, SubChunkOutcomeCounters, ViewCohortStatus,
+    WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamError, WorldStreamFatalError,
+    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };
 #[cfg(feature = "publication-test-support")]
 pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};

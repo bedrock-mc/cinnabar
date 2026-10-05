@@ -2,6 +2,52 @@ use super::*;
 use std::sync::Arc;
 
 #[test]
+fn falling_block_uses_its_variant_metadata_as_the_retained_block_identity() {
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut event) = tests::spawn(42, -7) else {
+        unreachable!()
+    };
+    event.kind = ActorKind::Entity {
+        identifier: "minecraft:falling_block".into(),
+    };
+    let hash = i32::from_ne_bytes(0x8000_0007_u32.to_ne_bytes());
+    event.metadata = Arc::from([
+        protocol::ActorMetadata {
+            key: 2,
+            value: ActorMetadataValue::Int(hash),
+        },
+        protocol::ActorMetadata {
+            key: 16,
+            value: ActorMetadataValue::Int(99),
+        },
+    ]);
+    store.apply(1, 1, ActorEvent::Spawn(event));
+    store.apply_terrain_sync(protocol::ActorBlockSyncMessage {
+        actor_unique_id: -7,
+        message: 1,
+    });
+    let views = store.block_entities(0.0);
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].center, [1.0, 2.0, 3.0]);
+    assert_eq!(
+        views[0].kind,
+        super::entities::BlockEntityKind::Falling {
+            block_runtime_id: hash
+        }
+    );
+    let ActorEvent::Move(mut movement) = tests::player_move(42, 1.0, false) else {
+        unreachable!()
+    };
+    movement.position = [Some(1.0), Some(2.0), Some(3.0)];
+    movement.position_origin = protocol::ActorPositionOrigin::NetworkOffset;
+    store.apply(1, 2, ActorEvent::Move(movement));
+    for _ in 0..ACTOR_INTERPOLATION_TICKS {
+        store.advance_interpolation_ticks(1);
+        assert_eq!(store.block_entities(1.0)[0].center, [1.0, 2.0, 3.0]);
+    }
+}
+
+#[test]
 fn review_lead_holder_resolves_negative_unique_ids() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, tests::spawn(42, -7));

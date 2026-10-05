@@ -271,6 +271,7 @@ fn actor_rig_presentation_inner(
     let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: rig.culling_bounds(),
             input: ActorRigRenderInput {
                 identity,
@@ -282,14 +283,14 @@ fn actor_rig_presentation_inner(
             },
             world_from_actor: death_tilted(
                 scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
-                actor.status.death_progress(alpha),
+                actor.death_rotation_progress(alpha),
             ),
             texture_layer: u32::MAX,
             route,
             tint: 0,
             uv_anim: render::IDENTITY_UV_ANIM,
             light: 0,
-            overlay_rgba8: if actor.status.overlay_active() {
+            overlay_rgba8: if actor.hurt_overlay_active() {
                 pack_overlay_rgba8(HURT_OVERLAY_RGBA)
             } else {
                 0
@@ -340,6 +341,7 @@ pub fn local_diagnostic_presentation(
     bones[0].rotation = head_rotation;
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
@@ -669,9 +671,7 @@ fn actor_world_yaw(actor: &ActorSnapshot, rig: &ActorRigSnapshot<'_>, alpha: f32
         | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
         | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
         | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"));
-    if billboard {
-        180.0
-    } else if actor.target_rotation_is_absolute() {
+    if billboard || actor.target_rotation_is_absolute() {
         0.0
     } else {
         lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)

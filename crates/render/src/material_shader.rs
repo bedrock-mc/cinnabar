@@ -30,6 +30,10 @@ pub(crate) fn native_leaf_sampler_descriptor() -> wgpu::SamplerDescriptor<'stati
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("ACTOR_MATERIAL_DEFAULT", &format!("{}u", assets::EntityRenderMaterial::Default as u32))
+        .replace("ACTOR_MATERIAL_DRAGON", &format!("{}u", assets::EntityRenderMaterial::Dragon as u32))
+        .replace("ACTOR_MATERIAL_DISSOLVE_DEPTH", &format!("{}u", assets::EntityRenderMaterial::DissolveDepth as u32))
+        .replace("ACTOR_MATERIAL_DISSOLVE_COLOR", &format!("{}u", assets::EntityRenderMaterial::DissolveColor as u32))
         .replace("MODEL_LILY_PAD_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_LILY_PAD))
         .replace("// ANIMATION_GPU_LAYOUT", "struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32, uv_scale: f32 }")
         .replace("// LIQUID_GEOMETRY_CONSTANTS", &format!(

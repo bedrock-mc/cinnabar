@@ -120,6 +120,7 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
     }]);
     let location = locations[0].unwrap();
     let body = ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -320,6 +321,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     runtime.register_skin_rig(rig, names.clone());
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
     let body = ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -408,6 +410,7 @@ fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmis
     runtime.register_skin_rig(rig, names.clone());
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {

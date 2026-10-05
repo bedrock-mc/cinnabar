@@ -11,6 +11,7 @@ pub mod local;
     reason = "media device-clock and surface integration is incomplete"
 )]
 pub mod media;
+mod music;
 pub mod predicted;
 mod route;
 mod server;

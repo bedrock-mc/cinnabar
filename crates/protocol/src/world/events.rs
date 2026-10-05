@@ -15,6 +15,9 @@ use crate::{
 
 use super::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
 
+/// Native vanilla Nether dimension identifier.
+pub const NETHER_DIMENSION_ID: i32 = 1;
+
 /// Vertical sub-chunk span for one dimension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DimensionRange {
@@ -30,7 +33,7 @@ pub const fn vanilla_dimension_range(dimension: i32) -> Option<DimensionRange> {
             base_sub_chunk_y: -4,
             sub_chunk_count: 24,
         }),
-        1 => Some(DimensionRange {
+        NETHER_DIMENSION_ID => Some(DimensionRange {
             base_sub_chunk_y: 0,
             sub_chunk_count: 8,
         }),
@@ -137,6 +140,20 @@ pub struct BlockUpdateEvent {
     pub network_id: u32,
 }
 
+/// An opaque actor/terrain transition applied when the changed mesh is published.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorBlockSyncMessage {
+    pub actor_unique_id: i64,
+    pub message: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncedBlockUpdateEvent {
+    pub update: BlockUpdateEvent,
+    pub flags: u32,
+    pub sync: ActorBlockSyncMessage,
+}
+
 /// One live block-entity NBT replacement from packet 56.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockEntityUpdateEvent {
@@ -189,22 +206,37 @@ pub struct PublisherUpdateEvent {
     pub radius_blocks: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct ChangeDimensionEvent {
     pub dimension: i32,
     pub position: [f32; 3],
+    pub respawn: bool,
+    /// Opaque server correlation ID echoed by the dimension loading screen.
+    pub loading_screen_id: Option<u32>,
 }
 
 /// One server-driven local-player respawn phase.
 ///
 /// The wire state and runtime ID are retained even when semantically unusual;
-/// every well-formed respawn packet changes local position authority and must
-/// reach the app instead of being silently dropped.
+/// every well-formed respawn packet reaches the app. Only ready-to-spawn
+/// installs a live position; searching retains a pending candidate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RespawnEvent {
     pub position: [f32; 3],
     pub state: u8,
     pub runtime_entity_id: u64,
+}
+
+impl RespawnEvent {
+    /// Native ClientNetworkHandler 014b1c90 stores this phase without moving the actor.
+    pub const fn searching_for_spawn(self) -> bool {
+        self.state == 0
+    }
+
+    /// Native ClientNetworkHandler 014b1c90 applies this phase through LocalPlayer::respawn.
+    pub const fn ready_to_spawn(self) -> bool {
+        self.state == 1
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -421,6 +453,7 @@ pub enum WorldEvent {
     SubChunkReplyAdmission(SubChunkReplyAdmissionEvent),
     SubChunks(SubChunkBatchEvent),
     BlockUpdates(Vec<BlockUpdateEvent>),
+    SyncedBlockUpdates(Vec<SyncedBlockUpdateEvent>),
     BlockEntityUpdate(BlockEntityUpdateEvent),
     BlockEvent(BlockEventEvent),
     MapData(MapDataEvent),
@@ -428,6 +461,10 @@ pub enum WorldEvent {
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),
+    /// Server action 14 releases the local dimension-transfer wait.
+    DimensionChangeAck {
+        runtime_id: u64,
+    },
     Respawn(RespawnEvent),
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),

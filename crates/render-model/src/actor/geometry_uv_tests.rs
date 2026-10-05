@@ -71,6 +71,33 @@ fn explicit_signed_uv_size_overrides_the_native_face_dimensions() {
 }
 
 #[test]
+fn box_uv_planes_keep_matching_v_coordinates_on_their_opposing_faces() {
+    for (cube_mirror, bone_mirror) in [(false, false), (true, false), (false, true)] {
+        let cube = EntityGeometryCube {
+            origin: [scalar(0.0); 3],
+            size: [2.0, 0.0, 3.0].map(scalar),
+            pivot: [scalar(0.0); 3],
+            rotation: [scalar(0.0); 3],
+            uv: EntityGeometryUv::Box([2.0, 7.0].map(scalar)),
+            inflate: scalar(0.0),
+            mirror: cube_mirror,
+        };
+        let mut vertices = Vec::new();
+        append_entity_cube_vertices(&mut vertices, &cube, 0, (16, 16), bone_mirror, 0.0).unwrap();
+        assert_eq!(vertices.len(), 12);
+        for vertex in &vertices[..6] {
+            let opposing = vertices[6..]
+                .iter()
+                .find(|opposing| opposing.position == vertex.position)
+                .expect("both authored faces cover the same physical plane");
+            assert_eq!(vertex.uv[1], opposing.uv[1]);
+            assert_eq!(opposing.uv[0] - vertex.uv[0], cube.size[0].get() / 16.0);
+            assert_eq!(opposing.normal, vertex.normal.map(|axis| -axis));
+        }
+    }
+}
+
+#[test]
 fn vanilla_arrow_planes_sample_the_whole_shaft_and_end_cap() {
     // Pinned arrow.geo.json: two crossed 16×5 shaft quads and one 5×5 south cap.
     for (size, faces, maximum) in [
@@ -106,6 +133,7 @@ fn vanilla_arrow_planes_sample_the_whole_shaft_and_end_cap() {
         let mut vertices = Vec::new();
         append_entity_cube_vertices(&mut vertices, &cube, 0, (32, 32), false, 0.0).unwrap();
         assert_eq!(vertices.len(), 6);
+        assert!(vertices.iter().all(|vertex| vertex.back_uv == vertex.uv));
         let actual = vertices.iter().fold([0.0_f32; 2], |maximum, vertex| {
             [
                 maximum[0].max(vertex.uv[0] * 32.0),
@@ -114,4 +142,29 @@ fn vanilla_arrow_planes_sample_the_whole_shaft_and_end_cap() {
         });
         assert_eq!(actual, maximum);
     }
+}
+
+#[test]
+fn native_nocull_samples_the_authored_face_uv_from_both_sides() {
+    let cube = EntityGeometryCube {
+        origin: [scalar(0.0); 3],
+        size: [0.0, 5.0, 16.0].map(scalar),
+        pivot: [scalar(0.0); 3],
+        rotation: [scalar(0.0); 3],
+        uv: EntityGeometryUv::Faces(EntityGeometryFaceUvs {
+            east: Some(authored_face(None)),
+            ..empty_faces()
+        }),
+        inflate: scalar(0.0),
+        mirror: false,
+    };
+    let mut vertices = Vec::new();
+    append_entity_cube_vertices(&mut vertices, &cube, 0, (32, 32), false, 0.0).unwrap();
+    assert_eq!(
+        vertices.len(),
+        6,
+        "only the authored arrow shaft face exists"
+    );
+    assert!(vertices.iter().all(|vertex| vertex.back_uv == vertex.uv));
+    assert_eq!(vertices[0].normal, [1.0, 0.0, 0.0]);
 }

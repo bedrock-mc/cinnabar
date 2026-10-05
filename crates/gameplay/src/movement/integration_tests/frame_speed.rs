@@ -19,7 +19,60 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         toggle_sneak: false,
         facts: Default::default(),
         item_use_modifier: None,
+        hold: None,
     }
+}
+
+#[test]
+fn loading_and_spawn_search_share_stationary_ticks_but_differ_in_wire_admission() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let position = physics.network_position().unwrap();
+    let mut locals = super::LocomotionState::default();
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    ticker.begin_respawn_search();
+    for withhold_input in [true, false] {
+        let mut frame = speed_frame(semantic_input::ActionPhase {
+            pressed: true,
+            held: true,
+            released: false,
+        });
+        frame.jump = semantic_input::ActionPhase {
+            pressed: true,
+            held: true,
+            released: false,
+        };
+        frame.hold = Some(super::PhysicsFrameHold {
+            registry: sim::CollisionRegistry::new().identity(),
+            withhold_input,
+        });
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+        assert_eq!(physics.network_position(), Some(position));
+        assert_eq!(ticker.has_unsent_inputs(), !withhold_input);
+    }
+    assert_eq!(ticker.completed_tick(), 102);
+    let snapshots = ticker.pending_snapshots();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].tick, 102);
+    assert_eq!(snapshots[0].delta, [0.0; 3]);
+    assert_eq!(snapshots[0].move_vector, [0.0; 2]);
+    assert!(locals.advance(
+        speed_frame(Default::default()),
+        &mut physics,
+        &mut ticker,
+        &mut effects,
+        &mut speed,
+        &VersionedFloor(1),
+    ));
+    assert_eq!(ticker.completed_tick(), 103);
+    assert_ne!(physics.network_position(), Some(position));
 }
 
 #[test]

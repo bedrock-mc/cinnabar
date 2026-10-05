@@ -6,6 +6,9 @@ use super::CompileRuleResult;
 use super::inspect_animation_inventory;
 use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
+#[path = "tests/dragon_egg.rs"]
+mod dragon_egg;
+
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {

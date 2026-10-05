@@ -16,8 +16,9 @@ use super::{
     hurt::CameraHurtState,
     overlay::{
         HeadMedium, PortalProgress, ScreenEffectInputs, ScreenOverlays, VisionEffects,
-        compute_overlays, nausea_roll_radians, probe_head_medium,
+        compute_overlays, probe_head_medium,
     },
+    portal_projection::{apply_distortion, portal_distortion},
     server_view::{ActorView, ServerCameraView, ViewContext},
 };
 
@@ -150,10 +151,11 @@ pub fn update_screen_overlays(
     mut overlays: ResMut<ScreenOverlays>,
 ) {
     let dt = time.delta_secs();
-    portal.advance(facts.in_portal, dt);
     let stream = client_world
         .as_ref()
         .and_then(|world| world.stream.as_ref());
+    portal.observe_session(stream.map(|stream| stream.authority().actor_session_id()));
+    portal.observe_dimension(stream.map(|stream| stream.current_dimension()));
     *medium = match (stream, collisions) {
         (Some(stream), Some(collisions)) => {
             let world = sim::PaletteWorld::new(
@@ -169,11 +171,21 @@ pub fn update_screen_overlays(
     let mut active = [false; 4];
     let mut freezing = 0.0;
     let mut pumpkin = false;
+    let mut confusion_duration = None;
     if let Some(ui) = ui {
         let hud = ui.gameplay_hud();
+        let now_tick =
+            ui.estimated_server_tick(u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
         for effect in hud.effects() {
             match effect.effect_id {
-                EFFECT_ID_NAUSEA => active[0] = true,
+                EFFECT_ID_NAUSEA if effect.visible_at_tick(now_tick) => {
+                    active[0] = true;
+                    confusion_duration = Some(
+                        effect
+                            .remaining_ticks(now_tick)
+                            .map_or(-1, |ticks| i32::try_from(ticks).unwrap_or(i32::MAX)),
+                    );
+                }
                 EFFECT_ID_BLINDNESS => active[1] = true,
                 EFFECT_ID_NIGHT_VISION => active[2] = true,
                 EFFECT_ID_DARKNESS => active[3] = true,
@@ -193,7 +205,8 @@ pub fn update_screen_overlays(
         0.0
     };
     let goal = |on: bool| if on { 1.0_f32 } else { 0.0 };
-    vision.nausea = approach(vision.nausea, goal(active[0]).max(portal.value()), step);
+    portal.advance_with_confusion(facts.in_portal, confusion_duration, dt);
+    vision.nausea = portal.value();
     vision.blindness = approach(vision.blindness, goal(active[1]), step);
     vision.night_vision = approach(vision.night_vision, goal(active[2]), step);
     vision.darkness = approach(vision.darkness, goal(active[3]), step);
@@ -206,25 +219,26 @@ pub fn update_screen_overlays(
         spyglass_scoping: fov_inputs.spyglass_scoping,
         freezing_strength: freezing,
         portal_progress: portal.value(),
+        confusion_active: active[0],
         server_fade: server.fade_overlay(),
         distortion_scale: settings.feel().distortion_scale,
     });
 }
 
-/// Composes hurt tilt, walk bob, nausea wobble, server pose and shake onto the camera transform.
+/// Composes camera motion while portal distortion stays in the projection.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_camera_presentation(
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     instructions: Option<Res<ServerCameraInstructions>>,
     hand: Res<FirstPersonHandMotion>,
-    vision: Res<VisionEffects>,
+    portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
     client_world: Option<crate::observations::WorldObservation<'_>>,
     mut server: ResMut<ServerCameraView>,
-    mut cameras: Query<&mut Transform, With<FlyCamera>>,
+    mut cameras: Query<(&mut Transform, Option<&mut bevy::prelude::Projection>), With<FlyCamera>>,
 ) {
-    let Ok(mut transform) = cameras.single_mut() else {
+    let Ok((mut transform, projection)) = cameras.single_mut() else {
         return;
     };
     let dt = time.delta_secs();
@@ -264,16 +278,23 @@ pub fn apply_camera_presentation(
     let mut changed = override_pose.is_some();
 
     if override_pose.is_none() && settings.perspective() == PerspectiveMode::FirstPerson {
-        let nausea = Mat4::from_rotation_z(nausea_roll_radians(
-            time.elapsed_secs(),
-            vision.nausea,
-            settings.feel().distortion_scale,
-        ));
-        let effect = hand.hurt * hand.bob.matrix() * nausea;
+        let effect = hand.hurt * hand.bob.matrix();
         if effect != Mat4::IDENTITY && effect.is_finite() {
             pose = Transform::from_matrix(pose.to_matrix() * effect.inverse());
             changed = true;
         }
+    }
+
+    if let Some(mut projection) = projection {
+        let distortion = portal.as_deref().map_or(Mat4::IDENTITY, |portal| {
+            portal_distortion(
+                portal.value(),
+                portal.elapsed_ticks(),
+                portal.confusion_active,
+                settings.feel().distortion_scale,
+            )
+        });
+        apply_distortion(&mut projection, distortion);
     }
 
     let shake = server.shake_offset();
@@ -305,17 +326,17 @@ mod tests {
         settings: Res<CameraSettingsAuthority>,
         instructions: Option<Res<ServerCameraInstructions>>,
         hand: Res<FirstPersonHandMotion>,
-        vision: Res<VisionEffects>,
+        portal: Option<Res<PortalProgress>>,
         view: Res<LocalViewPose>,
         server: ResMut<ServerCameraView>,
-        cameras: Query<&mut Transform, With<FlyCamera>>,
+        cameras: Query<(&mut Transform, Option<&mut bevy::prelude::Projection>), With<FlyCamera>>,
     ) {
         apply_camera_presentation(
             time,
             settings,
             instructions,
             hand,
-            vision,
+            portal,
             view,
             None,
             server,

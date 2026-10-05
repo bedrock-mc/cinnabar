@@ -24,7 +24,12 @@ impl ActorStore {
                 for actor in self.actors.values_mut() {
                     let current = actor.current_pose();
                     actor.previous_pose = current;
-                    let mut next = actor.received_pose;
+                    let mut next =
+                        if actor.interpolation_ticks_remaining == 0 && actor.is_dying_dragon() {
+                            current
+                        } else {
+                            actor.received_pose
+                        };
                     // Native MovementInterpolator tick clears StateVector velocity
                     // before decrementing any positive interpolation count, including its last tick.
                     if actor.interpolation_ticks_remaining > 0 {
@@ -33,23 +38,27 @@ impl ActorStore {
                     // The final step lands exactly on the target.
                     if actor.interpolation_ticks_remaining > 1 {
                         // Each step closes 1/n of the remaining gap; angles take the short way.
-                        let divisor = f32::from(actor.interpolation_ticks_remaining);
+                        let divisor = actor.interpolation_ticks_remaining as f32;
                         let target = actor.received_pose;
                         next.position = std::array::from_fn(|axis| {
                             current.position[axis]
                                 + (target.position[axis] - current.position[axis]) / divisor
                         });
-                        let step = |from: f32, to: f32| from + wrap_degrees(to - from) / divisor;
-                        next.pitch = step(current.pitch, target.pitch);
-                        next.yaw = step(current.yaw, target.yaw);
-                        next.head_yaw = step(current.head_yaw, target.head_yaw);
                     }
+                    actor.interpolate_movement_rotation(current, &mut next);
                     actor.interpolation_ticks_remaining =
                         actor.interpolation_ticks_remaining.saturating_sub(1);
                     actor.set_current_pose(next);
+                    actor.advance_movement_interpolation();
                     actor.status.tick();
                 }
                 self.seat_riders();
+            }
+            if !refresh_view {
+                self.advance_dragon_animation();
+                self.advance_dragon_beams();
+                self.advance_dragon_particles();
+                self.advance_synchronized_audio();
             }
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
@@ -121,6 +130,7 @@ impl ActorStore {
                     .copied()
                     .unwrap_or_default();
                 crate::actor_animation::ActorTickContext {
+                    frame_alpha: 0.0,
                     animation_elapsed_ticks: frame.then_some(ticks),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
                     hand_charged,
@@ -179,11 +189,6 @@ impl ActorStore {
             }
         }
     }
-}
-
-/// Wraps an angle to the shortest signed turn.
-fn wrap_degrees(degrees: f32) -> f32 {
-    (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
 /// Worn stacks in helmet, chestplate, leggings, boots, body order.

@@ -1,3 +1,22 @@
+## Held cube item consistency
+
+- Cube admission now ignores unrelated gameplay flags and terrain occlusion.
+- Authored carried faces fall back to ordinary pack faces; transparent cube templates
+  and cutout/blended sheets retain block geometry in both hands.
+- First-person material modes preserve ice blending and cutout holes.
+- Regressions reproduce the previous gameplay-flag, alpha and missing-sheet failures.
+- Rebuilt macOS/Metal frames show cube geometry; the user confirmed the live fix.
+- Non-cube, animated and high-resolution carried geometry parity remains open.
+- Vanilla rules: [held block items](docs/reference/held-block-items.md).
+
+## Flower-pot floor and lily-pad atlas tint
+
+- Flower pots now add the dirt surface four pixels above the block base, below the rim.
+- The pot body remains provisional fallback geometry; full current-version visual parity is incomplete.
+- Literal lily-pad atlas tint survives raster-only resource-pack replacement. A higher catalog can replace or clear it.
+- The current vanilla pack supplies a fixed green atlas multiplier, rather than biome tint.
+- Regression tests reproduce the missing floor and ignored pack tint. Installed Windows visual acceptance is pending.
+
 ## Java-style Tab player list
 
 - User-requested HUD extension: hold Tab for the authoritative online roster.
@@ -30,6 +49,71 @@
   far-terrain frame is pending, as is a check against the open Lifeboat zero-skylight trace.
 
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
+
+2026-10-05 falling blocks and beds follow-up — **User-accepted local build**:
+
+- Synchronized source/landing updates retain signed actor identity and notification
+  flags, respect cached-column ordering, and fence visibility on mesh publication.
+  Source removal and landing placement now work in the actual BDS client.
+- Falling light skips matching opaque block types instead of sampling their dark
+  interiors. The bed foot uses the authored vertical texture orientation; all
+  sixteen item dyes retain distinct atlas sprites despite sharing a placed block.
+- Focused regressions failed before each correction and now pass. The canonical
+  macOS/Metal client and carriers were rebuilt; the user accepts bed appearance and
+  falling source/landing behavior. Creative, OP and cheats are enabled on BDS.
+- Falling visibility switches in the same render frame as source removal and
+  landing placement; first appearances queue from the current scene. Twenty
+  focused handoff regressions pass, and the rebuilt macOS/Metal BDS client received
+  the user's in-game acceptance. Full local falling gravity, collision and drag
+  parity remains incomplete; existing wire interpolation stays.
+
+2026-10-05 integration — **User approved landing; latest dev synchronized**:
+the user accepts the final portal, End, bed and falling-block behavior. All nineteen
+affected Rust crates compile with tests; formatting, architecture and targeted
+registry checks pass. The full PR CI matrix gates landing. Remaining parity
+qualifications below stay open; this acceptance does not establish the release
+frame-budget or identical-version pixel gates.
+
+2026-10-04 End test v22 follow-up — **Local test build ready, uncommitted/unpushed**:
+
+- XP colour samples current lifetime and partial ticks, including culled actors and
+  animation-budget starvation. Wire interpolation duration and completion flags now
+  survive normalization; a bounded queued target preserves completion ordering.
+  The client-world suite passed 298 tests with eight existing ignores; all three
+  subsequent installed-orb colour regressions passed after the final lifetime fix.
+- Sprite rigs sample the current camera between ticks and retain independently
+  authored opposing faces. Four Metal sidedness regressions passed; fresh snowball,
+  pearl and XP frames at exact upward/downward pitch show complete sprites.
+- Beds compile the pinned authored model and render once from the head block with
+  both halves' light. Six bed tests passed. Fresh Metal red/white galleries and the
+  actual BDS platform show a mattress, pillow, blanket and wooden legs.
+- Falling blocks retain variant metadata, full block geometry and packet-centred
+  placement, including stepped dragon eggs. Spawn and movement no longer disagree
+  by half a block. Egg, sand and gravel Metal galleries use the production mesh.
+- Credits include separated file sections and refresh the current local player's
+  name. Fifteen credits tests and the committed identity regression passed. Fresh
+  JSON-UI Metal frames show logo spacing, name substitution and input-revealed Skip.
+  Skip already followed the native input/reveal timeout; it was not made permanent.
+- Missing biome samples above the Nether height use the dimension's fallback biome.
+  A failing-before regression now passes, and the actual client above the BDS roof
+  retains Nether fog without blue sky or clouds.
+- Boss UI dispatch waits for its authoritative actor before acknowledging the
+  server subscription, and local actor loss retires the bar without a synthetic
+  wire Hide reply. Seventeen committed-UI regressions pass. A live timing failure
+  exposed the missing admission gate. Fresh BDS acceptance confirms a full-health
+  End bar with its matching dragon actor and no bar after returning to the Overworld.
+- The canonical dev client and required carriers were rebuilt. Formatting,
+  architecture and diff checks passed. The owned BDS test world was backed up and
+  reset on its original seed, then restored with portals, Creative, OP and cheats.
+  The live End has a full-health dragon; the persistent client is back at the
+  Overworld test platform for user testing.
+
+Incomplete parity gates: live moving-XP and full credits return/input acceptance;
+the native ForceMove distance/destination-column gate; coupled falling-block
+gravity, collision, drag and lighting; independent current-version confirmation of
+the numerical credits section gap and all bed directions. The credits gap retains
+the identified older reference value with current section construction verified.
+No frame-budget or full-workspace verification claim is made by this local build.
 
 2026-10-04 F5 head flick correction — **Incomplete visual/native acceptance**:
 first-person and third-person pose histories are separated at the view switch.
@@ -133,9 +217,9 @@ mode, palette and contents, or equivalent block/filter and column-light
 diagnostics, is still needed to distinguish a missing sky source from filtering
 above or at the sampled cells. No public server or account was used.
 2026-10-04 fox rendering checkpoint: the pinned adult fox sample now retains
-the native inherited body and tail cube bind rotations. Current MCSRC and its
-matching executable establish the hierarchy lookup and separate cube-bind
-contract; the installed near-version native pack supplies the retained angles.
+the native inherited body and tail cube bind rotations. Vanilla uses hierarchy
+lookup and separate cube-bind transforms; the installed near-version native pack
+supplies the retained angles.
 The repair is restricted by source path, identifier and digest, preserving baby
 geometry, child pivots and custom sources. The corrected entity/actor/equipment
 carriers and fresh Metal client show normal adult red/arctic bodies and tails;
@@ -145,6 +229,165 @@ witness. Formatting, architecture and affected compilation passed; the final
 test run was stopped at the user's explicit request to skip further tests and
 push directly to dev. Extended poses/transitions and exact-version native
 side-by-side acceptance remain incomplete. See `docs/reference/fox-rendering.md`.
+
+2026-10-04 portal and End follow-up (in progress, uncommitted): latest
+origin/dev `800fa170f` is integrated, preserving the accepted Nether portal and
+End portal frame/surface fixes. Camera, movement and network behavior follows
+the new crate ownership. The dedicated surface draw now uses the updated packed
+vertex format and retains shared world-light bindings. Client compilation and 33
+post-integration portal regressions pass. Fresh assets include the expanded dragon
+rig and complete animation script. The default client build and compilation without
+acceptance features pass. No task changes are committed or pushed.
+
+The user accepts Nether rendering, particles, overlay, hand rendering and prompt
+travel, plus raised End frame eyes and the layered portal surface. Rules and
+verification limits are in `docs/evidence/nether-portal-native-reference.md` and
+`docs/evidence/end-portal-native-reference.md`. The scoped pre-integration compiler,
+client and block-entity suite passed 269 tests; fresh macOS/Metal frames verified
+frame eyes, empty/filled contrast and animated starfield depth. Fast transfer
+acknowledges the committed flush immediately and releases after decoded collision,
+presented footing and a fresh GPU frame. Exact native loading/cooldown behavior,
+identical-version visual comparisons and release performance remain incomplete.
+
+End sky fog modulation and sixteen repeats per face pass three tests, including
+two GPU regressions. The rebuilt Metal client joins BDS and the user confirms
+the dragon and crystals now appear, while rejecting the wing shape, healing beam
+appearance and clouds in the End. These follow-up corrections are in progress;
+cloud admission now excludes both the End and Nether and clears stale view records;
+six cloud regressions pass. The downloaded dragon's child joint pivots now retain
+their relative frames. Compiler, 48-tick animated hinge and emitted-membrane
+regressions pass after reproducing detached wings before the fix. Entity and actor
+carriers are rebuilt. Isolated Metal inspection covers six views and four flap poses;
+the user identified reversed left-wing cutouts in those frames. The bottom box-face
+V direction is wrong; its source-verified correction and opposing-face alpha checks
+now pass all eighteen geometry regressions. Twenty-four new isolated Metal frames
+confirm matching cutouts above and below both wings. The fresh v18 client compiled
+and joined the saved BDS world; its architecture check passed. Scoped clippy exposed
+an existing horse modulo lint, now replaced with its equivalent integer method;
+the final scoped all-target rerun passes. No publication or identical-version live
+visual acceptance is claimed.
+Healing beams preserve strip-triangle texture interpolation while scrolling;
+three renderer regressions pass. Owner-light publication reproduced its scalar
+fallback mismatch and is corrected; seven publication tests pass. Exact native
+beam AABB light sampling remains incomplete; publication shares body sampling.
+The End still selects the ordinary lightmap, with a darker floor than its dedicated
+formula; the required tint and ramp inputs remain unverified. Exact End lighting
+and healing-beam brightness stay open.
+Expanded neck and tail
+segments, fixed-tick flap/history, full animation-script admission, healing-beam
+selection, death particles, lingering breath clouds and fireball trails pass their
+owner regressions: 249 client-world tests, 185 compiler unit tests and two dragon
+compiler fixtures. App dimension, respawn and loading filters pass 31, eight and
+twelve tests respectively. Normal dragon breath's status-event consumer, native
+wall-contact flap slowdown and exact-version comparisons
+remain incomplete.
+
+The user expands the follow-up to dragon death animation, sounds and End credits,
+and requests the next test launch only after these flows have been checked. The
+fixed-tick death counter, cumulative lift and dragon-specific pose now pass their
+regressions. Authored frame-alpha sampling retains unclamped dissolve multipliers
+without advancing simulation or random state. Material draws preserve the ordered
+depth-mask and equal-depth body passes. The v19 live smoke exposed a missing vertex
+invariance guarantee for the equal-depth pass; its failing-before compiled shader
+contract now passes with all six shader checks. Actual Metal regressions reject solid
+backfaces while retaining both authored membrane faces and their separate lighting.
+The first real death preview exposed a missing fractional-alpha mask: compiler and
+carrier validation now admit it from the shared compiled material contract without
+changing its pixels or borrowing color-mask semantics. Both failing-before artwork
+fixtures pass; the actor artwork suite passes 19 tests, with three existing optional
+fixtures still ignored. Rebuilt actor art and 48 isolated Metal death frames show
+the rising, speckled body and expected final disappearance; 24 refreshed ordinary
+frames preserve complete, matching wing membranes above and below.
+
+Dragon death audio follows the server cue rather than an early local duplicate.
+Fixed-tick synchronized queues retain actor lifetime and dimension fences; a
+failing-before app schedule regression now delivers released audio in the actor
+completion frame exactly once. The actual pinned death sample decodes through the
+production voice, preserving native request-gain clamping before alternative gain.
+Explosion previews use the real carrier, simulation, atlas and Metal shader; their
+sprite frames advance and both effects expire. Exact attenuation, native mixer/DSP
+timing and independent waveform comparison remain incomplete.
+
+ShowCredits decoding, modal input, timed Skip, scroll/fade, session fences and
+backpressured completion pass focused checks. Completion uses the current local
+actor identity. Credits presentation keys caches and hit regions by session and
+sequence. Real Metal frames exposed inherited bundle tooltips and a missing title
+request; strict visibility bindings and the normal bounded artwork path correct
+both. All twelve credits checks pass. Fresh macOS/Metal frames at 1280x720, DPI 2,
+show the runtime Minecraft title, formatted/obfuscated text, wrapping, clipping,
+aligned names and headings, and timed Skip. Credits music retains queued ownership
+and music-only transitions; four scheduler/fade checks pass. Runtime OGG collection
+is corrected and the production voice produces a valid credits excerpt. The pinned
+sample pack lacks credits text and music; private runtime supplementation uses the
+installed near-version pack and stays outside git. Exact-version content and heading
+colors, native audio fade sample timing and live end-return acceptance remain open.
+
+Death-ray geometry and additive composition are implemented and provisional. Some
+geometry constants and material state are verified only for a nearby version;
+version-matched comparison remains incomplete. Frame publication, retirement,
+geometry, normalized fan axes and additive/depth behavior pass focused regressions.
+Fresh production Metal frames show the white/magenta fans, growth and final fade.
+These isolated body, particle, ray, audio and UI witnesses do not replace a live BDS
+death/return sequence or identical-version native acceptance. Final scoped all-target
+lint, formatting, architecture and diff checks pass. The UI renderer suite passes
+50 tests with two existing benchmark ignores; all twelve credits checks pass again
+after integration. The canonical v19 build joined the saved BDS world with Creative,
+OP and cheats confirmed, then closed cleanly for the vertex-invariance correction.
+The final canonical v20 rebuild passes, as do the shader follow-up lint, architecture
+and formatting checks. Its 24 alive and 48 death Metal frames are freshly regenerated
+with the invariant shader. The v20 live client joined the preserved BDS world and
+released loading after terrain presentation; BDS confirms Creative, OP and cheats.
+The equal-depth warning is absent from that live log. The v20 client is now closed
+for the next dev integration and End follow-up build. Nothing is committed or pushed
+for this task.
+
+The v21 follow-up integrates the latest dev fire renderer and rebuilds its carriers.
+The reported persistent explosion route selected a looping effect; scalar huge
+explosions now select the source-identified finite emitter. Actual simulation and
+fresh production Metal frames confirm sprite progression and retirement. Scalar
+snowball impacts now select runtime item fragments, mask the packed particle type,
+honor one fragment per received event, and use the native item spread radius. Four
+particle controls and the app routing regression pass after reproducing the wrong
+explosion, spread and multiplied count. General Molang initialization blocks and
+the broader legacy particle table remain incomplete.
+
+End-return ingress previously excluded ShowCredits in raw cached-session traffic;
+the corrected ingress, completion wire encoding and credits UI checks pass. Boss
+subscription Add/Remove responses are now queued through the session-fenced
+transport, with ordered retry under backpressure. The native server can omit dragon
+removal broadcasts without the Add registration. Removal ignores unused invalid
+presentation fields, and retained HUD removal, reply lifecycle and wire checks pass.
+Live dragon-death, boss removal and exit-portal return acceptance remain open until
+the saved BDS world is exercised with the new client.
+
+Dragon eggs now compile the native eight stepped boxes, rather than an ordinary
+cube, with a failing-before geometry witness and twelve compiler checks passing.
+XP investigation found an extra world half-turn that makes the authored single
+textured face point away from the live camera. The corrected installed-carrier
+regression passes four yaw/pitch headings after reproducing the inverted face.
+XP sprite selection now reads only native Int metadata; its failing-before control
+and the ordinary value-band check pass. Fresh production Metal frames show all
+eleven crisp orb sprites with the actual live camera query. Exact between-tick
+billboard sampling, End lighting, beam AABB light sampling and the previously
+recorded identical-version gates remain open.
+
+The canonical v21 debug build passes, along with focused snowball, explosion,
+credits, boss UI/wire/app/session, orb, portal overlay GPU and shader checks.
+Formatting, architecture and diff checks pass. It is running through a persistent
+Orca terminal in the preserved official BDS world. BDS confirms PortalDimTest is
+Creative and OP with cheats enabled for this live session. A fresh macOS/Metal
+1280x720 gameplay capture shows loaded terrain, the accepted portal/frame art,
+legible HUD and normal hand, with no GPU validation errors in the live log. The
+user's live End death/return and egg appearance checks remain pending. These task
+changes remain uncommitted and unpushed.
+
+The official BDS test world has cheats, OP and creative mode enabled. A private
+loopback UDP relay bypasses stalled Docker Desktop port forwarding for this world;
+other running test services are untouched. Separate server-authored
+WorldCorruption shutdowns remain unresolved, including one without a dimension
+transfer; existing saved worlds are preserved. Four earlier debug transfers
+completed in 1.142, 0.439, 0.829 and 0.369 seconds. These observations and user
+acceptance close the reported slow-travel regression, not whole-client parity.
 
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
 accumulated work and follow-up fixes are committed through `97dccfb3`, including
@@ -4000,10 +4243,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   options, forced sneak and crawl under low ceilings, mode entry/exit timing, elytra
   gliding, the double-tap window and scaffolding descent still need native measurement.
   **Flight and liquid correction (2026-10-04, full parity gate remains incomplete):**
-  the current mcsrc client and matching PE identify independent flight vertical drag,
+  vanilla applies independent flight vertical drag,
   creative hover before movement, sprint water drag, independent water vertical drag,
   held liquid ascent/descent and swimming pitch steering. The simulator now implements
-  those ordinary-player paths with source-derived float regressions. Keyboard input now
+  those ordinary-player paths with behavior regressions. Keyboard input now
   carries the missing processed `WantUp`/`WantDown` lanes read by the current server
   movement handler; in-session position snaps preserve the locomotion tracker. Swimming
   upward steering samples the primary liquid material at the tick-captured pose eye anchor.

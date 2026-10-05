@@ -8,10 +8,10 @@ use valentine::bedrock::version::v1_26_51::{
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
     EnumsItemUseInventoryTransactionTriggerType as ItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType as ItemUseOnActorInventoryTransactionActionType,
-    EnumsPlayerActionType, EnumsPlayerRespawnState, InventoryAction, InventorySource,
-    InventoryTransaction, InventoryTransactionPacket, InventoryTransactionPacketTransaction,
+    EnumsPlayerActionType, InventoryAction, InventorySource, InventoryTransaction,
+    InventoryTransactionPacket, InventoryTransactionPacketTransaction,
     ItemReleaseInventoryTransaction, ItemUseInventoryTransaction,
-    ItemUseOnActorInventoryTransaction, LegacySetSlot, PlayerActionPacket, RespawnPacket,
+    ItemUseOnActorInventoryTransaction, LegacySetSlot, PlayerActionPacket,
     TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0, Vec3,
 };
 
@@ -469,23 +469,6 @@ pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Pa
         },
         data: 0.0,
         swing_source: Some(source.wire_name().to_owned()),
-    }
-    .into()
-}
-
-/// Builds the death screen's respawn request: client-ready state, zero position.
-#[must_use]
-pub fn respawn_request_packet(local_runtime_id: u64) -> crate::Packet {
-    RespawnPacket {
-        position: Vec3 {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        state: EnumsPlayerRespawnState::Clientreadytospawn,
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: local_runtime_id,
-        },
     }
     .into()
 }

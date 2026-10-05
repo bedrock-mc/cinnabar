@@ -1,5 +1,6 @@
 include!("mesh/models.rs");
 include!("mesh/fire.rs");
+include!("mesh/portal.rs");
 include!("mesh/vines.rs");
 include!("mesh/slabs.rs");
 include!("mesh/snow.rs");

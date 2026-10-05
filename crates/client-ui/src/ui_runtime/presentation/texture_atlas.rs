@@ -345,10 +345,13 @@ pub(super) fn font_texture_array_with_hud_and_icons(
     let dynamic_start = pages.len();
     let blank = UiTexturePage::owned([width, height], vec![0; layer_bytes].into())
         .map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    pages.extend(std::iter::repeat_n(
-        blank,
-        render_model::MAX_UI_DYNAMIC_PAGES,
-    ));
+    pages.extend((0..render_model::MAX_UI_DYNAMIC_PAGES).map(|offset| {
+        if offset == render_model::UI_LOCAL_FONT_PAGE_OFFSET {
+            super::mod_panel_font::blank_page()
+        } else {
+            blank.clone()
+        }
+    }));
     let art_side = render_model::UI_ART_PAGE_SIDE;
     let blank_art = UiTexturePage::owned(
         [art_side, art_side],

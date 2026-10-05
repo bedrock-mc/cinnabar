@@ -31,6 +31,7 @@ pub enum Scene {
     Menu(MenuScreen),
     /// The server settings form, which opens over the settings menu.
     ServerSettingsForm,
+    Credits,
 }
 
 impl Scene {
@@ -224,6 +225,9 @@ impl UiRuntime {
         }
         if let Some(entry) = form.filter(|_| settings_form) {
             stack.push(Scene::ServerSettingsForm, json(Some(form_screen(entry))));
+        }
+        if self.credits().owns_input() {
+            stack.push(Scene::Credits, json(Some(super::credits::CREDITS_SCREEN)));
         }
         stack
     }

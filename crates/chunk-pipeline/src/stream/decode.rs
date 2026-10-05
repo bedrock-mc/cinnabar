@@ -73,6 +73,30 @@ impl WorldStream {
             });
         }
     }
+
+    pub(super) fn snapshot_synced_block_mutation_batches(
+        &mut self,
+        mut events: Vec<SyncedBlockUpdateEvent>,
+    ) -> (Vec<BlockMutationBatch>, Vec<SyncedBlockUpdateEvent>) {
+        events.retain(|event| match split_block_update(event.update) {
+            Ok((key, _))
+                if event.update.layer <= 1 && self.column_is_data_interesting(key.chunk()) =>
+            {
+                true
+            }
+            Ok(_) => {
+                self.record_normalization_error(NormalizationErrorReason::InactiveBlockUpdate);
+                false
+            }
+            Err(_) => {
+                self.record_normalization_error(NormalizationErrorReason::MalformedBlockUpdate);
+                false
+            }
+        });
+        let batches =
+            self.snapshot_block_mutation_batches(events.iter().map(|event| event.update).collect());
+        (batches, events)
+    }
 }
 
 impl WorldStream {

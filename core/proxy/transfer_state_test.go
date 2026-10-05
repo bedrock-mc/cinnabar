@@ -56,16 +56,16 @@ func TestObserveTransfersRecordsAndStillRelays(t *testing.T) {
 	var state TransferState
 	session := observeTransfers(up, &state, nil)
 	for _, want := range []packet.Packet{bad, transfer} {
-		batch, err := session.ReadBatch()
-		if err != nil || len(batch) != 1 || batch[0] != want {
-			t.Fatalf("ReadBatch() = %v, %v; want the packet unchanged", batch, err)
+		batch, err := session.ReadBatchRaw(nil)
+		if err != nil || len(batch) != 1 || packetFromRaw(batch[0].Data) != want {
+			t.Fatalf("ReadBatchRaw() = %v, %v; want the packet unchanged", batch, err)
 		}
 	}
 	if got := state.Upstream("first:1"); got != "next.example:19140" {
 		t.Fatalf("Upstream() = %q, want the valid transfer", got)
 	}
-	if _, err := session.ReadBatch(); !errors.Is(err, io.EOF) {
-		t.Fatalf("ReadBatch() error = %v, want EOF", err)
+	if _, err := session.ReadBatchRaw(nil); !errors.Is(err, io.EOF) {
+		t.Fatalf("ReadBatchRaw() error = %v, want EOF", err)
 	}
 }
 
@@ -153,8 +153,8 @@ func TestObserveDisconnectsReportsServerReasonAndKeepsError(t *testing.T) {
 	up.reads <- packetResult{err: fmt.Errorf("read: %w", reason)}
 	var got []DisconnectInfo
 	session := observeDisconnects(up, func(info DisconnectInfo) { got = append(got, info) })
-	if _, err := session.ReadBatch(); !errors.Is(err, reason) {
-		t.Fatalf("ReadBatch() error = %v, want the original disconnect", err)
+	if _, err := session.ReadBatchRaw(nil); !errors.Is(err, reason) {
+		t.Fatalf("ReadBatchRaw() error = %v, want the original disconnect", err)
 	}
 	if want := []DisconnectInfo{{Reason: 5, Message: "You are banned"}}; !slices.Equal(got, want) {
 		t.Fatalf("reported %v, want %v", got, want)

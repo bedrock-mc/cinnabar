@@ -31,6 +31,9 @@ use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
+#[path = "teleport_ack_wiring_tests/respawn.rs"]
+mod respawn;
+
 fn fixture_world_identity() -> WorldCollisionIdentity {
     WorldCollisionIdentity::new(
         CollisionRegistryIdentity {
@@ -189,7 +192,7 @@ fn committed_respawn_through_production_reconciliation_projects_the_opt_in_flag(
         1,
         WorldEvent::Respawn(RespawnEvent {
             position: [8.5, 71.620_01, -4.25],
-            state: 0,
+            state: 1,
             runtime_entity_id: 1,
         }),
     );
@@ -225,7 +228,7 @@ fn default_off_respawn_reconciliation_stays_inert_and_unflagged() {
         1,
         WorldEvent::Respawn(RespawnEvent {
             position: [8.5, 71.620_01, -4.25],
-            state: 0,
+            state: 1,
             runtime_entity_id: 1,
         }),
     );
@@ -363,6 +366,7 @@ fn change_dimension_clears_an_armed_assertion_through_production_reconciliation(
         WorldEvent::ChangeDimension(ChangeDimensionEvent {
             dimension: 1,
             position: [240.75, 82.0, -17.25],
+            ..Default::default()
         }),
     );
     app.update();
@@ -373,4 +377,87 @@ fn change_dimension_clears_an_armed_assertion_through_production_reconciliation(
         None,
         "the production dimension boundary must clear the armed assertion"
     );
+    assert_eq!(
+        ticker.completed_tick(),
+        100,
+        "a dimension switch must preserve the input tick clock"
+    );
+    let physics = app.world().resource::<LocalPhysicsController>();
+    assert_eq!(physics.state().unwrap().tick, 100);
+    assert_eq!(physics.network_position(), Some([240.75, 82.0, -17.25]));
+    let world = app.world().resource::<ClientWorld>();
+    assert!(world.dimension_transfer.active());
+}
+
+#[test]
+fn dimension_destination_controls_preserve_the_client_input_tick() {
+    for source in [MovementSource::Physics, MovementSource::FreeCamera] {
+        for wire_tick in [0, 10_000] {
+            let mut ticker = authorized_ticker(false);
+            ticker.set_source(source);
+            let mut app = wiring_app(ticker, LocalPhysicsController::default());
+            submit(
+                &mut app,
+                1,
+                WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                    dimension: 1,
+                    position: [240.75, 82.0, -17.25],
+                    ..Default::default()
+                }),
+            );
+            app.update();
+            let destination = [242.5, 83.0, -15.5];
+            submit(
+                &mut app,
+                2,
+                WorldEvent::MovePlayer(MovePlayerEvent {
+                    runtime_id: 1,
+                    position: destination,
+                    teleported: true,
+                    mode: protocol::MovePlayerMode::Teleport,
+                    source_tick: wire_tick,
+                    ..MovePlayerEvent::default()
+                }),
+            );
+            app.update();
+            assert_eq!(
+                app.world().resource::<MovementTicker>().completed_tick(),
+                100
+            );
+            let physics = app.world().resource::<LocalPhysicsController>();
+            if matches!(source, MovementSource::Physics) {
+                assert_eq!(physics.state().unwrap().tick, 100);
+                assert_eq!(physics.network_position(), Some(destination));
+            } else {
+                assert!(!physics.is_active());
+            }
+            let respawn = [244.5, 84.0, -14.5];
+            submit(
+                &mut app,
+                3,
+                WorldEvent::Respawn(RespawnEvent {
+                    position: respawn,
+                    state: 1,
+                    runtime_entity_id: 1,
+                }),
+            );
+            app.update();
+            let ticker = app.world().resource::<MovementTicker>();
+            assert_eq!(ticker.completed_tick(), 100);
+            assert_eq!(ticker.next_tick(), 101);
+            let physics = app.world().resource::<LocalPhysicsController>();
+            if matches!(source, MovementSource::Physics) {
+                assert_eq!(physics.state().unwrap().tick, 100);
+                assert_eq!(physics.network_position(), Some(respawn));
+            } else {
+                assert!(!physics.is_active());
+            }
+            assert!(
+                app.world()
+                    .resource::<ClientWorld>()
+                    .dimension_transfer
+                    .active()
+            );
+        }
+    }
 }

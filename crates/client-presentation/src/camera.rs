@@ -28,6 +28,8 @@ mod hurt;
 pub mod look;
 mod overlay;
 pub mod overlay_publish;
+pub mod portal_diagnostics;
+mod portal_projection;
 pub mod presentation;
 mod server_view;
 mod shake;
@@ -39,6 +41,7 @@ pub use overlay::{
     HeadMedium, OverlayKind, OverlayLayer, PortalProgress, ScreenEffectInputs, ScreenOverlays,
     VisionEffects, compute_overlays,
 };
+pub use portal_projection::{first_person_hand_fov, update_camera_fov};
 pub use presentation::{FirstPersonHandMotion, ScreenEffectFacts};
 pub use server_view::{ServerCameraSkips, ServerCameraView};
 
@@ -502,27 +505,6 @@ pub fn spawn_fly_camera(
             settings.perspective(),
         ),
     ));
-}
-
-pub fn update_camera_fov(
-    window: Single<&Window, With<PrimaryWindow>>,
-    settings: Res<CameraSettingsAuthority>,
-    time: Res<Time>,
-    inputs: Res<CameraFovInputs>,
-    mut fov_state: ResMut<CameraFovState>,
-    server: Res<ServerCameraView>,
-    mut cameras: Query<&mut Projection, With<FlyCamera>>,
-) {
-    let modifier = fov_state.advance(inputs.target_modifier(), time.delta_secs());
-    let base = settings.horizontal_fov_degrees();
-    let fov_degrees = server.fov_override_degrees(base).unwrap_or(base * modifier);
-    let vertical = projection_fov_radians(fov_degrees);
-    for mut projection in &mut cameras {
-        if let Projection::Perspective(perspective) = projection.as_mut() {
-            perspective.fov = vertical;
-            perspective.aspect_ratio = window_aspect(&window);
-        }
-    }
 }
 
 pub fn update_perspective(

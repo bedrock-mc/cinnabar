@@ -107,6 +107,10 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 		// Final native registrations override the legacy filter for these
 		// types. Keep the independent emission nibble from the fact source.
 		switch record.Name {
+		case "minecraft:portal":
+			// The unknown-axis legacy row has no emitter implementation.
+			// Native registration sets both properties for all portal states.
+			want = 11
 		case "minecraft:snow_layer":
 			want &= 0x0f
 		case "minecraft:water":

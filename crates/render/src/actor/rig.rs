@@ -77,6 +77,7 @@ pub enum ActorRigRoute {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActorRigSubmission {
+    pub material: ActorMaterial,
     /// Model-space visibility box shared with animation and cave admission.
     pub culling_bounds: assets::SkinGeometryBounds,
     pub input: ActorRigRenderInput,
@@ -91,6 +92,22 @@ pub struct ActorRigSubmission {
     pub uv_anim: [f32; 4],
     /// World light from [`pack_actor_light`]; 0 draws unlit, as `ignore_lighting` asks.
     pub light: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ActorMaterial {
+    pub kind: assets::EntityRenderMaterial,
+    /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
+    pub dissolve_multiplier: f32,
+}
+
+impl Default for ActorMaterial {
+    fn default() -> Self {
+        Self {
+            kind: Default::default(),
+            dissolve_multiplier: 1.0,
+        }
+    }
 }
 
 /// Packs independent block/sky nibbles and the lit-material bit; time belongs to the shared table.
@@ -128,6 +145,8 @@ pub struct ActorGpuInstance {
     pub light: u32,
     /// Two more samplers of a native multitexture material; MAX names no additional sampler.
     pub multitexture_layers: [u32; 2],
+    pub material: u32,
+    pub dissolve_multiplier: f32,
 }
 
 pub const ACTOR_GPU_INSTANCE_WORDS: usize = std::mem::size_of::<ActorGpuInstance>() / 4;
@@ -565,6 +584,12 @@ impl ActorRigFrameBuilder {
                 light: submission.light,
                 overlay_rgba8: submission.overlay_rgba8,
                 multitexture_layers: [u32::MAX; 2],
+                material: submission.material.kind as u32,
+                dissolve_multiplier: if submission.material.dissolve_multiplier.is_finite() {
+                    submission.material.dissolve_multiplier.max(0.0)
+                } else {
+                    1.0
+                },
             });
             body_count += usize::from(is_body);
             manifest.push(ActorDrawManifestEntry {

@@ -63,6 +63,7 @@ pub(super) fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) ->
         int_properties: HashMap::new(),
         float_properties: HashMap::new(),
         status: Default::default(),
+        dragon_animation: None,
     }
 }
 
@@ -608,6 +609,30 @@ fn camera_rotation_reads_the_fed_view_and_xp_orb_frames_follow_value() {
         number(&orb, "query.texture_frame_index", &[]),
         MolangValue::Number(10.0)
     );
+}
+
+#[test]
+fn xp_orb_unknown_value_variant_keeps_the_lowest_sprite() {
+    let input = ActorTickInput::default();
+    let mut orb = actor_with_metadata(HashMap::new());
+    orb.kind = ActorKind::Entity {
+        identifier: "minecraft:xp_orb".into(),
+    };
+    for value in [
+        ActorMetadataValue::Byte(100),
+        ActorMetadataValue::Short(5_000),
+        ActorMetadataValue::Long(5_000),
+        ActorMetadataValue::Float(5_000.0),
+    ] {
+        orb.metadata.insert(15, value);
+        assert_eq!(
+            read(&orb, &input, 0, "query.texture_frame_index"),
+            0.0,
+            "a well-formed unexpected metadata type has no XP sprite value"
+        );
+    }
+    orb.metadata.insert(15, ActorMetadataValue::Int(5_000));
+    assert_eq!(read(&orb, &input, 0, "query.texture_frame_index"), 10.0);
 }
 
 #[test]

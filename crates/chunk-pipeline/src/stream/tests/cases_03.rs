@@ -424,6 +424,7 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [8.0, 80.0, 9.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -603,6 +604,7 @@ fn newer_subchunk_is_validated_after_fifo_blocked_dimension_change_commits() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [1_600.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -967,6 +969,7 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -1051,6 +1054,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
     let change = ChangeDimensionEvent {
         dimension: 1,
         position: [8.0, 80.0, 9.0],
+        ..Default::default()
     };
     stream.submit(1, inline_air_event(0)).unwrap();
     stream.submit(2, WorldEvent::MovePlayer(movement)).unwrap();
@@ -1113,6 +1117,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
                 source_cohort: None,
             },
             super::CommittedControlEvent::ChangeDimension {
+                sequence: 3,
                 change,
                 resolved: super::server_position::ResolvedServerPosition {
                     position: change.position,

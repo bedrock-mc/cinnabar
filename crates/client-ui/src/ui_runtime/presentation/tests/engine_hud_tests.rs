@@ -11,6 +11,8 @@ use protocol::{
 use super::*;
 use crate::ui_runtime::presentation::{HudFrame, hud_layout};
 
+mod boss_removal_tests;
+
 pub use crate::test_support::{engine_presentation, engine_presentation_with};
 
 fn texts(nodes: &[DrawNode]) -> Vec<&str> {

@@ -3,9 +3,10 @@ use super::*;
 use bevy::prelude::Transform;
 
 mod commit;
+mod loading;
 use client_ui::ui_runtime::presentation::{
     ItemIconFrames, PendingUiPublication, PreparedUiPublication, PreviewCapture, capture_hud_frame,
-    nametags, player_preview, startup::StartupReadinessInput,
+    nametags, player_preview,
 };
 pub(crate) use commit::publish_ui_runtime;
 
@@ -109,84 +110,24 @@ pub(crate) fn prepare_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.expire_hud(now_millis);
-    if menu_runtime.is_visible() {
-        presentation.set_loading_stage(None);
-        diagnostics_input.set_startup_probe_enabled(false);
-    } else {
-        let (connected, stream_work_drained) =
-            client_world
-                .stream
-                .as_ref()
-                .map_or((false, false), |stream| {
-                    let stats = stream.stats();
-                    let drained = stats.queued_decode_jobs == 0
-                        && stats.in_flight_decode_jobs == 0
-                        && stats.pending_light_jobs == 0
-                        && stats.in_flight_light_jobs == 0
-                        && stats.pending_mesh_jobs == 0
-                        && stats.in_flight_mesh_jobs == 0
-                        && stats.pending_retry_requests == 0
-                        && stats.awaiting_sub_chunk_responses == 0
-                        && stats.admitted_world_events == 0
-                        && stats.admitted_heavy_events == 0
-                        && stream.pending_request_work_count() == 0
-                        && stream.outstanding_sub_chunk_count() == 0
-                        && stream.pending_mesh_change_count() == 0
-                        && stream.unacknowledged_mesh_count() == 0;
-                    (true, drained)
-                });
-        let render_work_drained =
-            render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
-        let loading = presentation.startup_mut().probe_enabled(connected);
-        let (startup_released, loading_milestone) =
-            presentation.startup_mut().observe_with_milestone(
-                StartupReadinessInput {
-                    session_generation: runtime.session_id(),
-                    connected,
-                    diagnostics_frame_generation: diagnostics_input.frame_generation(),
-                    snapshot: visibility_diagnostics.snapshot(),
-                    visible_rendered: visibility.visible_rendered,
-                    local_terrain_ready: loading
-                        && client_world
-                            .stream
-                            .as_ref()
-                            .is_some_and(chunk_pipeline::WorldStream::local_terrain_ready),
-                    cohort_target_complete: frame_poll.cohort.map_or_else(
-                        // Outside acceptance runs the cohort is only scanned while loading, so a
-                        // sparse view (a Flat world) can still release the loading screen. A
-                        // server that sent no terrain before spawn (Dragonfly) sends none until
-                        // initialized, so its empty startup view releases once work drains.
-                        || {
-                            loading
-                                && client_world
-                                    .stream
-                                    .as_ref()
-                                    .is_some_and(|stream| stream.startup_view_complete())
-                        },
-                        |status| status.target_is_complete(),
-                    ),
-                    stream_work_drained,
-                    render_work_drained,
-                    world_entry_held: runtime.experiences.holds_world_entry(),
-                },
-                now_millis,
-            );
-        if let Some(milestone) = loading_milestone {
-            eprintln!("{milestone}");
-        }
-        diagnostics_input
-            .set_startup_probe_enabled(presentation.startup_mut().probe_enabled(connected));
-        presentation.set_loading_stage(if !connected {
-            Some(LoadingStage::Connecting)
-        } else if startup_released {
-            None
-        } else {
-            Some(LoadingStage::BuildingTerrain)
-        });
-        if startup_released && !presentation.startup_mut().completion_queued {
-            presentation.startup_mut().completion_queued = network.finish_loading();
-        }
-    }
+    let restart = client_world.dimension_transfer.take_presentation_reset();
+    loading::prepare_loading(
+        &mut client_world,
+        &mut presentation,
+        &runtime,
+        &mut diagnostics_input,
+        &network,
+        loading::LoadingObservation {
+            restart,
+            menu_visible: menu_runtime.is_visible(),
+            snapshot: visibility_diagnostics.snapshot(),
+            visible_rendered: visibility.visible_rendered,
+            cohort: frame_poll.cohort,
+            render_work_drained: render_queue.retained_len() == 0
+                && upload_acknowledgements.is_empty(),
+            now: time.elapsed(),
+        },
+    );
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     let menu_skin = menu_runtime.player_skin();

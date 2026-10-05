@@ -668,6 +668,7 @@ fn replacement_remove_and_dimension_reset_drop_lifetime_item_state() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -689,6 +690,7 @@ fn session_item_registry_survives_dimension_actor_state_reset() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -777,6 +779,7 @@ fn actions_are_fifo_bounded_and_later_ingress_restarts_windup() {
                 teleported: false,
                 player_mode: None,
                 source_tick: Some(10),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();
@@ -808,6 +811,7 @@ fn actions_are_fifo_bounded_and_later_ingress_restarts_windup() {
                 teleported: false,
                 player_mode: None,
                 source_tick: Some(11),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();
@@ -962,6 +966,7 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
                 teleported: true,
                 player_mode: None,
                 source_tick: Some(12),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();
