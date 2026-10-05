@@ -85,15 +85,13 @@ impl WorldStream {
                 self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                     .deferred
                     .push(candidate);
+            } else if let Some((_, _, queued)) = resident_candidates
+                .iter_mut()
+                .find(|(entry, _, _)| entry.key == key)
+            {
+                *queued = true;
             } else {
-                if let Some((_, _, queued)) = resident_candidates
-                    .iter_mut()
-                    .find(|(entry, _, _)| entry.key == key)
-                {
-                    *queued = true;
-                } else {
-                    resident_candidates.push((candidate, pending, true));
-                }
+                resident_candidates.push((candidate, pending, true));
             }
         }
         let removal_authority = self
