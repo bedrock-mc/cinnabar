@@ -830,6 +830,16 @@ pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStagePro
             sample.maximum.as_secs_f64() * 1_000.0,
         );
     }
+    if let Some(slow) = profiler
+        .as_deref()
+        .and_then(RuntimeStageProfiler::slow_frame_counts)
+    {
+        let _ = write!(
+            line,
+            " slow_frames={},{},{}",
+            slow.slow, slow.hitches, slow.hard_hitches
+        );
+    }
     eprintln!("{line}");
 }
 

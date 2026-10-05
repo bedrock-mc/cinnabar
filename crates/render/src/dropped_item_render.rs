@@ -633,11 +633,14 @@ fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) 
     }
 }
 
-type DrawItemCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawItems,
-);
+type DrawItemCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuActors as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        DrawItems,
+    ),
+>;
 
 struct DrawItems;
 

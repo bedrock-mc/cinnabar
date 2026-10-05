@@ -359,7 +359,10 @@ fn queue_panorama(
     }
 }
 
-type DrawPanoramaCommands = (SetItemPipeline, SetPanoramaBindGroup, DrawPanorama);
+type DrawPanoramaCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuPanorama as usize },
+    (SetItemPipeline, SetPanoramaBindGroup, DrawPanorama),
+>;
 
 struct SetPanoramaBindGroup;
 

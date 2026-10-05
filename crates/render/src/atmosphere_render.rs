@@ -597,7 +597,10 @@ fn queue_atmosphere(
     }
 }
 
-type DrawAtmosphereCommands = (SetItemPipeline, SetAtmosphereBindGroup<0>, DrawAtmosphere);
+type DrawAtmosphereCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuSky as usize },
+    (SetItemPipeline, SetAtmosphereBindGroup<0>, DrawAtmosphere),
+>;
 
 struct SetAtmosphereBindGroup<const I: usize>;
 

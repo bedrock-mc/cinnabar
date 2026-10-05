@@ -895,9 +895,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 .map(std::path::PathBuf::from),
         ))
         .init_resource::<render::RuntimeStageSpans>()
+        .add_plugins(render::GpuTimingPlugin)
         .add_systems(
             First,
             (
+                crate::runtime::frame_profile::track_frame_interval,
                 crate::runtime::frame_profile::trace_frame_focus,
                 render::begin_stage_span::<MAIN_FRAME>,
             )

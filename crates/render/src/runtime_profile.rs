@@ -47,10 +47,30 @@ pub enum RuntimeStage {
     Particles,
     Audio,
     BlockEntities,
+    /// Render-world CPU from drawable acquisition to cleanup.
+    RenderFrame,
+    /// First to last GPU timestamp of one rendered frame.
+    GpuFrame,
+    GpuShadows,
+    GpuOpaque,
+    GpuTransparent,
+    GpuUi,
+    GpuHand,
+    GpuPost,
+    GpuTonemapping,
+    GpuFxaa,
+    GpuBlit,
+    /// Draw categories timed inside passes; only with aggregate profiling on capable adapters.
+    GpuTerrainOpaque,
+    GpuTerrainTransparent,
+    GpuActors,
+    GpuParticles,
+    GpuSky,
+    GpuPanorama,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 32] = [
+    pub const ALL: [Self; 49] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -83,7 +103,56 @@ impl RuntimeStage {
         Self::Particles,
         Self::Audio,
         Self::BlockEntities,
+        Self::RenderFrame,
+        Self::GpuFrame,
+        Self::GpuShadows,
+        Self::GpuOpaque,
+        Self::GpuTransparent,
+        Self::GpuUi,
+        Self::GpuHand,
+        Self::GpuPost,
+        Self::GpuTonemapping,
+        Self::GpuFxaa,
+        Self::GpuBlit,
+        Self::GpuTerrainOpaque,
+        Self::GpuTerrainTransparent,
+        Self::GpuActors,
+        Self::GpuParticles,
+        Self::GpuSky,
+        Self::GpuPanorama,
     ];
+
+    /// GPU-timed stages, the contiguous tail of [`Self::ALL`].
+    pub const GPU: [Self; 16] = [
+        Self::GpuFrame,
+        Self::GpuShadows,
+        Self::GpuOpaque,
+        Self::GpuTransparent,
+        Self::GpuUi,
+        Self::GpuHand,
+        Self::GpuPost,
+        Self::GpuTonemapping,
+        Self::GpuFxaa,
+        Self::GpuBlit,
+        Self::GpuTerrainOpaque,
+        Self::GpuTerrainTransparent,
+        Self::GpuActors,
+        Self::GpuParticles,
+        Self::GpuSky,
+        Self::GpuPanorama,
+    ];
+
+    /// Position within [`Self::GPU`], or `None` for CPU stages.
+    #[must_use]
+    pub const fn gpu_index(self) -> Option<usize> {
+        let index = self as usize;
+        let first = Self::GpuFrame as usize;
+        if index >= first {
+            Some(index - first)
+        } else {
+            None
+        }
+    }
 
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -120,6 +189,23 @@ impl RuntimeStage {
             Self::Particles => "particles",
             Self::Audio => "audio",
             Self::BlockEntities => "block_entities",
+            Self::RenderFrame => "render_frame",
+            Self::GpuFrame => "gpu_frame",
+            Self::GpuShadows => "gpu_shadows",
+            Self::GpuOpaque => "gpu_opaque",
+            Self::GpuTransparent => "gpu_transparent",
+            Self::GpuUi => "gpu_ui",
+            Self::GpuHand => "gpu_hand",
+            Self::GpuPost => "gpu_post",
+            Self::GpuTonemapping => "gpu_tonemapping",
+            Self::GpuFxaa => "gpu_fxaa",
+            Self::GpuBlit => "gpu_blit",
+            Self::GpuTerrainOpaque => "gpu_terrain_opaque",
+            Self::GpuTerrainTransparent => "gpu_terrain_transparent",
+            Self::GpuActors => "gpu_actors",
+            Self::GpuParticles => "gpu_particles",
+            Self::GpuSky => "gpu_sky",
+            Self::GpuPanorama => "gpu_panorama",
         }
     }
 }
@@ -170,6 +256,7 @@ struct RuntimeStageProfileState {
     started: Instant,
     last_snapshot_nanos: AtomicU64,
     stages: [StageSampleAccumulator; RuntimeStage::ALL.len()],
+    latest_gpu: Mutex<Option<crate::GpuFrameTimes>>,
 }
 
 #[derive(Resource, Debug, Clone)]
@@ -212,6 +299,7 @@ impl RuntimeStageProfiler {
                 started,
                 last_snapshot_nanos: AtomicU64::new(0),
                 stages: std::array::from_fn(|_| StageSampleAccumulator::default()),
+                latest_gpu: Mutex::new(None),
             }),
         }
     }
@@ -232,9 +320,55 @@ impl RuntimeStageProfiler {
 
     /// Reports the preceding slow frame and starts a new attribution window.
     pub fn begin_frame(&self, focused: bool, occluded: bool) {
-        if let Some(slow) = &self.state.slow {
-            slow.begin_frame(Instant::now(), focused, occluded);
+        let Some(slow) = &self.state.slow else {
+            return;
+        };
+        if let (Some(event), Some(trace)) = (
+            slow.begin_frame(Instant::now(), focused, occluded),
+            &self.state.trace,
+        ) {
+            trace.slow_frame(event);
         }
+    }
+
+    /// Sets the display interval that slow-frame thresholds and stage budgets derive from.
+    pub fn set_frame_interval(&self, interval: Duration) {
+        if let Some(slow) = &self.state.slow {
+            slow.set_interval(interval);
+        }
+    }
+
+    /// Cumulative slow frames and hitches, including those whose text was rate-limited.
+    #[must_use]
+    pub fn slow_frame_counts(&self) -> Option<crate::SlowFrameCounts> {
+        self.state.slow.as_ref().map(|slow| slow.counts())
+    }
+
+    /// Records one read-back GPU frame, which typically trails the CPU by a few frames.
+    pub fn record_gpu_frame(&self, frame: &crate::GpuFrameTimes) {
+        for (stage, elapsed) in frame.iter() {
+            if self.state.enabled {
+                self.state.stages[stage as usize].record(elapsed);
+            }
+            if let Some(slow) = &self.state.slow {
+                slow.record(stage, elapsed);
+            }
+        }
+        *self
+            .state
+            .latest_gpu
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(*frame);
+    }
+
+    /// The most recent GPU frame read back, if the adapter supports timestamps.
+    #[must_use]
+    pub fn latest_gpu_frame(&self) -> Option<crate::GpuFrameTimes> {
+        *self
+            .state
+            .latest_gpu
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Whether either aggregate profiling or gameplay attribution needs stage spans.
@@ -283,8 +417,14 @@ impl RuntimeStageProfiler {
 }
 
 /// Open spans timed across several systems, indexed by [`RuntimeStage`].
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug)]
 pub struct RuntimeStageSpans([Option<Instant>; RuntimeStage::ALL.len()]);
+
+impl Default for RuntimeStageSpans {
+    fn default() -> Self {
+        Self([None; RuntimeStage::ALL.len()])
+    }
+}
 
 /// Opens the span of stage `S` (a `RuntimeStage as usize`); pair with [`end_stage_span`].
 pub fn begin_stage_span<const S: usize>(spans: Option<ResMut<RuntimeStageSpans>>) {
@@ -342,6 +482,34 @@ fn duration_nanos(duration: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage_table_indices_match_and_gpu_stages_form_the_tail() {
+        for (index, stage) in RuntimeStage::ALL.into_iter().enumerate() {
+            assert_eq!(stage as usize, index);
+        }
+        let tail = &RuntimeStage::ALL[RuntimeStage::ALL.len() - RuntimeStage::GPU.len()..];
+        assert_eq!(tail, RuntimeStage::GPU);
+        assert!(
+            RuntimeStage::GPU
+                .iter()
+                .all(|stage| stage.name().starts_with("gpu_"))
+        );
+        assert_eq!(RuntimeStage::RenderFrame.gpu_index(), None);
+    }
+
+    #[test]
+    fn gpu_frames_feed_aggregates_and_the_latest_snapshot() {
+        let profiler = RuntimeStageProfiler::for_gameplay(true, None);
+        assert_eq!(profiler.latest_gpu_frame(), None);
+        let frame = crate::gpu_timing::decode_spans([(RuntimeStage::GpuOpaque, 10, 30)], 1.0);
+        profiler.record_gpu_frame(&frame);
+        assert_eq!(profiler.latest_gpu_frame(), Some(frame));
+        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
+        for stage in [RuntimeStage::GpuOpaque, RuntimeStage::GpuFrame] {
+            assert_eq!(snapshot.samples[stage as usize].count, 1);
+        }
+    }
 
     #[test]
     fn disabled_profiler_records_nothing() {

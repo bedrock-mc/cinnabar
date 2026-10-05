@@ -229,60 +229,87 @@ pub(in crate::chunk) fn front_to_back_cube_entities(
 #[cfg(test)]
 mod order_tests;
 
-pub(in crate::chunk) type DrawChunkCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawPackedChunk,
-);
-pub(in crate::chunk) type DrawChunkIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawPackedChunksIndirect,
-);
-pub(in crate::chunk) type DrawModelCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawPackedModel,
-);
-pub(in crate::chunk) type DrawModelIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawPackedModelsIndirect,
-);
-pub(in crate::chunk) type DrawTransparentModelCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawPackedTransparentModel,
-);
-pub(in crate::chunk) type DrawDepthLiquidCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawDepthLiquid,
-);
-pub(in crate::chunk) type DrawDepthLiquidIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawDepthLiquidsIndirect,
-);
-pub(in crate::chunk) type DrawTransparentLiquidCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawTransparentLiquid,
-);
-pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawTransparentLiquidIndirect,
-);
+pub(in crate::chunk) type DrawChunkCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedChunk,
+    ),
+>;
+pub(in crate::chunk) type DrawChunkIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedChunksIndirect,
+    ),
+>;
+pub(in crate::chunk) type DrawModelCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedModel,
+    ),
+>;
+pub(in crate::chunk) type DrawModelIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedModelsIndirect,
+    ),
+>;
+pub(in crate::chunk) type DrawTransparentModelCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedTransparentModel,
+    ),
+>;
+pub(in crate::chunk) type DrawDepthLiquidCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawDepthLiquid,
+    ),
+>;
+pub(in crate::chunk) type DrawDepthLiquidIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawDepthLiquidsIndirect,
+    ),
+>;
+pub(in crate::chunk) type DrawTransparentLiquidCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawTransparentLiquid,
+    ),
+>;
+pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawTransparentLiquidIndirect,
+    ),
+>;
 pub(in crate::chunk) type OpaqueChunkViewQuery = (Entity, Read<ViewUniformOffset>);
 
 pub(in crate::chunk) fn record_visibility_direct_submission(

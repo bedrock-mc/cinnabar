@@ -1,11 +1,14 @@
 use super::plan::MixedStream;
 use super::*;
 
-pub(in crate::chunk) type DrawMixedTerrainCommands = (
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawMixedTerrain,
-);
+pub(in crate::chunk) type DrawMixedTerrainCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawMixedTerrain,
+    ),
+>;
 
 pub(in crate::chunk) struct DrawMixedTerrain;
 

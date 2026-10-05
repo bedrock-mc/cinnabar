@@ -847,11 +847,14 @@ fn queue_actors(
     });
 }
 
-type DrawActorCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    DrawActors,
-);
+type DrawActorCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuActors as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        DrawActors,
+    ),
+>;
 
 struct DrawActors;
 

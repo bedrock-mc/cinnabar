@@ -20,6 +20,8 @@ pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
 pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
+mod gpu_timing;
+pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
 
 mod dropped_item_render;
 mod hand_rig_render;
@@ -171,6 +173,7 @@ pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
 };
+pub use runtime_profile_slow::{FrameBudgets, SlowFrameCounts};
 pub use screen_fire::ScreenFireTexture;
 pub use screen_overlay::{
     MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayKind, ScreenOverlayLayer,

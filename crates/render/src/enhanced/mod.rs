@@ -42,7 +42,7 @@ use {
         render::{
             Render, RenderApp, RenderSystems,
             extract_component::ExtractComponentPlugin,
-            render_graph::{Node, RenderGraph, RenderLabel, ViewNodeRunner},
+            render_graph::{InternedRenderLabel, Node, RenderGraph, RenderLabel, ViewNodeRunner},
         },
     },
     gpu::{EnhancedGpu, prepare_enhanced_materials, prepare_enhanced_views},
@@ -265,6 +265,19 @@ fn install_graph(world: &mut World) {
             graph.add_node_edge(EnhancedHandRigLabel, overlay);
         }
     }
+}
+
+/// Enhanced nodes timed by GPU timestamps.
+#[cfg(feature = "enhanced")]
+pub(crate) fn timed_nodes() -> [(InternedRenderLabel, crate::RuntimeStage); 5] {
+    use crate::RuntimeStage;
+    [
+        (EnhancedShadowLabel.intern(), RuntimeStage::GpuShadows),
+        (EnhancedSnapshotLabel.intern(), RuntimeStage::GpuBlit),
+        (EnhancedPostLabel.intern(), RuntimeStage::GpuPost),
+        (EnhancedHandLabel.intern(), RuntimeStage::GpuHand),
+        (EnhancedHandRigLabel.intern(), RuntimeStage::GpuHand),
+    ]
 }
 
 /// Adds the post-grade twin of an installed main-pass node; `false` when that pass is absent.

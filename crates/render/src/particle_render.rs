@@ -563,12 +563,15 @@ fn queue_particles(
     }
 }
 
-type DrawParticles<const ADDITIVE: bool> = (
-    SetItemPipeline,
-    SetParticleBindGroup<0>,
-    crate::lighting::SetWorldLightmap,
-    DrawParticleRange<ADDITIVE>,
-);
+type DrawParticles<const ADDITIVE: bool> = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuParticles as usize },
+    (
+        SetItemPipeline,
+        SetParticleBindGroup<0>,
+        crate::lighting::SetWorldLightmap,
+        DrawParticleRange<ADDITIVE>,
+    ),
+>;
 
 struct SetParticleBindGroup<const I: usize>;
 

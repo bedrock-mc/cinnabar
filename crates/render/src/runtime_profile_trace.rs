@@ -1,6 +1,7 @@
 //! Bounded, opt-in spans exported on the exit frame without per-frame file I/O.
 
 use crate::runtime_profile::RuntimeStage;
+use crate::runtime_profile_slow::SlowFrameEvent;
 use serde_json::json;
 use std::{
     path::PathBuf,
@@ -20,7 +21,14 @@ struct TraceEvent {
     started: Duration,
     elapsed: Duration,
     thread: ThreadId,
-    focused: Option<(bool, bool)>,
+    args: TraceArgs,
+}
+
+#[derive(Debug)]
+enum TraceArgs {
+    None,
+    Focus { focused: bool, occluded: bool },
+    SlowFrame(SlowFrameEvent),
 }
 
 #[derive(Debug)]
@@ -49,7 +57,7 @@ impl FrameTrace {
             started: started.saturating_duration_since(self.epoch),
             elapsed,
             thread: std::thread::current().id(),
-            focused: None,
+            args: TraceArgs::None,
         });
     }
 
@@ -60,7 +68,18 @@ impl FrameTrace {
             started: self.epoch.elapsed(),
             elapsed: Duration::ZERO,
             thread: std::thread::current().id(),
-            focused: Some((focused, occluded)),
+            args: TraceArgs::Focus { focused, occluded },
+        });
+    }
+
+    /// Marks every slow frame, including those whose text was rate-limited.
+    pub(crate) fn slow_frame(&self, event: SlowFrameEvent) {
+        self.push(TraceEvent {
+            name: "slow_frame",
+            started: self.epoch.elapsed(),
+            elapsed: Duration::ZERO,
+            thread: std::thread::current().id(),
+            args: TraceArgs::SlowFrame(event),
         });
     }
 
@@ -106,10 +125,20 @@ impl FrameTrace {
                 let mut record = json!({"name": event.name, "ph": "X", "pid": std::process::id(),
                     "tid": tid, "ts": event.started.as_secs_f64() * 1e6,
                     "dur": event.elapsed.as_secs_f64() * 1e6});
-                if let Some((focused, occluded)) = event.focused {
+                let args = match &event.args {
+                    TraceArgs::None => None,
+                    TraceArgs::Focus { focused, occluded } => {
+                        Some(json!({"focused": focused, "occluded": occluded}))
+                    }
+                    TraceArgs::SlowFrame(slow) => Some(json!({
+                        "violations": slow.reasons(),
+                        "frame_ms": slow.frame.as_secs_f64() * 1e3,
+                    })),
+                };
+                if let Some(args) = args {
                     record["ph"] = json!("i");
                     record["s"] = json!("t");
-                    record["args"] = json!({"focused": focused, "occluded": occluded});
+                    record["args"] = args;
                 }
                 serde_json::to_writer(&mut writer, &record).map_err(std::io::Error::other)?;
             }
@@ -136,14 +165,24 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
     };
     const SUBMISSION: usize = RuntimeStage::RenderSubmission as usize;
     const SURFACE: usize = RuntimeStage::SurfacePreparation as usize;
+    const FRAME: usize = RuntimeStage::RenderFrame as usize;
     app.init_resource::<crate::RuntimeStageSpans>()
         .add_systems(
             Render,
             (
                 crate::begin_stage_span::<SURFACE>.before(prepare_windows),
-                crate::end_stage_span::<SURFACE>.after(prepare_windows),
+                (
+                    crate::end_stage_span::<SURFACE>,
+                    crate::begin_stage_span::<FRAME>,
+                )
+                    .chain()
+                    .after(prepare_windows),
             )
                 .in_set(RenderSystems::ManageViews),
+        )
+        .add_systems(
+            Render,
+            crate::end_stage_span::<FRAME>.in_set(RenderSystems::Cleanup),
         )
         .add_systems(
             Render,
@@ -166,6 +205,10 @@ mod tests {
         let path = root.path().join("trace.json");
         let trace = FrameTrace::new(path.clone(), Instant::now());
         trace.frame(false, false);
+        trace.slow_frame(SlowFrameEvent {
+            reasons: 0b1001,
+            frame: Duration::from_millis(12),
+        });
         trace.record(
             RuntimeStage::WorldStream,
             Instant::now(),
@@ -180,10 +223,14 @@ mod tests {
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert_eq!(saved["truncated"], true);
         assert_eq!(saved["traceEvents"][0]["args"]["focused"], false);
-        assert_eq!(saved["traceEvents"][1]["dur"], 2000.0);
+        assert_eq!(
+            saved["traceEvents"][1]["args"]["violations"],
+            "interval+gpu"
+        );
+        assert_eq!(saved["traceEvents"][2]["dur"], 2000.0);
         assert_eq!(
             saved["traceEvents"][0]["tid"],
-            saved["traceEvents"][1]["tid"]
+            saved["traceEvents"][2]["tid"]
         );
     }
 }

@@ -89,9 +89,10 @@ hardware gets lower resolution or view distance, never permission to stutter.
   allocations, geometry or text rebuilds, pipeline creations and redundant upload bytes. A change
   rebuilds only its dependents, once per object per publication. Streaming queues stay bounded,
   obsolete work is cancelled, and no chunk version is processed twice.
-- **Slow-frame trigger.** The target is 1.1T plus per-stage budget violations: 9.17 ms at 120 Hz
-  and 18.33 ms at 60 Hz. Text is rate-limited, and every event is kept in bounded telemetry. The
-  current `RUST_MCBE_SLOW_FRAME` still uses a fixed 20 ms.
+- **Slow-frame trigger.** `RUST_MCBE_SLOW_FRAME` fires on an interval over 1.1T (9.17 ms at
+  120 Hz, 18.33 ms at 60 Hz) or a frame over its main CPU, render CPU or GPU budget above. T comes
+  from the window's current monitor, or a slower frame cap. Text is rate-limited; every event is
+  counted, marked in the frame trace and totalled as `slow_frames` in `RUST_MCBE_STAGE_PROFILE`.
 
 ## Native and performance evidence
 
@@ -115,9 +116,9 @@ worker and main-thread stages as attribution rather than additive wall time, and
 run the final performance gate again without the variable because profiling
 changes the measured workload.
 
-Normal play also emits `RUST_MCBE_SLOW_FRAME` without any environment setting.
-It reports an update-start interval or main update over 20 ms, at most once per
-second, with the number of suppressed slow frames. `main_ms` covers `First` to
+Normal play also emits `RUST_MCBE_SLOW_FRAME` without any environment setting,
+on the trigger in Frame budgets, at most once per second with the number of
+suppressed slow frames and the violated budgets. `main_ms` covers `First` to
 `Last`; `between_updates_ms` covers the rest of the preceding start-to-start
 interval. `main_stages` lists spans completed during that update, and
 `window_stages` includes the intervening render work, both in descending
@@ -127,7 +128,16 @@ the window where it completes. `surface_preparation` includes drawable
 acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
 small main work warrants checking the render stages and OS scheduling before
-changing gameplay. Fast frames use fixed-size counters without formatting or
+changing gameplay. `render_frame` is render-world CPU after drawable acquisition.
+
+GPU timing uses timestamp queries when the adapter supports them, read back
+asynchronously, so `gpu_*` stages describe a frame a few frames older than the
+window they appear in. `gpu_frame` spans the first to last timestamp; node stages
+are `gpu_shadows`, `gpu_opaque`, `gpu_transparent`, `gpu_ui`, `gpu_hand`,
+`gpu_post`, `gpu_tonemapping`, `gpu_fxaa` and `gpu_blit`. With
+`RUST_MCBE_STAGE_PROFILE=1` on adapters with in-pass timestamps (not Apple GPUs),
+draws add `gpu_terrain_opaque`, `gpu_terrain_transparent`, `gpu_actors`,
+`gpu_particles`, `gpu_sky` and `gpu_panorama`. F3 shows the latest GPU frame. Fast frames use fixed-size counters without formatting or
 file I/O; aggregate snapshots and full traces remain opt-in.
 
 After the startup visibility probe stops, ordinary world-publication logs keep
