@@ -5,7 +5,7 @@ pub(crate) mod dbus;
 #[cfg(windows)]
 pub(crate) mod windows;
 
-/// Opens a fixed https URL in the default browser on a worker thread; failures are logged.
+/// Opens a trusted or user-confirmed web URL on a worker thread.
 pub(crate) fn open_url(url: &str) {
     let url = url.to_owned();
     let spawned = std::thread::Builder::new()

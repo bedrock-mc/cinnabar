@@ -5650,3 +5650,10 @@ or window focus loss returns to the prior perspective. Windows/DX12 1280x720 hid
 capture verifies the Freelook/F settings row. Routed tests cover independent rotation,
 release/focus restoration, persistence and existing-F migration. A manual in-world
 orbit acceptance pass remains incomplete.
+
+## Desktop chat web links
+
+- Requested desktop extension: recognize HTTP(S) links locally in displayed chat,
+  including bare web domains, and require an in-game Open/Cancel prompt before
+  handing a selected URL to the default browser. Chat messages and server packets
+  are unchanged. This Java-style interaction is not a closed Bedrock parity gate.

@@ -218,6 +218,7 @@ pub struct TextLayout {
     id: u64,
     key: TextLayoutKey,
     glyphs: Box<[GlyphQuad]>,
+    source_indices: Box<[Option<usize>]>,
     line_count: u16,
     size_64: [u32; 2],
     ellipsized: bool,
@@ -244,6 +245,11 @@ impl TextLayout {
 
     pub fn glyphs(&self) -> &[GlyphQuad] {
         &self.glyphs
+    }
+
+    /// Character indices in formatting-stripped text; generated hyphens and ellipses have none.
+    pub fn glyph_source_indices(&self) -> &[Option<usize>] {
+        &self.source_indices
     }
 
     pub const fn line_count(&self) -> u16 {
@@ -582,6 +588,13 @@ fn retained_layout_bytes(layout: &TextLayout) -> Result<usize, TextError> {
     [
         arc_allocation,
         glyph_allocation,
+        conservative_allocation_bytes(
+            layout
+                .source_indices
+                .len()
+                .checked_mul(size_of::<Option<usize>>())
+                .ok_or(TextError::FixedPointOverflow)?,
+        )?,
         // BTreeMap duplicates the key and retains a CacheEntry value.
         size_of::<TextLayoutKey>(),
         size_of::<CacheEntry>(),

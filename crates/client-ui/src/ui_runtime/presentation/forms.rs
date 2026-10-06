@@ -3,6 +3,8 @@
 pub mod book_screen;
 pub mod chat_coordinates;
 pub mod chat_screen;
+mod chat_links;
+mod chat_link_dialog;
 pub mod container_data;
 pub mod container_kinds;
 mod debug_overlay;

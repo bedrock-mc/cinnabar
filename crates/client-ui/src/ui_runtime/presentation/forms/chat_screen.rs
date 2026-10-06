@@ -31,6 +31,9 @@ const MESSAGES_VIEW: &str = "messages_panel";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChatHit {
     Suggestion(usize),
+    Link(usize),
+    LinkOpen,
+    LinkCancel,
     Send,
     CopyCoordinates,
     Paste,
@@ -42,14 +45,26 @@ pub enum ChatHit {
     SettingsAction(crate::menu::MenuAction),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LinkGeneration {
+    passes: usize,
+    scale: u32,
+    origin: [u32; 2],
+    font: assets::FontCatalogIdentity,
+}
+
 /// The chat screen's cached layout and last frame's input geometry.
 #[derive(Default)]
 pub(super) struct ChatScreen {
+    pub(super) links: Vec<String>,
+    pub(super) pending_link: Option<String>,
+    link_hits: Vec<(ChatHit, UiRect, String)>,
+    link_generation: Option<LinkGeneration>,
     pub(super) settings: super::settings_chat::ChatSettings,
     pub(super) coordinates: super::chat_coordinates::ChatCoordinates,
     screen: CachedScreen,
     /// Window-logical hit rects and their layout keys, from the last frame.
-    hits: Vec<(ChatHit, UiRect, String)>,
+    pub(super) hits: Vec<(ChatHit, UiRect, String)>,
     edit_box: Option<String>,
     /// The messages view's key and extents from the last frame.
     scroll: Option<(String, ScrollMetrics)>,
@@ -154,6 +169,33 @@ impl UiPresentationRuntime {
             .iter()
             .find(|(key, _)| key.contains(MESSAGES_VIEW))
             .map(|(key, metrics)| (key.clone(), metrics.clone()));
+        if !chat.settings.open && chat.pending_link.is_none() {
+            let generation = LinkGeneration {
+                passes: chat.screen.passes,
+                scale: frame.scale.to_bits(),
+                origin: frame.origin.map(f32::to_bits),
+                font: self.font.identity(),
+            };
+            if chat.link_generation != Some(generation) {
+                chat.links.clear();
+                chat.link_hits.clear();
+                for (url, bounds, key) in super::chat_links::hits(
+                    chat.screen.nodes(),
+                    &view,
+                    metrics,
+                    &self.font,
+                    &mut self.layouts,
+                    frame.scale,
+                    frame.origin,
+                ) {
+                    let index = chat.links.len();
+                    chat.links.push(url);
+                    chat.link_hits.push((ChatHit::Link(index), bounds, key));
+                }
+                chat.link_generation = Some(generation);
+            }
+            chat.hits.extend(chat.link_hits.iter().cloned());
+        }
         for region in frame.hits.iter().filter(|region| region.enabled) {
             if region.kind == HitKind::EditBox {
                 if !chat.settings.open {
@@ -189,7 +231,17 @@ impl UiPresentationRuntime {
                 chat.hits.push((hit, bounds, region.key.clone()));
             }
         }
+        self.append_chat_link_dialog(runtime, nodes, next, metrics, content, now_millis)?;
         Ok(true)
+    }
+
+    /// Returns a displayed web target from the last chat frame.
+    pub fn chat_link(&self, index: usize) -> Option<&str> {
+        self.form_presentation
+            .chat
+            .links
+            .get(index)
+            .map(String::as_str)
     }
 
     /// Forget the open chat's scroll and hover once the screen closes.
@@ -198,6 +250,10 @@ impl UiPresentationRuntime {
         chat.open = false;
         chat.settings.open = false;
         chat.hits.clear();
+        chat.links.clear();
+        chat.pending_link = None;
+        chat.link_hits.clear();
+        chat.link_generation = None;
         chat.pointer = None;
     }
 
@@ -219,7 +275,7 @@ impl UiPresentationRuntime {
     /// Scroll the history by a wheel delta in notches, or logical px when
     /// `pixels`; positive scrolls toward older messages.
     pub fn scroll_chat(&mut self, delta: f32, pixels: bool) {
-        if self.chat_settings_open() {
+        if self.chat_settings_open() || self.chat_link_confirmation_open() {
             return;
         }
         let chat = &mut self.form_presentation.chat;
@@ -415,6 +471,31 @@ mod review_tests {
         presentation.scroll_chat(40.0, true);
         assert_eq!(presentation.form_presentation.chat.from_bottom, 0.0);
         presentation.set_chat_settings_open(false);
+        presentation.scroll_chat(40.0, true);
+        assert!(presentation.form_presentation.chat.from_bottom > 0.0);
+    }
+    #[test]
+    fn chat_link_confirmation_owns_wheel_input() {
+        let mut presentation =
+            UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+        presentation.form_presentation.chat.scroll = Some((
+            "history".to_owned(),
+            ScrollMetrics {
+                content: 400.0,
+                viewport: 100.0,
+                ..Default::default()
+            },
+        ));
+        presentation.form_presentation.chat.scale = 1.0;
+        presentation
+            .form_presentation
+            .chat
+            .links
+            .push("https://example.com".into());
+        presentation.request_chat_link(0);
+        presentation.scroll_chat(40.0, true);
+        assert_eq!(presentation.form_presentation.chat.from_bottom, 0.0);
+        presentation.cancel_chat_link();
         presentation.scroll_chat(40.0, true);
         assert!(presentation.form_presentation.chat.from_bottom > 0.0);
     }

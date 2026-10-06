@@ -66,6 +66,14 @@ pub(crate) fn drive_chat_ui_actions(
     for position in presses {
         let hit = presentation.hit_test_chat(position);
         match hit {
+            Some(ChatHit::Link(index)) => presentation.request_chat_link(index),
+            Some(ChatHit::LinkOpen) => {
+                if let Some(url) = presentation.take_confirmed_chat_link() {
+                    crate::desktop::open_url(&url);
+                }
+            }
+            Some(ChatHit::LinkCancel) => presentation.cancel_chat_link(),
+            _ if presentation.chat_link_confirmation_open() => {}
             Some(ChatHit::SettingsOpen) => presentation.set_chat_settings_open(true),
             Some(ChatHit::SettingsClose) => presentation.set_chat_settings_open(false),
             Some(ChatHit::SettingsAction(action)) => {
@@ -123,6 +131,12 @@ pub(crate) fn drive_chat_ui_actions(
             GamepadButton::LeftTrigger,
         ] {
             if gamepad.just_pressed(button) {
+                if presentation.chat_link_confirmation_open() {
+                    if button == GamepadButton::East {
+                        presentation.cancel_chat_link();
+                    }
+                    continue;
+                }
                 if presentation.chat_settings_open() {
                     if button == GamepadButton::East {
                         presentation.set_chat_settings_open(false);

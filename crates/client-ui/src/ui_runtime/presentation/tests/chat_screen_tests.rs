@@ -643,3 +643,102 @@ fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
     )));
     assert_eq!(runtime.chat_editor().as_str(), "draft");
 }
+
+#[test]
+fn chat_links_use_rendered_history_and_native_confirmation_in_both_pack_styles() {
+    for native in [false, true] {
+        let Some(mut presentation) = (if native {
+            native_chat_presentation()
+        } else {
+            engine_presentation()
+        }) else {
+            eprintln!(
+                "skipping chat_links_use_rendered_history_and_native_confirmation_in_both_pack_styles: missing installed local UI carrier (make assets)"
+            );
+            return;
+        };
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = gameplay_runtime(&mut player);
+        chat(
+            &mut player,
+            &mut runtime,
+            1,
+            "prefix https://example.com/a then https://example.net/b suffix",
+        );
+        runtime.open_chat(&mut player);
+        runtime.insert_chat_text("keep my draft").unwrap();
+        build(&player, &mut presentation, &runtime, 0);
+        let links = presentation
+            .chat_hits()
+            .into_iter()
+            .filter_map(|(hit, rect)| {
+                if let ChatHit::Link(index) = hit {
+                    Some((index, rect))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            links.len(),
+            2,
+            "style native={native}: {:?}",
+            presentation.chat_draw_nodes()
+        );
+        assert_eq!(
+            presentation.chat_link(links[0].0),
+            Some("https://example.com/a")
+        );
+        assert_eq!(
+            presentation.chat_link(links[1].0),
+            Some("https://example.net/b")
+        );
+        assert_eq!(
+            presentation.hit_test_chat(centre(links[0].1)),
+            Some(ChatHit::Link(links[0].0))
+        );
+        assert_eq!(
+            presentation.hit_test_chat(centre(links[1].1)),
+            Some(ChatHit::Link(links[1].0))
+        );
+        // The first layout discovers the native edit box; the next frame applies focus.
+        build(&player, &mut presentation, &runtime, 0);
+        let old_target_pointer = presentation.chat_link(0).unwrap().as_ptr();
+        build(&player, &mut presentation, &runtime, 1);
+        assert_eq!(
+            presentation.chat_link(0).unwrap().as_ptr(),
+            old_target_pointer,
+            "unchanged frame retains parsed targets"
+        );
+        presentation.set_chat_settings_open(true);
+        build(&player, &mut presentation, &runtime, 2);
+        assert!(
+            !presentation
+                .chat_hits()
+                .iter()
+                .any(|(hit, _)| matches!(hit, ChatHit::Link(_)))
+        );
+        presentation.set_chat_settings_open(false);
+        build(&player, &mut presentation, &runtime, 3);
+        presentation.request_chat_link(links[1].0);
+        build(&player, &mut presentation, &runtime, 4);
+        let popup = presentation.chat_hits();
+        assert!(
+            popup.iter().any(|(hit, _)| *hit == ChatHit::LinkOpen),
+            "{popup:?}"
+        );
+        assert!(
+            popup.iter().any(|(hit, _)| *hit == ChatHit::LinkCancel),
+            "{popup:?}"
+        );
+        assert!(
+            popup
+                .iter()
+                .all(|(hit, _)| matches!(hit, ChatHit::LinkOpen | ChatHit::LinkCancel))
+        );
+        presentation.cancel_chat_link();
+        assert_eq!(runtime.chat_editor().as_str(), "keep my draft");
+        assert_eq!(runtime.chat().messages().len(), 1);
+        assert!(!presentation.chat_link_confirmation_open());
+    }
+}

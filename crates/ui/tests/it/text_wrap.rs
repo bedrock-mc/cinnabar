@@ -156,3 +156,50 @@ fn explicit_white_and_formatting_newlines() {
     let joined = layout("a§\nb", 64, TextWrap::default()).unwrap();
     assert_eq!(lines(&joined), ["ab"]);
 }
+
+#[test]
+fn glyph_sources_survive_format_codes_wrapping_and_generated_punctuation() {
+    let text = "a§bbcd§r abcd";
+    let plain = ui::parse_bedrock_text(text, ui::UiLimits::MAX_TEXT_BYTES)
+        .unwrap()
+        .plain_text()
+        .chars()
+        .collect::<Vec<_>>();
+    let wrapped = layout(
+        text,
+        5,
+        TextWrap {
+            chop: WordChop::Hyphen,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(wrapped.line_count() > 1);
+    assert!(wrapped.glyph_source_indices().contains(&None));
+    for (glyph, index) in wrapped.glyphs().iter().zip(wrapped.glyph_source_indices()) {
+        if let Some(index) = index {
+            assert_eq!(glyph.codepoint, plain[*index]);
+        } else {
+            assert_eq!(glyph.codepoint, '-');
+        }
+    }
+    let cut = layout(
+        text,
+        5,
+        TextWrap {
+            chop: WordChop::Hyphen,
+            max_lines: Some(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(cut.ellipsized());
+    assert!(
+        cut.glyphs()
+            .iter()
+            .zip(cut.glyph_source_indices())
+            .rev()
+            .take(3)
+            .all(|(glyph, index)| glyph.codepoint == '.' && index.is_none())
+    );
+}

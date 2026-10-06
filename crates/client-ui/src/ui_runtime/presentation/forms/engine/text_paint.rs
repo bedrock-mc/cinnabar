@@ -146,6 +146,46 @@ impl TextMeasure for Measure<'_, '_> {
     }
 }
 
+/// Builds the same wrapping, alignment and line limit used by label painting.
+#[allow(clippy::too_many_arguments)]
+pub(in super::super) fn painted_label_request<'a>(
+    metrics: TextMetrics,
+    text: &'a str,
+    dest: [f32; 4],
+    font: &'a RuntimeFontCatalog,
+    scale: f32,
+    options: &TextOptions,
+    align: TextAlign,
+    px: f32,
+) -> TextLayoutRequest<'a> {
+    let shape = LabelShape {
+        scale: f64::from(scale),
+        line_padding: f64::from(options.line_padding),
+        hide_hyphen: options.hide_hyphen,
+    };
+    let mut request = label_request(
+        &metrics,
+        text,
+        f64::from(dest[2] - dest[0]),
+        font.font_named(options.font_type.as_deref().unwrap_or("default")),
+        shape,
+        px,
+    );
+    let pitch = (request.line_height_64 as f32 * request.scale.get()
+        + request.wrap.line_padding_64 as f32)
+        / 64.0;
+    let room = ((dest[3] - dest[1]) / pitch.max(1e-3) + 0.01)
+        .floor()
+        .max(1.0);
+    request.wrap.max_lines = Some(room.min(f32::from(u16::MAX)) as u16);
+    request.wrap.align = match align {
+        TextAlign::Left => TextLineAlign::Left,
+        TextAlign::Center => TextLineAlign::Center,
+        TextAlign::Right => TextLineAlign::Right,
+    };
+    request
+}
+
 impl Painter<'_> {
     /// A label's text as one layout: lines past its height drop and the last
     /// kept one ends in `...`; each line aligns within the label's width.
@@ -164,32 +204,16 @@ impl Painter<'_> {
         if text.is_empty() {
             return Ok(());
         }
-        let shape = LabelShape {
-            scale: f64::from(style.scale),
-            line_padding: f64::from(style.options.line_padding),
-            hide_hyphen: style.options.hide_hyphen,
-        };
-        let mut request = label_request(
-            &self.metrics,
+        let request = painted_label_request(
+            self.metrics,
             &text,
-            f64::from(dest[2] - dest[0]),
-            self.font
-                .font_named(style.options.font_type.as_deref().unwrap_or("default")),
-            shape,
+            dest,
+            self.font,
+            style.scale,
+            &style.options,
+            style.align,
             self.px,
         );
-        let pitch = (request.line_height_64 as f32 * request.scale.get()
-            + request.wrap.line_padding_64 as f32)
-            / 64.0;
-        let room = ((dest[3] - dest[1]) / pitch.max(1e-3) + 0.01)
-            .floor()
-            .max(1.0);
-        request.wrap.max_lines = Some(room.min(f32::from(u16::MAX)) as u16);
-        request.wrap.align = match style.align {
-            TextAlign::Left => TextLineAlign::Left,
-            TextAlign::Center => TextLineAlign::Center,
-            TextAlign::Right => TextLineAlign::Right,
-        };
         let Ok(layout) = self.layouts.layout(request) else {
             return Ok(());
         };

@@ -523,6 +523,15 @@ pub(crate) fn drive_chat_keyboard_input(
             continue;
         }
         if let Some(presentation) = presentation.as_deref_mut()
+            && presentation.chat_link_confirmation_open()
+        {
+            consumed_gameplay = true;
+            if input.key_code == KeyCode::Escape {
+                presentation.cancel_chat_link();
+            }
+            continue;
+        }
+        if let Some(presentation) = presentation.as_deref_mut()
             && presentation.chat_settings_open()
         {
             consumed_gameplay = true;
