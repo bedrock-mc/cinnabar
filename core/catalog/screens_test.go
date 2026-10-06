@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
+	"github.com/df-mc/go-xsapi/v2/social"
+	"github.com/df-mc/go-xsapi/v2/xal/xsts"
 	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
@@ -157,5 +160,26 @@ func TestProfileOmitsUnavailableCounts(t *testing.T) {
 	got := string(raw)
 	if !strings.Contains(got, `"friends":0`) || strings.Contains(got, "followers") || strings.Contains(got, "gamerscore") {
 		t.Fatalf("profile = %s", got)
+	}
+}
+
+// The profile counts friends and followers from undecorated lists, as the game requests them.
+func TestProfileCountsUndecoratedPeopleLists(t *testing.T) {
+	var paths []string
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		paths = append(paths, req.URL.Path)
+		body := `{"people":[{"xuid":"1"},{"xuid":"2"},{"xuid":"3"}]}`
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	people := social.New(&http.Client{Transport: transport}, nil, xsts.UserInfo{}, nil)
+	friends, err := peopleCount(context.Background(), people, social.PeopleListFriends)
+	if err != nil || friends != 3 {
+		t.Fatalf("friends = %d err = %v", friends, err)
+	}
+	if followers, err := peopleCount(context.Background(), people, social.PeopleListFollowers); err != nil || followers != 3 {
+		t.Fatalf("followers = %d err = %v", followers, err)
+	}
+	if len(paths) != 2 || paths[0] != "/users/me/people/friends" || paths[1] != "/users/me/people/followers" {
+		t.Fatalf("paths = %v", paths)
 	}
 }

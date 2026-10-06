@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
+	"github.com/df-mc/go-xsapi/v2/social"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
@@ -134,10 +135,10 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 	defer xbl.Close()
 	info := xbl.UserInfo()
 	profile := Profile{Gamertag: info.GamerTag, XUID: info.XUID}
-	social := xbl.Social()
+	people := xbl.Social()
 	var failures []error
 	finish = ObserveProfileRequest(ctx, "identity")
-	user, err := social.UserByXUID(ctx, info.XUID)
+	user, err := people.UserByXUID(ctx, info.XUID)
 	finish(err)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("profile: %w", err))
@@ -155,22 +156,20 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 		}
 	}
 	finish = ObserveProfileRequest(ctx, "friends")
-	friends, err := social.Friends(ctx)
+	friends, err := peopleCount(ctx, people, social.PeopleListFriends)
 	finish(err)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("friends: %w", err))
 	} else {
-		count := len(friends)
-		profile.Friends = &count
+		profile.Friends = &friends
 	}
 	finish = ObserveProfileRequest(ctx, "followers")
-	followers, err := social.Followers(ctx)
+	followers, err := peopleCount(ctx, people, social.PeopleListFollowers)
 	finish(err)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("followers: %w", err))
 	} else {
-		count := len(followers)
-		profile.Followers = &count
+		profile.Followers = &followers
 	}
 	finish = ObserveProfileRequest(ctx, "statistics")
 	stats, err := profileStatistics(ctx, xbl.HTTPClient(), info.XUID)
@@ -190,6 +189,12 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 	}
 	profile.partial = errors.Join(failures...)
 	return profile, nil
+}
+
+// peopleCount counts one people list; the game requests these lists without decorations.
+func peopleCount(ctx context.Context, people *social.Client, list social.PeopleList) (int, error) {
+	users, err := people.People(ctx, list, social.PeopleListConfig{Undecorated: true})
+	return len(users), err
 }
 
 // withGatherings hands run a gatherings client on the discovered endpoint and the account's token.
