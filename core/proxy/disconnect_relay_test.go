@@ -226,7 +226,7 @@ func TestNetworkForAddressSelectsTransferTransportLikeAnAddressedServer(t *testi
 	}
 	signaling := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer signaling.Close()
-	hop, ok := networkForAddress(target, signaling.Listener.Addr().String()).(minecraft.AddressNetwork)
+	hop, ok := networkForAddress(target, signaling.Listener.Addr().String()).(addressedServerNetwork)
 	if !ok {
 		t.Fatal("transfer target skipped transport selection")
 	}

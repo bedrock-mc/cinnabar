@@ -38,7 +38,7 @@ func newPreparedTransport(ctx context.Context, network minecraft.Network, addres
 			}
 		}()
 		prepared.selected = network
-		if addressed, ok := network.(minecraft.AddressNetwork); ok {
+		if addressed, ok := network.(addressedServerNetwork); ok {
 			if prepared.selected, prepared.err = addressed.Select(ctx, address); prepared.err != nil {
 				return
 			}
@@ -60,7 +60,7 @@ func (prepared *preparedTransport) DialContext(ctx context.Context, address stri
 		return nil, err
 	}
 	if _, ok := prepared.selected.(identityProviderDialer); ok {
-		return prepared.selected.DialContext(ctx, address)
+		return dialSignedOut(ctx, prepared.selected, address)
 	}
 	return prepared.handOff(ctx, address)
 }
@@ -141,7 +141,7 @@ func dialWithPreparedTransport(
 ) (connection *minecraft.Conn, err error) {
 	// NetherNet proves possession during transport setup and must authenticate first.
 	switch network.(type) {
-	case minecraft.RakNet, *minecraft.RakNet, minecraft.AddressNetwork:
+	case minecraft.RakNet, *minecraft.RakNet, addressedServerNetwork:
 		prepared := newPreparedTransport(ctx, network, address)
 		defer func() { prepared.finish(connection != nil && err == nil) }()
 		connection, err = dial(ctx, prepared, address)

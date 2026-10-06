@@ -46,11 +46,37 @@ func remoteRakNet() minecraft.RakNet { return minecraft.RakNet{MaxMTU: remoteMax
 
 // remoteServerNetwork is the network for a server named by host:port rather than found on the
 // LAN: like vanilla it probes the address for NetherNet HTTP signaling and falls back to RakNet.
-func remoteServerNetwork(logger *slog.Logger) minecraft.AddressNetwork {
-	return minecraft.AddressNetwork{
+func remoteServerNetwork(logger *slog.Logger) addressedServerNetwork {
+	return addressedServerNetwork{minecraft.AddressNetwork{
 		RakNet:    remoteRakNet(),
 		NetherNet: minecraft.NetherNet{Dialer: nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}},
+	}}
+}
+
+// addressedServerNetwork presents a self-signed identity on signed-out NetherNet dials, which BDS
+// requires even with online-mode off; signed-in dials present the account's.
+type addressedServerNetwork struct{ minecraft.AddressNetwork }
+
+// DialContext is the signed-out dial.
+func (n addressedServerNetwork) DialContext(ctx context.Context, address string) (net.Conn, error) {
+	selected, err := n.Select(ctx, address)
+	if err != nil {
+		return nil, err
 	}
+	return dialSignedOut(ctx, selected, address)
+}
+
+// dialSignedOut dials the selected transport, with a self-signed identity when it is NetherNet.
+func dialSignedOut(ctx context.Context, selected minecraft.Network, address string) (net.Conn, error) {
+	dialer, ok := selected.(identityProviderDialer)
+	if !ok {
+		return selected.DialContext(ctx, address)
+	}
+	identity, err := selfSignedIdentity(time.Now())
+	if err != nil {
+		return nil, err
+	}
+	return dialer.DialContextIdentityProvider(ctx, address, identity.Token, identity.PrivateKey, identity.Domain)
 }
 
 type resolvedUpstreamTarget struct {
