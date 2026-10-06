@@ -631,7 +631,6 @@ fn boss_tint(color: ui::BossColor) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
 }
 
-#[cfg(any(test, feature = "test-support"))]
 impl CachedScreen {
     /// The last laid-out draw nodes, in virtual px.
     pub(super) fn nodes(&self) -> &[json_ui::DrawNode] {
