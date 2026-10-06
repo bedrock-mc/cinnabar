@@ -112,7 +112,7 @@ impl FormEngine {
         super::global_resources::extend_catalog(&mut catalog);
         super::credits_screen::extend_catalog(&mut catalog);
         let vanilla = Arc::new(catalog);
-        let base = Arc::new(hud_renderers::with_java_hud(&vanilla, &Default::default()));
+        let base = Arc::new(hud_renderers::with_java_hud(&vanilla));
         Self {
             textures: TextureSet::new(first_page).with_carrier(Arc::clone(&assets)),
             assets,
@@ -342,6 +342,24 @@ impl FormEngine {
 
     pub(super) fn catalog(&self) -> &Arc<Catalog> {
         &self.catalog
+    }
+
+    /// Chat retains the built-in presentation while other screens use the pack stack.
+    pub(super) fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {
+        if reference == super::chat_screen::CHAT_SCREEN {
+            &self.base
+        } else {
+            &self.catalog
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::ui_runtime::presentation) fn set_native_chat_fixture(&mut self, native: bool) {
+        self.base = if native {
+            Arc::clone(&self.vanilla)
+        } else {
+            Arc::new(hud_renderers::with_java_hud(&self.vanilla))
+        };
     }
 
     pub(super) fn context(&self) -> &Context {
@@ -738,6 +756,23 @@ impl Painter<'_> {
     }
 
     fn paint(&mut self, node: &DrawNode) -> Result<(), UiPresentationError> {
+        if let Draw::Sprite { texture, .. } = &node.draw
+            && node
+                .anim
+                .as_ref()
+                .and_then(|anim| anim.own.as_ref())
+                .is_some_and(|own| {
+                    own.graph.nodes.iter().any(|anim| {
+                        matches!(
+                            anim.kind,
+                            json_ui::AnimKind::FlipBook | json_ui::AnimKind::Aseprite
+                        )
+                    })
+                })
+            && self.textures.animation_sprite(texture).is_none()
+        {
+            return Ok(());
+        }
         let drawn = node.animate(
             &mut self.animator,
             self.art.now,

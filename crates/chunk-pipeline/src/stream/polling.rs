@@ -76,7 +76,7 @@ impl WorldStream {
         let now = Instant::now();
         let frame_deadline = self.frame_deadline.take().unwrap_or_else(|| {
             self.poll_deadline
-                .unwrap_or(now + commit_budget::WORLD_POLL_BUDGET)
+                .unwrap_or(now + self.poll_budget)
         });
         let remaining = frame_deadline.saturating_duration_since(now);
         self.poll_deadline
@@ -290,7 +290,9 @@ impl WorldStream {
     /// Y of the highest non-air block in a loaded column, or `None` when it is unloaded or empty.
     #[must_use]
     pub fn top_non_air_block_y(&self, block_x: i32, block_z: i32) -> Option<i32> {
-        let range = vanilla_dimension_range(self.authority.current_dimension())?;
+        let range = self
+            .authority
+            .dimension_range(self.authority.current_dimension())?;
         let chunk = ChunkKey::new(
             self.authority.current_dimension(),
             block_x.div_euclid(16),
@@ -338,6 +340,15 @@ impl WorldStream {
     #[must_use]
     pub const fn current_dimension(&self) -> i32 {
         self.authority.current_dimension()
+    }
+
+    #[must_use]
+    pub fn dimension_range(&self, dimension: i32) -> Option<DimensionRange> {
+        self.authority.dimension_range(dimension)
+    }
+
+    pub fn dimension_transfer_area_ready(&self, position: [f32; 3]) -> bool {
+        self.authority.dimension_transfer_area_ready(position)
     }
 
     /// The validated sequence of the last committed dimension transition.

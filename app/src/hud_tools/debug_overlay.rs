@@ -2,6 +2,7 @@
 //! not a Bedrock parity screen; its visual reference is the supplied 19w05a image.
 
 mod details;
+mod entities;
 mod spatial;
 #[cfg(test)]
 mod tests;

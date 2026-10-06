@@ -71,6 +71,7 @@ pub struct ExtraChecks {
 
 /// Paths outside every crate root that a crate's tests read.
 const EXTERNAL_TEST_INPUTS: &[(&str, &str)] = &[
+    ("assets/java-hud", "json-ui"),
     ("plan.md", "architecture"),
     ("docs/evidence", "architecture"),
 ];
@@ -213,6 +214,24 @@ mod tests {
         assert_eq!(
             select_packages(&["app/src/main.rs"], &workspace()),
             Selection::Packages(vec!["bedrock-client".into()])
+        );
+    }
+
+    #[test]
+    fn builtin_hud_changes_select_the_ui_owner_and_its_consumers() {
+        let packages = vec![
+            Package::new("json-ui", "crates/json-ui", &[]),
+            Package::new("client-ui", "crates/client-ui", &["json-ui"]),
+            Package::new("bedrock-client", "app", &["client-ui"]),
+            Package::new("sim", "crates/sim", &[]),
+        ];
+        assert_eq!(
+            select_packages(&["assets/java-hud/ui/hud_screen.json"], &packages),
+            Selection::Packages(vec![
+                "bedrock-client".into(),
+                "client-ui".into(),
+                "json-ui".into(),
+            ])
         );
     }
 

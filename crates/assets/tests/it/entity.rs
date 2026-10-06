@@ -1,6 +1,8 @@
 use assets as entity;
 use assets as item;
 
+#[path = "entity/animation_capacity.rs"]
+mod animation_capacity;
 #[path = "entity/bind_pose.rs"]
 mod bind_pose;
 #[path = "entity/review_regressions.rs"]

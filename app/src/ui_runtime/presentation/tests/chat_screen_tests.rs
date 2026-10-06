@@ -205,14 +205,14 @@ fn texts(nodes: &[DrawNode]) -> Vec<&str> {
 }
 
 #[test]
-fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
+fn server_chat_screen_keeps_the_java_layout_and_input_policy() {
     let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
         eprintln!(
-            "skipping server_chat_screen_withdraws_the_java_layout_and_restores_on_removal: fixture unavailable; requires installed local carriers (make assets)"
+            "skipping server_chat_screen_keeps_the_java_layout_and_input_policy: fixture unavailable; requires installed local carriers (make assets)"
         );
         return;
     };
@@ -229,9 +229,9 @@ fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
         ..Default::default()
     });
     build(&player_runtime, &mut presentation, &runtime, 0);
-    assert!(texts(presentation.chat_draw_nodes()).contains(&"Server chat"));
+    assert!(!texts(presentation.chat_draw_nodes()).contains(&"Server chat"));
     let menu = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
-    assert!(!presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
     let input = presentation
         .build(
             &player_runtime,

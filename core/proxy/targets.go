@@ -46,10 +46,12 @@ func remoteRakNet() minecraft.RakNet { return minecraft.RakNet{MaxMTU: remoteMax
 
 // remoteServerNetwork is the network for a server named by host:port rather than found on the
 // LAN: like vanilla it probes the address for NetherNet HTTP signaling and falls back to RakNet.
-func remoteServerNetwork(logger *slog.Logger) addressedServerNetwork {
+// A nil trust joins any NetherNet server.
+func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust) addressedServerNetwork {
 	return addressedServerNetwork{minecraft.AddressNetwork{
-		RakNet:    remoteRakNet(),
-		NetherNet: minecraft.NetherNet{Dialer: nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}},
+		RakNet:      remoteRakNet(),
+		NetherNet:   minecraft.NetherNet{Dialer: nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}},
+		ServerTrust: trust,
 	}}
 }
 
@@ -114,7 +116,8 @@ func (target *resolvedUpstreamTarget) close() error {
 	return joined
 }
 
-func resolveUpstreamTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+// resolveUpstreamTarget resolves address to its transport; trust decides addressed NetherNet joins.
+func resolveUpstreamTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger, trust minecraft.ServerTrust) (*resolvedUpstreamTarget, error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return nil, errors.New("upstream target is empty")
@@ -123,7 +126,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 		if isStableTarget(address) {
 			return nil, errors.New("authenticated target requires a Microsoft session")
 		}
-		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger)}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust)}, nil
 	}
 
 	resolveContext, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -139,7 +142,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	case isRawNetherNetAddress(address):
 		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	default:
-		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger)}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust)}, nil
 	}
 }
 
@@ -154,9 +157,11 @@ func resolveRealmTarget(ctx context.Context, address string, account *authcache.
 }
 
 func lookupRealmTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
-	client := realms.NewClient(account, nil)
+	client, err := catalog.RealmsClient(ctx, account)
+	if err != nil {
+		return nil, err
+	}
 	var realmAddress realms.RealmAddress
-	var err error
 	if strings.HasPrefix(strings.ToLower(address), realmTargetPrefix) {
 		id, parseErr := strconv.Atoi(strings.TrimSpace(address[len(realmTargetPrefix):]))
 		if parseErr != nil || id <= 0 {
@@ -216,7 +221,7 @@ func resolveFriendWorld(ctx context.Context, xuid string, xbl *xsapi.Client, acc
 	if err != nil {
 		return nil, fmt.Errorf("request friend worlds: %w", err)
 	}
-	world := selectFriendWorld(worlds, xuid)
+	world := selectFriendWorld(worlds, xuid, xbl.UserInfo().XUID)
 	if world == nil {
 		return nil, fmt.Errorf("friend world %q is no longer joinable", xuid)
 	}
@@ -237,25 +242,14 @@ func resolveFriendWorld(ctx context.Context, xuid string, xbl *xsapi.Client, acc
 	return target, nil
 }
 
-// selectFriendWorld prefers a friends-joinable world of the owner and falls back to an
-// invite-only one the account can already see; nil when the owner hosts nothing joinable.
-func selectFriendWorld(worlds []p2p.World, ownerXUID string) *p2p.World {
-	var inviteOnly *p2p.World
+// selectFriendWorld returns the owner's first world the friends tab lists for self, or nil.
+func selectFriendWorld(worlds []p2p.World, ownerXUID, self string) *p2p.World {
 	for index := range worlds {
-		candidate := &worlds[index]
-		if candidate.OwnerID != ownerXUID {
-			continue
-		}
-		switch candidate.Joinability {
-		case p2p.JoinabilityFriends:
-			return candidate
-		case p2p.JoinabilityInviteOnly:
-			if inviteOnly == nil {
-				inviteOnly = candidate
-			}
+		if worlds[index].OwnerID == ownerXUID && catalog.FriendWorldListed(worlds[index], self) {
+			return &worlds[index]
 		}
 	}
-	return inviteOnly
+	return nil
 }
 
 func resolveRawNetherNetTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {

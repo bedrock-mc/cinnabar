@@ -667,6 +667,9 @@ impl StoreState {
                 continue;
             }
             if first {
+                if front.contains(&url) {
+                    continue;
+                }
                 self.queued_images.retain(|queued| *queued != url);
                 front.push(url);
             } else if !self.queued_images.contains(&url) && self.queued_images.len() < MAX_OWNED {
@@ -681,10 +684,12 @@ impl StoreState {
             let Some(url) = self.queued_images.pop_front() else {
                 break;
             };
-            if self.image_files.contains_key(&url) || self.failed_images.contains(&url) {
+            if self.image_files.contains_key(&url)
+                || self.failed_images.contains(&url)
+                || !self.pending_images.insert(url.clone())
+            {
                 continue;
             }
-            self.pending_images.insert(url.clone());
             requests.push(StoreRequest::Image(url));
         }
         requests

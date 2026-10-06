@@ -82,6 +82,24 @@ fn append_preserves_existing_matrices_and_reuses_the_final_arena_allocation() {
 }
 
 #[test]
+fn draw_light_multiplier_keeps_finite_values_and_defaults_non_finite_inputs() {
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    assert_eq!(ActorGpuInstance::default().light_color_multiplier, 1.0);
+    for value in [-0.25, 0.5, 1.8, f32::NAN, f32::INFINITY] {
+        let mut input = submission(1, 1);
+        input.material.light_color_multiplier = value;
+        let frame = builder.build(0.5, None, [input]);
+        assert_eq!(frame.instances.len(), 1);
+        assert_eq!(
+            frame.instances[0].light_color_multiplier,
+            if value.is_finite() { value } else { 1.0 }
+        );
+    }
+}
+
+#[test]
 fn invalid_late_bones_roll_back_the_entire_pose_without_touching_the_prefix() {
     for invalid in [
         RenderBoneTransform {
@@ -138,6 +156,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             multitexture_layers: [u32::MAX; 2],
             material: input.material.kind as u32,
             dissolve_multiplier: input.material.dissolve_multiplier,
+            light_color_multiplier: input.material.light_color_multiplier,
         });
         manifest.push(ActorDrawManifestEntry {
             identity: input.input.identity,

@@ -33,9 +33,15 @@ pub(crate) fn from_block_entity_wgsl(
     source: &str,
     path: impl Into<String>,
     words: usize,
+    selection_vertices_per_edge: u32,
 ) -> Shader {
     from_wgsl(
-        source.replace("BLOCK_ENTITY_VERTEX_WORDS", &format!("{words}u")),
+        source
+            .replace("BLOCK_ENTITY_VERTEX_WORDS", &format!("{words}u"))
+            .replace(
+                "BLOCK_SELECTION_VERTICES_PER_EDGE",
+                &format!("{selection_vertices_per_edge}u"),
+            ),
         path,
     )
 }

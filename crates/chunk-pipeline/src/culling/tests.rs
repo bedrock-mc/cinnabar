@@ -253,7 +253,7 @@ fn fixture_world(radius: i32, seed: u64) -> HashMap<SubChunkKey, FaceConnectivit
             for y in -4..20 {
                 let value = if y > surface {
                     FaceConnectivity::all()
-                } else if rng.next() % 3 == 0 {
+                } else if rng.next().is_multiple_of(3) {
                     FaceConnectivity::none()
                 } else {
                     rng.connectivity()
@@ -319,7 +319,7 @@ fn dense_traversal_matches_the_oracle_on_random_worlds() {
         let mut map = HashMap::new();
         for _ in 0..rng.below(3_000) + 1 {
             let key = SubChunkKey::new(
-                i32::from(rng.next() % 8 == 0),
+                i32::from(rng.next().is_multiple_of(8)),
                 rng.below(span) - span as i32 / 2,
                 rng.below(40) - 8,
                 rng.below(span) - span as i32 / 2,
@@ -338,7 +338,7 @@ fn dense_traversal_matches_the_oracle_on_random_worlds() {
             assert_matches_oracle(camera, &map, &grid, &mut scratch, &mut visible);
             for _ in 0..50 {
                 let key = keys[rng.below(keys.len() as u64) as usize];
-                if rng.next() % 2 == 0 {
+                if rng.next().is_multiple_of(2) {
                     assert_eq!(grid.remove(&key), map.remove(&key));
                 } else {
                     let value = rng.connectivity();
@@ -509,7 +509,7 @@ fn incremental_updates_match_full_traversal_through_mutations() {
     for step in 0..300 {
         for _ in 0..8 {
             let key = SubChunkKey::new(
-                i32::from(rng.next() % 11 == 0),
+                i32::from(rng.next().is_multiple_of(11)),
                 rng.below(12) - 6,
                 rng.below(80) - 20,
                 rng.below(12) - 6,

@@ -1,4 +1,4 @@
-//! Ordinary terrain transparency blends encoded colour, not linear colour.
+//! Ordinary world transparency blends encoded colour, not linear colour.
 //!
 //! Vanilla selects UNORM format 0x57, while
 //! the renderer uses that format for the colour attachment. The near-version ordinary
@@ -30,6 +30,10 @@ use bevy::{
     },
 };
 use target::{GammaTarget, prepare_gamma_targets};
+
+pub(crate) fn admitted(hdr: bool, msaa: Msaa, enhanced: bool) -> bool {
+    !hdr && msaa == Msaa::Off && !(render_model::ENHANCED_RENDERING_ENABLED && enhanced)
+}
 
 pub(in crate::chunk) fn install(app: &mut App) {
     app.add_systems(Last, admit_copy_destination);
@@ -91,7 +95,7 @@ impl ViewNode for GammaTransparentPass {
         >,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
-        if !target::admitted(view.hdr, *msaa, enhanced.is_some()) {
+        if !admitted(view.hdr, *msaa, enhanced.is_some()) {
             return MainTransparentPass3dNode.run(
                 graph,
                 render_context,
@@ -112,7 +116,7 @@ impl ViewNode for GammaTransparentPass {
         if !phase
             .items
             .iter()
-            .any(|item| draws.contains(&item.draw_function()))
+            .any(|item| draws.contains(&Some(item.draw_function())))
         {
             return MainTransparentPass3dNode.run(
                 graph,
@@ -131,9 +135,9 @@ impl ViewNode for GammaTransparentPass {
                 .contains(TextureUsages::COPY_DST)
         );
         copy_scene(render_context, target.main_texture(), &scratch.texture);
-        for (range, gamma) in
-            contiguous_ranges(&phase.items, |item| draws.contains(&item.draw_function()))
-        {
+        for (range, gamma) in contiguous_ranges(&phase.items, |item| {
+            draws.contains(&Some(item.draw_function()))
+        }) {
             let colour_view = if gamma {
                 &scratch.gamma_view
             } else {
@@ -167,14 +171,17 @@ impl ViewNode for GammaTransparentPass {
     }
 }
 
-fn native_draws(world: &World) -> [DrawFunctionId; 4] {
+fn native_draws(world: &World) -> [Option<DrawFunctionId>; 6] {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
+    let nametags = crate::nametag_render::draw_function(world);
     let draws = world.resource::<DrawFunctions<Transparent3d>>().read();
     [
-        draws.id::<DrawTransparentLiquidCommands>(),
-        draws.id::<DrawTransparentLiquidIndirectCommands>(),
-        draws.id::<DrawTransparentModelCommands>(),
-        draws.id::<DrawMixedTerrainCommands>(),
+        Some(draws.id::<DrawTransparentLiquidCommands>()),
+        Some(draws.id::<DrawTransparentLiquidIndirectCommands>()),
+        Some(draws.id::<DrawTransparentModelCommands>()),
+        Some(draws.id::<DrawMixedTerrainCommands>()),
+        draws.get_id::<crate::actor_render::phase::DrawTransparentActorCommands>(),
+        nametags,
     ]
 }
 

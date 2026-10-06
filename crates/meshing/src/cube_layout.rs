@@ -216,6 +216,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::single_range_in_vec_init)] // A one-element list of draw runs is the expectation.
     fn runs_merge_adjacent_slots_and_skip_empty_ones() {
         // Slots: -X 2, -Y 0, -Z 3, +X 1, +Y 4, +Z 0.
         let layout = CubeQuadLayout::from_solid_counts([2, 1, 0, 4, 3, 0]);

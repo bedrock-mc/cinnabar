@@ -1,13 +1,5 @@
-//! Opt-in "Enhanced" world rendering: a custom, non-parity look that never
-//! replaces or alters the vanilla path. Cameras without [`EnhancedRendering`]
-//! keep byte-identical vanilla pipelines and never run these passes.
-//!
-//! Techniques are standard published ones implemented from scratch: stable
-//! cascaded shadow maps with PCF, Bevy bloom, ray-marched
-//! shadow-map light shafts, screen-space reflections, and a filmic shoulder.
-//!
-//! The passes compile only with the `enhanced` feature; the component, kill switch
-//! and the shader imports vanilla variants resolve are always present.
+//! Opt-in enhanced passes preserve the ordinary path for unmarked cameras.
+//! Passes require `enhanced`; the camera component and shared shader imports do not.
 
 #[cfg(feature = "enhanced")]
 mod frame;

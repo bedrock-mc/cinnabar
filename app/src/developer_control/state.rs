@@ -178,6 +178,7 @@ fn actors(world: &World) -> Vec<Value> {
                 distance,
                 json!({
                     "unique_id": actor.unique_id,
+                    "runtime_id": actor.runtime_id,
                     "type": kind,
                     "name": name,
                     "position": actor.position,
@@ -210,6 +211,8 @@ pub(super) fn snapshot(world: &World) -> Value {
     let menu = world.get_resource::<MenuRuntime>();
     json!({
         "in_world": stream.is_some(),
+        "immobile": world.get_resource::<crate::player_runtime::PlayerRuntime>()
+            .map(|player| player.facts.is_immobile()),
         "feet": view.map(|view| view.feet_translation().to_array()),
         "eye": view.map(|view| view.eye_translation().to_array()),
         "server_position": player_position(world),
@@ -225,6 +228,9 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
         "actor_count": actor_count,
         "actors": actors,
+        "actor_draw": super::actors::snapshot(world),
+        "sidebar": world.get_resource::<UiRuntime>()
+            .and_then(|ui| super::scoreboards::snapshot(ui.scoreboards())),
         "screens": screens(world),
         "menu": menu.map(|menu| json!({
             "visible": menu.is_visible(),

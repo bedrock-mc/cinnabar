@@ -6,7 +6,7 @@ use sim::PaletteWorld;
 use crate::{
     app::ClientFrameSet,
     interaction_authority::ray_is_current,
-    local_player::{CameraPose, InteractionOriginSnapshot},
+    local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
     mining::{creative_reach, protocol_input_mode, survival_reach},
     movement::PhysicsCollisionRegistries,
@@ -23,7 +23,6 @@ struct SelectionContext<'w> {
     collisions: Res<'w, PhysicsCollisionRegistries>,
     ui: Res<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
-    camera: Res<'w, CameraPose>,
     origin: Res<'w, InteractionOriginSnapshot>,
     input: Res<'w, SemanticInputSnapshot>,
     settings: Res<'w, RuntimeSettings>,
@@ -40,8 +39,6 @@ fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
     let target = target(&context.player, &context);
     frame.update(
         target.as_ref(),
-        context.camera.transform().translation,
-        context.camera.transform().rotation * Vec3::NEG_Z,
         context
             .settings
             .user_settings_update()

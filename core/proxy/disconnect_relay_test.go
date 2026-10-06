@@ -221,12 +221,12 @@ func TestRelayPreLoginDisconnectWordsJoinFailuresAsVanilla(t *testing.T) {
 // A transfer hop names a plain host:port, which vanilla probes for NetherNet like any addressed server.
 func TestNetworkForAddressSelectsTransferTransportLikeAnAddressedServer(t *testing.T) {
 	target := &resolvedUpstreamTarget{address: "Host:1", network: scopedNetherNetNetwork{}}
-	if _, ok := networkForAddress(target, "host:1").(scopedNetherNetNetwork); !ok {
+	if _, ok := networkForAddress(target, "host:1", nil).(scopedNetherNetNetwork); !ok {
 		t.Fatal("resolved address lost its transport")
 	}
 	signaling := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer signaling.Close()
-	hop, ok := networkForAddress(target, signaling.Listener.Addr().String()).(addressedServerNetwork)
+	hop, ok := networkForAddress(target, signaling.Listener.Addr().String(), nil).(addressedServerNetwork)
 	if !ok {
 		t.Fatal("transfer target skipped transport selection")
 	}

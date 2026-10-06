@@ -439,20 +439,3 @@ pub(in crate::chunk) fn plan_arena_growth(
         gpu_copy_bytes: buffer_byte_len(current_capacity, item_bytes),
     }))
 }
-
-pub(in crate::chunk) fn write_stream_records<T: bytemuck::Pod>(
-    render_queue: &RenderQueue,
-    buffer: &Buffer,
-    item_bytes: u64,
-    writes: Vec<(u32, Vec<T>)>,
-) {
-    for (offset, records) in writes {
-        if !records.is_empty() {
-            render_queue.write_buffer(
-                buffer,
-                u64::from(offset) * item_bytes,
-                bytemuck::cast_slice(&records),
-            );
-        }
-    }
-}

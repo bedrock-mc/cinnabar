@@ -27,6 +27,146 @@ fn assert_spans(catalog: &GeometryCatalog) {
     }
 }
 
+#[test]
+fn duplicate_vertex_pages_share_storage_and_keep_rig_metadata() {
+    let count = MAX_ACTOR_RIG_VERTICES / 2 + 1;
+    let first = geometry(1, count);
+    let second = ActorRigGeometry::new(
+        EntityRigId(2),
+        first.vertices.to_vec(),
+        vec![[3.0, 4.0, 5.0]],
+    )
+    .unwrap();
+    assert!(!Arc::ptr_eq(&first.vertices, &second.vertices));
+    let catalog = GeometryCatalog::layout(
+        [(first.id, first), (second.id, second)]
+            .into_iter()
+            .collect(),
+    )
+    .expect("identical vertex pages consume one immutable storage span");
+    assert_ne!(
+        catalog.indices[&EntityRigId(1)],
+        catalog.indices[&EntityRigId(2)]
+    );
+    assert_eq!(catalog.vertices.len(), count);
+    assert_eq!(catalog.vertices.segments.len(), 1);
+    assert_eq!(catalog.published_spans[0], catalog.published_spans[1]);
+    assert_eq!(catalog.geometries[&EntityRigId(1)].bone_pivots[0], [0.0; 3]);
+    assert_eq!(
+        catalog.geometries[&EntityRigId(2)].bone_pivots[0],
+        [3.0, 4.0, 5.0]
+    );
+    assert_spans(&catalog);
+}
+
+#[test]
+fn duplicate_vertex_pages_append_with_existing_addresses_and_snapshots() {
+    let count = MAX_ACTOR_RIG_VERTICES / 2 + 1;
+    let first = geometry(1, count);
+    let second = ActorRigGeometry::new(
+        EntityRigId(2),
+        first.vertices.to_vec(),
+        first.bone_pivots.to_vec(),
+    )
+    .unwrap();
+    let mut catalog = GeometryCatalog::layout([(first.id, first)].into_iter().collect()).unwrap();
+    let before = catalog.vertices.clone();
+    let original_span = catalog.published_spans[0];
+    catalog
+        .append(vec![second], 2)
+        .expect("an appended alias shares its existing immutable vertex page");
+    assert_eq!(catalog.vertices.len(), count);
+    assert_eq!(catalog.vertices.segments.len(), 1);
+    assert_eq!(catalog.published_spans[0], original_span);
+    assert_eq!(catalog.published_spans[1], original_span);
+    assert!(Arc::ptr_eq(
+        &before.segments[0],
+        &catalog.vertices.segments[0]
+    ));
+    assert_eq!(
+        before.span(original_span),
+        catalog.vertices.span(original_span)
+    );
+    assert_spans(&catalog);
+}
+
+#[test]
+fn shared_page_replacement_preserves_alias_metadata_and_old_snapshot() {
+    let first = geometry(1, 3);
+    let second = ActorRigGeometry::new(
+        EntityRigId(2),
+        first.vertices.to_vec(),
+        vec![[3.0, 4.0, 5.0]],
+    )
+    .unwrap();
+    let mut catalog = GeometryCatalog::layout(
+        [(first.id, first), (second.id, second)]
+            .into_iter()
+            .collect(),
+    )
+    .unwrap();
+    let before = catalog.vertices.clone();
+    let alias_span = catalog.published_spans[catalog.indices[&EntityRigId(2)] as usize];
+    let replacement = geometry(3, 3);
+    let vertices = Arc::clone(&replacement.vertices);
+    let first = ActorRigGeometry::new(EntityRigId(1), vertices.to_vec(), vec![[0.0; 3]]).unwrap();
+    catalog.append(vec![first, replacement], 2).unwrap();
+    assert_eq!(catalog.vertices.segments.len(), 2);
+    assert_eq!(catalog.vertices.len(), 6);
+    assert_eq!(
+        catalog.published_spans[catalog.indices[&EntityRigId(1)] as usize],
+        catalog.published_spans[catalog.indices[&EntityRigId(3)] as usize]
+    );
+    assert_eq!(
+        catalog.published_spans[catalog.indices[&EntityRigId(2)] as usize],
+        alias_span
+    );
+    assert_eq!(before.span(alias_span), catalog.vertices.span(alias_span));
+    assert_eq!(
+        catalog.geometries[&EntityRigId(2)].bone_pivots[0],
+        [3.0, 4.0, 5.0]
+    );
+    assert_spans(&catalog);
+}
+
+#[test]
+fn vertex_pages_preserve_exact_uv_bits_and_bone_indices() {
+    let first = geometry(1, 3);
+    let changed = |id, vertex: ActorRigVertex| {
+        ActorRigGeometry::new(EntityRigId(id), vec![vertex; 3], vec![[0.0; 3]; 2]).unwrap()
+    };
+    let mut uv = first.vertices[0];
+    uv.uv[0] = -0.0;
+    let mut bone = first.vertices[0];
+    bone.bone_index = 1;
+    let geometries = [first, changed(2, uv), changed(3, bone)];
+    let catalog = GeometryCatalog::layout(
+        geometries
+            .into_iter()
+            .map(|geometry| (geometry.id, geometry))
+            .collect(),
+    )
+    .unwrap();
+    assert_eq!(catalog.vertices.len(), 9);
+    assert_eq!(catalog.vertices.segments.len(), 3);
+    assert_spans(&catalog);
+}
+
+#[test]
+fn removing_a_shared_pack_range_keeps_the_remaining_route() {
+    let pack = render_model::pack_rig_id(0);
+    let first = geometry(1, 3);
+    let alias =
+        ActorRigGeometry::new(pack, first.vertices.to_vec(), vec![[3.0, 4.0, 5.0]]).unwrap();
+    let mut builder = crate::ActorRigFrameBuilder::new([first, alias]).unwrap();
+    let with_alias = builder.catalog.vertices.len();
+    builder.replace_pack_geometries(Vec::new()).unwrap();
+    assert!(!builder.contains_geometry(pack));
+    assert!(builder.contains_geometry(EntityRigId(1)));
+    assert_eq!(builder.catalog.vertices.len(), with_alias);
+    assert_spans(&builder.catalog);
+}
+
 /// Crossing the old 32-segment threshold preserves all prior payloads and addresses.
 #[test]
 fn registrations_keep_pages_and_addresses() {

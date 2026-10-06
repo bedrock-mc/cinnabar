@@ -1,5 +1,5 @@
 //! Local-only renders of the launcher's play flow against fixture service data
-//! (Realms, friends, featured servers, gatherings, pings, saved servers).
+//! (Realms, friends, featured servers, pings, saved servers).
 //! Skips without the gitignored carrier; PNGs go to `CINNABAR_FORM_SNAPSHOT_DIR`.
 
 use std::path::PathBuf;

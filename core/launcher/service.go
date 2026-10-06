@@ -48,7 +48,6 @@ type Config struct {
 	Remove   func(path string) error
 
 	Featured                  func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
-	Gatherings                func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
 	Profile                   func(context.Context, *authcache.Account) (catalog.Profile, error)
 	ProfileFeaturedScreenshot func(context.Context, *authcache.Account, string) (catalog.Image, error)
 	ProfileAvatar             func(context.Context, *authcache.Account, string, string) (catalog.Image, error)
@@ -68,8 +67,8 @@ type Service struct {
 
 	mu           sync.Mutex
 	snap         snapshot
-	flights      [3]*flight
-	attempted    [3]time.Time
+	flights      [2]*flight
+	attempted    [2]time.Time
 	profileLogMu sync.Mutex
 	profileLogs  map[string]time.Time
 	profileArt   []string   // current avatar and achievement art pruning must keep
@@ -93,9 +92,6 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Featured == nil {
 		cfg.Featured = catalog.FeaturedServers
-	}
-	if cfg.Gatherings == nil {
-		cfg.Gatherings = catalog.Gatherings
 	}
 	if cfg.Profile == nil {
 		cfg.Profile = catalog.AccountProfile
@@ -157,11 +153,6 @@ func (s *Service) Friends(ctx context.Context) ([]catalog.Friend, error) {
 // FeaturedServers lists the featured servers with their artwork cached, from the last good fetch.
 func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer, error) {
 	return cached(ctx, s, featuredFeed)
-}
-
-// Gatherings lists the community gatherings with their artwork cached, from the last good fetch.
-func (s *Service) Gatherings(ctx context.Context) ([]catalog.Gathering, error) {
-	return cached(ctx, s, gatheringsFeed)
 }
 
 // Home returns the start screen's service data with its artwork cached, from the last good fetch.

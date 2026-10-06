@@ -4,7 +4,7 @@
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
@@ -274,16 +274,18 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.next_texture = animation_sample.next_texture;
     out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
-    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
+    let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
+    let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
+    out.lighting = light_colour(light_sample) * ao * dimming;
 #ifdef ENHANCED
     out.sky_light = sky_illumination(light_sample);
-    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+    out.ambient_occlusion = ao;
 #else
     // Native RenderChunk samples its gamma lightmap after applying vertex AO.
     // Retain separate level and AO interpolants: table lookup occurs in the
     // fragment stage, not before interpolating its nonlinear RGB output.
     out.native_light_levels = terrain_light_levels(light_sample);
-    out.native_ao_face = material_leaf_shade(light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u), material.flags);
+    out.native_ao_face = material_leaf_shade(ao * dimming, material.flags);
 #endif
 #ifdef ENHANCED
     out.surface_class = material_class(quad.material_id);

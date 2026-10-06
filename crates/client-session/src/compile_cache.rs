@@ -157,7 +157,7 @@ impl CompileCache {
                     return None;
                 }
                 (metadata.is_file() && path.extension().is_some_and(|ext| ext == EXTENSION))
-                    .then(|| (modified, metadata.len(), path))
+                    .then_some((modified, metadata.len(), path))
             })
             .collect();
         let mut total: u64 = entries.iter().map(|(_, length, _)| length).sum();

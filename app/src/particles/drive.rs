@@ -19,6 +19,7 @@ use render::{
     ParticleGpuFrame, ParticleSimulation, RainSplashQueue, particle_view, update_particle_frame,
 };
 
+use super::actors::{ActorParticleCommand, queue_actor_particles, route_actor_particles};
 use super::{ambient::AmbientParticles, tiles::block_tile, world_adapter::StreamParticleWorld};
 use crate::{
     camera::FlyCamera, movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
@@ -32,6 +33,7 @@ mod snowball_tests;
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct ParticleInbox {
+    actor_commands: Vec<ActorParticleCommand>,
     events: Vec<CommittedParticleEvent>,
     notices: Vec<ActorStatusNotice>,
     /// Level events `(id, position, data)` the audio runtime drains; separate so particles can consume theirs.
@@ -367,6 +369,7 @@ fn drive_particles(
         }
         inbox.events.clear();
         inbox.notices.clear();
+        inbox.actor_commands.clear();
         block_cues.clear();
         ambient.reset();
         return;
@@ -383,6 +386,7 @@ fn drive_particles(
         *session = identity;
         *break_echoes = crate::audio::EchoLedger::default();
         system.clear();
+        inbox.actor_commands.clear();
         ambient.reset();
         inbox.events.retain(|event| event.dimension == identity.1);
     }
@@ -480,6 +484,8 @@ fn drive_particles(
             .and_then(|mining| mining.destroying_target());
         spawn_mining_cracks(&mut system, &routing, local_target, view.position);
     }
+    queue_actor_particles(stream, &mut system, &mut inbox.actor_commands);
+    route_actor_particles(&mut system, &mut inbox.actor_commands);
     follow_bound_emitters(&mut system, stream);
     update_particle_frame(&mut system, &mut frame, time.delta_secs(), &view, &world);
 }

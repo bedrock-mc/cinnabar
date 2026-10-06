@@ -8,10 +8,9 @@ use std::{borrow::Cow, sync::Arc};
 use assets::gui_item::{CUBE_FACES, GUI_ITEM_SIDE};
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, Material, ModelQuad,
-    ModelTemplate, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TexturePage,
-    VisualKind,
+    MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    Material, ModelQuad, ModelTemplate, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
+    TextureArray, TexturePage, VisualKind,
 };
 
 use super::cube::Reject;
@@ -115,23 +114,22 @@ impl<'a> Model<'a> {
                     != 0
                 {
                     &[0, 11]
-                } else if first.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
-                    &[0, 1]
                 } else {
                     &[0]
                 };
                 for offset in offsets {
-                    let template = parts
-                        .templates
-                        .get(template as usize + offset)
-                        .ok_or(Reject::Geometry)?;
-                    let start = template.quad_start as usize;
-                    let quads = parts
-                        .quads
-                        .get(start..start + template.quad_count as usize)
-                        .ok_or(Reject::Geometry)?;
-                    for quad in quads {
-                        faces.push(model_face(parts, quad)?);
+                    let templates =
+                        assets::model_template_parts(parts.templates, template + *offset as u32)
+                            .ok_or(Reject::Geometry)?;
+                    for template in templates {
+                        let start = template.quad_start as usize;
+                        let quads = parts
+                            .quads
+                            .get(start..start + template.quad_count as usize)
+                            .ok_or(Reject::Geometry)?;
+                        for quad in quads {
+                            faces.push(model_face(parts, quad)?);
+                        }
                     }
                 }
             }

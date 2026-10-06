@@ -1,7 +1,7 @@
 use semantic_input::{ControlSettings, PerspectiveMode};
 
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
-pub const DEFAULT_OUTLINE_SELECTION: bool = false;
+pub const DEFAULT_OUTLINE_SELECTION: bool = true;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UserSettings {
@@ -115,7 +115,12 @@ impl RenderMode {
 
 #[cfg(test)]
 mod tests {
-    use super::RenderMode;
+    use super::{RenderMode, UserSettings};
+
+    #[test]
+    fn default_block_selection_uses_an_outline() {
+        assert!(UserSettings::default().video.outline_selection);
+    }
 
     #[test]
     fn render_mode_defaults_to_vanilla_and_round_trips_its_text() {

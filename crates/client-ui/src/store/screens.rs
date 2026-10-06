@@ -89,7 +89,7 @@ pub struct StoreScreens {
 
 fn sdl_context(base: &Context) -> Context {
     base.clone()
-        .with_flag("content_cards_enabled", true)
+        .with_flag("content_cards_enabled", false)
         .with_flag("is_sidebar_navigation_enabled", false)
         .with_flag("use_animation", false)
 }
@@ -287,22 +287,28 @@ fn offer_lists(
 ) {
     let path = image_lookup(snapshot);
     let is_grid = matches!(row.role, "GridList" | "VerticalGridList");
+    // Without content card styles a row draws vanilla's pre-content-card offer panel.
+    let role = if is_grid { "Generic" } else { "GenericOLD" };
     let mut items: Vec<CollectionItem> = row
         .offers
         .iter()
-        .map(|offer| offer_item("Generic", offer, &path, tr))
+        .map(|offer| offer_item(role, offer, &path, tr))
         .collect();
     if row.continuation.is_some() && !is_grid {
         items.push(show_more_item(tr));
     }
     if row.role == "HeroRow" {
-        // Vanilla's hero row reads the page-wide `hero_row_collection`, not its row's offer list.
+        // A hero row reads `hero_row_collection`, scoped to its own factory item.
         let hero = row
             .offers
             .iter()
             .map(|offer| offer_item("Generic", offer, &path, tr));
-        data.collections
-            .insert(HERO_COLLECTION.to_owned(), hero.collect());
+        data.scoped.push((
+            FACTORY.to_owned(),
+            factory_index,
+            HERO_COLLECTION.to_owned(),
+            hero.collect(),
+        ));
     }
     if is_grid {
         // A grid row is one `Generic` grid item that owns the offer list.

@@ -1,6 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use client_world::{ActorSnapshot, WorldAuthority};
+use client_world::{
+    ActorSnapshot, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
+    SCALE_METADATA_KEY, WorldAuthority,
+};
+use protocol::wire::valentine::bedrock::version::v1_26_51::{
+    EnumsItemUseOnActorInventoryTransactionActionType, InventoryTransactionPacketTransaction,
+    McpePacketData,
+};
 use protocol::{ActorKind, ActorMetadataValue};
 
 use super::*;
@@ -14,8 +21,14 @@ fn actor(
     let metadata = size
         .map(|(width, height)| {
             HashMap::from([
-                (53, ActorMetadataValue::Float(width)),
-                (54, ActorMetadataValue::Float(height)),
+                (
+                    BOUNDING_BOX_WIDTH_METADATA_KEY,
+                    ActorMetadataValue::Float(width),
+                ),
+                (
+                    BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                    ActorMetadataValue::Float(height),
+                ),
             ])
         })
         .unwrap_or_default();
@@ -78,8 +91,8 @@ fn nearest_pickable_actor_wins_and_reports_the_inflated_entry_point() {
     let near = actor(1, "minecraft:zombie", [0.0, 0.0, -2.0], Some((0.6, 1.95)));
     let far = actor(2, "minecraft:zombie", [0.0, 0.0, -4.0], Some((0.6, 1.95)));
     let drop = actor(3, "minecraft:item", [0.0, 0.0, -1.0], Some((0.25, 0.25)));
-    let sizeless = actor(4, "minecraft:cow", [0.0, 0.0, -1.5], None);
-    let actors = [far, drop, sizeless, near];
+    let invalid = actor(4, "minecraft:cow", [0.0, 0.0, -1.5], Some((f32::NAN, 1.95)));
+    let actors = [far, drop, invalid, near];
     let hit = pick_actor(actors.iter(), None, EYE, NORTH, 5.7).unwrap();
     assert_eq!(hit.runtime_id, 1);
     // Front face at z = -2 + 0.3, grown by the pick radius.
@@ -89,6 +102,78 @@ fn nearest_pickable_actor_wins_and_reports_the_inflated_entry_point() {
     let hit = pick_actor(actors.iter(), Some(10), EYE, NORTH, 5.7).unwrap();
     assert_eq!(hit.runtime_id, 2);
     assert_eq!(pick_actor(actors[..1].iter(), None, EYE, NORTH, 3.0), None);
+}
+
+#[test]
+fn custom_npc_without_size_metadata_sends_attack_for_picked_world_point() {
+    let npc = actor(70, "example:game_selection_npc", [10.0, 20.0, 28.0], None);
+    let origin = [10.0, 21.0, 30.0];
+    let hit = pick_actor([npc].iter(), None, origin, NORTH, 3.0)
+        .expect("a custom NPC retains its default collision box before size metadata arrives");
+    assert_eq!(hit.runtime_id, 70);
+    assert_eq!([hit.point[0], hit.point[1]], [origin[0], origin[1]]);
+    assert!(hit.point[2] > 28.0 && hit.point[2] < origin[2]);
+
+    let mut runtime = MeleeRuntime::default();
+    runtime.observe_input(true, false);
+    let mut press = press(PlayerInputMode::Mouse);
+    press.player_position = origin;
+    let outcome = runtime.resolve(
+        classify(Some(hit), None, 3.0),
+        &press,
+        &mut SwingTracker::default(),
+    );
+    assert_eq!(
+        kinds(&outcome.packets),
+        ["AnimatePacket", "InventoryTransactionPacket"]
+    );
+    assert!(!outcome.missed_swing);
+    let McpePacketData::InventoryTransactionPacket(packet) = &outcome.packets[1].data else {
+        panic!("the picked NPC receives an attack transaction");
+    };
+    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
+        &packet.transaction
+    else {
+        panic!("the transaction targets an actor");
+    };
+    assert_eq!(
+        transaction.action_type,
+        EnumsItemUseOnActorInventoryTransactionActionType::Attack
+    );
+    assert_eq!(transaction.runtime_id.actor_runtime_id, hit.runtime_id);
+    assert_eq!(
+        [
+            transaction.hit_position.x,
+            transaction.hit_position.y,
+            transaction.hit_position.z,
+        ],
+        hit.point
+    );
+    assert_eq!(
+        [
+            transaction.from_position.x,
+            transaction.from_position.y,
+            transaction.from_position.z,
+        ],
+        press.player_position
+    );
+}
+
+#[test]
+fn a_positive_actor_scale_expands_the_pick_box() {
+    let mut npc = actor(
+        71,
+        "example:game_selection_npc",
+        [0.0, 0.0, -2.0],
+        Some((0.6, 1.0)),
+    );
+    assert_eq!(pick_actor([&npc].into_iter(), None, EYE, NORTH, 3.0), None);
+    npc.metadata
+        .insert(SCALE_METADATA_KEY, ActorMetadataValue::Float(2.0));
+    let hit = pick_actor([npc].iter(), None, EYE, NORTH, 3.0)
+        .expect("the ray intersects the scaled actor above its unscaled height");
+    assert_eq!(hit.runtime_id, 71);
+    assert_eq!(hit.point[1], EYE[1]);
 }
 
 #[test]

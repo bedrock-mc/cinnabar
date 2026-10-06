@@ -1,3 +1,6 @@
+use crate::chunk::transparent::liquid::{
+    transparent_frame_draw_for_range, transparent_frame_draws,
+};
 use crate::chunk::*;
 
 pub(in crate::chunk) fn drawable_allocation_identity(

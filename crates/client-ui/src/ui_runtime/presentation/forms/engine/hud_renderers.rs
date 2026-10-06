@@ -263,21 +263,16 @@ fn crosshair(painter: &mut Painter<'_>, sprite: SheetSprite, dest: [f32; 4]) {
     let _ = painter.push(visual, [x, y, x + side, y + side]);
 }
 
-/// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
-/// `withdrawn` (restyled by a server pack authored against vanilla); no Mojang footer.
-pub(super) fn with_java_hud(
-    vanilla: &json_ui::Catalog,
-    withdrawn: &std::collections::BTreeSet<String>,
-) -> json_ui::Catalog {
+/// Layers the built-in HUD and menu styling over vanilla before server packs.
+pub(super) fn with_java_hud(vanilla: &json_ui::Catalog) -> json_ui::Catalog {
     let mut catalog = vanilla.clone();
-    let kept = super::super::hud::JAVA_HUD_PACK
+    let hud_files = super::super::hud::JAVA_HUD_PACK
         .iter()
-        .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
         .map(|(path, _, bytes)| (*path, *bytes));
     super::super::graphics_expander::install(&mut catalog);
     super::super::always_sprint_setting::install(&mut catalog);
     super::super::vsync_setting::install(&mut catalog);
-    catalog.apply_pack(kept);
+    catalog.apply_pack(hud_files);
     catalog.apply_pack(
         [(
             "ui/ui_art_assets_common.json",

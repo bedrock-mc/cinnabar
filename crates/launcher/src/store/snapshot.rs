@@ -16,7 +16,7 @@ pub const MAX_VISIBLE_IMAGES: usize = 60;
 pub enum StoreArt {
     /// An offer card's thumbnail.
     Card,
-    /// The offer page's key art and screenshots.
+    /// The offer page's key art and screenshots, and a hero row's feature tile.
     Feature,
 }
 
@@ -91,22 +91,38 @@ impl StoreSnapshot {
                 .chain(detail.screenshot_urls.iter())
                 .map(|url| (url, StoreArt::Feature))
         });
-        let rows = self.rows.iter().flat_map(|row| {
+        // The first hero row's first offer is its half-width feature tile; later hero tiles stay
+        // card-sized so a page's art still fits the atlas.
+        let feature = self.rows.iter().position(|row| row.role == "HeroRow");
+        let rows = self.rows.iter().enumerate().flat_map(move |(at, row)| {
             row.offers
                 .iter()
-                .filter_map(|o| o.thumbnail_url.as_ref())
-                .map(|url| (url, StoreArt::Card))
+                .enumerate()
+                .filter_map(move |(index, offer)| {
+                    let art = if Some(at) == feature && index == 0 {
+                        StoreArt::Feature
+                    } else {
+                        StoreArt::Card
+                    };
+                    offer.thumbnail_url.as_ref().map(|url| (url, art))
+                })
         });
         let mut seen: Vec<(String, StoreArt)> = Vec::new();
         for (url, art) in detail.chain(rows) {
-            if let Some(path) = self.images.get(url)
-                && !seen.iter().any(|(seen, _)| seen == path)
-            {
-                seen.push((path.clone(), art));
-                if seen.len() == MAX_VISIBLE_IMAGES {
-                    break;
+            let Some(path) = self.images.get(url) else {
+                continue;
+            };
+            // An image shown both as a card and as feature art decodes at the larger size.
+            if let Some((_, kept)) = seen.iter_mut().find(|(seen, _)| seen == path) {
+                if art == StoreArt::Feature {
+                    *kept = art;
                 }
+                continue;
             }
+            if seen.len() == MAX_VISIBLE_IMAGES {
+                break;
+            }
+            seen.push((path.clone(), art));
         }
         seen
     }
@@ -190,5 +206,68 @@ mod tests {
         for kind in ["PromoBanner", "NavButtonRow", "CoinBundleRow", "Layout"] {
             assert_eq!(role_for(Some(kind)), None, "{kind}");
         }
+    }
+
+    // The hero row's half-width tile was decoded at card size and drew blurred.
+    #[test]
+    fn a_hero_rows_feature_tile_is_decoded_as_feature_art() {
+        let snapshot = StoreSnapshot {
+            rows: vec![DisplayRow {
+                id: None,
+                title: String::new(),
+                role: "HeroRow",
+                offers: vec![
+                    offer("a", Some("https://x.test/a")),
+                    offer("b", Some("https://x.test/b")),
+                ],
+                continuation: None,
+            }],
+            images: [
+                ("https://x.test/a", "/c/a.png"),
+                ("https://x.test/b", "/c/b.png"),
+            ]
+            .map(|(url, path)| (url.to_owned(), path.to_owned()))
+            .into_iter()
+            .collect(),
+            ..StoreSnapshot::empty()
+        };
+        assert_eq!(
+            snapshot.image_paths(),
+            [
+                ("/c/a.png".to_owned(), StoreArt::Feature),
+                ("/c/b.png".to_owned(), StoreArt::Card)
+            ]
+        );
+    }
+
+    // A hero tile sharing its image with an earlier card kept the card size and drew blurred.
+    #[test]
+    fn a_shared_image_takes_its_largest_art_size() {
+        let snapshot = StoreSnapshot {
+            rows: vec![
+                DisplayRow {
+                    id: None,
+                    title: String::new(),
+                    role: "StoreRow",
+                    offers: vec![offer("a", Some("https://x.test/a"))],
+                    continuation: None,
+                },
+                DisplayRow {
+                    id: None,
+                    title: String::new(),
+                    role: "HeroRow",
+                    offers: vec![offer("a", Some("https://x.test/a"))],
+                    continuation: None,
+                },
+            ],
+            images: [("https://x.test/a".to_owned(), "/c/a.png".to_owned())]
+                .into_iter()
+                .collect(),
+            ..StoreSnapshot::empty()
+        };
+        assert_eq!(
+            snapshot.image_paths(),
+            [("/c/a.png".to_owned(), StoreArt::Feature)]
+        );
     }
 }

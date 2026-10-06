@@ -12,6 +12,7 @@ mod embedment_convergence;
 mod fixed_tick;
 mod flight_native;
 mod historical_world;
+mod immobile;
 mod liquid;
 mod liquid_contact_native;
 mod liquid_exit_native;

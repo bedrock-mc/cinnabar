@@ -189,9 +189,11 @@ mod tests {
 
     #[test]
     fn pointer_cancellation_preserves_form_values_focus_and_scroll_position() {
-        let mut state = FormEngineState::default();
-        state.values = vec![FormValue::Text("unsent draft".into())];
-        state.open_dropdown = Some(0);
+        let mut state = FormEngineState {
+            values: vec![FormValue::Text("unsent draft".into())],
+            open_dropdown: Some(0),
+            ..Default::default()
+        };
         state.view.focused = Some("editor".into());
         state.view.hovered = Some("slider".into());
         state.view.pressed = Some("slider".into());

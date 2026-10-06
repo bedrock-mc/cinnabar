@@ -11,7 +11,7 @@ use crate::{
     local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
     menu::{
         CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
-        spawn_core_for_address,
+        server_trust::SessionTrust, spawn_core_for_address,
     },
     movement::{LocalPhysicsController, MovementTicker},
     player_runtime::PlayerRuntime,
@@ -64,6 +64,8 @@ pub(crate) struct SessionController {
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
+    /// Polls the per-session core this join started for its server trust question.
+    trust: Option<SessionTrust>,
 }
 
 impl Default for SessionController {
@@ -82,6 +84,7 @@ impl SessionController {
             generation: 1,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
+            trust: None,
         }
     }
 
@@ -154,9 +157,11 @@ impl SessionController {
             // session; that ownership is what makes the client answer
             // LoginSuccess with cache-enabled status downstream.
             cache.enables_upstream_client_cache(),
+            true,
         )
         .map_err(|error| format!("Could not start {address}: {error}"))?;
         self.core.replace(child);
+        self.trust = Some(SessionTrust::watch(socket_dir.clone()));
         Ok(JoinStage::Core {
             socket_dir,
             directory,
@@ -318,6 +323,7 @@ fn attempt_connect(
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.show_home();
     let generation = session.retire();
+    session.controller.trust = None;
     session.runtime.experiences.select_destination(&address);
     menu.begin_join_progress(&address, local_world);
     let launcher = session.launcher.as_deref().and_then(|slot| {
@@ -457,6 +463,10 @@ pub(crate) fn drive_session(
     mut session: SessionResources,
 ) {
     session.controller.publish(&mut menu);
+    // A queued answer reaches its core before a decline below retires that core.
+    if let Some(trust) = session.controller.trust.as_ref() {
+        menu.sync_session_trust(trust);
+    }
     drive_intents(
         &mut commands,
         &mut exits,
@@ -465,6 +475,13 @@ pub(crate) fn drive_session(
         &mut session,
     );
     session.controller.publish(&mut menu);
+    if !session.controller.connecting {
+        session.controller.trust = None;
+    }
+    match session.controller.trust.as_ref() {
+        Some(trust) => menu.sync_session_trust(trust),
+        None => menu.forget_session_trust(),
+    }
 }
 
 fn drive_intents(

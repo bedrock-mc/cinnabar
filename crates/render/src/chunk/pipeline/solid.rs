@@ -187,6 +187,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPackedSolidChunksIndirect {
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)] // A one-element list of draw runs is the expectation.
 mod tests {
     use super::*;
 

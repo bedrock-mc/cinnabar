@@ -3,13 +3,13 @@ use super::{BlockEntityVertex, CrackShape, crack::FACE_OFFSET};
 use bevy::{math::Vec3, prelude::Resource, render::extract_resource::ExtractResource};
 use std::sync::Arc;
 
-const OUTLINE_ANGULAR_WIDTH: f32 = 0.003;
 const HIGHLIGHT_COLOR: [f32; 4] = [0.65, 0.65, 0.65, 1.0];
 // Negative UV selects the untextured overlay branch, outside any atlas coordinates.
 const UNTEXTURED_UV: [f32; 2] = [-1.0; 2];
+pub const BLOCK_SELECTION_VERTICES_PER_EDGE: u32 = 6;
 
 /// The selected block's native pick bounds and already-resolved model faces.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlockSelectionTarget {
     pub block: [i32; 3],
     pub bounds: [[f32; 3]; 2],
@@ -19,64 +19,66 @@ pub struct BlockSelectionTarget {
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
 pub struct BlockSelectionFrame {
     pub revision: u64,
+    /// Unexpanded endpoint pairs; the GPU supplies screen-space stroke coverage.
     pub outline: Arc<[BlockEntityVertex]>,
     pub highlight: Arc<[BlockEntityVertex]>,
+    target: Option<BlockSelectionTarget>,
+    outline_mode: bool,
 }
 
 impl BlockSelectionFrame {
     /// Publishes the current pick, or clears it when gameplay has no valid target.
-    pub fn update(
-        &mut self,
-        target: Option<&BlockSelectionTarget>,
-        eye: Vec3,
-        forward: Vec3,
-        outline: bool,
-    ) {
+    pub fn update(&mut self, target: Option<&BlockSelectionTarget>, outline: bool) {
+        let target = target.filter(|target| {
+            target.bounds.iter().flatten().all(|v| v.is_finite())
+                && Vec3::from_array(target.bounds[0])
+                    .cmplt(Vec3::from_array(target.bounds[1]))
+                    .all()
+        });
+        if self.target.as_ref() == target && self.outline_mode == outline {
+            return;
+        }
+        self.target = target.cloned();
+        self.outline_mode = outline;
         let mut wire = Vec::new();
         let mut surface = Vec::new();
-        if let Some(target) =
-            target.filter(|target| target.bounds.iter().flatten().all(|v| v.is_finite()))
-        {
+        if let Some(target) = target {
             let [min, max] = target.bounds;
             let (min, max) = (Vec3::from_array(min), Vec3::from_array(max));
-            if min.cmplt(max).all() && eye.is_finite() && forward.is_finite() {
-                let corners = box_corners(min, max);
-                if outline {
-                    let width = OUTLINE_ANGULAR_WIDTH
-                        / ((eye.distance((min + max) * 0.5) - 2.0) * 0.5).clamp(1.0, 3.0);
-                    for index in 0..8 {
-                        for axis in 0..3 {
-                            let other = index ^ (1 << axis);
-                            if index < other {
-                                line(
-                                    &mut wire,
-                                    corners[index],
-                                    corners[other],
-                                    eye,
-                                    forward,
-                                    width,
-                                );
-                            }
+            let corners = box_corners(min, max);
+            if outline {
+                for index in 0..8 {
+                    for axis in 0..3 {
+                        let other = index ^ (1 << axis);
+                        if index < other {
+                            wire.extend([corners[index], corners[other]].map(|point| {
+                                BlockEntityVertex {
+                                    position: point.to_array(),
+                                    uv: UNTEXTURED_UV,
+                                    color: [0.0, 0.0, 0.0, 1.0],
+                                    ..Default::default()
+                                }
+                            }));
                         }
                     }
-                } else {
-                    match &target.shape {
-                        CrackShape::Cube => {
-                            for face in box_faces(corners) {
-                                quad(&mut surface, face, HIGHLIGHT_COLOR);
-                            }
+                }
+            } else {
+                match &target.shape {
+                    CrackShape::Cube => {
+                        for face in box_faces(corners) {
+                            quad(&mut surface, face, HIGHLIGHT_COLOR);
                         }
-                        CrackShape::Quads(quads) => {
-                            let block = Vec3::from_array(target.block.map(|v| v as f32));
-                            for face in quads.iter() {
-                                let corners =
-                                    face.corners.map(|corner| block + Vec3::from_array(corner));
-                                quad(
-                                    &mut surface,
-                                    corners.map(|corner| corner + face.outward_offset()),
-                                    HIGHLIGHT_COLOR,
-                                );
-                            }
+                    }
+                    CrackShape::Quads(quads) => {
+                        let block = Vec3::from_array(target.block.map(|v| v as f32));
+                        for face in quads.iter() {
+                            let corners =
+                                face.corners.map(|corner| block + Vec3::from_array(corner));
+                            quad(
+                                &mut surface,
+                                corners.map(|corner| corner + face.outward_offset()),
+                                HIGHLIGHT_COLOR,
+                            );
                         }
                     }
                 }
@@ -122,41 +124,6 @@ fn box_faces(corners: [Vec3; 8]) -> [[Vec3; 4]; 6] {
         }
         face.map(|corner| corner + normal * FACE_OFFSET)
     })
-}
-
-/// Keeps wire edges camera-facing, including edges nearly parallel to the view direction.
-fn line(
-    output: &mut Vec<BlockEntityVertex>,
-    a: Vec3,
-    b: Vec3,
-    eye: Vec3,
-    forward: Vec3,
-    width: f32,
-) {
-    let direction = (b - a).normalize_or_zero();
-    let mut side = forward.cross(direction).normalize_or_zero();
-    if side == Vec3::ZERO {
-        side = (a - eye).cross(direction).normalize_or_zero();
-    }
-    if side == Vec3::ZERO {
-        return;
-    }
-    let expand = |point: Vec3, sign: f32| {
-        let ray = point - eye;
-        let normalized = ray.normalize_or_zero();
-        let facing = normalized.dot(forward).abs().max(f32::EPSILON);
-        eye + (normalized / facing + side * width * sign).normalize_or_zero() * ray.length()
-    };
-    quad(
-        output,
-        [
-            expand(a, -1.0),
-            expand(b, -1.0),
-            expand(b, 1.0),
-            expand(a, 1.0),
-        ],
-        [0.0, 0.0, 0.0, 1.0],
-    );
 }
 
 /// Packs one untextured quad into the shared storage-buffer triangle format.

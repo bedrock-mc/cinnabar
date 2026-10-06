@@ -182,6 +182,7 @@ pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
         render: EntityRenderData {
             layers: vec![EntityRenderLayer {
                 material: Default::default(),
+                material_state: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
@@ -196,6 +197,7 @@ pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
                 first_geometry: 0,
                 geometry_count: 0,
                 ignore_lighting: false,
+                light_color_multiplier: None,
             }]
             .into_boxed_slice(),
             slots: vec![EntityRenderSlot {

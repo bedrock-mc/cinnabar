@@ -148,6 +148,7 @@ include!("integration_tests/simulation.rs");
 include!("integration_tests/vector_carriers.rs");
 include!("integration_tests/timeline.rs");
 include!("integration_tests/frame_speed.rs");
+include!("integration_tests/immobile.rs");
 include!("integration_tests/connected_shapes.rs");
 
 /// Reads the checked-in protocol target used to stamp synthetic physics registries.

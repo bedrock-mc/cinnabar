@@ -88,8 +88,10 @@ fn session_reset_clears_camera_orbit_without_turning_the_actor() {
     let mut view = LocalViewPose::default();
     view.set_freelook(true);
     view.set_look_rotation(Quat::from_rotation_y(1.0));
-    let mut settings = CameraSettingsAuthority::default();
-    settings.freelook = true;
+    let mut settings = CameraSettingsAuthority {
+        freelook: true,
+        ..Default::default()
+    };
     crate::local_player::reset_local_player_session(
         1,
         2,

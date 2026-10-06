@@ -4,7 +4,7 @@ use protocol::{ActorKind, ActorMetadataValue};
 
 use super::{
     ActorSnapshot, ActorStore, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
-    FLAG_BABY, PLAYER_COLLISION_WIDTH, VARIANT_METADATA_KEY,
+    DEFAULT_ACTOR_COLLISION_WIDTH, FLAG_BABY, VARIANT_METADATA_KEY,
 };
 
 /// Actor types flagged as projectiles, which never cast a shadow.
@@ -119,7 +119,7 @@ impl ActorSnapshot {
     fn collision_width(&self) -> f32 {
         match self.metadata.get(&BOUNDING_BOX_WIDTH_METADATA_KEY) {
             Some(ActorMetadataValue::Float(width)) if width.is_finite() && *width > 0.0 => *width,
-            _ if matches!(self.kind, ActorKind::Player { .. }) => PLAYER_COLLISION_WIDTH,
+            _ if matches!(self.kind, ActorKind::Player { .. }) => DEFAULT_ACTOR_COLLISION_WIDTH,
             _ => 0.0,
         }
     }

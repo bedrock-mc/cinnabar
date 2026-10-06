@@ -16,7 +16,7 @@ impl Data {
     }
 
     fn push(&mut self, bytes: &[u8]) -> (u32, u32) {
-        while self.bytes.len() % 4 != 0 {
+        while !self.bytes.len().is_multiple_of(4) {
             self.bytes.push(0);
         }
         let offset = 1024 + self.bytes.len() as u32;

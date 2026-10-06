@@ -116,7 +116,82 @@ fn item_and_artwork_refreshes_retain_pack_geometry() {
     );
 }
 
-/// One attachable uses the fixture's own geometry through the normal equipment compiler.
+const EQUIPMENT_GEOMETRY: &str = "geometry.example.held";
+
+/// Adds an equipment-only model whose vertex storage cannot alias the entity model.
+fn with_equipment_geometry(
+    entities: &assets::RuntimeEntityAssets,
+) -> Arc<assets::RuntimeEntityAssets> {
+    let index = render_model::find_geometry_index(entities, "geometry.example").unwrap() as usize;
+    let mut geometry = entities.geometries()[index].clone();
+    geometry.identifier = EQUIPMENT_GEOMETRY.into();
+    geometry.bones[0].cubes[0].origin[0] = assets::EntityGeometryScalar::new(16.0).unwrap();
+    let mut geometries = entities.geometries().to_vec();
+    geometries.push(geometry.clone());
+    let mut symbols = entities.symbols().to_vec();
+    let mut symbol = symbols
+        .iter()
+        .find(|symbol| {
+            symbol.kind == assets::EntityAssetKind::Geometry
+                && symbol.identifier.as_ref() == "geometry.example"
+        })
+        .unwrap()
+        .clone();
+    symbol.identifier = geometry.identifier;
+    symbols.push(symbol);
+    symbols.sort_by(|left, right| {
+        (left.kind, &left.identifier, left.source_index).cmp(&(
+            right.kind,
+            &right.identifier,
+            right.source_index,
+        ))
+    });
+    let symbol_indices = entities
+        .symbols()
+        .iter()
+        .map(|old| u32::try_from(symbols.iter().position(|new| new == old).unwrap()).unwrap())
+        .collect::<Vec<_>>();
+    let mut compiled = assets::CompiledEntityAssets {
+        source_manifest_sha256: entities.source_manifest_sha256(),
+        block_visual_count: entities.block_visual_count(),
+        sources: entities.sources().into(),
+        symbols: symbols.into(),
+        geometries: geometries.into(),
+        animation_clips: entities.animation_clips().into(),
+        animation_channels: entities.animation_channels().into(),
+        animation_keyframes: entities.animation_keyframes().into(),
+        molang_symbols: entities.molang_symbols().into(),
+        molang_expressions: entities.molang_expressions().into(),
+        molang_ops: entities.molang_ops().into(),
+        molang_collections: entities.molang_collections().into(),
+        molang_collection_items: entities.molang_collection_items().into(),
+        controllers: entities.controllers().into(),
+        controller_states: entities.controller_states().into(),
+        controller_animations: entities.controller_animations().into(),
+        controller_transitions: entities.controller_transitions().into(),
+        rig_bindings: entities.rig_bindings().into(),
+        rig_geometries: entities.rig_geometries().into(),
+        rig_animations: entities.rig_animations().into(),
+        rig_controllers: entities.rig_controllers().into(),
+        item_visuals: entities.item_visuals().into(),
+        item_visual_aliases: entities.item_visual_aliases().into(),
+        render: entities.render_data().clone(),
+    };
+    for clip in &mut compiled.animation_clips {
+        clip.symbol = symbol_indices[clip.symbol as usize];
+    }
+    for controller in &mut compiled.controllers {
+        controller.symbol = symbol_indices[controller.symbol as usize];
+    }
+    for rig in &mut compiled.rig_bindings {
+        rig.entity_symbol = symbol_indices[rig.entity_symbol as usize];
+        rig.render_controller = symbol_indices[rig.render_controller as usize];
+    }
+    let bytes = assets::encode_entity_blob(&compiled).unwrap();
+    Arc::new(assets::RuntimeEntityAssets::decode(&bytes).unwrap())
+}
+
+/// One attachable uses a distinct model through the normal equipment compiler.
 fn fixture_equipment() -> Arc<assets::RuntimeEquipmentCatalog> {
     let reference = |identifier: &str| assets::EquipmentReference {
         identifier: identifier.into(),
@@ -128,7 +203,7 @@ fn fixture_equipment() -> Arc<assets::RuntimeEquipmentCatalog> {
             vec![assets::EquipmentBinding {
                 identifier: "test:held".into(),
                 category: assets::EquipmentCategory::Held,
-                geometry: reference("geometry.example"),
+                geometry: reference(EQUIPMENT_GEOMETRY),
                 texture: reference("textures/entity/example"),
                 material: "entity_alphatest".into(),
                 render_controller: "controller.render.example".into(),
@@ -151,10 +226,30 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
         1,
         assets::ActorPoseMode::CompiledLiteral,
     );
+    let entities = with_equipment_geometry(&entities);
     let mut pack = session_pack(entities.clone());
     Arc::get_mut(&mut pack).unwrap().equipment = Some(fixture_equipment());
     let equipment = render_model::pack_equipment_rig_id(
-        render_model::find_geometry_index(&entities, "geometry.example").unwrap(),
+        render_model::find_geometry_index(&entities, EQUIPMENT_GEOMETRY).unwrap(),
+    );
+    let entity_geometries = render_model::pack_geometries(&entities);
+    let entity_geometry = &entity_geometries[0];
+    let equipment_geometry = render_model::equipment_geometry(
+        &entities,
+        render_model::find_geometry_index(&entities, EQUIPMENT_GEOMETRY).unwrap() as usize,
+        equipment,
+    )
+    .unwrap();
+    assert_eq!(
+        entity_geometry.vertices.len(),
+        equipment_geometry.vertices.len()
+    );
+    assert_ne!(entity_geometry.vertices, equipment_geometry.vertices);
+    assert!(
+        entity_geometries
+            .iter()
+            .all(|geometry| geometry.vertices != equipment_geometry.vertices),
+        "equipment-only geometry must not be selected by an entity render route"
     );
     let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
     scene.replace_pack_entities(Some(&entities)).unwrap();

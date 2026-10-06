@@ -21,7 +21,7 @@ pub(super) fn update(
 pub(super) fn apply(tree: &mut ResolvedControl, patch: Patch, dirty: &mut Dirty) -> bool {
     let (next, children) = match patch {
         Patch::Same => return false,
-        Patch::Full(next) => return update(tree, next, dirty),
+        Patch::Full(next) => return update(tree, *next, dirty),
         Patch::Update(next, children) => (next, children),
     };
     let changed = match children {

@@ -17,7 +17,6 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `sign_out.v1` | none | `account`; deletes cached tokens |
 | `events.v1` | none | `auth`, `disconnect?`, `transfer?`, `pack_download?` |
 | `featured_servers.v1` | none | `servers: [{name, address, caption, description?, news_title?, news?, logo, screenshots, games}]` |
-| `gatherings.v1` | none | `gatherings: [{id, name, caption, description?, creator?, address?, image, start_unix?, end_unix?}]` |
 | `profile.v1` | none | `profile: {gamertag, xuid, gamerpic, real_name?, presence_text?, gamerscore, friends, followers}` |
 | `home.v1` | none | `home: {messages, inbox, treatments, realm_invites, live_events, persona_head}` |
 | `message_event.v1` | `event_type`, `instance_id?`, `report_id?`, `button_id?` | empty |

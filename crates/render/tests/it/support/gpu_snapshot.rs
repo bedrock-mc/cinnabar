@@ -33,6 +33,16 @@ pub struct RasterState {
     pub write_mask: wgpu::ColorWrites,
 }
 
+pub struct DrawPipeline<'a> {
+    pub vertex: &'a str,
+    pub topology: wgpu::PrimitiveTopology,
+}
+
+struct RasterConfiguration<'a> {
+    state: RasterState,
+    pipelines: &'a [DrawPipeline<'a>],
+}
+
 impl Default for RasterState {
     fn default() -> Self {
         Self {
@@ -139,7 +149,30 @@ impl Gpu {
             vertex,
             draws,
             wgpu::TextureFormat::Rgba8Unorm,
-            state,
+            RasterConfiguration {
+                state,
+                pipelines: &[],
+            },
+        )
+    }
+
+    /// Renders mixed primitives through each draw's production vertex entry point.
+    pub fn render_mixed(
+        &self,
+        source: &str,
+        draws: &[Draw<'_>],
+        pipelines: &[DrawPipeline<'_>],
+    ) -> Vec<u8> {
+        assert_eq!(draws.len(), pipelines.len());
+        self.render_to_format(
+            source,
+            "",
+            draws,
+            wgpu::TextureFormat::Rgba8Unorm,
+            RasterConfiguration {
+                state: RasterState::default(),
+                pipelines,
+            },
         )
     }
 
@@ -150,7 +183,10 @@ impl Gpu {
             vertex,
             draws,
             wgpu::TextureFormat::Rgba8UnormSrgb,
-            RasterState::default(),
+            RasterConfiguration {
+                state: RasterState::default(),
+                pipelines: &[],
+            },
         )
     }
 
@@ -160,8 +196,9 @@ impl Gpu {
         vertex: &str,
         draws: &[Draw<'_>],
         target_format: wgpu::TextureFormat,
-        state: RasterState,
+        configuration: RasterConfiguration<'_>,
     ) -> Vec<u8> {
+        let RasterConfiguration { state, pipelines } = configuration;
         let shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -197,6 +234,11 @@ impl Gpu {
         let depth_view = depth.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
         for (index, draw) in draws.iter().enumerate() {
+            let entry = pipelines.get(index);
+            let mut primitive = state.primitive;
+            if let Some(entry) = entry {
+                primitive.topology = entry.topology;
+            }
             let pipeline = self
                 .device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -204,11 +246,11 @@ impl Gpu {
                     layout: None,
                     vertex: wgpu::VertexState {
                         module: &shader,
-                        entry_point: Some(vertex),
+                        entry_point: Some(entry.map_or(vertex, |entry| entry.vertex)),
                         compilation_options: Default::default(),
                         buffers: &[],
                     },
-                    primitive: state.primitive,
+                    primitive,
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: draw.write_depth,

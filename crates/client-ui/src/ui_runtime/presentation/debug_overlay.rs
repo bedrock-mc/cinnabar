@@ -4,7 +4,11 @@
 
 use std::sync::{Arc, OnceLock};
 
-use json_ui::{DataSource, FormRender, LayoutEnv, ResolvedControl, Scalar};
+use assets::RuntimeFontCatalog;
+use json_ui::{
+    BindState, DataSource, EmptyLibrary, FormRender, LayoutEnv, MeasureCache, ResolvedControl,
+    Scalar, ViewState,
+};
 use serde_json::{Value, json};
 use ui::UiScale;
 
@@ -28,6 +32,46 @@ pub struct DebugLines {
     pub right: Vec<String>,
 }
 
+/// The F3 screen's bindings and last layout, so changed lines rebind and re-lay out alone.
+#[derive(Default)]
+pub(super) struct OverlayCache {
+    binding: BindState,
+    measures: MeasureCache,
+    laid: Option<LaidOverlay>,
+    font: Option<Arc<RuntimeFontCatalog>>, // the font `measures` were taken with
+    /// Bind+layout passes run, for cache tests.
+    #[cfg(test)]
+    pub(super) passes: usize,
+}
+
+impl OverlayCache {
+    /// Drops cached measures and layout when the font is swapped, since glyph widths may differ.
+    pub(super) fn retain_font(&mut self, font: &Arc<RuntimeFontCatalog>) {
+        if !self
+            .font
+            .as_ref()
+            .is_some_and(|kept| Arc::ptr_eq(kept, font))
+        {
+            *self = Self {
+                font: Some(Arc::clone(font)),
+                ..Self::default()
+            };
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn into_render(self) -> Option<FormRender> {
+        self.laid.map(|laid| laid.render)
+    }
+}
+
+struct LaidOverlay {
+    lines: DebugLines,
+    root: [f64; 2],
+    scale: f32,
+    render: FormRender,
+}
+
 impl UiPresentationRuntime {
     pub fn set_debug_lines(&mut self, lines: Option<DebugLines>) {
         self.debug_lines = lines;
@@ -47,7 +91,60 @@ pub(super) fn fitted_metrics(mut metrics: TextMetrics, content_height: f32) -> T
 
 /// Bind and lay out the built-in JSON-UI screen using the same font measurer and
 /// renderer as ordinary screens. Long rows keep a single line with ellipsis.
-pub(super) fn render(lines: &DebugLines, root: [f64; 2], env: &LayoutEnv) -> FormRender {
+pub(super) fn render<'a>(
+    cache: &'a mut OverlayCache,
+    lines: &DebugLines,
+    (root, scale): ([f64; 2], f32),
+    env: &LayoutEnv,
+) -> &'a FormRender {
+    let same_frame = cache
+        .laid
+        .as_ref()
+        .is_some_and(|laid| laid.root == root && laid.scale == scale);
+    if same_frame && cache.laid.as_ref().is_some_and(|laid| laid.lines == *lines) {
+        return &cache.laid.as_ref().expect("checked above").render;
+    }
+    let data = Arc::new(data_source(lines, root, env));
+    let bound = match cache.laid.take() {
+        Some(laid) => {
+            let mut bound = laid.render.bound;
+            if !same_frame {
+                cache.measures = MeasureCache::default();
+            }
+            json_ui::rebind(
+                template(),
+                &data,
+                &EmptyLibrary,
+                &mut cache.binding,
+                &mut bound,
+                &mut cache.measures,
+            );
+            bound
+        }
+        None => {
+            cache.measures = MeasureCache::default();
+            json_ui::bind_incremental(template(), &data, &EmptyLibrary, &mut cache.binding)
+        }
+    };
+    #[cfg(test)]
+    {
+        cache.passes += 1;
+    }
+    let render =
+        json_ui::render_bound_cached(bound, root, env, &ViewState::default(), &mut cache.measures);
+    &cache
+        .laid
+        .insert(LaidOverlay {
+            lines: lines.clone(),
+            root,
+            scale,
+            render,
+        })
+        .render
+}
+
+/// Row text, visibility and width bindings for every line that fits the root height.
+fn data_source(lines: &DebugLines, root: [f64; 2], env: &LayoutEnv) -> DataSource {
     let row_limit = (((root[1] - 2.0 * INSET) / LINE_HEIGHT).max(0.0) + 1e-4).floor() as usize;
     let row_limit = row_limit.min(MAX_LINES_PER_COLUMN);
     let columns = [&lines.left, &lines.right];
@@ -88,8 +185,7 @@ pub(super) fn render(lines: &DebugLines, root: [f64; 2], env: &LayoutEnv) -> For
             data.set_global(name, Scalar::Text(bounded_visible_text(line).to_owned()));
         }
     }
-    let bound = json_ui::bind_shared(template(), &data, &json_ui::EmptyLibrary);
-    json_ui::render_bound(bound, root, env, &Default::default())
+    data
 }
 
 /// Resolve once; changing diagnostics flow through bindings, with no direct

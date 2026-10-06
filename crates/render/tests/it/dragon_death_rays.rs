@@ -10,6 +10,7 @@ fn source() -> String {
         include_str!("../../src/block_entity/block_entity.wgsl"),
         "dragon-death-rays.wgsl",
         render::BLOCK_ENTITY_VERTEX_WORDS,
+        render::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
     let bevy::shader::Source::Wgsl(source) = shader.source else {
         unreachable!()

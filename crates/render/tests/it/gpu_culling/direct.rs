@@ -731,7 +731,10 @@ fn town_scene() -> Terrain {
 }
 
 /// Frames per measured submission, so submit-to-idle overhead is amortised.
-const REPEATS: usize = 8;
+const REPEATS: usize = 2;
+
+/// Frames per camera phase; the still phase needs two before its first verdict lands.
+const PHASE_FRAMES: usize = 16;
 
 /// CPU recording and GPU milliseconds per recording: encode-and-finish time, then the
 /// submit-to-idle wall time, each over `REPEATS` recordings.
@@ -778,7 +781,8 @@ fn occlusion_cuts_submitted_terrain_only_while_the_view_holds_still() {
     let Some(gpu) = Gpu::for_fixture("direct occlusion measurement") else {
         return;
     };
-    let size = [1920, 1080];
+    // Small enough for a software adapter; the aspect keeps the frustum's candidate set.
+    let size = [320, 180];
     let aspect = size[0] as f32 / size[1] as f32;
     let terrain = town_scene();
     let start = Vec3::new(8.5, 72.5, 40.5);
@@ -788,16 +792,19 @@ fn occlusion_cuts_submitted_terrain_only_while_the_view_holds_still() {
         camera_with_aspect(eye, eye + rotation * (toward - start), aspect)
     };
     let phases: [(&str, Vec<Camera>); 3] = [
-        ("still", (0..40).map(|_| view_at(start, 0.0)).collect()),
+        (
+            "still",
+            (0..PHASE_FRAMES).map(|_| view_at(start, 0.0)).collect(),
+        ),
         (
             "turning",
-            (0..40)
+            (0..PHASE_FRAMES)
                 .map(|frame| view_at(start, 15.0 * ((frame + 1) as f32 * 0.1).sin()))
                 .collect(),
         ),
         (
             "walking",
-            (0..40)
+            (0..PHASE_FRAMES)
                 .map(|frame| view_at(start + Vec3::X * 0.1 * (frame + 1) as f32, 0.0))
                 .collect(),
         ),

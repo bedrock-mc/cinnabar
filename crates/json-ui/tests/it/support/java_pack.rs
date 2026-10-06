@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 /// Load every built-in HUD JSON file, including shared globals used by its controls.
-pub(super) fn files() -> Vec<(String, Vec<u8>)> {
+pub fn files() -> Vec<(String, Vec<u8>)> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/java-hud");
     let mut files: Vec<_> = std::fs::read_dir(root.join("ui"))
         .expect("built-in HUD directory")

@@ -281,6 +281,7 @@ fn sort_key_tracks_quantized_position_only_while_water_is_near() {
 }
 
 #[test]
+#[allow(clippy::single_range_in_vec_init)] // One patched span is the expectation.
 fn unchanged_transparent_order_reuses_committed_slot_without_upload() {
     let visible = vec![allocation(SubChunkKey::new(0, 0, 0, 0), 1, 8)];
     let first_key = sort_key([0, 0, 0], visible.clone(), 1, 1);

@@ -99,7 +99,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - No fallback after selection: NetworkSystem::onOutgoingConnectionFailed only notifies; RemoteConnectorComposite::getActiveConnector picks NetherNetConnector iff session transport == 2.
 - Transfers: WorldTransferInitiator::initiateTransferToServer builds ConnectionType 8 -> WorldTransferHandler::handleTransferToServer -> ClientInstance::startExternalNetworkWorld("transferServer"), the Play-screen external-server entry.
 - Undecodable batches are dropped, not fatal (gophertunnel ErrBatchDropped): CompressedNetworkPeer::_receivePacket returns DataStatus 2 for an unknown header byte or a zlib/snappy failure; 26.50 FUN_1404b0b50 also returns 2 when the byte is neither 0xff nor the negotiated algorithm. NetworkSystem::runEvents::$_0 (26.30) and FUN_1418a075c's loop (26.50) treat any non-zero receivePacket status as "stop this connection for the tick", with no disconnect.
-- 26.50 http:// trust prompt (not ported): FUN_1408bf550 builds TofuServerIdentityVerifier (FUN_141190820/FUN_141190a20) with a callback; the callback FUN_1408c07a0 trusts "https://" URLs at once and otherwise pushes ServerTrustModalScreenController (FUN_1408c0c20, modal FUN_145501670: permissions.servertrust.title/message/button.trust/button.doNotTrust). TofuServerIdentityVerifier::verify (FUN_141190bb0) checks a persisted list (static key "trusted_server_public_keys").
+- Server trust (core/proxy/server_trust.go, gophertunnel FirstUseTrust, oreui modal::server_trust_modal): FUN_1408bf550 (probe continuation) builds TofuServerIdentityVerifier (FUN_141190820/FUN_141190a20) with a callback, capturing the probed URL (the modal's %1$s); the callback FUN_1408c07a0 trusts "https://" URLs at once and otherwise pushes ServerTrustModalScreenController (FUN_1408c0c20, modal FUN_145501670: permissions.servertrust.title/message/button.trust/button.doNotTrust). TofuServerIdentityVerifier::verify (FUN_141190bb0) gets the a=identity `assertion` (empty when absent: FUN_1418cf960 returns nullopt, so verify is false) and parses {"fingerprints","token"}, taking the key from the token's cpk; known keys hit a sorted set (FUN_1411eda10 equal_range) and move to the end of the LRU vector, persisted by FUN_141190050 as {"keys":[...]} under the static key "trusted_server_public_keys" (loader FUN_14118f120); FUN_14118f8e0 inserts and evicts past 0xc80 bytes (100 keys). Negotiator side: FUN_140e246d0 hands FUN_140e0fd40's parsed a=identity (or none) to the verifier; a false result logs "Rejecting answer from %s: application declined the server identity".
 - No Minecraft-layer AES over NetherNet: EncryptedNetworkPeer::enableEncryption returns early when the inner peer isEncrypted() (WebRTCNetworkPeer::isEncrypted returns true).
 - // the Login's multiplayer token and key as the SDP identity, as vanilla's MinecraftIdentityAssertion does.
 - // transport accepts identityless answers like vanilla's ClientNegotiator::onRemoteAnswer, while
@@ -800,6 +800,10 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## crates/meshing/tests/it/support/liquid_contacts.rs
 - // BlockType with Air, not its opacity. Deferred model 1 instead compares material;
+
+## crates/pack-compiler/src/animation.rs
+- /// Overlay-mask sources (grass sides) use the TextureAtlas::updateTextureAtUVs /
+- /// _buildAtlasMips byte-space box mips, as every vanilla atlas tile does.
 
 ## crates/pack-compiler/src/compiler/lily_pad_textures.rs
 - // TextureAtlas::updateTextureAtUVs multiplies RGB only.

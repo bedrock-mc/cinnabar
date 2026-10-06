@@ -233,6 +233,14 @@ fn configure_systems(app: &mut App, watching: bool) {
 }
 
 /// Runs the bounded guest and publishes only its validated presentation output.
+/// Where a mod's network, camera and cue output lands.
+#[cfg(feature = "local-mods")]
+type ModOutputs<'w> = (
+    Option<Res<'w, crate::runtime::network::NetworkHandle>>,
+    Option<ResMut<'w, crate::camera::CameraSettingsAuthority>>,
+    Option<ResMut<'w, ModCueFeed>>,
+);
+
 #[allow(
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
@@ -251,11 +259,7 @@ fn drive_mod(
     interaction: Option<ResMut<interaction::ModInteraction>>,
     watcher: Option<Res<registration::Watcher>>,
     render_scene: Option<ResMut<::render::ModRenderScene>>,
-    mut outputs: (
-        Option<Res<crate::runtime::network::NetworkHandle>>,
-        Option<ResMut<crate::camera::CameraSettingsAuthority>>,
-        Option<ResMut<ModCueFeed>>,
-    ),
+    mut outputs: ModOutputs,
 ) {
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)

@@ -95,7 +95,7 @@ impl WorldStream {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
         self.light_diagnostics.columns.remove(&key);
         self.light_diagnostics.mode(key, event.mode);
-        let Some(range) = vanilla_dimension_range(event.dimension) else {
+        let Some(range) = self.authority.dimension_range(event.dimension) else {
             return;
         };
         let LevelChunkMode::Inline { count } = event.mode else {
@@ -176,9 +176,10 @@ impl WorldStream {
     /// Gives the app immutable StartGame facts without claiming inferred bounds came from wire.
     pub fn lighting_session_facts(&self) -> String {
         format!(
-            "start_game_dimension={} start_game_height_range=not-supplied effective_start_range={:?} range_source=vanilla-dimension-table network_ids={:?}",
+            "start_game_dimension={} start_game_height_range=not-supplied effective_start_range={:?} range_source=session-dimension-registry network_ids={:?}",
             self.light_diagnostics.start_dimension,
-            vanilla_dimension_range(self.light_diagnostics.start_dimension),
+            self.authority
+                .dimension_range(self.light_diagnostics.start_dimension),
             self.network_id_mode()
         )
     }

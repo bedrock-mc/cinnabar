@@ -36,9 +36,6 @@ func (f *feedFixture) service() *Service {
 			f.calls++
 			return f.featured()
 		},
-		Gatherings: func(context.Context, *authcache.Account) ([]catalog.Gathering, error) {
-			return nil, errors.New("offline")
-		},
 		Home: func(context.Context, *authcache.Account, *catalog.MessagingSession, string) (catalog.Home, error) {
 			return catalog.Home{}, errors.New("offline")
 		},

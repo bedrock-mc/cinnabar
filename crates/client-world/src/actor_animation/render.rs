@@ -1,13 +1,15 @@
 use super::{
     evaluation::Evaluator,
-    pose::{LocalDelta, compose_pose, sample_clips},
+    pose::{compose_pose, sample_clips},
     *,
 };
+use assets::entity_render_pattern_matches as pattern_matches;
 
 /// One texture layer a rig draws this tick, from its render controllers in controller order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderTextureLayer {
     pub material: assets::EntityRenderMaterial,
+    pub material_state: Option<assets::EntityRenderMaterialState>,
     /// Entity-catalog source index of the raster.
     pub source: u32,
     /// Additional samplers of the witnessed native three-texture material, not extra draws.
@@ -28,6 +30,8 @@ pub struct RenderTextureLayer {
     pub pose: Arc<[BoneTransform]>,
     /// The controller draws unlit.
     pub ignore_lighting: bool,
+    /// Multiplies light RGB after world-light admission; defaults to one.
+    pub light_color_multiplier: f32,
 }
 
 /// Bones of a geometry a render controller draws beside the rig's own.
@@ -87,7 +91,6 @@ pub(super) fn pose_layers(
     layers: &mut [RenderTextureLayer],
     budget: &mut EvalBudget<'_>,
 ) {
-    let assets = evaluator.assets;
     for layer in layers.iter_mut() {
         let Some(geometry) = layer.geometry else {
             continue;
@@ -95,24 +98,45 @@ pub(super) fn pose_layers(
         let Some(Some(skeleton)) = skeletons.get(&geometry) else {
             continue;
         };
-        let mapped: Vec<_> = clips
-            .iter()
-            .filter_map(|weighted| {
-                let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
-                Some(super::tick::WeightedClip {
-                    clip: assets.clip_for_geometry(symbol, geometry)? as usize,
-                    ..*weighted
-                })
-            })
-            .collect();
-        // Keyframe scripts already ran for the rig; a scratch copy keeps them from running twice.
-        let mut scratch = variables.clone();
-        let local = sample_clips(evaluator, &mut scratch, &skeleton.bones, &mapped, budget)
-            .unwrap_or_else(|_| vec![LocalDelta::default(); skeleton.bones.len()]);
-        if let Some(pose) = compose_pose(&skeleton.bones, &local) {
-            layer.pose = pose.into();
+        let pose = sample_layer_pose(evaluator, variables, skeletons, clips, geometry, budget)
+            .ok()
+            .or_else(|| compose_pose(&skeleton.bones, &[]).map(Arc::from));
+        if let Some(pose) = pose {
+            layer.pose = pose;
         }
     }
+}
+
+/// Samples a selected geometry without mutating the rig's variables or masking a failed pose.
+pub(super) fn sample_layer_pose(
+    evaluator: &Evaluator<'_>,
+    variables: &MolangVariables,
+    skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
+    clips: &[super::tick::WeightedClip],
+    geometry: u32,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Arc<[BoneTransform]>, EvalError> {
+    let skeleton = skeletons
+        .get(&geometry)
+        .and_then(Option::as_ref)
+        .ok_or(EvalError::Invalid)?;
+    let assets = evaluator.assets;
+    let mapped: Vec<_> = clips
+        .iter()
+        .filter_map(|weighted| {
+            let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
+            Some(super::tick::WeightedClip {
+                clip: assets.clip_for_geometry(symbol, geometry)? as usize,
+                ..*weighted
+            })
+        })
+        .collect();
+    // Keyframe scripts already ran for the rig; scratch variables keep their writes isolated.
+    let mut scratch = variables.clone();
+    let local = sample_clips(evaluator, &mut scratch, &skeleton.bones, &mapped, budget)?;
+    compose_pose(&skeleton.bones, &local)
+        .map(Arc::from)
+        .ok_or(EvalError::Invalid)
 }
 
 /// The pose of a layer that draws the rig's own geometry, shared by every such layer.
@@ -150,30 +174,6 @@ pub(super) fn carry_layer_poses(
 
 /// The `uv_anim` value of a controller without one.
 const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
-
-/// `pattern` is lowercase with an optional leading and/or trailing `*`; bone names match
-/// ignoring ASCII case. Runs per rule, bone and actor every tick, so it never allocates.
-fn pattern_matches(pattern: &str, name: &str) -> bool {
-    let (leading, rest) = match pattern.strip_prefix('*') {
-        Some(rest) => (true, rest),
-        None => (false, pattern),
-    };
-    let (trailing, core) = match rest.strip_suffix('*') {
-        Some(core) => (true, core),
-        None => (false, rest),
-    };
-    let (name, core) = (name.as_bytes(), core.as_bytes());
-    let at = |start: usize| {
-        name.get(start..start + core.len())
-            .is_some_and(|window| window.eq_ignore_ascii_case(core))
-    };
-    match (leading, trailing) {
-        (true, true) => (0..=name.len().saturating_sub(core.len())).any(at),
-        (true, false) => name.len() >= core.len() && at(name.len() - core.len()),
-        (false, true) => at(0),
-        (false, false) => name.eq_ignore_ascii_case(core),
-    }
-}
 
 fn color(
     evaluator: &Evaluator<'_>,
@@ -276,6 +276,13 @@ pub(super) fn evaluate_render(
             IDENTITY_UV_ANIM,
             budget,
         )?;
+        let light_color_multiplier = match layer.light_color_multiplier {
+            None => 1.0,
+            Some(expression) => {
+                let value = evaluator.number(expression as usize, variables, 1.0, budget)?;
+                if value.is_finite() { value } else { 1.0 }
+            }
+        };
         let slots = render
             .slots
             .get(
@@ -322,6 +329,7 @@ pub(super) fn evaluate_render(
         for &source in selected_sources.iter().take(count) {
             output.push(RenderTextureLayer {
                 material: layer.material,
+                material_state: layer.material_state,
                 source,
                 multitexture: grouped,
                 color: tint,
@@ -332,6 +340,7 @@ pub(super) fn evaluate_render(
                 previous_pose: empty_pose(),
                 pose: empty_pose(),
                 ignore_lighting: layer.ignore_lighting,
+                light_color_multiplier,
             });
         }
     }

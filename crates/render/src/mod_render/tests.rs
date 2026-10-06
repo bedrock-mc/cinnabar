@@ -300,7 +300,6 @@ fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
     }
     assert!(depths.contains(&bevy::render::render_resource::CompareFunction::Always));
     assert!(depths.contains(&bevy::render::render_resource::CompareFunction::GreaterEqual));
-    drop(cache);
     fixture::clear(&mut app, view);
     app.world_mut()
         .resource_mut::<ModRenderScene>()

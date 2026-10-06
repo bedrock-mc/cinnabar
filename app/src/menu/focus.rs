@@ -96,6 +96,12 @@ impl MenuRuntime {
 
     /// The actions keyboard and gamepad focus cycles through on the current screen.
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
+        if self.is_connecting() && self.feeds.server_trust.is_some() {
+            return vec![
+                MenuAction::ServerTrust(true),
+                MenuAction::ServerTrust(false),
+            ];
+        }
         if let Some(dialog) = self.dialog {
             return match dialog {
                 MenuDialog::Accounts => {
@@ -212,7 +218,6 @@ impl MenuRuntime {
                 match self.server_tab {
                     MenuServerTab::Featured => {
                         actions.extend((0..self.featured.len()).map(MenuAction::PlayFeatured));
-                        actions.extend((0..self.gatherings.len()).map(MenuAction::PlayGathering));
                     }
                     MenuServerTab::Favorites => actions.extend(
                         self.servers

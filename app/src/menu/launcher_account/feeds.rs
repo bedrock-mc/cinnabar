@@ -2,9 +2,7 @@
 
 use std::sync::Mutex;
 
-use protocol::launcher_control::{
-    self, BridgeError, FeaturedServer, Friend, Gathering, Home, Realm,
-};
+use protocol::launcher_control::{self, BridgeError, FeaturedServer, Friend, Home, Realm};
 
 use super::{Snapshot, auth_generation, publish, publish_account, settle};
 
@@ -12,7 +10,6 @@ use super::{Snapshot, auth_generation, publish, publish_account, settle};
 pub(super) trait FeedSource {
     async fn home(&self) -> Result<Home, BridgeError>;
     async fn featured(&self) -> Result<Vec<FeaturedServer>, BridgeError>;
-    async fn gatherings(&self) -> Result<Vec<Gathering>, BridgeError>;
     async fn realms(&self) -> Result<Vec<Realm>, BridgeError>;
     async fn friends(&self) -> Result<Vec<Friend>, BridgeError>;
 }
@@ -26,9 +23,6 @@ impl FeedSource for CoreFeeds<'_> {
     async fn featured(&self) -> Result<Vec<FeaturedServer>, BridgeError> {
         launcher_control::list_featured_servers(self.0).await
     }
-    async fn gatherings(&self) -> Result<Vec<Gathering>, BridgeError> {
-        launcher_control::list_gatherings(self.0).await
-    }
     async fn realms(&self) -> Result<Vec<Realm>, BridgeError> {
         launcher_control::list_realms(self.0).await
     }
@@ -37,14 +31,14 @@ impl FeedSource for CoreFeeds<'_> {
     }
 }
 
-/// Requests Home, featured servers and gatherings together; each publishes as soon as it
+/// Requests Home and featured servers together; each publishes as soon as it
 /// arrives. Returns Home for impression reporting and whether any feed failed.
 pub(super) async fn feed_round(
     source: &impl FeedSource,
     shared: &Mutex<Snapshot>,
 ) -> (Option<Home>, bool) {
     let generation = auth_generation(shared);
-    let ((home, home_failed), featured_failed, gatherings_failed) = tokio::join!(
+    let ((home, home_failed), featured_failed) = tokio::join!(
         async {
             let mut failed = false;
             let home = settle("home", source.home().await, &mut failed);
@@ -63,17 +57,8 @@ pub(super) async fn feed_round(
             }
             failed
         },
-        async {
-            let mut failed = false;
-            if let Some(gatherings) = settle("gatherings", source.gatherings().await, &mut failed) {
-                publish_account(shared, generation, |snapshot| {
-                    snapshot.gatherings = Some(gatherings)
-                });
-            }
-            failed
-        },
     );
-    (home, home_failed || featured_failed || gatherings_failed)
+    (home, home_failed || featured_failed)
 }
 
 /// Requests the account's Realms and friends together; each publishes as soon as it arrives,
@@ -120,7 +105,6 @@ mod tests {
         started: AtomicUsize,
         home: Notify,
         featured: Notify,
-        gatherings: Notify,
         realms: Notify,
         friends: Notify,
         fail: bool,
@@ -145,9 +129,6 @@ mod tests {
         async fn featured(&self) -> Result<Vec<FeaturedServer>, BridgeError> {
             self.answer(&self.featured).await
         }
-        async fn gatherings(&self) -> Result<Vec<Gathering>, BridgeError> {
-            self.answer(&self.gatherings).await
-        }
         async fn realms(&self) -> Result<Vec<Realm>, BridgeError> {
             self.answer(&self.realms).await
         }
@@ -160,12 +141,11 @@ mod tests {
         future.poll(&mut Context::from_waker(Waker::noop()))
     }
 
-    fn published(shared: &Mutex<Snapshot>) -> [bool; 5] {
+    fn published(shared: &Mutex<Snapshot>) -> [bool; 4] {
         let snapshot = shared.lock().unwrap();
         [
             snapshot.home.is_some(),
             snapshot.featured.is_some(),
-            snapshot.gatherings.is_some(),
             snapshot.realms.is_some(),
             snapshot.friends.is_some(),
         ]
@@ -177,14 +157,11 @@ mod tests {
         let shared = Mutex::new(Snapshot::default());
         let mut round = pin!(feed_round(&feeds, &shared));
         assert!(poll(round.as_mut()).is_pending());
-        assert_eq!(feeds.started.load(Ordering::SeqCst), 3);
+        assert_eq!(feeds.started.load(Ordering::SeqCst), 2);
 
-        feeds.gatherings.notify_one();
-        assert!(poll(round.as_mut()).is_pending());
-        assert_eq!(published(&shared), [false, false, true, false, false]);
         feeds.home.notify_one();
         assert!(poll(round.as_mut()).is_pending());
-        assert_eq!(published(&shared), [true, false, true, false, false]);
+        assert_eq!(published(&shared), [true, false, false, false]);
         feeds.featured.notify_one();
         let Poll::Ready((home, failed)) = poll(round.as_mut()) else {
             panic!("the round outlived its last answer");
@@ -193,13 +170,13 @@ mod tests {
 
         let mut catalog = pin!(catalog_round(&feeds, &shared, 0));
         assert!(poll(catalog.as_mut()).is_pending());
-        assert_eq!(feeds.started.load(Ordering::SeqCst), 5);
+        assert_eq!(feeds.started.load(Ordering::SeqCst), 4);
         feeds.friends.notify_one();
         assert!(poll(catalog.as_mut()).is_pending());
-        assert_eq!(published(&shared), [true, true, true, false, true]);
+        assert_eq!(published(&shared), [true, true, false, true]);
         feeds.realms.notify_one();
         assert!(poll(catalog.as_mut()).is_ready());
-        assert_eq!(published(&shared), [true; 5]);
+        assert_eq!(published(&shared), [true; 4]);
     }
 
     #[test]
@@ -213,11 +190,10 @@ mod tests {
         assert!(poll(round.as_mut()).is_pending());
         feeds.home.notify_one();
         feeds.featured.notify_one();
-        feeds.gatherings.notify_one();
         let Poll::Ready((home, failed)) = poll(round.as_mut()) else {
             panic!("the round outlived its answers");
         };
         assert!(home.is_none() && failed);
-        assert_eq!(published(&shared), [false; 5]);
+        assert_eq!(published(&shared), [false; 4]);
     }
 }

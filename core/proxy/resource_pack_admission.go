@@ -455,6 +455,7 @@ type preparedConnections struct {
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
 	resolveTarget               func(context.Context) (*resolvedUpstreamTarget, error)
+	serverTrust                 minecraft.ServerTrust // decides transfer hops to addressed NetherNet servers
 	dialTarget                  func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
 	captureResourcePackStack    func(upstreamSession, func(*resource.Pack) bool) (*selectedResourcePackStack, error)
 	resourcePackCache           minecraft.ResourcePackCache
@@ -487,7 +488,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.connectPrepared = connections.connect
 	connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger)
+		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger, nil)
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
@@ -497,7 +498,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 					return dialWithPreparedTransport(ctx, network, address, dialer.DialContextNetwork)
 				}
 			}
-			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dial)
+			return dialMinecraftUpstream(ctx, networkForAddress(target, address, connections.serverTrust), address, dial)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack

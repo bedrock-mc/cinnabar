@@ -23,6 +23,7 @@ mod launcher_core;
 mod navigation;
 #[cfg(test)]
 mod server_input_tests;
+pub(crate) mod server_trust;
 pub(crate) mod servers;
 #[cfg(test)]
 mod session_teardown_tests;
@@ -122,7 +123,6 @@ pub(crate) struct MenuRuntime {
     /// The session controller's last published state.
     session: SessionStatus,
     featured: Vec<MenuServerCard>,
-    gatherings: Vec<MenuServerCard>,
     realms: Vec<MenuRealmCard>,
     friends: Vec<MenuFriendCard>,
     catalog_message: Option<String>,
@@ -298,11 +298,9 @@ impl MenuRuntime {
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
-            gatherings: self.gatherings.clone(),
             realms: self.realms.clone(),
             friends: self.friends.clone(),
             featured_icon: None,
-            gathering_icon: None,
             realm_icon: None,
             friend_icon: None,
             saved_icon: None,
@@ -493,7 +491,6 @@ impl MenuRuntime {
                 action,
                 MenuAction::PlaySaved(_)
                     | MenuAction::PlayFeatured(_)
-                    | MenuAction::PlayGathering(_)
                     | MenuAction::PlayRealm(_)
                     | MenuAction::PlayFriend(_)
                     | MenuAction::PlayLocalWorld(_)
@@ -576,11 +573,6 @@ impl MenuRuntime {
             }
             MenuAction::PlayFeatured(index) => {
                 if let Some(server) = self.featured.get(index) {
-                    self.request_connect(server.address.clone());
-                }
-            }
-            MenuAction::PlayGathering(index) => {
-                if let Some(server) = self.gatherings.get(index) {
                     self.request_connect(server.address.clone());
                 }
             }
@@ -719,6 +711,7 @@ impl MenuRuntime {
                 }
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
+            MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
         }
     }
 
@@ -868,11 +861,15 @@ pub(crate) fn drive_menu_services(
         );
     }
     if std::mem::take(&mut menu.accounts.skip_control) {
+        menu.forget_launcher_trust();
         return;
     }
     match launcher_account {
         Some(mut account) => menu.sync_account_control(&mut *account),
-        None => menu.sign_out_locally(),
+        None => {
+            menu.forget_launcher_trust();
+            menu.sign_out_locally();
+        }
     }
     if let Some(worlds) = local_worlds.as_deref_mut() {
         menu.sync_local_worlds(worlds, in_session);

@@ -19,6 +19,9 @@ use super::{
 
 const MAX_SLOTS_PER_LAYER: usize = 16;
 
+mod material_groups;
+mod materials;
+
 pub(super) struct RenderSources<'a> {
     pub root: &'a Path,
     pub payloads: &'a SourcePayloads,
@@ -116,6 +119,7 @@ pub(super) fn compile_render(
         rig_geometries,
     } = input;
     let mut controllers = BTreeMap::<Box<str>, Option<Value>>::new();
+    let materials = materials::MaterialStates::load(root, payloads, sources)?;
     for source in sources
         .iter()
         .filter(|source| source.path.starts_with("render_controllers/"))
@@ -132,6 +136,7 @@ pub(super) fn compile_render(
     let (mut layers, mut slots, mut candidates, mut visibility) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut layer_geometries = Vec::new();
+    let mut geometry_parents = None;
     let geometry_indices = unique_geometry_indices(geometries);
     for (rig_index, rig) in rigs.iter().enumerate() {
         let entity = &symbols[rig.entity_symbol as usize];
@@ -264,6 +269,22 @@ pub(super) fn compile_render(
                 molang,
                 &mut layer_geometries,
             );
+            let rig_first = rig.first_geometry as usize;
+            let groups = material_groups::resolve(
+                description,
+                definition,
+                &materials,
+                geometries,
+                rig_geometries[rig_first..rig_first + usize::from(rig.geometry_count)]
+                    .iter()
+                    .map(|binding| binding.geometry)
+                    .chain(
+                        layer_geometries[first_geometry..]
+                            .iter()
+                            .map(|choice| choice.geometry),
+                    ),
+                &mut geometry_parents,
+            )?;
             let first_visibility = visibility.len();
             for rule in definition
                 .get("part_visibility")
@@ -284,26 +305,51 @@ pub(super) fn compile_render(
                     });
                 }
             }
-            layers.push(EntityRenderLayer {
-                material: native_material(description, definition),
+            let visibility_count =
+                u16::try_from(visibility.len() - first_visibility).map_err(|_| {
+                    crate::entity::invalid("entity render visibility range exceeds bound")
+                })?;
+            let geometry_count =
+                u16::try_from(layer_geometries.len() - first_geometry).map_err(|_| {
+                    crate::entity::invalid("entity render geometry range exceeds bound")
+                })?;
+            let layer = EntityRenderLayer {
+                material: EntityRenderMaterial::Default,
+                material_state: None,
                 hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
                 first_slot: first_slot as u32,
                 slot_count: (slots.len() - first_slot) as u16,
                 first_visibility: first_visibility as u32,
-                visibility_count: (visibility.len() - first_visibility) as u16,
+                visibility_count,
                 color: compile_color(molang, definition.get("color"), "1.0"),
                 overlay_color: compile_color(molang, definition.get("overlay_color"), "0.0"),
                 on_fire_color: compile_color(molang, definition.get("on_fire_color"), "0.0"),
                 uv_anim: compile_uv_anim(molang, definition.get("uv_anim")),
                 first_geometry: first_geometry as u32,
-                geometry_count: (layer_geometries.len() - first_geometry) as u16,
+                geometry_count,
                 ignore_lighting: definition
                     .get("ignore_lighting")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
-            });
+                light_color_multiplier: definition
+                    .get("light_color_multiplier")
+                    .and_then(expression_text)
+                    .and_then(|text| compile_condition(molang, &text)),
+            };
+            material_groups::append(
+                layer,
+                groups,
+                material_groups::Records {
+                    layers: &mut layers,
+                    slots: &mut slots,
+                    candidates: &mut candidates,
+                    visibility: &mut visibility,
+                    geometries: &mut layer_geometries,
+                },
+                molang,
+            )?;
         }
     }
     Ok(EntityRenderData {
@@ -313,34 +359,6 @@ pub(super) fn compile_render(
         visibility: visibility.into_boxed_slice(),
         geometries: layer_geometries.into_boxed_slice(),
     })
-}
-
-fn native_material(
-    description: &Map<String, Value>,
-    controller: &Map<String, Value>,
-) -> EntityRenderMaterial {
-    let Some(alias) = controller
-        .get("materials")
-        .and_then(Value::as_array)
-        .and_then(|rules| rules.iter().rev().find_map(|rule| rule.get("*")?.as_str()))
-        .and_then(|alias| alias.strip_prefix("Material."))
-    else {
-        return EntityRenderMaterial::Default;
-    };
-    match description
-        .get("materials")
-        .and_then(|materials| materials.get(alias))
-        .and_then(Value::as_str)
-    {
-        Some("ender_dragon") => EntityRenderMaterial::Dragon,
-        Some("entity_dissolve_layer0.skinning" | "entity_dissolve_layer0") => {
-            EntityRenderMaterial::DissolveDepth
-        }
-        Some("entity_dissolve_layer1.skinning" | "entity_dissolve_layer1") => {
-            EntityRenderMaterial::DissolveColor
-        }
-        _ => EntityRenderMaterial::Default,
-    }
 }
 
 /// Appends the geometries a controller's `geometry` expression selects, each with the condition

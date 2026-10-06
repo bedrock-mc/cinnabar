@@ -435,6 +435,26 @@ fn identity_transform() -> ItemDisplayTransform {
     ItemDisplayTransform::identity()
 }
 
+#[test]
+fn render_light_multiplier_preserves_legacy_carriers_and_validates_expression_indices() {
+    let mut compiled = carrier_v4_fixture();
+    let layer = compiled.render.layers[0];
+    let legacy = serde_json::to_value(layer).unwrap();
+    assert!(legacy.get("light_color_multiplier").is_none());
+    let restored: entity::EntityRenderLayer = serde_json::from_value(legacy).unwrap();
+    assert_eq!(restored.light_color_multiplier, None);
+    compiled.render.layers[0].light_color_multiplier = Some(0);
+    let encoded = encode_entity_blob(&compiled).unwrap();
+    let decoded = RuntimeEntityAssetsV4::decode(&encoded).unwrap();
+    assert_eq!(
+        decoded.render_data().layers[0].light_color_multiplier,
+        Some(0)
+    );
+    compiled.render.layers[0].light_color_multiplier =
+        Some(compiled.molang_expressions.len() as u32);
+    assert!(encode_entity_blob(&compiled).is_err());
+}
+
 pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
     let sources = [
         ("animation_controllers/allay.controller.json", 0x10),
@@ -670,6 +690,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         render: entity::EntityRenderData {
             layers: Box::new([entity::EntityRenderLayer {
                 material: Default::default(),
+                material_state: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
@@ -684,6 +705,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 first_geometry: 0,
                 geometry_count: 0,
                 ignore_lighting: false,
+                light_color_multiplier: None,
             }]),
             slots: Box::new([entity::EntityRenderSlot {
                 first_candidate: 0,

@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ const (
 	methodAccountStatus  = "account_status.v1"
 	methodSignOut        = "sign_out.v1"
 	methodEvents         = "events.v1"
+	methodServerTrust    = "server_trust_answer.v1"
 	codeSignedOut        = -32020
 	codeServiceFailed    = -32021
 	codeInvalidTarget    = -32022
@@ -86,6 +88,8 @@ type EventsV1 struct {
 	Transfer      *TransferV1   `json:"transfer,omitempty"`
 	// Connect is the join's live stage while the core prepares it.
 	Connect *proxy.ConnectProgress `json:"connect,omitempty"`
+	// ServerTrust is the join's pending question whether to trust a NetherNet server.
+	ServerTrust *proxy.ServerTrustPrompt `json:"server_trust,omitempty"`
 }
 
 type accountResultV1 struct {
@@ -109,7 +113,7 @@ type emptyResultV1 struct {
 
 func isServiceMethod(method string) bool {
 	switch method {
-	case methodRealmsList, methodFriendsList, methodConnect, methodAccountStatus, methodSignOut, methodEvents:
+	case methodRealmsList, methodFriendsList, methodConnect, methodAccountStatus, methodSignOut, methodEvents, methodServerTrust:
 		return true
 	}
 	return isScreenMethod(method)
@@ -154,12 +158,60 @@ func (store *Store) Events() EventsV1 {
 		progress := *store.connect
 		events.Connect = &progress
 	}
+	if store.trustPrompt != nil {
+		prompt := *store.trustPrompt
+		events.ServerTrust = &prompt
+	}
 	return events
+}
+
+// ObserveServerTrust publishes a pending trust prompt, or withdraws it once it is no longer pending.
+func (store *Store) ObserveServerTrust(prompt proxy.ServerTrustPrompt, pending bool) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	switch {
+	case pending && (store.trustPrompt == nil || prompt.ID > store.trustPrompt.ID):
+		store.trustPrompt = &prompt
+	case store.trustPrompt != nil && store.trustPrompt.ID == prompt.ID:
+		store.trustPrompt = nil
+	}
+}
+
+// SetServerTrustAnswer installs the receiver of the client's trust answers.
+func (store *Store) SetServerTrustAnswer(answer func(id uint64, trusted bool) bool) {
+	store.mu.Lock()
+	store.trustAnswer = answer
+	store.mu.Unlock()
+}
+
+type serverTrustResultV1 struct {
+	SchemaVersion uint32 `json:"schema_version"`
+	Answered      bool   `json:"answered"` // false once the prompt is no longer pending
+}
+
+func (server *Server) serveServerTrust(reply responseWriter, raw json.RawMessage) error {
+	var params struct {
+		ID      *uint64 `json:"id"`
+		Trusted *bool   `json:"trusted"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if len(raw) == 0 || decoder.Decode(&params) != nil || params.ID == nil || params.Trusted == nil {
+		return reply.invalid()
+	}
+	server.store.mu.RLock()
+	answer := server.store.trustAnswer
+	server.store.mu.RUnlock()
+	answered := answer != nil && answer(*params.ID, *params.Trusted)
+	return reply.ok(serverTrustResultV1{SchemaVersion: 1, Answered: answered})
 }
 
 func (server *Server) serveService(conn net.Conn, id uint64, method string, raw json.RawMessage) error {
 	reply := responseWriter{server: server, conn: conn, id: id}
 
+	if method == methodServerTrust {
+		return server.serveServerTrust(reply, raw)
+	}
 	switch method {
 	case methodAccountStatus, methodEvents:
 		if len(raw) != 0 {

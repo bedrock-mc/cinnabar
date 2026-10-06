@@ -74,6 +74,51 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
     assert!(has_sprite(&presentation, "textures/blocks/netherrack"));
 }
 
+#[test]
+fn dimension_loading_keeps_its_message_and_backdrop_without_the_join_animation() {
+    let player_runtime = player_state::PlayerState::new(1);
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping dimension_loading_keeps_its_message_and_backdrop_without_the_join_animation: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let runtime = UiRuntime::new(1);
+    let frame = |presentation: &mut UiPresentationRuntime| {
+        presentation
+            .build(
+                &player_runtime,
+                &runtime,
+                0,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+    };
+    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    frame(&mut presentation);
+    assert!(has_sprite(&presentation, "textures/ui/loading_bar"));
+    presentation.set_loading_stage(Some(LoadingStage::ChangingDimension));
+    for (dimension, backdrop) in [
+        "textures/blocks/dirt",
+        "textures/blocks/netherrack",
+        "textures/blocks/end_stone",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        presentation.hud_frame_mut().dimension = dimension.try_into().unwrap();
+        frame(&mut presentation);
+        let shown = texts(&presentation);
+        for wanted in ["Generating World", "Building terrain"] {
+            assert!(shown.iter().any(|text| text == wanted), "{shown:?}");
+        }
+        assert!(has_sprite(&presentation, backdrop));
+        assert!(!has_sprite(&presentation, "textures/ui/loading_bar"));
+        assert!(!has_sprite(&presentation, "textures/ui/loading_spin"));
+    }
+}
+
 /// Local-only: writes `loading_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is
 /// set, over `CINNABAR_FORM_PACK_DIR`'s server pack when that is set too.
 #[test]

@@ -36,6 +36,10 @@ impl CollisionSnapshot {
 }
 
 impl CollisionWorld for CollisionSnapshot {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        self.0.registry.identity()
+    }
+
     fn liquid_current(
         &self,
         previous_pose: Aabb,

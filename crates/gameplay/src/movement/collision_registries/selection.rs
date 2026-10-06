@@ -4,7 +4,7 @@
 //! and the first snow layer remain selectable without a movement collider.
 //! Unreviewed blocks retain their existing registry bounds.
 
-use assets::{RegistryRecord, TOP_SNOW_LAYER_COUNT};
+use assets::{ModelFamily, ModelStateField, RegistryRecord, TOP_SNOW_LAYER_COUNT};
 use sim::{Aabb, Vec3};
 
 impl super::PhysicsCollisionRegistries {
@@ -20,10 +20,26 @@ impl super::PhysicsCollisionRegistries {
     }
 }
 
-/// Visual bounds for plants; vanilla ray clipping picks these independently
-/// of movement collision.
+/// Visual bounds used by ray clipping and outlines, independently of movement collision.
 pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
     let name = record.name.strip_prefix("minecraft:")?;
+    if record.model_family == ModelFamily::Wall {
+        return wall_shape(record);
+    }
+    if name.ends_with("_fence") {
+        let boxes = super::connected::shapes(record)?;
+        let first = boxes.first()?;
+        let mut min = first.min;
+        let mut max = first.max;
+        for shape in &boxes[1..] {
+            min.x = min.x.min(shape.min.x);
+            min.z = min.z.min(shape.min.z);
+            max.x = max.x.max(shape.max.x);
+            max.z = max.z.max(shape.max.z);
+        }
+        max.y = 1.0;
+        return Some(Aabb::new(min, max));
+    }
     if name == "snow_layer" {
         let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
         let height = state.get("height")?.get("value")?.as_u64()?;
@@ -76,6 +92,41 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
         _ => return None,
     };
     Some(bounds([inset, 0.0, inset], [edge, height, edge]))
+}
+
+/// Walls outline the visual post and arms, independently of their taller collider.
+fn wall_shape(record: &RegistryRecord) -> Option<Aabb> {
+    let connections = record.model_state.get(ModelStateField::Connections)?;
+    let [north, east, south, west] =
+        std::array::from_fn::<_, 4, _>(|axis| (connections >> (axis * 2)) & 3);
+    let links = [north, east, south, west];
+    if connections & !0x1ff != 0 || links.contains(&3) {
+        return None;
+    }
+    let post = connections & 0x100 != 0;
+    let mut min = [
+        if west != 0 { 0.0 } else { 0.25 },
+        0.0,
+        if north != 0 { 0.0 } else { 0.25 },
+    ];
+    let mut max = [
+        if east != 0 { 1.0 } else { 0.75 },
+        if post || links.contains(&2) {
+            1.0
+        } else {
+            0.875
+        },
+        if south != 0 { 1.0 } else { 0.75 },
+    ];
+    if !post && north != 0 && south != 0 && east == 0 && west == 0 {
+        min[0] = 0.3125;
+        max[0] = 0.6875;
+    }
+    if !post && east != 0 && west != 0 && north == 0 && south == 0 {
+        min[2] = 0.3125;
+        max[2] = 0.6875;
+    }
+    Some(bounds(min, max))
 }
 
 /// Torches choose the visual box by `torch_facing_direction`, independently

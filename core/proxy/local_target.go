@@ -89,6 +89,10 @@ func (n localNetherNetNetwork) DialContext(ctx context.Context, address string) 
 	return n.NetherNet.DialContext(ctx, address)
 }
 
+// selfSignedLifetime outlives a join left waiting on the server trust question, whose redial
+// presents the same identity again.
+const selfSignedLifetime = time.Hour
+
 // selfSignedIdentity carries cpk as base64 DER: BDS rejects the JWK form.
 func selfSignedIdentity(now time.Time) (*nethernet.Identity, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
@@ -104,7 +108,7 @@ func selfSignedIdentity(now time.Time) (*nethernet.Identity, error) {
 		jwt.Claims
 		PublicKey string `json:"cpk"`
 	}{
-		Claims:    jwt.Claims{IssuedAt: jwt.NewNumericDate(now), Expiry: jwt.NewNumericDate(now.Add(time.Minute))},
+		Claims:    jwt.Claims{IssuedAt: jwt.NewNumericDate(now), Expiry: jwt.NewNumericDate(now.Add(selfSignedLifetime))},
 		PublicKey: publicKey,
 	}).Serialize()
 	if err != nil {

@@ -194,6 +194,15 @@ impl LocalPhysicsController {
         let motion_overlays: Vec<sim::MotionOverlay> =
             self.server_motions.iter().copied().collect();
         let mut controller_frames = self.controller_history.clone();
+        let immobility_edits: Vec<u64> = controller_frames
+            .iter()
+            .filter(|frame| {
+                self.history
+                    .input_at(frame.tick)
+                    .is_some_and(|input| input.immobile != frame.input.immobile)
+            })
+            .map(|frame| frame.tick)
+            .collect();
         let anchor_controller = controller_frames
             .iter()
             .find(|frame| frame.tick == tick)
@@ -263,6 +272,8 @@ impl LocalPhysicsController {
             };
             if self.history.world_at(result.tick).is_none()
                 && retained.world_identity != result.world_identity
+                && (immobility_edits.binary_search(&result.tick).is_err()
+                    || retained.world_identity.registry != result.world_identity.registry)
             {
                 return Err(PhysicsCorrectionError::WorldIdentityMismatch { tick: result.tick });
             }
@@ -294,7 +305,7 @@ impl LocalPhysicsController {
             let Some(frame_input) = self.history.input_at(result.tick) else {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
-            if frame_input.mode == sim::MovementMode::Riding {
+            if frame_input.immobile || frame_input.mode == sim::MovementMode::Riding {
                 jump_fold = ReplayJumpArcFold::seed(true, false, false);
             }
             let (initiated, arc_active) = jump_fold.step(output.jump_initiated, result.on_ground);

@@ -58,6 +58,7 @@ impl WorldStream {
     }
 
     /// Retires authority in one pass, then releases packed column allocations off-thread.
+    /// Work scales with the retired columns and their neighbours, not with the whole view.
     pub(super) fn evict_columns(&mut self, columns: BTreeSet<ChunkKey>) {
         if columns.is_empty() {
             return;
@@ -73,17 +74,13 @@ impl WorldStream {
         self.requests.purge_columns(&columns);
         let mut changed = self.resident_keys_in_columns(&columns);
         let removing_all = changed.len() == self.resident.len();
-        let mut biome_dirty = BTreeSet::new();
         for &column in &columns {
-            if let Some(range) = vanilla_dimension_range(column.dimension) {
+            if let Some(range) = self.authority.dimension_range(column.dimension) {
                 for offset in 0..range.sub_chunk_count {
                     let key =
                         SubChunkKey::from_chunk(column, range.base_sub_chunk_y + offset as i32);
                     if self.authority.terrain().biome_storage(key).is_some() {
                         changed.insert(key);
-                        if !removing_all {
-                            biome_dirty.extend(key.biome_mesh_dependents());
-                        }
                     }
                 }
             }
@@ -101,35 +98,35 @@ impl WorldStream {
             )
         });
         if !changed.is_empty() {
-            for key in &changed {
+            // Records exist only for resident or known-air keys; keys that left residency
+            // earlier retire their own records when their removal publishes.
+            let retiring = columns
+                .iter()
+                .flat_map(|&column| self.known_air.column(column).copied())
+                .chain(changed.iter().copied())
+                .collect::<Vec<_>>();
+            for key in &retiring {
                 self.resident.remove(key);
                 self.known_air.remove(key);
+                self.applied_mesh_generations.remove(key);
+                self.mesh_dependency_masks.remove(key);
             }
-            self.applied_mesh_generations
-                .retain(|key, _| !columns.contains(&key.chunk()));
-            self.mesh_dependency_masks
-                .retain(|key, _| !columns.contains(&key.chunk()));
+            // One cell sweep beats per-key removal, which rescans overflow keys each time.
             self.connectivity
                 .retain(|key| !columns.contains(&key.chunk()));
         }
         if self.connectivity.len() != old_connectivity_len {
             self.bump_connectivity_generation();
         }
-        let now = Instant::now();
-        let mut light_dirty = BTreeSet::new();
-        if removing_all {
+        let (light_dirty, mesh_dirty) = if removing_all {
             self.lighting.retire_all();
-        }
+            Default::default()
+        } else {
+            self.surviving_neighbours_of(&changed)
+        };
+        let now = Instant::now();
         for key in changed {
             if !removing_all {
-                light_dirty.extend(
-                    key.mesh_dependents()
-                        .filter(|key| self.resident.contains(key)),
-                );
-                biome_dirty.extend(
-                    key.mesh_neighbourhood_dependents()
-                        .filter(|key| self.resident.contains(key)),
-                );
                 self.lighting.remove_key(key);
             }
             self.mark_dirty_exact(key, now);
@@ -137,15 +134,53 @@ impl WorldStream {
         for key in light_dirty {
             self.mark_light_dirty_exact_with_priority(key, false);
         }
-        for key in biome_dirty {
-            if self.resident.contains(&key) {
-                self.mark_dirty_exact(key, now);
-            }
+        for key in mesh_dirty {
+            self.mark_dirty_exact(key, now);
         }
         if !retired.is_empty() || retired_indexes.is_some() {
             rayon::spawn(move || drop((retired, retired_indexes)));
         }
     }
+
+    /// Resident keys outside the removed columns that sample a removed key: face neighbours
+    /// for light, and the full 3×3×3 neighbourhood for meshing. Every removed key belongs to
+    /// a retired column, so only the eight surrounding columns can hold survivors.
+    fn surviving_neighbours_of(
+        &self,
+        removed: &BTreeSet<SubChunkKey>,
+    ) -> (BTreeSet<SubChunkKey>, BTreeSet<SubChunkKey>) {
+        let mut heights = BTreeMap::<ChunkKey, BTreeSet<i32>>::new();
+        for key in removed {
+            heights.entry(key.chunk()).or_default().insert(key.y);
+        }
+        let (mut light, mut mesh) = (BTreeSet::new(), BTreeSet::new());
+        for (column, removed_heights) in &heights {
+            for dx in -1_i32..=1 {
+                for dz in -1_i32..=1 {
+                    let (Some(x), Some(z)) = (column.x.checked_add(dx), column.z.checked_add(dz))
+                    else {
+                        continue;
+                    };
+                    if dx == 0 && dz == 0 {
+                        continue;
+                    }
+                    let face = dx == 0 || dz == 0;
+                    for &key in self.resident.column(ChunkKey::new(column.dimension, x, z)) {
+                        if face && removed_heights.contains(&key.y) {
+                            light.insert(key);
+                        }
+                        let below = key.y.saturating_sub(1);
+                        let above = key.y.saturating_add(1);
+                        if removed_heights.range(below..=above).next().is_some() {
+                            mesh.insert(key);
+                        }
+                    }
+                }
+            }
+        }
+        (light, mesh)
+    }
+
     /// Collects only the sections belonging to the columns being retired.
     fn resident_keys_in_columns(&self, columns: &BTreeSet<ChunkKey>) -> BTreeSet<SubChunkKey> {
         columns
@@ -157,22 +192,15 @@ impl WorldStream {
         self.light_diagnostics.columns.clear();
         self.unsent_column_deadlines.clear();
         self.arrival_cohort = None;
-        let mut columns = self
-            .resident
-            .iter()
-            .map(|key| key.chunk())
-            .collect::<BTreeSet<_>>();
-        columns.extend(self.known_air.iter().map(|key| key.chunk()));
-        columns.extend(self.loaded_columns.iter().copied());
-        columns.extend(self.requests.requested.keys().copied());
+        let mut columns = self.tracked_columns();
         columns.extend(self.requests.collision_failures.iter().copied());
         self.evict_columns(columns);
     }
     pub(super) fn tracked_columns(&self) -> BTreeSet<ChunkKey> {
         let mut columns = self.loaded_columns.clone();
         columns.extend(self.requests.requested.keys().copied());
-        columns.extend(self.resident.iter().map(|key| key.chunk()));
-        columns.extend(self.known_air.iter().map(|key| key.chunk()));
+        columns.extend(self.resident.columns());
+        columns.extend(self.known_air.columns());
         columns
     }
     /// Re-evaluates chunk-grid retention against the local player's current
@@ -357,7 +385,7 @@ impl WorldStream {
         if self.light_source_is_known(key) {
             return false;
         }
-        let Some(range) = vanilla_dimension_range(key.dimension) else {
+        let Some(range) = self.authority.dimension_range(key.dimension) else {
             return false;
         };
         let end = range

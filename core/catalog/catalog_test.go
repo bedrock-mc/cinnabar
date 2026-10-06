@@ -19,6 +19,7 @@ import (
 	"github.com/df-mc/go-xsapi/v2/xal/xsts"
 	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
+	"github.com/sandertv/gophertunnel/minecraft/service"
 	"golang.org/x/oauth2"
 )
 
@@ -252,5 +253,41 @@ func TestRealmsListingDoesNotJoin(t *testing.T) {
 	}
 	if len(joins) != 0 {
 		t.Fatalf("listing sent %v", joins)
+	}
+}
+
+// The account's Realms client is built once, on the discovered endpoint, so its version
+// negotiation and token cache last across calls.
+func TestRealmsClientIsSharedOnTheDiscoveredEndpoint(t *testing.T) {
+	var paths []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Host+r.URL.Path)
+		_, _ = io.WriteString(w, `{"servers":[]}`)
+	}))
+	defer server.Close()
+	discovery := &service.Discovery{ServiceEnvironments: map[string]map[string]json.RawMessage{
+		"realms_frontend_bedrock_legacy": {"prod": json.RawMessage(`{"serviceUri":"` + server.URL + `"}`)},
+	}}
+	var cache realmsClients
+	first, err := cache.get(discovery, fixedRealmsXSTS{}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second, _ := cache.get(discovery, fixedRealmsXSTS{}, server.Client()); second != first {
+		t.Fatal("a second call built another Realms client")
+	}
+	if _, err := listRealms(context.Background(), first); err != nil || len(paths) != 1 || paths[0] != strings.TrimPrefix(server.URL, "https://")+"/worlds" {
+		t.Fatalf("paths = %v err = %v", paths, err)
+	}
+}
+
+// A discovered Realms endpoint that is not absolute https is refused rather than used.
+func TestRealmsClientRefusesAnInsecureEndpoint(t *testing.T) {
+	discovery := &service.Discovery{ServiceEnvironments: map[string]map[string]json.RawMessage{
+		"realms_frontend_bedrock_legacy": {"prod": json.RawMessage(`{"serviceUri":"http://realms.example.test"}`)},
+	}}
+	var cache realmsClients
+	if client, err := cache.get(discovery, fixedRealmsXSTS{}, nil); err == nil || client != nil {
+		t.Fatalf("client = %v err = %v, want a refusal", client, err)
 	}
 }

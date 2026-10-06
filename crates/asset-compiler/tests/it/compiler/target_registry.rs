@@ -110,10 +110,13 @@ fn compiler_farmland_rejects_duplicate_network_identities() {
     ));
 }
 
+/// Block names and the check their compiled family must pass.
+type Family = (&'static [&'static str], fn(&Path));
+
 /// Exact block families must not depend on another registry version's sequential IDs.
 #[test]
 fn exact_families_compile_from_target_registry() {
-    let families: [(&[&str], fn(&Path)); 7] = [
+    let families: [Family; 7] = [
         (
             &[
                 "minecraft:bone_block",

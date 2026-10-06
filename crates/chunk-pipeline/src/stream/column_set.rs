@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::BTreeSet, sync::OnceLock};
+use std::{cmp::Ordering, collections::BTreeSet, ops::Bound, sync::OnceLock};
 
 use world::{ChunkKey, SubChunkKey};
 
@@ -69,6 +69,21 @@ impl ColumnSubChunkSet {
         let first = ColumnKey(SubChunkKey::from_chunk(column, i32::MIN));
         let last = ColumnKey(SubChunkKey::from_chunk(column, i32::MAX));
         self.keys.range(first..=last).map(visited_key)
+    }
+
+    /// Each column holding a key, visiting one key per column.
+    pub(super) fn columns(&self) -> impl Iterator<Item = ChunkKey> + '_ {
+        let mut next = self.keys.first().map(|key| visited_key(key).chunk());
+        std::iter::from_fn(move || {
+            let column = next?;
+            let last = ColumnKey(SubChunkKey::from_chunk(column, i32::MAX));
+            next = self
+                .keys
+                .range((Bound::Excluded(last), Bound::Unbounded))
+                .next()
+                .map(|key| visited_key(key).chunk());
+            Some(column)
+        })
     }
 
     /// Caches the legacy key-order witness until membership actually changes.

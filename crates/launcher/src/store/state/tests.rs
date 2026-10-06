@@ -441,3 +441,18 @@ fn offer_page_art_is_fetched_before_waiting_thumbnails() {
         "{next:?}"
     );
 }
+
+// A thumbnail repeated among the screenshots was requested twice while counted once in flight.
+#[test]
+fn offer_page_art_requests_each_image_once() {
+    let mut state = StoreState::new();
+    let shot = "https://x.test/shot.jpg".to_owned();
+    let sent = state.apply(StoreEvent::Offer(Ok(Box::new(StoreOfferDetail {
+        offer: offer("a", Some(&shot), None),
+        description: None,
+        screenshot_urls: vec![shot.clone(), shot.clone()],
+        display_version: None,
+        platforms: vec![],
+    }))));
+    assert_eq!(sent.len(), 1, "{sent:?}");
+}

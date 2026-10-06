@@ -3,7 +3,7 @@
 //! MovePlayer teleports acknowledge without opt-in. Correction-snap and
 //! respawn acknowledgements remain gated until their reference is established.
 
-use bevy::prelude::{App, Update};
+use bevy::prelude::{App, IntoScheduleConfigs, Update};
 use protocol::{
     ChangeDimensionEvent, MovePlayerEvent, MovementCorrectionSubject, Packet, PlayerInputMode,
     PlayerMovementCorrectionEvent, RespawnEvent, WorldBootstrap, WorldEvent,
@@ -21,7 +21,8 @@ use crate::environment::{WeatherState, WorldClock};
 use crate::local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose};
 use crate::runtime::phase3_evidence::Phase3EvidenceEmitter;
 use crate::runtime::world::{
-    ClientWorld, WorldStreamFramePoll, reconcile_world_stream_before_physics,
+    ClientWorld, WorldStreamFramePoll, advance_dimension_transfer,
+    reconcile_world_stream_before_physics,
 };
 use assets::read_registry_for_protocol;
 use chunk_pipeline::WorldStream;
@@ -460,4 +461,75 @@ fn dimension_destination_controls_preserve_the_client_input_tick() {
             );
         }
     }
+}
+
+#[test]
+fn dimension_transfer_starts_loading_and_tracks_later_server_teleports() {
+    let mut app = wiring_app(authorized_ticker(false), LocalPhysicsController::default());
+    let (network, mut packets) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    app.insert_resource(network);
+    app.add_systems(
+        Update,
+        advance_dimension_transfer.after(reconcile_world_stream_before_physics),
+    );
+    submit(
+        &mut app,
+        1,
+        WorldEvent::ChangeDimension(ChangeDimensionEvent {
+            dimension: 1,
+            position: [0.0, 4000.0, 0.0],
+            loading_screen_id: Some(42),
+            ..Default::default()
+        }),
+    );
+    submit(
+        &mut app,
+        2,
+        WorldEvent::DimensionChangeAck { runtime_id: 0 },
+    );
+    let destination = [240.5, 82.0, -17.25];
+    submit(
+        &mut app,
+        3,
+        WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 1,
+            position: destination,
+            teleported: true,
+            ..Default::default()
+        }),
+    );
+    app.update();
+    let outgoing = packets.drain();
+    assert_eq!(outgoing.len(), 1);
+    let session = protocol::BedrockSession { shield_item_id: 0 };
+    assert_eq!(
+        protocol::encode(&outgoing[0], &session).unwrap(),
+        protocol::encode(
+            &protocol::loading_screen_packet(protocol::LoadingScreenPhase::Start, Some(42)),
+            &session
+        )
+        .unwrap()
+    );
+    let world = app.world().resource::<ClientWorld>();
+    assert!(world.dimension_transfer.active());
+    assert!(world.dimension_transfer.waiting_for_switch());
+    assert_eq!(
+        world
+            .stream
+            .as_ref()
+            .unwrap()
+            .resolved_server_position()
+            .position,
+        destination
+    );
+    assert!(
+        app.world()
+            .resource::<MovementTicker>()
+            .can_advance_physics_frame()
+    );
+    app.update();
+    assert!(
+        packets.drain().is_empty(),
+        "the destination terrain is still absent"
+    );
 }

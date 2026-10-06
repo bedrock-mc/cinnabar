@@ -103,6 +103,14 @@ impl ChunkStore {
         self.chunks.get(&key)
     }
 
+    /// Includes authoritative all-air columns that allocate no sparse storage.
+    #[must_use]
+    pub fn contains_column(&self, key: ChunkKey) -> bool {
+        self.loaded_chunks.contains(&key)
+            || self.chunks.contains_key(&key)
+            || self.authoritative_sub_chunks.contains_key(&key)
+    }
+
     /// Returns whether a complete LevelChunk for this column has been
     /// committed and not subsequently evicted.
     ///

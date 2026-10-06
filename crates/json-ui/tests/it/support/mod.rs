@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+pub mod java_pack;
+
 /// The extracted pinned vanilla `resource_pack`, located by `assets/vanilla-source.json`.
 pub fn vanilla_pack() -> PathBuf {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");

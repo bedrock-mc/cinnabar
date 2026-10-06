@@ -141,7 +141,9 @@ pub(super) fn apply(
     };
     match target {
         "#maximum_grid_items" if grid => set("maximum_grid_items", Value::from(int(value, 0))),
-        "#collection_length" if control.properties.contains_key("collection_name") => {
+        "#collection_length"
+            if control.properties.contains_key("collection_name") || kind == "collection_panel" =>
+        {
             let length = match value {
                 Value::Array(_) => Some(value.clone()),
                 other => {

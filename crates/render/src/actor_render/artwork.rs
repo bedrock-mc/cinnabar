@@ -1,7 +1,8 @@
 //! Device-bounded immutable neutral artwork, replaced whole when its identity changes.
 use super::*;
 use crate::actor::{
-    ActorArtworkPages, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES, gpu::ActorDrawSpan,
+    ActorArtworkPageId, ActorArtworkPages, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
+    gpu::ActorDrawSpan,
 };
 
 pub(super) struct GpuArtworkPage {
@@ -105,10 +106,9 @@ impl GpuArtwork {
     }
 }
 
-/// One draw per run of instances sharing a texture page and geometry, each with that geometry's
-/// own vertex count.
+/// Opaque instances share runs; blended instances retain individual sort positions.
 pub(super) fn draw_spans(
-    pages: &[u8],
+    pages: &[ActorArtworkPageId],
     instances: &[crate::actor::ActorGpuInstance],
     geometry: &[crate::actor::ActorRigGeometrySpan],
 ) -> Vec<ActorDrawSpan> {
@@ -117,6 +117,8 @@ pub(super) fn draw_spans(
     for (index, (page, instance)) in pages.iter().copied().zip(instances).enumerate() {
         if let Some(span) = spans.last_mut().filter(|span| {
             span.page == page
+                && !crate::actor::material::state(instance.material)
+                    .is_some_and(|state| state.blend)
                 && last_geometry == Some(instance.geometry_id)
                 && span.material == instance.material
         }) {
@@ -140,6 +142,133 @@ pub(super) fn draw_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blended_instances_keep_separate_sortable_spans_while_opaque_instances_batch() {
+        let material = |blend| {
+            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
+                blend,
+                ..Default::default()
+            }))
+        };
+        let instances = [false, false, true, true].map(|blend| crate::actor::ActorGpuInstance {
+            material: material(blend),
+            ..Default::default()
+        });
+        let spans = draw_spans(
+            &[1; 4],
+            &instances,
+            &[crate::actor::ActorRigGeometrySpan {
+                first_vertex: 0,
+                vertex_count: 36,
+            }],
+        );
+        assert_eq!(
+            spans
+                .iter()
+                .map(|span| (span.first, span.count))
+                .collect::<Vec<_>>(),
+            [(0, 2), (2, 1), (3, 1)]
+        );
+        assert!(spans.iter().all(|span| span.vertex_count == 36));
+    }
+
+    #[test]
+    fn high_artwork_page_ids_survive_paged_build_and_draw_spans() {
+        use crate::actor::{
+            ActorRenderIdentity, ActorRigFrameBuilder, ActorRigRenderInput, ActorRigRoute,
+            ActorRigSubmission,
+        };
+        let textures = (1..=u16::from(u8::MAX) + 2)
+            .map(|height| assets::ActorTexture {
+                source: u32::from(height),
+                width: 1,
+                height,
+                pixel_sha256: [1; 32],
+                rgba8: vec![255; usize::from(height) * 4].into(),
+            })
+            .collect::<Vec<_>>();
+        let bindings = [0, textures.len() as u32 - 1].map(|texture| assets::ActorArtworkBinding {
+            rig: texture,
+            geometry_candidate: texture,
+            entity_symbol: texture,
+            geometry: 0,
+            render_controller: 0,
+            texture,
+            material: "entity".into(),
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+        });
+        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &bindings);
+        let low = pages.route(render_model::pack_rig_id(0)).unwrap();
+        let high = pages
+            .route(render_model::pack_rig_id(textures.len() as u32 - 1))
+            .expect("valid high page retains its route");
+        assert!(usize::from(high.page()) > usize::from(u8::MAX));
+        let rig = render_model::pack_rig_id(0);
+        let geometry =
+            render_model::ActorRigGeometry::synthetic_cuboid(rig, [0.0; 3], [1.0; 3], 1).unwrap();
+        let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+        let actor = |runtime_id| ActorRigSubmission {
+            material: Default::default(),
+            culling_bounds: Default::default(),
+            input: ActorRigRenderInput {
+                identity: ActorRenderIdentity {
+                    session_id: 1,
+                    dimension: 0,
+                    runtime_id,
+                    spawn_revision: 1,
+                    ingress_sequence: 1,
+                    source_tick: Some(1),
+                    movement_revision: 1,
+                    pose_generation: 1,
+                    layer: crate::ACTOR_LAYER_BODY,
+                },
+                rig,
+                previous_bones: std::sync::Arc::from([render_model::RenderBoneTransform {
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    translation_scale: [0.0, 0.0, 0.0, 1.0],
+                    axis_scale: render_model::UNIT_AXIS_SCALE,
+                }]),
+                current_bones: std::sync::Arc::from([render_model::RenderBoneTransform {
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    translation_scale: [0.0, 0.0, 0.0, 1.0],
+                    axis_scale: render_model::UNIT_AXIS_SCALE,
+                }]),
+                completed_tick: 1,
+                reset_generation: 1,
+            },
+            world_from_actor: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ],
+            texture_layer: 0,
+            route: ActorRigRoute::Compiled,
+            tint: 0,
+            uv_anim: crate::IDENTITY_UV_ANIM,
+            light: 0,
+            overlay_rgba8: 0,
+        };
+        let page_of = |identity: &ActorRenderIdentity| {
+            if identity.runtime_id == 2 {
+                low.page()
+            } else {
+                high.page()
+            }
+        };
+        let frame = builder.build_paged(0.5, None, [actor(1), actor(2), actor(3)], page_of);
+        assert_eq!(frame.instances.len(), 3);
+        let instance_pages = frame
+            .manifest
+            .iter()
+            .map(|entry| page_of(&entry.identity))
+            .collect::<Vec<_>>();
+        let spans = draw_spans(&instance_pages, &frame.instances, &frame.geometry_spans);
+        assert_eq!(spans.len(), 2);
+        assert_eq!((spans[0].page, spans[0].count), (low.page(), 1));
+        assert_eq!((spans[1].page, spans[1].count), (high.page(), 2));
+    }
+
     #[test]
     fn coplanar_dissolve_passes_have_separate_ordered_draw_spans() {
         let instances = [

@@ -5,8 +5,8 @@ use std::{collections::HashMap, sync::Arc};
 use assets::RuntimeFontCatalog;
 use render_model::{NAMETAG_ATLAS_SIDE, NametagAtlasRect};
 use ui::{
-    FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TextLayoutCache,
-    TextLayoutRequest, TextStyle, UiScale,
+    FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_BOLD_OFFSET_64, TEXT_LINE_HEIGHT_64,
+    TextLayoutCache, TextLayoutRequest, TextStyle, UiScale,
 };
 
 /// Widest line laid out before it would wrap, in font texels.
@@ -190,7 +190,17 @@ fn rasterize<'p>(
         .unwrap_or(0)
         .max(TEXT_LINE_HEIGHT_64.div_ceil(64) as i32);
     let right = glyphs()
-        .map(|glyph| (glyph.bounds_64[2] + 63).div_euclid(64))
+        .map(|glyph| {
+            let extra = if glyph.style.bold
+                && glyph.bounds_64[2] > glyph.bounds_64[0]
+                && glyph.bounds_64[3] > glyph.bounds_64[1]
+            {
+                TEXT_BOLD_OFFSET_64 as i32
+            } else {
+                0
+            };
+            (glyph.bounds_64[2] + extra + 63).div_euclid(64)
+        })
         .max()
         .unwrap_or(0)
         .max(advance as i32);
@@ -205,31 +215,70 @@ fn rasterize<'p>(
         let mut bounds = glyph.bounds_64.map(|value| value as f32 / 64.0);
         bounds[1] -= top as f32;
         bounds[3] -= top as f32;
-        let [u0, v0, u1, v1] = glyph.uv.map(f32::from);
-        let (source_width, source_height) = (u1 - u0 + 1.0, v1 - v0 + 1.0);
-        let (dest_width, dest_height) = (bounds[2] - bounds[0], bounds[3] - bounds[1]);
-        if dest_width <= 0.0 || dest_height <= 0.0 {
-            continue;
+        rasterize_glyph(
+            &mut canvas,
+            [width, height],
+            page,
+            bounds,
+            glyph.uv,
+            tint,
+            false,
+        );
+        if glyph.style.bold {
+            let offset = TEXT_BOLD_OFFSET_64 as f32 / 64.0;
+            bounds[0] += offset;
+            bounds[2] += offset;
+            rasterize_glyph(
+                &mut canvas,
+                [width, height],
+                page,
+                bounds,
+                glyph.uv,
+                tint,
+                true,
+            );
         }
-        for dy in bounds[1].floor().max(0.0) as u32..(bounds[3].ceil() as u32).min(height) {
-            for dx in bounds[0].floor().max(0.0) as u32..(bounds[2].ceil() as u32).min(width) {
-                let fx = (dx as f32 + 0.5 - bounds[0]) / dest_width;
-                let fy = (dy as f32 + 0.5 - bounds[1]) / dest_height;
-                if !(0.0..1.0).contains(&fx) || !(0.0..1.0).contains(&fy) {
-                    continue;
-                }
-                let sx = (u0 + fx * source_width) as u32;
-                let sy = (v0 + fy * source_height) as u32;
-                if sx >= page.width || sy >= page.height {
-                    continue;
-                }
-                let Some(texel) = page.texel((sy * page.width + sx) as usize) else {
-                    continue;
-                };
-                if texel[3] == 0 {
-                    continue;
-                }
-                let target = ((dy * width + dx) * 4) as usize;
+    }
+    Some((width, height, top, canvas, advance))
+}
+
+fn rasterize_glyph(
+    canvas: &mut [u8],
+    [width, height]: [u32; 2],
+    page: GlyphPage<'_>,
+    bounds: [f32; 4],
+    uv: [u16; 4],
+    tint: [u8; 3],
+    composite: bool,
+) {
+    let [u0, v0, u1, v1] = uv.map(f32::from);
+    let (source_width, source_height) = (u1 - u0, v1 - v0);
+    let (dest_width, dest_height) = (bounds[2] - bounds[0], bounds[3] - bounds[1]);
+    if source_width <= 0.0 || source_height <= 0.0 || dest_width <= 0.0 || dest_height <= 0.0 {
+        return;
+    }
+    for dy in bounds[1].floor().max(0.0) as u32..(bounds[3].ceil() as u32).min(height) {
+        for dx in bounds[0].floor().max(0.0) as u32..(bounds[2].ceil() as u32).min(width) {
+            let fx = (dx as f32 + 0.5 - bounds[0]) / dest_width;
+            let fy = (dy as f32 + 0.5 - bounds[1]) / dest_height;
+            if !(0.0..1.0).contains(&fx) || !(0.0..1.0).contains(&fy) {
+                continue;
+            }
+            let sx = (u0 + fx * source_width) as u32;
+            let sy = (v0 + fy * source_height) as u32;
+            if sx >= page.width || sy >= page.height {
+                continue;
+            }
+            let Some(texel) = page.texel((sy * page.width + sx) as usize) else {
+                continue;
+            };
+            if texel[3] == 0 {
+                continue;
+            }
+            let target = ((dy * width + dx) * 4) as usize;
+            if composite {
+                blend_glyph_texel(&mut canvas[target..target + 4], texel, tint);
+            } else {
                 for channel in 0..3 {
                     canvas[target + channel] =
                         (u16::from(texel[channel]) * u16::from(tint[channel]) / 255) as u8;
@@ -238,13 +287,191 @@ fn rasterize<'p>(
             }
         }
     }
-    Some((width, height, top, canvas, advance))
+}
+
+fn blend_glyph_texel(target: &mut [u8], texel: [u8; 4], tint: [u8; 3]) {
+    let source_alpha = u32::from(texel[3]);
+    let target_alpha = u32::from(target[3]);
+    let remaining = 255 - source_alpha;
+    let alpha = source_alpha * 255 + target_alpha * remaining;
+    for channel in 0..3 {
+        let source = u32::from(texel[channel]) * u32::from(tint[channel]) / 255;
+        let color =
+            source * source_alpha * 255 + u32::from(target[channel]) * target_alpha * remaining;
+        target[channel] = ((color + alpha / 2) / alpha) as u8;
+    }
+    target[3] = ((alpha + 127) / 255) as u8;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+
+    fn stem_font() -> RuntimeFontCatalog {
+        stem_font_with_uv([0, 0, 4, 8], 6 * 64)
+    }
+
+    fn stem_font_with_uv(uv: [u16; 4], advance_64: i16) -> RuntimeFontCatalog {
+        let mut pixels = vec![0; 5 * 8 * 4];
+        for row in 0..8 {
+            for column in 0..FONT_DESIGN_PIXEL_TEXELS as usize {
+                pixels[(row * 5 + column) * 4..(row * 5 + column + 1) * 4]
+                    .copy_from_slice(&[255; 4]);
+            }
+        }
+        let page = assets::FontTexturePage {
+            source_path: "font/stem.png".into(),
+            source_bytes: pixels.len() as u32,
+            source_sha256: [1; 32],
+            pixels_sha256: Sha256::digest(&pixels).into(),
+            width: 5,
+            height: 8,
+            pixels: assets::FontPixels::Rgba8(pixels.into()),
+        };
+        let glyphs = ['A', 'B', '\u{fffd}'].map(|codepoint| assets::GlyphMetrics {
+            codepoint,
+            page: 0,
+            uv,
+            bearing: [0, -7],
+            advance_64,
+        });
+        let identity = [9; 32];
+        let bytes = assets::encode_font_catalog(identity, &glyphs, &[page]).unwrap();
+        RuntimeFontCatalog::decode(&bytes, identity).unwrap()
+    }
+
+    #[test]
+    fn exclusive_glyph_bounds_preserve_every_stem_texel_and_continuous_bold_ink() {
+        let font = stem_font_with_uv([0, 0, 2, 2], 4 * 64);
+        let scaled = font.with_glyphs(
+            &[assets::SheetGlyph {
+                metrics: *font.glyph('A').unwrap(),
+                draw_size_64: [4 * 64; 2],
+            }],
+            |_| true,
+        );
+        for (font, ink_size) in [(&font, 2), (&scaled, 4)] {
+            let mut layouts = TextLayoutCache::new(2, 1 << 20);
+            let pages = |page| font_page(font, page);
+            let palette = ui::FormattingPalette::default();
+            let plain = rasterize("A", font, &mut layouts, &pages, &palette).unwrap();
+            let bold = rasterize("§lA", font, &mut layouts, &pages, &palette).unwrap();
+            let top = TEXT_BASELINE_64 / 64 - 7;
+            for y in top..top + ink_size {
+                for x in 0..ink_size {
+                    let at = ((y * plain.0 + x) * 4) as usize;
+                    assert_eq!(&plain.3[at..at + 4], &[255; 4]);
+                }
+                for x in 0..ink_size + FONT_DESIGN_PIXEL_TEXELS {
+                    let at = ((y * bold.0 + x) * 4) as usize;
+                    assert_eq!(&bold.3[at..at + 4], &[255; 4]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn degenerate_exclusive_uvs_do_not_sample_a_scaled_glyph() {
+        let font = stem_font();
+        let mut metrics = *font.glyph('A').unwrap();
+        metrics.uv = [0; 4];
+        let font = font.with_glyphs(
+            &[assets::SheetGlyph {
+                metrics,
+                draw_size_64: [4 * 64; 2],
+            }],
+            |_| true,
+        );
+        let raster = rasterize(
+            "§lA",
+            &font,
+            &mut TextLayoutCache::new(1, 1 << 20),
+            &|page| font_page(&font, page),
+            &ui::FormattingPalette::default(),
+        )
+        .unwrap();
+        assert!(raster.3.iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn bold_nametags_expand_ink_and_line_width_and_reset_preserves_tint() {
+        let font = stem_font();
+        let mut layouts = TextLayoutCache::new(8, 1 << 20);
+        let palette = ui::FormattingPalette::default();
+        let pages = |page| font_page(&font, page);
+        let plain = rasterize("AB", &font, &mut layouts, &pages, &palette).unwrap();
+        let styled = rasterize("§e§lA§rB", &font, &mut layouts, &pages, &palette).unwrap();
+        assert_eq!(styled.4 - plain.4, FONT_DESIGN_PIXEL_TEXELS);
+        let pixel = |raster: &(u32, u32, i32, Vec<u8>, u32), x, y| {
+            let index = ((y * raster.0 + x) * 4) as usize;
+            <[u8; 4]>::try_from(&raster.3[index..index + 4]).unwrap()
+        };
+        let row = TEXT_BASELINE_64 / 64 - 7;
+        assert_eq!(pixel(&plain, FONT_DESIGN_PIXEL_TEXELS, row)[3], 0);
+        assert_eq!(
+            pixel(&styled, FONT_DESIGN_PIXEL_TEXELS, row),
+            [255, 255, 85, 255]
+        );
+        assert_eq!(pixel(&styled, 6 + FONT_DESIGN_PIXEL_TEXELS, row), [255; 4]);
+        assert_eq!(pixel(&styled, 6 + 2 * FONT_DESIGN_PIXEL_TEXELS, row)[3], 0);
+
+        let mut atlas = NametagAtlas::default();
+        let plain = atlas
+            .line(&Arc::from("AB"), &font, &mut layouts, &pages)
+            .unwrap();
+        let bold = atlas
+            .line(&Arc::from("§lAB"), &font, &mut layouts, &pages)
+            .unwrap();
+        assert_eq!(bold.width_px - plain.width_px, 2.0);
+    }
+
+    #[test]
+    fn bold_copies_composite_partial_glyph_coverage() {
+        let font = stem_font();
+        let coverage = [128; 5 * 8];
+        let pages = |_| {
+            Some(GlyphPage {
+                width: 5,
+                height: 8,
+                pixels: GlyphPixels::Coverage(&coverage),
+            })
+        };
+        let mut layouts = TextLayoutCache::new(2, 1 << 20);
+        let raster = rasterize(
+            "§lA",
+            &font,
+            &mut layouts,
+            &pages,
+            &ui::FormattingPalette::default(),
+        )
+        .unwrap();
+        let row = TEXT_BASELINE_64 / 64 - 7;
+        let index = ((row * raster.0 + FONT_DESIGN_PIXEL_TEXELS) * 4) as usize;
+        assert_eq!(&raster.3[index..index + 4], &[255, 255, 255, 192]);
+    }
+
+    #[test]
+    fn bold_multiline_nametag_grows_the_plate_and_retains_reset_line_centering() {
+        let font = stem_font();
+        let build = |name: &str| {
+            super::super::nametags::build_nametag_scene(
+                &[super::super::nametags::tests::anchor(name)],
+                &font,
+                &mut TextLayoutCache::new(4, 1 << 20),
+                &mut NametagAtlas::default(),
+                &|page| font_page(&font, page),
+            )
+        };
+        let plain = build("AB\nA");
+        let bold = build("§lAB\n§rA");
+        assert_eq!(plain.records.len(), 3);
+        assert_eq!(bold.records.len(), 3);
+        assert_eq!(bold.records[0].rect[0], plain.records[0].rect[0] - 1.0);
+        assert_eq!(bold.records[0].rect[2], plain.records[0].rect[2] + 1.0);
+        assert_eq!(bold.records[0].color, plain.records[0].color);
+        assert_eq!(bold.records[2].rect, plain.records[2].rect);
+    }
 
     /// Builds the labels used by the original full-atlas timing fixture.
     fn sample_atlas() -> (NametagAtlas, std::time::Duration) {
@@ -282,14 +509,19 @@ mod tests {
         );
     }
     #[test]
-    fn atlas_pixels_match_full_publication_baseline() {
+    fn atlas_publication_preserves_full_glyph_coverage_and_line_padding() {
         let (mut atlas, _) = sample_atlas();
-        let mut pixels = vec![0; (NAMETAG_ATLAS_SIDE * NAMETAG_ATLAS_SIDE * 4) as usize];
-        apply_rectangles(&mut pixels, &atlas.publish().0, &[]);
-        assert_eq!(
-            format!("{:x}", Sha256::digest(&pixels)),
-            "1a17a5251c8766a32e7400d34848e3865bc55840ce6eb0d0ba843bcea676f7a5"
-        );
+        for rectangle in atlas.publish().0.iter() {
+            let row_bytes = rectangle.cell[2] as usize * 4;
+            for (row, pixels) in rectangle.rgba8.chunks_exact(row_bytes).enumerate() {
+                let expected = if row < ui::FONT_INK_TEXELS as usize {
+                    [255; 4]
+                } else {
+                    [0; 4]
+                };
+                assert!(pixels.chunks_exact(4).all(|pixel| pixel == expected));
+            }
+        }
     }
 
     /// Applies the same dirty rectangles submitted by the renderer.

@@ -48,9 +48,25 @@ impl Samples {
 pub(crate) struct DecodeDiagnostics {
     palette: Samples,
     unresolved: Samples,
+    invalid_persistent: AtomicUsize,
 }
 
 impl DecodeDiagnostics {
+    pub(crate) fn observe_invalid_persistent(&self, session: u64) {
+        let previous = self.invalid_persistent.fetch_add(1, Ordering::Relaxed);
+        if previous < MAX_UNRESOLVED_SAMPLES {
+            eprintln!(
+                "INVALID_PERSISTENT_BLOCK_STATE session={session} skips={}",
+                previous.saturating_add(1),
+            );
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn invalid_persistent_count(&self) -> usize {
+        self.invalid_persistent.load(Ordering::Relaxed)
+    }
+
     /// Logs the first distinct wire identities and unresolved identities for one session.
     pub(crate) fn observe(
         &self,

@@ -12,6 +12,9 @@ pub struct MovementInput {
     pub jump_pressed: bool,
     pub sprinting: bool,
     pub sneaking: bool,
+    /// Tick-captured authority that disables travel without discarding device input.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub immobile: bool,
     /// Axes precede item and pose slowdown. False preserves historical
     /// already-processed input clamping; true retains partial-axis magnitude.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

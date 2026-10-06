@@ -236,7 +236,10 @@ fn entity_face_uvs(
     {
         return Err(ActorRigGeometryError::InvalidAssetGeometry);
     }
-    Ok(result)
+    // Vanilla clips cube UV corners before interpolation; sampler clamping would
+    // stretch a transparent edge texel across the overflowing part of the face.
+    Ok(result
+        .map(|face| face.map(|corners| corners.map(|uv| uv.map(|value| value.clamp(0.0, 1.0))))))
 }
 
 type FaceUvQuad = [[f32; 2]; 4];

@@ -556,3 +556,14 @@ func TestRunSignedInKeepsTheAccountFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A trust file without the control endpoint would silently skip the question, so it is refused.
+func TestServerTrustFileRequiresControlStatus(t *testing.T) {
+	if _, err := parseFlags([]string{"-server-trust-file", "trust.json"}, io.Discard); err == nil {
+		t.Fatal("server-trust-file without control-status was accepted")
+	}
+	opts, err := parseFlags([]string{"-control-status", "-server-trust-file", "trust.json"}, io.Discard)
+	if err != nil || opts.serverTrustFile != "trust.json" {
+		t.Fatalf("parseFlags = %+v, %v", opts.serverTrustFile, err)
+	}
+}

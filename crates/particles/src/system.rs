@@ -47,6 +47,10 @@ const MAX_QUEUED_SOUNDS: usize = 256;
 
 #[derive(Default)]
 pub struct ParticleSystem {
+    /// Winning client-entity aliases and authored controller-state effects.
+    pub actor_bindings: super::actor::ActorEffectBindings,
+    /// Emitters retained for the currently observed actor/controller state entries.
+    pub actor_emitters: super::actor::ActorEffectTracker,
     library: EffectLibrary,
     atlas: ParticleAtlas,
     emitters: Vec<Emitter>,
@@ -113,6 +117,7 @@ impl ParticleSystem {
     pub fn clear(&mut self) {
         self.emitters.clear();
         self.sounds.clear();
+        self.actor_emitters.clear();
     }
 
     /// The atlas's static-region snapshot; see [`ParticleAtlas::base`].

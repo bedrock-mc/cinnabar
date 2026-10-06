@@ -519,15 +519,18 @@ impl WorldStream {
         self.resident.column(key.chunk()).copied()
     }
 
-    /// Extends the vanilla sky ceiling to include taller loaded columns.
+    /// Extends the admitted sky ceiling to include taller loaded columns.
     pub(in crate::stream) fn light_column_top_sub_chunk_y(&self, key: SubChunkKey) -> Option<i32> {
-        let vanilla_top = vanilla_dimension_range(key.dimension).and_then(|range| {
-            range
-                .base_sub_chunk_y
-                .checked_add(i32::try_from(range.sub_chunk_count).ok()?)?
-                .checked_sub(1)
-        });
-        vanilla_top
+        let declared_top = self
+            .authority
+            .dimension_range(key.dimension)
+            .and_then(|range| {
+                range
+                    .base_sub_chunk_y
+                    .checked_add(i32::try_from(range.sub_chunk_count).ok()?)?
+                    .checked_sub(1)
+            });
+        declared_top
             .into_iter()
             .chain(self.light_column_sources(key).map(|source| source.y))
             .max()

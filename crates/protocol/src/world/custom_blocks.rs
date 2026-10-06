@@ -57,6 +57,8 @@ pub struct CustomBlockVisuals {
     /// Block states in palette order: placement trait states, then properties in list order.
     /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
+    /// A declared state could not be represented by the named axes.
+    pub state_identity_incomplete: bool,
 }
 
 /// Visual components present in one component set; `None` means absent.
@@ -73,7 +75,7 @@ pub struct CustomVisualComponents {
     pub light_emission: Option<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CustomMaterialInstance {
     /// `*`, a face name, or a named instance a geometry face refers to.
     pub name: Arc<str>,
@@ -81,6 +83,8 @@ pub struct CustomMaterialInstance {
     pub render_method: Option<Arc<str>>,
     /// `tint_method`: `default_foliage`, `birch_foliage`, `evergreen_foliage`, `dry_foliage`, `grass`, `water`, or `none`.
     pub tint_method: Option<Arc<str>>,
+    pub ambient_occlusion: Option<f32>,
+    pub face_dimming: Option<bool>,
 }
 
 /// Rotation in quarter turns about each axis, then scale and translation.
@@ -124,6 +128,9 @@ impl CustomBlock {
     #[must_use]
     pub fn hashed_states(&self) -> Vec<CustomHashedState> {
         let axes = &self.visual.state_axes;
+        if self.visual.state_identity_incomplete {
+            return Vec::new();
+        }
         let Some(total) = axis_combinations(axes) else {
             return Vec::new();
         };
@@ -131,7 +138,12 @@ impl CustomBlock {
             .filter_map(|index| {
                 let values = decode_state(axes, index)?;
                 Some(CustomHashedState {
-                    hash: network_block_hash(&self.name, axes, &values),
+                    hash: block_state_network_hash(
+                        &self.name,
+                        axes.iter()
+                            .map(|axis| axis.name.as_ref())
+                            .zip(values.iter()),
+                    ),
                     values,
                 })
             })
@@ -143,6 +155,9 @@ impl CustomBlock {
     #[must_use]
     pub fn state_values(&self, index: u32) -> Option<Box<[CustomStateValue]>> {
         let axes = &self.visual.state_axes;
+        if self.visual.state_identity_incomplete {
+            return None;
+        }
         if axis_combinations(axes)? != u64::from(self.state_count) {
             return None;
         }
@@ -189,12 +204,12 @@ pub fn block_name_sort_key(name: &str) -> u64 {
 
 /// FNV-1a 32 of the little-endian NBT `{name, states}` with state keys sorted:
 /// the id a hashed-palette server sends for a block state.
-fn network_block_hash(name: &str, axes: &[CustomStateAxis], values: &[CustomStateValue]) -> u32 {
-    let mut states: Vec<(&str, &CustomStateValue)> = axes
-        .iter()
-        .map(|axis| axis.name.as_ref())
-        .zip(values.iter())
-        .collect();
+#[must_use]
+pub fn block_state_network_hash<'a>(
+    name: &str,
+    states: impl IntoIterator<Item = (&'a str, &'a CustomStateValue)>,
+) -> u32 {
+    let mut states: Vec<_> = states.into_iter().collect();
     states.sort_by(|left, right| left.0.cmp(right.0));
     let mut data = vec![10, 0, 0];
     let push_string = |data: &mut Vec<u8>, text: &str| {
@@ -319,6 +334,7 @@ struct Definition {
 fn parse_definition(root: &Nbt) -> Option<Definition> {
     let mut states = 1_u64;
     let mut state_axes = Vec::new();
+    let mut state_identity_incomplete = false;
     let enabled = root
         .list("traits")
         .iter()
@@ -345,15 +361,23 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             });
         }
     }
+    state_identity_incomplete |= enabled.iter().any(|state| {
+        !TRAIT_STATES
+            .iter()
+            .any(|(name, _)| *name == state.strip_prefix("minecraft:").unwrap_or(state))
+    });
     for property in root.list("properties") {
         let values = property.list("enum");
         states = states.checked_mul(values.len().max(1) as u64)?;
         if let Some(Nbt::String(name)) = property.field("name") {
-            let values = values.iter().filter_map(state_value).collect();
+            let parsed_values = values.iter().filter_map(state_value).collect::<Vec<_>>();
+            state_identity_incomplete |= values.is_empty() || parsed_values.len() != values.len();
             state_axes.push(CustomStateAxis {
                 name: name.as_str().into(),
-                values,
+                values: parsed_values.into_boxed_slice(),
             });
+        } else {
+            state_identity_incomplete = true;
         }
     }
     if states > MAX_STATES_PER_BLOCK {
@@ -406,6 +430,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             base: visual_components(components),
             permutations,
             state_axes: state_axes.into_boxed_slice(),
+            state_identity_incomplete,
         },
     })
 }
@@ -510,6 +535,23 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                         texture: texture.as_str().into(),
                         render_method,
                         tint_method,
+                        ambient_occlusion: material
+                            .field("ambient_occlusion")
+                            .and_then(Nbt::number)
+                            .map(|value| value as f32)
+                            .filter(|value| value.is_finite() && *value >= 0.0),
+                        face_dimming: material
+                            .field("packed_bools")
+                            .and_then(Nbt::number)
+                            .filter(|value| value.is_finite())
+                            .map(|value| value as i64 & 1 != 0)
+                            .or_else(|| {
+                                material
+                                    .field("face_dimming")
+                                    .and_then(Nbt::number)
+                                    .filter(|value| matches!(*value, 0.0 | 1.0))
+                                    .map(|value| value != 0.0)
+                            }),
                     })
                 })
                 .collect()
@@ -559,7 +601,8 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
         bone_visibility,
         materials,
         transformation,
-        light_dampening: nibble("minecraft:light_dampening", "lightLevel"),
+        light_dampening: nibble("minecraft:light_dampening", "lightLevel")
+            .or_else(|| nibble("minecraft:block_light_filter", "lightLevel")),
         light_emission: nibble("minecraft:light_emission", "emission"),
     }
 }
@@ -601,3 +644,6 @@ fn enabled_flags(value: &Nbt) -> Vec<String> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod compatibility_tests;

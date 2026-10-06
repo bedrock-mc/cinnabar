@@ -207,6 +207,12 @@ impl WorldAuthority {
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()
     }
+    /// Borrows controller states that completed authored actor animation evaluation.
+    pub fn actor_particle_controllers(
+        &self,
+    ) -> impl Iterator<Item = crate::ActorParticleController<'_>> {
+        self.actors.actor_particle_controllers()
+    }
     /// Returns counters from the authoritative actor animation runtime.
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {
         self.actors.animation_stats()

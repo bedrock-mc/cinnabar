@@ -1,4 +1,4 @@
-//! The open chat through the active pack's `chat.chat_screen`: history as the screen
+//! The open chat through the built-in `chat.chat_screen`: history as the screen
 //! controller's `messages_factory`, the edit box, command suggestions and usage
 //! lines as the `auto_complete` collection, and the send and back buttons.
 //! Editing, completion and sending stay with `UiRuntime`.
@@ -21,6 +21,28 @@ use super::menus::window_rect;
 use crate::ui_runtime::UiRuntime;
 
 pub const CHAT_SCREEN: &str = "chat.chat_screen";
+
+#[cfg(test)]
+impl UiPresentationRuntime {
+    pub(in crate::ui_runtime::presentation) fn set_native_chat_fixture(
+        &mut self,
+        native: bool,
+    ) -> Option<()> {
+        self.form_presentation
+            .engine
+            .as_deref_mut()?
+            .set_native_chat_fixture(native);
+        Some(())
+    }
+
+    pub(in crate::ui_runtime::presentation) fn chat_scene_settings(
+        &self,
+    ) -> Option<json_ui::ScreenSettings> {
+        let engine = self.form_presentation.engine.as_deref()?;
+        Some(engine.scene_settings(CHAT_SCREEN, engine.context()))
+    }
+}
+
 /// The messages factory's `max_children_size`.
 const MAX_MESSAGES: usize = 100;
 /// The edit box caret's on and off time.
@@ -118,7 +140,7 @@ impl UiPresentationRuntime {
         }
         let view = chat.view_state(runtime.chat_selected_suggestion());
         let context = renderer.context().clone();
-        let catalog = Arc::clone(renderer.catalog());
+        let catalog = Arc::clone(renderer.screen_catalog(CHAT_SCREEN));
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
         let inputs = EngineInputs {

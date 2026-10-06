@@ -6,8 +6,9 @@ use assets::{CompiledFontCatalog, GlyphMetrics};
 
 use super::{
     FIXED_POINT_DENOMINATOR, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_WRAP_LINES,
-    REPLACEMENT_CODEPOINT, TextError, TextLayout, TextLayoutKey, TextLayoutRequest, TextLineAlign,
-    TextStyle, WordChop, invisible, parse::parse_bedrock_text_with_style,
+    REPLACEMENT_CODEPOINT, TEXT_BOLD_OFFSET_64, TextError, TextLayout, TextLayoutKey,
+    TextLayoutRequest, TextLineAlign, TextStyle, WordChop, invisible,
+    parse::parse_bedrock_text_with_style,
 };
 
 pub(super) fn build_layout(
@@ -69,7 +70,7 @@ pub(super) fn build_layout(
         if invisible::is_invisible(codepoint) {
             continue;
         }
-        let glyph = lines.glyph(codepoint)?;
+        let glyph = lines.glyph(codepoint, style)?;
         let mut candidate = lines.candidate(&glyph)?;
         if lines.glyphs.len() > lines.line_start && candidate.width_64 > width_64 {
             if let Some(point) = space.take().filter(|point| point.glyphs > lines.line_start) {
@@ -137,6 +138,7 @@ struct Glyph {
     metrics: GlyphMetrics,
     draw_size_64: Option<[u32; 2]>,
     advance_64: i64,
+    bold_offset_64: i64,
 }
 
 struct LineCandidate {
@@ -166,14 +168,26 @@ struct Lines<'a> {
 }
 
 impl Lines<'_> {
-    fn glyph(&self, codepoint: char) -> Result<Glyph, TextError> {
+    fn glyph(&self, codepoint: char, style: TextStyle) -> Result<Glyph, TextError> {
         let (resolved, metrics) = resolve_glyph(self.request.font, codepoint)?;
+        let bold_offset_64 = if style.bold {
+            i64::from(TEXT_BOLD_OFFSET_64)
+        } else {
+            0
+        };
+        let advance_64 = i64::from(metrics.advance_64);
+        let advance_64 = if advance_64 > 0 {
+            advance_64 + bold_offset_64
+        } else {
+            advance_64
+        };
         Ok(Glyph {
             codepoint,
             resolved,
             metrics,
             draw_size_64: self.request.font.draw_size_64(resolved),
-            advance_64: scale_metric(i64::from(metrics.advance_64), self.scale_1024)?,
+            advance_64: scale_metric(advance_64, self.scale_1024)?,
+            bold_offset_64: scale_metric(bold_offset_64, self.scale_1024)?,
         })
     }
 
@@ -192,7 +206,13 @@ impl Lines<'_> {
             .checked_add(glyph.advance_64)
             .ok_or(TextError::FixedPointOverflow)?;
         let min_64 = self.min_64.min(i64::from(bounds_64[0])).min(pen_end_64);
-        let max_64 = self.max_64.max(i64::from(bounds_64[2])).max(pen_end_64);
+        let ink_right_64 = i64::from(bounds_64[2])
+            + if bounds_64[2] > bounds_64[0] && bounds_64[3] > bounds_64[1] {
+                glyph.bold_offset_64
+            } else {
+                0
+            };
+        let max_64 = self.max_64.max(ink_right_64).max(pen_end_64);
         let width_64 = u64::try_from(max_64 - min_64).map_err(|_| TextError::FixedPointOverflow)?;
         Ok(LineCandidate {
             bounds_64,
@@ -252,7 +272,14 @@ impl Lines<'_> {
     /// Chop the word filling this line so it plus a `-` fits, keeping at least
     /// one glyph; appends the hyphen unless hidden. Returns where to resume.
     fn chop(&mut self, current: usize) -> Result<usize, TextError> {
-        let hyphen = self.glyph('-')?;
+        let style = |lines: &Self| {
+            lines
+                .glyphs
+                .last()
+                .map(|glyph| glyph.style)
+                .unwrap_or_default()
+        };
+        let mut hyphen = self.glyph('-', style(self))?;
         let width_64 = u64::from(self.request.width_64);
         let mut resume = current;
         while self.glyphs.len() - self.line_start >= 2
@@ -260,13 +287,10 @@ impl Lines<'_> {
         {
             resume = self.marks[self.glyphs.len() - 1].source;
             self.truncate(self.glyphs.len() - 1);
+            hyphen = self.glyph('-', style(self))?;
         }
         if self.request.wrap.chop == WordChop::Hyphen {
-            let style = self
-                .glyphs
-                .last()
-                .map(|glyph| glyph.style)
-                .unwrap_or_default();
+            let style = style(self);
             let candidate = self.candidate(&hyphen)?;
             self.push(hyphen, style, candidate, usize::MAX)?;
         }
@@ -317,7 +341,7 @@ impl Lines<'_> {
             let kept = self.glyphs.len();
             let mut fits = true;
             for _ in 0..3 {
-                let dot = self.glyph('.')?;
+                let dot = self.glyph('.', style)?;
                 let candidate = self.candidate(&dot)?;
                 fits &= candidate.width_64 <= width_64;
                 self.push(dot, style, candidate, usize::MAX)?;

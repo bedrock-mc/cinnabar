@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
-	"github.com/sandertv/gophertunnel/minecraft/realms"
+	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/persona"
 	"github.com/sandertv/gophertunnel/minecraft/service/playermessaging"
@@ -137,7 +138,7 @@ func NewMessagingSession(language string) *MessagingSession {
 }
 
 // get returns the session's client, opening it on the discovered endpoint on first use.
-func (s *MessagingSession) get(discovery *service.Discovery, account *authcache.Account) (*playermessaging.Client, error) {
+func (s *MessagingSession) get(discovery *service.Discovery, tokens service.TokenSource) (*playermessaging.Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.client == nil {
@@ -145,9 +146,16 @@ func (s *MessagingSession) get(discovery *service.Discovery, account *authcache.
 		if err := discovery.Environment(env); err != nil {
 			return nil, fmt.Errorf("resolve messaging service: %w", err)
 		}
-		env.HTTPClient = messagingHTTPClient(env.HTTPClient, s.language)
-		env.HTTPClient.Transport = messageArtTransport{RoundTripper: env.HTTPClient.Transport, art: &s.art}
-		s.client = env.New(account)
+		env.Language = s.language
+		if env.Language == "" {
+			env.Language = locale.Default
+		}
+		base := http.DefaultClient.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		env.HTTPClient = &http.Client{Transport: messageArtTransport{RoundTripper: base, art: &s.art}}
+		s.client = env.New(tokens)
 	}
 	return s.client, nil
 }
@@ -302,5 +310,9 @@ func personaHead(ctx context.Context, discovery *service.Discovery, account *aut
 
 // realmInvites reads the pending Realms invite count through the Realms client.
 func realmInvites(ctx context.Context, account *authcache.Account) (int, error) {
-	return realms.NewClient(account, nil).PendingInviteCount(ctx)
+	client, err := RealmsClient(ctx, account)
+	if err != nil {
+		return 0, err
+	}
+	return client.PendingInviteCount(ctx)
 }

@@ -44,11 +44,11 @@ pub struct ActorPresentationBatch {
 }
 
 /// Publishes `batch`; its frame-local skin indices become the scene's stable skin slots.
-pub fn update_actor_rig_scene<'a>(
-    scene: &'a mut ActorRenderScene,
+pub fn update_actor_rig_scene(
+    scene: &mut ActorRenderScene,
     partial_tick: f32,
     batch: ActorPresentationBatch,
-) -> &'a ActorRenderFrame {
+) -> &ActorRenderFrame {
     // The app adapter has already applied the renderer's exact culling helper
     // to remotes before enforcing capacity. Passing no second cull view keeps
     // Phase 3's visible local reservation unconditional in both third-person

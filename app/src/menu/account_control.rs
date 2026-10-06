@@ -3,7 +3,9 @@
 //! account catalog and the auth supervisor keep feeding the menu.
 
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
-use launcher::menu::view::{JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails};
+use launcher::menu::view::{
+    JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails, ServerTrustPrompt,
+};
 
 /// Control method names the implementation calls.
 #[allow(dead_code, reason = "named for the core-relay control clients")]
@@ -41,10 +43,6 @@ pub(crate) trait AccountControl {
     fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
         None
     }
-    /// `gatherings.v1`: joinable gatherings with their details, when fetched.
-    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
-        None
-    }
     /// `profile.v1`: the signed-in profile, when fetched.
     fn profile(&mut self) -> Option<MenuProfile> {
         None
@@ -69,9 +67,76 @@ pub(crate) trait AccountControl {
     }
     /// Whether the menu is connecting, which speeds up event polling.
     fn set_joining(&mut self, _joining: bool) {}
+    /// The join's pending question whether to trust a NetherNet server.
+    fn server_trust(&mut self) -> Option<ServerTrustPrompt> {
+        None
+    }
+    /// Answers trust prompt `id`.
+    fn answer_server_trust(&mut self, _id: u64, _trusted: bool) {}
 }
 
 impl MenuRuntime {
+    /// Answers the shown trust prompt; "Don't Trust" also cancels the join.
+    pub(crate) fn answer_server_trust(&mut self, trusted: bool) {
+        let Some(prompt) = self.feeds.server_trust.take() else {
+            return;
+        };
+        self.feeds.server_trust_answer = Some((prompt, trusted));
+        if !trusted {
+            self.intents.disconnect = true;
+        }
+    }
+
+    /// Shows a per-session core's trust question while joining and sends it the answer.
+    pub(crate) fn sync_session_trust(&mut self, source: &dyn super::server_trust::TrustSource) {
+        if let Some((prompt, trusted)) = self
+            .feeds
+            .server_trust_answer
+            .take_if(|(prompt, _)| prompt.from_session_core)
+        {
+            source.answer(prompt.id, trusted);
+        }
+        match source.prompt().filter(|_| self.is_connecting()) {
+            Some(prompt) => self.feeds.server_trust = Some(prompt),
+            None if self.server_trust_from_session_core() => self.feeds.server_trust = None,
+            None => {}
+        }
+    }
+
+    /// Drops a per-session core's question and any answer to it once that core is gone, so neither
+    /// reaches the next join's core, whose prompt ids start over.
+    pub(crate) fn forget_session_trust(&mut self) {
+        self.feeds
+            .server_trust_answer
+            .take_if(|(prompt, _)| prompt.from_session_core);
+        if self.server_trust_from_session_core() {
+            self.feeds.server_trust = None;
+        }
+    }
+
+    /// Drops the launcher core's question and any answer to it when that core is retired, so a
+    /// restarted core, whose prompt ids start over, never receives them.
+    pub(crate) fn forget_launcher_trust(&mut self) {
+        self.feeds
+            .server_trust_answer
+            .take_if(|(prompt, _)| !prompt.from_session_core);
+        if self
+            .feeds
+            .server_trust
+            .as_ref()
+            .is_some_and(|prompt| !prompt.from_session_core)
+        {
+            self.feeds.server_trust = None;
+        }
+    }
+
+    fn server_trust_from_session_core(&self) -> bool {
+        self.feeds
+            .server_trust
+            .as_ref()
+            .is_some_and(|prompt| prompt.from_session_core)
+    }
+
     /// Pull the core's account state into the menu: lists replace the catalog's,
     /// the status overrides the auth supervisor's, events surface on screen, and
     /// a pending sign-out request is sent.
@@ -100,14 +165,6 @@ impl MenuRuntime {
                 self.feeds.selected_featured = None;
             }
         }
-        if let Some(gatherings) = control.gatherings() {
-            self.feeds.details.extend(
-                gatherings
-                    .iter()
-                    .map(|(card, details)| (card.address.clone(), details.clone())),
-            );
-            self.gatherings = gatherings.into_iter().map(|(card, _)| card).collect();
-        }
         if std::mem::take(&mut self.feeds.profile_refresh_requested) {
             control.refresh_profile();
         }
@@ -122,14 +179,12 @@ impl MenuRuntime {
             control.report_message(event);
         }
         let targets = if self.visible && !self.is_connecting() {
-            let mut seen = std::collections::HashSet::new();
-            // Gatherings have no server until joined, so only featured and saved servers are pinged.
-            self.featured
-                .iter()
-                .map(|server| server.address.clone())
-                .chain(self.servers.iter().map(|server| server.address.clone()))
-                .filter(|address| !address.is_empty() && seen.insert(address.clone()))
-                .collect()
+            ping_targets(
+                self.featured
+                    .iter()
+                    .map(|server| server.address.as_str())
+                    .chain(self.servers.iter().map(|server| server.address.as_str())),
+            )
         } else {
             Vec::new()
         };
@@ -141,6 +196,17 @@ impl MenuRuntime {
         control.set_joining(self.is_connecting());
         if self.is_connecting() {
             self.feeds.join.observe(control.join_stage());
+        }
+        if let Some((prompt, trusted)) = self
+            .feeds
+            .server_trust_answer
+            .take_if(|(prompt, _)| !prompt.from_session_core)
+        {
+            control.answer_server_trust(prompt.id, trusted);
+        }
+        let asked = control.server_trust().filter(|_| self.is_connecting());
+        if asked.is_some() || !self.server_trust_from_session_core() {
+            self.feeds.server_trust = asked;
         }
         if let Some(status) = control.account_status() {
             self.control_auth = Some(status);
@@ -187,9 +253,34 @@ impl MenuRuntime {
     }
 }
 
+/// The featured and saved server addresses a ping round covers, each once. Experiences have no
+/// server until joined, so they are left out.
+fn ping_targets<'a>(addresses: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    addresses
+        .into_iter()
+        .filter(|address| {
+            !address.is_empty() && launcher::menu::pingable(address) && seen.insert(*address)
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::menu::MenuAction;
+
+    /// An experience has no server until it is joined, so a featured experience is never pinged.
+    #[test]
+    fn experiences_are_not_pinged() {
+        let addresses = [
+            "gathering/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f",
+            "play.example.test",
+            "play.example.test",
+        ];
+        assert_eq!(ping_targets(addresses), ["play.example.test"]);
+    }
 
     struct Fake {
         events: Vec<AccountEvent>,
@@ -285,6 +376,177 @@ mod tests {
         assert_eq!(
             super::super::disconnect::describe(&view.disconnect_message.unwrap()).body,
             super::super::disconnect::DisconnectBody::Key("disconnectionScreen.cantConnectToRealm")
+        );
+    }
+
+    struct Trusting {
+        prompt: Option<ServerTrustPrompt>,
+        answers: Vec<(u64, bool)>,
+    }
+
+    impl AccountControl for Trusting {
+        fn account_status(&mut self) -> Option<AuthState> {
+            None
+        }
+        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
+            None
+        }
+        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
+            None
+        }
+        fn sign_out(&mut self) -> bool {
+            false
+        }
+        fn poll_event(&mut self) -> Option<AccountEvent> {
+            None
+        }
+        fn server_trust(&mut self) -> Option<ServerTrustPrompt> {
+            self.prompt.clone()
+        }
+        fn answer_server_trust(&mut self, id: u64, trusted: bool) {
+            self.answers.push((id, trusted));
+        }
+    }
+
+    // The core's trust question shows while connecting; "Trust and Join" answers it and keeps the
+    // join, while "Don't Trust" and Back answer no and cancel the join.
+    #[test]
+    fn server_trust_prompt_shows_while_joining_and_forwards_the_answer() {
+        let prompt = ServerTrustPrompt {
+            id: 4,
+            url: "http://127.0.0.1:19132".into(),
+            from_session_core: false,
+        };
+        for (answer, trusted, cancels) in [
+            (MenuAction::ServerTrust(true), true, false),
+            (MenuAction::ServerTrust(false), false, true),
+            (MenuAction::AddBack, false, true),
+        ] {
+            let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+            let mut control = Trusting {
+                prompt: Some(prompt.clone()),
+                answers: Vec::new(),
+            };
+            menu.sync_account_control(&mut control);
+            assert!(
+                menu.view().feeds.server_trust.is_none(),
+                "shown outside a join"
+            );
+            menu.observe_session(crate::session::SessionStatus {
+                connecting: true,
+                owns_directory: false,
+            });
+            menu.sync_account_control(&mut control);
+            assert_eq!(menu.view().feeds.server_trust.as_ref(), Some(&prompt));
+            assert_eq!(
+                menu.focus_actions(),
+                vec![
+                    MenuAction::ServerTrust(true),
+                    MenuAction::ServerTrust(false)
+                ]
+            );
+            if answer == MenuAction::AddBack {
+                menu.go_back();
+            } else {
+                menu.activate(answer);
+            }
+            control.prompt = None;
+            menu.sync_account_control(&mut control);
+            assert_eq!(control.answers, vec![(4, trusted)]);
+            assert_eq!(menu.take_disconnect_request(), cancels);
+            assert!(menu.view().feeds.server_trust.is_none());
+        }
+    }
+
+    struct SessionSource {
+        prompt: std::cell::RefCell<Option<ServerTrustPrompt>>,
+        answers: std::cell::RefCell<Vec<(u64, bool)>>,
+    }
+
+    impl super::super::server_trust::TrustSource for SessionSource {
+        fn prompt(&self) -> Option<ServerTrustPrompt> {
+            self.prompt.borrow().clone()
+        }
+        fn answer(&self, id: u64, trusted: bool) {
+            self.prompt.borrow_mut().take();
+            self.answers.borrow_mut().push((id, trusted));
+        }
+    }
+
+    // A per-session core's question shows like the launcher core's, and its answer goes back to the
+    // core that asked even though the launcher core reports nothing.
+    #[test]
+    fn session_core_trust_answers_return_to_the_session_core() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.observe_session(crate::session::SessionStatus {
+            connecting: true,
+            owns_directory: true,
+        });
+        let asked = ServerTrustPrompt {
+            id: 1,
+            url: "http://127.0.0.1:19132".into(),
+            from_session_core: true,
+        };
+        let session = SessionSource {
+            prompt: std::cell::RefCell::new(Some(asked.clone())),
+            answers: Default::default(),
+        };
+        let mut launcher = Trusting {
+            prompt: None,
+            answers: Vec::new(),
+        };
+        let mut frame = |menu: &mut MenuRuntime| {
+            menu.sync_account_control(&mut launcher);
+            menu.sync_session_trust(&session);
+        };
+        frame(&mut menu);
+        assert_eq!(menu.view().feeds.server_trust.as_ref(), Some(&asked));
+        frame(&mut menu);
+        assert_eq!(menu.view().feeds.server_trust.as_ref(), Some(&asked));
+        menu.activate(MenuAction::ServerTrust(true));
+        frame(&mut menu);
+        assert!(menu.view().feeds.server_trust.is_none());
+        assert_eq!(*session.answers.borrow(), vec![(1, true)]);
+        assert!(
+            launcher.answers.is_empty(),
+            "the launcher core got the session core's answer"
+        );
+
+        // An answer left when its core is gone is dropped rather than sent to the next core.
+        session.prompt.replace(Some(asked.clone()));
+        menu.sync_session_trust(&session);
+        menu.activate(MenuAction::ServerTrust(false));
+        menu.forget_session_trust();
+        let next = SessionSource {
+            prompt: std::cell::RefCell::new(None),
+            answers: Default::default(),
+        };
+        menu.sync_session_trust(&next);
+        assert!(
+            next.answers.borrow().is_empty(),
+            "an old answer reached the next core"
+        );
+
+        // Likewise a launcher answer left when its core is retired never reaches the restarted one.
+        let mut launcher = Trusting {
+            prompt: Some(ServerTrustPrompt {
+                id: 1,
+                url: "http://127.0.0.1:19132".into(),
+                from_session_core: false,
+            }),
+            answers: Vec::new(),
+        };
+        menu.sync_account_control(&mut launcher);
+        menu.activate(MenuAction::ServerTrust(true));
+        menu.forget_launcher_trust();
+        let mut restarted = Trusting {
+            prompt: None,
+            answers: Vec::new(),
+        };
+        menu.sync_account_control(&mut restarted);
+        assert!(
+            restarted.answers.is_empty(),
+            "a retired core's answer reached its replacement"
         );
     }
 

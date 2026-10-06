@@ -19,9 +19,17 @@ fn transfer(id: Option<u32>) -> DimensionTransfer {
 }
 
 fn collect(transfer: &mut DimensionTransfer) -> Vec<Packet> {
+    collect_at(transfer, Duration::ZERO, true)
+}
+
+fn collect_at(
+    transfer: &mut DimensionTransfer,
+    now: Duration,
+    destination_ready: bool,
+) -> Vec<Packet> {
     let mut packets = Vec::new();
     transfer
-        .send_before_presentation(|packet| {
+        .send_before_presentation(now, destination_ready, |packet| {
             packets.push(packet);
             Ok(())
         })
@@ -30,7 +38,7 @@ fn collect(transfer: &mut DimensionTransfer) -> Vec<Packet> {
 }
 
 #[test]
-fn dimension_done_immediately_follows_start_and_keeps_loading_active_until_presentation_end() {
+fn dimension_done_waits_for_start_server_and_terrain_then_keeps_loading_until_presentation_end() {
     let mut transfer = transfer(Some(0));
     assert!(transfer.take_presentation_reset());
     assert!(!transfer.take_presentation_reset());
@@ -39,15 +47,22 @@ fn dimension_done_immediately_follows_start_and_keeps_loading_active_until_prese
             .complete_with(|_| panic!("End before switch"))
             .unwrap()
     );
-    let packets = collect(&mut transfer);
     assert_eq!(
-        packets,
-        [
-            protocol::loading_screen_packet(LoadingScreenPhase::Start, Some(0)),
-            protocol::dimension_change_done_packet(42),
-        ]
+        collect(&mut transfer),
+        [protocol::loading_screen_packet(
+            LoadingScreenPhase::Start,
+            Some(0)
+        )]
     );
     assert!(!transfer.active.as_ref().unwrap().server_acknowledged);
+    assert!(collect(&mut transfer).is_empty());
+    transfer.acknowledge(11);
+    assert!(collect_at(&mut transfer, Duration::ZERO, false).is_empty());
+    assert!(transfer.waiting_for_switch());
+    assert_eq!(
+        collect(&mut transfer),
+        [protocol::dimension_change_done_packet(42)]
+    );
     assert!(transfer.active(), "loading remains up after dimension-done");
     assert!(!transfer.waiting_for_switch());
     assert!(
@@ -78,16 +93,21 @@ fn server_acknowledgement_is_epoch_bounded_and_does_not_repeat_control_packets()
     let mut transfer = transfer(None);
     assert_eq!(
         collect(&mut transfer),
-        [
-            protocol::loading_screen_packet(LoadingScreenPhase::Start, None),
-            protocol::dimension_change_done_packet(42),
-        ]
+        [protocol::loading_screen_packet(
+            LoadingScreenPhase::Start,
+            None
+        )]
     );
     transfer.acknowledge(10);
     assert!(!transfer.active.as_ref().unwrap().server_acknowledged);
+    assert!(collect(&mut transfer).is_empty());
     transfer.acknowledge(11);
     transfer.acknowledge(11);
     assert!(transfer.active.as_ref().unwrap().server_acknowledged);
+    assert_eq!(
+        collect(&mut transfer),
+        [protocol::dimension_change_done_packet(42)]
+    );
     assert!(collect(&mut transfer).is_empty());
     assert!(
         transfer
@@ -109,7 +129,9 @@ fn server_acknowledgement_is_epoch_bounded_and_does_not_repeat_control_packets()
 fn outbound_backpressure_before_start_keeps_both_steps_pending() {
     let mut transfer = transfer(Some(99));
     assert!(matches!(
-        transfer.send_before_presentation(|packet| Err(PacketSendError::Full(packet))),
+        transfer.send_before_presentation(Duration::ZERO, true, |packet| Err(
+            PacketSendError::Full(packet)
+        )),
         Err(PacketSendError::Full(_))
     ));
     assert!(transfer.waiting_for_switch());
@@ -120,24 +142,29 @@ fn outbound_backpressure_before_start_keeps_both_steps_pending() {
     );
     assert_eq!(
         collect(&mut transfer),
-        [
-            protocol::loading_screen_packet(LoadingScreenPhase::Start, Some(99)),
-            protocol::dimension_change_done_packet(42),
-        ]
+        [protocol::loading_screen_packet(
+            LoadingScreenPhase::Start,
+            Some(99)
+        )]
+    );
+    transfer.acknowledge(11);
+    assert_eq!(
+        collect(&mut transfer),
+        [protocol::dimension_change_done_packet(42)]
     );
 }
 
 #[test]
 fn outbound_backpressure_retries_each_unsent_step_without_duplicating_accepted_packets() {
     let mut transfer = transfer(Some(99));
-    let mut packets = Vec::new();
-    let result = transfer.send_before_presentation(|packet| {
-        if packets.is_empty() {
-            packets.push(packet);
-            Ok(())
-        } else {
-            Err(PacketSendError::Full(packet))
-        }
+    transfer.acknowledge(11);
+    let mut packets = collect(&mut transfer);
+    assert!(
+        transfer.waiting_for_switch(),
+        "Start cannot queue Switch in the same update"
+    );
+    let result = transfer.send_before_presentation(Duration::ZERO, true, |packet| {
+        Err(PacketSendError::Full(packet))
     });
     assert!(matches!(result, Err(PacketSendError::Full(_))));
     assert!(transfer.waiting_for_switch());
@@ -213,13 +240,18 @@ fn session_replacement_and_superseding_transfer_drop_obsolete_loading_identity()
     assert!(!transfer.active.as_ref().unwrap().server_acknowledged);
     assert_eq!(
         collect(&mut transfer),
-        [
-            protocol::loading_screen_packet(LoadingScreenPhase::Start, Some(88)),
-            protocol::dimension_change_done_packet(56),
-        ]
+        [protocol::loading_screen_packet(
+            LoadingScreenPhase::Start,
+            Some(88)
+        )]
     );
-    assert!(!transfer.waiting_for_switch());
+    assert!(transfer.waiting_for_switch());
+    assert!(collect(&mut transfer).is_empty());
     transfer.acknowledge(21);
+    assert_eq!(
+        collect(&mut transfer),
+        [protocol::dimension_change_done_packet(56)]
+    );
     assert!(collect(&mut transfer).is_empty());
     assert!(
         transfer
@@ -235,7 +267,7 @@ fn session_replacement_and_superseding_transfer_drop_obsolete_loading_identity()
 }
 
 #[test]
-fn dimension_done_progresses_without_a_window_server_ack_or_decoded_terrain() {
+fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_terrain() {
     use crate::environment::WorldClock;
     use crate::runtime::world::ClientWorld;
     use bevy::prelude::{App, Update};
@@ -294,7 +326,7 @@ fn dimension_done_progresses_without_a_window_server_ack_or_decoded_terrain() {
     app.update();
     let transfer = &app.world().resource::<ClientWorld>().dimension_transfer;
     assert!(transfer.active.as_ref().unwrap().start_queued);
-    assert!(!transfer.waiting_for_switch());
+    assert!(transfer.waiting_for_switch());
     assert!(!transfer.active.as_ref().unwrap().server_acknowledged);
     assert!(transfer.active(), "presentation still holds local movement");
     assert!(transfer.active.as_ref().unwrap().presentation_pending);
@@ -302,13 +334,37 @@ fn dimension_done_progresses_without_a_window_server_ack_or_decoded_terrain() {
         app.world()
             .resource::<NetworkHandle>()
             .pending_command_count(),
-        2
+        1
     );
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .dimension_transfer
+        .acknowledge(11);
     app.update();
     assert_eq!(
         app.world()
             .resource::<NetworkHandle>()
             .pending_command_count(),
-        2
+        1
+    );
+}
+
+#[test]
+fn server_wait_timeout_defers_one_update_and_still_requires_destination_terrain() {
+    let mut transfer = transfer(Some(5));
+    assert_eq!(collect(&mut transfer).len(), 1);
+    assert!(collect_at(&mut transfer, SERVER_ACK_TIMEOUT, true).is_empty());
+    assert!(!transfer.active.as_ref().unwrap().server_acknowledged);
+    let expired = SERVER_ACK_TIMEOUT + Duration::from_nanos(1);
+    assert!(collect_at(&mut transfer, expired, true).is_empty());
+    assert!(transfer.active.as_ref().unwrap().server_acknowledged);
+    assert!(collect_at(&mut transfer, expired, false).is_empty());
+    assert_eq!(
+        collect_at(&mut transfer, expired, true),
+        [protocol::dimension_change_done_packet(42)]
+    );
+    assert!(
+        transfer.active(),
+        "presentation is a separate readiness gate"
     );
 }

@@ -73,6 +73,13 @@ func TestServeMediaRanges(t *testing.T) {
 			t.Errorf("%s: status %d, want 404", path, resp.StatusCode)
 		}
 	}
+	// A directory handle left open past Close blocks removing the directory on Windows.
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.root.Stat("intro.webm"); err == nil {
+		t.Error("media directory still open after Close")
+	}
 }
 
 // Only IPv4 loopback addresses with a port make a media origin; the default port is omitted as

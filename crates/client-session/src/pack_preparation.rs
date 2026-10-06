@@ -266,7 +266,10 @@ mod tests {
             let order = RefCell::new(Vec::new());
             let result = preparation
                 .prepare_application(
-                    |_| Some(order.borrow_mut().push("compile")),
+                    |_| {
+                        order.borrow_mut().push("compile");
+                        Some(())
+                    },
                     |_| order.borrow_mut().push("complete"),
                 )
                 .unwrap();

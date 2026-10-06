@@ -74,6 +74,8 @@ pub fn offer_values(
     set("#offer_coin_visible", Scalar::Bool(payable));
     set("#offer_info_price_visibile", Scalar::Bool(payable));
     set("#offer_prompt_text", text(prompt.clone()));
+    // The pre-content-card cards show the prompt (price, Owned or Free) beside the coin icon.
+    set("#offer_prompt_text_visibility", Scalar::Bool(true));
     set("#offer_full_price", text(prompt));
     set("#offer_strikethrough_price_visible", Scalar::Bool(false));
     set(
@@ -82,7 +84,8 @@ pub fn offer_values(
     );
     set("#ratings_visible", Scalar::Bool(ratings > 0));
     set("#rating_text", text(rating_text));
-    set("#ratings_count_text", text(ratings.to_string()));
+    // The count label packs flush against the average, so it stays empty (and hidden) on cards.
+    set("#ratings_count_text", text(""));
     set("#offer_markdown_visible", Scalar::Bool(false));
     set("#new_offer_icon_visible", Scalar::Bool(false));
     set("#progress_visible", Scalar::Bool(false));
@@ -92,7 +95,10 @@ pub fn offer_values(
     set("#icon_overlay_position_collection", Scalar::Num(0.0));
     set("#valid_offer_index", Scalar::Bool(true));
     set("#thumbnail_texture_file_system", text(file_system));
-    set("#thumbnail_texture_path", text(path));
+    set("#thumbnail_texture_path", text(path.clone()));
+    // The pre-content-card hero tiles read the same art as key art.
+    set("#key_art_texture_file_system", text(file_system));
+    set("#key_art_texture_path", text(path));
     values
 }
 

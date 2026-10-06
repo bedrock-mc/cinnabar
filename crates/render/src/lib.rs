@@ -89,16 +89,17 @@ use meshing::{
 
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_CANDIDATE_RADIUS_BLOCKS, ACTOR_GPU_INSTANCE_WORDS,
-    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorDrawFrame,
-    ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness, ActorMaterial,
-    ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderInstance, ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder,
-    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, ActorRuntimeWitness, ActorSkinResidency, ActorTexturePage, EquipmentRaster,
-    IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES,
-    MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-    MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES, ResidentSkin, actor_bounds_are_visible,
-    actor_rig_submission_is_visible, pack_actor_light, pack_overlay_rgba8, pack_skin_slot,
+    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorCullView,
+    ActorDrawFrame, ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness, ActorMaterial,
+    ActorPipelineReadiness, ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame,
+    ActorRenderIdentity, ActorRenderInstance, ActorRenderScene, ActorRenderSource,
+    ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame,
+    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRuntimeWitness,
+    ActorSkinResidency, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
+    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
+    MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
+    ResidentSkin, actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
+    pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
@@ -110,19 +111,19 @@ pub use atmosphere::{
 };
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{
-    AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BannerLayer, BannerModel, BannerMount, BeaconModel,
-    BedModel, BellAttachment, BellModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame,
-    BlockEntityKind, BlockEntityLight, BlockEntityRenderPlugin, BlockEntityScene,
-    BlockEntitySubmission, BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget,
-    ChestModel, ChestPair, ChestVariant, ConduitModel, CopperAge, CrackInstance, CrackQuad,
-    CrackShape, CrystalBeamModel, DRAGON_DEATH_BLEND, DecoratedPotModel, DragonDeathModel, Facing,
-    ItemFrameModel, MAX_BANNER_LAYERS, MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS,
-    SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind, SkullModel, SkullMount,
-    SpawnerModel, StaticItemPlacement, StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL,
-    TEXT_SLOT_COUNT, TextureRef, banner_color, bed_color, block_matrix, crack_shape_from_template,
-    crack_texture_name, floor_yaw_degrees, item_frame_item_transform, lid_angle_radians,
-    matrix_rows, pattern_texture, sherd_pattern, shulker_color_from_block_name, skull_geometry,
-    swing_degrees,
+    AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BLOCK_SELECTION_VERTICES_PER_EDGE, BannerLayer,
+    BannerModel, BannerMount, BeaconModel, BedModel, BellAttachment, BellModel, BlockEntityAtlas,
+    BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityLight,
+    BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission, BlockEntityVertex,
+    BlockSelectionFrame, BlockSelectionTarget, ChestModel, ChestPair, ChestVariant, ConduitModel,
+    CopperAge, CrackInstance, CrackQuad, CrackShape, CrystalBeamModel, DRAGON_DEATH_BLEND,
+    DecoratedPotModel, DragonDeathModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
+    MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
+    SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
+    StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
+    banner_color, bed_color, block_matrix, crack_shape_from_template, crack_texture_name,
+    floor_yaw_degrees, item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture,
+    sherd_pattern, shulker_color_from_block_name, skull_geometry, swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,

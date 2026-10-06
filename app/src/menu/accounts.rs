@@ -261,7 +261,6 @@ impl MenuRuntime {
         self.feeds.details.clear();
         self.realms.clear();
         self.friends.clear();
-        self.gatherings.clear();
         self.catalog_started = false;
         self.control_auth = None;
         self.sign_in_page_code = None;

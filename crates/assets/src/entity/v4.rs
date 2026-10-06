@@ -13,7 +13,8 @@ use super::{
     RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_scalars,
 };
 
-pub const MAX_ENTITY_ANIMATION_CLIPS: usize = 4_096;
+/// Clips are geometry-specific instances and share the retained rig animation instance budget.
+pub const MAX_ENTITY_ANIMATION_CLIPS: usize = MAX_ENTITY_RIG_ANIMATIONS;
 pub const MAX_ENTITY_ANIMATION_CHANNELS: usize = 65_536;
 pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 524_288;
 pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
@@ -43,10 +44,11 @@ pub(super) use encode::{encode_compiled, encode_runtime};
 mod render;
 use render::validate_render_payload;
 pub use render::{
-    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderMaterial, EntityRenderSlot, EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES,
-    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS,
-    MAX_ENTITY_RENDER_VISIBILITY,
+    ENTITY_ALPHA_TEST_THRESHOLD, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
+    EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
+    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+    entity_render_pattern_matches,
 };
 #[path = "v4/rig.rs"]
 mod rig;

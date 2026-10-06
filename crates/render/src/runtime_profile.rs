@@ -387,6 +387,15 @@ impl RuntimeStageProfiler {
         }
     }
 
+    /// The display interval last set, or zero before the first window check.
+    #[must_use]
+    pub fn frame_interval(&self) -> Duration {
+        self.state
+            .slow
+            .as_ref()
+            .map_or(Duration::ZERO, |slow| slow.interval())
+    }
+
     /// Cumulative slow frames and hitches, including those whose text was rate-limited.
     #[must_use]
     pub fn slow_frame_counts(&self) -> Option<crate::SlowFrameCounts> {

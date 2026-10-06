@@ -93,6 +93,7 @@ impl WorldAuthority {
     /// Retains server-defined sequential block identities for palette decoding.
     pub fn set_custom_block_ids(&mut self, ids: std::ops::Range<u32>) {
         self.custom_block_ids = ids;
+        self.custom_block_identities = Arc::default();
     }
     /// Retains the single wire-to-internal sequential palette mapping.
     pub fn set_sequential_id_remap(&mut self, remap: assets::SequentialIdRemap) {
@@ -118,6 +119,7 @@ impl WorldAuthority {
         crate::ingestion::DecodeIds {
             assets: Arc::clone(&self.runtime_assets),
             custom_blocks: self.custom_block_ids.clone(),
+            custom_identities: Arc::clone(&self.custom_block_identities),
             remap: Arc::clone(&self.id_remap),
             diagnostics: Arc::clone(&self.decode_diagnostics),
             session_id: self.actor_session_id,

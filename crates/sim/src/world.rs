@@ -738,6 +738,10 @@ impl<'a> PaletteWorld<'a> {
 }
 
 impl CollisionWorld for PaletteWorld<'_> {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        self.registry.identity()
+    }
+
     fn liquid_current(
         &self,
         previous_pose: Aabb,

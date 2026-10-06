@@ -10,6 +10,9 @@ use super::{MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef};
 use crate::chunk::transparent::face_metric::{FaceOrderClass, TransparentFaceMetric};
 use crate::chunk::*;
 
+/// The visible sub-chunks' sort inputs, in committed layout order.
+pub(in crate::chunk) type TransparentGroups = Arc<[Arc<TransparentGroupInput>]>;
+
 /// One visible sub-chunk's sort input; rebuilt only when its allocation or tint table changes.
 #[derive(Debug)]
 pub(in crate::chunk) struct TransparentGroupInput {

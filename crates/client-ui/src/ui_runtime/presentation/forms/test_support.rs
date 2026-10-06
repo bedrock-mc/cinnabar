@@ -116,10 +116,12 @@ pub fn snapshot_menu_with_catalog(
     ));
     presentation.finish_menu_artwork();
     let dpi = DpiScale::new(2.0).unwrap();
-    for _ in 0..warm {
+    // Warm frames run up to `now_millis` so screen entry animations have played.
+    for frame in 0..warm {
+        let at = now_millis.saturating_sub(((warm - frame) as u64) * 1_000);
         presentation.set_menu_view(Some(view.clone()));
         presentation
-            .build(player_runtime, &runtime, now_millis, [2560, 1440], dpi)
+            .build(player_runtime, &runtime, at, [2560, 1440], dpi)
             .unwrap();
         if warm > 2 {
             std::thread::sleep(std::time::Duration::from_millis(50));

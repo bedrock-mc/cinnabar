@@ -1,11 +1,10 @@
 //! Destination decode probes and local presentation readiness during transfers.
 
-use super::{WorldStream, floor_to_i32, vanilla_dimension_range};
+use super::{WorldStream, floor_to_i32};
 use world::{ChunkKey, SUB_CHUNK_SIDE as SIDE, SubChunkKey};
 
 // Vanilla loading offsets remain available for transfer diagnostics.
-const TRANSFER_RADIUS_BLOCKS: f32 = 16.0;
-const END_SPAWN_Y: f32 = 50.0;
+const TRANSFER_RADIUS_BLOCKS: f32 = SIDE as f32;
 
 // Vanilla's 57 client ticking chunk offsets, used independently of the
 // server's simulation radius.
@@ -108,16 +107,17 @@ impl WorldStream {
             .collect()
     }
 
-    /// Whether every destination subchunk in the native ±16 block probe has
-    /// decoded data. Our local presentation gate retains this collision probe;
-    /// the client acknowledges its committed dimension flush independently.
+    /// Requires decoded terrain throughout the inclusive loading-area probe.
+    /// Lighting, meshes and presentation are admitted separately.
     #[must_use]
     pub fn dimension_transfer_ready(&self, position: [f32; 3]) -> bool {
+        let dimension = self.authority.current_dimension();
+        if self.authority.dimension_range(dimension).is_some() {
+            return self.authority.dimension_transfer_area_ready(position);
+        }
         let Some(position) = self.transfer_probe_position(position) else {
             return false;
         };
-        let dimension = self.authority.current_dimension();
-        let range = vanilla_dimension_range(dimension);
         let side = SIDE as i32;
         let minimum =
             position.map(|value| floor_to_i32(value - TRANSFER_RADIUS_BLOCKS).div_euclid(side));
@@ -126,12 +126,6 @@ impl WorldStream {
         for x in minimum[0]..=maximum[0] {
             for z in minimum[2]..=maximum[2] {
                 for y in minimum[1]..=maximum[1] {
-                    if range.is_some_and(|range| {
-                        y < range.base_sub_chunk_y
-                            || y >= range.base_sub_chunk_y + range.sub_chunk_count as i32
-                    }) {
-                        continue;
-                    }
                     let key = SubChunkKey::new(dimension, x, y, z);
                     if !self.known_air.contains(&key)
                         && !self.authority.terrain().is_sub_chunk_loaded(key)
@@ -156,7 +150,7 @@ impl WorldStream {
             .transfer_mesh_keys(position)
             .expect("decoded transfer probe has a finite position");
         let dimension = self.authority.current_dimension();
-        let range = vanilla_dimension_range(dimension);
+        let range = self.authority.dimension_range(dimension);
         keys.into_iter().all(|key| {
             if range.is_some_and(|range| {
                 key.y < range.base_sub_chunk_y
@@ -173,7 +167,7 @@ impl WorldStream {
             return None;
         }
         let dimension = self.authority.current_dimension();
-        let range = vanilla_dimension_range(dimension);
+        let range = self.authority.dimension_range(dimension);
         let side = SIDE as i32;
         if let Some(range) = range {
             let minimum_y = range.base_sub_chunk_y * side;
@@ -182,12 +176,10 @@ impl WorldStream {
             // fractional coordinate when that check admits it.
             let checked_y = i32::from(position[1] as i32 as i16);
             if checked_y < minimum_y || checked_y >= maximum_y {
-                position[1] = if dimension == 2 { END_SPAWN_Y } else { 0.0 };
+                position[1] = world::dimension_loading_fallback_y(dimension) as f32;
             }
         }
-        // Custom dimensions have no published height range in the current
-        // ingestion model. Probe their actual destination Y without a guessed
-        // height bound or vanilla spawn fallback.
+        // Unadvertised dimensions retain their actual destination Y.
         Some(position)
     }
 }

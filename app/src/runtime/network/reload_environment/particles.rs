@@ -78,7 +78,26 @@ pub(super) fn prepare_particles(
     match assets::encode_particle_catalog(identity, &textures, &effects)
         .and_then(|bytes| RuntimeParticleAssets::decode(&bytes))
     {
-        Ok(assets) => ::particles::ParticleSystem::from_assets(&assets),
+        Ok(assets) => {
+            let mut system = ::particles::ParticleSystem::from_assets(&assets);
+            for (_, bytes) in super::layered_json(view, "entity/") {
+                if let Some(root) = parse_pack_json(&bytes) {
+                    system.actor_bindings.insert_entity(&root);
+                }
+            }
+            for (_, bytes) in super::layered_json(view, "animation_controllers/") {
+                if let Some(root) = parse_pack_json(&bytes) {
+                    system.actor_bindings.insert_controllers(&root);
+                }
+            }
+            if system.actor_bindings.unsupported > 0 {
+                bevy::log::warn!(
+                    unsupported = system.actor_bindings.unsupported,
+                    "optional actor particle bindings contain unsupported fragments"
+                );
+            }
+            system
+        }
         Err(error) => {
             bevy::log::warn!(%error, "optional particle layers ignored");
             base.map_or_else(
@@ -147,6 +166,38 @@ fn prepare_textures(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actor_controller_particles_survive_pack_preparation() {
+        let Some(view) =
+            crate::runtime::network::local_pack::local_pack_view("CINNABAR_SERVER_PACK")
+        else {
+            eprintln!(
+                "skipping actor_controller_particles_survive_pack_preparation: missing CINNABAR_SERVER_PACK NPC fixture"
+            );
+            return;
+        };
+        let system = prepare_particles(&view, None);
+        assert!(system.has_effect("hivehub:game_wars"));
+        let effects: Vec<_> = system
+            .actor_bindings
+            .effects_for(
+                "hivehub:game_wars",
+                "controller.animation.hive.hub.game.idle.particle",
+                "default",
+            )
+            .collect();
+        assert_eq!(effects, [("hivehub:game_wars", true)]);
+        let effects: Vec<_> = system
+            .actor_bindings
+            .effects_for(
+                "hivehub:game_sky",
+                "controller.animation.hive.hub.game.idle.particle",
+                "default",
+            )
+            .collect();
+        assert_eq!(effects, [("hivehub:game_sky", true)]);
+    }
 
     #[test]
     fn review_particle_effect_budget_includes_retained_textures() {

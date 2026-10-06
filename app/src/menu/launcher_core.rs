@@ -320,6 +320,8 @@ fn launcher_command(
         .arg("-socket-dir")
         .arg(socket_dir)
         .arg("-control-status")
+        .arg("-server-trust-file")
+        .arg(layout.server_trust_file())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(
@@ -367,16 +369,13 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-/// Marks a menu address as a gathering's experience ID, joined when selected.
-pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
-
 /// The kind of join `address` starts, for its progress titles.
 pub(super) fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::JoinKind {
     use launcher::menu::view::JoinKind;
     match target_for(address) {
         _ if local_world => JoinKind::Local,
         ConnectTarget::Realm(_) => JoinKind::Realm,
-        // Friend worlds and gatherings use the external-server title until vanilla's is confirmed.
+        // Friend worlds and experiences use the external-server title until vanilla's is confirmed.
         ConnectTarget::RakNet(_) | ConnectTarget::Friend(_) | ConnectTarget::Gathering(_) => {
             JoinKind::External
         }
@@ -387,7 +386,7 @@ pub(super) fn join_kind(address: &str, local_world: bool) -> launcher::menu::vie
 /// prefixes, else a server that gets the default port when it names none).
 pub(super) fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
-    if let Some(id) = address.strip_prefix(GATHERING_ADDRESS_PREFIX) {
+    if let Some(id) = address.strip_prefix(launcher::menu::EXPERIENCE_ADDRESS_PREFIX) {
         return ConnectTarget::Gathering(id.to_owned());
     }
     if let Some(id) = address.strip_prefix("realm_id/") {
@@ -487,6 +486,23 @@ mod tests {
         );
     }
 
+    // The launcher core, whose events the menu polls, is the one that asks about server trust.
+    #[test]
+    fn launcher_core_remembers_trusted_servers_in_user_data() {
+        let layout = crate::install_layout::scratch("server-trust-file");
+        let command = launcher_command(
+            &layout,
+            Path::new("/fixture/core"),
+            Path::new("/fixture/socket"),
+            None,
+            false,
+            None,
+            false,
+        );
+        let args: Vec<_> = command.get_args().collect();
+        assert!(args.windows(2).any(|pair| pair[0] == "-server-trust-file"
+            && pair[1] == layout.server_trust_file().as_os_str()));
+    }
     #[test]
     fn direct_account_core_leaves_pack_cache_for_game_cores() {
         let layout = crate::install_layout::scratch("direct-cache-ownership");

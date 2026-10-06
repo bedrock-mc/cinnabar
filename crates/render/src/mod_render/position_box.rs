@@ -92,17 +92,9 @@ mod tests {
                 .count(),
             72
         );
-        for axis in 0..3 {
-            assert!(
-                vertices[..36]
-                    .iter()
-                    .any(|v| v.anchor[axis] == bounds[0][axis])
-            );
-            assert!(
-                vertices[..36]
-                    .iter()
-                    .any(|v| v.anchor[axis] == bounds[1][axis])
-            );
+        for (axis, (&low, &high)) in bounds[0].iter().zip(&bounds[1]).enumerate() {
+            assert!(vertices[..36].iter().any(|v| v.anchor[axis] == low));
+            assert!(vertices[..36].iter().any(|v| v.anchor[axis] == high));
         }
     }
 

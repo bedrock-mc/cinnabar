@@ -125,6 +125,21 @@ fn column_eviction_removes_custom_height_air_without_visiting_other_columns() {
     assert_eq!(visits[1], visits[0], "eviction visited unrelated residency");
 }
 
+/// Retention runs on every local chunk crossing, so finding tracked columns must not walk
+/// every resident section.
+#[test]
+fn tracked_columns_visit_one_section_per_column() {
+    let stream = stream_with_unrelated_columns(64);
+    take_visited_keys();
+    let tracked = stream.tracked_columns();
+    assert_eq!(
+        tracked,
+        (10..74).map(|z| ChunkKey::new(0, 0, z)).collect::<BTreeSet<_>>()
+    );
+    // One visit per column in each of the resident and known-air sets.
+    assert_eq!(take_visited_keys(), 2 * 64);
+}
+
 #[test]
 fn residency_hash_reuses_unchanged_membership_and_preserves_legacy_key_order() {
     let mut keys = ColumnSubChunkSet::default();

@@ -9,6 +9,15 @@ use render_model::VisibilityKeyDigest;
 /// destination still completes the matching loading-screen handshake promptly.
 #[test]
 fn dimension_loading_releases_local_terrain_without_distant_columns_or_a_timeout() {
+    release_local_terrain(false);
+}
+
+#[test]
+fn dimension_loading_holds_presented_local_terrain_until_actor_pipelines_are_ready() {
+    release_local_terrain(true);
+}
+
+fn release_local_terrain(wait_for_actor_pipelines: bool) {
     let dimension = protocol::NETHER_DIMENSION_ID;
     let position = [0.0, 64.0, 0.0];
     let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
@@ -96,10 +105,14 @@ fn dimension_loading_releases_local_terrain_without_distant_columns_or_a_timeout
     client_world.dimension_transfer.acknowledge(sequence + 1);
     client_world
         .dimension_transfer
-        .queue_switch(&network)
+        .queue_switch(Duration::ZERO, true, &network)
+        .unwrap();
+    client_world
+        .dimension_transfer
+        .queue_switch(Duration::ZERO, true, &network)
         .unwrap();
     let mut diagnostics = VisibilityDiagnosticsInput::default();
-    for frame_generation in [10, 11] {
+    for frame_generation in 10..=if wait_for_actor_pipelines { 13 } else { 11 } {
         prepare_loading(
             &mut client_world,
             &mut presentation,
@@ -117,12 +130,20 @@ fn dimension_loading_releases_local_terrain_without_distant_columns_or_a_timeout
                 visible_rendered: 0,
                 cohort: None,
                 render_work_drained: false,
+                actor_pipelines_ready: !wait_for_actor_pipelines || frame_generation >= 12,
                 now: Duration::from_millis(200),
             },
         );
         assert_eq!(
             client_world.dimension_transfer.active(),
-            frame_generation == 10
+            frame_generation < if wait_for_actor_pipelines { 12 } else { 11 }
+        );
+        assert_eq!(
+            presentation.loading_stage(),
+            client_world
+                .dimension_transfer
+                .active()
+                .then_some(LoadingStage::ChangingDimension)
         );
     }
     assert!(presentation.startup_mut().completion_queued);

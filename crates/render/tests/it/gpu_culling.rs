@@ -1,7 +1,4 @@
 //! The GPU terrain cull keeps the CPU path's visible set and pixels, and its Hi-Z is conservative.
-#[path = "../../src/chunk/constants.rs"]
-#[allow(dead_code, reason = "reuse the production quad index order")]
-mod chunk_constants;
 mod direct;
 mod hiz;
 #[path = "../../src/chunk/gpu_cull/kernels.rs"]
@@ -20,7 +17,7 @@ use bevy::{
 };
 use meshing::{CubeQuadLayout, Face, PackedQuad};
 
-use crate::{gpu_snapshot, material_shader, shader_source, solid_terrain_raster};
+use crate::{chunk_constants, gpu_snapshot, material_shader, shader_source, solid_terrain_raster};
 use gpu_snapshot::{Gpu, SNAPSHOT_SIDE};
 use kernels::{CullKernels, CullStorage, HizPyramid};
 use model::{
@@ -645,7 +642,7 @@ fn slot_draws(terrain: &Terrain, slot: usize, eye: [f64; 3], stream: CullStream)
             .solid_runs(meshing::sub_chunk_facing_faces(*origin, eye))
             .map(|run| cube.start + run.start..cube.start + run.end)
             .collect::<Vec<_>>(),
-        _ => vec![cube.start + layout.solid_len()..cube.end],
+        _ => std::iter::once(cube.start + layout.solid_len()..cube.end).collect(),
     };
     ranges
         .into_iter()

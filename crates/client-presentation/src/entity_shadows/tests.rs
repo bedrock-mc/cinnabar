@@ -48,6 +48,18 @@ fn entities_outside_the_candidate_cube_are_culled_but_players_are_not() {
 }
 
 fn spawn(stream: &mut WorldStream, sequence: u64, runtime_id: u64, identifier: &str, x: f32) {
+    spawn_kind(
+        stream,
+        sequence,
+        runtime_id,
+        ActorKind::Entity {
+            identifier: format!("minecraft:{identifier}").into(),
+        },
+        x,
+    );
+}
+
+fn spawn_kind(stream: &mut WorldStream, sequence: u64, runtime_id: u64, kind: ActorKind, x: f32) {
     stream
         .submit(
             sequence,
@@ -55,9 +67,7 @@ fn spawn(stream: &mut WorldStream, sequence: u64, runtime_id: u64, identifier: &
                 dimension: 0,
                 unique_id: runtime_id as i64,
                 runtime_id,
-                kind: ActorKind::Entity {
-                    identifier: format!("minecraft:{identifier}").into(),
-                },
+                kind,
                 position: [x, 64.0, 0.0],
                 velocity: [0.0; 3],
                 pitch: 0.0,
@@ -112,4 +122,74 @@ fn only_drawn_bodies_and_dropped_items_cast() {
         .collect();
     casters.sort_by(f32::total_cmp);
     assert_eq!(casters, [2.0, 6.0]);
+}
+
+#[test]
+fn local_shadow_follows_body_visibility_without_hiding_other_casters() {
+    let mut stream = WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0, 65.62, 0.0],
+        world_spawn_position: [0, 64, 0],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    spawn_kind(
+        &mut stream,
+        1,
+        1,
+        ActorKind::Player {
+            uuid: [1; 16],
+            username: "local".into(),
+        },
+        0.0,
+    );
+    spawn(&mut stream, 2, 5, "cow", 2.0);
+    spawn(&mut stream, 3, 7, "item", 6.0);
+    let local = LocalShadowSource {
+        runtime_id: stream.local_player_runtime_id(),
+        feet: Some([9.0, 64.0, 0.0]),
+        spectator: false,
+    };
+    let mut staging = Vec::new();
+    let mut scene = EntityShadowScene::default();
+
+    for (drawn, expected) in [
+        (&[5][..], vec![2.0, 6.0]),
+        (&[1, 5][..], vec![2.0, 6.0, 9.0]),
+        (&[5][..], vec![2.0, 6.0]),
+    ] {
+        publish_entity_shadows(
+            Some(&stream),
+            1.0,
+            Some(local),
+            None,
+            drawn,
+            &mut staging,
+            &mut scene,
+        );
+        let mut casters: Vec<_> = scene
+            .0
+            .shadows
+            .iter()
+            .map(|shadow| shadow.feet[0])
+            .collect();
+        casters.sort_by(f32::total_cmp);
+        assert_eq!(casters, expected);
+    }
+
+    publish_entity_shadows(
+        Some(&stream),
+        1.0,
+        Some(LocalShadowSource {
+            spectator: true,
+            ..local
+        }),
+        None,
+        &[1, 5],
+        &mut staging,
+        &mut scene,
+    );
+    assert!(scene.0.shadows.iter().all(|shadow| shadow.feet[0] != 9.0));
 }

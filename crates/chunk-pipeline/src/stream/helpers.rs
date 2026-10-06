@@ -1,7 +1,7 @@
 use super::*;
 
-pub(super) fn block_entity_y_is_valid(dimension: i32, y: i32) -> bool {
-    let Some(range) = vanilla_dimension_range(dimension) else {
+pub(super) fn block_entity_y_is_valid(range: Option<DimensionRange>, y: i32) -> bool {
+    let Some(range) = range else {
         return false;
     };
     let sub_chunk_y = y.div_euclid(16);
@@ -9,7 +9,7 @@ pub(super) fn block_entity_y_is_valid(dimension: i32, y: i32) -> bool {
         && sub_chunk_y
             < range.base_sub_chunk_y
                 + i32::try_from(range.sub_chunk_count)
-                    .expect("vanilla dimension subchunk counts fit i32")
+                    .expect("admitted dimension subchunk counts fit i32")
 }
 
 pub(super) fn distance_squared(key: SubChunkKey, camera: [f32; 3]) -> f32 {

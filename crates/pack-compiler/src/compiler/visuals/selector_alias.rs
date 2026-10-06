@@ -1,6 +1,10 @@
 use super::super::*;
 use super::state::{exact_tagged_byte, exact_tagged_int, exact_tagged_string};
 
+#[cfg(test)]
+#[path = "selector_alias/tests.rs"]
+mod tests;
+
 const SELECTOR_ALIAS_CUBE_NAMES: [&str; 7] = [
     "minecraft:bone_block",
     "minecraft:chiseled_quartz_block",
@@ -83,9 +87,11 @@ pub(in crate::compiler) fn selector_alias_cube_inventory_is_exact(
     if selected.len() != 38 {
         return false;
     }
+    let mut ids = BTreeSet::new();
     let mut states = BTreeSet::new();
     selected.into_iter().all(|record| {
         is_selector_alias_cube_record(record)
+            && ids.insert(record.sequential_id)
             && exact_selector_alias_cube_state(record)
                 .is_some_and(|slot| states.insert((record.name.as_ref(), slot)))
     })

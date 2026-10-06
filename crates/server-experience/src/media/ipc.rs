@@ -99,7 +99,7 @@ pub fn write_reply(writer: &mut impl Write, reply: &Reply) -> Result<()> {
             while !text.is_char_boundary(end) {
                 end -= 1;
             }
-            frame(writer, ERROR, &[text[..end].as_bytes()])
+            frame(writer, ERROR, &[&text.as_bytes()[..end]])
         }
     }
 }

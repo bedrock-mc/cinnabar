@@ -205,8 +205,8 @@ func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 		t.Fatalf("profile = %+v, err = %v", profile, err)
 	}
 	offline := New(Config{})
-	if _, err := offline.Gatherings(context.Background()); !errors.Is(err, control.ErrSignedOut) {
-		t.Fatalf("offline gatherings err = %v", err)
+	if _, err := offline.FeaturedServers(context.Background()); !errors.Is(err, control.ErrSignedOut) {
+		t.Fatalf("offline featured servers err = %v", err)
 	}
 }
 

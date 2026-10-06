@@ -447,8 +447,7 @@ fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
-    let bytes = readback.slice(..).get_mapped_range()[..side as usize * 4].to_vec();
-    bytes
+    readback.slice(..).get_mapped_range()[..side as usize * 4].to_vec()
 }
 
 #[test]

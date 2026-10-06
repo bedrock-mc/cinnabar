@@ -1181,6 +1181,12 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
             },
         )
         .unwrap();
+    // One event per slice: a wall-clock budget must not decide whether the correction commits.
+    stream.poll_deadline = Some(Instant::now());
+    stream.polling = true;
+    stream.apply_ready();
+    assert_eq!(stream.order.next_sequence(), 2);
+    assert!(stream.take_committed_controls().is_empty());
     stream.apply_ready();
 
     assert_eq!(

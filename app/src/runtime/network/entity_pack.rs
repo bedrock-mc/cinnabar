@@ -1,7 +1,7 @@
 //! Server-pack entities for one session: compiled at admission into their own index space
 //! and layered over the vanilla catalog. A bad file skips its entity, never the session.
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
 use resource_pack::LayeredPackView;
@@ -31,11 +31,28 @@ fn vanilla_refs() -> Option<Arc<assets::VanillaEntityRefs>> {
         .clone()
 }
 
+static VANILLA_PACK_DIR: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
+/// The installed vanilla layer supplies rasters omitted by server packs.
+pub(crate) fn set_vanilla_pack_dir(path: PathBuf) {
+    *VANILLA_PACK_DIR
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(path);
+}
+
+fn vanilla_pack_dir() -> Option<PathBuf> {
+    VANILLA_PACK_DIR
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
 /// Everything a compile reads: the pack stack and the vanilla refs it resolved against.
 #[derive(Clone, PartialEq)]
 struct EntityInputs {
     stack: StackFingerprint,
     vanilla: Option<Arc<assets::VanillaEntityRefs>>,
+    vanilla_pack_dir: Option<PathBuf>,
 }
 
 type CachedEntities = (
@@ -58,7 +75,12 @@ impl EntityCache {
         inputs: EntityInputs,
         view: &LayeredPackView,
         disk: Option<&client_session::compile_cache::CompileCache>,
-        compile: impl FnOnce(&LayeredPackView, Option<&assets::VanillaEntityRefs>, bool) -> Compiled,
+        compile: impl FnOnce(
+            &LayeredPackView,
+            Option<&assets::VanillaEntityRefs>,
+            Option<&std::path::Path>,
+            bool,
+        ) -> Compiled,
     ) -> Option<Arc<SessionEntityPack>> {
         {
             let cache = self.lock();
@@ -89,13 +111,17 @@ impl EntityCache {
             }
             pack
         } else {
-            let (pack, blob) = compile(view, inputs.vanilla.as_deref(), disk.is_some());
-            if let (Some(disk), Some(key), Some(files)) = (disk, &key, view.dependencies()) {
-                if let Some(entry) =
+            let (pack, blob) = compile(
+                view,
+                inputs.vanilla.as_deref(),
+                inputs.vanilla_pack_dir.as_deref(),
+                disk.is_some(),
+            );
+            if let (Some(disk), Some(key), Some(files)) = (disk, &key, view.dependencies())
+                && let Some(entry) =
                     encode_entry(&files.snapshot(), pack.as_deref(), blob.as_deref())
-                {
-                    disk.store(key, &entry);
-                }
+            {
+                disk.store(key, &entry);
             }
             pack
         };
@@ -130,6 +156,9 @@ fn disk_key(inputs: &EntityInputs) -> [u8; 32] {
         }
     }
     part(&mut key, &vanilla_digest(inputs.vanilla.as_ref()));
+    if let Some(path) = &inputs.vanilla_pack_dir {
+        part(&mut key, path.as_os_str().as_encoded_bytes());
+    }
     key.finalize().into()
 }
 
@@ -203,6 +232,7 @@ pub(super) fn compile_session_entities(
     let inputs = EntityInputs {
         stack: fingerprint.clone(),
         vanilla: vanilla_refs(),
+        vanilla_pack_dir: vanilla_pack_dir(),
     };
     ENTITY_CACHE.get_or_compile(
         inputs,
@@ -217,16 +247,17 @@ fn compile(
     view: &LayeredPackView,
     vanilla: Option<&assets::VanillaEntityRefs>,
 ) -> Option<Arc<SessionEntityPack>> {
-    compile_encoded(view, vanilla, false).0
+    compile_encoded(view, vanilla, vanilla_pack_dir().as_deref(), false).0
 }
 
 /// `encode` also returns the entity blob, which only a disk-cached compile needs.
 fn compile_encoded(
     view: &LayeredPackView,
     vanilla: Option<&assets::VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&std::path::Path>,
     encode: bool,
 ) -> Compiled {
-    let files = collect_files(view, vanilla);
+    let files = collect_files(view, vanilla, vanilla_pack_dir);
     let compiled = match pack_compiler::compile_actor_pack(files) {
         Ok(Some(compiled)) => compiled,
         Ok(None) => return (None, None),
@@ -386,6 +417,7 @@ mod tests {
         super::EntityInputs {
             stack: Vec::new(),
             vanilla: vanilla.map(std::sync::Arc::new),
+            vanilla_pack_dir: None,
         }
     }
 
@@ -407,7 +439,7 @@ mod tests {
             Some(assets::VanillaEntityRefs::new()),
             Some(refs_with_animation()),
         ] {
-            cache.get_or_compile(inputs(vanilla), &view, None, |_, _, _| {
+            cache.get_or_compile(inputs(vanilla), &view, None, |_, _, _, _| {
                 compiles.set(compiles.get() + 1);
                 (None, None)
             });
@@ -416,9 +448,24 @@ mod tests {
     }
 
     #[test]
+    fn entity_cache_recompiles_when_the_installed_vanilla_layer_changes() {
+        let (view, cache) = (empty_view(), super::EntityCache::default());
+        let compiles = std::cell::Cell::new(0);
+        for directory in ["first", "first", "second"] {
+            let mut input = inputs(None);
+            input.vanilla_pack_dir = Some(directory.into());
+            cache.get_or_compile(input, &view, None, |_, _, _, _| {
+                compiles.set(compiles.get() + 1);
+                (None, None)
+            });
+        }
+        assert_eq!(compiles.get(), 2);
+    }
+
+    #[test]
     fn entity_cache_compiles_without_holding_its_lock() {
         let (view, cache) = (empty_view(), super::EntityCache::default());
-        cache.get_or_compile(inputs(None), &view, None, |_, _, _| {
+        cache.get_or_compile(inputs(None), &view, None, |_, _, _, _| {
             assert!(cache.0.try_lock().is_ok());
             (None, None)
         });
@@ -432,13 +479,16 @@ mod tests {
         assert_eq!(super::vanilla_refs().as_deref(), Some(&later));
     }
 
+    const FIXTURE_MATERIAL_PATH: &str = "materials/fixture.material";
+
     fn entity_stack() -> std::sync::Arc<resource_pack::ValidatedPackStack> {
         let mut png = std::io::Cursor::new(Vec::new());
         image::RgbaImage::from_pixel(1, 1, image::Rgba([37, 59, 83, 255]))
             .write_to(&mut png, image::ImageFormat::Png)
             .unwrap();
         super::super::pack_reload_tests::stack(&[
-            ("entity/fixture.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:actor","geometry":{"default":"geometry.fixture"},"materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/fixture"},"render_controllers":["controller.render.fixture"]}}}"#),
+            ("entity/fixture.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:actor","geometry":{"default":"geometry.fixture"},"materials":{"default":"fixture_alpha"},"textures":{"default":"textures/entity/fixture"},"render_controllers":["controller.render.fixture"]}}}"#),
+            (FIXTURE_MATERIAL_PATH, br#"{"materials":{"version":"1.0.0","fixture_alpha:entity_alphatest":{}}}"#),
             ("models/entity/fixture.json", br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":1,"texture_height":1},"bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#),
             ("render_controllers/fixture.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#),
             ("textures/entity/fixture.png", png.get_ref()),
@@ -459,21 +509,37 @@ mod tests {
                 inputs(None),
                 &view,
                 Some(&disk),
-                |view, vanilla, encode| {
+                |view, vanilla, vanilla_pack_dir, encode| {
                     compiles.set(compiles.get() + 1);
-                    super::compile_encoded(view, vanilla, encode)
+                    super::compile_encoded(view, vanilla, vanilla_pack_dir, encode)
                 },
             );
             let pack = pack.expect("the fixture defines an entity");
             let reads = view.dependencies().unwrap().snapshot();
+            // Catalog encoding excludes metadata about whether a carrier was decoded.
             (
-                format!("{:?} {:?} {:?}", pack.assets, pack.textures, pack.bindings),
+                pack.assets.encode().expect("the catalog is encodable"),
+                pack.textures.clone(),
+                pack.bindings.clone(),
                 reads,
             )
         };
         let compiled = launch();
-        assert!(!compiled.1.is_empty());
-        assert_eq!(launch(), compiled);
+        assert!(
+            compiled
+                .3
+                .contains(&resource_pack::PackDependency::Directory(
+                    "materials/".to_owned()
+                ))
+        );
+        assert!(compiled.3.iter().any(|dependency| matches!(
+            dependency,
+            resource_pack::PackDependency::File { path, .. } if path == FIXTURE_MATERIAL_PATH
+        )));
+        assert!(
+            launch() == compiled,
+            "a disk hit preserves the catalog, artwork and tracked inputs"
+        );
         assert_eq!(compiles.get(), 1, "the second launch was a disk hit");
         for entry in std::fs::read_dir(dir.path()).unwrap() {
             let path = entry.unwrap().path();
@@ -482,7 +548,10 @@ mod tests {
             bytes[middle] ^= 0xff;
             std::fs::write(path, bytes).unwrap();
         }
-        assert_eq!(launch(), compiled);
+        assert!(
+            launch() == compiled,
+            "recompilation preserves the catalog, artwork and tracked inputs"
+        );
         assert_eq!(compiles.get(), 2, "a corrupt entry is a miss");
     }
 

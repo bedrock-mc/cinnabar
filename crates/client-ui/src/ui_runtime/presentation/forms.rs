@@ -76,6 +76,8 @@ pub mod sign_editor;
 pub mod snapshot;
 pub mod start_feed;
 #[cfg(test)]
+mod store_tests;
+#[cfg(test)]
 pub mod tests;
 pub mod textures;
 pub mod toast_screen;

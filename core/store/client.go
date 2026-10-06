@@ -1,18 +1,15 @@
 // Package store serves the launcher's Marketplace screens as the signed-in account: layout pages,
-// catalog search, balance, inventory and confirmed Minecoin purchases. The store service protocol
+// search, offer details, balance, inventory and confirmed Minecoin purchases. The store service protocol
 // lives in gophertunnel's service/marketplace; this package keeps confirmation, purchase
 // deduplication, caching and the bridge DTOs.
 package store
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/df-mc/go-playfab/v2"
-	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
@@ -22,12 +19,6 @@ const (
 	configTTL    = 10 * time.Minute
 	inventoryTTL = time.Minute
 )
-
-// Catalog is the PlayFab catalog surface the store uses; *playfabcatalog.Client implements it.
-type Catalog interface {
-	SearchItems(ctx context.Context, filter playfabcatalog.SearchFilter, opts ...playfab.RequestOption) (*playfabcatalog.SearchResult, error)
-	ItemByID(ctx context.Context, id string, opts ...playfab.RequestOption) (*playfabcatalog.Item, error)
-}
 
 // Identity is what the service tags every purchase with; fields left empty take defaults.
 type Identity struct {
@@ -42,7 +33,6 @@ type Identity struct {
 // Config wires a Client.
 type Config struct {
 	Market   *marketplace.Client
-	Catalog  Catalog
 	Identity Identity
 	Now      func() time.Time
 }
@@ -61,9 +51,9 @@ type Client struct {
 	lists     string // newest user-lists version seen
 }
 
-// NewClient returns a Client; Market and Catalog are required.
+// NewClient returns a Client; Market is required.
 func NewClient(cfg Config) (*Client, error) {
-	if cfg.Market == nil || cfg.Catalog == nil {
+	if cfg.Market == nil {
 		return nil, errors.New("store: incomplete client configuration")
 	}
 	if cfg.Now == nil {

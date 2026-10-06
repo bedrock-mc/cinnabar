@@ -209,6 +209,16 @@ impl Textures<'_> {
         }
         None
     }
+
+    /// Frame strips wait for artwork rather than a preview that merges adjacent frames.
+    pub(super) fn animation_sprite(&self, path: &str) -> Option<(u16, [f32; 4])> {
+        let sprite = self.sprite(path)?;
+        if self.set.full_res.contains_key(texture_key(path)) {
+            return Some(sprite);
+        }
+        let pixels = self.texture(path)?.pixels;
+        ([f64::from(sprite.1[2]), f64::from(sprite.1[3])] == pixels).then_some(sprite)
+    }
 }
 
 impl TextureSource for Textures<'_> {
@@ -280,6 +290,10 @@ pub(super) fn texture_key(path: &str) -> &str {
     }
     path
 }
+
+#[cfg(test)]
+#[path = "textures/animation_tests.rs"]
+mod animation_tests;
 
 #[cfg(test)]
 mod review_tests {

@@ -6,7 +6,7 @@ use chunk_pipeline::WorldStream;
 use super::{DebugContext, DebugLines, LocalPlayerFrameCarrier, LocalViewPose};
 
 /// Diagnostic inspection reach, independent of the server's interaction reach.
-const TARGET_RANGE_BLOCKS: f64 = 20.0;
+pub(super) const TARGET_RANGE_BLOCKS: f64 = 20.0;
 const MAX_BLOCK_STATES: usize = 10;
 
 impl DebugContext<'_, '_> {
@@ -45,7 +45,8 @@ impl DebugContext<'_, '_> {
             "Biome: {}",
             biome.as_deref().unwrap_or("unavailable")
         ));
-        self.append_target(lines, stream, eye, direction);
+        let block_distance = self.append_target(lines, stream, eye, direction);
+        super::entities::append_target_entity(lines, stream, eye, direction, block_distance);
     }
 
     fn append_target(
@@ -54,12 +55,12 @@ impl DebugContext<'_, '_> {
         stream: &WorldStream,
         eye: Vec3,
         direction: Vec3,
-    ) {
+    ) -> Option<f64> {
         let Some(collisions) = self.collisions.as_deref() else {
             lines
                 .right
                 .push("Targeted Block: unavailable (no registry)".to_owned());
-            return;
+            return None;
         };
         let world = sim::PaletteWorld::new(
             stream.collision_store(),
@@ -81,13 +82,13 @@ impl DebugContext<'_, '_> {
                 lines.right.push(format!(
                     "Targeted Block: none within {TARGET_RANGE_BLOCKS:.0} blocks"
                 ));
-                return;
+                return None;
             }
             Err(_) => {
                 lines
                     .right
                     .push("Targeted Block: unavailable (unloaded terrain)".to_owned());
-                return;
+                return None;
             }
         };
         let [x, y, z] = hit.block_pos;
@@ -113,6 +114,7 @@ impl DebugContext<'_, '_> {
         {
             append_block_states(&mut lines.right, states);
         }
+        Some(hit.distance)
     }
 }
 

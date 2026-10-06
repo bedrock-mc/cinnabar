@@ -13,6 +13,7 @@ const SOUL_SPEED_ENCHANTMENT_ID: i16 = 36;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct LocalMovementFacts {
+    pub immobile: bool,
     pub ride: Option<super::RideKind>,
     pub ride_seat: Option<[f32; 3]>,
     pub can_fly: bool,
@@ -61,6 +62,7 @@ pub fn read(
             .unwrap_or(super::RideKind::Other)
     });
     LocalMovementFacts {
+        immobile: player.facts.is_immobile(),
         ride,
         ride_seat: ride
             .and(stream.local_rider_seat_pose())

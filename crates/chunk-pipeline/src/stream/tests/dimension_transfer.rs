@@ -115,6 +115,64 @@ fn custom_dimension_uses_received_destination_cells_without_a_guessed_height() {
 }
 
 #[test]
+fn advertised_overworld_height_controls_destination_probe_and_presentation() {
+    let mut stream = destination_stream(0);
+    stream
+        .authority
+        .apply_dimension_heights(&[protocol::DimensionHeightDiagnostic {
+            name: Arc::from("minecraft:overworld"),
+            dimension: 3,
+            minimum_y: 0,
+            height_range: 256,
+            generator: 1,
+        }]);
+    air_box(&mut stream, [-1, 0, -1], [1, 1, 1]);
+    let staging = [0.0, 4000.0, 0.0];
+    assert!(stream.dimension_transfer_ready(staging));
+    assert!(stream.dimension_transfer_presentable(staging));
+    assert!(stream.dimension_transfer_ready([0.0, -0.5, 0.0]));
+    assert_eq!(
+        stream.transfer_probe_position([0.0, -1.0, 0.0]),
+        Some([0.0; 3]),
+    );
+}
+
+#[test]
+fn raised_custom_destination_requires_each_authoritative_air_column() {
+    let dimension = 1000;
+    let mut stream = destination_stream(dimension);
+    stream
+        .authority
+        .apply_dimension_heights(&[protocol::DimensionHeightDiagnostic {
+            name: Arc::from("test:raised"),
+            dimension,
+            minimum_y: 256,
+            height_range: 256,
+            generator: 1,
+        }]);
+    let staging = [0.0, 4000.0, 0.0];
+    assert!(!stream.dimension_transfer_ready(staging));
+    for x in -1..=1 {
+        for z in -1..=1 {
+            if [x, z] != [1, 1] {
+                admit_air(&mut stream, SubChunkKey::new(dimension, x, 16, z));
+            }
+        }
+    }
+    assert!(!stream.dimension_transfer_ready(staging));
+    admit_air(&mut stream, SubChunkKey::new(dimension, 1, 16, 1));
+    assert!(
+        stream
+            .authority
+            .terrain()
+            .chunk(ChunkKey::new(dimension, 0, 0))
+            .is_none()
+    );
+    assert!(stream.dimension_transfer_ready(staging));
+    assert!(stream.dimension_transfer_presentable(staging));
+}
+
+#[test]
 fn loading_offsets_cover_the_vanilla_ticking_neighbourhood() {
     use super::super::dimension_transfer::CLIENT_TICKING_OFFSETS;
     let unique = CLIENT_TICKING_OFFSETS

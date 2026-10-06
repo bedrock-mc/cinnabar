@@ -216,7 +216,7 @@ fn batched_geometries_rebuild_the_catalog_once() {
         super::ActorRigGeometry::synthetic_cuboid(
             render_model::skin_rig_id(slot),
             [0.0; 3],
-            [1.0; 3],
+            [slot as f32 + 1.0, 1.0, 1.0],
             1,
         )
         .unwrap()

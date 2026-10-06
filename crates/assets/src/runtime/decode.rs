@@ -409,7 +409,7 @@ fn validate_fixed(
     let mut quad = 0usize;
     for record in sections[3].chunks_exact(TEMPLATE_BYTES) {
         if u32_at(record, 0) as usize != quad
-            || u32_at(record, 4) > 32
+            || u32_at(record, 4) as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || !model_template_flags_are_valid(u32_at(record, 8))
             || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
             || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && u32_at(record, 4) != 6)
@@ -557,10 +557,10 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
             return Err(invalid("compound template head has no quads"));
         }
         let Some(tail) = records.get(index + 1) else {
-            return Err(invalid("compound template pair is truncated"));
+            return Err(invalid("compound template chain is truncated"));
         };
-        if u32_at(tail, 8) != 0 {
-            return Err(invalid("compound continuation is not a plain template"));
+        if !matches!(u32_at(tail, 8), 0 | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT) {
+            return Err(invalid("compound continuation has incompatible flags"));
         }
         if u32_at(tail, 4) == 0 {
             return Err(invalid("compound continuation has no quads"));

@@ -206,7 +206,7 @@ pub struct PublisherUpdateEvent {
     pub radius_blocks: u32,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ChangeDimensionEvent {
     pub dimension: i32,
     pub position: [f32; 3],
@@ -442,7 +442,7 @@ pub struct ActorPropertySyncEvent {
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
-    /// Advertised vertical bounds retained for diagnostics, without changing world limits.
+    /// Advertised vertical definitions admitted by the session's world authority.
     DimensionHeights(Vec<super::DimensionHeightDiagnostic>),
     Experience(crate::ExperienceMessage),
     Abilities(crate::AbilitiesUpdate),
@@ -461,7 +461,7 @@ pub enum WorldEvent {
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),
-    /// Server action 14 releases the local dimension-transfer wait.
+    /// This session-local handshake accepts the server's raw actor ID, including sentinels.
     DimensionChangeAck {
         runtime_id: u64,
     },

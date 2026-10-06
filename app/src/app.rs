@@ -419,6 +419,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
     crate::runtime::network::set_compile_cache_dir(layout.compiled_pack_cache_dir());
+    crate::runtime::network::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -605,6 +606,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             address,
             None,
             client_blob_cache.enables_upstream_client_cache(),
+            false,
         )
         .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);

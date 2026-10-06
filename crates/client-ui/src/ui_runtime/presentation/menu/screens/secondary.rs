@@ -158,7 +158,7 @@ pub(super) fn profile(
             "{} Realms  •  {} joinable friends  •  {} catalog destinations",
             view.realms.len(),
             view.friends.len(),
-            view.featured.len() + view.gatherings.len()
+            view.featured.len()
         ),
         [area.left + SPACE_LG, top + 238.0],
         identity_width - SPACE_LG * 2.0,

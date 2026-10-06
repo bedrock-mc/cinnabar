@@ -147,8 +147,6 @@ fn start_game_free_camera_reset_discards_queued_physics_and_stays_suppressed() {
     assert_eq!(sent_packets, 0);
 }
 
-
-
 #[test]
 fn free_camera_authority_rejects_retry_enqueue() {
     let mut ticker = MovementTicker::default();
@@ -429,6 +427,10 @@ impl CollisionWorld for Floor {
 pub(super) struct VersionedFloor(pub(super) u8);
 
 impl CollisionWorld for VersionedFloor {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        fixture_world_identity(self.0).registry
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(64.0, 1.0, 64.0));
         Ok(CollisionQuery {

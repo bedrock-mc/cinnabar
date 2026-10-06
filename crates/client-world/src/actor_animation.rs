@@ -258,6 +258,7 @@ enum AttachableRootFrame {
 struct ControllerState {
     controller: usize,
     state: u16,
+    active: bool,
     /// Animation tick the current state was entered, where its clips start.
     entered_tick: u64,
 }
@@ -646,7 +647,9 @@ mod geometry;
 mod horse;
 mod hud;
 mod motion;
+mod particles;
 mod pose;
+pub use particles::ActorParticleController;
 mod query;
 mod render;
 mod render_frame;

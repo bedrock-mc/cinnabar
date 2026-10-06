@@ -1,10 +1,12 @@
-//! Dimension acknowledgement after the committed flush, separate from terrain presentation.
+//! Dimension acknowledgement after server and terrain readiness, before presentation completes.
 
 use std::time::Duration;
 
 use protocol::{ChangeDimensionEvent, LoadingScreenPhase, Packet};
 
 use crate::runtime::network::{NetworkHandle, PacketSendError};
+
+const SERVER_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Transfer control packets keep progressing when the window cannot present.
 pub(crate) fn advance_dimension_transfer(
@@ -42,7 +44,15 @@ pub(crate) fn advance_dimension_transfer(
             "dimension loading wait"
         );
     }
-    if let Err(error) = client_world.dimension_transfer.queue_switch(&network) {
+    let destination_ready = transferring
+        && client_world.stream.as_ref().is_some_and(|stream| {
+            stream.dimension_transfer_ready(stream.resolved_server_position().position)
+        });
+    if let Err(error) =
+        client_world
+            .dimension_transfer
+            .queue_switch(time.elapsed(), destination_ready, &network)
+    {
         if error.is_closed() {
             super::record_fatal_error(
                 &mut client_world.fatal_error,
@@ -74,6 +84,7 @@ struct PendingTransfer {
     epoch: u64,
     change: ChangeDimensionEvent,
     actor: u64,
+    started_at: Duration,
     presentation_pending: bool,
     start_queued: bool,
     server_acknowledged: bool,
@@ -96,6 +107,7 @@ impl DimensionTransfer {
             epoch,
             change,
             actor,
+            started_at: now,
             presentation_pending: true,
             start_queued: false,
             server_acknowledged: false,
@@ -153,45 +165,49 @@ impl DimensionTransfer {
             .is_some_and(|pending| !pending.switch_queued)
     }
 
-    fn next_before_presentation(&self) -> Option<Packet> {
-        let pending = self.active.as_ref()?;
-        if !pending.start_queued {
-            return Some(protocol::loading_screen_packet(
-                LoadingScreenPhase::Start,
-                pending.change.loading_screen_id,
-            ));
-        }
-        // Action 14 clears the server's movement wait without a terrain prerequisite.
-        // Local movement stays held until destination presentation completes.
-        (!pending.switch_queued).then(|| protocol::dimension_change_done_packet(pending.actor))
-    }
-
-    pub(crate) fn queue_switch(&mut self, network: &NetworkHandle) -> Result<(), PacketSendError> {
-        self.send_before_presentation(|packet| network.send_dimension_packet(packet))
+    pub(crate) fn queue_switch(
+        &mut self,
+        now: Duration,
+        destination_ready: bool,
+        network: &NetworkHandle,
+    ) -> Result<(), PacketSendError> {
+        self.send_before_presentation(now, destination_ready, |packet| {
+            network.send_dimension_packet(packet)
+        })
     }
 
     fn send_before_presentation(
         &mut self,
+        now: Duration,
+        destination_ready: bool,
         mut send: impl FnMut(Packet) -> Result<(), PacketSendError>,
     ) -> Result<(), PacketSendError> {
-        // At most Start then Switch; queue saturation retries the unsent step.
-        while let Some(packet) = self.next_before_presentation() {
-            send(packet)?;
-            let pending = self
-                .active
-                .as_mut()
-                .expect("active transfer produced packet");
-            if pending.start_queued {
-                pending.switch_queued = true;
-                bevy::log::debug!(
-                    epoch = pending.epoch,
-                    runtime_id = pending.actor,
-                    "dimension done queued after committed flush"
-                );
-            } else {
-                pending.start_queued = true;
-                bevy::log::debug!(epoch = pending.epoch, loading_screen_id = ?pending.change.loading_screen_id, "dimension loading screen start queued");
+        let Some(pending) = &mut self.active else {
+            return Ok(());
+        };
+        if !pending.start_queued {
+            send(protocol::loading_screen_packet(
+                LoadingScreenPhase::Start,
+                pending.change.loading_screen_id,
+            ))?;
+            pending.start_queued = true;
+            bevy::log::debug!(epoch = pending.epoch, loading_screen_id = ?pending.change.loading_screen_id, "dimension loading screen start queued");
+            return Ok(());
+        }
+        if !pending.server_acknowledged {
+            if now.saturating_sub(pending.started_at) > SERVER_ACK_TIMEOUT {
+                pending.server_acknowledged = true;
             }
+            return Ok(());
+        }
+        if destination_ready && !pending.switch_queued {
+            send(protocol::dimension_change_done_packet(pending.actor))?;
+            pending.switch_queued = true;
+            bevy::log::debug!(
+                epoch = pending.epoch,
+                runtime_id = pending.actor,
+                "dimension done queued after destination readiness"
+            );
         }
         Ok(())
     }

@@ -12,6 +12,7 @@ use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEvent
 #[cfg(feature = "acceptance")]
 use crate::runtime::visibility::AppMetrics;
 use std::sync::Arc;
+use std::time::Duration;
 #[cfg(feature = "acceptance")]
 use std::time::Instant;
 
@@ -210,7 +211,11 @@ pub(crate) fn receive_network_events(
         mut ui_runtime,
         time,
     } = state;
+    let display_interval = profiler
+        .as_deref()
+        .map_or(Duration::ZERO, RuntimeStageProfiler::frame_interval);
     if let Some(stream) = client_world.stream.as_mut() {
+        stream.set_display_interval(display_interval);
         stream.begin_frame_work();
     }
     let controls =
@@ -384,11 +389,13 @@ pub(crate) fn receive_network_events(
                         "skipped malformed server block definitions"
                     );
                 }
+                stream.set_display_interval(display_interval);
                 stream.begin_frame_work();
                 stream.set_startup_priority(true);
                 stream.set_startup_terrain_announced(terrain_before_spawn);
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
+                stream.set_custom_block_identities(&custom_blocks);
                 stream.set_light_diagnostic_custom_blocks(custom_blocks.clone());
                 stream.set_pack_entities(packs.entities.as_ref().map(|pack| {
                     (

@@ -177,6 +177,14 @@ impl LocalPhysicsController {
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
         let mut changed = false;
+        if let Some(immobile) = flags.immobile.filter(|value| *value != anchor.immobile) {
+            let (edited, _) = rewrite_run(
+                self.history.retained_inputs_after_mut(tick),
+                |input| input.immobile == anchor.immobile,
+                |input| input.immobile = immobile,
+            );
+            changed |= edited;
+        }
         if let Some(sprinting) = flags.sprinting.filter(|value| *value != anchor.sprinting) {
             let (edited, reached) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),

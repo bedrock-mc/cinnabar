@@ -6,7 +6,7 @@ use render_model::EntityShadow;
 
 use crate::presentation::actors::within_actor_candidate_cube;
 
-/// The local player's caster follows its render-time feet; a spectator casts none.
+/// A drawn local body's caster follows its render-time feet; a spectator casts none.
 #[derive(Debug, Clone, Copy)]
 pub struct LocalShadowSource {
     pub runtime_id: u64,
@@ -29,8 +29,8 @@ pub fn drawn_bodies(frame: &ActorRenderFrame, out: &mut Vec<u64>) {
 }
 
 /// Rebuilds the caster list into `staging` and publishes it; an unchanged list keeps the scene's
-/// revision. A remote casts only if `drawn_bodies` (sorted) holds its body; the local player and
-/// dropped items, drawn outside the rig frame, are admitted as actors are and culled by volume.
+/// revision. Rigged actors cast only if `drawn_bodies` (sorted) holds their bodies; dropped
+/// items, drawn outside the rig frame, are admitted as actors are and culled by volume.
 pub fn publish_entity_shadows(
     stream: Option<&WorldStream>,
     partial_tick: f32,
@@ -44,7 +44,9 @@ pub fn publish_entity_shadows(
     if let Some(stream) = stream {
         for caster in stream.authority().actor_shadow_casters(partial_tick) {
             let local = local.filter(|local| local.runtime_id == caster.runtime_id);
-            if local.is_some_and(|local| local.spectator) {
+            if local.is_some_and(|local| {
+                local.spectator || drawn_bodies.binary_search(&local.runtime_id).is_err()
+            }) {
                 continue;
             }
             let feet = local.and_then(|local| local.feet).unwrap_or(caster.feet);

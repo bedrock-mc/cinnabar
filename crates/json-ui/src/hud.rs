@@ -403,6 +403,15 @@ fn color_array(color: &str) -> Scalar {
 
 fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
     data.set_grid_dimensions("#boss_grid_dimension", [1, bars.len() as u32]);
+    // Fixed-capacity grids still query unused boss slots.
+    data.set_collection_defaults(
+        "boss_bars",
+        [
+            ("#bar_visible".to_owned(), Scalar::Bool(false)),
+            ("#bossName".to_owned(), Scalar::Text(String::new())),
+        ]
+        .into(),
+    );
     data.set_collection(
         "boss_bars",
         bars.iter()

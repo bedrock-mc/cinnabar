@@ -14,6 +14,9 @@ use super::{
 
 mod manual;
 
+#[cfg(test)]
+mod lifetime_tests;
+
 /// Pixels for one dynamic terrain tile.
 #[derive(Clone, Debug)]
 pub struct TileRequest {
@@ -59,7 +62,6 @@ pub struct Outputs {
 
 pub const MAX_SPAWN_DEPTH: u8 = 4;
 const MAX_PARTICLES_PER_BURST: f32 = 512.0;
-const MAX_EMITTER_AGE: f32 = 600.0;
 
 pub struct Emitter {
     pub id: u64,
@@ -206,9 +208,6 @@ impl Emitter {
                 (active, 0)
             }
         };
-        if self.age > MAX_EMITTER_AGE {
-            self.done = true;
-        }
         let active = active && !self.done;
         let starting = active && (!self.was_active || cycle != self.cycle);
         if starting {

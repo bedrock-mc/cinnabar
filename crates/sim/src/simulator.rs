@@ -3,6 +3,7 @@ mod controls;
 mod effects;
 mod environment;
 mod flight;
+mod immobile;
 mod input;
 mod mode;
 #[cfg(test)]
@@ -132,6 +133,9 @@ impl Simulator {
         state::validate(state)?;
         input::validate(input)?;
         let controls = controls::process(input);
+        if input.immobile {
+            return immobile::tick(state, input.mode, controls, world.registry_identity());
+        }
         let mut next = state.clone();
         next.position = next.position.rounded();
         next.velocity = next.velocity.rounded();

@@ -1,5 +1,47 @@
 use super::*;
 
+pub(super) fn early_dimension_definition() -> McpePacket {
+    McpePacket::from(jolyne::valentine::DimensionDataPacket {
+        definitions: vec![jolyne::valentine::DimensionDataPacketDefinitionsItem {
+            key: "minecraft:overworld".into(),
+            value: jolyne::valentine::DimensionDefinitionGroupDimensionDefinition {
+                minimum_y: 0,
+                height_range: 256,
+                dimension_type: DimensionType { value: 3 },
+                generator_type: jolyne::valentine::EnumsGeneratorType::Overworld,
+                ..Default::default()
+            },
+        }],
+    })
+}
+
+#[tokio::test]
+async fn named_dimension_definition_before_start_game_survives_login_in_order() {
+    let transport =
+        ScriptTransport::new(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn, false);
+    transport
+        .script
+        .lock()
+        .unwrap()
+        .dimension_definition_before_start = true;
+    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
+        .await
+        .expect("scripted login with an early dimension definition");
+    let first = session.recv_world_event(0).await.unwrap();
+    let WorldEvent::DimensionHeights(heights) = first else {
+        panic!("the dimension definition must precede deferred world traffic, got {first:?}");
+    };
+    assert_eq!(heights[0].name.as_ref(), "minecraft:overworld");
+    assert_eq!(heights[0].dimension, 3);
+    assert_eq!(heights[0].minimum_y, 0);
+    assert_eq!(heights[0].height_range, 256);
+    assert_eq!(heights[0].generator, 1);
+    assert!(matches!(
+        session.recv_world_event(0).await.unwrap(),
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 })
+    ));
+}
+
 #[tokio::test]
 async fn conflicting_start_game_runtime_ids_are_rejected() {
     let transport =

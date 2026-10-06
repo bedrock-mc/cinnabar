@@ -3,7 +3,6 @@ package catalog
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -12,72 +11,51 @@ import (
 	"testing"
 	"time"
 
-	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/df-mc/go-xsapi/v2/social"
 	"github.com/df-mc/go-xsapi/v2/xal/xsts"
 	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
-	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
+	"github.com/sandertv/gophertunnel/minecraft/service/layout"
 )
 
-// Authored to the open-source catalog item shape; not a captured payload.
-const featuredItemFixture = `{
-	"Id": "item-1",
-	"Title": {"NEUTRAL": "Example Network"},
-	"Description": {"NEUTRAL": " A test server. "},
-	"Tags": ["pvp"],
-	"Images": [
-		{"Id": "a", "Tag": "logo", "Type": "thumbnail", "Url": "https://cdn.example.test/logo.png"},
-		{"Id": "b", "Tag": "shot", "Type": "screenshot", "Url": "https://cdn.example.test/shot.png"},
-		{"Id": "c", "Tag": "game", "Type": "thumbnail", "Url": "http://insecure.example.test/game.png"}
-	],
-	"DisplayProperties": {
-		"url": "play.example.test", "port": 19132, "creatorName": "Example",
-		"news": " Season two ", "newsTitle": "News", "unknownField": [1, 2],
-		"availableGames": [
-			{"title": "Skywars", "subtitle": "Solo", "description": "Fight", "imageTag": "game"},
-			{"title": "", "subtitle": ""}
-		]
-	}
-}`
+// Synthesized in the live ServerTab shape: a featured experience with its details, then a list
+// repeating it beside a listing-only experience. Not a captured payload.
+const serverTabFixture = `{"title":{"value":""},"refreshPolicy":{"timeToLiveInSeconds":3600},"body":{"fabs":[
+{"$type":"ExperienceFab","id":"hero","variant":"feature-play","experience":{"experienceId":"b7f5596c-e811-49ec-b318-80ff3c435d1d",
+ "title":{"value":" OneBlock "},"creatorName":"Maker","description":{"value":" Skyblock. "},
+ "backgroundImage":{"full":{"url":"https://cdn.example.test/bg.png"}},
+ "logoImage":{"full":{"url":"https://cdn.example.test/logo.png"}},
+ "activities":[{"title":{"value":"Play"},"subtitle":{"value":"Solo"},"description":{"value":"Go"},"image":{"half":{"url":"https://cdn.example.test/a.png"}}},
+  {"title":{"value":""},"subtitle":{"value":""}},{"title":{"value":"Insecure"},"image":{"full":{"url":"http://insecure.test/x.png"}}}],
+ "listing":{"displayImage":{"full":{"url":"https://cdn.example.test/f.png"}},"motd":{"value":"Hello"}}}},
+{"$type":"ExperienceListFab","id":"all","variant":"grid","pagedExperiences":{"experiences":[
+ {"experienceId":"b7f5596c-e811-49ec-b318-80ff3c435d1d","title":{"value":"OneBlock"}},
+ {"experienceId":"81ac183c-1d09-44a2-b0b5-78abaf8c9877","title":{"value":""},"creatorName":"Hunter",
+  "listing":{"displayImage":{"quarter":{"url":"https://cdn.example.test/q.png"}},"motd":{"value":""}}}]}}]}}`
 
-func parseFeatured(t *testing.T, raw string) *gatherings.FeaturedServer {
-	t.Helper()
-	var item playfabcatalog.Item
-	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+// Every Servers tab experience is listed once, joined by its id at connect time, with the info
+// panel details its featured fab carries.
+func TestServerTabExperiencesFeedTheFeaturedList(t *testing.T) {
+	var tab layout.Layout
+	if err := json.Unmarshal([]byte(serverTabFixture), &tab); err != nil {
 		t.Fatal(err)
 	}
-	server, err := gatherings.NewClient(nil).ParseFeaturedServer(item)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return server
-}
-
-func TestFeaturedServersCarryTheInfoPanelDetails(t *testing.T) {
-	servers := featuredServers([]*gatherings.FeaturedServer{parseFeatured(t, featuredItemFixture), nil})
-	if len(servers) != 1 {
+	servers := featuredServers(&tab)
+	if len(servers) != 2 {
 		t.Fatalf("servers = %+v", servers)
 	}
-	server := servers[0]
-	if server.Name != "Example Network" || server.Address != "play.example.test:19132" || server.Caption != "Skywars" {
-		t.Fatalf("identity = %+v", server)
+	hero, listed := servers[0], servers[1]
+	if hero.Name != "OneBlock" || hero.Address != GatheringTargetPrefix+"b7f5596c-e811-49ec-b318-80ff3c435d1d" ||
+		hero.Caption != "Hello" || hero.Description != "Skyblock." || hero.Logo.URL != "https://cdn.example.test/logo.png" ||
+		hero.thumbnailURL != "https://cdn.example.test/f.png" || hero.Background.URL != "https://cdn.example.test/bg.png" {
+		t.Fatalf("hero = %+v", hero)
 	}
-	if server.Description != "A test server." || server.News != "Season two" || server.NewsTitle != "News" {
-		t.Fatalf("text = %+v", server)
+	if len(hero.Games) != 2 || hero.Games[0].Image.URL != "https://cdn.example.test/a.png" || hero.Games[1].Image.URL != "" {
+		t.Fatalf("games keep only titled activities and HTTPS art: %+v", hero.Games)
 	}
-	if server.Logo.URL != "https://cdn.example.test/logo.png" || len(server.Screenshots) != 1 {
-		t.Fatalf("art = %+v", server)
-	}
-	if len(server.Games) != 1 || server.Games[0].Image.URL != "" {
-		t.Fatalf("games keep only titled entries and HTTPS art: %+v", server.Games)
-	}
-}
-
-func TestFeaturedServersSkipEntriesWithoutAnAddress(t *testing.T) {
-	servers := featuredServers([]*gatherings.FeaturedServer{parseFeatured(t, `{"Id": "x", "DisplayProperties": {}}`)})
-	if len(servers) != 0 {
-		t.Fatalf("servers = %+v", servers)
+	if listed.Name != "Hunter" || listed.Caption != "Featured server" || listed.thumbnailURL != "https://cdn.example.test/q.png" ||
+		listed.Logo.URL != "https://cdn.example.test/q.png" {
+		t.Fatalf("listed = %+v", listed)
 	}
 }
 
@@ -107,47 +85,19 @@ func TestArtworkPruningKeepsTheNewestFiles(t *testing.T) {
 func TestFeaturedImagesPointIntoTheServers(t *testing.T) {
 	servers := []FeaturedServer{{Screenshots: []Image{{URL: "https://a.test/s.png"}}, Games: []Game{{}}}}
 	images := FeaturedImages(servers)
-	if len(images) != 3 {
+	if len(images) != 4 {
 		t.Fatalf("images = %d", len(images))
 	}
-	images[1].Path = "/cache/s.img"
-	if servers[0].Screenshots[0].Path != "/cache/s.img" {
+	images[1].Path, images[2].Path = "/cache/bg.img", "/cache/s.img"
+	if servers[0].Background.Path != "/cache/bg.img" || servers[0].Screenshots[0].Path != "/cache/s.img" {
 		t.Fatal("paths must land in the servers")
 	}
-}
-
-type recordingTransport struct{ hosts []string }
-
-func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	r.hosts = append(r.hosts, req.URL.Host)
-	return nil, errors.New("offline test")
 }
 
 type fixedTokens struct{}
 
 func (fixedTokens) ServiceToken(context.Context) (*service.Token, error) {
 	return &service.Token{AuthorizationHeader: "MCToken synthetic", ValidUntil: time.Now().Add(time.Hour)}, nil
-}
-
-// The gatherings client talks to the discovered endpoint and never falls back to a hardcoded host.
-func TestGatheringsClientUsesTheDiscoveredEndpoint(t *testing.T) {
-	if _, err := gatheringsClient(&service.Discovery{}, fixedTokens{}); err == nil {
-		t.Fatal("undiscovered gatherings service built a client")
-	}
-	recorder := new(recordingTransport)
-	previous := http.DefaultClient.Transport
-	http.DefaultClient.Transport = recorder
-	t.Cleanup(func() { http.DefaultClient.Transport = previous })
-	client, err := gatheringsClient(&service.Discovery{ServiceEnvironments: map[string]map[string]json.RawMessage{
-		"gatherings": {"prod": json.RawMessage(`{"serviceUri":"https://gatherings.discovered.example"}`)},
-	}}, fixedTokens{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = client.FeaturedServers(context.Background())
-	if len(recorder.hosts) == 0 || recorder.hosts[0] != "gatherings.discovered.example" {
-		t.Fatalf("requested hosts = %v", recorder.hosts)
-	}
 }
 
 // A failed count is omitted from the wire rather than sent as zero.

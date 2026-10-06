@@ -26,7 +26,6 @@ pub(crate) fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry
 }
 
 pub(crate) const MAX_SELECTED_MODEL_TEMPLATES: usize = 2;
-pub(crate) const MAX_COMPOUND_MODEL_PARTS: u32 = 2;
 
 pub(crate) fn select_model_templates<'a>(
     context: PaletteResolutionContext<'_, 'a>,

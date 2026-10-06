@@ -75,14 +75,12 @@ impl GpuCull {
     }
 }
 
+/// Chunks whose inherited visibility changed since the last extract.
+type VisibilityChanged = (With<ChunkRenderInstance>, Changed<InheritedVisibility>);
+
 pub(super) fn extract_hidden_chunks(
     mut hidden: ResMut<ChunkHiddenEntities>,
-    chunks: Extract<
-        Query<
-            (RenderEntity, &InheritedVisibility),
-            (With<ChunkRenderInstance>, Changed<InheritedVisibility>),
-        >,
-    >,
+    chunks: Extract<Query<(RenderEntity, &InheritedVisibility), VisibilityChanged>>,
 ) {
     for (entity, visibility) in &chunks {
         let changed = if visibility.get() {

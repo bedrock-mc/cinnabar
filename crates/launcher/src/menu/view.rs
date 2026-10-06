@@ -64,10 +64,20 @@ pub struct MenuRealmCard {
     pub member: bool,
 }
 
+/// Marks a featured address as an experience's ID, joined when selected.
+pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
+
+/// Whether the server at `address` can be pinged; an experience has no server until joined.
+pub fn pingable(address: &str) -> bool {
+    !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
+}
+
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {
     pub description: String,
+    /// The details banner; empty uses the first screenshot.
+    pub banner: String,
     pub news_title: String,
     pub news: String,
     pub screenshots: Vec<String>,
@@ -154,6 +164,19 @@ pub struct MenuFeeds {
     pub home: MenuHome,
     /// The join the progress screen reports while connecting.
     pub join: JoinProgress,
+    /// The join's pending question whether to trust a NetherNet server.
+    pub server_trust: Option<ServerTrustPrompt>,
+    /// The player's answer to that question, until it is sent to the core that asked.
+    pub server_trust_answer: Option<(ServerTrustPrompt, bool)>,
+}
+
+/// The core asks whether to trust the NetherNet server at `url` before the join goes on.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ServerTrustPrompt {
+    pub id: u64,
+    pub url: String,
+    /// Asked by a per-session core rather than the launcher core; ids are per core.
+    pub from_session_core: bool,
 }
 
 /// Which kind of join is under way; picks vanilla's connect title and progress screen.
@@ -345,11 +368,9 @@ pub struct MenuView {
     pub display_name: String,
     pub servers: Vec<SavedServer>,
     pub featured: Vec<MenuServerCard>,
-    pub gatherings: Vec<MenuServerCard>,
     pub realms: Vec<MenuRealmCard>,
     pub friends: Vec<MenuFriendCard>,
     pub featured_icon: Option<IconRef>,
-    pub gathering_icon: Option<IconRef>,
     pub realm_icon: Option<IconRef>,
     pub friend_icon: Option<IconRef>,
     pub saved_icon: Option<IconRef>,
@@ -396,8 +417,6 @@ pub struct CatalogFile {
     #[serde(default)]
     pub featured: Vec<MenuServerCard>,
     #[serde(default)]
-    pub gatherings: Vec<MenuServerCard>,
-    #[serde(default)]
     pub realms: Vec<MenuRealmCard>,
     #[serde(default)]
     pub friends: Vec<CatalogFriend>,
@@ -431,6 +450,16 @@ impl From<CatalogFriend> for MenuFriendCard {
 }
 
 impl MenuView {
+    /// The join's pending trust question, which draws as a popup over the join screen.
+    pub fn server_trust_prompt(&self) -> Option<&ServerTrustPrompt> {
+        self.feeds.server_trust.as_ref().filter(|_| self.connecting)
+    }
+
+    /// Whether a popup draws over the screen and takes its input.
+    pub fn popup_open(&self) -> bool {
+        self.dialog.is_some() || self.server_trust_prompt().is_some()
+    }
+
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
     pub fn auth_state_awaiting_code(&self) -> bool {
         matches!(self.auth_state, AuthState::AwaitingCode { .. })
@@ -465,11 +494,9 @@ impl MenuView {
             display_name,
             servers: Vec::new(),
             featured: Vec::new(),
-            gatherings: Vec::new(),
             realms: Vec::new(),
             friends: Vec::new(),
             featured_icon: None,
-            gathering_icon: None,
             realm_icon: None,
             friend_icon: None,
             saved_icon: None,

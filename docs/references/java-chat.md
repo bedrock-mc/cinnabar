@@ -3,8 +3,9 @@
 The owner chose Java chat geometry for the built-in look. This is a styling
 exception, not a vanilla parity claim. `assets/java-hud/ui/chat_screen.json`
 changes presentation only; the existing chat editor and input host still send,
-paste, navigate sent history, and complete commands. Server chat definitions
-withdraw this built-in namespace before their UI is applied.
+paste, navigate sent history, and complete commands. The owner selected built-in
+chat over server layouts. Its screen, suggestions and HUD history retain their
+geometry and style; other server HUD widgets still use the pack stack.
 
 The focused history ends at the same bottom offset as HUD chat. The input bar
 and history share the pack's chat width. Focused history does not fade or give

@@ -126,7 +126,6 @@ impl MenuRuntime {
 
     fn apply_catalog(&mut self, catalog: CatalogFile) {
         self.featured = catalog.featured;
-        self.gatherings = catalog.gatherings;
         self.realms = catalog.realms;
         self.friends = catalog.friends.into_iter().map(Into::into).collect();
         // Service errors may contain URLs, response bodies, or account material.

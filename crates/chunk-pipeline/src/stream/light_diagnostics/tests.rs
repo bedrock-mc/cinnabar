@@ -165,16 +165,27 @@ fn report_formats_heightmaps_advertised_bounds_and_filter_above_the_eye() {
             render_heightmap: map,
         }),
     );
-    stream.apply_immediate(
-        WorldEvent::DimensionHeights(vec![DimensionHeightDiagnostic {
-            dimension: 0,
-            minimum_y: -128,
-            height_range: 512,
-        }]),
-        None,
-    );
+    stream
+        .submit(
+            1,
+            WorldEvent::DimensionHeights(vec![DimensionHeightDiagnostic {
+                name: Arc::from("minecraft:overworld"),
+                dimension: 0,
+                minimum_y: -128,
+                height_range: 512,
+                generator: 1,
+            }]),
+        )
+        .unwrap();
     let report = stream.lighting_diagnostic(&[[0.5, 43.5, 0.5]]);
-    assert!(report.contains("advertised_height=Some(DimensionHeightDiagnostic { dimension: 0, minimum_y: -128, height_range: 512 })"));
+    assert_eq!(
+        stream.authority.dimension_range(0),
+        Some(DimensionRange {
+            base_sub_chunk_y: -8,
+            sub_chunk_count: 32,
+        })
+    );
+    assert!(report.contains("effective_height_range=Some((-128, 384))"));
     assert!(report.contains("heightmap=all-too-high(2)/present=false/samples=0/raw_min_max=None"));
     assert!(report.contains("first_filter_y=Some(175)"));
     assert!(report.contains("light_filter=15 light_dampening=15"));

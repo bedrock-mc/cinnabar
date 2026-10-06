@@ -10,7 +10,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position(initial, 100, false);
     let mut app = wiring_app(authorized_ticker(false), physics);
-    let (network, _guard) = NetworkHandle::with_command_capacity(3);
+    let (network, mut captured) = NetworkHandle::stub_capturing_packets();
     app.insert_resource(network)
         .insert_resource(crate::camera::AutoFly::new(false))
         .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
@@ -43,6 +43,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
         Some(initial)
     );
     let world = app.world().resource::<ClientWorld>();
+    let actor = world.stream.as_ref().unwrap().local_player_runtime_id();
     assert_eq!(
         world
             .stream
@@ -92,7 +93,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
         app.world()
             .resource::<NetworkHandle>()
             .pending_command_count(),
-        2
+        1
     );
     submit(
         &mut app,
@@ -115,7 +116,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
         app.world()
             .resource::<NetworkHandle>()
             .pending_command_count(),
-        3
+        2
     );
     // The existing transfer hold still permits zero-motion input after native Action7.
     app.world_mut()
@@ -124,12 +125,28 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
     app.update();
     assert!(app.world().resource::<MovementTicker>().completed_tick() > 102);
     let mut ticker = app.world_mut().remove_resource::<MovementTicker>().unwrap();
-    let packets = flush_capturing(&mut ticker);
+    let network = app.world().resource::<NetworkHandle>();
+    flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |_identity, packet| network.send_movement_packet(packet),
+    )
+    .unwrap();
+    let packets = captured.drain();
     assert!(
-        !packets.is_empty(),
+        packets.len() > 2,
         "ready phase resumes input on the global clock"
     );
-    for packet in packets {
-        assert!(player_auth_input_trace_sample(&packet).unwrap().tick > 102);
+    assert_eq!(
+        &packets[..2],
+        &[
+            protocol::loading_screen_packet(protocol::LoadingScreenPhase::Start, None),
+            protocol::respawn_ready_packet(actor),
+        ],
+        "respawn completion must precede resumed PAI in the production FIFO"
+    );
+    for packet in &packets[2..] {
+        assert!(player_auth_input_trace_sample(packet).unwrap().tick > 102);
     }
 }

@@ -137,6 +137,7 @@ impl LocomotionState {
             if retain_sprint {
                 input.sprinting = controlled.sprint_request;
             }
+            input.immobile = facts.immobile;
             movement_speed.set_sprinting(input.sprinting);
             input.movement_speed = movement_speed.prediction_speed();
             requested_speed = input.movement_speed;

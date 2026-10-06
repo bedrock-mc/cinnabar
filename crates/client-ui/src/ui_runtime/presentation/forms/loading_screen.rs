@@ -1,7 +1,4 @@
-//! Joining a world through vanilla's world-loading progress screen for the
-//! dimension (dirt, netherrack or end-stone backdrop): "Locating server" until
-//! the world starts, then "Generating World" / "Building terrain" until the
-//! first view settles.
+//! World entry and dimension changes share a dimension-specific progress screen.
 
 use std::sync::Arc;
 
@@ -57,11 +54,12 @@ const BRAND_LAYOUT: &str = r##"{
   }
 }"##;
 
-/// Which part of joining the loading screen reports.
+/// Which world-entry operation the loading screen reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadingStage {
     Connecting,
     BuildingTerrain,
+    ChangingDimension,
 }
 
 impl UiPresentationRuntime {
@@ -99,7 +97,7 @@ impl UiPresentationRuntime {
                     "progressScreen.title.connectingExternal",
                     "Connecting to external server",
                 ),
-                LoadingStage::BuildingTerrain => {
+                LoadingStage::BuildingTerrain | LoadingStage::ChangingDimension => {
                     text("progressScreen.generating", "Generating World")
                 }
             },
@@ -110,12 +108,16 @@ impl UiPresentationRuntime {
                 LoadingStage::Connecting => {
                     text("progressScreen.message.locating", "Locating server")
                 }
-                LoadingStage::BuildingTerrain => {
+                LoadingStage::BuildingTerrain | LoadingStage::ChangingDimension => {
                     text("progressScreen.message.building", "Building terrain")
                 }
             },
         );
-        data.set_global("#bar_animation_visible", Scalar::Bool(true));
+        data.set_global(
+            "#bar_animation_visible",
+            Scalar::Bool(stage != LoadingStage::ChangingDimension),
+        );
+        data.set_global("#loading_bar_visible", Scalar::Bool(false));
         let context = renderer.context().clone();
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;

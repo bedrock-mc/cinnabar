@@ -13,10 +13,14 @@ use std::{
 mod color_mask_tests;
 #[path = "artwork/multitexture.rs"]
 mod multitexture;
+#[cfg(test)]
+#[path = "artwork/page_capacity_tests.rs"]
+mod page_capacity_tests;
 
-/// Every page a `u8` page id names: the player page plus 255 generic pages. Vanilla startup
-/// art takes 15 generic pages; a large server pack adds one per distinct texture size.
-pub const MAX_ACTOR_TEXTURE_PAGES: usize = u8::MAX as usize + 1;
+/// CPU draw routing selects an artwork page independently of the shader's texture layer.
+pub type ActorArtworkPageId = u16;
+/// Player skins occupy page zero; generic artwork occupies the remaining page IDs.
+pub const MAX_ACTOR_TEXTURE_PAGES: usize = ActorArtworkPageId::MAX as usize + 1;
 /// Layers per generic entity page, within every backend's array-layer limit.
 const MAX_ACTOR_PAGE_LAYERS: usize = 256;
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
@@ -41,7 +45,7 @@ fn push_page(
     pages: &mut Vec<ActorTexturePage>,
     gpu_bytes: &mut usize,
     page: ActorTexturePage,
-) -> Option<u8> {
+) -> Option<ActorArtworkPageId> {
     let mut page = page;
     while !within_page_budget(pages.len() + 1, gpu_bytes.saturating_add(page.rgba8.len())) {
         let longest = u32::from(page.width.max(page.height));
@@ -52,7 +56,7 @@ fn push_page(
     }
     *gpu_bytes += page.rgba8.len();
     pages.push(page);
-    u8::try_from(pages.len()).ok()
+    ActorArtworkPageId::try_from(pages.len()).ok()
 }
 
 /// Copies ordered texture layers into one allocation without a per-byte iterator.
@@ -70,7 +74,7 @@ const fn player_page_bytes() -> usize {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ActorArtworkLocation {
-    pub(crate) page: u8,
+    pub(crate) page: ActorArtworkPageId,
     pub(crate) layer: u32,
     pub(crate) pose_mode: assets::ActorPoseMode,
     pub(crate) multitexture: Option<[u32; 2]>,
@@ -79,7 +83,7 @@ impl ActorArtworkLocation {
     pub fn pose_mode(self) -> assets::ActorPoseMode {
         self.pose_mode
     }
-    pub fn page(self) -> u8 {
+    pub fn page(self) -> ActorArtworkPageId {
         self.page
     }
     pub fn layer(self) -> u32 {
@@ -159,12 +163,12 @@ pub struct ActorArtworkPages {
     /// Location of every catalog texture by entity-catalog source index.
     source_locations: Arc<BTreeMap<u32, ActorArtworkLocation>>,
     /// `(page, layer)` of every catalog texture; any entity rig may draw these variants.
-    entity_locations: Arc<BTreeSet<(u8, u32)>>,
+    entity_locations: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
     /// `(page, layer)` of every equipment raster; equipment rigs are not entity routes.
-    equipment: Arc<BTreeSet<(u8, u32)>>,
+    equipment: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
     /// Session pack textures by pack-catalog source index, a separate index space.
     pack_source_locations: Arc<BTreeMap<u32, ActorArtworkLocation>>,
-    pack_locations: Arc<BTreeSet<(u8, u32)>>,
+    pack_locations: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
     rejected_bindings: usize,
 }
 impl ActorArtworkPages {
@@ -241,7 +245,7 @@ impl ActorArtworkPages {
                 Some((texture.source, locations.get(&(index as u32)).copied()?))
             })
             .collect();
-        let entity_locations: BTreeSet<(u8, u32)> = source_locations
+        let entity_locations: BTreeSet<(ActorArtworkPageId, u32)> = source_locations
             .values()
             .map(|location| (location.page, location.layer))
             .collect();
@@ -338,9 +342,8 @@ impl ActorArtworkPages {
         }
         (self, locations)
     }
-    /// Appends pages for a session pack's artwork and routes its bindings under pack rig ids;
-    /// a page over the byte budget is dropped and its bindings counted as rejected. Replaces
-    /// any earlier pack's variant table, so call it on the startup pages each session.
+    /// Appends session artwork under pack rig IDs, replacing its previous variant table.
+    /// Call on startup pages so removed packs release their routes and pixel budget.
     #[must_use]
     pub fn with_pack_artwork(
         mut self,

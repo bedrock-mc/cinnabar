@@ -181,7 +181,9 @@ fn resolve(
                 Some(ResolvedLayer {
                     material: render::ActorMaterial {
                         kind: layer.material,
+                        state: layer.material_state,
                         dissolve_multiplier: layer.overlay[3],
+                        light_color_multiplier: layer.light_color_multiplier,
                     },
                     model,
                     ignore_lighting: layer.ignore_lighting,

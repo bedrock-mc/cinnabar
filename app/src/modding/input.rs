@@ -394,14 +394,15 @@ pub(super) fn prepare_mod_input(
     let was_held = mouse
         .as_ref()
         .is_some_and(|buttons| buttons.just_pressed(MouseButton::Left));
-    if open && window.focused {
-        if let Some(position) = window.cursor_position() {
-            events.extend(presentation.mod_panel_events(
-                position.to_array(),
-                was_held,
-                physical.left_held,
-            ));
-        }
+    if open
+        && window.focused
+        && let Some(position) = window.cursor_position()
+    {
+        events.extend(presentation.mod_panel_events(
+            position.to_array(),
+            was_held,
+            physical.left_held,
+        ));
     }
     let events = events
         .into_iter()

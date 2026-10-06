@@ -1,8 +1,10 @@
 use std::mem::size_of;
 mod artwork;
+pub(crate) mod phase;
 mod pipeline;
 mod skins;
 use artwork::{GpuArtwork, draw_spans};
+use phase::{DrawActorCommands, DrawTransparentActorCommands, queue_actors};
 use pipeline::*;
 use skins::GpuSkinArrays;
 
@@ -13,7 +15,9 @@ use crate::actor::{
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
+    core_pipeline::core_3d::{
+        CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
+    },
     ecs::{
         change_detection::Tick,
         query::ROQueryItem,
@@ -25,8 +29,8 @@ use bevy::{
         extract_resource::ExtractResourcePlugin,
         render_phase::{
             AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
-            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
-            ViewBinnedRenderPhases,
+            PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline,
+            TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -70,6 +74,7 @@ struct ActorRenderInstalled;
 fn install_actor_render(app: &mut App) {
     app.init_resource::<ActorRenderFrame>()
         .init_resource::<ActorPresentationGate>()
+        .init_resource::<crate::ActorPipelineReadiness>()
         .init_resource::<ActorRuntimeWitness>();
     crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
@@ -83,6 +88,10 @@ fn install_actor_render(app: &mut App) {
     }
     let presentation_gate = app.world().resource::<ActorPresentationGate>().clone();
     let runtime_witness = app.world().resource::<ActorRuntimeWitness>().clone();
+    let pipeline_readiness = app
+        .world()
+        .resource::<crate::ActorPipelineReadiness>()
+        .clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
     load_internal_asset!(
         app,
@@ -98,15 +107,22 @@ fn install_actor_render(app: &mut App) {
         .insert_resource(ActorRenderInstalled)
         .insert_resource(presentation_gate)
         .insert_resource(runtime_witness)
+        .insert_resource(pipeline_readiness)
         .init_resource::<ActorPipeline>()
         .init_resource::<ActorDrawTracker>()
         .add_render_command::<Opaque3d, DrawActorCommands>()
+        .add_render_command::<Transparent3d, DrawTransparentActorCommands>()
         .add_systems(RenderStartup, init_actor_gpu)
         .add_systems(
             Render,
             (
-                prepare_actor_resources.in_set(RenderSystems::PrepareResources),
+                prepare_actor_resources
+                    .in_set(RenderSystems::Queue)
+                    .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
+                prepare_actor_pipelines
+                    .in_set(RenderSystems::Queue)
+                    .before(queue_actors),
                 queue_actors
                     .run_if(crate::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
@@ -118,13 +134,15 @@ fn install_actor_render(app: &mut App) {
 }
 
 #[derive(Resource)]
-struct ActorGpu {
+pub(crate) struct ActorGpu {
     artwork: GpuArtwork,
     player_material: Buffer,
     neutral_material: Buffer,
     color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    instances: std::sync::Arc<[ActorGpuInstance]>,
+    executed_instances: std::sync::atomic::AtomicU32,
     artwork_identity: [u8; 32],
     artwork_current: bool,
     instance_buffer: Buffer,
@@ -193,6 +211,8 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             usage: BufferUsages::UNIFORM,
         }),
         spans: Vec::new(),
+        instances: std::sync::Arc::from([]),
+        executed_instances: std::sync::atomic::AtomicU32::new(0),
         artwork_identity: [0; 32],
         artwork_current: false,
         instance_buffer: render_device.create_buffer(&BufferDescriptor {
@@ -325,11 +345,13 @@ fn prepare_actor_resources(
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
             gpu.spans = draw_spans(&frame.instance_pages, &rig.instances, &rig.geometry_spans);
+            gpu.instances = std::sync::Arc::clone(&rig.instances);
         } else {
             gpu.instance_count = 0;
             gpu.maximum_vertex_count = 0;
             gpu.manifest = std::sync::Arc::from([]);
             gpu.spans.clear();
+            gpu.instances = std::sync::Arc::from([]);
             gate.clear();
             tracker.clear();
         }
@@ -527,187 +549,6 @@ fn prepare_actor_bind_group(
         page.bind_group = Some(group);
     }
     gpu.view_buffer_id = Some(view_buffer.id());
-}
-
-#[derive(SystemParam)]
-struct QueueActorParams<'w, 's> {
-    pipeline_cache: Res<'w, PipelineCache>,
-    pipeline: ResMut<'w, ActorPipeline>,
-    gpu: Res<'w, ActorGpu>,
-    phases: ResMut<'w, ViewBinnedRenderPhases<Opaque3d>>,
-    draw_functions: Res<'w, DrawFunctions<Opaque3d>>,
-    views: Query<
-        'w,
-        's,
-        (
-            Entity,
-            &'static MainEntity,
-            &'static ExtractedView,
-            &'static Msaa,
-        ),
-    >,
-    draw_tracker: Res<'w, ActorDrawTracker>,
-    witness: Res<'w, ActorRuntimeWitness>,
-}
-
-fn queue_actors(
-    mut params: QueueActorParams<'_, '_>,
-    mut next_tick: Local<Tick>,
-    mut next_draw_generation: Local<u64>,
-) {
-    params.draw_tracker.clear();
-    let view_count = params.views.iter().count();
-    if params.gpu.instance_count == 0 || params.gpu.bind_group.is_none() {
-        params.witness.observe_queue(ActorQueueWitness {
-            prepared_instances: params.gpu.instance_count,
-            bind_group: params.gpu.bind_group.is_some(),
-            view_count,
-            queued: false,
-        });
-        return;
-    }
-    let draw_function = params.draw_functions.read().id::<DrawActorCommands>();
-    let mut queued = false;
-    let mut intended_view = None;
-    for (view_entity, main_entity, view, msaa) in &params.views {
-        let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
-            continue;
-        };
-        let Some(pipeline_id) =
-            params
-                .pipeline
-                .prepare_draw_variants(&params.pipeline_cache, *msaa, view.hdr)
-        else {
-            continue;
-        };
-        let this_tick = next_tick.get() + 1;
-        next_tick.set(this_tick);
-        phase.add(
-            Opaque3dBatchSetKey {
-                draw_function,
-                pipeline: pipeline_id,
-                material_bind_group_index: None,
-                lightmap_slab: None,
-                vertex_slab: default(),
-                index_slab: None,
-            },
-            Opaque3dBinKey {
-                asset_id: AssetId::<Shader>::invalid().untyped(),
-            },
-            (view_entity, *main_entity),
-            InputUniformIndex::default(),
-            BinnedRenderPhaseType::NonMesh,
-            *next_tick,
-        );
-        queued = true;
-        intended_view = Some(intended_view.map_or(view_entity.to_bits(), |current: u64| {
-            current.min(view_entity.to_bits())
-        }));
-    }
-    if queued {
-        let Some(draw_generation) = next_draw_generation.checked_add(1) else {
-            return;
-        };
-        *next_draw_generation = draw_generation;
-        let _ = params.draw_tracker.begin(
-            ActorDrawFrame {
-                artwork_identity: params.gpu.artwork_identity,
-                skin_revision: params.gpu.skin_revision,
-                geometry_revision: params.gpu.geometry_revision,
-                frame_generation: params.gpu.frame_generation,
-                draw_generation,
-                manifest: std::sync::Arc::clone(&params.gpu.manifest),
-            },
-            intended_view.expect("queued view exists"),
-            &params.gpu.spans,
-        );
-    }
-    params.witness.observe_queue(ActorQueueWitness {
-        prepared_instances: params.gpu.instance_count,
-        bind_group: params.gpu.bind_group.is_some(),
-        view_count,
-        queued,
-    });
-}
-
-type DrawActorCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuActors as usize },
-    (
-        SetItemPipeline,
-        crate::lighting::SetWorldLightmap,
-        DrawActors,
-    ),
->;
-
-struct DrawActors;
-
-impl<P: PhaseItem> RenderCommand<P> for DrawActors {
-    type Param = (
-        SRes<ActorGpu>,
-        SRes<ActorDrawTracker>,
-        SRes<ActorRuntimeWitness>,
-        SRes<ActorPipeline>,
-        SRes<PipelineCache>,
-    );
-    type ViewQuery = (
-        Entity,
-        Read<ViewUniformOffset>,
-        Read<Msaa>,
-        Read<ExtractedView>,
-    );
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        view: ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        params: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let (gpu, tracker, witness, pipeline, cache) = params;
-        let gpu = gpu.into_inner();
-        let tracker = tracker.into_inner();
-        let pipeline = pipeline.into_inner();
-        let cache = cache.into_inner();
-        let mut executed_instances = 0;
-        let mut bound_page = None;
-        for span in &gpu.spans {
-            if span.page != 0 && !gpu.artwork_current {
-                continue;
-            }
-            let Some(id) = pipeline.draw_variant(*view.2, view.3.hdr, span.material) else {
-                continue;
-            };
-            let Some(variant) = cache.get_render_pipeline(id) else {
-                continue;
-            };
-            pass.set_render_pipeline(variant);
-            if bound_page != Some(span.page) {
-                let bind_group = if span.page == 0 {
-                    gpu.bind_group.as_ref()
-                } else {
-                    gpu.artwork
-                        .pages
-                        .get(usize::from(span.page) - 1)
-                        .and_then(|page| page.bind_group.as_ref())
-                };
-                let Some(bind_group) = bind_group else {
-                    continue;
-                };
-                pass.set_bind_group(0, bind_group, &[view.1.offset]);
-                bound_page = Some(span.page);
-            }
-            pass.draw(0..span.vertex_count, span.first..span.first + span.count);
-            tracker.record_draw(view.0.to_bits(), *span);
-            executed_instances += span.count;
-        }
-        witness.into_inner().observe_draw(ActorDrawWitness {
-            executed: executed_instances != 0,
-            instances: executed_instances,
-            maximum_vertices: gpu.maximum_vertex_count,
-        });
-        RenderCommandResult::Success
-    }
 }
 
 fn submit_actor_presented_frame(

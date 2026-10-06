@@ -240,8 +240,8 @@ mod prepare;
 mod state;
 
 pub(in crate::chunk) use groups::{
-    TransparentGroupInput, TransparentGroupOrder, build_transparent_group, distinct_tint_count,
-    sort_transparent_groups, spawn_transparent_sort,
+    TransparentGroupInput, TransparentGroupOrder, TransparentGroups, build_transparent_group,
+    distinct_tint_count, sort_transparent_groups, spawn_transparent_sort,
 };
 pub(in crate::chunk) use prepare::{
     prepare_transparent_sorts, transparent_snapshot_addresses_are_resident,

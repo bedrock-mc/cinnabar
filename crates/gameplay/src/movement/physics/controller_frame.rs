@@ -33,8 +33,11 @@ impl ControllerFrame {
     ) -> Result<(), SimulationError> {
         let previous_sprinting = input.sprinting;
         self.grounded_before_tick = state.on_ground;
-        self.jump_repeated =
-            !self.jump_edge && input.jumping && state.on_ground && state.jump_delay == 0;
+        self.jump_repeated = !input.immobile
+            && !self.jump_edge
+            && input.jumping
+            && state.on_ground
+            && state.jump_delay == 0;
         input.jump_pressed = self.jump_edge || self.jump_repeated;
         if input.mode != self.input.mode {
             self.mode_override = Some(input.mode);
@@ -51,6 +54,7 @@ impl ControllerFrame {
         if let Some(sprinting) = self.sprint_override {
             modes.restore_controls(sprinting, modes.sneaking());
         }
+        let previous_modes = *modes;
         let choice = modes.select(
             self.intent,
             self.fly_toggle,
@@ -73,7 +77,19 @@ impl ControllerFrame {
                 jump_edge: self.jump_edge,
             },
             world,
-        )?;
+        );
+        let choice = match choice {
+            Ok(choice) => choice,
+            Err(_) if input.immobile => {
+                *modes = previous_modes;
+                super::super::locomotion::ModeChoice {
+                    mode: modes.mode(),
+                    forced_sneak: self.forced_sneak,
+                    sprinting: input.sprinting,
+                }
+            }
+            Err(error) => return Err(error.into()),
+        };
         input.mode = self.mode_override.unwrap_or(choice.mode);
         input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
         modes.restore_mode(input.mode);

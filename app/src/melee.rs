@@ -163,7 +163,31 @@ pub(crate) fn produce_melee(
         crosshair,
         &press,
         input.frame_sequence,
-        |packets| context.network.send_inventory_packets(packets),
+        |packets| {
+            let packet_count = packets.len();
+            let packet_kinds = [
+                packets.first().map(|packet| packet.header.id),
+                packets.last().map(|packet| packet.header.id),
+            ];
+            let result = context.network.send_inventory_packets(packets);
+            let actor = match crosshair {
+                Crosshair::Actor(hit) => stream.authority().actor(hit.runtime_id),
+                _ => None,
+            };
+            bevy::log::info!(
+                target: "cinnabar::interaction",
+                ?crosshair,
+                actor_kind = ?actor.map(|actor| &actor.kind),
+                actor_bounds = ?actor.and_then(|actor| actor.bounding_box()),
+                actor_scale = ?actor.map(|actor| actor.render_scale()),
+                hand_available = press.selection.is_some(),
+                packet_count,
+                ?packet_kinds,
+                ?result,
+                "attack batch submitted"
+            );
+            result
+        },
     );
     if missed_swing {
         movement.mark_missed_swing(sample.tick);

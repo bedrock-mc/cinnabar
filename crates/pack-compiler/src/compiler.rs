@@ -728,6 +728,11 @@ fn compile_runtime_animation_plan(
             rgba8: decoded.rgba8,
         });
     }
+    let overlay_mask_paths = descriptor_keys
+        .keys()
+        .filter(|descriptor| descriptor.flags & MATERIAL_FLAG_OVERLAY_MASK != 0)
+        .map(|descriptor| descriptor.path.clone())
+        .collect::<BTreeSet<_>>();
     let plan = compile_animation_plan_selected(
         pack,
         &decoded_images,
@@ -736,6 +741,7 @@ fn compile_runtime_animation_plan(
             max_pages: 2,
         },
         Some(&selected_atlas_tiles),
+        &overlay_mask_paths,
     )?;
     Ok((plan, alpha_paths))
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,8 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/df-mc/go-playfab/v2"
-	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
@@ -25,34 +24,8 @@ func (fakeTokens) ServiceToken(context.Context) (*service.Token, error) {
 	return &service.Token{AuthorizationHeader: "MCToken synthetic", ValidUntil: time.Now().Add(time.Hour)}, nil
 }
 
-type fakeCatalog struct {
-	mu    sync.Mutex
-	items []playfabcatalog.Item
-	got   []playfabcatalog.SearchFilter
-	err   error
-}
-
-func (f *fakeCatalog) SearchItems(_ context.Context, filter playfabcatalog.SearchFilter, _ ...playfab.RequestOption) (*playfabcatalog.SearchResult, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.got = append(f.got, filter)
-	if f.err != nil {
-		return nil, f.err
-	}
-	return &playfabcatalog.SearchResult{Items: f.items, ContinuationToken: "next"}, nil
-}
-
-func (f *fakeCatalog) ItemByID(_ context.Context, id string, _ ...playfab.RequestOption) (*playfabcatalog.Item, error) {
-	for i := range f.items {
-		if f.items[i].ID == id {
-			return &f.items[i], nil
-		}
-	}
-	return nil, errors.New("missing")
-}
-
 // newTestClient serves distinct store and entitlements origins and returns the entitlements server.
-func newTestClient(t *testing.T, handler http.HandlerFunc, cat Catalog) (*Client, *httptest.Server) {
+func newTestClient(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.Server) {
 	t.Helper()
 	// serve rejects requests routed to the wrong service before invoking the test's handler.
 	serve := func(entitlements bool) *httptest.Server {
@@ -87,10 +60,7 @@ func newTestClient(t *testing.T, handler http.HandlerFunc, cat Catalog) (*Client
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cat == nil {
-		cat = &fakeCatalog{}
-	}
-	client, err := NewClient(Config{Market: market, Catalog: cat, Identity: Identity{XUID: "2535", TitleID: "20CA2"}})
+	client, err := NewClient(Config{Market: market, Identity: Identity{XUID: "2535", TitleID: "20CA2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +74,7 @@ const inventoryFixture = `{"result":{"inventory":{"entitlements":[{"id":"AAAAAAA
 func TestBalancesMapTheServiceTypes(t *testing.T) {
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"result":{"virtualCurrencyBalances":[{"type":"Minecoin","amount":1500},{"type":"PlayStationToken","amount":7},{"amount":3}]}}`)
-	}, nil)
+	})
 	balances, err := client.Balances(context.Background())
 	if err != nil || len(balances) != 2 || balances[0] != (Balance{"Minecoin", 1500}) || balances[1].Amount != 7 {
 		t.Fatalf("balances = %+v err=%v", balances, err)
@@ -115,7 +85,7 @@ func TestEntitlementsAreDedupedAndPaged(t *testing.T) {
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("InventoryETag", "etag-1")
 		_, _ = io.WriteString(w, inventoryFixture)
-	}, nil)
+	})
 	got, err := client.Entitlements(context.Background(), 0, 1, false)
 	if err != nil || got.Total != 2 || len(got.Owned) != 1 || got.Owned[0] != "aaaaaaaa-0000-0000-0000-000000000001" || got.InventoryVersion != "etag-1" {
 		t.Fatalf("entitlements = %+v err=%v", got, err)
@@ -125,8 +95,8 @@ func TestEntitlementsAreDedupedAndPaged(t *testing.T) {
 	}
 }
 
-// Synthesized in the live page shape: a curated row lists its offers inline under a header; a query
-// row carries catalog queries.
+// Synthesized in the live page shape: a curated row lists its offers inline under a header; a row
+// with queries and no inline offers is not drawn.
 const pageFixture = `{"result":{"pageId":"page-1","layout":[{"sectionName":"rows","rows":[
 {"controlId":"Layout","components":[{"type":"topBarSearchComp","isVisible":true}],"queries":null},
 {"telemetryId":"r0","controlId":"StoreRow","components":[{"type":"itemListComp","totalItems":9,
@@ -134,13 +104,10 @@ const pageFixture = `{"result":{"pageId":"page-1","layout":[{"sectionName":"rows
   "thumbnail":{"type":"Thumbnail","url":"https://cdn.example.test/c.png"},"price":{"listPrice":990,"currencyId":"coin"}}]},
  {"type":"carouselComp"},{"type":"headerComp","headerText":"Featured"}],"queries":null},
 {"telemetryId":"r1","controlId":"StoreRow","components":[{"type":"itemListComp"},{"type":"headerComp","headerText":"New"}],
- "queries":[{"queryContentTypes":["Durable"],"orTags":["new"],"itemLimit":10}]},
-{"telemetryId":"r2","queries":[{"rarityFilters":["epic"]}]}]}]}}`
+ "queries":[{"queryContentTypes":["Durable"],"orTags":["new"],"itemLimit":10}]}]}]}}`
 
-// Curated rows map their inline offers and query rows are filled through the catalog, in page order,
-// with the owned ids sent along.
-func TestHomeMapsCuratedRowsAndFillsQueryRows(t *testing.T) {
-	cat := &fakeCatalog{items: []playfabcatalog.Item{{ID: "AAAAAAAA-0000-0000-0000-000000000001", Title: playfabcatalog.Dictionary[string]{"NEUTRAL": "Alpha"}}}}
+// Curated rows map their inline offers, marked owned, with the owned ids and versions sent along.
+func TestHomeMapsCuratedRows(t *testing.T) {
 	var body marketplace.PageRequest
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -154,9 +121,9 @@ func TestHomeMapsCuratedRowsAndFillsQueryRows(t *testing.T) {
 			w.Header().Set("InventoryETag", "etag-1")
 			_, _ = io.WriteString(w, inventoryFixture)
 		}
-	}, cat)
+	})
 	page, err := client.Home(context.Background(), marketplace.PageStoreRoot)
-	if err != nil || len(page.Rows) != 2 || page.InventoryVersion != "etag-2" {
+	if err != nil || len(page.Rows) != 1 || page.InventoryVersion != "etag-2" {
 		t.Fatalf("page = %+v err=%v", page, err)
 	}
 	curated := page.Rows[0]
@@ -168,26 +135,8 @@ func TestHomeMapsCuratedRowsAndFillsQueryRows(t *testing.T) {
 		offer.Rating == nil || offer.Rating.Count != 3 || offer.Prices[0].Amount != 990 || !offer.Owned {
 		t.Fatalf("curated offer = %+v", offer)
 	}
-	queried := page.Rows[1]
-	if queried.Title != "New" || len(queried.Offers) != 1 || !queried.Offers[0].Owned {
-		t.Fatalf("query row = %+v", queried)
-	}
 	if len(body.Entitlements) != 2 || body.InventoryVersion != "etag-1" || body.ListVersion != "lists-1" {
 		t.Fatalf("page body = %+v", body)
-	}
-	if len(cat.got) != 1 || cat.got[0].Filter != "ContentType eq 'Durable' and Tags/any(t: t eq 'new')" || cat.got[0].Count != 10 {
-		t.Fatalf("searches = %+v", cat.got)
-	}
-	failing, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/v2.0/layout/pages/") {
-			_, _ = io.WriteString(w, pageFixture)
-			return
-		}
-		_, _ = io.WriteString(w, `{"result":{"knownPages":{"storeRoot":"page-1"}}}`)
-	}, &fakeCatalog{err: errors.New("catalog down")})
-	failing.inventory = &inventoryCache{set: map[string]struct{}{}, at: time.Now()}
-	if page, err := failing.Home(context.Background(), marketplace.PageStoreRoot); err != nil || len(page.Rows) != 1 || page.Rows[0].Title != "Featured" {
-		t.Fatalf("a failed query search must keep the curated rows: page = %+v err = %v", page, err)
 	}
 }
 
@@ -204,7 +153,7 @@ func TestHomeRefusesAPageTheSessionConfigDoesNotKnow(t *testing.T) {
 		default:
 			_, _ = io.WriteString(w, inventoryFixture)
 		}
-	}, nil)
+	})
 	if _, err := client.Home(context.Background(), marketplace.PageStoreRoot); !errors.Is(err, marketplace.ErrUnknownPage) {
 		t.Fatalf("err = %v, want ErrUnknownPage", err)
 	}
@@ -213,44 +162,59 @@ func TestHomeRefusesAPageTheSessionConfigDoesNotKnow(t *testing.T) {
 	}
 }
 
-func TestSearchMapsCatalogItemsAndMarksOwned(t *testing.T) {
-	cat := &fakeCatalog{items: []playfabcatalog.Item{
-		{
-			ID: "aaaaaaaa-0000-0000-0000-000000000001", ContentType: "MarketplaceDurableCatalog_V1.2",
-			Title:             playfabcatalog.Dictionary[string]{"NEUTRAL": "Alpha"},
-			DisplayProperties: json.RawMessage(`{"creatorName":"Studio"}`),
-			Images: []playfabcatalog.Image{
-				{Type: "Screenshot", Tag: "packicon", URL: "https://cdn.example.test/icon.png"},
-				{Type: "Screenshot", Tag: "panorama", URL: "https://cdn.example.test/pano.png"},
-				{Type: "Screenshot", Tag: "screenshot", URL: "https://cdn.example.test/s.png"},
-				{Type: "Thumbnail", URL: "https://cdn.example.test/t.png"},
-			},
-			PriceOptions: playfabcatalog.PriceOptions{{Amounts: []playfabcatalog.PriceAmount{{Value: 320, ItemID: "mc"}}}},
-			Rating:       playfabcatalog.Rating{Average: 4.5, TotalCount: 10},
-		},
-		{ID: "hidden", Hidden: true, Title: playfabcatalog.Dictionary[string]{"NEUTRAL": "H"}},
-		{ID: "untitled"},
-	}}
-	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, inventoryFixture) }, cat)
+// Synthesized in the live search and detail page shapes, not captured payloads.
+const (
+	searchPageFixture = `{"result":{"pageId":"Search_SearchResults","layout":[{"sectionName":"rows","rows":[
+{"controlId":"GridList","components":[{"type":"pagedItemListComp","totalItems":785,"continuationToken":"more",
+ "items":[{"id":"AAAAAAAA-0000-0000-0000-000000000001","title":"Alpha","creatorName":"Studio","rating":{"average":4.5,"totalCount":10},
+  "thumbnail":{"type":"Thumbnail","url":"https://cdn.example.test/t.png"},"price":{"listPrice":320,"currencyId":"mc"}},
+  {"id":"untitled"}]}]}]}]}}`
+	detailPageFixture = `{"result":{"pageId":"ItemDetail_x","layout":[{"sectionName":"rows","rows":[
+{"controlId":"ItemSummary","components":[{"type":"itemSummaryComp","item":{"id":"aaaaaaaa-0000-0000-0000-000000000001","title":"Alpha",
+ "creatorName":"Studio","packIdentity":[{"type":"worldtemplate","uuid":"u","version":"1.0.2"}],"tags":[{"name":"Castle"}]}},
+ {"type":"purchaseInfoComp","price":{"listPrice":660,"currencyId":"mc"}}]},
+{"controlId":"ItemDescription","components":[{"type":"itemDescriptionComp","description":"A castle."}]},
+{"controlId":"ImageGallery","components":[{"type":"imageGalleryComp","images":[{"type":"Unknown","url":"https://cdn.example.test/s0.jpg"},{"url":"http://insecure.test/s.jpg"}]}]},
+{"controlId":"RatingRow","components":[{"type":"ratingComp","rating":{"average":4.0,"totalCount":102}}]}]}]}}`
+)
+
+// Search renders the store's search page and continues it through row continuation; offers are
+// marked owned from the inventory. The detail screen reads the offer's detail page.
+func TestSearchAndOfferUseTheStoreLayoutPages(t *testing.T) {
+	var searched map[string]any
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1.0/session/config":
+			_, _ = io.WriteString(w, `{"result":{"knownPages":{"searchResults":"results-1"}}}`)
+		case "/api/v2.0/layout/pages/results-1":
+			_ = json.NewDecoder(r.Body).Decode(&searched)
+			_, _ = io.WriteString(w, searchPageFixture)
+		case "/api/v2.0/layout/items":
+			_, _ = io.WriteString(w, `{"continuationToken":"","result":[{"id":"bbbbbbbb-0000-0000-0000-000000000002","title":"Beta"}]}`)
+		case "/api/v2.0/layout/pages/productId/aaaaaaaa-0000-0000-0000-000000000001":
+			_, _ = io.WriteString(w, detailPageFixture)
+		default:
+			_, _ = io.WriteString(w, inventoryFixture)
+		}
+	})
 	results, err := client.Search(context.Background(), SearchQuery{Term: "castle"})
-	if err != nil || len(results.Offers) != 1 || results.Continuation != "next" {
-		t.Fatalf("results = %+v err=%v", results, err)
+	if err != nil || searched["search"] != "castle" || len(results.Offers) != 1 || results.Continuation != "more" {
+		t.Fatalf("results = %+v body = %v err = %v", results, searched, err)
 	}
 	offer := results.Offers[0]
 	if !offer.Owned || offer.Creator != "Studio" || offer.ThumbnailURL != "https://cdn.example.test/t.png" ||
 		offer.Prices[0] != (Price{"mc", 320}) || offer.Rating == nil || offer.Rating.Count != 10 {
 		t.Fatalf("offer = %+v", offer)
 	}
-	if cat.got[0].Count != defaultSearchCount || cat.got[0].Term != "castle" {
-		t.Fatalf("filter = %+v", cat.got[0])
+	more, err := client.Search(context.Background(), SearchQuery{Continuation: "more"})
+	if err != nil || len(more.Offers) != 1 || !more.Offers[0].Owned || more.Continuation != "" {
+		t.Fatalf("continued = %+v err = %v", more, err)
 	}
 	detail, err := client.Offer(context.Background(), "aaaaaaaa-0000-0000-0000-000000000001")
-	// The pack icon and panorama are Screenshot-typed too; only the screenshot belongs in the carousel.
-	if err != nil || len(detail.ScreenshotURLs) != 1 || detail.ScreenshotURLs[0] != "https://cdn.example.test/s.png" || !detail.Owned {
-		t.Fatalf("detail = %+v err=%v", detail, err)
-	}
-	if _, err := client.Search(context.Background(), SearchQuery{Filter: "a;drop"}); !errors.Is(err, ErrInvalidRequest) {
-		t.Fatalf("bad filter err = %v", err)
+	if err != nil || !detail.Owned || detail.Description != "A castle." || detail.Prices[0] != (Price{"mc", 660}) ||
+		len(detail.ScreenshotURLs) != 1 || detail.DisplayVersion != "1.0.2" || detail.Tags[0] != "Castle" ||
+		detail.Rating == nil || detail.Rating.Count != 102 {
+		t.Fatalf("detail = %+v err = %v", detail, err)
 	}
 }
 
@@ -296,7 +260,7 @@ func request(id, offer string) PurchaseRequest {
 
 func TestPurchaseSendsTheVanillaRequestShape(t *testing.T) {
 	server := &purchaseServer{status: 200, header: map[string]string{"InventoryETag": "etag-2"}}
-	client, _ := newTestClient(t, server.handler(t), nil)
+	client, _ := newTestClient(t, server.handler(t))
 	res, err := client.Purchase(context.Background(), request("purchase-0000000001", "offer-1"))
 	if err != nil || res.Status != PurchaseOK || res.InventoryVersion != "etag-2" || res.CorrelationID == "" {
 		t.Fatalf("result = %+v err=%v", res, err)
@@ -317,7 +281,7 @@ func TestPurchaseSendsTheVanillaRequestShape(t *testing.T) {
 
 func TestPurchaseIsIdempotentPerID(t *testing.T) {
 	server := &purchaseServer{status: 200}
-	client, _ := newTestClient(t, server.handler(t), nil)
+	client, _ := newTestClient(t, server.handler(t))
 	req := request("purchase-0000000002", "offer-2")
 	first, err := client.Purchase(context.Background(), req)
 	if err != nil || first.Replayed {
@@ -336,7 +300,7 @@ func TestPurchaseIsIdempotentPerID(t *testing.T) {
 
 func TestPurchaseLocksTheOfferWhileInFlight(t *testing.T) {
 	server := &purchaseServer{status: 200, gate: make(chan struct{})}
-	client, _ := newTestClient(t, server.handler(t), nil)
+	client, _ := newTestClient(t, server.handler(t))
 	done := make(chan error, 1)
 	go func() {
 		_, err := client.Purchase(context.Background(), request("purchase-0000000003", "offer-3"))
@@ -361,7 +325,7 @@ func TestPurchaseLocksTheOfferWhileInFlight(t *testing.T) {
 func TestPurchaseOutcomesFollowTheHTTPStatus(t *testing.T) {
 	for status, want := range map[int]string{422: PurchasePriceRefused, 412: PurchaseStaleState, 500: PurchaseFailed, 400: PurchaseFailed} {
 		server := &purchaseServer{status: status}
-		client, _ := newTestClient(t, server.handler(t), nil)
+		client, _ := newTestClient(t, server.handler(t))
 		res, err := client.Purchase(context.Background(), request("purchase-0000000005", "offer-5"))
 		if err != nil || res.Status != want || res.HTTPStatus != status || server.calls.Load() != 1 {
 			t.Fatalf("status %d: result = %+v err=%v calls=%d", status, res, err, server.calls.Load())
@@ -374,7 +338,7 @@ func TestPurchaseOutcomesFollowTheHTTPStatus(t *testing.T) {
 }
 
 func TestPurchaseWithNoAnswerIsUnknownAndHoldsTheOffer(t *testing.T) {
-	client, server := newTestClient(t, func(http.ResponseWriter, *http.Request) {}, nil)
+	client, server := newTestClient(t, func(http.ResponseWriter, *http.Request) {})
 	server.Close() // connection refused: the outcome cannot be known to have missed the service
 	res, err := client.Purchase(context.Background(), request("purchase-0000000007", "offer-7"))
 	if err != nil || res.Status != PurchaseUnknown {
@@ -387,7 +351,7 @@ func TestPurchaseWithNoAnswerIsUnknownAndHoldsTheOffer(t *testing.T) {
 
 func TestPurchaseValidationRefusesUnconfirmedOrMalformedRequests(t *testing.T) {
 	server := &purchaseServer{status: 200}
-	client, _ := newTestClient(t, server.handler(t), nil)
+	client, _ := newTestClient(t, server.handler(t))
 	base := request("purchase-0000000009", "offer-9")
 	mutations := map[string]func(*PurchaseRequest){
 		"unconfirmed": func(r *PurchaseRequest) { r.Confirmed = false },
@@ -412,7 +376,7 @@ func TestPurchaseValidationRefusesUnconfirmedOrMalformedRequests(t *testing.T) {
 
 func TestASuccessfulPurchaseRefreshesTheInventoryOnce(t *testing.T) {
 	server := &purchaseServer{status: 200}
-	client, _ := newTestClient(t, server.handler(t), nil)
+	client, _ := newTestClient(t, server.handler(t))
 	if _, err := client.Purchase(context.Background(), request("purchase-0000000010", "offer-10")); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +384,7 @@ func TestASuccessfulPurchaseRefreshesTheInventoryOnce(t *testing.T) {
 		t.Fatalf("refreshes = %d", server.refreshes.Load())
 	}
 	refused := &purchaseServer{status: 422}
-	other, _ := newTestClient(t, refused.handler(t), nil)
+	other, _ := newTestClient(t, refused.handler(t))
 	if _, err := other.Purchase(context.Background(), request("purchase-0000000011", "offer-11")); err != nil || refused.refreshes.Load() != 0 {
 		t.Fatalf("refused purchase refreshed %d times, err=%v", refused.refreshes.Load(), err)
 	}
@@ -436,7 +400,7 @@ func TestMoreOffersMapsCatalogItemsAndMarksOwnership(t *testing.T) {
 		}
 		w.Header().Set("InventoryETag", "etag-5")
 		_, _ = io.WriteString(w, inventoryFixture)
-	}, nil)
+	})
 	more, err := client.MoreOffers(context.Background(), "t1")
 	if err != nil || body["continuationToken"] != "t1" || body["inventoryVersion"] != "etag-5" {
 		t.Fatalf("body = %+v err=%v", body, err)
@@ -458,7 +422,7 @@ func TestEntitlementsRefreshAsksTheServiceFirst(t *testing.T) {
 			return
 		}
 		_, _ = io.WriteString(w, inventoryFixture)
-	}, nil)
+	})
 	if _, err := client.Entitlements(context.Background(), 0, 0, true); err != nil || refreshes.Load() != 1 {
 		t.Fatalf("refreshes = %d err=%v", refreshes.Load(), err)
 	}
@@ -467,29 +431,39 @@ func TestEntitlementsRefreshAsksTheServiceFirst(t *testing.T) {
 	}
 }
 
-// Price options the purchase flow cannot express are refused, never flattened into separate prices.
-func TestOffersKeepOnlyWholeSingleCurrencyPrices(t *testing.T) {
-	item := func(options ...playfabcatalog.Price) *playfabcatalog.Item {
-		return &playfabcatalog.Item{ID: "offer-1", Title: map[string]string{"NEUTRAL": "Pack"}, PriceOptions: options}
+// An offer on a running free sale is quoted at zero, not its list price.
+func TestOffersOnAFreeSaleCostNothing(t *testing.T) {
+	var item marketplace.Item
+	if err := json.Unmarshal([]byte(`{"id":"aaaaaaaa-0000-0000-0000-000000000001","title":"Alpha",
+"price":{"listPrice":990,"currencyId":"mc","saleInfo":{"salePrice":0}}}`), &item); err != nil {
+		t.Fatal(err)
 	}
-	mc := func(value int) playfabcatalog.PriceAmount {
-		return playfabcatalog.PriceAmount{Value: value, ItemID: "mc"}
-	}
-	combined := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100), {Value: 5, ItemID: "tokens"}}}
-	timed := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100)}, UnitDurationInSeconds: 86400}
-	bulk := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100)}, UnitAmount: 5}
-	single := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(320)}}
-
-	offer, ok := offerFromItem(item(combined, single, timed))
-	if !ok || len(offer.Prices) != 1 || offer.Prices[0] != (Price{Currency: "mc", Amount: 320}) {
+	offer, ok := offerFromMarketItem(&item)
+	if !ok || len(offer.Prices) != 1 || offer.Prices[0] != (Price{"mc", 0}) {
 		t.Fatalf("offer = %+v ok = %v", offer, ok)
 	}
-	for name, option := range map[string]playfabcatalog.Price{"combined": combined, "timed": timed, "bulk": bulk} {
-		if _, ok := offerFromItem(item(option)); ok {
-			t.Fatalf("%s-only offer was listed", name)
-		}
+}
+
+// A search returns every offer of the service's page, so its continuation skips none.
+func TestSearchKeepsTheWholeServicePage(t *testing.T) {
+	var items []string
+	for i := range 51 {
+		items = append(items, fmt.Sprintf(`{"id":"aaaaaaaa-0000-0000-0000-%012d","title":"Offer %d"}`, i, i))
 	}
-	if offer, ok := offerFromItem(item()); !ok || len(offer.Prices) != 0 {
-		t.Fatalf("an unpriced offer = %+v ok = %v", offer, ok)
+	page := `{"result":{"pageId":"Search_SearchResults","layout":[{"sectionName":"rows","rows":[{"controlId":"GridList",
+"components":[{"type":"pagedItemListComp","continuationToken":"more","items":[` + strings.Join(items, ",") + `]}]}]}]}}`
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1.0/session/config":
+			_, _ = io.WriteString(w, `{"result":{"knownPages":{"searchResults":"results-1"}}}`)
+		case "/api/v2.0/layout/pages/results-1":
+			_, _ = io.WriteString(w, page)
+		default:
+			_, _ = io.WriteString(w, inventoryFixture)
+		}
+	})
+	results, err := client.Search(context.Background(), SearchQuery{Term: "x"})
+	if err != nil || len(results.Offers) != 51 || results.Continuation != "more" || results.Truncated {
+		t.Fatalf("offers = %d continuation = %q truncated = %v err = %v", len(results.Offers), results.Continuation, results.Truncated, err)
 	}
 }

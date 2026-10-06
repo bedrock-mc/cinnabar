@@ -172,7 +172,7 @@ fn hi_z_pyramid_keeps_the_farthest_depth_of_every_footprint() {
     let single = pyramid_of(&Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1));
     let multi = pyramid_of(&Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4));
     assert_eq!(single, multi);
-    assert!(single[0].iter().any(|&value| value == 0.75));
+    assert!(single[0].contains(&0.75));
 }
 
 /// Display-sized pyramids build, and odd trailing rows and columns still reach every level.

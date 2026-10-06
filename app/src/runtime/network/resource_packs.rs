@@ -14,6 +14,9 @@ mod ui;
 pub(super) mod ui_catalog;
 use ui::collect_server_ui;
 
+#[cfg(feature = "developer-control")]
+mod capture;
+
 /// Everything the session applies from its server pack stack.
 #[derive(Clone, Debug)]
 pub struct PackApplication {
@@ -325,6 +328,11 @@ fn compile_application(
             .extend(inputs);
     }
     super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
+    if cancelled() {
+        return None;
+    }
+    #[cfg(feature = "developer-control")]
+    capture::write(&view, server_ui.as_deref());
     Some(PackApplication {
         extension_marker: view
             .read_capped(

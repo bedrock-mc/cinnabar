@@ -57,6 +57,7 @@ impl SmoothedPosition {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn publish(
     snapshot: Option<Res<RealPositionSnapshot>>,
     world: Option<Res<ClientWorld>>,

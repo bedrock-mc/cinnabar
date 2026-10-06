@@ -1,6 +1,8 @@
 //! Gathers a pack stack's entity sources: unique definitions, geometry, and referenced rasters.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
+use std::path::{Component, Path};
 
 use assets::VanillaEntityRefs;
 use resource_pack::LayeredPackView;
@@ -87,6 +89,7 @@ impl References {
 pub(super) fn collect_files(
     view: &LayeredPackView,
     vanilla: Option<&VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&Path>,
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     let entities = unique_entities(view);
@@ -154,6 +157,9 @@ pub(super) fn collect_files(
         }
     }
     files.extend(entities);
+    if let Some(materials) = material_definitions(view) {
+        files.push(("materials/_pack.material".into(), materials));
+    }
     for path in view.list("attachables/") {
         if path.ends_with(".json")
             && let Some(bytes) = view.read(path)
@@ -164,20 +170,94 @@ pub(super) fn collect_files(
     }
     files.extend(geometry);
     for stem in referenced_textures(&files) {
-        for extension in ["png", "tga"] {
-            let path = format!("{stem}.{extension}");
-            if let Some(bytes) = view.read(&path) {
-                files.push((path.into(), bytes.into_vec()));
-                break;
-            }
+        if let Some(texture) = texture_file(view, vanilla_pack_dir, &stem) {
+            files.push(texture);
         }
     }
     files
 }
 
+/// All server formats have precedence over the installed vanilla layer.
+fn texture_file(
+    view: &LayeredPackView,
+    vanilla_pack_dir: Option<&Path>,
+    stem: &str,
+) -> Option<(Box<str>, Vec<u8>)> {
+    let paths = [format!("{stem}.png"), format!("{stem}.tga")];
+    for path in &paths {
+        if let Some(bytes) = view.read(path) {
+            return Some((path.clone().into(), bytes.into_vec()));
+        }
+    }
+    let root = vanilla_pack_dir?;
+    if !stem.starts_with("textures/")
+        || stem.contains(['\\', ':', '\0'])
+        || stem
+            .split('/')
+            .any(|part| part.is_empty() || matches!(part, "." | ".."))
+        || !Path::new(stem)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
+    {
+        return None;
+    }
+    for path in paths {
+        let Ok(file) = std::fs::File::open(root.join(&path)) else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        if file
+            .take(resource_pack::MAX_FILE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .is_ok()
+            && bytes.len() as u64 <= resource_pack::MAX_FILE_BYTES
+        {
+            return Some((path.into(), bytes));
+        }
+    }
+    None
+}
+
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
 fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
+}
+
+/// Material identity is the child name; its parent remains part of the winning declaration.
+fn material_definitions(view: &LayeredPackView) -> Option<Vec<u8>> {
+    let mut definitions = BTreeMap::new();
+    for layer in view.layers() {
+        for path in layer
+            .files_under("materials/")
+            .into_iter()
+            .filter(|path| path.ends_with(".material"))
+        {
+            let Ok(Some(bytes)) = layer.read_file(path) else {
+                continue;
+            };
+            let Some(root) = parse_pack_json(&bytes) else {
+                continue;
+            };
+            let Some(materials) = root.get("materials").and_then(Value::as_object) else {
+                continue;
+            };
+            for (declaration, definition) in materials {
+                if !definition.is_object() {
+                    continue;
+                }
+                let child = declaration.split(':').next()?.trim_start_matches('+');
+                if !child.is_empty() {
+                    definitions.insert(child.to_owned(), (declaration.clone(), definition.clone()));
+                }
+            }
+        }
+    }
+    if definitions.is_empty() {
+        return None;
+    }
+    let mut materials = definitions.into_values().collect::<Map<_, _>>();
+    materials.insert("version".into(), Value::from("1.0.0"));
+    serde_json::to_vec(&serde_json::json!({"materials": materials})).ok()
 }
 
 /// Named definitions of `prefix` files, lowest layer first so a higher one replaces a name.
@@ -323,3 +403,6 @@ fn collect_texture_strings(value: &Value, stems: &mut BTreeSet<String>) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests;

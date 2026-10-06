@@ -44,8 +44,6 @@ func (stubScreens) FeaturedServers(context.Context) ([]catalog.FeaturedServer, e
 	return []catalog.FeaturedServer{{Name: "Example", Address: "play.example.test:19132"}}, nil
 }
 
-func (stubScreens) Gatherings(context.Context) ([]catalog.Gathering, error) { return nil, nil }
-
 func (stubScreens) Profile(context.Context) (catalog.Profile, error) {
 	return catalog.Profile{Gamertag: "Steve", XUID: "1"}, nil
 }
@@ -70,11 +68,6 @@ func TestScreenFeedsServeWhenTheBackendSupportsThem(t *testing.T) {
 	if reply := rpc(t, dir, methodFeaturedServers, ""); reply.Error != nil || json.Unmarshal(reply.Result, &featured) != nil ||
 		len(featured.Servers) != 1 || featured.Servers[0].Address != "play.example.test:19132" {
 		t.Fatalf("featured = %+v / %+v", featured, reply.Error)
-	}
-	var gatherings gatheringsResultV1
-	if reply := rpc(t, dir, methodGatherings, ""); reply.Error != nil || json.Unmarshal(reply.Result, &gatherings) != nil ||
-		gatherings.Gatherings == nil {
-		t.Fatalf("empty gatherings must encode as an array: %s", reply.Result)
 	}
 	var profile profileResultV1
 	if reply := rpc(t, dir, methodProfile, ""); reply.Error != nil || json.Unmarshal(reply.Result, &profile) != nil ||
@@ -107,7 +100,7 @@ func TestScreenFeedsServeWhenTheBackendSupportsThem(t *testing.T) {
 
 func TestScreenFeedsNeedAScreenBackend(t *testing.T) {
 	dir := startServices(t, NewStore(), &stubServices{})
-	if reply := rpc(t, dir, methodGatherings, ""); reply.Error == nil || reply.Error.Code != codeServicesDisabled {
+	if reply := rpc(t, dir, methodFeaturedServers, ""); reply.Error == nil || reply.Error.Code != codeServicesDisabled {
 		t.Fatalf("reply = %+v", reply.Error)
 	}
 }

@@ -16,12 +16,12 @@ mod parser;
 use codegen::{Codegen, IrOp, binary, fold_with};
 use parser::{Binary, Expr, Program, Slot, Unary, parse, parse_with};
 
-/// The only query a block permutation condition or bone visibility may read.
-const BLOCK_QUERIES: &[&str] = &["query.block_state"];
+/// Both block-state query spellings resolve the same named state.
+const BLOCK_QUERIES: &[&str] = &["query.block_property", "query.block_state"];
 /// Longest block expression accepted; bounds the depth of its tree, which is walked recursively.
 const MAX_BLOCK_MOLANG_BYTES: usize = 2048;
 
-/// A `query.block_state` result; integer and boolean states read as numbers.
+/// A block-state query result; integer and boolean states read as numbers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BlockStateValue<'a> {
     Number(f32),
@@ -34,7 +34,7 @@ pub struct BlockMolang(Expr);
 
 impl BlockMolang {
     /// `None` when the source does not parse in a block context, which reads only
-    /// `query.block_state`.
+    /// named block states.
     #[must_use]
     pub fn parse(source: &str) -> Option<Self> {
         if source.len() > MAX_BLOCK_MOLANG_BYTES {

@@ -290,9 +290,10 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut server_camera: ResMut<ServerCameraInstructions>,
     mut camera_hurt: Option<ResMut<crate::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
-    (visibility_diagnostics, profiler): (
+    (visibility_diagnostics, profiler, mut player_runtime): (
         Option<Res<VisibilityDiagnosticsInput>>,
         Option<Res<RuntimeStageProfiler>>,
+        ResMut<crate::player_runtime::PlayerRuntime>,
     ),
 ) {
     let _timer = profiler
@@ -407,6 +408,18 @@ pub(crate) fn reconcile_world_stream_before_physics(
             continue;
         }
         crate::movement::trace_server_control(&movement, &local_physics, &control);
+        if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
+            let previous = player_runtime.facts.is_immobile();
+            player_runtime
+                .facts
+                .apply_local_movement_flags(clock.session_generation(), flags);
+            if previous != player_runtime.facts.is_immobile() {
+                info!(
+                    immobile = player_runtime.facts.is_immobile(),
+                    tick, "server changed local player immobility"
+                );
+            }
+        }
         if respawn.consume_nonspatial_phase(
             clock.session_generation(),
             &control,

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_51::{
-    EnumsPlayerRespawnState as RespawnPacketState,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
     GameRule, GameRuleRuleValue, McpePacketData,
 };
@@ -42,6 +41,7 @@ mod block_updates;
 mod clocks;
 mod custom_blocks;
 mod diagnostics;
+mod dimension;
 mod environment;
 mod events;
 mod game_mode;
@@ -56,7 +56,7 @@ pub use self::clocks::{
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
     CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
-    CustomTransformation, CustomVisualComponents, block_name_sort_key,
+    CustomTransformation, CustomVisualComponents, block_name_sort_key, block_state_network_hash,
 };
 pub use self::diagnostics::{DimensionHeightDiagnostic, HeightmapDiagnostic, SubChunkDiagnostic};
 pub use self::environment::WorldEnvironmentBootstrap;
@@ -90,6 +90,9 @@ pub const MAX_BLOCK_LAYERS: usize = 16;
 
 /// Maximum Y offsets emitted in one column SubChunkRequest.
 pub const MAX_SUB_CHUNK_REQUESTS: usize = 128;
+
+/// Maximum dimension definitions retained from one server packet or session.
+pub const MAX_DIMENSION_DEFINITIONS: usize = 64;
 
 /// Maximum live biome definitions retained from one server packet.
 ///
@@ -691,22 +694,20 @@ pub fn into_world_event(
                 entries: normalized,
             })
         }
-        McpePacketData::DimensionDataPacket(packet) => {
-            // Bound retained diagnostic metadata independently of advertised world height.
-            const MAX_DIMENSION_DIAGNOSTICS: usize = 64;
-            WorldEvent::DimensionHeights(
-                packet
-                    .definitions
-                    .into_iter()
-                    .take(MAX_DIMENSION_DIAGNOSTICS)
-                    .map(|entry| DimensionHeightDiagnostic {
-                        dimension: entry.value.dimension_type.value,
-                        minimum_y: entry.value.minimum_y,
-                        height_range: entry.value.height_range,
-                    })
-                    .collect(),
-            )
-        }
+        McpePacketData::DimensionDataPacket(packet) => WorldEvent::DimensionHeights(
+            packet
+                .definitions
+                .into_iter()
+                .take(MAX_DIMENSION_DEFINITIONS)
+                .map(|entry| DimensionHeightDiagnostic {
+                    name: Arc::from(entry.key),
+                    dimension: entry.value.dimension_type.value,
+                    minimum_y: entry.value.minimum_y,
+                    height_range: entry.value.height_range,
+                    generator: diagnostics::dimension_generator_id(entry.value.generator_type),
+                })
+                .collect(),
+        ),
         packet @ (McpePacketData::UpdateBlockPacket(_)
         | McpePacketData::UpdateBlockSyncedPacket(_)
         | McpePacketData::UpdateSubChunkBlocksPacket(_)) => {
@@ -750,12 +751,7 @@ pub fn into_world_event(
             })
         }
         McpePacketData::ChangeDimensionPacket(packet) => {
-            WorldEvent::ChangeDimension(ChangeDimensionEvent {
-                dimension: packet.dimension_id.value,
-                position: [packet.position.x, packet.position.y, packet.position.z],
-                respawn: packet.respawn,
-                loading_screen_id: packet.loading_screen_id,
-            })
+            WorldEvent::ChangeDimension(dimension::normalize_change_dimension(&packet))
         }
         McpePacketData::PlayerActionPacket(action) => {
             return Ok(crate::dimension::normalize_ack(
@@ -764,19 +760,9 @@ pub fn into_world_event(
                 packet.header.to_subclient,
             ));
         }
-        McpePacketData::RespawnPacket(packet) => WorldEvent::Respawn(RespawnEvent {
-            position: [packet.position.x, packet.position.y, packet.position.z],
-            // The state byte is typed now; gophertunnel packet/respawn.go pins
-            // SearchingForSpawn=0, ReadyToSpawn=1, ClientReadyToSpawn=2, and
-            // this event deliberately keeps the raw wire value.
-            state: match packet.state {
-                RespawnPacketState::Searchingforspawn => 0,
-                RespawnPacketState::Readytospawn => 1,
-                RespawnPacketState::Clientreadytospawn => 2,
-                RespawnPacketState::Unknown(value) => value,
-            },
-            runtime_entity_id: packet.player_runtime_id.actor_runtime_id,
-        }),
+        McpePacketData::RespawnPacket(packet) => {
+            WorldEvent::Respawn(dimension::normalize_respawn(&packet))
+        }
         McpePacketData::MovePlayerPacket(packet) => {
             for (field, value) in [
                 ("position x", packet.position.x),

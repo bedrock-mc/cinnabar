@@ -1,7 +1,5 @@
 //! Culled solid cube runs must rasterise exactly the pixels of the two-sided discard path.
-#[path = "../../src/chunk/constants.rs"]
-#[allow(dead_code, reason = "reuse the production quad index order")]
-mod chunk_constants;
+use crate::chunk_constants;
 use crate::gpu_snapshot;
 use crate::material_shader;
 use crate::shader_source;

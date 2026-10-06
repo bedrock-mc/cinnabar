@@ -105,6 +105,14 @@ impl WorldStream {
         self.authority.set_custom_block_ids(ids);
     }
 
+    /// Installs session block state identities before terrain admission or visual pack compilation.
+    pub fn set_custom_block_identities(
+        &mut self,
+        definitions: &client_world::ingestion::CustomBlocks,
+    ) {
+        self.authority.set_custom_block_identities(definitions);
+    }
+
     /// Translates sequential wire ids when custom blocks sort among vanilla names.
     pub fn set_sequential_id_remap(&mut self, remap: assets::SequentialIdRemap) {
         self.authority.set_sequential_id_remap(remap);

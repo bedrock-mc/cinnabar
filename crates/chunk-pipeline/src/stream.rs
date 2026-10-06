@@ -17,11 +17,12 @@ use ::meshing::{
 use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
 };
+#[cfg(test)]
+use client_world::ingestion::vanilla_dimension_range;
 use client_world::ingestion::{
     BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange, LevelChunkEvent,
     LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent,
     SyncedBlockUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
-    vanilla_dimension_range,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use thiserror::Error;
@@ -338,6 +339,8 @@ pub struct WorldStream {
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
     frame_deadline: Option<Instant>,
+    /// Per-frame ingress, commit and scheduling allocation.
+    poll_budget: Duration,
     polling: bool,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,

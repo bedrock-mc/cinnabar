@@ -76,7 +76,9 @@ impl WorldStream {
                 // admission.
                 self.record_required_level_chunk(&event);
                 self.record_column_arrival(key, Instant::now());
-                let range = vanilla_dimension_range(event.dimension)
+                let range = self
+                    .authority
+                    .dimension_range(event.dimension)
                     .expect("inline events are range-checked before decode");
                 let stored_keys = decoded
                     .sub_chunks()
@@ -332,7 +334,7 @@ impl WorldStream {
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
-                if !block_entity_y_is_valid(key.dimension, key.y) {
+                if !block_entity_y_is_valid(self.authority.dimension_range(key.dimension), key.y) {
                     self.record_normalization_error(
                         NormalizationErrorReason::InvalidBlockEntityPosition,
                     );
@@ -374,7 +376,7 @@ impl WorldStream {
                 unreachable!("LevelChunk packets are prepared on workers")
             }
             WorldEvent::ChunkResync(event) => {
-                let Some(range) = vanilla_dimension_range(event.dimension) else {
+                let Some(range) = self.authority.dimension_range(event.dimension) else {
                     if let Some(sequence) = sequence {
                         self.cancel_request_reservation(sequence);
                     }
@@ -601,7 +603,7 @@ impl WorldStream {
             self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
             return;
         }
-        let Some(range) = vanilla_dimension_range(event.dimension) else {
+        let Some(range) = self.authority.dimension_range(event.dimension) else {
             self.record_normalization_error(
                 NormalizationErrorReason::UnsupportedLevelChunkDimension,
             );

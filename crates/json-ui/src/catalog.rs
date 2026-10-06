@@ -267,11 +267,22 @@ impl Catalog {
         self.defs.get(namespace)?.get(name)
     }
 
+    /// Every top-level definition; nested instances belong to its child list.
+    pub fn controls(&self) -> impl Iterator<Item = &RawControl> {
+        self.defs.values().flat_map(|table| table.values())
+    }
+
+    /// Mutable definition bodies for an application-owned presentation policy.
+    pub fn controls_mut(&mut self) -> impl Iterator<Item = &mut RawControl> {
+        self.defs.values_mut().flat_map(|table| table.values_mut())
+    }
+
     pub(crate) fn lookup_mut(&mut self, namespace: &str, name: &str) -> Option<&mut RawControl> {
         self.defs.get_mut(namespace)?.get_mut(name)
     }
 
-    pub(crate) fn insert(&mut self, control: RawControl) {
+    /// Replace a complete definition, including its inherited template and children.
+    pub fn insert(&mut self, control: RawControl) {
         self.defs
             .entry(control.owner_ns.clone())
             .or_default()

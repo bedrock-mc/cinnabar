@@ -198,7 +198,7 @@ impl TransparentSortRuntime {
         mut build: impl FnMut(
             &TransparentAllocationIdentity,
         ) -> Result<TransparentGroupInput, TransparentSortError>,
-    ) -> Result<(Arc<[Arc<TransparentGroupInput>]>, usize), TransparentSortError> {
+    ) -> Result<(TransparentGroups, usize), TransparentSortError> {
         let address_identity = key.address_identity();
         if let Some(cache) = self
             .candidate_cache

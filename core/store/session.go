@@ -13,8 +13,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
-// Open returns a Client on the account's shared PlayFab session and service token; the account owns
-// both, so closing the Client releases nothing.
+// Open returns a Client on the account's shared service token; the account owns it, so closing the
+// Client releases nothing.
 func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 	if account == nil {
 		return nil, errors.New("store: no signed-in account")
@@ -45,15 +45,7 @@ func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: resolve authorization service: %w", err)
 	}
-	pf, err := account.PlayFab(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
-	}
-	return NewClient(Config{
-		Market:   market,
-		Catalog:  pf.Catalog(),
-		Identity: Identity{XUID: xuid, TitleID: string(env.PlayFabTitleID)},
-	})
+	return NewClient(Config{Market: market, Identity: Identity{XUID: xuid, TitleID: string(env.PlayFabTitleID)}})
 }
 
 // Session opens its Client on first use and serves every store call from it.

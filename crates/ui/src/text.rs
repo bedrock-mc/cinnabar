@@ -36,6 +36,8 @@ pub const TEXT_LINE_HEIGHT_64: u32 = (FONT_INK_TEXELS + FONT_DESIGN_PIXEL_TEXELS
 pub const TEXT_BASELINE_64: u32 = FONT_ASCENT_TEXELS * 64;
 /// Mojang offsets the shadow by exactly one design pixel on both axes.
 pub const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
+/// One design pixel for bold measurement and the compiled open-font duplicate.
+pub const TEXT_BOLD_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
 
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const REPLACEMENT_CODEPOINT: char = '\u{fffd}';

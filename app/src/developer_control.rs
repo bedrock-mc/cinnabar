@@ -1,9 +1,11 @@
 //! Bevy glue for the developer control endpoint: drains authenticated commands each frame
 //! and applies them through the same seams real input, chat and joins use.
 
+mod actors;
 mod camera;
 mod capture;
 mod input;
+mod scoreboards;
 mod state;
 
 use std::path::PathBuf;

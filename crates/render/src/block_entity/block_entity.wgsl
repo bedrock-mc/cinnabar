@@ -45,6 +45,60 @@ fn block_entity_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput
     return out;
 }
 
+struct SelectionLineOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+}
+
+const SELECTION_STROKE_PIXELS: f32 = 2.0;
+
+fn selection_endpoint(index: u32) -> vec4<f32> {
+    let base = index * BLOCK_ENTITY_VERTEX_WORDS;
+    let world = vec3(vertex_f32(base), vertex_f32(base + 1u), vertex_f32(base + 2u));
+    var clip = view.clip_from_world * vec4(world, 1.0);
+    clip.z += 0.00005;
+    return clip;
+}
+
+@vertex
+fn selection_line_vertex(@builtin(vertex_index) vertex_index: u32) -> SelectionLineOutput {
+    let first = vertex_index / BLOCK_SELECTION_VERTICES_PER_EDGE * 2u;
+    var a = selection_endpoint(first);
+    var b = selection_endpoint(first + 1u);
+    // Clip the centerline before dividing by w, including a camera inside the box.
+    let da = a.w - a.z;
+    let db = b.w - b.z;
+    var out: SelectionLineOutput;
+    if (da < 0.0 && db < 0.0) {
+        out.position = vec4(0.0, 0.0, -1.0, 1.0);
+        out.color = vec4(0.0);
+        return out;
+    }
+    if (da < 0.0) { a = mix(a, b, da / (da - db)); }
+    else if (db < 0.0) { b = mix(b, a, db / (db - da)); }
+    let direction = (b.xy / b.w - a.xy / a.w) * view.viewport.zw;
+    let length_squared = dot(direction, direction);
+    if (length_squared < 0.000001) {
+        out.position = vec4(0.0, 0.0, -1.0, 1.0);
+        out.color = vec4(0.0);
+        return out;
+    }
+    let perpendicular = vec2(-direction.y, direction.x) * inverseSqrt(length_squared);
+    let corner = array(0u, 1u, 2u, 0u, 2u, 3u)[vertex_index % BLOCK_SELECTION_VERTICES_PER_EDGE];
+    var endpoint = select(a, b, corner == 1u || corner == 2u);
+    let sign = select(-1.0, 1.0, corner >= 2u);
+    endpoint = vec4(endpoint.xy + perpendicular * sign * SELECTION_STROKE_PIXELS / view.viewport.zw * endpoint.w, endpoint.zw);
+    out.position = endpoint;
+    let base = first * BLOCK_ENTITY_VERTEX_WORDS;
+    out.color = vec4(vertex_f32(base + 5u), vertex_f32(base + 6u), vertex_f32(base + 7u), vertex_f32(base + 8u));
+    return out;
+}
+
+@fragment
+fn selection_line_fragment(input: SelectionLineOutput) -> @location(0) vec4<f32> {
+    return input.color;
+}
+
 @fragment
 fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
     let texel = textureSample(atlas, atlas_sampler, input.uv);

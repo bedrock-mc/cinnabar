@@ -94,6 +94,13 @@ fn player() -> PlayerRuntime {
 
 /// Issues the same synchronous armor gesture as the UI, without a server response.
 fn command(mut player: ResMut<PlayerRuntime>) {
+    player.facts.apply_local_movement_flags(
+        1,
+        client_world::MovementFlagUpdate {
+            immobile: Some(true),
+            ..Default::default()
+        },
+    );
     player
         .inventory
         .ledger_mut()
@@ -131,6 +138,7 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
     let before = read(Some(&player), &GameplayWorldView(&stream), false);
     assert_eq!(before.depth_strider, 3);
     assert!(!before.sprint_blocked);
+    assert!(!before.immobile);
     assert!(before.swim_hunger_blocked);
     let mut app = App::new();
     app.insert_resource(player)
@@ -153,6 +161,7 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
     let after = app.world().resource::<Observed>().0.unwrap();
     assert_eq!(after.depth_strider, 0);
     assert!(after.sprint_blocked);
+    assert!(after.immobile);
     assert!(after.swim_hunger_blocked);
     assert!(
         app.world()

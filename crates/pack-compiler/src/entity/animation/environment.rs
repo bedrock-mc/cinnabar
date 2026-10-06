@@ -5,7 +5,7 @@ use std::{
 
 use assets::{
     AssetError, EntityAssetKind, EntityAssetSource, EntityAssetSymbol, EntityGeometry,
-    MAX_MOLANG_COLLECTION_ITEMS, validate_entity_geometry_inheritance,
+    validate_entity_geometry_inheritance,
 };
 use serde_json::{Map, Value};
 
@@ -173,14 +173,6 @@ pub(super) fn compile_geometry_selections(
                         )
                     })
                     .collect();
-                if arrays
-                    .values()
-                    .any(|members| members.len() > MAX_MOLANG_COLLECTION_ITEMS)
-                {
-                    // Too many members to select between: keep the default geometry.
-                    selections.insert(key, GeometrySelection::Unsupported);
-                    continue;
-                }
                 let resolve = |alias: &str| {
                     let identifier = environment
                         .geometry_aliases

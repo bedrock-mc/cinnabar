@@ -24,6 +24,28 @@ fn long_authored_scripts_compile_as_one_program_with_ordered_assignments() {
     );
 }
 
+#[test]
+fn server_pre_animation_retains_visibility_after_optional_item_and_property_branches() {
+    let mut compiler = MolangCompiler::default();
+    let entries = [
+        "v.near = q.camera_distance_range_lerp(2, 6);",
+        "v.spear ? { t.rate = 1 / q.base_swing_duration; };",
+        "v.wardrobe ? { v.hat = q.has_property('custom:hat') ? q.property('custom:hat') : 0; v.hat = v.hat && !q.has_armor_slot(0); };",
+        "v.visible = q.mark_variant != 255;",
+    ];
+    let (expression, dropped) = compiler.compile_script(&entries).unwrap();
+    assert_eq!(dropped, 0);
+    let payload = compiler.finish().unwrap();
+    let expression = &payload.expressions[expression.expect("complete script retained") as usize];
+    let visible = payload
+        .symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "variable.visible")
+        .unwrap() as u32;
+    let program = &payload.ops[expression.first_op as usize..][..usize::from(expression.op_count)];
+    assert!(program.contains(&MolangOp::StoreVariable(visible)));
+}
+
 fn constant(source: &str) -> f32 {
     MolangCompiler::evaluate_default(source).unwrap_or_else(|| panic!("{source} folds"))
 }
@@ -204,7 +226,7 @@ fn malformed_script_shapes_drop_the_whole_script_for_entities_and_controllers_al
     assert!(script.is_some() && dropped == 0);
 }
 
-// Block contexts read only `query.block_state`; strings compare, booleans read as numbers.
+// Block contexts compare strings and read integer/boolean states as numbers.
 #[test]
 fn block_expressions_read_block_states() {
     let state = |name: &str| match name {
@@ -233,6 +255,32 @@ fn block_expressions_read_block_states() {
     );
     assert_eq!(evaluate("q.is_baby"), None, "other queries do not parse");
     assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+}
+
+#[test]
+fn block_property_alias_reads_the_same_named_state() {
+    let state = |name: &str| match name {
+        "custom:facing_direction" => Some(BlockStateValue::Number(2.0)),
+        "minecraft:cardinal_direction" => Some(BlockStateValue::String("west")),
+        _ => None,
+    };
+    for query in [
+        "q.block_property",
+        "query.block_property",
+        "q.block_state",
+        "query.block_state",
+    ] {
+        for (suffix, expected) in [
+            ("('custom:facing_direction') == 2", Some(1.0)),
+            ("('custom:facing_direction') == 1", Some(0.0)),
+            ("('minecraft:cardinal_direction') == 'west'", Some(1.0)),
+            ("('custom:missing')", None),
+        ] {
+            let source = format!("{query}{suffix}");
+            let expression = BlockMolang::parse(&source).expect("block-state query alias");
+            assert_eq!(expression.evaluate(&state), expected, "{source}");
+        }
+    }
 }
 
 // A server-sent flat operator chain cannot exhaust the stack that walks its tree.

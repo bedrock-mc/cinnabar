@@ -9,6 +9,7 @@ mod block_highlights;
 mod chunk;
 mod chunk_grid;
 mod collision_revision;
+mod dimension;
 mod error;
 mod light;
 mod light_solver;
@@ -30,6 +31,7 @@ pub use block_entity::{
 pub use block_highlights::BlockHighlightScan;
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};
 pub use chunk_grid::{CHUNK_VIEW_SLACK, chunk_in_view, chunk_view_distance};
+pub use dimension::dimension_loading_fallback_y;
 pub use error::{CollisionRevisionError, DecodeError, MutationError};
 pub use light::{
     LIGHT_SAMPLES_PER_SUB_CHUNK, LightChannel, LightNibbleStorage, LightStorageError, LightStore,

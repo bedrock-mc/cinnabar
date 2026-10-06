@@ -254,6 +254,20 @@ fn every_supplemental_binding_survives_reload_and_individual_reset() {
 }
 
 #[test]
+fn untouched_and_legacy_options_keep_block_outline_selection() {
+    assert!(
+        SettingsOptions::default()
+            .user_settings()
+            .video
+            .outline_selection
+    );
+    for saved in [b"{}".as_slice(), br#"{"values":{"gamma":40}}"#.as_slice()] {
+        let restored = SettingsOptions::decode(saved).unwrap();
+        assert!(restored.user_settings().video.outline_selection);
+    }
+}
+
+#[test]
 fn outline_selection_reaches_render_settings_after_persistence() {
     let mut settings = SettingsOptions::default();
     for enabled in [true, false] {

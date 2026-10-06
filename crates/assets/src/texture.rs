@@ -46,7 +46,7 @@ pub fn build_texture_mip_chain(
     } else {
         BTreeSet::new()
     };
-    let texture = build_texture_array(&[base], tile_size, &cutout_layers, &BTreeSet::new())?;
+    let texture = build_texture_array(&[base], tile_size, &cutout_layers)?;
     Ok(texture.mips)
 }
 
@@ -54,7 +54,6 @@ fn build_texture_array(
     base_layers: &[Box<[u8]>],
     tile_size: u32,
     cutout_layers: &BTreeSet<u32>,
-    overlay_mask_layers: &BTreeSet<u32>,
 ) -> Result<TextureArray, AssetError> {
     if !tile_size.is_power_of_two() || tile_size > MAX_TILE_SIZE {
         return Err(invalid(format!(
@@ -79,15 +78,6 @@ fn build_texture_array(
     {
         return Err(invalid(format!(
             "cutout layer {layer} is outside {} base layers",
-            base_layers.len()
-        )));
-    }
-    if let Some(&layer) = overlay_mask_layers
-        .iter()
-        .find(|&&layer| layer as usize >= base_layers.len())
-    {
-        return Err(invalid(format!(
-            "overlay-mask layer {layer} is outside {} base layers",
             base_layers.len()
         )));
     }
@@ -141,15 +131,7 @@ fn build_texture_array(
         let target_size = size / 2;
         per_layer = per_layer
             .iter()
-            .enumerate()
-            .map(|(layer, pixels)| {
-                let layer = u32::try_from(layer).expect("texture layer count is bounded");
-                if overlay_mask_layers.contains(&layer) {
-                    downsample_linear_unassociated(pixels, size)
-                } else {
-                    downsample_linear_premultiplied(pixels, size)
-                }
-            })
+            .map(|pixels| downsample_linear_premultiplied(pixels, size))
             .collect();
         size = target_size;
     }
@@ -278,33 +260,6 @@ pub fn downsample_linear_premultiplied(source: &[u8], source_size: u32) -> Box<[
     target.into_boxed_slice()
 }
 
-fn downsample_linear_unassociated(source: &[u8], source_size: u32) -> Box<[u8]> {
-    let target_size = source_size / 2;
-    let mut target = Vec::with_capacity((target_size * target_size * 4) as usize);
-    for y in 0..target_size {
-        for x in 0..target_size {
-            let mut linear_sum = [0.0_f32; 3];
-            let mut alpha_sum = 0.0_f32;
-            for offset_y in 0..2 {
-                for offset_x in 0..2 {
-                    let source_x = x * 2 + offset_x;
-                    let source_y = y * 2 + offset_y;
-                    let offset = ((source_y * source_size + source_x) * 4) as usize;
-                    alpha_sum += f32::from(source[offset + 3]) / 255.0;
-                    for channel in 0..3 {
-                        linear_sum[channel] += srgb_to_linear(source[offset + channel]);
-                    }
-                }
-            }
-            for value in linear_sum {
-                target.push(linear_to_srgb(value / 4.0));
-            }
-            target.push(float_to_byte(alpha_sum / 4.0));
-        }
-    }
-    target.into_boxed_slice()
-}
-
 fn srgb_to_linear(value: u8) -> f32 {
     let value = f32::from(value) / 255.0;
     if value <= 0.040_45 {
@@ -346,10 +301,7 @@ mod tests {
         assert!(super::COVERAGE_PIXEL_VISITS.with(|visits| visits.get()) <= 4096 * 256);
     }
 
-    use super::{
-        ALPHA_TEST_THRESHOLD, build_texture_mip_chain, downsample_linear_premultiplied,
-        downsample_linear_unassociated,
-    };
+    use super::{ALPHA_TEST_THRESHOLD, build_texture_mip_chain, downsample_linear_premultiplied};
 
     // Coverage targets scale with the base size, so larger cutout tiles keep their share.
     #[test]
@@ -378,19 +330,5 @@ mod tests {
             downsample_linear_premultiplied(&source, 2).as_ref(),
             [255, 0, 0, 64]
         );
-    }
-
-    #[test]
-    fn tint_mask_mips_preserve_rgb_where_alpha_is_zero() {
-        let source = [
-            100, 50, 25, 0, 100, 50, 25, 0, 200, 200, 200, 255, 200, 200, 200, 255,
-        ];
-
-        let mip = downsample_linear_unassociated(&source, 2);
-        assert!(
-            mip[0] > 100,
-            "both base and overlay RGB contribute to the mip"
-        );
-        assert_eq!(mip[3], 128, "alpha remains only the overlay weight");
     }
 }

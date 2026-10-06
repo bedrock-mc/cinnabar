@@ -47,6 +47,7 @@ impl ActorAnimationStore {
         actor: &ActorSnapshot,
         partial_tick: f32,
         camera_rotation: [f32; 2],
+        camera_position: [f32; 3],
         remaining_ops: &mut usize,
     ) -> Option<Cow<'_, [RenderTextureLayer]>> {
         let lifetime = self.runtime_to_lifetime.get(&actor.runtime_id)?;
@@ -69,9 +70,13 @@ impl ActorAnimationStore {
         } else {
             (self.assets.as_deref()?, self.layout.as_ref())
         };
+        let pose_inputs_changed = camera_rotation != frame.context.camera_rotation
+            || camera_position != frame.context.camera_position
+            || partial_tick != frame.context.frame_alpha;
         let mut context = frame.context.clone();
         context.frame_alpha = partial_tick;
         context.camera_rotation = camera_rotation;
+        context.camera_position = camera_position;
         let evaluator = evaluation::Evaluator {
             assets,
             layout,
@@ -102,7 +107,7 @@ impl ActorAnimationStore {
         {
             return Some(completed());
         }
-        let pose = if state.samples_camera_poses {
+        let pose = if state.samples_camera_poses && pose_inputs_changed {
             let Ok(local) = pose::sample_clips(
                 &evaluator,
                 &mut variables,
@@ -136,26 +141,47 @@ impl ActorAnimationStore {
         ) else {
             return Some(completed());
         };
+        let mut sampled_geometries = BTreeMap::new();
         for layer in &mut layers {
-            if let Some(pose) = &pose
-                && layer.geometry.is_none()
-            {
-                layer.previous_pose = Arc::clone(pose);
-                layer.pose = Arc::clone(pose);
-                continue;
-            }
             let previous = state
                 .render
                 .iter()
                 .find(|previous| previous.geometry == layer.geometry);
-            if let Some(previous) = previous {
+            let sampled = match (&pose, layer.geometry) {
+                (Some(pose), None) => Some(Arc::clone(pose)),
+                (Some(_), Some(geometry)) => {
+                    if let std::collections::btree_map::Entry::Vacant(entry) =
+                        sampled_geometries.entry(geometry)
+                    {
+                        let Ok(pose) = render::sample_layer_pose(
+                            &evaluator,
+                            &variables,
+                            &state.layer_skeletons,
+                            &frame.clips,
+                            geometry,
+                            &mut budget,
+                        ) else {
+                            return Some(completed());
+                        };
+                        entry.insert(pose);
+                    }
+                    sampled_geometries.get(&geometry).map(Arc::clone)
+                }
+                (None, _) => None,
+            };
+            if let Some(pose) = sampled {
+                layer.previous_pose = Arc::clone(&pose);
+                layer.pose = pose;
+            } else if let Some(previous) = previous {
                 layer.previous_pose = Arc::clone(&previous.previous_pose);
                 layer.pose = Arc::clone(&previous.pose);
-                if previous.hidden_bones == layer.hidden_bones {
-                    layer.hidden_bones = Arc::clone(&previous.hidden_bones);
-                }
             } else if layer.geometry.is_some() {
                 return Some(completed());
+            }
+            if let Some(previous) = previous
+                && previous.hidden_bones == layer.hidden_bones
+            {
+                layer.hidden_bones = Arc::clone(&previous.hidden_bones);
             }
         }
         Some(Cow::Owned(layers))
@@ -171,6 +197,7 @@ pub(super) fn needs_frame_sampling(assets: &RuntimeEntityAssets, binding: usize)
     let data = assets.render_data();
     for layer in assets.render_layers(binding) {
         expressions.extend(layer.condition);
+        expressions.extend(layer.light_color_multiplier);
         for channels in [
             layer.color,
             layer.overlay_color,
@@ -245,3 +272,6 @@ pub(in crate::actor_animation) mod tests;
 
 #[cfg(test)]
 mod orb_tests;
+
+#[cfg(test)]
+mod camera_tests;

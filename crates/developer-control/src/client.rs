@@ -65,7 +65,7 @@ impl Controller {
                 return Err(error);
             }
         };
-        if reply_id != Value::from(id) {
+        if reply_id != id {
             self.broken = true;
             return Err(format!("reply id {reply_id} does not match request {id}"));
         }

@@ -45,8 +45,7 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
         change: protocol::ChangeDimensionEvent {
             dimension: 1,
             position,
-            respawn: false,
-            loading_screen_id: None,
+            ..Default::default()
         },
         resolved: ResolvedServerPosition {
             position,
@@ -61,7 +60,7 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
         speed: &mut speed,
         session_generation: 7,
         dimension: 1,
-        dimension_transfer_active: false,
+        dimension_transfer_active: true,
     }
     .apply(control, &NoQueries, |observation| {
         observations.push(observation)
@@ -79,6 +78,7 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
     assert_eq!(physics.network_position(), Some(position));
     assert_eq!(movement.completed_tick(), 100);
     assert!(movement.physics_is_authorized());
+    assert!(movement.can_advance_physics_frame());
 }
 
 #[test]

@@ -46,7 +46,7 @@ Keep comments to one or two lines that say what the code can't. Never restate si
 
 ## Branches and landing
 
-`dev` is the default and release branch; releases are tagged from it. Land work through a PR into `dev`: compile the crates you touched (`cargo check --tests -p …`), push, and open the PR straight away. CI's full matrix and code review run in parallel on it and are the gate; fix what they report in new commits, and merge once review is clean and CI is green. Don't repeat CI locally: no clippy, nextest or `verify-affected` ladders for PR work, and never full-workspace sweeps. A direct push to `dev` has no PR CI, so run `cargo run -p devtool --locked -- verify-affected --base origin/dev` once before it. A scheduled CI job tests `dev` every 30 minutes, and the pusher fixes a red result immediately.
+`dev` is the default and release branch; releases are tagged from it. Land work through a PR into `dev`: compile the crates you touched (`cargo check --tests -p …`), push, and open the PR straight away. PR CI (a Linux gate plus a Windows/macOS platform subset, aggregated as `ci-ok`) and code review run in parallel on it and are the gate; fix what they report in new commits, and merge once review is clean and CI is green. Don't repeat CI locally: no clippy, nextest or `verify-affected` ladders for PR work, and never full-workspace sweeps. A direct push to `dev` has no PR CI, so run `cargo run -p devtool --locked -- verify-affected --base origin/dev` once before it. Scheduled CI runs the full three-OS matrix on `dev` (cache warm-up hourly, full runs every 6 hours), and the pusher fixes a red result immediately.
 
 ## Parallel work: minimise bottlenecks
 

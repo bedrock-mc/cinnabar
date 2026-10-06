@@ -528,12 +528,7 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         None => Some(view.feeds.selected_featured.unwrap_or(0)),
     };
     let selected = shown
-        .and_then(|index| {
-            view.featured
-                .iter()
-                .chain(view.gatherings.iter())
-                .nth(index)
-        })
+        .and_then(|index| view.featured.get(index))
         .and_then(|server| view.feeds.details.get(&server.address));
     let portraits = std::iter::once(view.feeds.profile.picture_path.clone())
         .chain(
@@ -550,7 +545,6 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
     let thumbnails = view
         .featured
         .iter()
-        .chain(view.gatherings.iter())
         .map(|server| (server.image_path.clone(), THUMBNAIL_SIDE));
     let full = home_art(&view.feeds.home)
         .into_iter()
@@ -559,10 +553,8 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
             view.feeds.profile.featured_screenshot_path.clone(),
         ))
         .chain(selected.into_iter().flat_map(|details| {
-            details
-                .screenshots
-                .iter()
-                .cloned()
+            std::iter::once(details.banner.clone())
+                .chain(details.screenshots.iter().cloned())
                 .chain(details.games.iter().map(|game| game.image_path.clone()))
         }))
         .map(|path| (path, MAX_ARTWORK_SIDE));
@@ -586,8 +578,10 @@ fn store_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
     let Some(store) = view.store.as_deref() else {
         return Vec::new();
     };
-    store
-        .image_paths()
+    let mut paths = store.image_paths();
+    // Feature art packs first: where a large image lands on the shelves decides how much else fits.
+    paths.sort_by_key(|(_, art)| *art != launcher::store::StoreArt::Feature);
+    paths
         .into_iter()
         .map(|(path, art)| {
             let side = match art {
@@ -641,6 +635,9 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
     }
     paths
 }
+
+#[cfg(test)]
+mod store_tests;
 
 #[cfg(test)]
 mod tests {
@@ -776,74 +773,6 @@ mod tests {
             }
         }
         std::fs::remove_file(path).unwrap();
-    }
-
-    // Store thumbnails decoded at 512 packed about six to the two art pages; the rest drew white.
-    #[test]
-    fn a_full_store_page_packs_every_card_thumbnail() {
-        let dir = std::env::temp_dir().join(format!("cinnabar-store-art-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut jpeg = Vec::new();
-        image::RgbImage::from_pixel(800, 450, image::Rgb([30, 140, 90]))
-            .write_to(&mut Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
-            .unwrap();
-        let mut images = HashMap::new();
-        let offers: Vec<_> = (0..launcher::store::snapshot::MAX_VISIBLE_IMAGES)
-            .map(|index| {
-                let path = dir.join(format!("{index}.jpg"));
-                std::fs::write(&path, &jpeg).unwrap();
-                let url = format!("https://cdn.example.test/{index}.jpg");
-                images.insert(url.clone(), path.to_string_lossy().into_owned());
-                protocol::store_control::StoreOffer {
-                    id: index.to_string(),
-                    title: index.to_string(),
-                    creator: None,
-                    content_type: None,
-                    thumbnail_url: Some(url),
-                    store_id: None,
-                    prices: vec![],
-                    rating: None,
-                    tags: vec![],
-                    owned: false,
-                }
-            })
-            .collect();
-        let mut view = crate::menu::MenuView::new(true, "Fixture Player".into());
-        view.screen = crate::menu::MenuScreen::Store;
-        view.store = Some(Arc::new(crate::store::StoreSnapshot {
-            rows: vec![launcher::store::DisplayRow {
-                id: None,
-                title: String::new(),
-                role: "StoreRow",
-                offers,
-                continuation: None,
-            }],
-            images,
-            ..crate::store::StoreSnapshot::empty()
-        }));
-        let set = ArtworkSet {
-            paths: view_paths(&view),
-            ..Default::default()
-        };
-        assert_eq!(
-            set.paths.len(),
-            launcher::store::snapshot::MAX_VISIBLE_IMAGES
-        );
-        let mut cache = DecodeCache::default();
-        cache.decode(&cache.missing(&set), &set);
-        let packed = pack(&set, &cache, 0, true);
-        let missing: Vec<_> = set
-            .paths
-            .iter()
-            .filter(|(path, _)| !packed.refs.contains_key(path))
-            .collect();
-        std::fs::remove_dir_all(dir).unwrap();
-        assert!(
-            missing.is_empty(),
-            "{} of {} thumbnails left out",
-            missing.len(),
-            set.paths.len()
-        );
     }
 
     /// Encodes a solid test image without any external assets.

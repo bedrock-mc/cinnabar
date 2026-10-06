@@ -19,8 +19,11 @@ pub(super) struct StateVisual {
 pub(super) struct BlockExpressions {
     conditions: Box<[Option<BlockMolang>]>,
     /// Bone visibility of each component set: the base, then each permutation.
-    bones: Box<[Box<[(Arc<str>, Option<BlockMolang>)]>]>,
+    bones: Box<[Box<[BoneVisibility]>]>,
 }
+
+/// A bone and the condition that shows it; `None` always shows it.
+type BoneVisibility = (Arc<str>, Option<BlockMolang>);
 
 impl BlockExpressions {
     pub(super) fn new(block: &CustomBlock) -> Self {

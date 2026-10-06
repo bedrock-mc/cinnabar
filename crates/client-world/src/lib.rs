@@ -18,20 +18,21 @@ pub use action::{
 };
 pub use actor_animation::{
     ACTOR_SWING_TICKS, ACTOR_TICK_DURATION, ActorAnimationStats, ActorAnimationVariables,
-    ActorAnimationView, ActorLifetimeId, ActorRenderFrame, ActorRigSnapshot,
-    AttachableAnimationInput, AttachableRigSnapshot, AttachablesRuntime, BoneTransform,
-    EntityRigId, HandPhase, ItemAnimationState, MAX_ACTOR_ACTION_HISTORY,
+    ActorAnimationView, ActorLifetimeId, ActorParticleController, ActorRenderFrame,
+    ActorRigSnapshot, AttachableAnimationInput, AttachableRigSnapshot, AttachablesRuntime,
+    BoneTransform, EntityRigId, HandPhase, ItemAnimationState, MAX_ACTOR_ACTION_HISTORY,
     MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
     MODEL_PART_ORIGIN_Y, RenderTextureLayer, SkinRenderLayer,
 };
 pub use actor_store::{
     ActorFluidProbe, ActorPickup, ActorPose, ActorShadowCaster, ActorSnapshot, ActorStatus,
-    ActorStatusNotice, BlockEntityCandidate, BlockEntityKind, BlockEntityView, CrystalBeamView,
-    DEATH_DURATION_TICKS, DragonDeathView, DroppedItemView, FIRE_FADE_TICKS, HURT_DURATION_TICKS,
-    HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
-    MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault,
-    RideSeat, RopeKind, RopeView, SeatDefaults, SeatRequirement, dropped_item_copy_count,
+    ActorStatusNotice, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
+    BlockEntityCandidate, BlockEntityKind, BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS,
+    DragonDeathView, DroppedItemView, FIRE_FADE_TICKS, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA,
+    LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES,
+    MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault, RideSeat, RopeKind,
+    RopeView, SCALE_METADATA_KEY, SeatDefaults, SeatRequirement, dropped_item_copy_count,
     tnt_presentation,
 };
 pub use block_entity_visuals::{

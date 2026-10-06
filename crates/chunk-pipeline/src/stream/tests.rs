@@ -106,6 +106,7 @@ pub(super) mod allocation_count;
 mod block_cracks;
 mod column_residency;
 mod commit_budget;
+mod dimension_ranges;
 mod dimension_transfer;
 mod light_scheduler;
 mod local_retention;

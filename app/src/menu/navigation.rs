@@ -77,6 +77,11 @@ impl MenuRuntime {
             self.queue_local_action(LocalWorldAction::Back);
             return;
         }
+        // Back on the server trust question declines it.
+        if self.is_connecting() && self.feeds.server_trust.is_some() {
+            self.answer_server_trust(false);
+            return;
+        }
         // Back on the join progress screen is its cancel button, where vanilla offers one.
         if self.is_connecting() {
             self.intents.disconnect |= self.feeds.join.cancellable();

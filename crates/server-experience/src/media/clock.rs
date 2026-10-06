@@ -122,7 +122,7 @@ mod tests {
         let Correction::Rate(slow) = correction(1_100_000, 1_000_000) else {
             panic!("expected rate correction");
         };
-        assert!(slow < 1.0 && slow >= 0.995);
+        assert!((0.995..1.0).contains(&slow));
         assert_eq!(correction(0, 300_000), Correction::Seek(300_000));
     }
 }

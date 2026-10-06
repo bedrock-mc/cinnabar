@@ -3,9 +3,25 @@ use super::*;
 /// Camera queries affect presentation immediately without changing a clip's clock or state.
 pub(in crate::actor_animation) fn needs_camera_sampling(
     assets: &RuntimeEntityAssets,
+    rig_binding: usize,
     geometry_binding: usize,
     controllers: &[ControllerState],
 ) -> bool {
+    if assets.render_layers(rig_binding).iter().any(|layer| {
+        layer
+            .light_color_multiplier
+            .is_some_and(|expression| camera_expression(assets, expression as usize))
+    }) {
+        return true;
+    }
+    if assets
+        .rig_bindings()
+        .get(rig_binding)
+        .and_then(|rig| rig.pre_animation)
+        .is_some_and(|script| camera_expression(assets, script as usize))
+    {
+        return true;
+    }
     let Some(geometry) = assets.rig_geometries().get(geometry_binding) else {
         return false;
     };
@@ -93,7 +109,15 @@ fn camera_expression(assets: &RuntimeEntityAssets, index: usize) -> bool {
                 assets
                     .molang_symbols()
                     .get(symbol as usize)
-                    .is_some_and(|symbol| symbol.identifier.as_ref() == "query.camera_rotation")
+                    .is_some_and(|symbol| {
+                        matches!(
+                            symbol.identifier.as_ref(),
+                            "query.camera_distance_range_lerp"
+                                | "query.camera_rotation"
+                                | "query.distance_from_camera"
+                                | "query.rotation_to_camera"
+                        )
+                    })
             })
         })
 }

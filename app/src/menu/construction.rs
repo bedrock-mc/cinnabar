@@ -96,7 +96,6 @@ impl MenuRuntime {
             intents: SessionIntents::default(),
             session: SessionStatus::default(),
             featured: initial.featured,
-            gatherings: initial.gatherings,
             realms: initial.realms,
             friends: initial.friends,
             catalog_message: initial.catalog_message,

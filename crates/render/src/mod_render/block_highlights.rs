@@ -66,20 +66,20 @@ mod tests {
         assert!(vertices.iter().all(|v| v.anchor[3] == KIND_GROUND
             && v.color == PINK
             && v.style[0] == STYLE_BILLBOARD));
-        for axis in 0..3 {
+        for (axis, &low) in position.iter().enumerate() {
             assert_eq!(
                 vertices
                     .iter()
                     .map(|v| v.anchor[axis])
                     .fold(f32::INFINITY, f32::min),
-                position[axis] as f32
+                low as f32
             );
             assert_eq!(
                 vertices
                     .iter()
                     .map(|v| v.anchor[axis])
                     .fold(f32::NEG_INFINITY, f32::max),
-                position[axis] as f32 + 1.0
+                low as f32 + 1.0
             );
         }
     }

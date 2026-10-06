@@ -218,6 +218,12 @@ impl InstallLayout {
         self.user_data_root.join("auth/microsoft-token.json")
     }
 
+    /// The public keys of NetherNet servers the player trusted.
+    #[must_use]
+    pub fn server_trust_file(&self) -> PathBuf {
+        self.user_data_root.join("trusted_server_public_keys.json")
+    }
+
     /// The local vanilla resource pack (development checkouts carry it under
     /// `.local`); runtime fallbacks read images from it when present.
     #[must_use]

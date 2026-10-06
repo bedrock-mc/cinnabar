@@ -6,7 +6,7 @@ use std::{
 
 use bevy::prelude::Resource;
 
-use super::ActorDrawManifestEntry;
+use super::{ActorArtworkPageId, ActorDrawManifestEntry};
 
 #[path = "gpu/geometry.rs"]
 mod geometry;
@@ -209,7 +209,7 @@ struct PendingActorDraw {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ActorDrawSpan {
     pub material: u32,
-    pub page: u8,
+    pub page: ActorArtworkPageId,
     pub first: u32,
     pub count: u32,
     /// Vertices of the geometry every instance of the span draws.

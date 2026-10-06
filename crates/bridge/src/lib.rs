@@ -13,11 +13,11 @@ use std::path::Path;
 
 pub use account::{
     Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,
-    FeaturedGame, FeaturedServer, Friend, Gathering, Home, Inbox, LiveEvent, Message,
-    MessageButton, MessageEvent, MessageImage, Profile, ProfileAchievement, ProfileAchievements,
-    ProfileStatistics, Realm, ServerDisconnect, ServerPing, account_status, connect_target, home,
-    list_featured_servers, list_friends, list_gatherings, list_realms, ping_servers, poll_events,
-    profile, report_message_event, sign_out,
+    FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
+    MessageEvent, MessageImage, Profile, ProfileAchievement, ProfileAchievements,
+    ProfileStatistics, Realm, ServerDisconnect, ServerPing, ServerTrustPrompt, account_status,
+    answer_server_trust, connect_target, home, list_featured_servers, list_friends, list_realms,
+    ping_servers, poll_events, profile, report_message_event, sign_out,
 };
 pub use error::BridgeError;
 pub use framed::FramedStream;

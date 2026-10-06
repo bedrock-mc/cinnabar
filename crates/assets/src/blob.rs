@@ -474,7 +474,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     for template in &compiled.model_templates {
         if !model_template_flags_are_valid(template.flags)
             || template.quad_start as usize != expected_quad
-            || template.quad_count > 32
+            || template.quad_count as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_SNOW_LAYER && template.quad_count != 6)
@@ -571,7 +571,9 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     Ok(())
 }
 
-fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<bool>, AssetError> {
+pub(crate) fn compiled_compound_tails(
+    templates: &[crate::ModelTemplate],
+) -> Result<Vec<bool>, AssetError> {
     let mut tails = vec![false; templates.len()];
     for (index, template) in templates.iter().enumerate() {
         if template.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
@@ -591,10 +593,10 @@ fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<boo
             return Err(invalid("compound template head has no quads"));
         }
         let Some(tail) = templates.get(index + 1) else {
-            return Err(invalid("compound template pair is truncated"));
+            return Err(invalid("compound template chain is truncated"));
         };
-        if tail.flags != 0 {
-            return Err(invalid("compound continuation is not a plain template"));
+        if !matches!(tail.flags, 0 | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT) {
+            return Err(invalid("compound continuation has incompatible flags"));
         }
         if tail.quad_count == 0 {
             return Err(invalid("compound continuation has no quads"));

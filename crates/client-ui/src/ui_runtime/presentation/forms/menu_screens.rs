@@ -473,6 +473,34 @@ pub(super) fn dialog_model(
     (model, confirm)
 }
 
+/// Vanilla's first-join question for a NetherNet server reached over plain http, in the
+/// active language or vanilla's English.
+pub(super) fn server_trust_model(url: &str, translate: Translate<'_>) -> json_ui::FormModel {
+    let message = translated(
+        translate,
+        "permissions.servertrust.message",
+        "You are connecting to %1$s for the first time. Only trust servers you recognize.",
+    );
+    json_ui::FormModel::Modal(json_ui::ModalForm {
+        title: translated(
+            translate,
+            "permissions.servertrust.title",
+            "Trust this server?",
+        ),
+        body: message.replace("%1$s", url),
+        button1: translated(
+            translate,
+            "permissions.servertrust.button.trust",
+            "Trust and Join",
+        ),
+        button2: translated(
+            translate,
+            "permissions.servertrust.button.doNotTrust",
+            "Don't Trust",
+        ),
+    })
+}
+
 fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
     let title = if view.editing.is_some() {
         translated(translate, "addServer.title.edit", "Edit Server")

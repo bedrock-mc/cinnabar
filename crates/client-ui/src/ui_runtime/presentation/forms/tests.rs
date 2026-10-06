@@ -454,7 +454,7 @@ fn pause_texts() -> Option<Vec<String>> {
     screen_texts(&view)
 }
 
-fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
+pub(super) fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
     let carrier = super::pack_harness::carrier()?;
     let catalog = json_ui::Catalog::from_files(
         carrier
@@ -968,169 +968,75 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
     }
 }
 
-// Cards drew only their price: the title and creator cells and the row header hid behind unset visibility flags.
+// The join's trust question draws vanilla's modal popup over everything, and only its answers take
+// presses, even with a launcher dialog open beneath it.
 #[test]
-fn store_cards_draw_their_offer_titles() {
-    use protocol::store_control::{StoreOffer, StorePrice};
-    let offer = |id: &str, title: &str| StoreOffer {
-        id: id.into(),
-        title: title.into(),
-        creator: Some("Studio".into()),
-        content_type: None,
-        thumbnail_url: None,
-        store_id: None,
-        prices: vec![StorePrice {
-            currency: "mc".into(),
-            amount: 830,
-        }],
-        rating: None,
-        tags: vec![],
-        owned: false,
-    };
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
-        loading: false,
-        rows: vec![launcher::store::DisplayRow {
-            id: None,
-            title: "New".into(),
-            role: "StoreRow",
-            offers: vec![offer("a", "Castle Pack"), offer("b", "Pale Garden")],
-            continuation: None,
-        }],
-        ..crate::store::StoreSnapshot::empty()
-    }));
-    let Some(texts) = screen_texts(&view) else {
+fn server_trust_question_draws_the_vanilla_popup_and_owns_the_input() {
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping server_trust_question_draws_the_vanilla_popup_and_owns_the_input: missing local UI carrier; make assets"
+        );
         return;
     };
-    assert!(
-        texts.iter().any(|t| t.contains("830")),
-        "price drawn: {texts:?}"
-    );
-    for wanted in ["Castle Pack", "Studio", "New"] {
+    let player_runtime = player_state::PlayerState::new(1);
+    let mut view = crate::menu::MenuView::new(true, "Player".into());
+    view.connecting = true;
+    view.dialog = Some(crate::menu::MenuDialog::Exit);
+    view.feeds.server_trust = Some(crate::menu::ServerTrustPrompt {
+        id: 1,
+        url: "http://127.0.0.1:19132".into(),
+        from_session_core: false,
+    });
+    let actions = super::test_support::draw_menu_actions(&player_runtime, &mut presentation, &view);
+    let texts =
+        super::pack_harness::drawn_texts(super::pack_harness::menu_nodes(&presentation)).join(" ");
+    for expected in [
+        "Trust this server?",
+        "You are connecting to",
+        "http://127.0.0.1:19132",
+        "Trust and Join",
+        "Don't Trust",
+    ] {
         assert!(
-            texts.iter().any(|t| t == wanted),
-            "{wanted} drawn: {texts:?}"
+            texts.contains(expected),
+            "missing {expected:?} in {texts:?}"
         );
     }
-}
-
-// The offer page reads title, creator and description as globals; on its row item they never drew.
-#[test]
-fn store_offer_page_draws_its_title() {
-    use protocol::store_control::{StoreOffer, StoreOfferDetail, StorePrice};
-    let offer = StoreOffer {
-        id: "a".into(),
-        title: "Castle Pack".into(),
-        creator: Some("Studio".into()),
-        content_type: None,
-        thumbnail_url: None,
-        store_id: None,
-        prices: vec![StorePrice {
-            currency: "mc".into(),
-            amount: 830,
-        }],
-        rating: None,
-        tags: vec![],
-        owned: false,
-    };
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
-        loading: false,
-        view: launcher::store::StoreView::Detail,
-        detail: Some(StoreOfferDetail {
-            offer,
-            description: Some("A castle.".into()),
-            screenshot_urls: vec![],
-            display_version: None,
-            platforms: vec![],
-        }),
-        ..crate::store::StoreSnapshot::empty()
-    }));
-    let Some(texts) = screen_texts(&view) else {
-        return;
-    };
-    assert!(texts.iter().any(|t| t == "Castle Pack"), "{texts:?}");
-    assert!(texts.iter().any(|t| t.contains("A castle.")), "{texts:?}");
-}
-
-// A hero row read the page-wide hero collection, which was never filled, so it drew no offers.
-#[test]
-fn a_hero_row_draws_and_opens_its_offers() {
-    use protocol::store_control::StoreOffer;
-    let offer = |id: &str| StoreOffer {
-        id: id.into(),
-        title: id.into(),
-        creator: None,
-        content_type: None,
-        thumbnail_url: Some(format!("https://x.test/{id}.jpg")),
-        store_id: None,
-        prices: vec![],
-        rating: None,
-        tags: vec![],
-        owned: false,
-    };
-    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
-    view.screen = crate::menu::MenuScreen::Store;
-    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
-        loading: false,
-        rows: vec![launcher::store::DisplayRow {
-            id: None,
-            title: String::new(),
-            role: "HeroRow",
-            offers: vec![offer("a"), offer("b")],
-            continuation: None,
-        }],
-        images: ["a", "b"]
-            .map(|id| (format!("https://x.test/{id}.jpg"), format!("/c/{id}.jpg")))
-            .into_iter()
-            .collect(),
-        ..crate::store::StoreSnapshot::empty()
-    }));
-    let Some(carrier) = super::pack_harness::carrier() else {
-        return;
-    };
-    let files = carrier.ui_files();
-    let catalog =
-        json_ui::Catalog::from_files(files.iter().map(|f| (&*f.path, &*f.bytes))).unwrap();
-    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
-    let env = json_ui::LayoutEnv {
-        text: &FixedText,
-        textures: &NoTextures,
-    };
-    let render = json_ui::render_screen(
-        screen.reference,
-        &catalog,
-        &screen.context,
-        &screen.data,
-        [480.0, 270.0],
-        &env,
-        &json_ui::ViewState::default(),
-    )
-    .unwrap();
-    let art: Vec<&str> = render
-        .nodes
-        .iter()
-        .filter_map(|node| match &node.draw {
-            json_ui::Draw::Sprite { texture, .. } if texture.starts_with("/c/") => {
-                Some(texture.as_str())
-            }
-            _ => None,
-        })
-        .collect();
+    for answer in [true, false] {
+        assert!(
+            actions.contains(&crate::menu::MenuAction::ServerTrust(answer)),
+            "{actions:?}"
+        );
+    }
     assert!(
-        art.contains(&"/c/a.jpg") && art.contains(&"/c/b.jpg"),
-        "{art:?}"
+        actions
+            .iter()
+            .all(|action| matches!(action, crate::menu::MenuAction::ServerTrust(_))),
+        "{actions:?}"
     );
-    let snapshot = view.store.as_deref();
-    let opens: Vec<_> = render
-        .hits
-        .iter()
-        .filter_map(|region| crate::store::action(snapshot, region))
-        .collect();
-    assert!(
-        opens.contains(&crate::store::StoreAction::OpenOffer { row: 0, index: 1 }),
-        "{opens:?}"
+}
+
+// A language's translation of the question wins over vanilla's English and names the URL.
+#[test]
+fn server_trust_question_reads_the_active_language() {
+    let translate = |key: &str| {
+        (key == "permissions.servertrust.message").then(|| Arc::<str>::from("Vertrauen %1$s?"))
+    };
+    let json_ui::FormModel::Modal(modal) =
+        super::menu_screens::server_trust_model("http://a:1", &translate)
+    else {
+        panic!("the trust question is a modal popup");
+    };
+    assert_eq!(
+        (
+            modal.title.as_str(),
+            modal.body.as_str(),
+            modal.button1.as_str()
+        ),
+        (
+            "Trust this server?",
+            "Vertrauen http://a:1?",
+            "Trust and Join"
+        )
     );
 }

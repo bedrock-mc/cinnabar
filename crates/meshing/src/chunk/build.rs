@@ -210,24 +210,14 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                     for &selected_template in
                         &selected_templates[..usize::from(selected_template_count)]
                     {
-                        let Some(selected) =
-                            visuals.model_templates().get(selected_template as usize)
-                        else {
+                        let Some(parts) = assets::model_template_parts(
+                            visuals.model_templates(),
+                            selected_template,
+                        ) else {
                             continue;
                         };
-                        let part_count = if selected.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0
-                        {
-                            super::models::MAX_COMPOUND_MODEL_PARTS
-                        } else {
-                            1
-                        };
-                        for part in 0..part_count {
-                            let part_template = selected_template + part;
-                            let Some(template) =
-                                visuals.model_templates().get(part_template as usize)
-                            else {
-                                continue;
-                            };
+                        for (part, template) in parts.iter().enumerate() {
+                            let part_template = selected_template + part as u32;
                             if template.quad_count == 0 {
                                 continue;
                             }
@@ -433,9 +423,8 @@ use std::cell::OnceCell;
 
 use assets::{
     BlockFlags, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
-    VisualKind,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, SubChunk};
 

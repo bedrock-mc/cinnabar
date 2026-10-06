@@ -124,12 +124,15 @@ pub(crate) fn stop_core_then<T>(
     release(outcome)
 }
 
+/// `ask_server_trust` is set when a menu polls this core for its server trust question; the
+/// menu-less `--address` session has nobody to ask.
 pub(crate) fn spawn_core_for_address(
     layout: &InstallLayout,
     socket_dir: &Path,
     address: &str,
     auth_cache: Option<&Path>,
     enable_upstream_client_cache: bool,
+    ask_server_trust: bool,
 ) -> Result<Spawned> {
     let executable = core_executable(layout).ok_or_else(|| {
         anyhow::anyhow!(
@@ -146,6 +149,11 @@ pub(crate) fn spawn_core_for_address(
         auth_cache,
         enable_upstream_client_cache,
     );
+    if ask_server_trust {
+        command
+            .arg("-server-trust-file")
+            .arg(layout.server_trust_file());
+    }
     children::spawn(&mut command)
         .with_context(|| format!("spawn {} for {address}", executable.display()))
 }

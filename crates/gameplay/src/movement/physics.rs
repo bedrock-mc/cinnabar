@@ -458,10 +458,10 @@ impl LocalPhysicsController {
             // Before the first simulated tick of a freshly anchored epoch,
             // probe the anchor out of any solid overlap (provisional
             // recovery policy; see `anchor_probe`).
-            if tick_index == 0 && !self.modes.mode().is_walking() {
+            if tick_index == 0 && !input.immobile && !self.modes.mode().is_walking() {
                 // The probe only knows the standing box, so a low pose cannot be depenetrated by it.
                 self.anchor_state.reset();
-            } else if tick_index == 0 {
+            } else if tick_index == 0 && !input.immobile {
                 match self.anchor_state.before_tick(world, state.position) {
                     BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
                     BeforeTick::Proceed => {}
@@ -472,7 +472,8 @@ impl LocalPhysicsController {
             // latch for taps shorter than one fixed tick, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             let grounded_before_tick = state.on_ground;
-            let jump_repeated = input.jumping
+            let jump_repeated = !input.immobile
+                && input.jumping
                 && grounded_before_tick
                 && state.jump_delay == 0
                 && !self.jump_edge_pending;
@@ -511,6 +512,12 @@ impl LocalPhysicsController {
                     input.sprinting = choice.sprinting;
                     input.sneaking = sneak_request || choice.forced_sneak;
                     forced_sneak = choice.forced_sneak;
+                }
+                Err(_) if input.immobile => {
+                    // Missing terrain cannot turn an authoritative freeze into a blocked tick.
+                    self.modes = previous_modes;
+                    input.mode = self.modes.mode();
+                    input.sneaking = sneak_request;
                 }
                 Err(error) => mode_error = Some(error),
             }
@@ -603,8 +610,8 @@ impl LocalPhysicsController {
                         -input.strafe as f32,
                         input.forward as f32,
                     ]));
-                    if input.mode == sim::MovementMode::Riding {
-                        // The mount owns jumping; only the raw button flags describe it.
+                    if input.immobile || input.mode == sim::MovementMode::Riding {
+                        // Frozen travel and mount-owned jumping cannot continue a local jump arc.
                         processed.jump_initiated = false;
                         processed.jump_arc_active = false;
                     }

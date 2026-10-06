@@ -12,7 +12,7 @@ use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, SECTION_HEADER, TEXT, TEXT_DIMMER};
 use super::widgets::{Variant, button, divider, row, row_text, section_label, side_menu};
-use crate::menu::{MenuAction, MenuServerCard, MenuView, PingInfo};
+use crate::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -45,8 +45,7 @@ pub(super) fn draw(
         Some(MenuAction::PlayAddServer),
     )?;
     y += add_height;
-    let featured: Vec<&MenuServerCard> =
-        view.featured.iter().chain(view.gatherings.iter()).collect();
+    let featured: Vec<&MenuServerCard> = view.featured.iter().collect();
     y = section_label(
         canvas,
         &format!("Featured experiences ({})", featured.len()),
@@ -302,17 +301,25 @@ fn details_content(
 ) -> Result<f32, UiPresentationError> {
     let inner = [left, top, right];
     let details = view.feeds.details.get(&server.address);
-    // Banner: the first screenshot, else the logo.
+    // Banner: the server's banner art, else its first screenshot, else the logo.
     let banner = [left, top, right, top + (right - left) * 0.3];
     let art = details
-        .and_then(|details| details.screenshots.first())
-        .and_then(|path| images.get(path))
+        .and_then(|details| {
+            images.get(&details.banner).or_else(|| {
+                details
+                    .screenshots
+                    .first()
+                    .and_then(|path| images.get(path))
+            })
+        })
         .or_else(|| images.get(&server.image_path));
     match art {
         Some(icon) => canvas.icon_ref(*icon, banner)?,
         None => canvas.fill(banner, NEUTRAL100)?,
     }
-    ping_strip(canvas, banner, view.feeds.pings.get(&server.address))?;
+    if pingable(&server.address) {
+        ping_strip(canvas, banner, view.feeds.pings.get(&server.address))?;
+    }
     let pad = canvas.r(2.4);
     // Name row with the hero Play button.
     let mut y = banner[3] + space(canvas, 3);

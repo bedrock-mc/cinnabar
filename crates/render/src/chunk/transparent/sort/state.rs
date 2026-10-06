@@ -1,4 +1,4 @@
-use super::groups::{TransparentGroupInput, TransparentGroupOrder};
+use super::groups::{TransparentGroupInput, TransparentGroupOrder, TransparentGroups};
 use super::{
     MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef, TransparentLiquidPhaseGroup,
     transparent_liquid_phase_groups,
@@ -603,7 +603,7 @@ pub(in crate::chunk) struct TransparentSortWork {
     pub(in crate::chunk) key: ViewSortKey,
     pub(in crate::chunk) camera: Vec3,
     /// In `key.visible_allocations` order, which is the committed layout.
-    pub(in crate::chunk) groups: Arc<[Arc<TransparentGroupInput>]>,
+    pub(in crate::chunk) groups: TransparentGroups,
     /// Parallel to `groups`.
     pub(in crate::chunk) cached: Vec<Option<TransparentGroupOrder>>,
     /// The committed order when it has this layout, so the worker can diff against it.
@@ -614,7 +614,7 @@ pub(in crate::chunk) struct TransparentSortWork {
 #[derive(Debug, Clone)]
 pub(in crate::chunk) struct TransparentCandidateCache {
     pub(in crate::chunk) address_identity: TransparentAddressIdentity,
-    pub(in crate::chunk) groups: Arc<[Arc<TransparentGroupInput>]>,
+    pub(in crate::chunk) groups: TransparentGroups,
     pub(in crate::chunk) distinct_tint_count: usize,
 }
 

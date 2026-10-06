@@ -95,8 +95,7 @@ pub(crate) fn install(app: &mut App) {
 /// Rebuilds the small table only when an environment input changes.
 fn prepare(
     mut commands: Commands,
-    input: Res<WorldLighting>,
-    fullbright: Res<WorldFullbright>,
+    (input, fullbright): (Res<WorldLighting>, Res<WorldFullbright>),
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -142,29 +141,6 @@ fn light_table(inputs: Option<LightmapInputs>) -> [[f32; 4]; 256] {
     inputs.map_or([[1.0; 4]; 256], LightmapInputs::build)
 }
 
-#[cfg(test)]
-mod fullbright_tests {
-    use super::*;
-
-    #[test]
-    fn fullbright_lights_every_sample_and_disabling_restores_current_environment() {
-        let dark = LightmapInputs {
-            sky_darken: 0.0,
-            darkness: 1.0,
-            ..Default::default()
-        };
-        let ordinary = dark.build();
-        assert!(ordinary[0][0] < 1.0);
-        assert_eq!(light_table(None), [[1.0; 4]; 256]);
-        assert_eq!(light_table(Some(dark)), ordinary);
-        let day = LightmapInputs {
-            brightness: 1.0,
-            ..Default::default()
-        };
-        assert_eq!(light_table(Some(day)), day.build());
-    }
-}
-
 /// Binds the shared environment buffers for ordinary world passes.
 fn bind_group(
     device: &RenderDevice,
@@ -203,5 +179,28 @@ impl<P: PhaseItem> RenderCommand<P> for SetWorldLightmap {
     ) -> RenderCommandResult {
         pass.set_bind_group(1, &gpu.into_inner().bind_group, &[]);
         RenderCommandResult::Success
+    }
+}
+
+#[cfg(test)]
+mod fullbright_tests {
+    use super::*;
+
+    #[test]
+    fn fullbright_lights_every_sample_and_disabling_restores_current_environment() {
+        let dark = LightmapInputs {
+            sky_darken: 0.0,
+            darkness: 1.0,
+            ..Default::default()
+        };
+        let ordinary = dark.build();
+        assert!(ordinary[0][0] < 1.0);
+        assert_eq!(light_table(None), [[1.0; 4]; 256]);
+        assert_eq!(light_table(Some(dark)), ordinary);
+        let day = LightmapInputs {
+            brightness: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(light_table(Some(day)), day.build());
     }
 }

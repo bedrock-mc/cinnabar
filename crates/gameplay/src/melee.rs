@@ -112,7 +112,7 @@ fn pickable(actor: &ActorSnapshot) -> bool {
 }
 
 /// Distance along a unit `direction` at which the ray enters the box; zero from inside.
-fn ray_box_entry(
+pub fn ray_box_entry(
     origin: [f64; 3],
     direction: [f64; 3],
     min: [f64; 3],

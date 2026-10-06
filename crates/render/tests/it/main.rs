@@ -1,3 +1,6 @@
+#[path = "../../src/chunk/constants.rs"]
+#[allow(dead_code, reason = "reuse the production quad index order")]
+mod chunk_constants;
 #[path = "support/gpu_snapshot.rs"]
 mod gpu_snapshot;
 #[path = "../../src/material_shader.rs"]

@@ -269,6 +269,7 @@ fn worker_decode_preserves_air_unavailable_and_sequence_without_assets() {
         ids: DecodeIds {
             assets,
             custom_blocks: 0..0,
+            custom_identities: Arc::default(),
             remap: Arc::default(),
             diagnostics: Arc::default(),
             session_id: 1,

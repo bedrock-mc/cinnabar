@@ -328,6 +328,9 @@ pub(super) fn evaluate_state(
         variables.set(engine.first_person_item_rotation_factor, factor);
     }
     let mut controllers = state.controllers.clone();
+    for controller in &mut controllers {
+        controller.active = false;
+    }
     let blink_controller = super::skin_layers::blink_controller(assets, state);
     if let Some(controller) = blink_controller
         && !controllers
@@ -623,6 +626,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
             .ok_or(EvalError::Invalid)?;
         self.budget.charge_work()?;
         let state = self.advance(slot)?;
+        self.controllers[slot].active = true;
         let started_tick = self.controllers[slot].entered_tick;
         for animation in state_animations(assets, state)? {
             self.budget.charge_work()?;

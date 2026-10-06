@@ -1,6 +1,7 @@
 //! Engine-independent Bedrock particle simulation: effect definitions, Molang-driven emitters,
 //! world collision, triggers and camera-facing draw lists ready for GPU upload.
 
+pub mod actor;
 mod atlas;
 mod def;
 mod draw;

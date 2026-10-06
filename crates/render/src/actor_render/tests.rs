@@ -21,6 +21,15 @@ use super::{
     player_skins_resident,
 };
 
+#[path = "pipeline_prewarm_tests.rs"]
+mod pipeline_prewarm_tests;
+
+#[path = "pipeline_material_gpu_tests.rs"]
+mod pipeline_material_gpu_tests;
+
+#[path = "frame_order_tests.rs"]
+mod frame_order_tests;
+
 /// A residency holding one standard-raster skin in class 0, layer 0.
 fn one_resident_skin() -> Arc<crate::actor::ActorSkinResidency> {
     let skin = render_api::SkinRgba8::from(vec![255; render_model::STANDARD_SKIN_BYTES]);
@@ -65,6 +74,7 @@ fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() 
                 ActorPipelineKey {
                     msaa: Msaa::Off,
                     hdr: false,
+                    enhanced: false,
                     material: material as u32,
                 },
                 &mut descriptor,
@@ -80,6 +90,54 @@ fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() 
         } else {
             assert_eq!(target.write_mask, ColorWrites::ALL);
             assert_eq!(depth.depth_compare, CompareFunction::Equal);
+        }
+    }
+}
+
+#[test]
+fn actor_material_states_specialize_culling_blending_and_depth_write_independently() {
+    use bevy::prelude::Msaa;
+    use bevy::render::render_resource::{BlendFactor, Face, Specializer};
+    for (cull, blend, depth_write) in [
+        (true, false, true),
+        (false, true, true),
+        (true, true, false),
+    ] {
+        let material = crate::ActorMaterial {
+            state: Some(assets::EntityRenderMaterialState {
+                alpha_test: true,
+                cull,
+                blend,
+                depth_write,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                    enhanced: false,
+                    material: material.gpu_word(),
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        assert_eq!(descriptor.primitive.cull_mode, cull.then_some(Face::Back));
+        assert_eq!(
+            descriptor.depth_stencil.unwrap().depth_write_enabled,
+            depth_write
+        );
+        let actual = descriptor.fragment.unwrap().targets[0]
+            .as_ref()
+            .unwrap()
+            .blend;
+        assert_eq!(actual.is_some(), blend);
+        if let Some(actual) = actual {
+            assert_eq!(actual.color.src_factor, BlendFactor::SrcAlpha);
+            assert_eq!(actual.color.dst_factor, BlendFactor::OneMinusSrcAlpha);
         }
     }
 }
@@ -336,6 +394,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
                 material: 0,
                 msaa: Msaa::Sample4,
                 hdr: true,
+                enhanced: false,
             },
             &mut descriptor,
         )
@@ -376,7 +435,7 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
 #[test]
 fn native_color_mask_alpha_controls_dye_not_opacity() {
     assert!(ACTOR_SHADER_SOURCE.contains("let color_mask_material = material_class.y != 0u;"));
-    assert!(ACTOR_SHADER_SOURCE.contains("if (!color_mask_material && !multitexture_material &&"));
+    assert!(ACTOR_SHADER_SOURCE.contains("!color_mask_material && !multitexture_material &&"));
     assert!(ACTOR_SHADER_SOURCE.contains("mix(color.rgb, color.rgb * dye, color.a)"));
     assert!(ACTOR_SHADER_SOURCE.contains("color.a * change_color.a"));
     let descriptor = actor_pipeline_descriptor(actor_bind_group_layout());

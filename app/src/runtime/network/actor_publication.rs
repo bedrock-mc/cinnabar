@@ -168,6 +168,7 @@ pub(crate) fn prepare_actor_render_frame(
 }
 
 /// Publishes entity-shadow casters for the bodies this frame drew.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_entity_shadows(
     world: Res<ClientWorld>,
     player: Res<PlayerRuntime>,

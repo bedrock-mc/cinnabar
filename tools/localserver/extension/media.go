@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -45,8 +46,9 @@ func MediaOrigin(addr string) (string, error) {
 
 // MediaServer serves the regular files of a directory over HTTPS on loopback, with byte ranges.
 type MediaServer struct {
-	srv *http.Server
-	ln  net.Listener
+	srv  *http.Server
+	ln   net.Listener
+	root *os.Root
 }
 
 // ServeMedia starts serving dir at addr with a fresh CA and leaf certificate, writing the CA
@@ -62,13 +64,16 @@ func ServeMedia(dir, addr, caPath string, log *slog.Logger) (*MediaServer, error
 	}
 	cert, caPEM, err := issue(net.IP(ap.Addr().AsSlice()))
 	if err != nil {
+		root.Close()
 		return nil, err
 	}
 	if err := os.WriteFile(caPath, caPEM, 0o644); err != nil {
+		root.Close()
 		return nil, fmt.Errorf("write the media CA: %w", err)
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
+		root.Close()
 		return nil, fmt.Errorf("listen for media: %w", err)
 	}
 	m := &MediaServer{
@@ -78,7 +83,8 @@ func ServeMedia(dir, addr, caPath string, log *slog.Logger) (*MediaServer, error
 			ReadHeaderTimeout: 10 * time.Second,
 			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 		},
-		ln: ln,
+		ln:   ln,
+		root: root,
 	}
 	go func() {
 		if err := m.srv.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -93,9 +99,16 @@ func (m *MediaServer) Addr() net.Addr {
 	return m.ln.Addr()
 }
 
-// Close stops the server.
+// Close stops the server and releases the directory once in-flight requests finish, so the
+// directory can be removed (Windows refuses while a handle is open).
 func (m *MediaServer) Close() error {
-	return m.srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := m.srv.Shutdown(ctx)
+	if err != nil {
+		err = m.srv.Close()
+	}
+	return errors.Join(err, m.root.Close())
 }
 
 // mediaHandler serves GET and HEAD of regular files under root; directories and anything else

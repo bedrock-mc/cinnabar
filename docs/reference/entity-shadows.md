@@ -27,6 +27,7 @@ opaque surface inside any volume has its encoded colour multiplied by one shadow
 - `render_model::EntityShadow` owns the volume and colour; `client_world` owns caster rules;
   `render::EntityShadowRenderPlugin` copies the opaque scene and draws every volume's back faces
   in one instanced draw, testing the depth-buffer point against the volume in the fragment.
-- Remote casters are the bodies the actor frame drew. Provisional: dropped items and the local
-  player (which casts in first person) are culled by their volume; the breathing point is the eye
-  at 0.9 × height; a camera inside a volume shades the surfaces inside it. Each is unconfirmed.
+- Rigged casters, including the local player, are the bodies the actor frame drew. First person
+  hides the local body and its shadow; third person uses the body's render-time feet.
+- Provisional: dropped items are culled by their volume; the breathing point is the eye at
+  0.9 × height; a camera inside a volume shades the surfaces inside it. Each is unconfirmed.

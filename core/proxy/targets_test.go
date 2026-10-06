@@ -29,24 +29,19 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 )
 
-func TestSelectFriendWorldPrefersFriendsJoinable(t *testing.T) {
-	worlds := []p2p.World{
-		{OwnerID: "1", Joinability: p2p.JoinabilityInviteOnly, WorldName: "invite"},
-		{OwnerID: "2", Joinability: p2p.JoinabilityFriends, WorldName: "other"},
-		{OwnerID: "1", Joinability: p2p.JoinabilityFriends, WorldName: "friends"},
+// The join picks the owner's world the friends tab lists, never an invite-only or empty one.
+func TestSelectFriendWorldPicksAListedWorld(t *testing.T) {
+	listed := p2p.World{OwnerID: "1", HostName: "Host", MemberCount: 1, BroadcastSetting: p2p.BroadcastSettingFriendsOfFriends}
+	invite, empty, other := listed, listed, listed
+	invite.BroadcastSetting, invite.WorldName = p2p.BroadcastSettingInviteOnly, "invite"
+	empty.MemberCount, empty.WorldName = 0, "empty"
+	other.OwnerID, other.WorldName = "2", "other"
+	listed.WorldName = "listed"
+	if got := selectFriendWorld([]p2p.World{invite, empty, other, listed}, "1", "self"); got == nil || got.WorldName != "listed" {
+		t.Fatalf("selected %+v, want the listed world", got)
 	}
-	if got := selectFriendWorld(worlds, "1"); got == nil || got.WorldName != "friends" {
-		t.Fatalf("selected %+v, want friends world", got)
-	}
-}
-
-func TestSelectFriendWorldFallsBackToInviteOnlyThenNil(t *testing.T) {
-	worlds := []p2p.World{{OwnerID: "1", Joinability: p2p.JoinabilityInviteOnly, WorldName: "invite"}}
-	if got := selectFriendWorld(worlds, "1"); got == nil || got.WorldName != "invite" {
-		t.Fatalf("selected %+v, want invite-only world", got)
-	}
-	if got := selectFriendWorld(worlds, "9"); got != nil {
-		t.Fatalf("selected %+v for an absent owner", got)
+	if got := selectFriendWorld([]p2p.World{invite, empty}, "1", "self"); got != nil {
+		t.Fatalf("selected %+v, want none", got)
 	}
 }
 
@@ -238,7 +233,7 @@ func TestNetherNetTargetsNameTheirSignaling(t *testing.T) {
 			t.Fatalf("%s parsed", address)
 		}
 	}
-	if _, err := resolveUpstreamTarget(context.Background(), id, authcache.NewAccount(context.Background(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil), nil); err == nil || !strings.Contains(err.Error(), "nethernet/jsonrpc/<id>") {
+	if _, err := resolveUpstreamTarget(context.Background(), id, authcache.NewAccount(context.Background(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil), nil, nil); err == nil || !strings.Contains(err.Error(), "nethernet/jsonrpc/<id>") {
 		t.Fatalf("bare ID error = %v", err)
 	}
 }
@@ -270,13 +265,13 @@ func TestAddressedRakNetProbesFitTheCappedPath(t *testing.T) {
 	}
 	defer server.Close()
 	address := server.LocalAddr().String()
-	addressed, err := resolveUpstreamTarget(context.Background(), address, nil, slog.Default())
+	addressed, err := resolveUpstreamTarget(context.Background(), address, nil, slog.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	networks := map[string]minecraft.Network{
 		"addressed":    addressed.network,
-		"transfer hop": networkForAddress(&resolvedUpstreamTarget{address: "entry.example:19132"}, address),
+		"transfer hop": networkForAddress(&resolvedUpstreamTarget{address: "entry.example:19132"}, address, nil),
 	}
 	for name, network := range networks {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -320,7 +315,7 @@ func TestSignedOutAddressedNetherNetDialPresentsAnIdentity(t *testing.T) {
 	server := httptest.NewServer(signaling)
 	t.Cleanup(server.Close)
 
-	target, err := resolveUpstreamTarget(t.Context(), server.Listener.Addr().String(), nil, slog.New(slog.DiscardHandler))
+	target, err := resolveUpstreamTarget(t.Context(), server.Listener.Addr().String(), nil, slog.New(slog.DiscardHandler), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

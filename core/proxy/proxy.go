@@ -53,6 +53,8 @@ type Config struct {
 	// falls back to Upstream. Upstream may then be empty.
 	LocalTarget LocalTargetFunc
 	PacketDelay *PacketDelay
+	// ServerTrust, when set, decides whether to join NetherNet servers reached by address.
+	ServerTrust minecraft.ServerTrust
 }
 
 const maxInitialTransferHops = 8
@@ -88,13 +90,14 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
 	prepared.connectProgress = cfg.ConnectProgress
+	prepared.serverTrust = cfg.ServerTrust
 	prepared.upstreamClientCache = cfg.UpstreamClientCache
 	transfers := cfg.Transfers
 	if transfers == nil {
 		transfers = new(TransferState)
 	}
 	dial := func(ctx context.Context, address string) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, address, cfg.Account, logger)
+		return resolveUpstreamTarget(ctx, address, cfg.Account, logger, cfg.ServerTrust)
 	}
 	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
 		return dial(ctx, cfg.Upstream)
@@ -251,8 +254,8 @@ func shouldSurfacePreparationError(err error, serveCtx context.Context) bool {
 		return false
 	}
 	var admissionErr *PackAdmissionError
-	if errors.As(err, &admissionErr) {
-		return false
+	if errors.As(err, &admissionErr) || errors.Is(err, minecraft.ErrServerNotTrusted) {
+		return false // the player declined; the join ends but the core stays up
 	}
 	var cancellationErr *preparationCancellationError
 	return !errors.As(err, &cancellationErr)
@@ -364,12 +367,12 @@ func connectUpstream(
 }
 
 // networkForAddress keeps the resolved transport for the target itself; a server transfer
-// names a plain host:port, which vanilla joins like any addressed server.
-func networkForAddress(target *resolvedUpstreamTarget, address string) minecraft.Network {
+// names a plain host:port, which vanilla joins like any addressed server, whatever the target was.
+func networkForAddress(target *resolvedUpstreamTarget, address string, trust minecraft.ServerTrust) minecraft.Network {
 	if strings.EqualFold(address, target.address) {
 		return target.network
 	}
-	return remoteServerNetwork(slog.Default())
+	return remoteServerNetwork(slog.Default(), trust)
 }
 
 func dialFollowingTransfers(

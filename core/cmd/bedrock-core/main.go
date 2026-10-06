@@ -109,6 +109,7 @@ type options struct {
 	bdsLANVisible             bool
 	bdsLANHostPort            int
 	docker                    string
+	serverTrustFile           string
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -124,6 +125,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
+	flags.StringVar(&opts.serverTrustFile, "server-trust-file", "", "ask the control client before joining an unknown http NetherNet server, remembering trusted ones in this file (requires -control-status)")
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
 	flags.StringVar(&opts.localWorldsDir, "local-worlds-dir", "", "enable local single-player worlds stored in this directory (requires -control-status)")
 	flags.StringVar(&opts.localServerBin, "local-server-bin", "", "local world server binary (default: bedrock-local-server beside the core)")
@@ -152,6 +154,9 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	}
 	if opts.localWorldsDir != "" && !opts.controlStatus {
 		return options{}, errors.New("local-worlds-dir requires -control-status")
+	}
+	if opts.serverTrustFile != "" && !opts.controlStatus {
+		return options{}, errors.New("server-trust-file requires -control-status")
 	}
 	if opts.localServerBin != "" && opts.localWorldsDir == "" {
 		return options{}, errors.New("local-server-bin requires -local-worlds-dir")
@@ -343,6 +348,7 @@ func runWithResourcePackCacheFactory(
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
+	var serverTrust minecraft.ServerTrust
 	if statusStore != nil {
 		if localWorlds != nil {
 			// Opening a local world supersedes any pending transfer or selected upstream.
@@ -374,6 +380,15 @@ func runWithResourcePackCacheFactory(
 		connectProgress = statusStore.ObserveConnectProgress
 		transfers.OnTransfer = statusStore.ObserveTransfer
 		onDisconnect = statusStore.ObserveDisconnect
+		if opts.serverTrustFile != "" {
+			prompts := proxy.NewServerTrustPrompts(statusStore.ObserveServerTrust)
+			statusStore.SetServerTrustAnswer(prompts.Answer)
+			serverTrust = &minecraft.FirstUseTrust{
+				Store:   proxy.ServerTrustFile(opts.serverTrustFile),
+				Confirm: prompts.Confirm,
+				Log:     logger,
+			}
+		}
 	}
 	serveErr := serve(ctx, proxy.Config{
 		PacketDelay:         packetDelay,
@@ -405,6 +420,7 @@ func runWithResourcePackCacheFactory(
 		},
 		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
 		ConnectProgress:             connectProgress,
+		ServerTrust:                 serverTrust,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())

@@ -91,6 +91,14 @@ fn face_shade(normal: vec3<f32>, emitting: bool) -> f32 {
     return 1.0;
 }
 
+fn material_ambient_occlusion(ao: f32, flags: u32) -> f32 {
+    return select(ao, 1.0, (flags & MATERIAL_DISABLE_AO_FLAG) != 0u);
+}
+
+fn material_face_shade(normal: vec3<f32>, emitting: bool, flags: u32) -> f32 {
+    return select(face_shade(normal, emitting), 1.0, (flags & MATERIAL_DISABLE_FACE_DIMMING_FLAG) != 0u);
+}
+
 struct WorldAtmosphere {
     sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
     sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,

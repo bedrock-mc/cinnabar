@@ -2,7 +2,8 @@ use crate::{AssetError, TextureArray};
 
 pub const MAX_TEXTURE_PAGES: usize = 2;
 pub const MAX_MODEL_TEMPLATES: usize = 65_536;
-pub const MAX_MODEL_QUADS: usize = MAX_MODEL_TEMPLATES * 32;
+pub const MAX_MODEL_TEMPLATE_QUADS: usize = u32::BITS as usize;
+pub const MAX_MODEL_QUADS: usize = MAX_MODEL_TEMPLATES * MAX_MODEL_TEMPLATE_QUADS;
 pub const MAX_ANIMATIONS: usize = 65_536;
 pub const MAX_ANIMATION_FRAMES: usize = 1_048_576;
 pub const NO_MODEL_TEMPLATE: u32 = u32::MAX;
@@ -72,8 +73,8 @@ pub(crate) fn covered_grass_variant_is_valid(
 pub const MODEL_TEMPLATE_FLAG_KELP: u32 = 1 << 0;
 /// Template belongs to a contiguous five-shape stair topology group.
 pub const MODEL_TEMPLATE_FLAG_STAIR: u32 = 1 << 1;
-/// Template is the first half of a bounded two-template compound model. The
-/// immediately following plain template is its sole continuation.
+/// Template continues into the immediately following part. A plain part ends
+/// the chain, and each part retains one bounded visibility mask.
 pub const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT: u32 = 1 << 2;
 /// Template belongs to a contiguous sixteen-mask thin-pane topology group.
 pub const MODEL_TEMPLATE_FLAG_PANE: u32 = 1 << 3;
@@ -257,6 +258,20 @@ pub struct ModelTemplate {
     pub quad_start: u32,
     pub quad_count: u32,
     pub flags: u32,
+}
+
+/// Returns the contiguous parts of one admitted compound model without allocating.
+#[must_use]
+pub fn model_template_parts(templates: &[ModelTemplate], first: u32) -> Option<&[ModelTemplate]> {
+    let first = first as usize;
+    let mut end = first;
+    loop {
+        let part = templates.get(end)?;
+        end += 1;
+        if part.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
+            return templates.get(first..end);
+        }
+    }
 }
 
 /// Fixed-point template quad. Position coordinates use 1/256 block units.

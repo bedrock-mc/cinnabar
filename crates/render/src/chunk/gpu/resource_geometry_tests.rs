@@ -1,5 +1,8 @@
 use super::super::resource_sorts::ResourceView;
 use super::*;
+use crate::chunk::transparent::liquid::{
+    transparent_frame_draw_for_range, transparent_frame_draws,
+};
 use bevy::render::renderer::WgpuWrapper;
 
 /// A single transparent face exercises address preparation without external carriers.

@@ -1,7 +1,7 @@
 //! Render-controller selection expressions (`A ? B : C`, `Array.name[index]`) expanded into the
 //! leaves they can select, each with the condition that selects it.
 
-const MAX_LEAVES: usize = 256;
+const MAX_SELECTOR_LEAVES: usize = 256;
 const MAX_DEPTH: usize = 8;
 
 /// One step of the path to a leaf.
@@ -55,7 +55,7 @@ impl<T> Selector<'_, T> {
         output: &mut Vec<(Vec<Step>, T)>,
         depth: usize,
     ) -> Option<()> {
-        if depth > MAX_DEPTH || output.len() > MAX_LEAVES {
+        if depth > MAX_DEPTH {
             return None;
         }
         let expression = strip_outer_parentheses(expression.trim());
@@ -72,6 +72,9 @@ impl<T> Selector<'_, T> {
         let lower = expression.to_ascii_lowercase();
         if let Some(alias) = lower.strip_prefix(self.prefix) {
             if let Some(leaf) = (self.resolve)(alias) {
+                if output.len() >= MAX_SELECTOR_LEAVES {
+                    return None;
+                }
                 output.push((path.clone(), leaf));
             }
             return Some(());
@@ -204,6 +207,25 @@ mod tests {
         assert_eq!(leaves.len(), 1);
         assert!(condition_text(&leaves[0].0).is_none());
         assert!(selector.leaves("q ? Texture.a").is_none());
+    }
+
+    #[test]
+    fn selector_leaf_capacity_is_an_exact_bound() {
+        let mut selector = selector(&resolve);
+        selector.arrays.insert(
+            "array.skins".into(),
+            vec!["Texture.a".into(); MAX_SELECTOR_LEAVES],
+        );
+        assert_eq!(
+            selector.leaves("Array.skins[query.variant]").unwrap().len(),
+            MAX_SELECTOR_LEAVES
+        );
+        selector
+            .arrays
+            .get_mut("array.skins")
+            .unwrap()
+            .push("Texture.a".into());
+        assert!(selector.leaves("Array.skins[query.variant]").is_none());
     }
 
     #[test]

@@ -50,6 +50,33 @@ fn nonempty_production_handoff_preserves_selected_metadata() {
 }
 
 #[test]
+fn required_stack_with_undeclared_subpack_labels_keeps_root_layers() {
+    let upper = Uuid::from_u128(2);
+    let archives = [
+        (PACK_ID, "Common assets", b"lower".as_slice()),
+        (upper, "Server UI", b"upper".as_slice()),
+    ]
+    .map(|(id, selected, text)| {
+        ResourcePackArchive::unencrypted(
+            id,
+            "1.2.3".into(),
+            selected.into(),
+            pack_zip(id, &[("texts/en_US.lang", text)]),
+        )
+    });
+    let stack = validate_handoff(handoff(archives.into()).with_required(true));
+    assert!(stack.rejections().is_empty());
+    assert_eq!(stack.packs().len(), 2);
+    assert_eq!(stack.packs()[0].sub_pack_name(), "Common assets");
+    assert_eq!(stack.packs()[1].sub_pack_name(), "Server UI");
+    let view = LayeredPackView::new(stack);
+    assert_eq!(
+        view.read("texts/en_US.lang").as_deref(),
+        Some(b"upper".as_slice())
+    );
+}
+
+#[test]
 fn a_bad_pack_is_dropped_with_its_reason_and_the_rest_still_apply() {
     let good = Uuid::from_u128(2);
     let stack = validate_handoff(handoff(vec![
