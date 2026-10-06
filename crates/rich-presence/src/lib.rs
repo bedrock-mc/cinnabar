@@ -38,13 +38,27 @@ pub enum State {
     Playing,
 }
 
+/// A public server endpoint with an explicit port, including brackets for IPv6.
+pub fn normalize_endpoint(address: &str) -> String {
+    let (host, port) = launcher::menu::split_address(address.trim());
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
 impl State {
-    pub fn activity(self, started_at: u64) -> Activity {
-        let state = match self {
-            Self::Menus => "In the menus",
-            Self::Joining => "Joining a world",
-            Self::Playing => "In a world",
+    pub fn activity(self, started_at: u64, address: Option<&str>) -> Activity {
+        let mut state = match self {
+            Self::Menus => "In the menus".to_owned(),
+            Self::Joining => "Joining a world".to_owned(),
+            Self::Playing => match address {
+                Some(address) => format!("Playing on {address}"),
+                None => "In a world".to_owned(),
+            },
         };
+        state.truncate(state.floor_char_boundary(MAX_STATE_BYTES));
         Activity::new()
             .details(launcher::PRODUCT_NAME)
             .state(state)
@@ -57,18 +71,28 @@ impl State {
     }
 }
 
+const MAX_STATE_BYTES: usize = 128;
+
 #[derive(Default)]
 struct Publication {
-    last: Option<(State, u64)>,
+    last: Option<(State, u64, Option<String>)>,
 }
 
 impl Publication {
-    fn changed(&mut self, state: State, connection: u64) -> bool {
-        let current = (state, connection);
-        if self.last == Some(current) {
+    fn changed(&mut self, state: State, connection: u64, address: Option<&str>) -> bool {
+        let address = if state == State::Playing {
+            address
+        } else {
+            None
+        };
+        if let Some((last_state, last_connection, last_address)) = &self.last
+            && *last_state == state
+            && *last_connection == connection
+            && last_address.as_deref() == address
+        {
             return false;
         }
-        self.last = Some(current);
+        self.last = Some((state, connection, address.map(str::to_owned)));
         true
     }
 }
@@ -104,14 +128,14 @@ impl Presence {
         }
     }
 
-    pub fn update(&mut self, state: State) {
+    pub fn update(&mut self, state: State, address: Option<&str>) {
         if self
             .publication
-            .changed(state, self.connection.load(Ordering::Relaxed))
+            .changed(state, self.connection.load(Ordering::Relaxed), address)
             && let Some(client) = self.client.as_mut()
         {
             let started_at = self.started_at;
-            client.queue_activity(|_| state.activity(started_at));
+            client.queue_activity(|_| state.activity(started_at, address));
         }
     }
 }

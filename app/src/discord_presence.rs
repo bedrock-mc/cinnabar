@@ -43,13 +43,15 @@ fn update(
     menu: Res<MenuRuntime>,
     world: Res<ClientWorld>,
     ui: Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>,
+    session: Res<crate::session::SessionController>,
 ) {
-    presence.0.update(session_state(
+    let state = session_state(
         menu.is_connecting() || ui.loading_stage().is_some(),
         world.stream.is_some(),
         menu.is_launcher(),
         world.fatal_error.is_some(),
-    ));
+    );
+    presence.0.update(state, session.server_address());
 }
 
 pub(crate) fn shutdown(app: &mut App) {

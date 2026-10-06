@@ -47,8 +47,9 @@ set `CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launc
 No bot token or client secret is needed. Set the override to `0` to disable presence.
 
 With the Discord desktop app running and activity sharing enabled, presence shows menus, joining,
-or playing, plus elapsed time and the original app icon served from GitHub. Updates run over local IPC, reconnect automatically and follow
-Discord's rate limit. Server addresses and account details are never included.
+or `Playing on host:port`, plus elapsed time and the original app icon served from GitHub.
+Updates run over local IPC, reconnect automatically and follow Discord's rate limit. The current
+server address is shown while playing; account details and join secrets are never included.
 
 ## Beyond vanilla
 
