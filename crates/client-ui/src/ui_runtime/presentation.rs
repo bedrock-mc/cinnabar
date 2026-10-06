@@ -34,6 +34,7 @@ pub mod nametag_atlas;
 pub mod nametags;
 pub mod paper_doll;
 pub mod player_preview;
+pub mod primitive_shapes;
 pub mod primitives;
 pub mod publish;
 pub mod retained_hud;
@@ -138,6 +139,7 @@ pub struct UiPresentationRuntime {
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
+    primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
     paper_doll: paper_doll::PaperDoll,
     player_preview_page: Option<u16>,
@@ -260,6 +262,7 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
+            primitive_text: primitive_shapes::PrimitiveTextRasterizer::default(),
             paper_doll: Default::default(),
             player_preview_page: None,
             player_preview_source_hash: None,

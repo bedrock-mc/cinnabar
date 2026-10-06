@@ -90,6 +90,10 @@ impl WorldAuthority {
                     self.push_committed_audio(committed);
                 }
             }
+            WorldEvent::PrimitiveShapes(event) => {
+                assert!(self.committed_primitive_shapes.len() < MAX_ADMITTED_WORLD_EVENTS);
+                self.committed_primitive_shapes.push_back(event);
+            }
             WorldEvent::Camera(event) => {
                 self.audio_nondefault_camera_observed = true;
                 let sequence = sequence.expect("sequenced camera events commit through submit");

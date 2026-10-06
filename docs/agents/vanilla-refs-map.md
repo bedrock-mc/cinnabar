@@ -2196,3 +2196,52 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## crates/sim/src/simulator/water.rs
 - `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.
+
+## Primitive shapes: protocol, state and reference rules
+
+Files: `crates/protocol/src/primitive_shapes.rs`,
+`crates/render-api/src/primitive_shapes.rs`,
+`crates/render-model/src/primitive_shapes/`, `docs/reference/primitive-shapes.md`.
+
+Current Lens function reads corroborated the older owner-organized lookup files under
+`~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src/by-owner/`; the directory label alone
+was not used as version evidence.
+
+- `ClientNetworkHandler::handle(PrimitiveShapesPacket)` `0x103541c60`: client dispatch.
+- `ClientScriptPrimitiveShapesDataComponent::handlePacket` `0x1022bab10`: ordered id lookup,
+  absent-type removal, present-type creation/update, no explicit count cap.
+- `PrimitiveShapeDataPayload::constructShape` `0x1065c93e0`: kinds and creation defaults.
+- `ScriptPrimitiveShape::applyUpdatedData` `0x10918c750`: optional patches, zero lifetime,
+  negative-distance reset, dimension and actor unique id.
+- `ScriptSpherePrimitive::applyUpdatedData` `0x109191530` and
+  `ScriptCirclePrimitive::applyUpdatedData` `0x109192b50`: byte segment count.
+- `ScriptArrowPrimitive` constructor `0x109195740` and updater `0x109195af0`:
+  independent optional head and endpoint fields; `0x10d986350` f32 pair `[0.5, 1.0]` gives
+  default radius and length.
+- `ScriptTextPrimitive` constructor `0x109192c20` and updater `0x109193240`: default options,
+  text-object parsing, complete text option replacement and background clearing.
+- `ClientScriptPrimitiveShapesSystem::tick` `0x1022bc960`: dimension filtering, missing-actor
+  suppression and render-helper construction; no local lifetime decrement.
+- Server primitive system tick adapter `0x10538dc30`: monotonic elapsed-time subtraction and
+  removal at remaining lifetime `<= 0`.
+- `serialize<mce::Color>::read` `0x1066bf090`, `cerealizer<mce::Color>::bind` `0x106e63a70`:
+  ARGB channel order in the four-byte wire integer.
+- `Scripting::RenderHelper::Renderer::convertStringsToNameTags` `0x104449a80`: literal
+  backslash-n replacement, discard-empty line splitting and integer half widths.
+
+## Primitive shape rendering
+
+- `crates/render/src/primitive_shapes/mesh.rs`: current Lens `Scripting::RenderHelper::LinePrimitive::_rebuild` at `0x10443dab0`, `BoxPrimitive::_rebuild` at `0x10443d540`, `DiscPrimitive::_rebuild` at `0x10443dce0`, `AxialSpherePrimitive::_rebuild` at `0x10443df80`, `ArrowPrimitive::_rebuild` at `0x10443e290`, and `generateDiscVerts` at `0x10443ed90`.
+- `crates/render/src/primitive_shapes/pipeline.rs`: current Lens `Scripting::RenderHelper::Renderer::onEndRender` at `0x104447e40` submits line-list vertices through the `debug` material. Installed PlayCover `data/resource_packs/vanilla/materials/ui3D.material` lines 454–466 corroborate LessEqual, default depth write and no blending; the installed asset version is 1.26.51.01, not a matched 1.26.50 witness.
+- `crates/render/src/primitive_shapes/shapes.wgsl`: `BasePrimitive::getAttachedToPosition` uses interpolated riding position; `Renderer::convertStringsToNameTags` at `0x104449a80` forwards text to `BaseActorRenderer::extractRenderTextObjects` at `0x103dc03c0` and `_extractRenderTextObject` at `0x103dc0840`. `LevelNameTagRenderer::renderText` at `0x103eb9050` applies incoming scale times 1.6 times 1/60 and fixed 0.125-per-extra-line lift; data reads at `0x10d9a15a0`, `0x10db88db4`, `0x10d91dae0` confirmed these constants.
+- Local files consulted are the matching owner files under `~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src/by-owner`; their catalog is labeled 26.30. Current function reads corroborate `Renderer::onEndRender` and `convertStringsToNameTags`; full material/geometry capture parity remains open.
+
+- `crates/render-model/src/primitive_shapes/state.rs`: current `ClientScriptPrimitiveShapesSystem::tick` `0x1022bc960` text quaternion is `Rz * Ry * Rx`; data at `0x10d972210` and `0x10d8ec9d8` are degree-to-radian and half-angle constants.
+- `crates/render/src/primitive_shapes/shapes.wgsl`: current `Renderer::onBeginRender` `0x104446fa0` performs strict squared-distance comparison against the optional shape range or context range. `LevelRenderer::renderLevel` `0x10436ad94` passes the range computed by `LevelRendererPlayer::recalculateRenderDistance` `0x10439a330`, already mirrored by the cloud distance helper. Vtable reads at `0x110c96290` and `0x110c96360` select `BasePrimitivePosition::getPosition` `0x10443d500`; box tick construction supplies its lower corner.
+- `crates/client-presentation/src/primitive_shapes.rs`: `BasePrimitive::getAttachedToPosition` `0x10443d390` gets interpolated riding position and subtracts `OffsetsComponent` vertical offset; existing actor-store snapshots already normalize feet positions and seat riders before interpolation.
+
+- Primitive draw ordering: `Renderer::onBeginRender` comparator in `__sort3` `0x104479810` compares signed `BasePrimitive + 0xc`; packet helper construction in `ClientScriptPrimitiveShapesSystem::tick` `0x1022bc960` initializes that priority to zero for all supported geometry. The unstable introsort does not order by kind or distance.
+
+- `crates/client-ui/src/ui_runtime/presentation/primitive_shapes.rs`: current `ScriptTextPrimitive::applyUpdatedData` `0x109193240` retains parsed `TextObjectRoot` or literal; `Renderer::onBeginRender` `0x104446fa0` resolves only when the helper dirty flag or player input/interaction mode changes. Domain dynamic-text markers preserve common-patch refresh without rebuilding literal text geometry.
+
+- Equal packet updates: current `ClientScriptPrimitiveShapesDataComponent::handlePacket` `0x1022bab10` unconditionally marks an existing present-type entry dirty after its updater, with no equality check. `generateDiscVerts` `0x10443ed90` zero-segment branch initializes both closing vertices and packed colors to zero, then appends the closing pair unconditionally.

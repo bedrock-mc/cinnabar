@@ -52,6 +52,8 @@ mod panorama;
 mod panorama_render;
 mod particle_render;
 mod present_mode;
+mod primitive_shapes;
+pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 mod runtime_profile;
 mod runtime_profile_slow;
 mod runtime_profile_trace;

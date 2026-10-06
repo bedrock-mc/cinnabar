@@ -18,6 +18,7 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {
+	primitiveShapes                 bool
 	dir, addr, name, gameMode, diff string
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
@@ -34,6 +35,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	var s settings
 	flags := flag.NewFlagSet("bedrock-local-server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.BoolVar(&s.primitiveShapes, "primitive-shapes", false, "emit a debug-shape gallery; /shapes, /shapes update, /shapes clear")
 	flags.StringVar(&s.dir, "dir", "", "world data directory")
 	flags.StringVar(&s.addr, "addr", "", "loopback UDP listen address")
 	flags.StringVar(&s.name, "name", "World", "world display name")

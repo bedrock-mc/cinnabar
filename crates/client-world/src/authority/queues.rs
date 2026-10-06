@@ -9,6 +9,7 @@ impl WorldAuthority {
             .saturating_add(self.committed_audio.len())
             .saturating_add(self.actors.synchronized_audio_count())
             .saturating_add(self.committed_camera.len())
+            .saturating_add(self.committed_primitive_shapes.len())
     }
 
     /// Returns undelivered controls to the front without changing their order.
@@ -49,6 +50,11 @@ impl WorldAuthority {
     pub fn take_committed_particles(&mut self) -> Vec<CommittedParticleEvent> {
         self.committed_particles.drain(..).collect()
     }
+    /// Removes the next shape packet without allocating a per-frame collection.
+    pub fn pop_primitive_shapes(&mut self) -> Option<PrimitiveShapesEvent> {
+        self.committed_primitive_shapes.pop_front()
+    }
+
     /// Drains committed camera events in their original order.
     pub fn take_committed_camera(&mut self) -> Vec<CommittedCameraEvent> {
         self.committed_camera.drain(..).collect()

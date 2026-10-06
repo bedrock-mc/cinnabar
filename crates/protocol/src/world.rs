@@ -914,6 +914,9 @@ pub fn into_world_event(
             };
             WorldEvent::Weather(update)
         }
+        McpePacketData::PrimitiveShapesPacket(packet) => {
+            WorldEvent::PrimitiveShapes(crate::primitive_shapes::normalize(packet))
+        }
         McpePacketData::SpawnParticleEffectPacket(packet) => {
             match crate::particle::normalize_spawn(*packet) {
                 Some(event) => WorldEvent::Particle(event),

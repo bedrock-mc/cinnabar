@@ -5964,3 +5964,20 @@ orbit acceptance pass remains incomplete.
   including bare web domains, and require an in-game Open/Cancel prompt before
   handing a selected URL to the default browser. Chat messages and server packets
   are unchanged. This Java-style interaction is not a closed Bedrock parity gate.
+
+## Server primitive shapes
+
+The retained renderer and packet pipeline implement the six Script API debug shapes. See
+[the Vanilla rules](docs/reference/primitive-shapes.md) for packet patches, geometry, text,
+attachment and distance rules. Lifetime deliberately follows server removal packets: the
+version-matched client does not autonomously expire a shape from its time-left metadata.
+
+The parity gate remains incomplete. Shared-kind draws do not reproduce native equal-priority
+sorting for overlapping coplanar shapes, and batched text does not preserve every per-shape
+alpha overlap. Parsed debug text also lacks invalidation when only input mode or interaction
+model changes; the shared text resolver does not expose those signals. The finite text atlas
+remains an implementation resource bound. The debug material witness is a nearby patch version; a matched native visual comparison remains open.
+The 1920×1080 headless macOS/Metal local gallery verifies all six kinds, text background,
+color updates, actor following without instance rebuilds, and complete removal.
+Synthetic CPU/upload benchmarks and this gallery do not qualify the release hardware frame,
+streaming or hitch budgets, or establish native 100k-shape performance.

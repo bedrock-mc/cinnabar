@@ -7,6 +7,13 @@ impl WorldStream {
         &self.authority
     }
 
+    /// Delivers each committed primitive-shape packet once in network order.
+    pub fn pop_primitive_shapes(
+        &mut self,
+    ) -> Option<render_api::primitive_shapes::PrimitiveShapesEvent> {
+        self.authority.pop_primitive_shapes()
+    }
+
     pub fn set_publication_allowance(&mut self, allowance: PublicationAllowance) {
         self.publication_allowance = Some(allowance);
     }

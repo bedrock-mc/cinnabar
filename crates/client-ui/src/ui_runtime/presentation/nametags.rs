@@ -30,9 +30,9 @@ const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SHOW_NAME: u32 = 14;
 const ACTOR_FLAG_ALWAYS_SHOW_NAME: u32 = 15;
 const SCORE_DISTANCE_SQUARED: f32 = 100.0;
-const LINE_PITCH_PX: f32 = 10.0;
-const EXTRA_LINE_LIFT: f32 = 0.125;
-const PLATE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.25];
+pub(super) const LINE_PITCH_PX: f32 = 10.0;
+pub(super) const EXTRA_LINE_LIFT: f32 = 0.125;
+pub(super) const PLATE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.25];
 const SNEAK_TEXT_ALPHA: f32 = 0.125;
 
 #[derive(Clone, Debug, PartialEq)]

@@ -32,6 +32,8 @@ mod local_movement_flags_tests;
 mod map_data;
 mod movement_attribute;
 mod particles;
+#[cfg(test)]
+mod primitive_shape_tests;
 mod queues;
 mod sign_edit;
 #[cfg(test)]
@@ -91,6 +93,7 @@ pub struct WorldAuthority {
     committed_ui: VecDeque<CommittedUiEvent>,
     committed_audio: VecDeque<CommittedAudioEvent>,
     committed_camera: VecDeque<CommittedCameraEvent>,
+    committed_primitive_shapes: VecDeque<PrimitiveShapesEvent>,
     committed_particles: VecDeque<CommittedParticleEvent>,
 }
 
@@ -169,6 +172,7 @@ impl WorldAuthority {
             committed_ui: VecDeque::new(),
             committed_audio: VecDeque::new(),
             committed_camera: VecDeque::new(),
+            committed_primitive_shapes: VecDeque::new(),
             committed_particles: VecDeque::new(),
         }
     }

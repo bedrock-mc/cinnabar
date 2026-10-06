@@ -22,6 +22,7 @@ mod nbt_tree;
 mod packet;
 mod particle;
 mod permissions;
+mod primitive_shapes;
 mod raw_text;
 mod respawn;
 mod settings;
@@ -188,6 +189,10 @@ pub use raw_text::{
     MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
     RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
+};
+pub use render_api::primitive_shapes::{
+    PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
+    PrimitiveShapesEvent, PrimitiveText,
 };
 pub use settings::request_chunk_radius_packet;
 pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};

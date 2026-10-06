@@ -6,6 +6,7 @@ pub mod dropped_items;
 pub mod entity_shadows;
 pub mod prepared_actor_artwork;
 pub mod presentation;
+pub mod primitive_shapes;
 pub mod seat_defaults;
 pub mod session_assets;
 

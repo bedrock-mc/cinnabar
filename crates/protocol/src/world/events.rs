@@ -489,4 +489,5 @@ pub enum WorldEvent {
     Inventory(InventoryEvent),
     ItemActor(ItemActorEvent),
     Particle(crate::ParticleEvent),
+    PrimitiveShapes(crate::PrimitiveShapesEvent),
 }

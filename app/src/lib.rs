@@ -33,6 +33,7 @@ mod pick_block;
 pub mod player_runtime;
 mod player_skin;
 mod present_mode;
+mod primitive_shapes;
 mod render_mode;
 mod screen_policy;
 pub mod semantic_controls;

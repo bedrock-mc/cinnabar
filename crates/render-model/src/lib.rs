@@ -10,6 +10,7 @@ pub mod equipment;
 mod item_geometry;
 mod nametag;
 mod panorama;
+pub mod primitive_shapes;
 mod ui;
 mod ui_textures;
 mod visibility;
