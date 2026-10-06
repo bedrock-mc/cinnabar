@@ -218,7 +218,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "render", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "rich-presence", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "render", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -722,3 +722,9 @@ forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlay
 [[module_boundaries]]
 path = "crates/particles/src"
 forbidden_modules = ["bevy", "wgpu"]
+
+[[crates]]
+name = "rich-presence"
+path = "crates/rich-presence"
+allowed_dependencies = ["launcher"]
+forbidden_dependencies = ["bevy", "wgpu"]

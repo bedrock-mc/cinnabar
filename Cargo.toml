@@ -33,6 +33,7 @@ members = [
     "crates/render-model",
     "crates/inventory",
     "crates/launcher",
+    "crates/rich-presence",
     "crates/client-ui",
     "crates/client-presentation",
     "crates/player-state",

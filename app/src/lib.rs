@@ -8,6 +8,7 @@ pub mod camera;
 mod desktop;
 #[cfg(feature = "developer-control")]
 mod developer_control;
+mod discord_presence;
 mod environment;
 mod first_run;
 mod fullscreen;

@@ -1,0 +1,13 @@
+[package]
+name = "rich-presence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+discord-presence = "3.2"
+launcher = { path = "../launcher" }
+
+[dev-dependencies]
+serde_json = "1"

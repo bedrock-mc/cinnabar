@@ -35,6 +35,7 @@ gameplay = { path = "../crates/gameplay" }
 client-session = { path = "../crates/client-session" }
 client-ui = { path = "../crates/client-ui" }
 launcher = { path = "../crates/launcher" }
+rich-presence = { path = "../crates/rich-presence" }
 player-state = { path = "../crates/player-state" }
 inventory = { path = "../crates/inventory" }
 bytes.workspace = true

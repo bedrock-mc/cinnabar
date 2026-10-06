@@ -902,9 +902,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);
     crate::server_experiences::configure(&mut app);
+    crate::discord_presence::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
+    crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }
