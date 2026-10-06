@@ -8,13 +8,16 @@ use std::sync::{
 
 pub const APPLICATION_ID_ENV: &str = "CINNABAR_DISCORD_APPLICATION_ID";
 
-/// Default application ID when one is configured for the distribution.
-pub const DEFAULT_APPLICATION_ID: Option<u64> = None;
+/// Discord application used by the distribution unless overridden or disabled.
+pub const DEFAULT_APPLICATION_ID: u64 = 1557101333037711371;
+
+/// Original icon served from an immutable version of the public repository.
+pub const LARGE_IMAGE_URL: &str = "https://raw.githubusercontent.com/bedrock-mc/cinnabar/0f96fadfe4f9bb7c450147f2462d4a5d654da7f2/assets/branding/icon.png";
 
 /// `0` explicitly disables presence; other values must be nonzero numeric application IDs.
 pub fn application_id(value: Option<&str>) -> Result<Option<u64>, &'static str> {
     match value {
-        None => Ok(DEFAULT_APPLICATION_ID),
+        None => Ok(Some(DEFAULT_APPLICATION_ID)),
         Some("0") => Ok(None),
         Some(value) if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) => {
             value
@@ -45,6 +48,11 @@ impl State {
         Activity::new()
             .details(launcher::PRODUCT_NAME)
             .state(state)
+            .assets(|assets| {
+                assets
+                    .large_image(LARGE_IMAGE_URL)
+                    .large_text(launcher::PRODUCT_NAME)
+            })
             .timestamps(|timestamps| timestamps.start(started_at))
     }
 }
