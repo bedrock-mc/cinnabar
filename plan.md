@@ -18,8 +18,14 @@
   generator selection independently offers Normal (Vanilla) and Flat. Template navigation works.
 - Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
   seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
+  Normal supports saved overworld pre-generation and four chunk workers by default; see
+  [generation measurements](docs/evidence/local-world-generation.md). Bedrock generation parity
+  and join/streaming budgets remain incomplete.
 - Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
   and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
+- Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
+  preserving texels and private source files. This custom import extension leaves native cape
+  gallery parity incomplete.
 - These layouts, appearance and custom motion are owner-authorized extensions. Matching-version
   native UI parity remains open for responsive controls, rich Inbox templates and unsupported world
   settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
