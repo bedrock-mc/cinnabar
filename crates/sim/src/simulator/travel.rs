@@ -95,7 +95,6 @@ pub(super) fn tick_mode(
                 input.yaw_degrees,
                 super::water_travel_speed(
                     &input,
-                    sampled.movement.horizontal_speed_factor,
                     super::depth_strider_level(input.depth_strider, grounded_at_start),
                 ),
             );

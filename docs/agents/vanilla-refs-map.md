@@ -168,6 +168,18 @@ preview build is not an exact retail/platform capture for every supported client
   Blindness registration `0x0347a4d0` identifies effect 15; sprint intent
   `0x0c5b6310` applies it only when starting sprint.
 
+## Block-interaction movement (2026-10-07)
+
+RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS build.
+
+- `crates/sim/src/simulator/environment.rs`, `simulator.rs` (climbing): walking travel
+  `0x099ccb00` and MobJumpSystem `0x0a5dc2e0` read one block at (floor x, floor AABB min y,
+  floor z); climbable is property bit 33 of `+0x130`, the sneak hold additionally needs byte
+  `+0x134` bit 2 at the same cell (which blocks carry it is untraced, so every climbable
+  holds). Clamp `vy < -0.2 → -0.2`; the ladder jump branch sets `0.2` and returns before the
+  JumpFromGround request without a jump delay. Scaffolding constructor `0x08efe770` assigns
+  property word `0x2020000` (no climbable bit).
+
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
 
@@ -620,6 +632,10 @@ preview build is not an exact retail/platform capture for every supported client
 - Local-player shadow admission follows the drawn body perspective; the vanilla first-person capture for #221 has no local-player volume shadow. Frozen local body visibility takes precedence over a stale body submission while changing perspective.
 
 ## crates/gameplay/src/movement/control_modes.rs
+- Suspended input: `0x07108cc0` returns untouched while the game is paused; with a
+  menu open it masks processed flags and button state (`+0x00`, `+0x10`) with
+  `0xffe0001f`, also clearing SneakDown and the toggle-sneak latch (bit 0) unless
+  the persistent-controls bit `0x80` at `+0x60` is set. Toggle sprint always clears.
 - /// Native SprintTrigger cannot stop an existing sprint while the previous
 
 ## crates/gameplay/src/movement/correction_shape.rs
@@ -629,6 +645,10 @@ preview build is not an exact retail/platform capture for every supported client
 - /// Server StateVector motion; `None` keeps the retained velocity.
 
 ## crates/gameplay/src/movement/encoding.rs
+- PersistSneak: packet fill `0x070fcfd0` writes `MoveInputComponent +0x60` bit
+  `0x80` to wire bit 24 every tick. Its only writer, virtual
+  `ClientInstance::setupPersistentControls(InputMode)` `0x067a6390`, sets it for
+  Touch/GamePad; `ClientInputCallbacks::handleInputModeChanged` calls it with the new mode.
 - // Raw jump-button carriers track the physical button exactly. Native
 - // 0x07108cc0 also sets processed up; 0x070fcfd0 sends it as WantUp,
 - // which the server's 0x0998fe80 reads independently of JumpDown.
@@ -651,8 +671,22 @@ preview build is not an exact retail/platform capture for every supported client
 - // directly; raw JumpDown/Ascend alone do not populate these control lanes.
 - // CurrentSwimAmount precedes SwimTrigger. The first dry tick still advances
 
+## crates/gameplay/src/movement/frame.rs
+## crates/gameplay/src/movement/outbox.rs
+- Yaw: `UpdatePlayerFromCameraSystemUtil::_updatePlayer` `0x071b0fe0` computes
+  `atan2f * 57.29578f - 90` (`0x14ffd5070`/`0x14ffd5074`), writes it unwrapped to
+  head rotation (hash `0xbabe7211`) and wraps actor yaw with
+  `fmodf(x + 180, 360)`, `+360` if negative, `-180`. A
+  `CameraAimAssistRotationOverrideComponent` replaces rotation and skips the head
+  write. Packet builder `0x04f3b1a0` copies rotation via `0x050abce0`/`0x0435a250`
+  and reads head yaw directly.
+
 ## crates/gameplay/src/movement/physics.rs
 - /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
+- Frame clamp and tick cap: `Timer::advanceTime` `0x04efbe50` clamps each
+  frame's scaled elapsed seconds to `0.1f` (`0x14ffab644`), adds the excess to a
+  lost-time counter, then caps whole ticks at 10 while keeping the fraction.
+  `fixed_ticks.rs` and `dimension_wait.rs` share this through `fixed_ticks::frame`.
 
 ## crates/gameplay/src/movement/physics/correction.rs
 - // MovePlayer changes spatial state without resetting jump input or
@@ -1300,15 +1334,39 @@ preview build is not an exact retail/platform capture for every supported client
 - /// Native look vector used by the swimming trigger (current RVA 0x09fd25a0).
 
 ## crates/sim/src/simulator.rs
+- Ground acceleration `0x070d9630` stores speed * (0.546 / (friction * 0.91))^3 with the
+  friction block at AABB min y - 0.1 (soul sand friction * 1.225 unless Soul Speed, air
+  0.546); no block speed factor. Water acceleration `0x0dc3eeb0` reads only the water
+  movement attribute blended toward ground speed by Depth Strider; 26.30
+  `LavaTravelSystem::tickLavaTravelSystem` reads only MovementAttributesComponent, with no
+  block source. Block speed factors never reach these relative speeds.
 - // FinalizeMove uses the native float epsilon.
 - /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
 - // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
+- Ground contact: FinalizeMove `0x06dcbfc0` compares the move request (+0x30) with the
+  result (+0x3c). A vertical difference above float epsilon adds OnGround only when
+  request y < 0, otherwise removes it; with no vertical difference OnGround survives only
+  if it was already set and request y is exactly 0. AutoStep filter `0x09f5a7f0` admits a
+  step on last tick's OnGround, so a jump-tick step rises without grounding.
+- Sneak edge avoidance `0x0c597a70`: gated on sneak plus OnGround (no vertical-velocity
+  check); probes the actor's current AABB inset 0.025 on x/z and lowered by step height
+  times 1.01; clips request x, then z, then both while either is nonzero; zeroes a
+  velocity axis (+0x18/+0x20) only when its clipped request is at or below float epsilon.
+
+## crates/sim/src/simulator/controls.rs
+## crates/gameplay/src/movement/physics.rs (`item_use_factor`)
+- Move vector: `0x00480a10` normalises the digital/analog axes and multiplies by
+  the sneak factor (`SneakingComponent`, default `0.3f`). Item slowdown
+  `ItemUseSlowdownSystemImpl::applyItemUseSlowdown` `0x0dc2b3c0` then multiplies
+  `MoveInputComponent +0x24/+0x28` by `m*m`; `doItemUseSlowdownSystem` `0x0dc28b60`
+  installs `m` (default `0.35f` at `0x150103070`) only when `|m - 1| > FLT_EPSILON`.
 
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
+- `clip_sneak_edge`: see the sneak edge avoidance entry under simulator.rs (`0x0c597a70`).
 
 ## crates/sim/src/simulator/environment.rs
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)

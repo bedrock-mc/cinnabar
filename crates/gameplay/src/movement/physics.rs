@@ -33,11 +33,8 @@ const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 /// Vanilla's ceiling on StartGame `RewindHistorySize`.
 const MAX_REWIND_HISTORY_SIZE: u16 = 1000;
 
-/// Maximum fixed simulation ticks allowed in one render frame.
-///
-/// Longer stalls discard excess whole ticks instead of creating an unbounded
-/// catch-up spike. Outbound movement remains independently disabled.
-pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = 8;
+/// Vanilla's per-frame tick cap; excess whole ticks are discarded.
+pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = 10;
 
 pub trait MovementEffectSource {
     fn snapshot(&self) -> sim::MovementEffects;
@@ -94,10 +91,21 @@ pub fn physics_movement_input(
         sneaking,
         move_vector_is_raw: true,
         using_consumable: false,
-        item_use_movement_modifier,
+        item_use_movement_modifier: item_use_movement_modifier.map(item_use_factor),
         movement_speed: None,
         effects: sim::MovementEffects::default(),
         ..MovementInput::default()
+    }
+}
+
+/// Vanilla slows the move vector by the square of the used item's modifier in
+/// f32, skipping modifiers within float epsilon of one.
+fn item_use_factor(modifier: f64) -> f64 {
+    let modifier = modifier as f32;
+    if (modifier - 1.0).abs() > f32::EPSILON {
+        f64::from(modifier * modifier)
+    } else {
+        1.0
     }
 }
 
@@ -482,11 +490,16 @@ impl LocalPhysicsController {
             // Before the first simulated tick of a freshly anchored epoch,
             // probe the anchor out of any solid overlap (provisional
             // recovery policy; see `anchor_probe`).
-            if tick_index == 0 && !input.immobile && !self.modes.mode().is_walking() {
-                // The probe only knows the standing box, so a low pose cannot be depenetrated by it.
+            if tick_index == 0 && !input.immobile && self.modes.mode() == sim::MovementMode::Riding
+            {
+                // A rider's position is its seat, not a body to depenetrate.
                 self.anchor_state.reset();
             } else if tick_index == 0 && !input.immobile {
-                match self.anchor_state.before_tick(world, state.position) {
+                match self.anchor_state.before_tick(
+                    world,
+                    state.position,
+                    self.modes.contact_height(),
+                ) {
                     BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
                     BeforeTick::Proceed => {}
                 }
