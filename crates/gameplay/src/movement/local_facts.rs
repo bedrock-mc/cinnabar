@@ -44,10 +44,11 @@ pub fn read(
         return LocalMovementFacts::default();
     };
     let [_, chestplate, leggings, boots] = player.inventory.local_armor();
+    let chestplate_damage = player.inventory.local_armor_damage_corrections()[1];
     let elytra_ready = !chestplate.is_empty()
         && stream
             .canonical_item_stack(&chestplate)
-            .is_some_and(|stack| elytra_flies(&stack));
+            .is_some_and(|stack| elytra_flies(&stack, chestplate_damage));
     let can_stand_on_snow = !boots.is_empty()
         && stream
             .canonical_item_stack(&boots)
@@ -102,14 +103,16 @@ pub fn read(
     }
 }
 
-/// An elytra flies until its damage reaches one below its maximum.
-fn elytra_flies(stack: &client_world::CanonicalItemStack) -> bool {
+/// An elytra flies until its damage reaches one below its maximum. An accepted
+/// inventory response's damage overrides the stack's stale Damage tag.
+fn elytra_flies(stack: &client_world::CanonicalItemStack, corrected_damage: Option<u32>) -> bool {
+    let damage = corrected_damage.or(stack.damage).unwrap_or(0);
     stack
         .identifier
         .as_deref()
         .is_some_and(|identifier| identifier == ELYTRA_IDENTIFIER)
         && client_world::vanilla_max_durability(ELYTRA_IDENTIFIER)
-            .is_some_and(|maximum| stack.damage.unwrap_or(0) < maximum - 1)
+            .is_some_and(|maximum| damage < maximum - 1)
 }
 
 /// Reads a defined finite flight speed, including an authoritative zero.
@@ -195,10 +198,39 @@ mod tests {
             enchanted: false,
         };
         let maximum = client_world::vanilla_max_durability(ELYTRA_IDENTIFIER).unwrap();
-        assert!(elytra_flies(&elytra(ELYTRA_IDENTIFIER, None)));
-        assert!(elytra_flies(&elytra(ELYTRA_IDENTIFIER, Some(maximum - 2))));
-        assert!(!elytra_flies(&elytra(ELYTRA_IDENTIFIER, Some(maximum - 1))));
-        assert!(!elytra_flies(&elytra(LEATHER_BOOTS_IDENTIFIER, None)));
+        assert!(elytra_flies(&elytra(ELYTRA_IDENTIFIER, None), None));
+        assert!(elytra_flies(
+            &elytra(ELYTRA_IDENTIFIER, Some(maximum - 2)),
+            None
+        ));
+        assert!(!elytra_flies(
+            &elytra(ELYTRA_IDENTIFIER, Some(maximum - 1)),
+            None
+        ));
+        assert!(!elytra_flies(&elytra(LEATHER_BOOTS_IDENTIFIER, None), None));
+    }
+
+    /// A response-corrected repair or break wins over the stack's unchanged Damage tag.
+    #[test]
+    fn corrected_elytra_damage_overrides_the_stale_tag() {
+        let maximum = client_world::vanilla_max_durability(ELYTRA_IDENTIFIER).unwrap();
+        let elytra = |damage| client_world::CanonicalItemStack {
+            identity: assets::ItemStackIdentity {
+                network_id: 1,
+                metadata: 0,
+                stack_network_id: 0,
+                count: 1,
+                nbt_digest: [0; 32],
+                block_runtime_id: 0,
+            },
+            identifier: Some(ELYTRA_IDENTIFIER.into()),
+            visual: assets::ItemVisualRoute::Missing,
+            charged_projectile: None,
+            damage,
+            enchanted: false,
+        };
+        assert!(elytra_flies(&elytra(Some(maximum - 1)), Some(0)));
+        assert!(!elytra_flies(&elytra(Some(0)), Some(maximum - 1)));
     }
 
     /// Placeholder floats in layers without FlySpeed must not override it.
