@@ -92,7 +92,11 @@ impl CollisionWorld for ProbedCell {
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         Ok(BlockPhysicsSample {
             layers: Box::new([BlockPhysicsFacts {
-                friction: if block == [0, 0, 0] { self.friction } else { 0.6 },
+                friction: if block == [0, 0, 0] {
+                    self.friction
+                } else {
+                    0.6
+                },
                 ..plain()
             }]),
             identity: CollisionQuery::synthetic(()).identity,
@@ -115,10 +119,19 @@ fn review_air_under_the_feet_probe_keeps_default_friction() {
             .friction
     };
     // Past a block edge the probe hits air, whose 0.9 table friction must not apply.
-    let edge = ProbedCell { friction: 0.9, air: Some(true) };
+    let edge = ProbedCell {
+        friction: 0.9,
+        air: Some(true),
+    };
     assert_eq!(friction(&edge), 0.6);
-    let ice = ProbedCell { friction: 0.98, air: Some(false) };
+    let ice = ProbedCell {
+        friction: 0.98,
+        air: Some(false),
+    };
     assert_eq!(friction(&ice), 0.98);
-    let without_material = ProbedCell { friction: 0.98, air: None };
+    let without_material = ProbedCell {
+        friction: 0.98,
+        air: None,
+    };
     assert_eq!(friction(&without_material), 0.98);
 }
