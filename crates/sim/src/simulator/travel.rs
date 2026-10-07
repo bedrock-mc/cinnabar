@@ -119,7 +119,7 @@ pub(super) fn tick_mode(
     let view = ScaffoldingView::new(
         world,
         crate::Aabb::player_with_height_at(next.position, input.mode.hitbox_height(input.sneaking)),
-        input.sneaking,
+        sampled.descend_through,
     );
     let height = input.mode.hitbox_height(input.sneaking);
     next.requested_movement = next.velocity;

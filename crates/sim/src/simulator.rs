@@ -66,8 +66,6 @@ const DEPTH_STRIDER_MAX_LEVEL: u8 = 3;
 const WATER_DRAG: f64 = 0.8;
 /// Ground drag depth strider blends water drag toward (default ground friction times air friction).
 const DEPTH_STRIDER_TARGET_DRAG: f64 = GROUND_BASE_FRICTION as f64;
-/// Provisional scaffolding sneak-descent speed; needs independent measurement.
-const SCAFFOLDING_SNEAK_DESCENT: f64 = 0.15;
 /// `bedsim v0.1.3` `walkOnBlock` damps slime by `0.4 + |yMov| * 0.2`. It only
 /// runs on ticks whose resolved vertical movement is exactly zero, so `yMov` is
 /// zero and the factor collapses to its constant term.
@@ -99,13 +97,16 @@ impl Simulator {
         sneaking: bool,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
-        let sampled = sample(
+        let height = mode.hitbox_height(sneaking);
+        let mut sampled = sample(world, position, Vec3::ZERO, height, None)?;
+        // Only the feet layer feeds the published environment.
+        sampled.movement.in_scaffolding = scaffolding::sample_contact(
             world,
-            position,
-            Vec3::ZERO,
-            mode.hitbox_height(sneaking),
-            None,
-        )?;
+            Aabb::player_with_height_at(position, height),
+            false,
+            &mut sampled,
+        )?
+        .inside;
         Ok(crate::CollisionQuery {
             value: sampled.movement,
             identity: sampled.identity,
@@ -194,12 +195,34 @@ impl Simulator {
         } else {
             None
         };
+        let scaffold = scaffolding::sample_contact(
+            world,
+            Aabb::player_with_height_at(next.position, input.mode.hitbox_height(input.sneaking)),
+            input.sneaking,
+            &mut sampled,
+        )?;
+        sampled.movement.in_scaffolding = scaffold.inside;
+        // Sneaking over supported scaffolding descends through it at a fixed speed.
+        sampled.descend_through =
+            input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
+        if sampled.descend_through {
+            next.velocity.y = -scaffolding::CLIMB_SPEED;
+        }
         let jump_suppressed = water::jump_suppressed(input.mode, next.swim_amount, head_in_water);
+        // The scaffold ascent precedes every other jump response.
+        let scaffold_jump = input.jumping
+            && input.mode != MovementMode::Flying
+            && !jump_suppressed
+            && !sampled.descend_through
+            && scaffold.inside;
         if input.jumping && input.mode != MovementMode::Flying {
             if jump_suppressed {
                 if sampled.movement.in_water {
                     next.velocity.y = 0.0;
                 }
+            } else if scaffold_jump {
+                next.velocity.y = scaffolding::CLIMB_SPEED;
+                next.jump_delay = JUMP_DELAY_TICKS;
             } else if sampled.movement.in_water || sampled.movement.in_lava {
                 water::jump(&mut next.velocity.y);
             }
@@ -251,8 +274,9 @@ impl Simulator {
 
         // A held jump on a climbable feet cell climbs instead: no ground jump,
         // sprint impulse, jump delay or start-jump report.
-        let climb_jump = input.jumping && sampled.movement.on_climbable;
+        let climb_jump = input.jumping && !scaffold_jump && sampled.movement.on_climbable;
         let jump_initiated = input.jump_pressed
+            && !scaffold_jump
             && !climb_jump
             && !jump_suppressed
             && next.on_ground
@@ -284,23 +308,16 @@ impl Simulator {
             }
         }
 
-        if sampled.movement.on_climbable || sampled.movement.in_scaffolding {
+        if sampled.movement.on_climbable {
             next.velocity.y = next.velocity.y.max(-CLIMB_SPEED);
             // `bedsim v0.1.3` `simulateMovement` ascends a climbable block on a
             // held jump *or* on the previous tick's horizontal collision, which
-            // is how walking into a ladder climbs it. Scaffolding has no bedsim
-            // oracle, so it keeps the held-jump-only clause it already had.
-            let wall_climb =
-                sampled.movement.on_climbable && (retained_collisions.x || retained_collisions.z);
-            if input.jumping || wall_climb {
+            // is how walking into a ladder climbs it.
+            let wall_climb = retained_collisions.x || retained_collisions.z;
+            if climb_jump || wall_climb {
                 next.velocity.y = CLIMB_SPEED;
-            } else if input.sneaking {
-                // Sneaking descends scaffolding but holds position on a ladder.
-                if sampled.movement.in_scaffolding {
-                    next.velocity.y = -SCAFFOLDING_SNEAK_DESCENT;
-                } else if next.velocity.y < 0.0 {
-                    next.velocity.y = 0.0;
-                }
+            } else if input.sneaking && next.velocity.y < 0.0 {
+                next.velocity.y = 0.0;
             }
         }
         if sampled.movement.in_water || sampled.movement.in_lava {
@@ -369,7 +386,7 @@ impl Simulator {
                     next.position,
                     input.mode.hitbox_height(input.sneaking),
                 ),
-                input.sneaking,
+                sampled.descend_through,
             ),
             next.position,
             next.velocity,
@@ -493,7 +510,10 @@ impl Simulator {
             };
             effects::apply_vertical(&mut next.velocity.y, input.effects, gravity, 1.0);
         } else {
-            let gravity = if input.effects.slow_falling && next.velocity.y < 0.0 {
+            let gravity = if sampled.descend_through && (scaffold.inside || scaffold.over) {
+                // Descending through scaffolding keeps only the vertical drag.
+                0.0
+            } else if input.effects.slow_falling && next.velocity.y < 0.0 {
                 0.01
             } else {
                 NORMAL_GRAVITY

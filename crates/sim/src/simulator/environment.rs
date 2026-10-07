@@ -16,11 +16,34 @@ pub(super) struct SampledEnvironment {
     pub friction: f64,
     pub identity: WorldCollisionIdentity,
     pub block_samples: usize,
+    /// This tick's sneak descent through scaffolding, which removes its support.
+    pub descend_through: bool,
+    /// Primary facts of every cell already read this tick, sorted by cell.
+    pub primaries: Vec<([i32; 3], crate::BlockPhysicsFacts)>,
+}
+
+impl SampledEnvironment {
+    /// Reads a primary block, reusing this tick's earlier reads before spending the
+    /// shared budget. Returns the identity of a fresh read for the caller to merge.
+    pub(super) fn primary(
+        &mut self,
+        world: &(impl CollisionWorld + ?Sized),
+        block: [i32; 3],
+    ) -> Result<(crate::BlockPhysicsFacts, Option<WorldCollisionIdentity>), WorldQueryError> {
+        match self.primaries.binary_search_by(|(cell, _)| cell.cmp(&block)) {
+            Ok(index) => Ok((self.primaries[index].1, None)),
+            Err(index) => {
+                let sample = sample_primary(world, block, &mut self.block_samples)?;
+                self.primaries.insert(index, (block, sample.value));
+                Ok((sample.value, Some(sample.identity)))
+            }
+        }
+    }
 }
 
 /// Reads one primary block without exceeding the tick's shared physics budget.
 pub(super) fn sample_primary(
-    world: &impl CollisionWorld,
+    world: &(impl CollisionWorld + ?Sized),
     block: [i32; 3],
     block_samples: &mut usize,
 ) -> Result<crate::CollisionQuery<crate::BlockPhysicsFacts>, WorldQueryError> {
@@ -74,11 +97,13 @@ pub(super) fn sample(
     }
 
     let block_samples = blocks.len();
+    let mut primaries = Vec::with_capacity(block_samples);
     let mut identity: Option<WorldCollisionIdentity> = None;
     let mut movement = MovementEnvironment::default();
     let mut friction = DEFAULT_SURFACE_FRICTION;
     for block in blocks {
         let sample = world.block_physics(block)?;
+        primaries.push((block, *sample.primary()));
         identity = Some(match identity {
             None => sample.identity.clone(),
             Some(previous) => previous.merge(&sample.identity)?,
@@ -139,8 +164,6 @@ pub(super) fn sample(
             movement.in_powder_snow |= (body_contact
                 && facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW))
                 || is_inside_slowdown(facts, player, block);
-            movement.in_scaffolding |=
-                body_contact && facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
         }
     }
     let identity = identity.expect("the support block guarantees one bounded sample");
@@ -149,6 +172,8 @@ pub(super) fn sample(
         friction,
         identity,
         block_samples,
+        descend_through: false,
+        primaries,
     })
 }
 
