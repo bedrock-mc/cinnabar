@@ -21,3 +21,22 @@ pub mod install_layout;
 pub mod local_worlds;
 pub mod menu;
 pub mod store;
+
+/// Embedders may supply a title without changing the client's installation identity.
+pub fn window_title(override_title: Option<&str>) -> String {
+    override_title
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or(PRODUCT_NAME)
+        .to_owned()
+}
+
+#[cfg(test)]
+mod embedding_tests {
+    #[test]
+    fn window_title_accepts_nonempty_override_and_keeps_default() {
+        for value in [None, Some(""), Some("  ")] {
+            assert_eq!(super::window_title(value), super::PRODUCT_NAME);
+        }
+        assert_eq!(super::window_title(Some("Zeno Client")), "Zeno Client");
+    }
+}

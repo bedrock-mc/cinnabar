@@ -2,6 +2,7 @@ use super::*;
 
 fn panel() -> Panel {
     Panel {
+        theme: Default::default(),
         style: Default::default(),
         title: "Personal controls".into(),
         toggle_key: "ShiftRight".into(),

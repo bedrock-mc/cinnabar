@@ -970,7 +970,7 @@ fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
             .inventory_ledger(&player_runtime)
             .displayed_stack(0)
             .unwrap(),
-        item_facts::max_durability("minecraft:iron_sword"),
+        client_world::vanilla_max_durability("minecraft:iron_sword"),
     );
     assert!(
         derived.is_some_and(|fraction| (fraction - 0.5).abs() < 0.01),

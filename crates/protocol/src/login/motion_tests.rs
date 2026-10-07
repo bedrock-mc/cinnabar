@@ -8,9 +8,9 @@ use bytes::{Buf, BufMut, BytesMut};
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, McpePacketName, MoveActorAbsoluteData, MoveActorAbsolutePacket,
-    MoveActorDeltaData, MoveActorDeltaPacket, NetworkStackLatencyPacket, PlayerInputTick,
-    SetActorMotionPacket, Vec3 as WireVec3,
+    ActorRuntimeId, EnumsMovementEffectType, McpePacketName, MoveActorAbsoluteData,
+    MoveActorAbsolutePacket, MoveActorDeltaData, MoveActorDeltaPacket, MovementEffectPacket,
+    NetworkStackLatencyPacket, PlayerInputTick, SetActorMotionPacket, Vec3 as WireVec3,
 };
 
 use super::*;
@@ -27,6 +27,36 @@ fn server_latency_probe_remains_in_the_ordered_world_event_stream() {
         is_from_server: false,
     };
     assert!(into_world_event(ignored.into(), 0).unwrap().is_none());
+}
+
+/// A firework's glide boost reaches the ordered world stream with its stamp and kind.
+#[test]
+fn movement_effect_packets_normalize_through_the_world_allowlist() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = MovementEffectPacket {
+        target_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 42,
+        },
+        effect_id: EnumsMovementEffectType::GlideBoost,
+        effect_duration: 20,
+        tick: PlayerInputTick { inputtick: 7 },
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode movement effect");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw movement effect");
+    let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session))
+        .expect("well-formed movement effect decodes")
+        .expect("movement effect is allowlisted");
+    assert_eq!(
+        event,
+        WorldEvent::MovementEffect(crate::MovementEffectEvent {
+            actor_runtime_id: 42,
+            kind: crate::MovementEffectKind::GlideBoost,
+            duration_ticks: 20,
+            tick: 7,
+        })
+    );
 }
 
 fn raw_motion_packet(body: &[u8]) -> jolyne::raw::RawPacket {

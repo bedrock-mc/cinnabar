@@ -270,6 +270,7 @@ mod tests {
             Platform::Linux,
             &InstallEnvironment {
                 executable: PathBuf::from("/opt/Cinnabar Client/bin/bedrock-client"),
+                user_root: None,
                 home: Some(PathBuf::from("/home/Player One")),
                 local_app_data: None,
                 xdg_config_home: Some(PathBuf::from("/cfg/Player One")),

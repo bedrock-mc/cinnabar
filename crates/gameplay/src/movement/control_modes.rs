@@ -3,35 +3,11 @@
 
 use std::time::Duration;
 
-/// Provisional double-tap window; needs independent measurement.
-const DOUBLE_TAP_WINDOW: Duration = Duration::from_millis(350);
 /// Minimum forward input needed to begin sprinting.
 pub(super) const SPRINT_THRESHOLD: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
 /// Food level at or below which survival sprinting is refused.
 pub const SPRINT_HUNGER_FLOOR: u16 = 6;
-
-/// Detects a second press inside the double-tap window.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DoubleTap {
-    last_press: Option<Duration>,
-}
-
-impl DoubleTap {
-    /// Records a press at `now`; true when it completes a double-tap.
-    pub fn press(&mut self, now: Duration) -> bool {
-        let double = self
-            .last_press
-            .is_some_and(|last| now.saturating_sub(last) <= DOUBLE_TAP_WINDOW);
-        // A completed double-tap must not chain into a triple.
-        self.last_press = if double { None } else { Some(now) };
-        double
-    }
-
-    pub fn reset(&mut self) {
-        self.last_press = None;
-    }
-}
 
 /// One render frame of sprint/sneak-relevant facts.
 #[derive(Debug, Clone, Copy, Default)]
@@ -58,6 +34,8 @@ pub struct ControlObservation {
     /// Vanilla cannot stop an existing sprint while the previous
     /// swimming pose has current body-water contact.
     pub retain_sprint: bool,
+    /// Input is suspended under persistent controls, so sneak keeps its last state.
+    pub hold_sneak: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -74,6 +52,7 @@ pub struct ControlModes {
     sprint_toggled: bool,
     was_always_sprint: bool,
     sneak_toggled: bool,
+    sneaking: bool,
     stop_sprinting: bool,
     started_by_sprint_control: bool,
 }
@@ -81,6 +60,16 @@ pub struct ControlModes {
 impl ControlModes {
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    /// Clears latches while input is suspended; persistent controls keep sneak.
+    pub fn suspend(&mut self, persist_sneak: bool) {
+        let kept = *self;
+        self.reset();
+        if persist_sneak {
+            self.sneak_toggled = kept.sneak_toggled;
+            self.sneaking = kept.sneaking;
+        }
     }
 
     /// Adopts the completed fixed tick's actor flag without changing toggle intent.
@@ -97,12 +86,15 @@ impl ControlModes {
         }
         if let Some(sneaking) = sneaking {
             self.sneak_toggled = sneaking;
+            self.sneaking = sneaking;
         }
     }
 
     pub fn update(&mut self, observed: ControlObservation) -> ControlOutput {
         let moving_forward = observed.forward >= SPRINT_THRESHOLD;
-        let sneaking = if observed.toggle_sneak && !observed.flying {
+        let sneaking = if observed.hold_sneak {
+            self.sneaking
+        } else if observed.toggle_sneak && !observed.flying {
             if observed.sneak_pressed {
                 self.sneak_toggled = !self.sneak_toggled;
             }
@@ -111,6 +103,7 @@ impl ControlModes {
             self.sneak_toggled = false;
             observed.sneak_held
         };
+        self.sneaking = sneaking;
 
         if self.was_always_sprint && !observed.always_sprint && !observed.retain_sprint {
             self.sprinting = false;
@@ -226,6 +219,26 @@ mod tests {
         );
     }
 
+    /// A server sneak correction during suspended input replaces the retained sneak.
+    #[test]
+    fn server_sneak_correction_replaces_sneak_retained_while_suspended() {
+        let mut modes = ControlModes::default();
+        let toggle = ControlObservation {
+            toggle_sneak: true,
+            sneak_pressed: true,
+            ..frame(0, 0.0)
+        };
+        assert!(modes.update(toggle).sneaking);
+        modes.suspend(true);
+        modes.adopt_server_flags(None, Some(false));
+        let suspended = ControlObservation {
+            toggle_sneak: true,
+            hold_sneak: true,
+            ..frame(50, 0.0)
+        };
+        assert!(!modes.update(suspended).sneaking);
+    }
+
     /// Touch release stops a key-started sprint while keyboard release remains latched.
     #[test]
     fn touch_sprint_control_release_ends_its_sprint() {
@@ -247,15 +260,6 @@ mod tests {
                 })
                 .sprint_request
         );
-    }
-
-    #[test]
-    fn double_tap_detector_does_not_chain_into_a_triple() {
-        let mut tap = DoubleTap::default();
-        assert!(!tap.press(Duration::from_millis(0)));
-        assert!(tap.press(Duration::from_millis(200)));
-        assert!(!tap.press(Duration::from_millis(300)));
-        assert!(!tap.press(Duration::from_millis(1000)));
     }
 
     /// Item use blocks a new sprint while an existing sprint keeps its actor state.

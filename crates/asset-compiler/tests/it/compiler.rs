@@ -66,6 +66,9 @@ mod wheat;
 #[path = "compiler/materials.rs"]
 mod materials;
 
+#[path = "compiler/materials_copper_grate.rs"]
+mod materials_copper_grate;
+
 #[path = "compiler/leaf_metadata.rs"]
 mod leaf_metadata;
 

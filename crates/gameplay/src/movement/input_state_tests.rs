@@ -37,14 +37,32 @@ fn forced_sneak_does_not_invent_sneak_request_lanes() {
     sample.processed.sneaking = true;
     sample.processed.forced_sneak = true;
     let bits = flags(&sample);
-    let pose = PlayerInputFlags::PERSIST_SNEAK | PlayerInputFlags::START_SNEAKING;
-    assert_eq!(bits & pose.bits(), pose.bits());
-    let requests = PlayerInputFlags::SNEAKING
+    assert_ne!(bits & PlayerInputFlags::START_SNEAKING.bits(), 0);
+    let requests = PlayerInputFlags::PERSIST_SNEAK
+        | PlayerInputFlags::SNEAKING
         | PlayerInputFlags::SNEAK_DOWN
         | PlayerInputFlags::WANT_DOWN
         | PlayerInputFlags::SNEAK_CURRENT_RAW
         | PlayerInputFlags::SNEAK_PRESSED_RAW;
     assert_eq!(bits & requests.bits(), 0);
+}
+
+/// PersistSneak follows the input device's persistent controls, never the pose.
+#[test]
+fn persist_sneak_is_sent_for_touch_and_gamepad_only() {
+    let mut sample = settle_tests::settled_sample(41, [0.0; 3]);
+    for (mode, persists) in [
+        (PlayerInputMode::Mouse, false),
+        (PlayerInputMode::Touch, true),
+        (PlayerInputMode::GamePad, true),
+    ] {
+        sample.input_mode = mode;
+        assert_eq!(
+            flags(&sample) & PlayerInputFlags::PERSIST_SNEAK.bits() != 0,
+            persists,
+            "{mode:?}"
+        );
+    }
 }
 
 /// Events from several render frames reach the next tick once, even if it ends released.

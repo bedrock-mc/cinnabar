@@ -183,6 +183,7 @@ impl ActorStore {
             actor.status.movement_interpolation = Default::default();
             actor.velocity = feed.velocity;
             actor.status.native_velocity = feed.velocity;
+            actor.status.fall_fly_ticks = feed.fall_fly_ticks;
             actor.on_ground = Some(feed.on_ground);
             actor.movement_revision = revision;
             actor.teleported = feed.teleported;

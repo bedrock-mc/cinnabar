@@ -12,8 +12,8 @@ pub use action::{
     ReleaseReason,
 };
 pub use binding::{
-    ActionBinding, AxisDirection, BindingError, ControlSettings, InputChord, MAX_BINDINGS,
-    ModifierChord, MouseAxis, PhysicalControl,
+    ActionBinding, AxisDirection, BindingError, ControlSettings, DEFAULT_MOUSE_SENSITIVITY,
+    InputChord, MAX_BINDINGS, ModifierChord, MouseAxis, PhysicalControl,
 };
 pub use device::{
     ButtonEdges, ControllerFrame, DeviceFrame, FrameError, KeyboardMouseFrame,

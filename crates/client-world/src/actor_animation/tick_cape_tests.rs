@@ -106,6 +106,8 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
         velocity: [0.2, 0.0, 0.0],
         on_ground: true,
         flying: false,
+        gliding: false,
+        fall_fly_ticks: 0,
         yaw: 90.0,
         head_yaw: 90.0,
         pitch: 0.0,
