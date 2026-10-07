@@ -132,6 +132,8 @@ struct ItemGpu {
     draws: Vec<(Range<u32>, u32)>,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
+    #[cfg(test)]
+    upload_calls: u64,
 }
 
 fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
@@ -174,6 +176,8 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         draws: Vec::new(),
         bind_group: None,
         view_buffer_id: None,
+        #[cfg(test)]
+        upload_calls: 0,
     });
 }
 
@@ -326,6 +330,18 @@ fn prepare_items(
     if gpu.models_revision != scene.models_revision || gpu.atlas_view.is_none() {
         rebuild_models(&scene, &device, &queue, &mut gpu);
     }
+    if scene.instances.is_empty()
+        && scene.dynamic.is_empty()
+        && !scene
+            .terrain_instances
+            .iter()
+            .any(|candidate| terrain.visible(candidate))
+    {
+        gpu.draws.clear();
+        gpu.dynamic_count = 0;
+        gpu.identity_instance = 0;
+        return;
+    }
     let mut instances = Vec::with_capacity(scene.instances.len() + 1);
     let mut draws = Vec::with_capacity(scene.instances.len());
     for instance in scene
@@ -372,6 +388,10 @@ fn prepare_items(
         0,
         bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
     );
+    #[cfg(test)]
+    {
+        gpu.upload_calls += 1;
+    }
     gpu.dynamic_count = scene.dynamic.len() as u32;
     if !scene.dynamic.is_empty() {
         queue.write_buffer(
@@ -379,6 +399,10 @@ fn prepare_items(
             0,
             bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
         );
+        #[cfg(test)]
+        {
+            gpu.upload_calls += 1;
+        }
     }
     gpu.draws = draws;
     queue.write_buffer(
@@ -386,6 +410,10 @@ fn prepare_items(
         0,
         bytemuck::cast_slice::<f32, u8>(&[scene.daylight, 0.0, 0.0, 0.0]),
     );
+    #[cfg(test)]
+    {
+        gpu.upload_calls += 1;
+    }
 }
 
 struct ItemPipelineSpecializer;
@@ -728,6 +756,10 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
         RenderCommandResult::Success
     }
 }
+
+#[cfg(test)]
+#[path = "dropped_item_render/upload_tests.rs"]
+mod upload_tests;
 
 #[cfg(test)]
 mod tests {

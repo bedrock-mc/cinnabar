@@ -2439,6 +2439,7 @@ Only add provenance to docs/agents/vanilla-refs-map.md.
 
 ## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
 - Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
+- Hurt event dispatch (`actor_store/hurt.rs` and `actor_animation.rs`): verified official 1.7.10 jar above, `sv.a(B)V` status 2 writes float 1.5 to `sv.aF` immediately, without comparing the hurt countdown. `sv.e(FF)V` copies `aF` to previous `aE`, eases by float 0.4 toward the capped movement target, then adds `aF` to phase `aG`. Consecutive events reset the amount; status 3 alone does not.
 - Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); bob: EntityOtherPlayerMP.onLivingUpdate and EntityPlayer.onLivingUpdate's grounded/live target; mounted reset: EntityPlayer.updateRidden. Walk distance cast order: Entity.moveEntity. Its walking trigger is disabled by EntityPlayer.canTriggerWalking while PlayerCapabilities.isFlying, freezing walked phase without stopping chasing coordinates. The local predicted flight observation enters through client-presentation/actor_feed.rs, LocalPlayerFeed and ActorTickContext.
 - Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation and cast order: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
 - Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
@@ -2551,3 +2552,35 @@ was not used as version evidence.
 ## crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs
 - Current 1.26.50.26 banner held path: humanoid additional rendering `0x05e2b300` calls banner item rendering `0x06c592a0`, sharing setup `0x06c57b00` with GUI `0x06c581a0`. The held renderer draws pole, crossbar and cloth with base/pattern materials. The existing sprite fallback preserves availability only; exact held geometry remains an open parity item.
 >>>>>>> theirs
+
+## Crosshair presentation preferences
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/engine/hud_renderers.rs`:
+  current 1.26.50.26 `FUN_149c5ff60` (artifact 6, RVA `0x9c5ff60`) selects
+  `ui_crosshair` and `textures/ui/cross_hair`, centered at 16×16 GUI pixels.
+  Vanilla 1.26.50.04 `materials/ui.material` makes `ui_crosshair` inherit
+  `ui_invert_overlay`, using `OneMinusDestColor` and `OneMinusSrcColor`.
+- `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  26.30 `HudCursorRenderer::render` (`0x1020b3700`) returns when
+  `ClientInstance::getRenderPlayerModel` (`0x102342080`) is true; the
+  `ClientInstance` vtable at `0x110b28730`, slot `+0x6a0`, confirms the call.
+  Current getter `FUN_146798550` (`0x6798550`) corroborates the camera's
+  `CameraRenderPlayerModelComponent` test, with an editor exception.
+  The current renderer's virtual slot has not been independently mapped.
+- Third-person visibility and disabling inversion are owner-requested options;
+  defaults retain first-person visibility and inverted colors. The Java HUD's
+  built-in fallback remains 15×15; a pack crosshair remains 16×16.
+
+
+## Absorption hearts
+
+- `crates/client-ui/src/ui_runtime/hud_adapter.rs`, `crates/ui/src/hud.rs`, and
+  `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  1.26.50.26 artifact 6 `FUN_149c64c10` (RVA `0x9c64c10`) reads absorption
+  current independently of its maximum, rounds upward, appends after health,
+  wraps at ten with fixed 10-pixel rows, blinks all container backgrounds, and selects wither sprites for absorption
+  only when wither wins the effect precedence. `FUN_149c65980` (RVA `0x9c65980`)
+  loads absorption full/half textures and hardcore variants.
+- `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
+  `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
+  `#show_survival_ui` to `#visible`; absorption is native renderer state.

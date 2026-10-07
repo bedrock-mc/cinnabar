@@ -13,7 +13,7 @@ fn context() -> ViewContext<'static> {
 
 /// Selects the first registered camera without explicit transform overrides.
 fn selection() -> CameraEvent {
-    CameraEvent::Instruction(CameraInstructionEvent {
+    CameraEvent::Instruction(Box::new(CameraInstructionEvent {
         set: Some(CameraSetInstruction {
             preset_id: 0,
             ease: None,
@@ -26,7 +26,7 @@ fn selection() -> CameraEvent {
             remove_ignore_starting_values: false,
         }),
         ..Default::default()
-    })
+    }))
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn clear_restores_fov_and_inherited_listener_state() {
     assert_eq!(view.active_listener(), Some(1));
     view.apply(
         3,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             fov: Some(CameraFovInstruction {
                 degrees: 40.0,
                 ease_time_seconds: 0.0,
@@ -64,16 +64,16 @@ fn clear_restores_fov_and_inherited_listener_state() {
                 clear: false,
             }),
             ..Default::default()
-        }),
+        })),
         &context(),
     );
     assert_eq!(view.fov_override_degrees(90.0), Some(40.0));
     view.apply(
         4,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
+        })),
         &context(),
     );
     assert_eq!(view.fov_override_degrees(90.0), None);
@@ -108,22 +108,22 @@ fn remove_target_keeps_last_direction_and_new_set_can_override_it() {
     view.apply(2, &selection(), &context);
     view.apply(
         3,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             target: Some(CameraTargetInstruction {
                 actor_unique_id: 1,
                 center_offset: None,
             }),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     view.advance_target(0.0, &context);
     view.apply(
         4,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             remove_target: true,
             ..Default::default()
-        }),
+        })),
         &context,
     );
     let rotation = view.pose_override(&context).unwrap().rotation;
@@ -267,10 +267,10 @@ fn follow_reactivation_resamples_player_but_repeated_set_keeps_orbit_input() {
     );
     view.apply(
         4,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     view.apply(5, &selection(), &context);
@@ -390,13 +390,13 @@ fn inactive_targets_advance_and_remove_target_only_affects_the_selected_camera()
     view.apply(2, &selection(), &context);
     view.apply(
         3,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             target: Some(CameraTargetInstruction {
                 actor_unique_id: 7,
                 center_offset: None,
             }),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     view.advance_target(1.0, &context);
@@ -404,18 +404,18 @@ fn inactive_targets_advance_and_remove_target_only_affects_the_selected_camera()
     assert!((turned.angle_between(Quat::IDENTITY).to_degrees() - 30.0).abs() < 1e-4);
     view.apply(
         4,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             remove_target: true,
             ..Default::default()
-        }),
+        })),
         &context,
     );
     view.apply(
         5,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     let before = crate::test_allocations::count();
@@ -480,13 +480,13 @@ fn inherited_target_distance_limits_tracking() {
     view.apply(2, &selection(), &context);
     view.apply(
         3,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             target: Some(CameraTargetInstruction {
                 actor_unique_id: 7,
                 center_offset: None,
             }),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     view.advance_target(1.0, &context);
@@ -556,22 +556,22 @@ fn clear_removes_active_target_and_preserves_its_last_instruction_direction() {
     view.apply(2, &selection(), &context);
     view.apply(
         3,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             target: Some(CameraTargetInstruction {
                 actor_unique_id: 7,
                 center_offset: None,
             }),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     view.advance_target(0.0, &context);
     view.apply(
         4,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     position.set(Vec3::Z * 5.0);

@@ -701,6 +701,8 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
         && witness_token.is_none()
         && visibility_snapshot.is_none()
     {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("terrain.completion_poll", submitted = false).entered();
         if let Err(error) = render_device.poll(PollType::Poll) {
             bevy::log::warn!(
                 ?error,
@@ -722,6 +724,13 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
     let callback_visibility_diagnostics = visibility_diagnostics.clone();
     let callback_visibility_completion_fence = visibility_completion_fence.clone();
     command_buffer.on_submitted_work_done(move || {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "terrain.completion_callback",
+            transparent_generation,
+            retirement_epoch,
+        )
+        .entered();
         if let Some(snapshot) = visibility_snapshot {
             callback_visibility_diagnostics.publish(snapshot.gpu_completed());
             callback_visibility_completion_fence.complete();
@@ -745,7 +754,13 @@ pub(in crate::chunk) fn submit_presented_frame_probe(
             callback_witness_evidence.complete(token);
         }
     });
-    render_queue.submit([command_buffer]);
+    {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("terrain.completion_submit").entered();
+        render_queue.submit([command_buffer]);
+    }
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("terrain.completion_poll", submitted = true).entered();
     if let Err(error) = render_device.poll(PollType::Poll) {
         bevy::log::warn!(
             ?error,

@@ -8,6 +8,13 @@ impl WorldStream {
         budget: usize,
         removal_budget: usize,
     ) -> usize {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!(
+            "mesh.dispatch",
+            budget,
+            pending = self.mesh_jobs.pending.len()
+        )
+        .entered();
         if (budget == 0 && removal_budget == 0) || self.mesh_jobs.pending.is_empty() {
             return 0;
         }
@@ -232,6 +239,10 @@ impl WorldStream {
             let tint_identity = self.biome_tint_identity();
             let dispatched_at = Instant::now();
             dispatch.spawn(move || {
+                #[cfg(feature = "tracy")]
+                let _zone =
+                    tracing::info_span!("mesh.build", key = ?key, revision = pending.revision)
+                        .entered();
                 let started = Instant::now();
                 let queue_wait = queue_wait(pending.queued_at, started);
                 let dispatch_wait = started.saturating_duration_since(dispatched_at);
@@ -250,7 +261,7 @@ impl WorldStream {
                     snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode)
                 };
                 output_permit.reconcile(&mesh, &biome);
-                let _ = tx.send(MeshCompletion {
+                let completion = MeshCompletion {
                     output_permit: Some(output_permit),
                     _job_permit: Some(job_permit),
                     key,
@@ -266,7 +277,12 @@ impl WorldStream {
                     dispatch_wait,
                     duration: started.elapsed(),
                     urgent: pending.urgent,
-                });
+                };
+                #[cfg(feature = "tracy")]
+                drop(_zone);
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("mesh.completion_send", key = ?completion.key, revision = completion.revision).entered();
+                let _ = tx.send(completion);
             });
             self.stats.last_mesh_dispatch_at = Some(Instant::now());
             self.stats.phase2_stages.mesh_jobs_dispatched = self
@@ -513,6 +529,8 @@ impl WorldStream {
         }
     }
     pub(in crate::stream) fn accept_mesh_completion(&mut self, mut completion: MeshCompletion) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("mesh.completion", key = ?completion.key, revision = completion.revision).entered();
         completion._job_permit.take();
         self.stats.phase2_stages.mesh_jobs_completed = self
             .stats

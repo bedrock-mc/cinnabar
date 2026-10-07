@@ -199,6 +199,14 @@ pub(crate) fn prepare_weather_records(
     if count == 0 {
         return;
     }
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "weather.frame_upload",
+        layers = count,
+        occlusion_generation = scene.occlusion_generation,
+        upload_occlusion = gpu.occlusion_generation != Some(scene.occlusion_generation),
+    )
+    .entered();
     render_queue.write_buffer(
         &gpu.record_buffer,
         0,

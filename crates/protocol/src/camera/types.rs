@@ -19,7 +19,8 @@ pub enum CameraEvent {
     /// The server's preset registry; a preset id in `set` indexes it.
     Presets(Arc<[CameraPreset]>),
     Switch(CameraSwitchEvent),
-    Instruction(CameraInstructionEvent),
+    /// Boxed: an instruction is several times larger than any other camera event.
+    Instruction(Box<CameraInstructionEvent>),
     Shake(CameraShakeEvent),
     Splines(Arc<[CameraSpline]>),
     AimAssist(CameraAimAssistSettings),

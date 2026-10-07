@@ -56,8 +56,8 @@ pub use outbox::{
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
-    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
-    physics_movement_input,
+    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMotionSample, PhysicsMovementSample,
+    PhysicsSampleContext, physics_movement_input,
 };
 pub use prediction_sync::{PredictionSyncState, send_movement_prediction_sync};
 use sim::WorldCollisionIdentity;

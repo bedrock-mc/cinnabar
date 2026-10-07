@@ -59,9 +59,7 @@ fn camera_lifetime_latch_survives_drains_timing_resets_and_returning_dimensions(
     stream
         .submit(
             1,
-            WorldEvent::Camera(protocol::CameraEvent::Instruction(
-                protocol::CameraInstructionEvent::default(),
-            )),
+            WorldEvent::Camera(protocol::CameraEvent::Instruction(Box::default())),
         )
         .unwrap();
     assert!(!stream.audio_default_camera_eligible());
@@ -72,12 +70,12 @@ fn camera_lifetime_latch_survives_drains_timing_resets_and_returning_dimensions(
     stream
         .submit(
             4,
-            WorldEvent::Camera(protocol::CameraEvent::Instruction(
+            WorldEvent::Camera(protocol::CameraEvent::Instruction(Box::new(
                 protocol::CameraInstructionEvent {
                     clear: Some(true),
                     ..Default::default()
                 },
-            )),
+            ))),
         )
         .unwrap();
     stream.take_committed_camera();
@@ -127,15 +125,15 @@ fn every_camera_family_including_clear_and_shake_stop_sets_the_lifetime_latch() 
             camera_unique_id: 1,
             target_player_unique_id: 1,
         }),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent::default()),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent {
+        protocol::CameraEvent::Instruction(Box::default()),
+        protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent {
+        })),
+        protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
             clear: Some(false),
             ..Default::default()
-        }),
+        })),
         protocol::CameraEvent::Shake(protocol::CameraShakeEvent {
             intensity: 0.1,
             duration_seconds: 0.1,

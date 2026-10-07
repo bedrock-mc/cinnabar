@@ -90,6 +90,9 @@ pub(crate) fn install_cloud_render(app: &mut App) {
 pub(crate) struct CloudGpu {
     pub(crate) views: HashMap<Entity, CloudViewGpu>,
     colour_buffer: Buffer,
+    colour: [f32; 8],
+    #[cfg(test)]
+    colour_uploads: u64,
     #[cfg(test)]
     pub(crate) upload_count: u32,
 }
@@ -114,6 +117,9 @@ fn init_cloud_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             contents: bytemuck::cast_slice(&[0.0_f32; 8]),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         }),
+        colour: [0.0; 8],
+        #[cfg(test)]
+        colour_uploads: 0,
         #[cfg(test)]
         upload_count: 0,
     });
@@ -211,7 +217,7 @@ pub(crate) fn prepare_cloud_records(
 fn prepare_cloud_colour(
     atmosphere: Res<AtmosphereFrame>,
     view: Res<crate::AtmosphereViewInputs>,
-    gpu: Res<CloudGpu>,
+    mut gpu: ResMut<CloudGpu>,
     render_queue: Res<RenderQueue>,
 ) {
     let colour = atmosphere.cloud_colour_for_view(*view);
@@ -225,7 +231,15 @@ fn prepare_cloud_colour(
         CLOUD_TOP_Y,
         CLOUD_WORLD_PERIOD,
     ];
+    if gpu.colour == native {
+        return;
+    }
     render_queue.write_buffer(&gpu.colour_buffer, 0, bytemuck::cast_slice(&native));
+    gpu.colour = native;
+    #[cfg(test)]
+    {
+        gpu.colour_uploads += 1;
+    }
 }
 
 struct CloudPipelineSpecializer;

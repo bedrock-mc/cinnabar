@@ -15,6 +15,7 @@ mod server;
 pub mod settings;
 pub mod systems;
 mod voice;
+mod water;
 
 pub use bank::{SoundBank, sound_bank_path};
 pub use engine::AudioEngine;

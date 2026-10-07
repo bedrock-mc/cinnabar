@@ -442,7 +442,7 @@ func newUpstreamDialerForAdmission(
 		EnableBatchReading:   true,
 		FlushRate:            -1, // the relay's packet readers own flushing
 		// The Rust client owns the spawn sequence; the server's startup reaches it unchanged.
-		RelayStartup: true,
+		Handoff: minecraft.HandoffAtStartGame,
 		// A static opt-in, not the downstream status: the upstream login completes before it arrives.
 		EnableClientCache: enableUpstreamClientCache,
 		ErrorLog:          secretSafeResourcePackLogger(),

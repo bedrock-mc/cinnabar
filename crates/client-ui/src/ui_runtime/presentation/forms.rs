@@ -12,6 +12,7 @@ pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
 pub(super) mod credits_content;
 pub mod credits_screen;
+pub mod crosshair_settings;
 pub mod emote_screen;
 pub mod engine;
 pub mod experience;

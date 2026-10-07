@@ -15,9 +15,11 @@ mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
 mod fixed_ticks;
+mod motion_ticks;
 mod timeline;
 mod visual_correction;
 
+pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
 
 use super::anchor_probe::BeforeTick;
@@ -230,6 +232,8 @@ pub struct LocalPhysicsController {
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
     controller_history: VecDeque<ControllerFrame>,
+    motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
+    motion_anchor: Option<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
     history_capacity: usize,
@@ -266,6 +270,8 @@ impl Default for LocalPhysicsController {
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
+            motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
+            motion_anchor: None,
             server_motions: VecDeque::new(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
@@ -315,6 +321,11 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
+        self.motion_ticks.clear();
+        self.motion_anchor = self
+            .state
+            .as_ref()
+            .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
         self.server_control_flags = None;
         self.modes.reset();
@@ -368,6 +379,11 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
+        self.motion_ticks.clear();
+        self.motion_anchor = self
+            .state
+            .as_ref()
+            .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -561,6 +577,11 @@ impl LocalPhysicsController {
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
             input.liquid_attach_height = Some(f64::from(self.eye_offset.height(1.0)));
+            let entry_velocity = [
+                state.velocity.x as f32,
+                state.velocity.y as f32,
+                state.velocity.z as f32,
+            ];
             let predicted = match mode_error {
                 Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
                     error,
@@ -579,6 +600,7 @@ impl LocalPhysicsController {
                     self.eye_offset.tick(input.mode, input.sneaking);
                     self.controller_history.push_back(ControllerFrame {
                         tick: state.tick,
+                        entry_velocity,
                         eye_height: self.eye_offset.height(1.0),
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
@@ -676,6 +698,16 @@ impl LocalPhysicsController {
                             .last()
                             .expect("completed tick appended a movement sample")
                             .clone(),
+                    );
+                    motion_ticks::retain(
+                        &mut self.motion_ticks,
+                        &mut self.motion_anchor,
+                        self.sample_history
+                            .back()
+                            .expect("completed sample retained"),
+                        self.controller_history
+                            .back()
+                            .expect("completed controller retained"),
                     );
                     self.jump_edge_pending = false;
                     self.fly_toggle_pending = false;

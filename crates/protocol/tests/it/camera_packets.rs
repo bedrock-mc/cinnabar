@@ -84,7 +84,7 @@ fn instruction_event(instruction: CameraInstruction) -> CameraInstructionEvent {
     let WorldEvent::Camera(CameraEvent::Instruction(event)) = event else {
         panic!("expected a camera instruction event")
     };
-    event
+    *event
 }
 
 #[test]

@@ -251,15 +251,15 @@ fn every_committed_camera_family_cancels_live_voice_without_reminting_or_regrant
             camera_unique_id: 1,
             target_player_unique_id: 1,
         }),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent::default()),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent {
+        protocol::CameraEvent::Instruction(Box::default()),
+        protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent {
+        })),
+        protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
             clear: Some(false),
             ..Default::default()
-        }),
+        })),
         protocol::CameraEvent::Shake(protocol::CameraShakeEvent {
             intensity: 0.1,
             duration_seconds: 0.1,

@@ -359,6 +359,7 @@ impl LocalPhysicsController {
             corrected_sample.world_identity.clone()
         };
 
+        self.refresh_motion_ticks();
         let state = self
             .state
             .as_ref()

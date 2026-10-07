@@ -345,3 +345,21 @@ fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
         assert_eq!(loaded.value("animations"), toggle);
     }
 }
+
+#[test]
+fn crosshair_preferences_persist_and_reset_without_changing_legacy_defaults() {
+    use super::{INVERT_CROSSHAIR_OPTION, SettingsGroup, THIRD_PERSON_CROSSHAIR_OPTION};
+    let mut options = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(options.value(option.name), option.default);
+        options.set(index(option.name), 1 - option.default);
+    }
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(loaded.value(option.name), 1 - option.default);
+    }
+    loaded.reset_group(SettingsGroup::Video);
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(loaded.value(option.name), option.default);
+    }
+}

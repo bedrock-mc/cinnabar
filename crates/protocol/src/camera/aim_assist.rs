@@ -7,7 +7,12 @@ use valentine::bedrock::version::v1_26_51 as wire;
 use super::{CameraEvent, MAX_CAMERA_PRESETS, bounded_identifier, validate_count, validate_finite};
 use crate::WorldPacketError;
 
-pub use super::aim_assist_types::*;
+use super::aim_assist_types::{
+    CameraAimAssistAction, CameraAimAssistActorPriority, CameraAimAssistCategory,
+    CameraAimAssistExclusions, CameraAimAssistItemSetting, CameraAimAssistPreset,
+    CameraAimAssistPresetSettings, CameraAimAssistPriorities, CameraAimAssistPriority,
+    CameraAimAssistRegistry, CameraAimAssistSettings, CameraAimAssistTargetMode,
+};
 
 /// Bounds each collection in a preset's exclusion and priority tables.
 pub const MAX_CAMERA_AIM_ASSIST_ENTRIES: usize = 4096;

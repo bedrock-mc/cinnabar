@@ -129,7 +129,7 @@ func negotiatedPackSelection(t *testing.T, offer minecraft.ResourcePackOfferSnap
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn, err := (minecraft.Dialer{RelayStartup: true, IdentityData: login.IdentityData{DisplayName: "Matrix"}}).DialContextNetwork(ctx, network, "")
+	conn, err := (minecraft.Dialer{Handoff: minecraft.HandoffAtStartGame, IdentityData: login.IdentityData{DisplayName: "Matrix"}}).DialContextNetwork(ctx, network, "")
 	if err != nil {
 		t.Fatal(err)
 	}

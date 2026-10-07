@@ -188,6 +188,14 @@ impl UiGpuTextures {
             self.allocation_identity = Some(catalog.static_identity());
             self.allocation_plan = Some(catalog.plan().clone());
             for bucket in catalog.plan().buckets() {
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!(
+                    "ui.texture_allocate",
+                    width = bucket.dimensions[0],
+                    height = bucket.dimensions[1],
+                    layers = bucket.layers,
+                )
+                .entered();
                 let texture = device.create_texture(&TextureDescriptor {
                     label: Some("bounded UI dimension bucket"),
                     size: Extent3d {
@@ -237,6 +245,16 @@ impl UiGpuTextures {
         let buckets = &self.buckets;
         self.state.execute(catalog, &dirty, |_, page, location| {
             let [width, height] = page.dimensions();
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "ui.texture_write",
+                bucket = location.bucket,
+                layer = location.layer,
+                width,
+                height,
+                bytes = page.pixels().len(),
+            )
+            .entered();
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &buckets[location.bucket].texture,

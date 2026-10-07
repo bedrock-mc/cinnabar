@@ -10,9 +10,15 @@ mod types;
 use crate::WorldPacketError;
 use std::sync::Arc;
 
-pub use aim_assist::*;
+pub use aim_assist::{MAX_CAMERA_AIM_ASSIST_ENTRIES, camera_aim_assist_activation_packet};
 pub(crate) use aim_assist::{
     normalize_actor_priorities, normalize_aim_presets, normalize_settings,
+};
+pub use aim_assist_types::{
+    CameraAimAssistAction, CameraAimAssistActorPriority, CameraAimAssistCategory,
+    CameraAimAssistExclusions, CameraAimAssistItemSetting, CameraAimAssistPreset,
+    CameraAimAssistPresetSettings, CameraAimAssistPriorities, CameraAimAssistPriority,
+    CameraAimAssistRegistry, CameraAimAssistSettings, CameraAimAssistTargetMode,
 };
 pub(crate) use instruction::normalize_instruction;
 pub(crate) use presets::{normalize_presets, normalize_shake, normalize_switch};
@@ -21,7 +27,12 @@ pub use spline::{
     CameraSpline, CameraSplineInstruction, CameraSplineKind, CameraSplineProgressKeyFrame,
     CameraSplineRotationKeyFrame, MAX_CAMERA_SPLINE_POINTS,
 };
-pub use types::*;
+pub use types::{
+    CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
+    CameraFovInstruction, CameraInstructionEvent, CameraPreset, CameraSetInstruction,
+    CameraShakeAction, CameraShakeEvent, CameraShakeType, CameraSwitchEvent,
+    CameraTargetInstruction, MAX_CAMERA_EASE_IDENTIFIER_BYTES, MAX_CAMERA_PRESETS,
+};
 
 /// Rejects a vector containing a non-finite component.
 fn validate_position(position: [f32; 3], field: &'static str) -> Result<(), WorldPacketError> {

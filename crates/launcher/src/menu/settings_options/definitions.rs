@@ -40,6 +40,14 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 pub const ANIMATIONS_OPTION: SettingDefinition =
     dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
 
+/// Optional crosshair visibility in both third-person camera views.
+pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
+    toggle("third_person_crosshair", "Third Person Crosshair", false);
+
+/// Keeps the crosshair's background inversion enabled unless the player opts out.
+pub const INVERT_CROSSHAIR_OPTION: SettingDefinition =
+    toggle("invert_crosshair", "Invert Crosshair Colors", true);
+
 /// Defines one boolean binding with an integral persisted value.
 const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
     SettingDefinition {
@@ -241,6 +249,8 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle("hide_hand", "options.hidehand", false),
     toggle("hide_paperdoll", "options.hidepaperdoll", false),
     toggle("hide_hud", "options.hidehud", false),
+    THIRD_PERSON_CROSSHAIR_OPTION,
+    INVERT_CROSSHAIR_OPTION,
     toggle("screen_animations", "options.screenAnimations", true),
     toggle("show_auto_save_icon", "options.showautosaveicon", true),
     toggle(

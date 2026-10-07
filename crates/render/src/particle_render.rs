@@ -285,6 +285,13 @@ fn prepare_particle_resources(
         gpu.bind_group = None;
     }
     if let Some(buffer) = &gpu.buffer {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "particles.instance_write",
+            instances = total,
+            bytes = total as u64 * INSTANCE_BYTES
+        )
+        .entered();
         render_queue.write_buffer(buffer, 0, bytemuck::cast_slice(&frame.blend[..]));
         render_queue.write_buffer(
             buffer,
@@ -301,6 +308,8 @@ fn write_rect(
     size: [u32; 2],
     rgba: &[u8],
 ) {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("particles.texture_write", bytes = rgba.len()).entered();
     queue.write_texture(
         TexelCopyTextureInfo {
             texture,

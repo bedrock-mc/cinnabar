@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::Arc};
+use std::{borrow::Cow, cell::Cell, sync::Arc};
 
 use serde::{
     Deserialize, Deserializer,
@@ -110,19 +110,9 @@ impl RawTextDocument {
     /// empty text, and each degradation is counted for diagnostics.
     #[must_use]
     pub fn resolve(&self, resolver: &RawTextResolver<'_>) -> ResolvedRawText {
-        self.resolve_with_localized_arguments(resolver, &|_, _| None)
-    }
-
-    /// Localizes translation arguments within the supplied prefix budget; literal components stay literal.
-    #[must_use]
-    pub fn resolve_with_localized_arguments(
-        &self,
-        resolver: &RawTextResolver<'_>,
-        localize_argument: &dyn Fn(&str, usize) -> Option<String>,
-    ) -> ResolvedRawText {
         let mut resolved = ResolvedRawText::default();
         for component in self.components.iter() {
-            resolve_component(component, resolver, localize_argument, &mut resolved, 0);
+            resolve_component(component, resolver, &mut resolved, 0);
         }
         resolved
     }
@@ -131,7 +121,6 @@ impl RawTextDocument {
 fn resolve_component(
     component: &RawTextComponent,
     resolver: &RawTextResolver<'_>,
-    localize_argument: &dyn Fn(&str, usize) -> Option<String>,
     resolved: &mut ResolvedRawText,
     depth: usize,
 ) {
@@ -143,7 +132,7 @@ fn resolve_component(
         RawTextComponent::Text(text) => push_bounded(resolved, text),
         RawTextComponent::Sequence(children) => {
             for child in children.iter() {
-                resolve_component(child, resolver, localize_argument, resolved, depth + 1);
+                resolve_component(child, resolver, resolved, depth + 1);
             }
         }
         RawTextComponent::Selector(selector) => match (resolver.selector)(selector) {
@@ -174,16 +163,12 @@ fn resolve_component(
                         .iter()
                         .map(|argument| {
                             let mut nested = ResolvedRawText::default();
-                            resolve_component(
-                                argument,
-                                resolver,
-                                localize_argument,
-                                &mut nested,
-                                depth + 1,
-                            );
-                            if let Some(localized) =
-                                localize_argument(&nested.text, MAX_FORMATTED_PREFIX_BYTES)
-                            {
+                            resolve_component(argument, resolver, &mut nested, depth + 1);
+                            if let Cow::Owned(localized) = crate::localize_parameter_prefix(
+                                &nested.text,
+                                resolver.translate,
+                                MAX_FORMATTED_PREFIX_BYTES,
+                            ) {
                                 nested.text.clear();
                                 push_bounded(&mut nested, &localized);
                             }

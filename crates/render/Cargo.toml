@@ -6,11 +6,13 @@ rust-version.workspace = true
 publish = false
 
 [features]
+tracy = ["bevy/trace", "dep:tracy-client"]
 publication-test-support = []
 # Compiles the hard-disabled Enhanced renderer.
 enhanced = []
 
 [dependencies]
+tracy-client = { version = "=0.18.4", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
 assets = { path = "../assets" }

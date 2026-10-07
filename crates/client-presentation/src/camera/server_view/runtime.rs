@@ -728,13 +728,12 @@ impl ServerCameraView {
                 let radius = if kind == Some(PresetKind::FirstPerson) {
                     0.0
                 } else {
-                    preset
-                        .radius
-                        .filter(|radius| *radius > 0.0)
-                        .unwrap_or_else(|| match preset.base_name.as_deref() {
+                    preset.radius.filter(|radius| *radius > 0.0).unwrap_or(
+                        match preset.base_name.as_deref() {
                             Some("minecraft:follow_orbit" | "minecraft:fixed_boom") => 10.0,
                             _ => super::super::THIRD_PERSON_RADIUS_BLOCKS,
-                        })
+                        },
+                    )
                 };
                 Target::Orbit {
                     front: kind == Some(PresetKind::ThirdPersonFront),
@@ -885,5 +884,4 @@ mod tests;
 #[path = "options_tests.rs"]
 mod options_tests;
 
-#[path = "targeting.rs"]
 mod targeting;

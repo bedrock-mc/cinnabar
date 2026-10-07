@@ -22,6 +22,8 @@ impl LocalPhysicsController {
                 .expect("local physics history capacity is non-zero");
             self.sample_history.clear();
             self.controller_history.clear();
+            self.motion_ticks.clear();
+            self.motion_anchor = None;
             self.server_motions.clear();
             self.previous_jump_held = false;
             self.jump_edge_pending = false;

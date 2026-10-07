@@ -59,7 +59,6 @@ pub(super) struct JavaMotionState {
     equipped_slot: u8,
     observed_slot: u8,
     swing: Option<i32>,
-    hurt_time: u8,
     reset_equip: bool,
     chase: Option<[f64; 3]>,
 }
@@ -69,7 +68,6 @@ pub(super) struct JavaTick<'a> {
     pub(super) delta: [f32; 3],
     pub(super) yaw: f32,
     pub(super) swing_ticks: i32,
-    pub(super) hurt_time: u8,
     pub(super) held: &'a Option<JavaHeldItem>,
     pub(super) held_slot: u8,
     pub(super) riding: bool,
@@ -142,10 +140,14 @@ impl JavaMotionState {
             equipped_slot: u8::MAX,
             observed_slot: u8::MAX,
             swing: None,
-            hurt_time: 0,
             reset_equip: false,
             chase: None,
         }
+    }
+
+    /// A hurt event immediately resets limb motion, including consecutive hits.
+    pub(super) fn hurt(&mut self) {
+        self.motion.limb_amount[1] = HURT_LIMB_AMOUNT;
     }
 
     pub(super) fn advance(&mut self, tick: &JavaTick<'_>) {
@@ -163,10 +165,6 @@ impl JavaMotionState {
         motion.riding = tick.riding;
         motion.vanilla_posture = tick.vanilla_posture;
         let [dx, _, dz] = tick.delta;
-        if tick.hurt_time > self.hurt_time {
-            motion.limb_amount[1] = HURT_LIMB_AMOUNT;
-        }
-        self.hurt_time = tick.hurt_time;
         motion.limb_amount[0] = motion.limb_amount[1];
         let target = ((f64::from(dx).powi(2) + f64::from(dz).powi(2)).sqrt() * LIMB_GAIN) as f32;
         motion.limb_amount[1] += (target.min(1.0) - motion.limb_amount[1]) * LIMB_FOLLOW;
@@ -436,7 +434,6 @@ mod tests {
             delta,
             yaw,
             swing_ticks: super::super::ACTOR_SWING_TICKS,
-            hurt_time: 0,
             held: &None,
             held_slot: 0,
             riding: false,
@@ -467,17 +464,24 @@ mod tests {
     #[test]
     fn hurt_flails_the_limbs() {
         let mut state = JavaMotionState::spawn(0.0);
-        state.advance(&JavaTick {
-            hurt_time: 10,
-            ..tick([0.0; 3], 0.0)
-        });
+        state.hurt();
+        state.advance(&tick([0.0; 3], 0.0));
         assert_eq!(state.motion.limb_amount[0], 1.5);
         assert!((state.motion.limb_amount[1] - 0.9).abs() < 1e-6);
-        state.advance(&JavaTick {
-            hurt_time: 9,
-            ..tick([0.0; 3], 0.0)
-        });
+        state.advance(&tick([0.0; 3], 0.0));
         assert!((state.motion.limb_amount[1] - 0.54).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hurt_combines_with_movement_when_advancing_limb_swing() {
+        let mut state = JavaMotionState::spawn(0.0);
+        state.hurt();
+        state.advance(&tick([0.2, 0.0, 0.0], 0.0));
+        assert!((state.motion.limb_amount[1] - 1.22).abs() < 1e-6);
+        assert!((state.motion.limb_swing[1] - 1.22).abs() < 1e-6);
+        state.advance(&tick([0.2, 0.0, 0.0], 0.0));
+        assert!((state.motion.limb_amount[1] - 1.052).abs() < 1e-6);
+        assert!((state.motion.limb_swing[1] - 2.272).abs() < 1e-6);
     }
 
     /// Past 50 degrees of head turn the body is pulled a fifth of the way back.

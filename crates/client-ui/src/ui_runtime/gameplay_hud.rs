@@ -176,21 +176,21 @@ impl GameplayHudState {
     }
 
     /// The heart recolor derived from authoritative effects and freezing.
-    /// Freezing wins, then wither, then poison — matching the Java reference
-    /// presentation priority for simultaneous states.
+    /// Poison wins over wither, and both win over freezing.
     #[must_use]
     pub fn heart_variant(&self, now_tick: Option<u64>) -> HeartVariant {
-        if self.freezing_strength >= 1.0 {
-            return HeartVariant::Frozen;
-        }
-        let mut variant = HeartVariant::Normal;
+        let mut variant = if self.freezing_strength >= 1.0 {
+            HeartVariant::Frozen
+        } else {
+            HeartVariant::Normal
+        };
         for effect in &self.effects {
             if !effect.visible_at_tick(now_tick) {
                 continue;
             }
             match effect.effect_id {
-                EFFECT_ID_WITHER => return HeartVariant::Withered,
-                EFFECT_ID_POISON | EFFECT_ID_FATAL_POISON => variant = HeartVariant::Poisoned,
+                EFFECT_ID_WITHER => variant = HeartVariant::Withered,
+                EFFECT_ID_POISON | EFFECT_ID_FATAL_POISON => return HeartVariant::Poisoned,
                 _ => {}
             }
         }
