@@ -501,7 +501,7 @@ impl Simulator {
                 state.position.y,
                 next.position.y,
                 &mut next.velocity,
-                sampled.block_samples,
+                &mut sampled.block_samples,
             )?;
             identity = identity.merge(&exit.identity)?;
         }

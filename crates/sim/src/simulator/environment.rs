@@ -232,21 +232,20 @@ fn probes_air(
 pub(super) fn contains_liquid(
     world: &impl CollisionWorld,
     query: Aabb,
-    previous_samples: usize,
+    samples: &mut usize,
 ) -> Result<(bool, WorldCollisionIdentity), WorldQueryError> {
     crate::world::validate_collision_query(query)?;
     let min = block_at(query.min)?;
     let max = inclusive_max_block_at(query.max)?;
     let mut identity: Option<WorldCollisionIdentity> = None;
-    let mut samples = previous_samples;
     let mut contains = false;
     for x in min[0]..=max[0] {
         for y in min[1]..=max[1] {
             for z in min[2]..=max[2] {
-                if samples == MAX_BLOCK_SAMPLES_PER_TICK {
+                if *samples == MAX_BLOCK_SAMPLES_PER_TICK {
                     return Err(WorldQueryError::QueryExtentExceeded);
                 }
-                samples += 1;
+                *samples += 1;
                 let block = [x, y, z];
                 let sample = world.block_physics(block)?;
                 identity = Some(match identity {
