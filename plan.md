@@ -6278,8 +6278,8 @@ does not close the broader native body-motion or live visual parity gate. See
 
 ## Server pack compatibility
 
-Galaxite's full-block geometry, large actor models and source-pixel form borders
-render in a 1920×1080, DPI 1 macOS/Metal hidden-client pass. Item registries retain
+Galaxite's full-block geometry, large actor models, custom hotbar/held items and
+source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client pass. Item registries retain
 numeric aliases and populated definitions accompanying empty declarations.
 Zeqa equipment sources and dynamic UI textures retain bounded native dimensions;
 rejected UI publications preserve the previous catalog and retry pending artwork.
