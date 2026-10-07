@@ -139,7 +139,10 @@ fn unchanged_keyboard_input_does_not_dirty_overlay() {
     input.reset(&screen);
     for key in [Key::Character("a".into()), Key::Named(NamedKey::Shift)] {
         for state in [ElementState::Pressed, ElementState::Released] {
-            assert_eq!(input.keyboard(&screen, &key, state, false, false), (None, false));
+            assert_eq!(
+                input.keyboard(&screen, &key, state, false, false),
+                (None, false)
+            );
         }
     }
     assert_eq!(
