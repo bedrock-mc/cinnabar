@@ -14,6 +14,8 @@ import (
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
 )
 
+const defaultChunkWorkers = 4
+
 const maxPlayers = 4 // one local player plus a reconnect overlapping its predecessor
 
 // settings are the per-world options the core passes on the command line.
@@ -54,7 +56,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.generator, "generator", "flat", "normal or flat terrain")
 	flags.Int64Var(&s.seed, "seed", 0, "world seed")
 	flags.IntVar(&s.pregenRadius, "pregen-radius", 0, "generate and save normal overworld chunks around spawn before listening (0 disables)")
-	flags.IntVar(&s.chunkWorkers, "chunk-workers", 4, "background chunk generation workers per dimension (1..16)")
+	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
 	flags.BoolVar(&s.generationStats, "generation-stats", false, "report normal generation counts and CPU-path elapsed time at shutdown")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")

@@ -112,18 +112,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = primitiveListener(listen)
 		}
 	}
-	conf.ChunkLoadWorkers = cfg.chunkWorkers
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
+	conf.ChunkLoadWorkers = cfg.chunkWorkers
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if cfg.pregenRadius > 0 {
-		g := generators[world.Overworld]
-		spawn := conf.WorldProvider.Settings().Spawn
-		if firstWorld {
-			spawn = g.DefaultSpawn(world.Overworld)
-		}
-		if err := pregenerate(ctx, conf.WorldProvider, conf.Generator(world.Overworld), spawn, cfg.pregenRadius, cfg.chunkWorkers, stdout); err != nil {
+		if err := preparePregeneration(ctx, conf.WorldProvider, conf.Generator(world.Overworld), firstWorld, cfg.pregenRadius, cfg.chunkWorkers, stdout); err != nil {
 			if exps != nil {
 				err = errors.Join(err, exps.closeSupervisors())
 			}

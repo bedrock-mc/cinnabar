@@ -39,6 +39,16 @@ the eight-chunk square. Four took 1.13 s and 7.73 s. These single observations a
 complete-visible-terrain timings. Seed 42's eight-chunk-square check timed out after 60 s.
 The client build was the existing developer-control play build at `3abbe9f94`.
 
+A larger seed-1 pre-generation saved 4,225 columns in 129.55 s (32.61/s). The following headless
+join generated zero columns, spawned in 1.11 s and loaded the eight-chunk square in 7.22 s.
+During a short flight the late samples moved at about 125–129 blocks/s, while resident columns
+fell from 491 to 306. This isolates a further bottleneck after generation, not specifically the
+client: storage, lighting, networking and client decode/render still need separate attribution.
+Surface stills for seeds 1, 42 and -7 show coast/ocean and forest terrain. Underground capture
+is diagnostic and does not establish cave rendering parity. The seed-1 saved region contains
+normal and deepslate ores, oak/birch tree blocks, planks and chests; structure placement/loot
+were not compared with matching Bedrock ground truth.
+
 ## Remaining performance work
 
 At 128 blocks/s and radius 12, a straight route requests roughly 200 new columns/s before

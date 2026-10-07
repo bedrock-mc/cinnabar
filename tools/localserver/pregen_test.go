@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"github.com/df-mc/dragonfly/server"
 	"io"
 	"strings"
 	"testing"
@@ -108,6 +110,60 @@ func TestNormalPregenerationCompletesBeforeReadyAndReusesSavedColumns(t *testing
 		complete, ready := strings.Index(text, "pregen complete"), strings.Index(text, "ready\n")
 		if complete < 0 || ready < complete || !strings.Contains(text, counts) {
 			t.Fatalf("startup did not save chunks before readiness: %s", text)
+		}
+	}
+}
+
+// shiftedPregenGenerator tests a new spawn far from the provider's default origin.
+type shiftedPregenGenerator struct{ pregenTestGenerator }
+
+// DefaultSpawn provides a negative-coordinate hint that must survive an interrupted startup.
+func (shiftedPregenGenerator) DefaultSpawn(world.Dimension) cube.Pos { return cube.Pos{-424, 64, -216} }
+
+func TestCancelledPregenerationPersistsInitialSpawnForResume(t *testing.T) {
+	path := t.TempDir()
+	db, err := mcdb.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := preparePregeneration(ctx, db, shiftedPregenGenerator{}, true, 1, 2, io.Discard); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel=%v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = mcdb.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	want := shiftedPregenGenerator{}.DefaultSpawn(world.Overworld)
+	if db.Settings().Spawn != want {
+		t.Fatalf("resume spawn=%v, want %v", db.Settings().Spawn, want)
+	}
+	if err := preparePregeneration(context.Background(), db, pregenTestGenerator{}, false, 1, 2, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.LoadColumn(world.ChunkPos{int32(want[0] >> 4), int32(want[2] >> 4)}, world.Overworld); err != nil {
+		t.Fatalf("missing resumed spawn column: %v", err)
+	}
+	if db.Settings().Spawn != want {
+		t.Fatal("reopen replaced saved spawn")
+	}
+}
+
+func TestTerrainFixtureHonorsExplicitChunkWorkers(t *testing.T) {
+	for _, workers := range []int{1, 4, 8} {
+		s, err := parseSettings([]string{"-dir", "d", "-addr", "127.0.0.1:0", "-terrain-fixture", "-chunk-workers", fmt.Sprint(workers)}, io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var conf server.Config
+		s.configureTerrainFixture(&conf)
+		if conf.ChunkLoadWorkers != workers {
+			t.Fatalf("workers=%d, want %d", conf.ChunkLoadWorkers, workers)
 		}
 	}
 }

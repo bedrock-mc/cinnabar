@@ -20,6 +20,16 @@ type pregenResult struct {
 	err       error
 }
 
+// preparePregeneration saves the initial spawn before cancellation can leave a resumable database.
+func preparePregeneration(ctx context.Context, db world.Provider, g world.Generator, firstWorld bool, radius, workers int, out io.Writer) error {
+	settings := db.Settings()
+	if firstWorld {
+		settings.Spawn = g.DefaultSpawn(world.Overworld)
+		db.SaveSettings(settings)
+	}
+	return pregenerate(ctx, db, g, settings.Spawn, radius, workers, out)
+}
+
 // pregenerate saves missing overworld columns before players can join, leaving existing data intact.
 func pregenerate(ctx context.Context, db world.Provider, g world.Generator, spawn cube.Pos, radius, workers int, out io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
