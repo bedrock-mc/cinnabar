@@ -1332,6 +1332,12 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// Native look vector used by the swimming trigger (current RVA 0x09fd25a0).
 
 ## crates/sim/src/simulator.rs
+- Ground acceleration `0x070d9630` stores speed * (0.546 / (friction * 0.91))^3 with the
+  friction block at AABB min y - 0.1 (soul sand friction * 1.225 unless Soul Speed, air
+  0.546); no block speed factor. Water acceleration `0x0dc3eeb0` reads only the water
+  movement attribute blended toward ground speed by Depth Strider; 26.30
+  `LavaTravelSystem::tickLavaTravelSystem` reads only MovementAttributesComponent, with no
+  block source. Block speed factors never reach these relative speeds.
 - // FinalizeMove uses the native float epsilon.
 - /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
