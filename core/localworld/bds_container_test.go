@@ -341,7 +341,7 @@ func pendingManager(t *testing.T) (*Manager, *Provisioner, *probeGate) {
 	t.Helper()
 	gate := newProbeGate()
 	store := newTestStore(t)
-	store.SetDefaultBackend(BackendBDS) // core's optimistic default while the probe runs
+	store.SetDefaultBackend(BackendBDS) // an explicit operator default still needs BDS detection
 	p := &Provisioner{Root: t.TempDir(), goos: "darwin", goarch: "arm64"}
 	p.SetDetector(gate.detect)
 	m := NewManager(store, Runners{}, nil)
@@ -430,7 +430,7 @@ func TestOverlappingRedetectKeepsTheNewestResult(t *testing.T) {
 	}
 }
 
-// A Flat world asks for Dragonfly outright, which no Docker probe can change, so it never waits on one.
+// An explicit Dragonfly choice never waits on a Docker probe, regardless of terrain.
 func TestExplicitDragonflyCreateSkipsPendingDetection(t *testing.T) {
 	m, p, gate := pendingManager(t)
 	m.runtimeWait = time.Minute
@@ -452,7 +452,7 @@ func TestExplicitDragonflyCreateSkipsPendingDetection(t *testing.T) {
 	awaitSettled(t, p)
 }
 
-// With Docker down and no Dragonfly binary, nothing can host the fallback, so Create refuses and saves nothing.
+// An unavailable explicit Dragonfly choice is refused without saving a world.
 func TestCreateRefusesTheFallbackWhenItsServerIsMissing(t *testing.T) {
 	m, p, gate := pendingManager(t)
 	m.SetUnavailable(BackendDragonfly, errors.New("local world server binary not found"))
