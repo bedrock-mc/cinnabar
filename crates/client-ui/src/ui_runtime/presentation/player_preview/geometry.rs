@@ -55,6 +55,38 @@ pub fn mesh_with_body(
     fire: Option<PreviewFire>,
     overlay_color: [f32; 4],
 ) -> Option<Arc<UiMesh>> {
+    mesh_with_cape(
+        body,
+        pose,
+        view,
+        bob,
+        skin,
+        gear,
+        armor,
+        hands,
+        fancy,
+        fire,
+        overlay_color,
+        None,
+    )
+}
+
+/// Samples an attached cape from its original texture alongside the skin and equipment.
+#[allow(clippy::too_many_arguments)]
+pub fn mesh_with_cape(
+    body: Option<(&[ActorVertex], &[Option<bevy::math::Affine3A>; 6])>,
+    pose: PlayerPreviewPose,
+    view: PreviewView,
+    bob: f32,
+    skin: IconRef,
+    gear: &PreviewEquipment,
+    armor: [Option<IconRef>; 4],
+    hands: [Option<&PreviewHeldModel>; 2],
+    fancy: bool,
+    fire: Option<PreviewFire>,
+    overlay_color: [f32; 4],
+    cape: Option<(&[ActorVertex], IconRef)>,
+) -> Option<Arc<UiMesh>> {
     let mut rig = Rig::new(pose, view, bob, hands.map(|model| model.is_some()));
     if let Some((_, parts)) = body {
         rig.parts = *parts;
@@ -72,6 +104,9 @@ pub fn mesh_with_body(
         None,
         fancy,
     )?;
+    if let Some((cape, icon)) = cape {
+        append(&mut vertices, &mut batches, &rig, cape, icon, None, fancy)?;
+    }
     for (slot, icon) in armor.into_iter().enumerate() {
         let (Some(icon), Some(texture)) = (icon, &gear.armor[slot]) else {
             continue;

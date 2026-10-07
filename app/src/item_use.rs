@@ -305,6 +305,12 @@ pub(crate) fn produce_item_use(
     mut swings: ResMut<SwingTracker>,
     mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     runtime.synchronize(context.ui.session_id());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
@@ -354,12 +360,25 @@ pub(crate) fn produce_item_use(
         runtime.selected_projectile(&player_runtime, &context.ui),
     );
     let creative = player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative);
+    let inventory_revision = player_runtime.selected_hotbar_slot().and_then(|slot| {
+        context
+            .ui
+            .inventory_ledger(&player_runtime)
+            .authoritative_slot_revision(slot)
+    });
+    let selection = verified_use_selection(&player_runtime, &context.ui).map(|server| {
+        context
+            .block_use
+            .inventory
+            .predicted_selection(&server, inventory_revision.unwrap_or(0))
+            .unwrap_or(server)
+    });
     let frame = UseFrame {
         tick: sample.tick,
         now_millis,
         position: sample.position,
         held,
-        selection: verified_use_selection(&player_runtime, &context.ui),
+        selection,
         air_use,
         ready: match air_use {
             Some(AirUse::Hold { needs, .. }) => {
@@ -368,12 +387,7 @@ pub(crate) fn produce_item_use(
             _ => false,
         },
         creative,
-        inventory_revision: player_runtime.selected_hotbar_slot().and_then(|slot| {
-            context
-                .ui
-                .inventory_ledger(&player_runtime)
-                .authoritative_slot_revision(slot)
-        }),
+        inventory_revision,
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
         press_consumed: context.melee.blocks_use_at(now_millis)
             || context.block_use.interacted_at(sample.tick),
@@ -381,7 +395,12 @@ pub(crate) fn produce_item_use(
     if let Some(reason) = runtime.press_drop_reason(&frame) {
         crate::movement::note_click_drop("use", reason);
     }
-    let duration = swing_duration(context.effects.mining_effects());
+    let duration = swing_duration(
+        context
+            .effects
+            .mining_tick(sample.tick, movement.completed_tick())
+            .0,
+    );
     admit_with_action_aim(
         &mut runtime,
         &mut swings,

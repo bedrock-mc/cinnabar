@@ -3,7 +3,7 @@
 #import cinnabar::enhanced_caster::caster_clip
 #endif
 #import bevy_render::view::View
-#import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
+#import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma}
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
@@ -99,6 +99,7 @@ struct VertexOutput {
 #else
     @location(10) native_light_levels: vec2<f32>,
     @location(11) native_ao_face: f32,
+    @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
 #endif
 }
 
@@ -286,6 +287,12 @@ fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     // fragment stage, not before interpolating its nonlinear RGB output.
     out.native_light_levels = terrain_light_levels(light_sample);
     out.native_ao_face = material_leaf_shade(ao * dimming, material.flags);
+    out.uniform_tint_gamma = vec4(0.0);
+#ifndef ENHANCED_SHADOW
+#ifndef OPAQUE_OVERDRAW
+    out.uniform_tint_gamma = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
+#endif
+#endif
 #endif
 #ifdef ENHANCED
     out.surface_class = material_class(quad.material_id);
@@ -419,14 +426,22 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
         discard;
     }
+#ifdef OPAQUE_OVERDRAW
+    return vec4(1.0);
+#else
     return shade_cube(in, sampled);
+#endif
 }
 
 // Single-sided opaque runs: back-face culling and the mesher's material partition
 // stand in for both discards, keeping early depth and hidden-surface removal.
 @fragment
 fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
+#ifdef OPAQUE_OVERDRAW
+    return vec4(1.0);
+#else
     return shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
+#endif
 }
 
 fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
@@ -438,6 +453,25 @@ fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> 
     }
     return sampled;
 }
+
+#ifndef ENHANCED
+// Mixed records and position-noise grass keep their original per-block fragment lookup.
+fn ordinary_cube_tint_gamma(in: VertexOutput) -> vec3<f32> {
+    if (in.uniform_tint_gamma.a != 0.0) { return in.uniform_tint_gamma.rgb; }
+    var tint_gamma = vec3(1.0);
+    let tint_kind = in.material_flags & 0x30u;
+    if (tint_kind != 0u) {
+        tint_gamma = blended_biome_tint_gamma(
+            tint_kind,
+            in.material_flags,
+            in.biome_record,
+            in.local_position - in.normal * 0.001,
+            in.world_position - in.local_position,
+        ).rgb;
+    }
+    return tint_gamma;
+}
+#endif
 
 fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
 #ifdef ENHANCED
@@ -461,17 +495,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
-    var tint_gamma = vec3(1.0);
-    let tint_kind = in.material_flags & 0x30u;
-    if (tint_kind != 0u) {
-        tint_gamma = blended_biome_tint_gamma(
-            tint_kind,
-            in.material_flags,
-            in.biome_record,
-            in.local_position - in.normal * 0.001,
-            in.world_position - in.local_position,
-        ).rgb;
-    }
+    let tint_gamma = ordinary_cube_tint_gamma(in);
     let native_colour = native_cube_colour(
         sampled,
         in.material_flags,

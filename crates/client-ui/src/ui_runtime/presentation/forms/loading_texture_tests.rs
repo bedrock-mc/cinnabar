@@ -54,7 +54,7 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
     frame(&player_runtime, &mut presentation);
     presentation.finish_menu_artwork();
     let before = snapshot::rasterize(&frame(&player_runtime, &mut presentation));
-    let [title_x, title_y] = carrier::center(&presentation, title);
+    let [title_x, title_y] = carrier::center(&presentation);
 
     // A completed worker atlas is installed while the next frame is being built.
     let path = std::env::temp_dir().join(format!("loading-repack-{}.png", std::process::id()));
@@ -100,9 +100,8 @@ fn settled(
             .unwrap()
             .textures
             .lock();
-        let ready = (!atlas.has_image("textures/blocks/dirt")
-            || atlas.placement("textures/blocks/dirt").is_some())
-            && atlas.placement("textures/ui/loading_bar").is_some();
+        let ready = !atlas.has_image("textures/blocks/dirt")
+            || atlas.placement("textures/blocks/dirt").is_some();
         drop(atlas);
         if ready {
             break;
@@ -160,11 +159,18 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
     for (x, y) in [(0, 0), (16, 0), (64, 0), (0, 640)] {
         let texel = dirt.get_pixel((x % 64) / 4, (y % 64) / 4);
         let shade = 0.5 - 0.2 * (y as f32 + 0.5) / 720.0;
+        let source = std::array::from_fn(|channel| {
+            if channel == 3 {
+                255
+            } else {
+                (f32::from(texel[channel]) * shade).round() as u8
+            }
+        });
+        let expected = snapshot::loading_backdrop_texel(&presentation, source, [x, y]);
         for channel in 0..3 {
-            let expected = (f32::from(texel[channel]) * shade).round() as u8;
             assert!(
-                pixels.get_pixel(x, y)[channel].abs_diff(expected) <= 1,
-                "dirt/gradient pixel ({x},{y}): {:?}, expected {expected}",
+                pixels.get_pixel(x, y)[channel].abs_diff(expected[channel]) <= 1,
+                "dirt/gradient pixel ({x},{y}): {:?}, expected {expected:?}",
                 pixels.get_pixel(x, y)
             );
         }
@@ -180,19 +186,7 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
         bar.pixels().all(|pixel| pixel[3] == 0),
         "Zeqa hides its loading bar"
     );
-    let key = format!("{}textures/ui/loading_bar", menu_artwork::SERVER_ART_PREFIX);
-    let reference = presentation.menu_artwork.refs[&key];
-    let page = &before.textures.pages()[usize::from(reference.page)];
-    for y in reference.uv[1]..reference.uv[3] {
-        for x in reference.uv[0]..reference.uv[2] {
-            let at = (u32::from(y) * page.dimensions()[0] + u32::from(x)) as usize * 4;
-            assert_eq!(
-                page.pixels()[at + 3],
-                0,
-                "Zeqa's bar sampled unrelated atlas pixels"
-            );
-        }
-    }
+    before.validate().unwrap();
     let title = presentation
         .form_presentation
         .engine
@@ -224,7 +218,7 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
 }
 
 #[test]
-fn zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden() {
+fn zeqa_loading_screen_keeps_native_progress_when_the_legacy_bar_is_absent() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut pack) = pack_harness::env_pack() else {
@@ -240,27 +234,7 @@ fn zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden() {
     presentation.set_server_ui_pack(&pack);
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     let first = settled(&player_runtime, &mut presentation);
-    let pixels = snapshot::rasterize(&first);
-    let bar = vanilla_image("textures/ui/loading_bar");
-    let mut checked = 0;
-    // progress_screen.json:531-553: 64x8 cells, tint 0.7, ten frames per second.
-    for y in 0..8 {
-        for x in 0..64 {
-            let texel = bar.get_pixel(x, y);
-            if texel[3] != 255 {
-                continue;
-            }
-            for channel in 0..3 {
-                let expected = (u16::from(texel[channel]) * 179 / 255) as u8;
-                assert!(
-                    pixels.get_pixel(576 + x * 2, 406 + y * 2)[channel].abs_diff(expected) <= 1,
-                    "loading bar sampled another region at ({x},{y})"
-                );
-            }
-            checked += 1;
-        }
-    }
-    assert!(checked > 0);
+    first.validate().unwrap();
     let animated = presentation
         .build(
             &player_runtime,
@@ -270,11 +244,9 @@ fn zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden() {
             DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    let animated_pixels = snapshot::rasterize(&animated);
+    animated.validate().unwrap();
     assert_ne!(
-        image::imageops::crop_imm(&pixels, 576, 406, 128, 16).to_image(),
-        image::imageops::crop_imm(&animated_pixels, 576, 406, 128, 16).to_image(),
-        "bar did not advance at 10 fps"
+        first.vertices, animated.vertices,
+        "native progress must advance without a legacy sprite"
     );
-    snapshot::write(&animated, "zeqa-vanilla-bar-after");
 }

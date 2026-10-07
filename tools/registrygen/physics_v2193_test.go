@@ -138,7 +138,7 @@ func decodeV2193PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) 
 func v2193PhysicsEntryIsNeutralReserved(entry v2193PhysicsEntry) bool {
 	return entry.Flags == physicsFlagPassable && len(entry.Boxes) == 0 &&
 		entry.Surface == SurfaceNone && entry.FluidHeight == 0 &&
-		entry.Friction == defaultSpeedQ1E8 && entry.HorizontalSpeed == defaultSpeedQ1E8 &&
+		entry.Friction == defaultFrictionQ1E8 && entry.HorizontalSpeed == defaultSpeedQ1E8 &&
 		entry.VerticalSpeed == defaultSpeedQ1E8
 }
 
@@ -264,6 +264,13 @@ func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *
 		t.Fatalf("ladder box histogram = %v, want exactly {0:2 1:4}", ladderBoxes)
 	}
 
+	// Scaffolding climbs through its own ascend/descend rules, never the ladder ones.
+	for _, index := range v2193RecordsNamed(records, "minecraft:scaffolding") {
+		if entry := entries[index]; entry.Flags&physicsFlagScaffolding == 0 || entry.Flags&physicsFlagClimbable != 0 {
+			t.Fatalf("scaffolding runtime ID %d must be scaffolding without the climbable fact: %+v", index, entry)
+		}
+	}
+
 	powderSnow := v2193RecordsNamed(records, "minecraft:powder_snow")
 	if len(powderSnow) != 1 {
 		t.Fatalf("powder_snow states = %d, want 1", len(powderSnow))
@@ -369,7 +376,7 @@ func TestProjectV2193PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing
 			continue
 		}
 		reserved++
-		if entry.Flags != physicsFlagPassable || len(entry.Boxes) != 0 || entry.FrictionQ1E8 != defaultSpeedQ1E8 ||
+		if entry.Flags != physicsFlagPassable || len(entry.Boxes) != 0 || entry.FrictionQ1E8 != defaultFrictionQ1E8 ||
 			entry.HorizontalSpeedQ1E8 != defaultSpeedQ1E8 || entry.VerticalSpeedQ1E8 != defaultSpeedQ1E8 ||
 			entry.FluidHeightQ1E8 != 0 || entry.SurfaceResponse != SurfaceNone {
 			t.Fatalf("reserved runtime ID %d is not neutral: %+v", index, entry)
@@ -646,7 +653,7 @@ func TestProjectV2193PhysicsRequiresExactlyTheReviewedReservedCount(t *testing.T
 
 func v2193PhysicsEntryStructurallyNeutral(entry PhysicsRecord) bool {
 	return entry.Flags == physicsFlagPassable && len(entry.Boxes) == 0 && entry.SurfaceResponse == SurfaceNone &&
-		entry.FluidHeightQ1E8 == 0 && entry.FrictionQ1E8 == defaultSpeedQ1E8 &&
+		entry.FluidHeightQ1E8 == 0 && entry.FrictionQ1E8 == defaultFrictionQ1E8 &&
 		entry.HorizontalSpeedQ1E8 == defaultSpeedQ1E8 && entry.VerticalSpeedQ1E8 == defaultSpeedQ1E8
 }
 

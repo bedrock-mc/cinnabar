@@ -103,6 +103,8 @@ impl SessionObservation {
 /// The UI authority's current cursor policy.
 #[derive(Clone, Copy)]
 pub struct CursorPolicy {
+    /// Focus ownership authorizes capture only after an explicit gameplay return.
+    pub capture_allowed: bool,
     pub consent: bool,
     pub absorbs_input: bool,
     pub steals_mouse: Option<bool>,

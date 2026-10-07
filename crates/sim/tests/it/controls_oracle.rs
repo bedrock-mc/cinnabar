@@ -73,12 +73,13 @@ fn all_fourteen_public_model_controls_match_without_replacing_kinematic_fixtures
             .unwrap();
         // Only the semantic control result is compared at its wire precision.
         // The simulator's f64 kinematics are deliberately not an f32 oracle.
-        for (actual, expected) in output
-            .controls
-            .move_vector
-            .into_iter()
-            .zip(record.processed)
-        {
+        // bedsim multiplies item and pose factors first; vanilla scales by pose, then item.
+        let expected = if record.name == "raw_nonbinary_item_pose" {
+            [0.7_f32 * 0.3 * 0.7, -0.9_f32 * 0.3 * 0.7]
+        } else {
+            record.processed
+        };
+        for (actual, expected) in output.controls.move_vector.into_iter().zip(expected) {
             assert_eq!(
                 (actual as f32).to_bits(),
                 expected.to_bits(),

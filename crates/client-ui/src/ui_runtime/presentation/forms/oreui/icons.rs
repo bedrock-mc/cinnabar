@@ -1,9 +1,20 @@
 //! OreUI icons as our own pixel art (one texel = 0.2rem), matched to the
-//! originals' sizes; the local-originals mode draws the install's sprite instead.
+//! originals' sizes; installed artwork supplies each icon's exact alpha shape.
 
 use super::super::super::UiPresentationError;
 use super::paint::{Bounds, Canvas};
 use super::theme::{EDGE, Rgba};
+
+/// Native category sprites round their 24-texel squares down at odd GUI scales.
+pub(super) fn native_side(canvas: &Canvas<'_>) -> f32 {
+    24.0 * native_scale(canvas)
+}
+
+pub(super) fn native_scale(canvas: &Canvas<'_>) -> f32 {
+    let dpi = canvas.metrics.dpi_scale.get();
+    let gui_scale = canvas.rem * dpi / 5.0;
+    (gui_scale * 0.5).floor().max(0.5) / dpi
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Icon {
@@ -13,6 +24,7 @@ pub(super) enum Icon {
     Player,
     Pencil,
     Check,
+    Filter,
 }
 
 impl Icon {
@@ -25,12 +37,27 @@ impl Icon {
             Self::Player => "assets/player@0.5x.icon-5f2efe885c1189f09a5388b6e6b07c9f.png",
             Self::Pencil => "assets/edit@0.5x.icon-a786502003e9894de25c9a2b274fbcbb.png",
             Self::Check => "assets/checkmark@0.5x.icon-3a1f3dd3866716c7bc33ad20204c68ca.png",
+            Self::Filter => "assets/filter@0.5x.icon-4d527e67d899c241675338c67277d157.png",
         }
     }
 
     /// Our pixel art: one row per string, `#` for a lit texel.
     fn pixels(self) -> &'static [&'static str] {
         match self {
+            Self::Filter => &[
+                "......##....",
+                "############",
+                "......##....",
+                "............",
+                "..##........",
+                "############",
+                "..##........",
+                "............",
+                ".......##...",
+                "############",
+                ".......##...",
+                "............",
+            ],
             Self::ArrowBack => &[
                 "....##......",
                 "...##.......",
@@ -85,6 +112,9 @@ impl Icon {
 
     /// Texel size of our art.
     pub(super) fn texels(self) -> [usize; 2] {
+        if self == Self::Player {
+            return [12, 12];
+        }
         let rows = self.pixels();
         [rows.first().map_or(0, |row| row.len()), rows.len()]
     }
@@ -97,6 +127,7 @@ pub(super) fn draw(
     at: [f32; 2],
     color: Rgba,
 ) -> Result<(), UiPresentationError> {
+    let color = canvas.appearance.ink(color);
     let texel = canvas.r(EDGE);
     let [width, height] = icon.texels();
     let bounds: Bounds = [
@@ -105,7 +136,7 @@ pub(super) fn draw(
         at[0] + width as f32 * texel,
         at[1] + height as f32 * texel,
     ];
-    if canvas.sprite(icon.original(), bounds, [255; 4])? {
+    if canvas.masked_sprite(icon.original(), bounds, color)? {
         return Ok(());
     }
     for (row, line) in icon.pixels().iter().enumerate() {
@@ -148,8 +179,9 @@ mod tests {
             Icon::Search,
             Icon::Player,
             Icon::Check,
+            Icon::Filter,
         ] {
-            let [width, _] = icon.texels();
+            let width = icon.pixels()[0].len();
             assert!(
                 icon.pixels().iter().all(|row| row.len() == width),
                 "{icon:?}"

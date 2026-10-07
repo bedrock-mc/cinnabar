@@ -607,7 +607,9 @@ pub struct LocalPlayerFeed {
     pub main_hand_stack_id: Option<i32>,
     /// Selected hotbar slot; equal stacks in different slots still re-equip.
     pub main_hand_slot: u8,
-    /// Current Java swing duration, recalculated from the active effects each tick.
+    /// Current Bedrock swing duration, recalculated from the active effects each tick.
+    pub bedrock_swing_ticks: i32,
+    /// Current Java swing duration, which excludes Conduit Power.
     pub java_swing_ticks: i32,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
@@ -678,6 +680,7 @@ pub(crate) struct ActorStore {
     local_main_metadata: u32,
     local_main_stack_id: Option<i32>,
     local_main_slot: u8,
+    local_bedrock_swing_ticks: i32,
     local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],

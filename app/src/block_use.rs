@@ -3,7 +3,7 @@
 //! The local use outcome (interaction, placement or nothing) decides the
 //! transaction's prediction and swing. A placement or switch toggle whose state
 //! is certain is also applied locally; the server's block updates stay authoritative. Air
-//! use lives in `item_use`; item-use-on start/stop actions are not implemented.
+//! use lives in `item_use`.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -15,7 +15,7 @@ use semantic_input::Action;
 use sim::PaletteWorld;
 
 use crate::{
-    interaction_authority::{FrozenBlockObservation, observe_block, within_pick_range},
+    interaction_authority::FrozenBlockObservation,
     local_player::InteractionOriginSnapshot,
     melee::{MeleeRuntime, SwingTracker, obstructs_placement, swing_duration},
     menu::MenuRuntime,
@@ -66,12 +66,19 @@ pub(crate) struct BlockUseContext<'w, 's> {
 }
 
 pub(crate) fn produce_block_use(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
+    mut item_use: ResMut<crate::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     runtime.synchronize(movement.interaction_authority_identity());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
@@ -82,35 +89,57 @@ pub(crate) fn produce_block_use(
             && !context.ui.ui_focused(&player_runtime)
             && caps.can_use_blocks()
             && input.input_mode != semantic_input::InputMode::Touch
-            && movement.accepts_block_interactions()
     }) else {
-        runtime.clear();
+        runtime.clear_press();
+        stop_block_use(&mut runtime, &context, false);
         return;
     };
     let use_phase = context.input.phase(Action::Use);
+    let attacking = context.input.phase(Action::Attack).held;
+    if attacking {
+        runtime.clear_press();
+    }
+    if (runtime.stopping()
+        || (runtime.last_success_destination().is_some()
+            && (attacking || use_phase.pressed || !use_phase.held)))
+        && !stop_block_use(&mut runtime, &context, use_phase.pressed && !attacking)
+    {
+        return;
+    }
     if !runtime.observe_use(
         use_phase.held,
         use_phase.pressed,
-        context.input.phase(Action::Attack).held,
+        attacking,
+        movement.accepts_block_interactions(),
     ) {
+        return;
+    }
+    let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
+        runtime.clear_press();
+        stop_block_use(&mut runtime, &context, false);
+        return;
+    };
+    if runtime.selection_changed(&selection)
+        && !stop_block_use(&mut runtime, &context, use_phase.pressed)
+    {
         return;
     }
     // Frames between physics ticks have no unsent tick; a press waits for one.
     let Some(sample) = movement.newest_unsent_sample() else {
         return;
     };
-    let clock = RepeatClock {
-        now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
-        sneaking: sample.sneaking,
-        speed: sample
-            .delta
+    let clock = RepeatClock::for_game_mode(
+        u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
+        sample.sneaking,
+        sample
+            .displacement
             .map(|axis| axis * sim::TICKS_PER_SECOND as f32)
             .into_iter()
             .map(|axis| axis * axis)
             .sum::<f32>()
             .sqrt(),
-        survival: game_mode == Some(PlayerGameMode::Survival),
-    };
+        game_mode,
+    );
     let Some((trigger, due)) = runtime.due(use_phase.held, sample.tick, clock) else {
         return;
     };
@@ -119,7 +148,7 @@ pub(crate) fn produce_block_use(
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);
-    let (Some(observed), Some(stream)) = (
+    let (Some(mut observed), Some(stream)) = (
         observe_use_target(
             &player_runtime,
             &context,
@@ -127,12 +156,24 @@ pub(crate) fn produce_block_use(
             clock.survival,
             (input.authority_generation, input.frame_sequence),
             movement.interaction_authority_identity().1,
+            &runtime,
+            sample.delta,
+            sample.sneaking,
         ),
         context.client_world.stream.as_ref(),
     ) else {
         runtime.record(trigger, due, sample.tick, LocalUse::Nothing, clock);
         return;
     };
+    let server_selection = observed.selection.clone();
+    let inventory_revision = context
+        .ui
+        .inventory_ledger(&player_runtime)
+        .authoritative_slot_revision(server_selection.slot)
+        .unwrap_or(0);
+    observed.selection = runtime
+        .inventory
+        .selection(&server_selection, inventory_revision);
     let surroundings = use_surroundings(&context, &observed, sample.position, sample.sneaking);
     let local_use = LocalUse::resolve(
         &observed.selection.item,
@@ -141,6 +182,9 @@ pub(crate) fn produce_block_use(
         &surroundings,
         &caps,
     );
+    if !runtime.may_attempt(sample.tick, local_use, &swings) {
+        return;
+    }
     let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
     let predicted = (local_use == LocalUse::Place)
         .then(|| {
@@ -165,24 +209,79 @@ pub(crate) fn produce_block_use(
         runtime.record(trigger, due, sample.tick, local_use, clock);
         return;
     }
-    let duration = swing_duration(context.effects.mining_effects());
+    let duration = swing_duration(
+        context
+            .effects
+            .mining_tick(sample.tick, movement.completed_tick())
+            .0,
+    );
     let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
         return;
     };
-    let before_swing = swings.clone();
+    item_use.synchronize(context.ui.session_id());
+    let legacy_request_id = item_use.next_legacy_request_id();
+    let change = (local_use == LocalUse::Place && game_mode != Some(PlayerGameMode::Creative))
+        .then(|| {
+            runtime
+                .inventory
+                .prepare_change(&observed.selection, legacy_request_id)
+        });
+    let start_destination = runtime
+        .last_success_destination()
+        .is_none()
+        .then_some(destination);
+    let mut before_swing = swings.clone();
     let packets = use_packets(
         (&observed, block_network_id),
         sample.position,
         trigger,
         local_use,
+        start_destination,
+        change.clone(),
         local_runtime_id,
         |tick| swings.try_swing(tick, duration),
         sample.tick,
     );
-    let sent = !packets.is_empty() && context.network.send_inventory_packets(packets).is_ok();
+    let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
+    let sent = matches!(result, Some(Ok(())));
+    if sent {
+        runtime.intention.record(
+            trigger == ItemUseTrigger::SimulationTick,
+            destination,
+            local_use,
+            local_use != LocalUse::Interact
+                && held_block_store_id(stream, observed.selection.item.block_runtime_id())
+                    .is_some_and(|block| {
+                        context
+                            .collisions
+                            .block_has_build_intention(stream.network_id_mode(), block)
+                    }),
+            sample.sneaking,
+            std::array::from_fn(|axis| {
+                observed.target.position[axis] as f32 + observed.target.relative_hit[axis]
+            }),
+        );
+    }
     if !runtime.admit(trigger, due, sample.tick, local_use, clock, sent) {
+        runtime.refuse_transport(
+            sample.tick,
+            local_use,
+            matches!(result, Some(Err(client_session::BatchSendError::Full))),
+        );
+        before_swing.defer_unadmitted_attempt(&swings);
         *swings = before_swing;
         return;
+    }
+    if let Some(change) = change {
+        if change.to.is_empty() {
+            player_runtime
+                .inventory
+                .ledger_mut()
+                .settle_use_emptied_slot(server_selection.slot, inventory_revision);
+        }
+        runtime
+            .inventory
+            .commit(server_selection, inventory_revision, change);
     }
     if local_use == LocalUse::Place {
         let position = destination;
@@ -309,34 +408,8 @@ fn use_surroundings(
     }
 }
 
-fn observe_use_target(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
-    context: &BlockUseContext,
-    input_mode: PlayerInputMode,
-    survival: bool,
-    input_authority: (std::num::NonZeroU64, u64),
-    position_authority_generation: u64,
-) -> Option<FrozenBlockObservation> {
-    let reach = if survival {
-        survival_reach(input_mode)
-    } else {
-        creative_reach(input_mode)
-    };
-    let observed = observe_block(
-        &context.origin,
-        &context.ui,
-        &context.client_world,
-        &context.collisions,
-        verified_use_selection(player_runtime, &context.ui)?,
-        (
-            input_mode,
-            reach,
-            input_authority,
-            position_authority_generation,
-        ),
-    )?;
-    within_pick_range(&observed).then_some(observed)
-}
+mod target;
+use target::observe_use_target;
 
 /// The selected stack, only while no inventory request or hotbar change is in flight.
 pub(crate) fn verified_use_selection(
@@ -390,3 +463,18 @@ fn held_block_store_id(stream: &chunk_pipeline::WorldStream, item_block: i32) ->
         item_block,
     )
 }
+
+/// Sends the held-use stop action before dropping its successful-placement history.
+fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repress: bool) -> bool {
+    let Some(stream) = context.client_world.stream.as_ref() else {
+        runtime.clear();
+        return true;
+    };
+    let packets = runtime.stop_packets(stream.local_player_runtime_id(), repress);
+    let admitted = packets.is_empty() || context.network.send_inventory_packets(packets).is_ok();
+    runtime.admit_stop(admitted)
+}
+
+#[cfg(test)]
+#[path = "block_use/published_tests.rs"]
+mod published_tests;

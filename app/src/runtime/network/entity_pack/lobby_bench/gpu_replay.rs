@@ -176,7 +176,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
         world
             .resource_mut::<Time<Real>>()
             .update_with_instant(clock);
-        world.run_system_cached(prepare_actor_render_frame).unwrap();
+        prepare_offline_actor_frame(&mut world);
         world.run_system_cached(publish_actor_render_frame).unwrap();
         app.world_mut()
             .insert_resource(world.resource::<ActorRenderFrame>().clone());

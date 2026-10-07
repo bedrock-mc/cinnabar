@@ -84,10 +84,12 @@ fn observed() -> ModeObservation {
     ModeObservation {
         feet: Vec3::ZERO,
         on_ground: false,
-        velocity_y: 0.0,
         in_water: true,
-        in_lava: false,
         sprinting: true,
+        sprint_blinded: false,
+        sprint_down: false,
+        input_mode: protocol::PlayerInputMode::Mouse,
+        requested_movement: Vec3::ZERO,
         move_sideways: 0.0,
         move_forward: 1.0,
         sneaking: false,
@@ -104,7 +106,7 @@ fn wet_swimming_retains_actual_sprint_through_backward_sideways_and_release() {
     let mut tracker = super::super::ModeTracker::default();
     let pool = Pool::deep();
     let started = tracker
-        .select(ModeIntent::default(), false, observed(), &pool)
+        .select(ModeIntent::default(), observed(), &pool)
         .unwrap();
     assert_eq!(started.mode, MovementMode::Swimming);
     assert!(started.sprinting);
@@ -116,7 +118,7 @@ fn wet_swimming_retains_actual_sprint_through_backward_sideways_and_release() {
             ..observed()
         };
         let choice = tracker
-            .select(ModeIntent::default(), false, continuing, &pool)
+            .select(ModeIntent::default(), continuing, &pool)
             .unwrap();
         assert_eq!(choice.mode, MovementMode::Swimming);
         assert!(choice.sprinting);
@@ -128,7 +130,6 @@ fn wet_swimming_retains_actual_sprint_through_backward_sideways_and_release() {
     let choice = tracker
         .select(
             ModeIntent::default(),
-            false,
             ModeObservation {
                 sprinting: true,
                 move_forward: -1.0,
@@ -146,21 +147,17 @@ fn first_stop_swimming_tick_retains_sprint_until_the_old_pose_is_dry() {
     let mut tracker = super::super::ModeTracker::default();
     let pool = Pool::deep();
     tracker
-        .select(ModeIntent::default(), false, observed(), &pool)
+        .select(ModeIntent::default(), observed(), &pool)
         .unwrap();
     let idle = ModeObservation {
         sprinting: false,
         move_forward: 0.0,
         ..observed()
     };
-    let stopping = tracker
-        .select(ModeIntent::default(), false, idle, &pool)
-        .unwrap();
+    let stopping = tracker.select(ModeIntent::default(), idle, &pool).unwrap();
     assert_eq!(stopping.mode, MovementMode::Walking);
     assert!(stopping.sprinting);
-    let next = tracker
-        .select(ModeIntent::default(), false, idle, &pool)
-        .unwrap();
+    let next = tracker.select(ModeIntent::default(), idle, &pool).unwrap();
     assert!(!next.sprinting);
 }
 
@@ -171,7 +168,6 @@ fn wet_swimming_does_not_invent_a_missing_sprint_flag() {
     let choice = tracker
         .select(
             ModeIntent::default(),
-            false,
             ModeObservation {
                 sprinting: false,
                 ..observed()
@@ -349,14 +345,14 @@ fn native_stop_waits_for_standing_fit_instead_of_relabeling_as_crawl() {
     };
     assert_eq!(
         tracker
-            .select(ModeIntent::default(), false, idle, &blocked)
+            .select(ModeIntent::default(), idle, &blocked)
             .unwrap()
             .mode,
         MovementMode::Swimming
     );
     assert_eq!(
         tracker
-            .select(ModeIntent::default(), false, idle, &Pool::deep())
+            .select(ModeIntent::default(), idle, &Pool::deep())
             .unwrap()
             .mode,
         MovementMode::Walking
@@ -374,7 +370,7 @@ fn swim_trigger_samples_current_position_instead_of_stale_wet_contact() {
     };
     assert_eq!(
         tracker
-            .select(ModeIntent::default(), false, stale_wet, &Pool::deep())
+            .select(ModeIntent::default(), stale_wet, &Pool::deep())
             .unwrap()
             .mode,
         MovementMode::Walking
@@ -385,7 +381,7 @@ fn swim_trigger_samples_current_position_instead_of_stale_wet_contact() {
     };
     assert_eq!(
         tracker
-            .select(ModeIntent::default(), false, fresh_wet, &Pool::deep())
+            .select(ModeIntent::default(), fresh_wet, &Pool::deep())
             .unwrap()
             .mode,
         MovementMode::Swimming

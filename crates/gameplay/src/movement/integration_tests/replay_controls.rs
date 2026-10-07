@@ -18,14 +18,23 @@ fn replayed_sneak_rebuilds_outbound_controls_and_following_edges() {
     assert_eq!(pending.len(), 2);
     for (index, snapshot) in pending.iter().enumerate() {
         assert_eq!(snapshot.move_vector, [0.0, 0.3]);
-        assert_ne!(snapshot.flags.bits() & PlayerInputFlags::SNEAKING.bits(), 0);
-        assert_eq!(snapshot.flags.bits() & PlayerInputFlags::START_SNEAKING.bits() != 0, index == 0);
-        assert_eq!(snapshot.flags.bits() & PlayerInputFlags::SNEAK_CURRENT_RAW.bits(), 0);
+        assert_eq!(snapshot.flags.bits() & PlayerInputFlags::SNEAKING.bits(), 0);
+        assert_eq!(
+            snapshot.flags.bits() & PlayerInputFlags::START_SNEAKING.bits() != 0,
+            index == 0
+        );
+        assert_eq!(
+            snapshot.flags.bits() & PlayerInputFlags::SNEAK_CURRENT_RAW.bits(),
+            0
+        );
     }
     let next = run_one_tick(&mut physics, &VersionedFloor(1));
     ticker.enqueue_completed_physics(next).unwrap();
     let next = ticker.pending_snapshots().pop().unwrap();
-    assert_ne!(next.flags.bits() & PlayerInputFlags::STOP_SNEAKING.bits(), 0);
+    assert_ne!(
+        next.flags.bits() & PlayerInputFlags::STOP_SNEAKING.bits(),
+        0
+    );
 }
 
 #[test]
@@ -38,6 +47,14 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
         Duration::from_millis(150),
         input,
         PhysicsSampleContext {
+            input: super::TickInput {
+                movement_buttons: semantic_input::MovementButtons {
+                    forward: true,
+                    right: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             raw_move_vector: [-1.0, -1.0],
             analogue_move_vector: [-1.0, -1.0],
             ..Default::default()
@@ -45,9 +62,9 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
         &VersionedFloor(1),
     );
     assert_eq!(frame.samples.len(), 3);
-    let factor = 0.7_f32 * 0.3_f32;
-    let expected = [(0.7_f32 * factor).to_bits(), (0.9_f32 * factor).to_bits()];
-    let wire_expected = [(-0.7_f32 * factor).to_bits(), (0.9_f32 * factor).to_bits()];
+    let scale = |axis: f32| (axis * 0.3_f32 * 0.7_f32).to_bits();
+    let expected = [scale(0.7), scale(0.9)];
+    let wire_expected = [scale(-0.7), scale(0.9)];
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
@@ -84,7 +101,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
         assert_eq!(retained.tick, live.snapshot.tick);
         assert_eq!(retained.move_vector.map(f32::to_bits), expected);
         assert_eq!(
-            retained.processed.direction_flags.unwrap().bits() & mask.bits(),
+            super::encoding::direction_flags(retained.input.movement_buttons).bits() & mask.bits(),
             live.snapshot.flags.bits() & mask.bits()
         );
         assert_eq!(retained.raw_move_vector, [-1.0, -1.0]);
@@ -105,10 +122,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
                 PlayerInputFlags::VERTICAL_COLLISION,
                 !retained.vertical_collision,
             )
-            .with_mask(
-                PlayerInputFlags::JUMPING,
-                !retained.jumping,
-            );
+            .with_mask(PlayerInputFlags::JUMPING, !retained.jumping);
     }
     reconcile_candidate_physics_correction(
         &mut ticker,
@@ -139,10 +153,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
                 PlayerInputFlags::VERTICAL_COLLISION,
                 retained.vertical_collision,
             ),
-            (
-                PlayerInputFlags::JUMPING,
-                retained.jumping,
-            ),
+            (PlayerInputFlags::JUMPING, retained.jumping),
         ] {
             assert_eq!(
                 replayed.snapshot.flags.bits() & flag.bits() != 0,
@@ -150,7 +161,10 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             );
         }
         assert_eq!(live.snapshot.move_vector.map(f32::to_bits), wire_expected);
-        assert_eq!(replayed.snapshot.move_vector.map(f32::to_bits), wire_expected);
+        assert_eq!(
+            replayed.snapshot.move_vector.map(f32::to_bits),
+            wire_expected
+        );
         assert_eq!(
             replayed.snapshot.flags.bits() & mask.bits(),
             live.snapshot.flags.bits() & mask.bits()
@@ -169,24 +183,58 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
 fn correction_recomputes_pose_from_the_corrected_position() {
     struct LowRoof;
     impl CollisionWorld for LowRoof {
-        fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
             let mut boxes = Floor.collision_boxes(query)?;
             let roof = Aabb::new(Vec3::new(2.0, 2.5, -2.0), Vec3::new(4.0, 3.0, 2.0));
-            if roof.intersects(query) { boxes.value.push(roof); }
+            if roof.intersects(query) {
+                boxes.value.push(roof);
+            }
             Ok(boxes)
         }
     }
     let mut physics = LocalPhysicsController::default();
     let y = 1.0 + protocol::PLAYER_NETWORK_OFFSET;
     physics.reanchor_network_position([0.0, y, 0.0], 100, true);
-    let frame = physics.advance_with_context(Duration::from_millis(150), MovementInput::default(), PhysicsSampleContext::default(), &LowRoof);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        MovementInput::default(),
+        PhysicsSampleContext::default(),
+        &LowRoof,
+    );
     assert_eq!(frame.samples.len(), 3);
     assert!(frame.samples.iter().all(|sample| !sample.sneaking));
-    let anchor = super::PhysicsAnchor { network_position: [3.0, y, 0.0], tick: 101, on_ground: true, velocity: None };
-    let first = physics.apply_correction(anchor, PhysicsCorrectionMode::ReplayIfRetained, None, &LowRoof).unwrap();
+    let anchor = super::PhysicsAnchor {
+        network_position: [3.0, y, 0.0],
+        tick: 101,
+        on_ground: true,
+        velocity: None,
+    };
+    let first = physics
+        .apply_correction(
+            anchor,
+            PhysicsCorrectionMode::ReplayIfRetained,
+            None,
+            &LowRoof,
+        )
+        .unwrap();
     assert_eq!(first.replayed_samples.len(), 2);
-    assert!(first.replayed_samples.iter().all(|sample| sample.sneaking && sample.processed.forced_sneak));
-    let second = physics.apply_correction(anchor, PhysicsCorrectionMode::ReplayIfRetained, None, &LowRoof).unwrap();
+    assert!(
+        first
+            .replayed_samples
+            .iter()
+            .all(|sample| sample.sneaking && sample.processed.forced_sneak)
+    );
+    let second = physics
+        .apply_correction(
+            anchor,
+            PhysicsCorrectionMode::ReplayIfRetained,
+            None,
+            &LowRoof,
+        )
+        .unwrap();
     assert_eq!(first.replayed_samples, second.replayed_samples);
 }
 
@@ -195,25 +243,56 @@ fn correction_recomputes_pose_from_the_corrected_position() {
 fn correction_replays_controller_modes_against_historical_palettes() {
     let mut registry = sim::CollisionRegistry::new();
     registry.register(0, []).unwrap();
-    registry.register(1, [Aabb::new(Vec3::ZERO, Vec3::ONE)]).unwrap();
-    registry.register(2, [Aabb::new(Vec3::new(0.0, 0.5, 0.0), Vec3::ONE)]).unwrap();
+    registry
+        .register(1, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    registry
+        .register(2, [Aabb::new(Vec3::new(0.0, 0.5, 0.0), Vec3::ONE)])
+        .unwrap();
     let mut store = world::ChunkStore::new();
     let key = world::SubChunkKey::new(0, 0, 0, 0);
     store.mark_sub_chunk_loaded(key).unwrap();
-    store.update_block(key, world::BlockUpdate::new(8, 7, 8, 0, 1), 0).unwrap();
+    store
+        .update_block(key, world::BlockUpdate::new(8, 7, 8, 0, 1), 0)
+        .unwrap();
     let mut physics = LocalPhysicsController::default();
     let position = [8.5, 8.0 + protocol::PLAYER_NETWORK_OFFSET, 8.5];
     physics.reanchor_network_position(position, 100, true);
     let mut original = Vec::new();
     for tick in 1..=3 {
-        if tick > 1 { store.update_block(key, world::BlockUpdate::new(8, 9, 8, 0, if tick == 2 { 2 } else { 0 }), 0).unwrap(); }
-        let frame = physics.advance_with_context(Duration::from_millis(50), MovementInput::default(), PhysicsSampleContext::default(), &sim::PaletteWorld::new(&store, &registry, 0));
+        if tick > 1 {
+            store
+                .update_block(
+                    key,
+                    world::BlockUpdate::new(8, 9, 8, 0, if tick == 2 { 2 } else { 0 }),
+                    0,
+                )
+                .unwrap();
+        }
+        let frame = physics.advance_with_context(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &sim::PaletteWorld::new(&store, &registry, 0),
+        );
         assert_eq!(frame.samples.len(), 1, "{:?}", frame.blocked);
         original.extend(frame.samples);
     }
     assert!(!original[0].sneaking && original[1].sneaking && !original[2].sneaking);
     store.evict_chunk(world::ChunkKey::new(0, 0, 0));
-    let plan = physics.apply_correction(super::PhysicsAnchor { network_position: original[0].position, tick: 101, on_ground: true, velocity: Some(original[0].velocity) }, PhysicsCorrectionMode::ReplayIfRetained, None, &sim::PaletteWorld::new(&store, &registry, 0)).unwrap();
+    let plan = physics
+        .apply_correction(
+            super::PhysicsAnchor {
+                network_position: original[0].position,
+                tick: 101,
+                on_ground: true,
+                velocity: Some(original[0].velocity),
+            },
+            PhysicsCorrectionMode::ReplayIfRetained,
+            None,
+            &sim::PaletteWorld::new(&store, &registry, 0),
+        )
+        .unwrap();
     assert_eq!(plan.replayed_samples, original[1..]);
 }
 
@@ -222,17 +301,52 @@ fn correction_replays_controller_modes_against_historical_palettes() {
 fn replayed_mount_closes_the_airborne_jump_arc() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0], 100, true);
-    let jump = physics.advance_with_context(Duration::from_millis(50), MovementInput { jumping: true, ..Default::default() }, PhysicsSampleContext::default(), &VersionedFloor(1)).samples.remove(0);
+    let jump = physics
+        .advance_with_context(
+            Duration::from_millis(50),
+            MovementInput {
+                jumping: true,
+                ..Default::default()
+            },
+            PhysicsSampleContext::default(),
+            &VersionedFloor(1),
+        )
+        .samples
+        .remove(0);
     assert!(jump.processed.jump_arc_active);
     let ride = PhysicsSampleContext {
-        mode_intent: super::ModeIntent { ride: Some(super::RideKind::Boat), ride_seat: Some([0.0, 3.0, 0.0]), ..Default::default() },
+        mode_intent: super::ModeIntent {
+            ride: Some(super::RideKind::Boat),
+            ride_seat: Some([0.0, 3.0, 0.0]),
+            ..Default::default()
+        },
         ..Default::default()
     };
-    let mounted = physics.advance_with_context(Duration::from_millis(50), MovementInput::default(), ride, &VersionedFloor(1)).samples.remove(0);
+    let mounted = physics
+        .advance_with_context(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            ride,
+            &VersionedFloor(1),
+        )
+        .samples
+        .remove(0);
     assert!(!mounted.processed.jump_arc_active);
-    let anchor = super::PhysicsAnchor { network_position: jump.position, tick: jump.tick, on_ground: false, velocity: Some(jump.velocity) };
+    let anchor = super::PhysicsAnchor {
+        network_position: jump.position,
+        tick: jump.tick,
+        on_ground: false,
+        velocity: Some(jump.velocity),
+    };
     for _ in 0..2 {
-        let replay = physics.apply_correction(anchor, PhysicsCorrectionMode::ReplayIfRetained, None, &VersionedFloor(1)).unwrap();
+        let replay = physics
+            .apply_correction(
+                anchor,
+                PhysicsCorrectionMode::ReplayIfRetained,
+                None,
+                &VersionedFloor(1),
+            )
+            .unwrap();
         assert_eq!(replay.replayed_samples, std::slice::from_ref(&mounted));
     }
 }

@@ -41,6 +41,7 @@ pub(super) struct MotionState {
     pub(super) speed: f32,
     /// Swing counter; `-1` marks a swing requested since the last tick.
     swing: Option<i32>,
+    local_swing: Option<f32>,
     /// Length of the current swing in ticks, after haste and fatigue.
     swing_ticks: i32,
     pub(super) body_yaw: f32,
@@ -68,7 +69,7 @@ impl MotionState {
     pub(super) fn start_swing(&mut self, ticks: i32) {
         if self
             .swing
-            .is_some_and(|counter| counter < self.swing_ticks / 2)
+            .is_some_and(|counter| counter >= 0 && counter < ticks.max(1) / 2)
         {
             return;
         }
@@ -76,11 +77,24 @@ impl MotionState {
         self.swing_ticks = ticks.max(1);
     }
 
+    /// Effect changes alter the current denominator without restarting the swing.
+    pub(super) fn set_swing_duration(&mut self, ticks: i32) {
+        self.swing_ticks = ticks.max(1);
+    }
+
+    /// Locally committed samples replace this actor clock's swing advancement.
+    pub(super) fn set_local_swing(&mut self, progress: Option<f32>) {
+        self.local_swing = progress;
+    }
+
     pub(super) fn walk_distance(self) -> f32 {
         self.stride * STRIDE_READ_SCALE
     }
 
     pub(super) fn attack_time(self) -> f32 {
+        if let Some(progress) = self.local_swing {
+            return progress;
+        }
         self.swing.map_or(0.0, |counter| {
             counter.max(0) as f32 / self.swing_ticks.max(1) as f32
         })
@@ -99,10 +113,12 @@ impl MotionState {
     }
 
     pub(super) fn advance(&mut self, input: &MotionInput) {
-        self.swing = self
-            .swing
-            .map(|counter| counter + 1)
-            .filter(|counter| *counter < self.swing_ticks);
+        if self.local_swing.is_none() {
+            self.swing = self
+                .swing
+                .map(|counter| counter + 1)
+                .filter(|counter| *counter < self.swing_ticks);
+        }
         self.previous_body_yaw = self.body_yaw;
         if input.player {
             self.turn_player_body(input);

@@ -930,8 +930,8 @@ pub(crate) mod reload_environment;
 mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
-    publish_entity_shadows,
+    ActorFramePartialTick, HandRigBuilder, advance_actor_frame, prepare_actor_render_frame,
+    publish_actor_render_frame, publish_entity_shadows,
 };
 
 #[cfg(test)]

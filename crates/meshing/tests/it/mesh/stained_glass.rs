@@ -3,6 +3,7 @@ struct CompiledStainedGlassFixture {
     air: u32,
     red: u32,
     blue: u32,
+    clear: u32,
     cube: u32,
 }
 
@@ -15,6 +16,7 @@ fn write_stained_glass_render_pack(root: &Path, cube_name: &str) {
             r#"{{
                 "red_stained_glass":{{"textures":"red_stained_glass"}},
                 "blue_stained_glass":{{"textures":"blue_stained_glass"}},
+                "glass":{{"textures":"glass"}},
                 "{cube_name}":{{"textures":"cube"}}
             }}"#
         ),
@@ -25,6 +27,7 @@ fn write_stained_glass_render_pack(root: &Path, cube_name: &str) {
         r#"{"texture_data":{
             "red_stained_glass":{"textures":"textures/blocks/red_stained_glass"},
             "blue_stained_glass":{"textures":"textures/blocks/blue_stained_glass"},
+            "glass":{"textures":"textures/blocks/glass"},
             "cube":{"textures":"textures/blocks/cube"}
         }}"#,
     )
@@ -34,6 +37,7 @@ fn write_stained_glass_render_pack(root: &Path, cube_name: &str) {
     for (name, pixel) in [
         ("red_stained_glass", [180, 25, 35, 96]),
         ("blue_stained_glass", [25, 55, 180, 96]),
+        ("glass", [220, 235, 240, 0]),
         ("cube", [90, 100, 110, 255]),
     ] {
         let rgba = pixel.repeat(16 * 16);
@@ -61,6 +65,7 @@ fn compiled_stained_glass_fixture() -> &'static CompiledStainedGlassFixture {
         let air = named("minecraft:air");
         let red = named("minecraft:red_stained_glass");
         let blue = named("minecraft:blue_stained_glass");
+        let clear = named("minecraft:glass");
         let cube = records
             .iter()
             .find(|record| {
@@ -76,9 +81,10 @@ fn compiled_stained_glass_fixture() -> &'static CompiledStainedGlassFixture {
             air.sequential_id,
             red.sequential_id,
             blue.sequential_id,
+            clear.sequential_id,
             cube.sequential_id,
         ];
-        let compiled = compile_pack(directory.path(), &[air, red, blue, cube])
+        let compiled = compile_pack(directory.path(), &[air, red, blue, clear, cube])
             .expect("compile stained-glass fixture");
         let blob = encode_blob(&compiled).expect("encode stained-glass fixture");
         let assets = RuntimeAssets::decode(&blob).expect("decode stained-glass fixture");
@@ -95,7 +101,8 @@ fn compiled_stained_glass_fixture() -> &'static CompiledStainedGlassFixture {
             air: ids[0],
             red: ids[1],
             blue: ids[2],
-            cube: ids[3],
+            clear: ids[3],
+            cube: ids[4],
         }
     })
 }
@@ -203,4 +210,46 @@ fn equal_colour_stained_glass_culls_across_all_six_subchunk_boundaries() {
         );
         assert!(mesh.model_draw_refs().is_empty(), "face={face:?}");
     }
+}
+
+/// Clear glass is not solid: the opaque face behind it must draw, and only glass culls glass.
+#[test]
+fn clear_glass_keeps_the_opaque_face_behind_it() {
+    let fixture = compiled_stained_glass_fixture();
+    let mesh = mesh_stained_glass(
+        &[([7, 8, 8], fixture.clear), ([8, 8, 8], fixture.cube)],
+        &Neighbourhood::empty(),
+    );
+
+    assert!(has_face(&mesh, [8, 8, 8], Face::NegativeX));
+    assert_eq!(mesh.quad_count(), 6);
+    assert_eq!(mesh.model_draw_refs().len(), 5);
+}
+
+#[test]
+fn clear_glass_culls_only_against_clear_glass() {
+    let fixture = compiled_stained_glass_fixture();
+    let same = mesh_stained_glass(
+        &[([7, 8, 8], fixture.clear), ([8, 8, 8], fixture.clear)],
+        &Neighbourhood::empty(),
+    );
+    let stained = mesh_stained_glass(
+        &[([7, 8, 8], fixture.clear), ([8, 8, 8], fixture.red)],
+        &Neighbourhood::empty(),
+    );
+
+    assert_eq!(same.model_draw_refs().len(), 10);
+    assert_eq!(stained.model_draw_refs().len(), 6);
+    assert_eq!(stained.transparent_model_draw_refs().len(), 6);
+}
+
+#[test]
+fn clear_glass_wall_remains_cave_open() {
+    let fixture = compiled_stained_glass_fixture();
+    let wall = (0..16)
+        .flat_map(|y| (0..16).map(move |z| ([8, y, z], fixture.clear)))
+        .collect::<Vec<_>>();
+    let mesh = mesh_stained_glass(&wall, &Neighbourhood::empty());
+
+    assert!(mesh.connectivity().is_all_connected());
 }

@@ -165,7 +165,7 @@ func (r Runners) Start(ctx context.Context, spec StartSpec) (Instance, error) {
 
 func (m *Manager) List() ([]World, error) { return m.store.List() }
 
-// Create saves a new world; a BDS world (every normal world) is refused where BDS cannot run.
+// Create saves a new world; a BDS world is refused where BDS cannot run.
 // Unless Dragonfly was asked for, it first waits out a runtime detection in flight, so no world is saved
 // against a guessed backend.
 func (m *Manager) Create(spec Spec) (World, error) {
@@ -189,9 +189,6 @@ func (m *Manager) Create(spec Spec) (World, error) {
 		return World{}, fmt.Errorf("%w: %s", ErrBackendUnavailable, normalized.Backend)
 	}
 	if normalized.Backend == BackendBDS && !m.bdsRunnable() {
-		if normalized.Generator == GeneratorNormal {
-			return World{}, ErrVanillaNeedsBDS
-		}
 		return World{}, ErrBackendUnavailable
 	}
 	return m.store.Create(normalized)
@@ -228,7 +225,7 @@ func (m *Manager) Status() Status {
 }
 
 func failureText(err error) string {
-	for _, known := range []error{ErrEULARequired, ErrDockerNotRunning, ErrBackendUnavailable, ErrVanillaNeedsBDS, ErrImageNotPinned} {
+	for _, known := range []error{ErrEULARequired, ErrDockerNotRunning, ErrBackendUnavailable, ErrImageNotPinned} {
 		if errors.Is(err, known) {
 			return known.Error()
 		}
@@ -266,9 +263,6 @@ func (m *Manager) Open(id string, opts ...OpenOptions) error {
 	dir, err := m.store.Dir(id)
 	if err != nil {
 		return err
-	}
-	if world.Backend == BackendDragonfly && world.Generator == GeneratorNormal {
-		return ErrVanillaNeedsBDS // saved before normal worlds moved to BDS; never regenerate as an approximation
 	}
 	if world.Backend == BackendBDS {
 		if m.setup == nil {

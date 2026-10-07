@@ -20,7 +20,8 @@ use crate::local_player::{
 use crate::melee::produce_melee;
 use crate::movement::advance_local_physics;
 use crate::runtime::network::{
-    prepare_actor_render_frame, publish_actor_render_frame, receive_network_events,
+    advance_actor_frame, prepare_actor_render_frame, publish_actor_render_frame,
+    receive_network_events,
 };
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
 use crate::runtime::publication::{
@@ -101,6 +102,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         ClientFrameSet::ActorPreparation,
         ClientFrameSet::UiPreparation,
         ClientFrameSet::NetworkSend,
+        ClientFrameSet::ActorFinalization,
         ClientFrameSet::ActorPublication,
         ClientFrameSet::UiPublication,
     ];
@@ -174,9 +176,15 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     );
     assert_system_in_stage(
         graph,
+        advance_actor_frame,
+        "advance_actor_frame",
+        ClientFrameSet::ActorPreparation,
+    );
+    assert_system_in_stage(
+        graph,
         prepare_actor_render_frame,
         "prepare_actor_render_frame",
-        ClientFrameSet::ActorPreparation,
+        ClientFrameSet::ActorFinalization,
     );
     assert_system_in_stage(
         graph,

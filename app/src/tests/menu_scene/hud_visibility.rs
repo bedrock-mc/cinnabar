@@ -128,6 +128,9 @@ fn assert_published(world: &mut World, hands: bool, names: bool) {
     world
         .resource_mut::<UiPresentationRuntime>()
         .set_loading_stage(None);
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert_eq!(
         world.resource::<render::HandRigScene>().is_active(),
