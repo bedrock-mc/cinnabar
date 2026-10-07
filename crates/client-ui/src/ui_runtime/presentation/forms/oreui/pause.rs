@@ -1,4 +1,5 @@
 use super::super::super::UiPresentationError;
+use super::super::menu_screens::Translate;
 use super::{
     CharacterPreview,
     paint::Canvas,
@@ -12,6 +13,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
+    translate: Translate<'_>,
 ) -> Result<Option<CharacterPreview>, UiPresentationError> {
     widgets::screen_overlay(canvas, size)?;
     let margin = canvas.r(2.4).min(size[0] * 0.04).min(size[1] * 0.025);
@@ -100,12 +102,13 @@ pub(super) fn draw(
         )?;
         y += button_height + gap;
     }
+    let quit = translate("pauseScreen.quit").unwrap_or_else(|| "Save & Quit".into());
     widgets::button(
         canvas,
         view,
         [x, y, right, y + button_height],
         Variant::Neutral,
-        "Leave world",
+        &quit,
         Some(MenuAction::PauseDisconnect),
     )?;
     if compact {

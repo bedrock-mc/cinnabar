@@ -50,7 +50,7 @@ Keep comments to one or two lines that say what the code can't. Never restate si
 
 ## Parallel work: minimise bottlenecks
 
-When many agents run at once, compiling is the scarce resource. Route every cargo command through the shared build-slot limiter, run each check once, and hand verification to CI as early as possible instead of queueing local re-checks. Never hold a build slot or lock while waiting on another. Details are in `docs/agents/multi-agent-workflow.md`.
+When many agents run at once, compiling is the scarce resource. Route every cargo command through the shared build-slot limiter, run each check once, and hand verification to CI as early as possible instead of queueing local re-checks. Never hold a build slot or lock while waiting on another. Stop only processes you started, by PID: never `pkill`, `killall` or other pattern kills, which also match other agents' and builds' command lines (`.claude/settings.json` blocks them for Claude sessions). Details are in `docs/agents/multi-agent-workflow.md`.
 
 ## Gophertunnel
 
@@ -58,7 +58,7 @@ Cinnabar's Gophertunnel work lives on `HashimTheArab/gophertunnel:resource-pack-
 
 ## Git and payloads
 
-Mojang assets, screenshots, recordings, `.local/` carriers, credentials and BDS binaries never enter git. Use `git worktree`, with one Cargo `target` per active worktree, and delete a worktree's `target` once its work is integrated.
+Mojang asset files, recordings, `.local/` carriers, credentials and BDS binaries never enter git. Every PR that changes anything visible shows before/after screenshots: capture them with the offline UI snapshot harness or headless through the client MCP (`docs/agents/client-mcp.md`), never a visible window, keep real gamertags, emails and server addresses out of frame, and add them to the PR description (agents: `tools/pr-screenshots.sh <pr> <png>...` uploads and embeds them, since native attachments are web-only). Delete raw captures and traces once the PR is open. Use `git worktree`, with one Cargo `target` per active worktree, and delete a worktree's `target` once its work is integrated.
 
 ## Report state precisely
 

@@ -1,5 +1,7 @@
 github.com/bedrock-mc/vanilla-gen v0.0.0-20260807001906-7b4e6f6a280d h1:bGsSaboR5aDGRPbcQ4s8I16C4lMeyK9dDzEwF8fbkVI=
 github.com/bedrock-mc/vanilla-gen v0.0.0-20260807001906-7b4e6f6a280d/go.mod h1:KXTHlUeGYIVp3z1synzJ0zJ6CVdr4ZQoaSE1I1eBzjY=
+github.com/bedrock-mc/vanilla-gen v0.0.0-20261007153212-e56215898732 h1:OZ/ChZFeaai/IdDsrraECMldzPYKMfIqi0a7TwF1sY0=
+github.com/bedrock-mc/vanilla-gen v0.0.0-20261007153212-e56215898732/go.mod h1:KXTHlUeGYIVp3z1synzJ0zJ6CVdr4ZQoaSE1I1eBzjY=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
 github.com/cenkalti/backoff/v7 v7.0.0 h1:ZP+QAaaOnVUHo+ufFpZ835hbT3x2fy+h2lecVEosZ6A=
