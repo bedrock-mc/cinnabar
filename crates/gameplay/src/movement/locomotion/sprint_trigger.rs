@@ -107,7 +107,6 @@ mod tests {
             feet: position,
             requested_movement: request,
             on_ground: true,
-            velocity_y: 0.0,
             in_water: false,
             in_lava: false,
             sprinting: true,

@@ -179,6 +179,14 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   holds). Clamp `vy < -0.2 → -0.2`; the ladder jump branch sets `0.2` and returns before the
   JumpFromGround request without a jump delay. Scaffolding constructor `0x08efe770` assigns
   property word `0x2020000` (no climbable bit).
+- `crates/sim/src/simulator/scaffolding.rs`, `simulator.rs` (scaffolding): BlockClimber
+  (mac `0x1058b3690`, helpers mac `0x1058b3d10`/`0x1058b3f80`) scans footprint columns
+  floor(min)..floor(max) at floor(min y) and floor(min y - 1) for flags 69/70, and for
+  99/100 when the block under the scaffold is not air, water or flowing water. Scaffolding
+  action `0x089909b0`: flag 100 plus sneak sets flag 71, `vy = -0.15` and zero fall distance.
+  MobJumpSystem `0x0a5dc2e0`: (69 or 99) without 71 sets `vy = 0.15` and jump delay 10 before
+  the ladder branch. Gravity setter `0x032252b0` returns when 71 and (69 or 70). Collision
+  shape mac `0x10ab628c0` keeps the top only for feet at or above it, without flag 71.
 
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
@@ -665,6 +673,8 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/gameplay/src/movement/locomotion.rs
 - // SprintTrigger runs before SwimTrigger and keeps the previous actor
+- Glide start/stop: StartGlidingIntent `0x0c5889b0` area (filter ArmorFlyEnabled, excludes Passenger/OnGround) needs a fresh jump edge (MoveInput+0x60 bit 4 and previous-tick copy VanillaClientGameplay+0x15 clear) and no fly/glide request; no velocity check. StopGlidingIntent `0x0c5886c0`: OnGround, missing ArmorFlyEnabled, WasInWater (not lava), fly request, Passenger, fresh jump with FallFlyTicks >= 11, WALLCLIMBING (0x40000), or CANCLIMB (0x80000) with the feet block's climbable bit (+0x130 bit 33) / powder snow when CanStandOnSnow. Pipeline `0x072b6020` order: SprintTimer, SwimTrigger, FlyTriggerIntent, Start/StopGlidingIntent, FlyTriggerAction, Start/StopGlidingAction (`0x0c5882c0`/`0x0c5884c0`), GlideInputSystem `0x070be110` (FallFlyTicks++ while gliding, else 0).
+- Flight double-tap: FlyTrigger::doIntentTick (26.30 `0x1059aaf10`) sets VanillaClientGameplay+8 = 7 on a fresh press when below 1, else toggles; SprintTimer (26.30 `0x1053d8080`) decrements +8 every tick before it. A second press within six ticks toggles.
 
 ## crates/gameplay/src/movement/locomotion/swimming_trigger.rs
 - //! Current SwimTriggerSystem (0x09fd25a0), for unmounted desktop input.
@@ -1041,6 +1051,16 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// Overlay-mask sources (grass sides) use the TextureAtlas::updateTextureAtUVs /
 - /// _buildAtlasMips byte-space box mips, as every vanilla atlas tile does.
 
+## crates/pack-compiler/src/compiler/classification.rs (`is_clear_glass_cube`); crates/meshing/tests/it/mesh/stained_glass.rs
+- Neighbour face culling: BlockOccluder::_updateRenderFace (RVA 0x06a043a0) calls the per-face
+  predicate at RVA 0x06a05760. For a legacy neighbour with full-block shape (0 or 0x1f) it culls
+  only when RVA 0x06a04050 holds (neighbour render layer in mask 0x20220 = layers 5/9/17 and full
+  visual bounds); otherwise it draws unless the neighbour shares this block's BlockType
+  (Block+0x108), returning BlockGraphics+0x19 (allow-same; false for glass, so glass culls glass).
+- registerBlock<GlassBlock> (RVA 0x0dfbada0) sets BlockType+0x162 render layer 3 (default is 5);
+  1.26.30 macOS `Block::_isSolid` reads BlockType+0x134 bit 1, which GlassBlock clears, so glass is
+  also not solid for AO.
+
 ## crates/pack-compiler/src/compiler/lily_pad_textures.rs
 - // TextureAtlas::updateTextureAtUVs multiplies RGB only.
 
@@ -1350,6 +1370,16 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
+- // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
+- Ground contact: FinalizeMove `0x06dcbfc0` compares the move request (+0x30) with the
+  result (+0x3c). A vertical difference above float epsilon adds OnGround only when
+  request y < 0, otherwise removes it; with no vertical difference OnGround survives only
+  if it was already set and request y is exactly 0. AutoStep filter `0x09f5a7f0` admits a
+  step on last tick's OnGround, so a jump-tick step rises without grounding.
+- Sneak edge avoidance `0x0c597a70`: gated on sneak plus OnGround (no vertical-velocity
+  check); probes the actor's current AABB inset 0.025 on x/z and lowered by step height
+  times 1.01; clips request x, then z, then both while either is nonzero; zeroes a
+  velocity axis (+0x18/+0x20) only when its clipped request is at or below float epsilon.
 
 ## crates/sim/src/simulator/controls.rs
 ## crates/gameplay/src/movement/physics.rs (`item_use_factor`)
@@ -1361,6 +1391,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
+- `clip_sneak_edge`: see the sneak edge avoidance entry under simulator.rs (`0x0c597a70`).
 
 ## crates/sim/src/simulator/environment.rs
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)
@@ -1389,6 +1420,13 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/sim/src/simulator/travel.rs
 - //! Flight controls and liquid movement follow the current mcsrc client systems.
+- Glide travel `0x070d31b0`: look from ActorRotation prev + wrap(cur - prev) (fmodf, -180), lift = min(len/0.4f,1)*cos(pitch)^2 from current pitch, gravity table `0x1502a31c0` (-0.01 slow falling / -0.08) independent of vy, PE constants 0x14ffab6c0/0x14fee6588/0x14ffab670/0x150106adc/0x1502a31c8/0x14ffab644; MovementEffects slot 0 (glide boost) applies `v + (look*1.5 - v)*0.5 + look*0.1` (0x14ffab674, 0x14fec3380) before drag 0.99/0.98 (0x1500eb858/0x1500eb864).
+
+## crates/gameplay/src/movement/local_facts.rs
+- Item::isFlyEnabled (26.30 `0x10a667e10`) / Item::isElytraBroken (`0x10a65e420`): elytra flies while user-data Damage < max damage - 1; LegacyActorArmorChangedListener adds ArmorFlyEnabledFlagComponent and CanStandOnSnowFlagComponent (leather boots).
+
+## crates/gameplay/src/movement/effects.rs; crates/gameplay/src/movement/physics/timeline.rs; crates/gameplay/src/committed_control.rs
+- MovementEffectPacket client handler (26.30 `LegacyClientNetworkHandler::handle` `0x1035699e0`): duration < -1 reads 0; with ReplayStateComponent it creates `History::createMovementEffectsCorrection` (`0x1064a4550`) and applies the frame correction at the packet tick, replaying with the full duration (`MovementEffectsReplay::advanceFrame` `0x1064b5690`). TickMovementEffectsSystem (`0x105a09240`, registered after normal travel) expires an effect after its duration (0 lasts one tick, -1 never). Effect slots: 0 glide boost, 1 dolphin boost, 2 geyser boost.
 
 ## crates/sim/src/simulator/water.rs
 - //! Current-client liquid drag, jump ascent and swimming pitch steering.
