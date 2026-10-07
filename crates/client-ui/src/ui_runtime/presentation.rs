@@ -125,6 +125,8 @@ pub struct UiPresentationRuntime {
     last_frame: Option<BuiltFrame>,
     #[cfg(test)]
     tree_builds: usize,
+    #[cfg(test)]
+    oreui_paints: usize,
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
@@ -258,6 +260,8 @@ impl UiPresentationRuntime {
             last_frame: None,
             #[cfg(test)]
             tree_builds: 0,
+            #[cfg(test)]
+            oreui_paints: 0,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             debug_lines: None,
@@ -547,6 +551,8 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
+        #[cfg(feature = "tracy")]
+        let _build_span = bevy::log::info_span!("ui.build").entered();
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
@@ -769,6 +775,8 @@ impl UiPresentationRuntime {
         {
             self.tree_builds += 1;
         }
+        #[cfg(feature = "tracy")]
+        let _layout_span = bevy::log::info_span!("ui.layout_publish").entered();
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;

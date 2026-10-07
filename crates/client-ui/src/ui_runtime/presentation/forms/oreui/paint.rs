@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(test)]
+mod cache_tests;
 mod clip;
 mod motion;
 mod reveal;
@@ -417,6 +419,8 @@ impl<'a> Canvas<'a> {
         width_64: u32,
         style: Type,
     ) -> Result<std::sync::Arc<ui::TextLayout>, UiPresentationError> {
+        #[cfg(feature = "tracy")]
+        let _text_span = bevy::log::info_span!("ui.text").entered();
         let request = self.text_request(value, width_64, style)?;
         self.layouts
             .layout(request)
@@ -527,6 +531,8 @@ impl<'a> Canvas<'a> {
         width: f32,
         style: Type,
     ) -> Result<Option<Arc<ui::TextLayout>>, UiPresentationError> {
+        #[cfg(feature = "tracy")]
+        let _text_span = bevy::log::info_span!("ui.label").entered();
         let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
         let (fits, layout) = self.measured(&value, style)?;
         if fits <= width {
@@ -571,6 +577,8 @@ impl<'a> Canvas<'a> {
         width: f32,
         style: Type,
     ) -> Result<f32, UiPresentationError> {
+        #[cfg(feature = "tracy")]
+        let _text_span = bevy::log::info_span!("ui.text").entered();
         let request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
         let layout = self
             .layouts
