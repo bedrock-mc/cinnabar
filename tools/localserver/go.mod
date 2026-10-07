@@ -3,7 +3,7 @@ module github.com/hashimthearab/rust-mcbe/tools/localserver
 go 1.26.1
 
 require (
-	github.com/bedrock-mc/vanilla-gen v0.0.0-20260807001906-7b4e6f6a280d
+	github.com/bedrock-mc/vanilla-gen v0.0.0-20261007153212-e56215898732
 	github.com/df-mc/dragonfly v0.11.2-0.20260807000407-2988c7f4f621
 	github.com/go-gl/mathgl v1.2.0
 	github.com/google/uuid v1.6.0

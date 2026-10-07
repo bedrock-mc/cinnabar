@@ -620,6 +620,10 @@ preview build is not an exact retail/platform capture for every supported client
 - Local-player shadow admission follows the drawn body perspective; the vanilla first-person capture for #221 has no local-player volume shadow. Frozen local body visibility takes precedence over a stale body submission while changing perspective.
 
 ## crates/gameplay/src/movement/control_modes.rs
+- Suspended input: `0x07108cc0` returns untouched while the game is paused; with a
+  menu open it masks processed flags and button state (`+0x00`, `+0x10`) with
+  `0xffe0001f`, also clearing SneakDown and the toggle-sneak latch (bit 0) unless
+  the persistent-controls bit `0x80` at `+0x60` is set. Toggle sprint always clears.
 - /// Native SprintTrigger cannot stop an existing sprint while the previous
 
 ## crates/gameplay/src/movement/correction_shape.rs
@@ -629,6 +633,10 @@ preview build is not an exact retail/platform capture for every supported client
 - /// Server StateVector motion; `None` keeps the retained velocity.
 
 ## crates/gameplay/src/movement/encoding.rs
+- PersistSneak: packet fill `0x070fcfd0` writes `MoveInputComponent +0x60` bit
+  `0x80` to wire bit 24 every tick. Its only writer, virtual
+  `ClientInstance::setupPersistentControls(InputMode)` `0x067a6390`, sets it for
+  Touch/GamePad; `ClientInputCallbacks::handleInputModeChanged` calls it with the new mode.
 - // Raw jump-button carriers track the physical button exactly. Native
 - // 0x07108cc0 also sets processed up; 0x070fcfd0 sends it as WantUp,
 - // which the server's 0x0998fe80 reads independently of JumpDown.
@@ -649,8 +657,22 @@ preview build is not an exact retail/platform capture for every supported client
 - // directly; raw JumpDown/Ascend alone do not populate these control lanes.
 - // CurrentSwimAmount precedes SwimTrigger. The first dry tick still advances
 
+## crates/gameplay/src/movement/frame.rs
+## crates/gameplay/src/movement/outbox.rs
+- Yaw: `UpdatePlayerFromCameraSystemUtil::_updatePlayer` `0x071b0fe0` computes
+  `atan2f * 57.29578f - 90` (`0x14ffd5070`/`0x14ffd5074`), writes it unwrapped to
+  head rotation (hash `0xbabe7211`) and wraps actor yaw with
+  `fmodf(x + 180, 360)`, `+360` if negative, `-180`. A
+  `CameraAimAssistRotationOverrideComponent` replaces rotation and skips the head
+  write. Packet builder `0x04f3b1a0` copies rotation via `0x050abce0`/`0x0435a250`
+  and reads head yaw directly.
+
 ## crates/gameplay/src/movement/physics.rs
 - /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
+- Frame clamp and tick cap: `Timer::advanceTime` `0x04efbe50` clamps each
+  frame's scaled elapsed seconds to `0.1f` (`0x14ffab644`), adds the excess to a
+  lost-time counter, then caps whole ticks at 10 while keeping the fraction.
+  `fixed_ticks.rs` and `dimension_wait.rs` share this through `fixed_ticks::frame`.
 
 ## crates/gameplay/src/movement/physics/correction.rs
 - // MovePlayer changes spatial state without resetting jump input or
@@ -1314,12 +1336,22 @@ preview build is not an exact retail/platform capture for every supported client
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
 
+## crates/sim/src/simulator/controls.rs
+## crates/gameplay/src/movement/physics.rs (`item_use_factor`)
+- Move vector: `0x00480a10` normalises the digital/analog axes and multiplies by
+  the sneak factor (`SneakingComponent`, default `0.3f`). Item slowdown
+  `ItemUseSlowdownSystemImpl::applyItemUseSlowdown` `0x0dc2b3c0` then multiplies
+  `MoveInputComponent +0x24/+0x28` by `m*m`; `doItemUseSlowdownSystem` `0x0dc28b60`
+  installs `m` (default `0.35f` at `0x150103070`) only when `|m - 1| > FLT_EPSILON`.
+
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
 
 ## crates/sim/src/simulator/environment.rs
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)
 - // reads getBlock's primary material, without secondary layers.
+- Shared horizontal movement (0x099cc8b0) defaults ground friction to 0.6 and samples the block at
+  floor(x), floor(feet y + -0.1f), floor(z); it takes that block's friction only when its type is not air.
 
 ## crates/sim/src/simulator/flight.rs
 - // HorizontalFlySpeedControl current RVA 0x03235360, PE VA 0x1501672a8.
@@ -2493,6 +2525,14 @@ preview build is not an exact retail/platform capture for every supported client
 - Current 1.26.50.26 `BannerModel` constructor `0x1e6da00` authors a 20×40×1 cloth at `(-10,0,-2)` with model-part Y pivot −32, a 2×42×2 pole at `(-1,-30,-1)`, and a 20×2×2 crossbar at `(-10,-32,-1)`; UV origins are `(0,0)`, `(44,0)` and `(0,42)` on the 64×64 banner base texture.
 - Current banner GUI renderer `0x6c581a0` uses `T(8.5,11,-10) * S(5.5) * Rx(20°) * Ry(-30°)`, model units 1/16 and static cloth tilt zero. The frame is uncolored; only the cloth uses the base dye.
 - Current banner constant setup `0x6c57b00` reads `ItemColor` RGB entries from the table at `0x10128cd4`, black aux 0 through white aux 15 (`#f0f0f0`). `BannerItem::buildDescriptionId` `0x29b4620` corroborates identity aux-to-color mapping for values 0 through 15. The old sign atlas route does not represent the GUI banner model.
+
+## tools/registrygen/physics_v2193.go
+- Reserved v2193 states (element and chemistry blocks, hard glass and panes, coloured and
+  underwater torches, chalkboard, camera, underwater TNT, poplar signs, shelf mushroom,
+  straw bed) all keep the default block friction 0.6: every one with a pinned PMMP
+  `block_properties_table.json` row (166 of 170 names) reads 0.6000000238. Their collision
+  shapes still differ per block (Prismarine: cubes, panes, none), so they stay passable
+  until reviewed per-block facts exist.
 
 ## tools/registrygen/education_v2193.go
 ## crates/pack-compiler/src/compiler/visuals/literal.rs

@@ -181,7 +181,7 @@ fn action_panel(
     } else {
         0.0
     };
-    let group_height = canvas.r(if compact { 31.2 } else { 25.2 });
+    let group_height = canvas.r(if compact { 30.0 } else { 24.0 });
     let content_height =
         (bounds[3] - bounds[1]).max(group_height + pad * 2.0 + canvas.r(event_height));
     let origin = bounds[1] - scroll.offset;
@@ -233,23 +233,21 @@ fn action_panel(
         Some(MenuAction::Navigate(MenuScreen::Settings)),
     )?;
     y += canvas.r(5.6);
-    widgets::button(
+    link(
         canvas,
         view,
-        [x, y, midpoint - gap * 0.5, y + canvas.r(4.8)],
-        Variant::Secondary,
+        [x, y, midpoint - gap * 0.5, y + canvas.r(3.6)],
         "Realms",
-        Some(MenuAction::Navigate(MenuScreen::Social)),
+        MenuAction::Navigate(MenuScreen::Social),
     )?;
-    widgets::button(
+    link(
         canvas,
         view,
-        [midpoint + gap * 0.5, y, right, y + canvas.r(4.8)],
-        Variant::Secondary,
+        [midpoint + gap * 0.5, y, right, y + canvas.r(3.6)],
         "Marketplace",
-        Some(MenuAction::Store(crate::store::OPEN)),
+        MenuAction::Store(crate::store::OPEN),
     )?;
-    y += canvas.r(5.6);
+    y += canvas.r(4.4);
     if compact {
         widgets::button(
             canvas,
