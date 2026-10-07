@@ -286,3 +286,93 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
         }]
     );
 }
+
+/// Attribute updates admitted behind a pending heavy decode commit one control
+/// each, so the whole backlog fits the control queue when it lands at once.
+#[test]
+fn speed_attribute_backlog_behind_a_pending_decode_commits_one_control_per_update() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let attribute = |name: &str, current: f32| ActorAttribute {
+        name: Arc::from(name),
+        min: 0.0,
+        max: 1024.0,
+        current,
+        default: Some(0.1),
+        modifiers: Arc::from([]),
+    };
+    stream.submit(1, inline_air_event(0)).unwrap();
+    let updates = MAX_ADMITTED_WORLD_EVENTS as u64 - 1;
+    for sequence in 2..=updates + 1 {
+        let current = sequence as f32 / 1000.0;
+        stream
+            .submit(
+                sequence,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    attributes: Arc::from([
+                        attribute("minecraft:movement", current),
+                        attribute("minecraft:underwater_movement", current / 2.0),
+                        attribute("minecraft:lava_movement", current / 4.0),
+                    ]),
+                    tick: sequence,
+                })),
+            )
+            .unwrap();
+    }
+    assert!(stream.take_committed_controls().is_empty());
+
+    let super::DecodeJob::InlineLevelChunk {
+        event,
+        payload,
+        slots,
+        count,
+        ids,
+        ..
+    } = stream.pending_decode.pop_front().unwrap().job
+    else {
+        panic!("expected inline decode job")
+    };
+    let chunk = ChunkKey::new(event.dimension, event.x, event.z);
+    let decoded = DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
+    stream
+        .order
+        .insert_ready(
+            1,
+            super::PreparedWorldEvent::InlineLevelChunk {
+                event,
+                decoded,
+                duration: std::time::Duration::ZERO,
+            },
+        )
+        .unwrap();
+    for _ in 0..=updates {
+        if stream.order.next_sequence() > updates + 1 {
+            break;
+        }
+        stream.apply_ready();
+    }
+    assert_eq!(stream.order.next_sequence(), updates + 2);
+    let controls = stream.take_committed_controls();
+    assert_eq!(controls.len() as u64, updates);
+    let last = (updates + 1) as f32 / 1000.0;
+    assert!(matches!(
+        controls.last(),
+        Some(super::CommittedControlEvent::LocalMovementSpeed {
+            current: Some(current),
+            underwater: Some(underwater),
+            lava: Some(lava),
+            ..
+        }) if *current == f64::from(last)
+            && *underwater == f64::from(last / 2.0)
+            && *lava == f64::from(last / 4.0)
+    ));
+}
