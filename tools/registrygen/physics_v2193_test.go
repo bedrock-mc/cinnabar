@@ -264,6 +264,13 @@ func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *
 		t.Fatalf("ladder box histogram = %v, want exactly {0:2 1:4}", ladderBoxes)
 	}
 
+	// Scaffolding climbs through its own ascend/descend rules, never the ladder ones.
+	for _, index := range v2193RecordsNamed(records, "minecraft:scaffolding") {
+		if entry := entries[index]; entry.Flags&physicsFlagScaffolding == 0 || entry.Flags&physicsFlagClimbable != 0 {
+			t.Fatalf("scaffolding runtime ID %d must be scaffolding without the climbable fact: %+v", index, entry)
+		}
+	}
+
 	powderSnow := v2193RecordsNamed(records, "minecraft:powder_snow")
 	if len(powderSnow) != 1 {
 		t.Fatalf("powder_snow states = %d, want 1", len(powderSnow))

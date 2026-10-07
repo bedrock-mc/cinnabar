@@ -54,12 +54,13 @@ pub(super) fn sample(
     let min = block_at(swept.min)?;
     let max = inclusive_max_block_at(swept.max)?;
     let support = block_below(position)?;
+    let feet = block_at(position)?;
     let friction_block = block_at(Vec3::new(
         f64::from(position.x as f32),
         f64::from(position.y as f32 - 0.1_f32),
         f64::from(position.z as f32),
     ))?;
-    let mut blocks = BTreeSet::from([support, friction_block]);
+    let mut blocks = BTreeSet::from([support, friction_block, feet]);
     for x in min[0]..=max[0] {
         for y in min[1]..=max[1] {
             for z in min[2]..=max[2] {
@@ -83,6 +84,13 @@ pub(super) fn sample(
         });
         if block == friction_block {
             friction = sample.primary().friction;
+        }
+        // Climbing reads only the block at the feet cell, never body contact.
+        if block == feet {
+            movement.on_climbable = sample
+                .primary()
+                .flags
+                .contains(BlockPhysicsFlags::CLIMBABLE);
         }
         if block == support {
             let response = active_surface_response(sample.primary(), player, block);
@@ -119,8 +127,6 @@ pub(super) fn sample(
                     .vertical_speed_factor
                     .min(facts.vertical_speed_factor);
             }
-            movement.on_climbable |=
-                body_contact && facts.flags.contains(BlockPhysicsFlags::CLIMBABLE);
             movement.in_water |= facts.flags.contains(BlockPhysicsFlags::WATER)
                 && liquid_contact(liquid_player, block, true);
             movement.in_lava |= facts.flags.contains(BlockPhysicsFlags::LAVA)
