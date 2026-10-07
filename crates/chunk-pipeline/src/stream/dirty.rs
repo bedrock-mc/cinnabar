@@ -254,7 +254,6 @@ impl WorldStream {
             self.mesh_jobs.in_flight.remove(&key);
             self.urgent_mesh_in_flight.remove(&key);
         }
-        self.mesh_changes
-            .retain(|change| !matches!(change, WorldMeshChange::Upsert { .. }));
+        self.retain_mesh_changes(|change| !matches!(change, WorldMeshChange::Upsert { .. }));
     }
 }

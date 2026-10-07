@@ -22,7 +22,7 @@ pub struct MovementInput {
     /// Whether the selected item is actively in its consumable-use phase.
     #[serde(default)]
     pub using_consumable: bool,
-    /// Effective item-use factor applied once before pose slowdown. None
+    /// Effective item-use factor applied once after pose slowdown. None
     /// preserves consumable flags; explicit zero and one are meaningful.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item_use_movement_modifier: Option<f64>,

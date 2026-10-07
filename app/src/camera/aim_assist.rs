@@ -199,7 +199,7 @@ pub(crate) fn apply_action_rotation(
     if movement.override_action_rotation(
         tick,
         -pitch.to_degrees(),
-        (180.0 - yaw.to_degrees()).rem_euclid(360.0),
+        gameplay::movement::wire_yaw(180.0 - yaw.to_degrees()),
     ) {
         view.set_rotation(rotation);
     }

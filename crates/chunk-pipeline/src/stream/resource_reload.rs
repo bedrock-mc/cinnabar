@@ -88,7 +88,7 @@ impl WorldStream {
         if !geometry_changed && !biomes_changed {
             return;
         }
-        self.mesh_changes.clear();
+        self.retain_mesh_changes(|_| false);
         let now = Instant::now();
         let resident: Vec<_> = self.resident.iter().copied().collect();
         for key in resident {
