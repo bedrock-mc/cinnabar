@@ -84,6 +84,10 @@ impl crate::observations::PhysicsObservation for JumpPhysics {
         self.1
     }
 
+    fn fall_fly_ticks(&self) -> u32 {
+        0
+    }
+
     /// Returns the last completed simulation state.
     fn state(&self) -> Option<&sim::PlayerState> {
         Some(&self.0)

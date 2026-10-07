@@ -61,6 +61,33 @@ fn default_keep_ratio_contains_the_texture() {
     assert_eq!(stretched[0].0, Rect::new(0.0, 0.0, 16.0, 16.0));
 }
 
+#[test]
+fn scalar_sidecar_size_keeps_panel_borders_at_their_authored_width() {
+    let mut meta = crate::sidecar::parse_texture_meta(&json!({
+        "base_size": 3,
+        "nineslice_size": 1
+    }))
+    .expect("a square sidecar keeps its nine-slice metadata");
+    meta.pixels = [3.0, 3.0];
+    let quads = draw(json!({}), [120.0, 40.0], meta);
+    assert_eq!(quads.len(), 9);
+    assert_eq!(quads[0].0, Rect::new(0.0, 0.0, 1.0, 1.0));
+    assert_eq!(quads[8].0, Rect::new(119.0, 39.0, 1.0, 1.0));
+}
+
+#[test]
+fn numeric_sidecar_size_keeps_source_pixel_borders() {
+    let mut meta = crate::sidecar::parse_texture_meta(&json!({
+        "base_size": 60,
+        "nineslice_size": 1
+    }))
+    .unwrap();
+    meta.pixels = [3.0, 3.0];
+    let quads = draw(json!({}), [120.0, 40.0], meta);
+    assert_eq!(quads[0].1.u1, 1.0 / 3.0);
+    assert_eq!(quads[0].1.v1, 1.0 / 3.0);
+}
+
 // `fill` covers the rect, cropping the source to x 4..12.
 #[test]
 fn fill_crops_the_source_to_cover() {

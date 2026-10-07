@@ -76,67 +76,6 @@ pub fn total_armor_points<'a>(identifiers: impl Iterator<Item = Option<&'a str>>
         .min(20)
 }
 
-/// Maximum durability for damageable vanilla items (Bedrock values).
-#[must_use]
-pub fn max_durability(identifier: &str) -> Option<u32> {
-    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-    let value = match name {
-        // Tools and weapons by material tier.
-        "wooden_sword" | "wooden_pickaxe" | "wooden_axe" | "wooden_shovel" | "wooden_hoe" => 59,
-        "stone_sword" | "stone_pickaxe" | "stone_axe" | "stone_shovel" | "stone_hoe" => 131,
-        "copper_sword" | "copper_pickaxe" | "copper_axe" | "copper_shovel" | "copper_hoe" => 190,
-        "iron_sword" | "iron_pickaxe" | "iron_axe" | "iron_shovel" | "iron_hoe" => 250,
-        "golden_sword" | "golden_pickaxe" | "golden_axe" | "golden_shovel" | "golden_hoe" => 32,
-        "diamond_sword" | "diamond_pickaxe" | "diamond_axe" | "diamond_shovel" | "diamond_hoe" => {
-            1_561
-        }
-        "netherite_sword" | "netherite_pickaxe" | "netherite_axe" | "netherite_shovel"
-        | "netherite_hoe" => 2_031,
-        // Armor: material base durability times the per-piece multiplier
-        // (helmet 11, chestplate 16, leggings 15, boots 13).
-        "leather_helmet" => 55,
-        "leather_chestplate" => 80,
-        "leather_leggings" => 75,
-        "leather_boots" => 65,
-        "golden_helmet" => 77,
-        "golden_chestplate" => 112,
-        "golden_leggings" => 105,
-        "golden_boots" => 91,
-        "copper_helmet" => 121,
-        "copper_chestplate" => 176,
-        "copper_leggings" => 165,
-        "copper_boots" => 143,
-        "chainmail_helmet" | "iron_helmet" => 165,
-        "chainmail_chestplate" | "iron_chestplate" => 240,
-        "chainmail_leggings" | "iron_leggings" => 225,
-        "chainmail_boots" | "iron_boots" => 195,
-        "diamond_helmet" => 363,
-        "diamond_chestplate" => 528,
-        "diamond_leggings" => 495,
-        "diamond_boots" => 429,
-        "netherite_helmet" => 407,
-        "netherite_chestplate" => 592,
-        "netherite_leggings" => 555,
-        "netherite_boots" => 481,
-        "turtle_helmet" => 275,
-        // Other damageable vanilla items (Bedrock maxima).
-        "bow" => 384,
-        "crossbow" => 464,
-        "trident" => 250,
-        "elytra" => 432,
-        "shield" => 336,
-        "fishing_rod" => 384,
-        "carrot_on_a_stick" => 25,
-        "warped_fungus_on_a_stick" => 100,
-        "flint_and_steel" => 64,
-        "shears" => 238,
-        "brush" => 64,
-        "mace" => 500,
-        _ => return None,
-    };
-    Some(value)
-}
-
 /// Remaining durability in `0.0..=1.0` for a damageable stack, or `None` when
 /// the item is untracked, undamaged, or carries no readable damage tag.
 /// The reference hides the bar at full durability, so zero damage is `None`.
@@ -320,31 +259,15 @@ mod tests {
     }
 
     #[test]
-    fn copper_durabilities_follow_the_material_scheme() {
-        // Copper tools share the 190 tier between stone (131) and iron (250);
-        // copper armor is material base 11 times the per-piece multipliers.
-        for tool in [
-            "minecraft:copper_sword",
-            "minecraft:copper_pickaxe",
-            "minecraft:copper_axe",
-            "minecraft:copper_shovel",
-            "minecraft:copper_hoe",
-        ] {
-            assert_eq!(max_durability(tool), Some(190), "{tool}");
-        }
-        assert_eq!(max_durability("minecraft:copper_helmet"), Some(121));
-        assert_eq!(max_durability("minecraft:copper_chestplate"), Some(176));
-        assert_eq!(max_durability("minecraft:copper_leggings"), Some(165));
-        assert_eq!(max_durability("minecraft:copper_boots"), Some(143));
-    }
-
-    #[test]
     fn durability_fractions_follow_the_pinned_maxima_and_hide_pristine_bars() {
         let fraction = fraction_from_damage(250, 125).unwrap();
         assert!((fraction - 0.5).abs() < 0.01);
         assert_eq!(fraction_from_damage(250, 0), None);
         assert_eq!(
-            durability_fraction_for_damage(max_durability("minecraft:stick"), 125),
+            durability_fraction_for_damage(
+                client_world::vanilla_max_durability("minecraft:stick"),
+                125
+            ),
             None
         );
         // Over-damage clamps to an empty bar instead of wrapping.
@@ -353,7 +276,7 @@ mod tests {
         assert_eq!(
             durability_fraction(
                 &NetworkItemStack::empty(),
-                max_durability("minecraft:iron_sword")
+                client_world::vanilla_max_durability("minecraft:iron_sword")
             ),
             None
         );
@@ -392,7 +315,7 @@ mod tests {
         // A correction wins over conflicting damage carried by the local stack.
         let fraction = cell_durability_fraction(
             &stack_with_damage(125),
-            max_durability("minecraft:iron_sword"),
+            client_world::vanilla_max_durability("minecraft:iron_sword"),
             Some(50),
         )
         .unwrap();
@@ -400,7 +323,7 @@ mod tests {
         assert_eq!(
             cell_durability_fraction(
                 &NetworkItemStack::empty(),
-                max_durability("minecraft:iron_sword"),
+                client_world::vanilla_max_durability("minecraft:iron_sword"),
                 Some(9_999),
             ),
             Some(0.0),
@@ -410,7 +333,7 @@ mod tests {
         assert_eq!(
             cell_durability_fraction(
                 &NetworkItemStack::empty(),
-                max_durability("minecraft:iron_sword"),
+                client_world::vanilla_max_durability("minecraft:iron_sword"),
                 Some(0)
             ),
             None
@@ -418,22 +341,36 @@ mod tests {
         // A negative correction is semantically odd wire data: local derivation stands.
         let damaged = stack_with_damage(125);
         assert_eq!(
-            cell_durability_fraction(&damaged, max_durability("minecraft:iron_sword"), Some(-3)),
-            durability_fraction(&damaged, max_durability("minecraft:iron_sword"))
+            cell_durability_fraction(
+                &damaged,
+                client_world::vanilla_max_durability("minecraft:iron_sword"),
+                Some(-3)
+            ),
+            durability_fraction(
+                &damaged,
+                client_world::vanilla_max_durability("minecraft:iron_sword")
+            )
         );
         // Unknown maxima stay hidden under correction too.
         assert_eq!(
             cell_durability_fraction(
                 &NetworkItemStack::empty(),
-                max_durability("minecraft:stick"),
+                client_world::vanilla_max_durability("minecraft:stick"),
                 Some(5)
             ),
             None
         );
         // Without a correction the existing derivation is reproduced exactly.
         assert_eq!(
-            cell_durability_fraction(&damaged, max_durability("minecraft:iron_sword"), None),
-            durability_fraction(&damaged, max_durability("minecraft:iron_sword"))
+            cell_durability_fraction(
+                &damaged,
+                client_world::vanilla_max_durability("minecraft:iron_sword"),
+                None
+            ),
+            durability_fraction(
+                &damaged,
+                client_world::vanilla_max_durability("minecraft:iron_sword")
+            )
         );
         assert_eq!(
             cell_durability_fraction(&NetworkItemStack::empty(), None, Some(125)),

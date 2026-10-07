@@ -171,7 +171,7 @@ impl OreUiImages {
 
     /// Prepares a screen's additional artwork without changing source resolution.
     pub fn with_artwork(&self, keys: &[&str]) -> Result<Self, String> {
-        self.with_artwork_budget(keys, render_model::MAX_UI_TEXTURE_BYTES)
+        self.with_artwork_budget(keys, render_model::MAX_UI_FIXED_TEXTURE_BYTES)
     }
 
     pub(crate) fn with_artwork_budget(
@@ -750,7 +750,7 @@ mod tests {
                 .iter()
                 .map(|page| page.pixels.len())
                 .sum::<usize>()
-                < render_model::MAX_UI_TEXTURE_BYTES / 2
+                < render_model::MAX_UI_FIXED_TEXTURE_BYTES / 2
         );
     }
 }

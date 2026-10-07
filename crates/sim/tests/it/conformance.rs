@@ -623,18 +623,23 @@ fn pinned_bedsim_v0_1_5_liquid_provenance_binds_module_generator_and_bytes() {
 #[test]
 fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance() {
     let trace = include_str!("../../fixtures/bedsim-v0.1.3-terrain.jsonl");
-    // Vanilla edge avoidance keeps unclipped velocity, so the old Go capture first
-    // diverges at the sneak_north script.
-    let divergence = audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-6);
+    let bed_trace = trace
+        .lines()
+        .find(|line| {
+            let record: serde_json::Value = serde_json::from_str(line).unwrap();
+            record["scenario"] == "bed_bounce"
+        })
+        .expect("the terrain trace contains bed restitution evidence");
+    // Vanilla's uncapped 0.75 restitution intentionally differs from this old Go capture.
+    let divergence = audit_scenario_trace_jsonl(bed_trace, &Simulator::default(), 1.0e-6);
     assert!(
         matches!(
             divergence,
             Err(ConformanceError::Mismatch {
-                line: 5,
-                field: "velocity.z",
+                field: "velocity.y",
                 expected,
                 ..
-            }) if (expected - 0.4095).abs() < 1.0e-12
+            }) if (expected - 0.37436).abs() < 1.0e-12
         ),
         "{divergence:?}"
     );

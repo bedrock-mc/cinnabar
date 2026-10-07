@@ -12,11 +12,14 @@ pub const MAX_UI_BATCHES: usize = 8_192;
 pub const MAX_UI_DRAW_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_UI_TEXTURE_SIDE: u32 = 4_096;
 pub const MAX_UI_TEXTURE_LAYERS: u32 = 256;
-/// Keeps the ordinary UI budget available beside the reserved Unicode fallback pages.
-pub const MAX_UI_TEXTURE_BYTES: usize = 128 * 1024 * 1024
+/// Fixed artwork and blank native slots retain the ordinary UI and Unicode budgets.
+pub const MAX_UI_FIXED_TEXTURE_BYTES: usize = 128 * 1024 * 1024
     + assets::FONT_FALLBACK_ATLAS_SIDE as usize
         * assets::FONT_FALLBACK_ATLAS_SIDE as usize
         * assets::MAX_FONT_FALLBACK_PAGES;
+/// Native slot growth has dedicated capacity without allocating unused reserves.
+pub const MAX_UI_TEXTURE_BYTES: usize =
+    MAX_UI_FIXED_TEXTURE_BYTES + crate::ui_textures::MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]

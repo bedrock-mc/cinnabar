@@ -125,6 +125,18 @@ impl Simulator {
         input: MovementInput,
         world: &impl CollisionWorld,
     ) -> Result<ControlledTickResult, SimulationError> {
+        let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
+        let output = self.advance(state, input, world)?;
+        state.previous_rotation = Some(rotation);
+        Ok(output)
+    }
+
+    fn advance(
+        &self,
+        state: &mut PlayerState,
+        input: MovementInput,
+        world: &impl CollisionWorld,
+    ) -> Result<ControlledTickResult, SimulationError> {
         state::validate(state)?;
         input::validate(input)?;
         let controls = controls::process(input);
@@ -223,10 +235,11 @@ impl Simulator {
         }
         // Vanilla selects water travel by the previous tick's in-water flag,
         // independent of the retained swimming pose on a dry low ceiling.
-        if matches!(
-            input.mode,
-            MovementMode::Gliding | MovementMode::Flying | MovementMode::Riding
-        ) || (input.mode == MovementMode::Swimming && sampled.movement.in_water)
+        // Water and lava travel also take precedence over gliding.
+        let liquid = sampled.movement.in_water || sampled.movement.in_lava;
+        if matches!(input.mode, MovementMode::Flying | MovementMode::Riding)
+            || (input.mode == MovementMode::Gliding && !liquid)
+            || (input.mode == MovementMode::Swimming && sampled.movement.in_water)
         {
             return travel::tick_mode(
                 next,
