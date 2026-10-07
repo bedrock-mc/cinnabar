@@ -295,24 +295,20 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
     });
     let first = SubChunkKey::new(0, 1, 2, 3);
     let second = SubChunkKey::new(0, 4, 5, 6);
-    stream
-        .mesh_changes
-        .push_back(super::WorldMeshChange::Remove {
-            key: first,
-            generation: 1,
-            dirty_since: Instant::now(),
-            urgent: false,
-            permit: None,
-        });
-    stream
-        .mesh_changes
-        .push_back(super::WorldMeshChange::Remove {
-            key: second,
-            generation: 2,
-            dirty_since: Instant::now(),
-            urgent: false,
-            permit: None,
-        });
+    stream.mesh_changes.push(super::WorldMeshChange::Remove {
+        key: first,
+        generation: 1,
+        dirty_since: Instant::now(),
+        urgent: false,
+        permit: None,
+    });
+    stream.mesh_changes.push(super::WorldMeshChange::Remove {
+        key: second,
+        generation: 2,
+        dirty_since: Instant::now(),
+        urgent: false,
+        permit: None,
+    });
     stream.stats.phase2_stages.mesh_changes_queued = 2;
 
     let blocked = stream.pop_mesh_change().unwrap();
@@ -348,15 +344,13 @@ fn urgent_mesh_change_preempts_queued_bulk_publication() {
     });
     let bulk = SubChunkKey::new(0, 8, 0, 0);
     let urgent = SubChunkKey::new(0, 0, 0, 0);
-    stream
-        .mesh_changes
-        .push_back(super::WorldMeshChange::Remove {
-            key: bulk,
-            generation: 1,
-            dirty_since: Instant::now(),
-            urgent: false,
-            permit: None,
-        });
+    stream.mesh_changes.push(super::WorldMeshChange::Remove {
+        key: bulk,
+        generation: 1,
+        dirty_since: Instant::now(),
+        urgent: false,
+        permit: None,
+    });
     stream.resident.insert(urgent);
     stream.known_air.insert(urgent);
     stream.mark_dirty_exact_with_priority(urgent, Instant::now(), true);
@@ -397,19 +391,17 @@ fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() 
         &Neighbourhood::empty(),
         &source,
     );
-    stream
-        .mesh_changes
-        .push_back(super::WorldMeshChange::Upsert {
-            output_permit: None,
-            key,
-            mesh,
-            biome: PackedBiomeRecord::fallback(),
-            tint_identity: stream.biome_tint_identity(),
-            generation: 1,
-            dirty_since: Instant::now(),
-            urgent: false,
-            permit: None,
-        });
+    stream.mesh_changes.push(super::WorldMeshChange::Upsert {
+        output_permit: None,
+        key,
+        mesh,
+        biome: PackedBiomeRecord::fallback(),
+        tint_identity: stream.biome_tint_identity(),
+        generation: 1,
+        dirty_since: Instant::now(),
+        urgent: false,
+        permit: None,
+    });
 
     let blocked = stream.pop_mesh_change().unwrap();
     stream.retry_mesh_change_front(blocked).unwrap();
@@ -421,15 +413,13 @@ fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() 
         &[::meshing::DiagnosticGeometryCount::new(None, 50_000, 96)]
     );
 
-    stream
-        .mesh_changes
-        .push_back(super::WorldMeshChange::Remove {
-            key,
-            generation: 2,
-            dirty_since: Instant::now(),
-            urgent: false,
-            permit: None,
-        });
+    stream.mesh_changes.push(super::WorldMeshChange::Remove {
+        key,
+        generation: 2,
+        dirty_since: Instant::now(),
+        urgent: false,
+        permit: None,
+    });
     assert!(matches!(
         stream.pop_mesh_change(),
         Some(super::WorldMeshChange::Remove { key: removed, .. }) if removed == key
