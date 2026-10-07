@@ -41,9 +41,12 @@ pub struct PredictionSyncState {
 }
 
 /// Sends a due correction sync and clears its countdown only after admission.
+/// `air_drag_modifier` is the session's last accepted finite value, which
+/// outlives the replay history that dimension waits and hard corrections clear.
 pub fn send_movement_prediction_sync(
     physics: &mut LocalPhysicsController,
     stream: &impl crate::GameplayWorld,
+    air_drag_modifier: Option<f32>,
     state: &mut PredictionSyncState,
     send: impl FnOnce(protocol::Packet) -> bool,
 ) {
@@ -53,7 +56,6 @@ pub fn send_movement_prediction_sync(
     let Some(actor) = stream.actor(stream.local_player_runtime_id()) else {
         return;
     };
-    let air_drag_modifier = physics.simulated_air_drag_modifier();
     let Some(attributes) = attributes(
         |name| {
             actor
@@ -111,8 +113,8 @@ fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
     ]
 }
 
-/// `air_drag_modifier` is the value the simulation accepted, so a skipped
-/// non-finite update never reaches the sync; other modifiers skip it here.
+/// `air_drag_modifier` is the accepted value, so a skipped non-finite update
+/// never reaches the sync; other modifiers skip it here.
 fn attributes(
     current: impl Fn(&str) -> Option<f32>,
     air_drag_modifier: Option<f32>,
@@ -200,6 +202,171 @@ mod tests {
             &block[6..],
             &[1.0, 0.0, 2.0],
             "air drag follows the simulated value; others fall back"
+        );
+    }
+
+    struct LocalActor(client_world::ActorSnapshot);
+
+    impl crate::GameplayWorld for LocalActor {
+        fn canonical_item_stack(
+            &self,
+            _stack: &protocol::NetworkItemStack,
+        ) -> Option<client_world::CanonicalItemStack> {
+            None
+        }
+        fn actor_by_unique_id(&self, _unique_id: i64) -> Option<&client_world::ActorSnapshot> {
+            None
+        }
+        fn actor(&self, runtime_id: u64) -> Option<&client_world::ActorSnapshot> {
+            (runtime_id == self.0.runtime_id).then_some(&self.0)
+        }
+        fn local_player_runtime_id(&self) -> u64 {
+            self.0.runtime_id
+        }
+        fn local_player_unique_id(&self) -> i64 {
+            self.0.unique_id
+        }
+        fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
+            None
+        }
+        fn network_id_mode(&self) -> assets::NetworkIdMode {
+            assets::NetworkIdMode::Sequential
+        }
+        fn resolve_block_network_id(&self, network_id: u32) -> u32 {
+            network_id
+        }
+        fn air_block_id(&self) -> u32 {
+            0
+        }
+    }
+
+    /// The local actor with the required attributes and a stored non-finite air drag.
+    fn local_actor() -> LocalActor {
+        use std::sync::Arc;
+        let attribute = |name: &str, current: f32| protocol::ActorAttribute {
+            name: Arc::from(name),
+            min: 0.0,
+            max: f32::MAX,
+            current,
+            default: None,
+            modifiers: Arc::from([]),
+        };
+        let mut attributes: Vec<_> = ATTRIBUTE_NAMES
+            .iter()
+            .map(|name| attribute(name, 0.1))
+            .collect();
+        attributes.push(attribute(
+            client_world::AIR_DRAG_MODIFIER_ATTRIBUTE,
+            f32::NAN,
+        ));
+        let mut authority = client_world::WorldAuthority::new(
+            protocol::WorldBootstrap {
+                dimension: 0,
+                local_player_runtime_id: 1,
+                local_player_unique_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: protocol::air_network_id(false),
+                block_network_ids_are_hashes: false,
+            },
+            Arc::new(assets::RuntimeAssets::diagnostic()),
+            None,
+            [0.0; 3],
+            None,
+        );
+        let spawn = protocol::ActorSpawnEvent {
+            dimension: 0,
+            unique_id: 70,
+            runtime_id: 7,
+            kind: protocol::ActorKind::Entity {
+                identifier: "minecraft:pig".into(),
+            },
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            body_yaw: 0.0,
+            held_item: Default::default(),
+            metadata: Arc::from([]),
+            attributes: Arc::from(attributes),
+            properties: Arc::from([]),
+            links: Arc::from([]),
+        };
+        authority
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)),
+                Some(1),
+            )
+            .unwrap();
+        LocalActor(authority.actor(7).expect("spawn committed").clone())
+    }
+
+    fn due_physics() -> LocalPhysicsController {
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
+        physics.prediction_sync.arm();
+        while !physics.prediction_sync.due() {
+            physics.prediction_sync.tick();
+        }
+        physics
+    }
+
+    fn sent_air_drag(physics: &mut LocalPhysicsController, accepted: Option<f32>) -> f32 {
+        use protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData;
+        let mut sent = None;
+        send_movement_prediction_sync(
+            physics,
+            &local_actor(),
+            accepted,
+            &mut PredictionSyncState::default(),
+            |packet| {
+                sent = Some(packet);
+                true
+            },
+        );
+        let McpePacketData::ClientMovementPredictionSyncPacket(body) =
+            sent.expect("sync sent").data
+        else {
+            panic!("wrong packet");
+        };
+        body.movement_attributes[8]
+    }
+
+    struct NoEffects;
+
+    impl crate::movement::physics::MovementEffectSource for NoEffects {
+        fn snapshot(&self) -> sim::MovementEffects {
+            sim::MovementEffects::default()
+        }
+        fn commit_successful_tick(&mut self) {}
+    }
+
+    /// The accepted modifier survives the history a dimension wait clears.
+    #[test]
+    fn a_sync_due_during_a_dimension_wait_reports_the_accepted_air_drag() {
+        let mut physics = due_physics();
+        physics.advance_dimension_wait(
+            std::time::Duration::from_millis(50),
+            0.0,
+            crate::movement::PhysicsSampleContext::default(),
+            sim::CollisionRegistry::new().identity(),
+            &mut NoEffects,
+        );
+        assert_eq!(sent_air_drag(&mut physics, Some(2.0)), 2.0);
+    }
+
+    /// The accepted modifier survives the history a hard correction clears.
+    #[test]
+    fn a_sync_due_after_a_hard_correction_reports_the_accepted_air_drag() {
+        let mut physics = due_physics();
+        physics.reanchor_network_position([3.5, 80.0, 3.5], 140, true);
+        assert_eq!(sent_air_drag(&mut physics, Some(2.0)), 2.0);
+        let mut physics = due_physics();
+        assert_eq!(
+            sent_air_drag(&mut physics, None),
+            1.0,
+            "an undefined modifier sends one, never the stored non-finite value"
         );
     }
 }
