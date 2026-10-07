@@ -431,3 +431,77 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
     snapshot::write(&after, "experience-unadvertised-after");
     assert_eq!(snapshot::rasterize(&before), snapshot::rasterize(&after));
 }
+
+#[test]
+fn consent_answer_retains_capture_return_through_its_owned_frame() {
+    use bevy::window::{CursorGrabMode, CursorOptions};
+    use client_presentation::camera::CursorFocus;
+    for key in [KeyCode::Escape, KeyCode::F8, KeyCode::F6] {
+        let mut app = join_app(State::Offered(offer()));
+        app.init_resource::<CursorFocus>()
+            .insert_resource(crate::camera::AutoFly::new(false))
+            .init_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
+            .add_systems(
+                Update,
+                crate::camera::update_cursor_capture.after(super::super::input::consume),
+            );
+        let window = app
+            .world_mut()
+            .query_filtered::<Entity, With<PrimaryWindow>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut().entity_mut(window).insert(CursorOptions {
+            grab_mode: CursorGrabMode::Locked,
+            visible: false,
+            ..default()
+        });
+        app.update();
+        present(&mut app);
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+        app.world_mut()
+            .resource_mut::<CursorFocus>()
+            .begin_frame(false);
+        app.update();
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+        app.world_mut()
+            .resource_mut::<CursorFocus>()
+            .begin_frame(true);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        app.world_mut()
+            .resource_mut::<CursorFocus>()
+            .record_activation(true);
+        app.update();
+        assert!(consent_owned(&app));
+        assert!(!matches!(
+            app.world()
+                .resource::<UiRuntime>()
+                .experiences
+                .session
+                .state,
+            State::Offered(_)
+        ));
+        assert_eq!(
+            app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+            CursorGrabMode::None
+        );
+        app.world_mut()
+            .resource_mut::<CursorFocus>()
+            .begin_frame(true);
+        app.update();
+        assert!(!consent_owned(&app));
+        assert_eq!(
+            app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+            CursorGrabMode::Locked,
+            "{key:?}"
+        );
+        let path = app
+            .world()
+            .resource::<ExperienceService>()
+            .settings_path
+            .clone();
+        let _ = std::fs::remove_file(path);
+    }
+}

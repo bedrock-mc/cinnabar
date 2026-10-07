@@ -265,6 +265,7 @@ pub(crate) struct CompositePipelines {
 /// Composite `layer` over the view's scene into its next main texture.
 pub(crate) fn composite(
     context: &mut RenderContext,
+    world: &World,
     target: &ViewTarget,
     layer: &TextureView,
     pipeline: &RenderPipeline,
@@ -282,6 +283,7 @@ pub(crate) fn composite(
     };
     encode_composite(
         context,
+        world,
         [layer, write.source],
         destination,
         None,
@@ -292,6 +294,7 @@ pub(crate) fn composite(
 
 fn encode_composite(
     context: &mut RenderContext,
+    world: &World,
     sources: [&TextureView; 2],
     destination: RenderPassColorAttachment,
     scissor: Option<(UVec2, UVec2)>,
@@ -308,7 +311,10 @@ fn encode_composite(
         label: Some("gamma-space UI composite"),
         color_attachments: &attachments,
         depth_stencil_attachment: None,
-        timestamp_writes: None,
+        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+            world,
+            crate::RuntimeStage::GpuUi,
+        ),
         occlusion_query_set: None,
     });
     if let Some((position, size)) = scissor {
@@ -370,6 +376,7 @@ impl ViewNode for UiPresentNode {
                 .map(|viewport| (viewport.physical_position, viewport.physical_size));
             encode_composite(
                 context,
+                world,
                 [&layer.view, target.main_texture_view()],
                 target.out_texture_color_attachment(clear),
                 scissor,
@@ -379,7 +386,7 @@ impl ViewNode for UiPresentNode {
             return Ok(());
         }
         if let Some(pipeline) = cache.get_render_pipeline(pipelines.main) {
-            composite(context, target, &layer.view, pipeline, &layout);
+            composite(context, world, target, &layer.view, pipeline, &layout);
         }
         self.0.run(graph, context, blit, world)
     }

@@ -132,7 +132,15 @@ pub(in crate::chunk) fn ensure_transparent_ref_capacity(
             );
         }
         // The old buffer is released once this submission no longer needs it.
-        queue.submit([encoder.finish()]);
+        let command = encoder.finish();
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "terrain.transparent_growth_submit",
+            copies = copies.len(),
+            bytes = copies.iter().map(|copy| copy.bytes).sum::<u64>(),
+        )
+        .entered();
+        queue.submit([command]);
     }
     arena.transparent_ref_buffer = grown;
     arena.transparent_slot_refs = slot_refs;

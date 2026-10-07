@@ -94,6 +94,8 @@ struct Shared {
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, Queues> {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.queue_lock").entered();
         self.queues
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -209,6 +211,8 @@ fn work(shared: &Shared, name: &str, background: bool) {
             return;
         }
         let Some(job) = queues.take(background, Instant::now()) else {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.worker_wait").entered();
             queues = shared
                 .ready
                 .wait(queues)

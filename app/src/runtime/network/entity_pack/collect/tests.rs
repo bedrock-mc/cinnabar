@@ -99,6 +99,113 @@ fn server_entity_textures_inherit_vanilla_without_overriding_server_formats() {
 }
 
 #[test]
+fn server_attachables_inherit_vanilla_render_dependencies() {
+    let attachable = serde_json::to_vec(&json!({
+        "minecraft:attachable": {"description": {
+            "identifier": "fixture:held_item",
+            "geometry": {"default": "geometry.fixture.held_item"},
+            "render_controllers": [
+                "controller.render.default",
+                {"controller.render.fixture": "query.is_first_person"}
+            ],
+            "animations": {
+                "pose": "animation.fixture.pose",
+                "held": "controller.animation.fixture.held"
+            },
+            "animation_controllers": [{"legacy": "controller.animation.fixture.legacy"}]
+        }}
+    }))
+    .unwrap();
+    let authored_controller = json!({"geometry": "Geometry.default"});
+    let render_controllers = serde_json::to_vec(&json!({"render_controllers": {
+        "controller.render.fixture": authored_controller
+    }}))
+    .unwrap();
+    let view =
+        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(&[
+            ("attachables/held_item.json", &attachable),
+            ("render_controllers/fixture.json", &render_controllers),
+        ]));
+    let mut vanilla = assets::VanillaEntityRefs::new();
+    let default_controller = json!({
+        "geometry": "Geometry.default",
+        "materials": [{"*": "Material.default"}],
+        "textures": ["Texture.default"]
+    });
+    vanilla.render_controllers.insert(
+        "controller.render.default".into(),
+        default_controller.clone(),
+    );
+    vanilla.render_controllers.insert(
+        "controller.render.fixture".into(),
+        json!({"geometry": "Geometry.overridden"}),
+    );
+    let animation = json!({"loop": true, "bones": {"root": {"rotation": [0, 0, 0]}}});
+    vanilla
+        .animations
+        .insert("animation.fixture.pose".into(), animation.clone());
+    let animation_controller = json!({"initial_state": "default", "states": {"default": {}}});
+    for name in [
+        "controller.animation.fixture.held",
+        "controller.animation.fixture.legacy",
+    ] {
+        vanilla
+            .animation_controllers
+            .insert(name.into(), animation_controller.clone());
+    }
+    let geometry = json!({"minecraft:geometry": [{
+        "description": {"identifier": "geometry.fixture.held_item"},
+        "bones": [{"name": "root", "pivot": [0, 0, 0]}]
+    }]});
+    vanilla
+        .geometry_index
+        .insert("geometry.fixture.held_item".into(), 0);
+    vanilla.geometry_files.push(assets::VanillaGeometryFile {
+        path: "models/entity/held_item.json".into(),
+        text: geometry.to_string(),
+    });
+
+    let files = super::collect_files(&view, Some(&vanilla), None);
+    let collected = files
+        .iter()
+        .filter_map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .collect::<Vec<_>>();
+    let definition = |family: &str, name: &str| {
+        collected
+            .iter()
+            .find_map(|source| source.get(family)?.get(name))
+    };
+    assert_eq!(
+        definition("render_controllers", "controller.render.default"),
+        Some(&default_controller),
+        "attachables must retain referenced vanilla render controllers"
+    );
+    assert_eq!(
+        definition("render_controllers", "controller.render.fixture"),
+        Some(&authored_controller),
+        "authored dependencies must keep precedence over vanilla"
+    );
+    assert_eq!(
+        definition("animations", "animation.fixture.pose"),
+        Some(&animation)
+    );
+    for name in [
+        "controller.animation.fixture.held",
+        "controller.animation.fixture.legacy",
+    ] {
+        assert_eq!(
+            definition("animation_controllers", name),
+            Some(&animation_controller)
+        );
+    }
+    assert!(files.iter().any(|(_, bytes)| {
+        super::geometry_identifiers(bytes)
+            .into_iter()
+            .any(|identifier| identifier == "geometry.fixture.held_item")
+    }));
+}
+
+#[test]
 fn vanilla_texture_lookup_does_not_leave_the_pack_root() {
     let parent = tempfile::tempdir().unwrap();
     let base = parent.path().join("base");

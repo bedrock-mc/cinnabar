@@ -1,6 +1,8 @@
 use super::{query::FLAG_BABY, *};
 use assets::EntityControllerAnimationTarget;
 
+pub(super) mod selection;
+
 #[cfg(test)]
 #[path = "tick_cape_tests.rs"]
 mod cape_tests;
@@ -22,6 +24,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) main_hand_stack_id: Option<i32>,
     /// The selected hotbar slot, retained independently from the stack identity.
     pub(crate) main_hand_slot: u8,
+    /// Current local Bedrock duration; zero retains the duration of a remote swing.
+    pub(crate) bedrock_swing_ticks: i32,
     /// Current local Java swing length after haste and fatigue; remote swings use the default.
     pub(crate) java_swing_ticks: i32,
     /// A held crossbow is loaded.
@@ -97,6 +101,9 @@ pub(super) fn advance_motion(
         .map_or(actor.position, |input| input.position);
     let position_delta = std::array::from_fn(|axis| actor.position[axis] - previous_position[axis]);
     let motion = &mut state.motion;
+    if context.bedrock_swing_ticks > 0 {
+        motion.set_swing_duration(context.bedrock_swing_ticks);
+    }
     motion.advance(&MotionInput {
         delta: position_delta,
         riding: context.is_riding,
@@ -172,12 +179,12 @@ pub(super) fn advance_motion(
     state.java.advance(&super::java::JavaTick {
         delta: position_delta,
         yaw: actor.yaw,
+        local_swing: state.local_swing.map(|progress| progress.java),
         swing_ticks: if context.java_swing_ticks > 0 {
             context.java_swing_ticks
         } else {
             ACTOR_SWING_TICKS
         },
-        hurt_time: actor.status.hurt_time,
         held: &java_held,
         held_slot: context.main_hand_slot,
         riding: context.is_riding,
@@ -250,7 +257,13 @@ impl ActorRigState {
         };
         let mut recent = self.history.iter().rev().map(phase);
         let current = recent.next().unwrap_or_default();
-        [recent.next().unwrap_or(current), current]
+        let mut phases = [recent.next().unwrap_or(current), current];
+        if let Some(progress) = self.local_swing {
+            for (phase, attack_time) in phases.iter_mut().zip(progress.bedrock) {
+                phase.attack_time = attack_time;
+            }
+        }
+        phases
     }
 }
 
@@ -268,13 +281,21 @@ pub(super) fn evaluate_state(
     context: &ActorTickContext,
     tick: u64,
     budget: &mut EvalBudget<'_>,
+    advance_clocks: bool,
     inheritance: Option<EvaluationInheritance<'_>>,
 ) -> Result<EvaluatedState, EvalError> {
-    let reset = state.reset_pending;
+    let replay = (!advance_clocks).then(|| state.replay_at(tick)).flatten();
+    let topology = replay.filter(|replay| replay.geometry == state.geometry_binding);
+    let reset = topology.map_or(state.reset_pending, |replay| replay.reset);
+    let replay_context = replay.map(|replay| ActorTickContext {
+        animation_elapsed_ticks: replay.elapsed,
+        ..context.clone()
+    });
+    let context = replay_context.as_ref().unwrap_or(context);
     let anim_tick = if reset {
         0
     } else {
-        tick.saturating_sub(state.animation_epoch)
+        tick.saturating_sub(topology.map_or(state.animation_epoch, |replay| replay.epoch))
     };
     let life_tick = tick.saturating_sub(state.lifetime_epoch);
     let observed = state.history.back().copied().ok_or(EvalError::Invalid)?;
@@ -309,9 +330,11 @@ pub(super) fn evaluate_state(
         .rig_bindings()
         .get(state.rig_binding)
         .ok_or(EvalError::Invalid)?;
-    let mut variables = state.variables.clone();
+    let mut variables = replay
+        .map_or(&state.variables, |replay| &replay.variables)
+        .clone();
     let engine = &layout.engine;
-    if !state.initialized {
+    if !replay.map_or(state.initialized, |replay| replay.initialized) {
         for &(slot, value) in &engine.seeded {
             variables.set(Some(slot), value);
         }
@@ -347,15 +370,15 @@ pub(super) fn evaluate_state(
     }
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
-    let mut render_frame = state
-        .samples_render_frames
-        .then(|| super::render_frame::FrameState {
-            variables: variables.clone(),
-            context: context.clone(),
-            input,
-            anim_tick,
-            clips: Vec::new(),
-        });
+    let mut render_frame = (state.samples_render_frames
+        || (state.samples_swing_poses && state.local_swing.is_some()))
+    .then(|| super::render_frame::FrameState {
+        variables: variables.clone(),
+        context: context.clone(),
+        input,
+        anim_tick,
+        clips: Vec::new(),
+    });
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
     }
@@ -371,16 +394,10 @@ pub(super) fn evaluate_state(
             Some(scale)
         }
     };
-    // Provisional: without an assignment the first-person swing would not move at all, so the
-    // factor takes the value the pack computes under its older name.
-    if variables
-        .get(engine.first_person_item_rotation_factor)
-        .is_none()
-        && let Some(factor) = variables.get(engine.first_person_rotation_factor)
-    {
-        variables.set(engine.first_person_item_rotation_factor, factor);
-    }
-    let mut controllers = state.controllers.clone();
+    set_item_rotation_factor(engine, &mut variables);
+    let mut controllers = topology
+        .map_or(&state.controllers, |replay| &replay.controllers)
+        .clone();
     for controller in &mut controllers {
         controller.active = false;
     }
@@ -403,99 +420,35 @@ pub(super) fn evaluate_state(
             runtime.blend_from = None;
         }
     }
-    let mut weighted_clips = Vec::new();
     let empty_clocks = super::clock::ClipClocks::new();
     let previous_clocks = if reset {
         &empty_clocks
     } else {
-        &state.clip_clocks
+        replay.map_or(&state.clip_clocks, |replay| &replay.clocks)
     };
-    let candidate = assets
-        .rig_geometries()
-        .get(state.geometry_binding)
-        .ok_or(EvalError::Invalid)?;
-    let direct_first = candidate.first_animation as usize;
-    let direct_end = direct_first
-        .checked_add(candidate.animation_count as usize)
-        .ok_or(EvalError::Invalid)?;
-    let direct = assets
-        .rig_animations()
-        .get(direct_first..direct_end)
-        .ok_or(EvalError::Invalid)?;
-    let controller_first = candidate.first_controller as usize;
-    let controller_end = controller_first
-        .checked_add(candidate.controller_count as usize)
-        .ok_or(EvalError::Invalid)?;
-    let bound = assets
-        .rig_controllers()
-        .get(controller_first..controller_end)
-        .ok_or(EvalError::Invalid)?;
-    // Clips and controllers run interleaved in the authored `animate` order.
-    let (mut next_clip, mut next_controller) = (0, 0);
-    while next_clip < direct.len() || next_controller < bound.len() {
-        budget.charge_work()?;
-        let clip_first = match (direct.get(next_clip), bound.get(next_controller)) {
-            (Some(clip), Some(controller)) => clip.order <= controller.order,
-            (clip, _) => clip.is_some(),
-        };
-        if clip_first {
-            let binding = &direct[next_clip];
-            next_clip += 1;
-            let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
-            if weight != 0.0 {
-                weighted_clips.push(WeightedClip {
-                    clip: binding.clip as usize,
-                    weight,
-                    started_tick: 0,
-                    time: 0.0,
-                    blend: None,
-                });
-            }
-        } else {
-            let binding = &bound[next_controller];
-            next_controller += 1;
-            let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
-            if weight != 0.0 {
-                let mut walk = ControllerWalk {
-                    evaluator: &evaluator,
-                    variables: &mut variables,
-                    controllers: &mut controllers,
-                    clip_clocks: previous_clocks,
-                    clips: &mut weighted_clips,
-                    budget,
-                };
-                walk.evaluate(binding.controller as usize, weight, 0)?;
-            }
-        }
-    }
-    if let Some(controller) = blink_controller
-        && !bound
-            .iter()
-            .any(|binding| binding.controller as usize == controller)
-    {
-        ControllerWalk {
-            evaluator: &evaluator,
-            variables: &mut variables,
-            controllers: &mut controllers,
-            clip_clocks: previous_clocks,
-            clips: &mut weighted_clips,
-            budget,
-        }
-        .evaluate(controller, 1.0, 0)?;
-    }
-    let clip_clocks = super::clock::prepare(
+    let mut weighted_clips = selection::select(
         &evaluator,
         &mut variables,
-        if reset {
-            None
-        } else {
-            Some(&state.clip_clocks)
-        },
-        &controllers,
-        &mut weighted_clips,
+        &mut controllers,
+        previous_clocks,
+        state.geometry_binding,
+        blink_controller,
         budget,
     )?;
-    if state.samples_camera_poses
+    let clip_clocks = if advance_clocks || replay.is_some() {
+        super::clock::prepare(
+            &evaluator,
+            &mut variables,
+            (!reset).then_some(previous_clocks),
+            &controllers,
+            &mut weighted_clips,
+            budget,
+        )?
+    } else {
+        super::clock::sample(&evaluator, previous_clocks, &mut weighted_clips, budget)?;
+        previous_clocks.clone()
+    };
+    if (state.samples_camera_poses || (state.samples_swing_poses && state.local_swing.is_some()))
         && let Some(frame) = render_frame.as_mut()
     {
         frame.clips.clone_from(&weighted_clips);
@@ -514,7 +467,11 @@ pub(super) fn evaluate_state(
         &mut variables,
         super::render::RenderRig {
             binding: state.rig_binding,
-            geometry: candidate.geometry,
+            geometry: assets
+                .rig_geometries()
+                .get(state.geometry_binding)
+                .ok_or(EvalError::Invalid)?
+                .geometry,
             bone_names: state.posed_bone_names(),
             skeletons: &state.layer_skeletons,
         },
@@ -628,6 +585,20 @@ pub(super) fn apply_engine_variables(
         for &(slot, offset, axis) in &engine.dragon_history {
             variables.set(Some(slot), state.historical_frame(offset, dead)[axis]);
         }
+    }
+}
+
+/// Uses the authored rotation factor when the pack leaves its item-specific factor unassigned.
+pub(super) fn set_item_rotation_factor(
+    engine: &evaluation::EngineSlots,
+    variables: &mut MolangVariables,
+) {
+    if variables
+        .get(engine.first_person_item_rotation_factor)
+        .is_none()
+        && let Some(factor) = variables.get(engine.first_person_rotation_factor)
+    {
+        variables.set(engine.first_person_item_rotation_factor, factor);
     }
 }
 

@@ -19,9 +19,11 @@ use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    (player_runtime, window): (
+    (player_runtime, window, mut focus, driven): (
         bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+        Option<ResMut<client_presentation::camera::CursorFocus>>,
+        Option<Res<crate::camera::DrivenInput>>,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -40,6 +42,9 @@ pub(crate) fn drive_server_form_input(
     mut stick: Local<[bool; 4]>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    let input_available = driven.is_some()
+        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
+    let had_active_form = runtime.server_forms().active().is_some();
     if runtime.credits().owns_input() {
         wheel.clear();
         keyboard.clear();
@@ -95,7 +100,7 @@ pub(crate) fn drive_server_form_input(
     if !runtime.server_forms().owns_input() {
         wheel.clear();
         keyboard.clear();
-        if *owned_last_frame && !runtime.ui_focused(&player_runtime) && window.focused {
+        if *owned_last_frame && !runtime.ui_focused(&player_runtime) && input_available {
             client_ui::ui_runtime::interaction::restore_gameplay_input_after_chat(
                 &mut cursor,
                 &mut keys,
@@ -107,7 +112,7 @@ pub(crate) fn drive_server_form_input(
         return;
     }
     *owned_last_frame = true;
-    if !window.focused {
+    if !input_available {
         wheel.clear();
         keyboard.clear();
         *held = false;
@@ -131,9 +136,7 @@ pub(crate) fn drive_server_form_input(
         .active()
         .and_then(|entry| presentation.form_engine_frame(entry.identity))
         .cloned();
-    if window.focused
-        && let Some(frame) = engine_frame
-    {
+    if input_available && let Some(frame) = engine_frame {
         let input = engine_input::EngineInput {
             pointer_edges,
             cursor: window
@@ -162,9 +165,7 @@ pub(crate) fn drive_server_form_input(
             animator: presentation.form_animator(),
         };
         engine_input::drive(&mut runtime, &frame, input);
-    } else if window.focused
-        && let Some(entry) = runtime.server_forms().active()
-    {
+    } else if input_available && let Some(entry) = runtime.server_forms().active() {
         keyboard.clear();
         let identity = entry.identity;
         if keys.just_pressed(KeyCode::ArrowUp)
@@ -223,14 +224,17 @@ pub(crate) fn drive_server_form_input(
             None
         };
         if let Some((identity, action)) = action {
-            if matches!(action, LocalFormAction::SubmitButton(_)) {
-                crate::audio::ui_click();
-            }
             let _ = runtime.respond_to_server_form(identity, action);
         }
     } else {
         wheel.clear();
         keyboard.clear();
+    }
+    if had_active_form
+        && runtime.server_forms().active().is_none()
+        && let Some(focus) = focus.as_deref_mut()
+    {
+        focus.authorize_screen_return();
     }
     // Also retain ownership through the answer frame; pending enqueue owns
     // input until the later network phase accepts it or retires the session.

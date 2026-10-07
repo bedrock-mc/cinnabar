@@ -38,14 +38,14 @@ impl TextureMeta {
 }
 
 /// Parse a sidecar JSON value; `pixels` is left at the sidecar's `base_size`
-/// for the caller to replace with the image's real size. An absent `base_size`
+/// for the caller to replace with the image's real size. An unusable `base_size`
 /// reads zero, which nine-slicing treats as the source region's size.
 pub fn parse_texture_meta(value: &Value) -> Option<TextureMeta> {
     let object = value.as_object()?;
-    let base_size = match object.get("base_size") {
-        Some(value) => read_pair(value)?,
-        None => [0.0, 0.0],
-    };
+    let base_size = object
+        .get("base_size")
+        .and_then(read_size)
+        .unwrap_or([0.0, 0.0]);
     let nineslice = object.get("nineslice_size").and_then(parse_nineslice);
     if base_size == [0.0, 0.0] && nineslice.is_none() {
         return None;
@@ -106,9 +106,9 @@ pub(crate) fn parse_nineslice(value: &Value) -> Option<NineSlice> {
     }
 }
 
-fn read_pair(value: &Value) -> Option<[f64; 2]> {
+fn read_size(value: &Value) -> Option<[f64; 2]> {
     let items = value.as_array()?;
-    if items.len() != 2 {
+    if items.len() < 2 {
         return None;
     }
     Some([items[0].as_f64()?, items[1].as_f64()?])
@@ -155,6 +155,32 @@ mod tests {
     fn plain_sprite_has_base_size_without_nineslice() {
         let meta = parse_texture_meta(&json!({ "base_size": [64, 64] })).unwrap();
         assert!(meta.nineslice.is_none());
+    }
+
+    #[test]
+    fn unusable_base_size_keeps_its_independent_slice() {
+        for base in [
+            json!(60),
+            json!(null),
+            json!(false),
+            json!({}),
+            json!([]),
+            json!([8]),
+        ] {
+            let meta = parse_texture_meta(&json!({
+                "base_size": base,
+                "nineslice_size": 1
+            }))
+            .unwrap();
+            assert_eq!(meta.base_size, [0.0, 0.0]);
+            assert_eq!(meta.nineslice.unwrap().left, 1.0);
+        }
+    }
+
+    #[test]
+    fn base_size_uses_the_first_two_array_elements() {
+        let meta = parse_texture_meta(&json!({ "base_size": [9, 13, 99] })).unwrap();
+        assert_eq!(meta.base_size, [9.0, 13.0]);
     }
 
     // A nine-slice sidecar without `base_size` keeps its slice.

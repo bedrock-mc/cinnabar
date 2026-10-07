@@ -19,18 +19,19 @@ mod visibility;
 pub use actor::{
     ACTOR_RIG_VERTEX_WORDS, ActorRigGeometry, ActorRigGeometryError, ActorRigSurface,
     ActorRigVertex, ActorSkinPixels, ActorVertex, DEFAULT_PLAYER_SKIN_PATH,
-    DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, ONE_SIDED_BACK_UV, RenderBoneTransform,
-    STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
-    append_entity_cube_vertices, attachable_geometry, attachable_raster_frame,
-    default_actor_skin_rgba8, diagnostic_geometry, entity_geometry, equipment_geometry,
-    equipment_rig_id, find_geometry_index, geometry_bone_binding_expressions, geometry_bone_names,
-    geometry_bone_pivots, geometry_from_geometry_index, geometry_from_runtime_assets,
-    install_default_player_skin, is_equipment_rig_id, is_layer_geometry_rig_id,
-    is_pack_equipment_rig_id, is_pack_rig_id, item_mesh_rig_id, layer_geometries,
-    layer_geometry_rig_id, normalize_actor_skin, normalize_actor_skin_cached,
-    pack_equipment_rig_id, pack_geometries, pack_rig_id, resolve_geometry_bones, skin_geometry,
-    skin_rig_id, standard_biped_overlay_vertices, standard_biped_vertices,
+    DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId, MAX_ACTOR_CATALOG_VERTEX_BYTES,
+    MAX_ACTOR_CATALOG_VERTICES, MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR,
+    MAX_RENDERED_PLAYERS, ONE_SIDED_BACK_UV, RenderBoneTransform, STANDARD_BIPED_VERTEX_COUNT,
+    STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE, append_entity_cube_vertices,
+    attachable_geometry, attachable_raster_frame, default_actor_skin_rgba8, diagnostic_geometry,
+    entity_geometry, equipment_geometry, equipment_rig_id, find_geometry_index,
+    geometry_bone_binding_expressions, geometry_bone_names, geometry_bone_pivots,
+    geometry_from_geometry_index, geometry_from_runtime_assets, install_default_player_skin,
+    is_equipment_rig_id, is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id,
+    item_mesh_rig_id, layer_geometries, layer_geometry_rig_id, normalize_actor_skin,
+    normalize_actor_skin_cached, pack_equipment_rig_id, pack_geometries, pack_rig_id,
+    resolve_geometry_bones, skin_geometry, skin_rig_id, standard_biped_overlay_vertices,
+    standard_biped_vertices,
 };
 pub use chunk_metrics::{
     ModelWorkloadCount, ModelWorkloadMetricsSnapshot, TransparentSortMetricsSnapshot,
@@ -50,18 +51,19 @@ pub use nametag::{
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use ui::{
-    MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
-    MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UI_BLEND_ALPHA, UI_BLEND_INVERT, UI_STYLE_ALPHA_TEST,
-    UI_STYLE_COLOR_MASK, UI_STYLE_GLINT, UiRenderBatch, UiRenderInput, UiRenderReject,
-    UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderStatsSnapshot,
-    UiRenderTextureArray, UiRenderVertex, UiScissor,
+    MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
+    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES,
+    UI_BLEND_ALPHA, UI_BLEND_INVERT, UI_STYLE_ALPHA_TEST, UI_STYLE_COLOR_MASK, UI_STYLE_GLINT,
+    UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene,
+    UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
 };
 pub use ui_textures::{
-    MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_TEXTURE_BUCKETS,
-    UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
-    UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET,
-    UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat,
-    UiTextureLocation, UiTexturePage, UiTexturePlan,
+    MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_FALLBACK_FONT_PAGES, MAX_UI_MODEL_ATLAS_PAGES,
+    MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE,
+    UI_DYNAMIC_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_OFFSET, UI_FALLBACK_FONT_PAGE_SIDE,
+    UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
+    UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket,
+    UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,

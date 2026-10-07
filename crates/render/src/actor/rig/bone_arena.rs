@@ -28,6 +28,25 @@ impl PoseMatrixCache {
         self.entries.retain(|_, entry| entry.2 >= oldest);
     }
 
+    /// Validates a pose without changing cache ownership or frame counters.
+    pub(super) fn pose_is_valid(
+        &self,
+        pose: &Arc<[RenderBoneTransform]>,
+        geometry: EntityRigId,
+        pivots: &[[f32; 3]],
+    ) -> bool {
+        let key = (Arc::as_ptr(pose).cast::<u8>() as usize, geometry);
+        if let Some(entry) = self.entries.get(&key)
+            && Arc::ptr_eq(&entry.0, pose)
+            && entry.3.as_slice() == pivots
+        {
+            return true;
+        }
+        pose.iter().enumerate().all(|(index, transform)| {
+            affine_matrix(*transform, pivots.get(index).copied().unwrap_or([0.0; 3])).is_some()
+        })
+    }
+
     /// [`append_pose_matrices`] through the cache.
     pub(super) fn append(
         &mut self,

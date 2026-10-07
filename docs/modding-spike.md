@@ -167,7 +167,9 @@ They are developer extension capabilities and do not change the vanilla client.
 `panel.set-content` retains a bounded JSON panel of toggles, sliders, buttons and
 choices. It uses the host's JSON-UI engine; guests cannot provide templates or
 binding expressions. Optional `style: "compact"` renders a unified menu with up
-to three equal-height cards. Sections can select a bounded `icon` (`pointer`,
+to three equal-height cards. Optional `theme: "monochrome"` selects an opaque neutral
+palette for either layout; omitting it preserves the existing dark/light theme.
+Sections can select a bounded `icon` (`pointer`,
 `crosshair`, `ruler`, `settings` or `none`). A `keybind` control has `id`, `label`,
 `key` and optional `capturing` fields; pressing its keycap emits a button event,
 and the guest owns key capture and reservations. Key changes retain geometry.
@@ -398,3 +400,13 @@ uploads no new table; inactive world sessions suppress the override.
 
 Block highlights inspect received primary block layers even while collision
 readiness is incomplete. Missing subchunks and unloaded data remain excluded.
+
+## Embedding an isolated client
+
+`CINNABAR_USER_ROOT` optionally selects an absolute profile directory on each desktop
+platform, including development binaries. Configuration goes under `config`, data
+and caches under `data`, and runtime files under `run`. Bundled resources stay at
+the executable's normal installation location. Relative and empty overrides fail
+at startup. This does not require changing HOME, LOCALAPPDATA or XDG variables.
+`CINNABAR_WINDOW_TITLE` optionally changes the game window title; absent, empty or
+whitespace-only values retain the product name.

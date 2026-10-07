@@ -3,6 +3,7 @@ use std::sync::Arc;
 use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_51::{
+    EnumsMovementEffectType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
     GameRule, GameRuleRuleValue, McpePacketData,
 };
@@ -65,11 +66,12 @@ pub use self::events::{
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
     ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameRulesEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES,
-    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, NETHER_DIMENSION_ID,
-    OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
-    RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
-    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
-    WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id, vanilla_dimension_range,
+    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
+    MovementEffectKind, NETHER_DIMENSION_ID, OpenSignEvent, PLAYER_NETWORK_OFFSET,
+    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
+    SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent, WeatherChannel,
+    WeatherUpdateEvent, WorldEvent, air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 use self::game_rules::{daylight_cycle_rule_update, hud_rules, weather_cycle_rule_update};
@@ -833,6 +835,19 @@ pub fn into_world_event(
             WorldEvent::ActorMotion(ActorMotionEvent {
                 actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
                 motion,
+                tick: packet.tick.inputtick,
+            })
+        }
+        McpePacketData::MovementEffectPacket(packet) => {
+            WorldEvent::MovementEffect(MovementEffectEvent {
+                actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
+                kind: match packet.effect_id {
+                    EnumsMovementEffectType::GlideBoost => MovementEffectKind::GlideBoost,
+                    EnumsMovementEffectType::DolphinBoost => MovementEffectKind::DolphinBoost,
+                    EnumsMovementEffectType::GeyserBoost => MovementEffectKind::GeyserBoost,
+                    EnumsMovementEffectType::Unknown(value) => MovementEffectKind::Unknown(value),
+                },
+                duration_ticks: packet.effect_duration,
                 tick: packet.tick.inputtick,
             })
         }

@@ -363,3 +363,65 @@ fn nonliving_unknown_and_removed_mounts_keep_the_ordinary_player_body_basis() {
         expected,
     );
 }
+
+/// Local torso headings use physical interpolation while cape position keeps actor interpolation.
+#[test]
+fn local_java_torso_frame_uses_physics_alpha_for_heading_and_cape_rotation() {
+    let mut stream = super::tests::head_stream();
+    let mut feed = super::tests::uploaded_skin_feed(false);
+    feed.yaw = 30.0;
+    feed.head_yaw = 30.0;
+    feed.pitch = 0.0;
+    stream.sync_local_player_pose(&feed);
+    stream.advance_actor_interpolation_frame(1);
+    let mut rig = stream.authority().actor_rig(1).unwrap();
+    rig.java.body_yaw = [10.0, 30.0];
+    rig.java.body_frame_alpha = Some(0.75);
+    rig.java.cape = [[0.0; 3], [10.0, 20.0, 30.0]];
+    let actor = stream.authority().actor(1).unwrap();
+    let equipment = ActorEquipmentInput::default();
+    let posed = third_person(&stream, &rig, actor, Some(&equipment), 0.1).unwrap();
+    degrees_near(
+        lerp_degrees(posed.rig.previous_body_yaw, posed.rig.body_yaw, 0.1),
+        25.0,
+    );
+    degrees_near(posed.posed.cape.body_yaw, 25.0);
+    assert!(
+        posed
+            .posed
+            .cape
+            .chase
+            .abs_diff_eq(Vec3::new(1.0, 2.0, 3.0), 1e-5)
+    );
+    head_pose_near(&posed, 5.0, 0.0);
+}
+
+/// A changing physical fraction cannot invalidate a hand source when the torso is still.
+#[test]
+fn local_java_torso_phase_without_motion_retains_the_same_hand_source() {
+    let mut stream = super::tests::head_stream();
+    let mut feed = super::tests::uploaded_skin_feed(false);
+    feed.yaw = 0.0;
+    feed.head_yaw = 0.0;
+    stream.sync_local_player_pose(&feed);
+    stream.advance_actor_interpolation_frame(1);
+    stream.set_local_motion_authority(Some((1, 1)));
+    let sample = |alpha| client_world::LocalSwingMotionSample {
+        tick: 1,
+        delta: [0.0; 3],
+        yaw: 0.0,
+        progress: client_world::LocalSwingProgress {
+            frame_alpha: Some(alpha),
+            ..Default::default()
+        },
+    };
+    stream.sync_local_swing_motion((1, 1), [sample(0.25)]);
+    let first = super::super::hand::source_key(&stream, None, None, 0.1);
+    assert!(first.is_some());
+    stream.sync_local_swing_motion((1, 1), [sample(0.75)]);
+    let second = super::super::hand::source_key(&stream, None, None, 0.1);
+    assert!(
+        first == second,
+        "unchanged sampled torso keeps the hand source"
+    );
+}

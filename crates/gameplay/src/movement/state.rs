@@ -18,17 +18,10 @@ pub struct ProcessedMovementState {
     /// correction replay recomputes both fields from the replayed timeline's
     /// own facts via [`ReplayJumpArcFold`].
     pub jump_arc_active: bool,
-    /// Sneaking state fed to the simulator this tick. No pose/mode authority
-    /// exists yet (VPA-012), so processed sneak equals held sneak; any future
-    /// pose-gated rule lands here without changing callers.
+    /// Sneaking pose fed to the simulator, including a low ceiling forcing the pose.
     pub sneaking: bool,
     /// Forward-gated sprint already narrowed by [`super::physics_movement_input`].
     pub sprinting: bool,
-    /// Immutable permission/device-normalized direction authority captured
-    /// before item/pose slowdown. None keeps legacy sample derivation. This
-    /// preserves Cinnabar's existing policy, pending exact retail acceptance.
-    /// The encoder masks this to direction bits; raw/analogue never substitute.
-    pub direction_flags: Option<protocol::PlayerInputFlags>,
     /// Locomotion mode the simulator ran this tick; drives the mode start/stop edges.
     pub mode: sim::MovementMode,
     /// A low ceiling holds the sneak pose although the button is up.
@@ -58,7 +51,6 @@ impl ProcessedMovementState {
             jump_arc_active: jump_initiated || (!grounded_after_tick && previous_jump_arc_active),
             sneaking,
             sprinting,
-            direction_flags: None,
             mode: sim::MovementMode::Walking,
             forced_sneak: false,
             ride: None,

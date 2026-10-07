@@ -28,8 +28,19 @@ fn assert_spans(catalog: &GeometryCatalog) {
 }
 
 #[test]
+fn actor_catalog_admits_multiple_individually_bounded_models() {
+    let count = render_model::MAX_ACTOR_RIG_VERTICES / 2 + 1;
+    let models = [geometry(1, count), geometry(2, count)];
+    let catalog =
+        GeometryCatalog::layout(models.into_iter().map(|model| (model.id, model)).collect())
+            .expect("multiple valid models must not share one model's vertex ceiling");
+    assert_eq!(catalog.vertices.len(), count * 2);
+    assert_spans(&catalog);
+}
+
+#[test]
 fn duplicate_vertex_pages_share_storage_and_keep_rig_metadata() {
-    let count = MAX_ACTOR_RIG_VERTICES / 2 + 1;
+    let count = 6;
     let first = geometry(1, count);
     let second = ActorRigGeometry::new(
         EntityRigId(2),
@@ -38,10 +49,11 @@ fn duplicate_vertex_pages_share_storage_and_keep_rig_metadata() {
     )
     .unwrap();
     assert!(!Arc::ptr_eq(&first.vertices, &second.vertices));
-    let catalog = GeometryCatalog::layout(
+    let catalog = GeometryCatalog::layout_with_limit(
         [(first.id, first), (second.id, second)]
             .into_iter()
             .collect(),
+        count,
     )
     .expect("identical vertex pages consume one immutable storage span");
     assert_ne!(
@@ -61,7 +73,7 @@ fn duplicate_vertex_pages_share_storage_and_keep_rig_metadata() {
 
 #[test]
 fn duplicate_vertex_pages_append_with_existing_addresses_and_snapshots() {
-    let count = MAX_ACTOR_RIG_VERTICES / 2 + 1;
+    let count = 6;
     let first = geometry(1, count);
     let second = ActorRigGeometry::new(
         EntityRigId(2),
@@ -69,7 +81,9 @@ fn duplicate_vertex_pages_append_with_existing_addresses_and_snapshots() {
         first.bone_pivots.to_vec(),
     )
     .unwrap();
-    let mut catalog = GeometryCatalog::layout([(first.id, first)].into_iter().collect()).unwrap();
+    let mut catalog =
+        GeometryCatalog::layout_with_limit([(first.id, first)].into_iter().collect(), count)
+            .unwrap();
     let before = catalog.vertices.clone();
     let original_span = catalog.published_spans[0];
     catalog
@@ -214,8 +228,9 @@ fn replacement_reuses_vacant_addresses() {
 /// Fragmentation changes metadata only, while still admitting every catalog that fits live.
 #[test]
 fn capacity_relocation_keeps_immutable_payloads() {
-    let quarter = MAX_ACTOR_RIG_VERTICES / 4;
-    let mut catalog = GeometryCatalog::layout(
+    let maximum_vertices = 96;
+    let quarter = maximum_vertices / 4;
+    let mut catalog = GeometryCatalog::layout_with_limit(
         [
             (EntityRigId(1), geometry(1, quarter * 2)),
             (EntityRigId(2), geometry(2, quarter)),
@@ -223,13 +238,14 @@ fn capacity_relocation_keeps_immutable_payloads() {
         ]
         .into_iter()
         .collect(),
+        maximum_vertices,
     )
     .unwrap();
     catalog.append(vec![geometry(1, quarter)], 2).unwrap();
     let before = catalog.vertices.clone();
     let old_spans = catalog.published_spans.clone();
     catalog.append(vec![geometry(3, quarter * 2)], 3).unwrap();
-    assert_eq!(catalog.vertices.len(), MAX_ACTOR_RIG_VERTICES);
+    assert_eq!(catalog.vertices.len(), maximum_vertices);
     assert_ne!(catalog.published_spans[1], old_spans[1]);
     for index in 0..2 {
         assert!(Arc::ptr_eq(

@@ -37,3 +37,33 @@ fn desktop_modifier_is_relative_to_the_current_optimal_scale() {
         1
     );
 }
+
+#[test]
+fn desktop_option_percentages_use_the_optimal_scale_even_when_offsets_match() {
+    let half = DesktopGuiScale::for_window([752, 500])
+        .choices()
+        .collect::<Vec<_>>();
+    let thirds = DesktopGuiScale::for_window([1128, 750])
+        .choices()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        half.iter().map(|choice| choice.offset).collect::<Vec<_>>(),
+        thirds
+            .iter()
+            .map(|choice| choice.offset)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        half.iter()
+            .map(|choice| choice.percentage)
+            .collect::<Vec<_>>(),
+        vec![50, 100]
+    );
+    assert_eq!(
+        thirds
+            .iter()
+            .map(|choice| choice.percentage)
+            .collect::<Vec<_>>(),
+        vec![67, 100]
+    );
+}

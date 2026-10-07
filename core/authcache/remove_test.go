@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
+	"github.com/sandertv/gophertunnel/minecraft/service"
 )
 
 func TestRemoveWaitsForRefreshAndDeletesItsRotatedToken(t *testing.T) {
@@ -92,4 +93,23 @@ func seedRemovalCaches(t *testing.T) string {
 		}
 	}
 	return path
+}
+
+// A publication finishing after sign-out never brings the removed credentials back.
+func TestPublishAfterRemoveNeverRecreatesTheBundle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oauth.json")
+	oauth := signInForGenerationTest(t, path, "account")
+	writeDerivedState(t, DerivedCachePath(path), testOAuthToken("account"), time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), DerivedCachePath(path), oauth, nil, derivedDeps{})
+	defer account.Close()
+	if err := Remove(context.Background(), path, os.Remove); err != nil {
+		t.Fatal(err)
+	}
+	account.gate <- struct{}{}
+	account.service = &service.Token{AuthorizationHeader: "MCToken late", ValidUntil: time.Now().Add(time.Hour)}
+	account.unlock()
+	account.publishNow(context.Background())
+	if _, err := os.Stat(DerivedCachePath(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a late publication recreated the removed bundle: %v", err)
+	}
 }

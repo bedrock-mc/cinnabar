@@ -65,6 +65,8 @@ pub struct FeaturedGame {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct FeaturedServer {
     #[serde(default)]
+    pub group: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub address: String,

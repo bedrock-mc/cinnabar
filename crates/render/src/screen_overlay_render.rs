@@ -590,7 +590,10 @@ pub(crate) fn draw_before_hud(
         label: Some("camera effects before HUD"),
         color_attachments: &attachments,
         depth_stencil_attachment: None,
-        timestamp_writes: None,
+        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+            world,
+            crate::RuntimeStage::GpuPost,
+        ),
         occlusion_query_set: None,
     });
     if let Some(viewport) =

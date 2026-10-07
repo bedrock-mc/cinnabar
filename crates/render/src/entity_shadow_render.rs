@@ -534,7 +534,10 @@ impl ViewNode for EntityShadowNode {
             label: Some("entity shadows"),
             color_attachments: &[Some(colour)],
             depth_stencil_attachment: None,
-            timestamp_writes: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                crate::RuntimeStage::GpuShadows,
+            ),
             occlusion_query_set: None,
         });
         if let Some(viewport) = camera.viewport.as_ref() {

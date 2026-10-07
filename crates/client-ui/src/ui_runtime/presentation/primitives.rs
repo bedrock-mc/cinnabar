@@ -23,7 +23,7 @@ pub(super) fn resolve_chat_line<'a>(
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    json_ui::localize_parameter_prefix(parameter, &translate, usize::MAX)
+                    protocol::localize_parameter_prefix(parameter, &translate, usize::MAX)
                         .into_owned()
                 })
                 .collect::<Vec<_>>();
@@ -99,6 +99,25 @@ mod tests {
             (key == "death.attack.player").then(|| Arc::from("%1$s was slain by %2$s"))
         });
         assert_eq!(resolved, "Legolas was slain by Gimli");
+    }
+
+    #[test]
+    fn death_message_uses_the_active_entity_name_and_preserves_player_names() {
+        let node = message(
+            ChatMessageKind::Translation,
+            None,
+            "death.attack.mob",
+            &["notchyves", "%entity.zombie.name"],
+        );
+        assert_eq!(
+            resolve_chat_line(&node, |key| match key {
+                "death.attack.mob" => Some(Arc::from("%1$s was slain by %2$s")),
+                "entity.zombie.name" => Some(Arc::from("§aZombie§r")),
+                "notchyves" => Some(Arc::from("must stay literal")),
+                _ => None,
+            }),
+            "notchyves was slain by §aZombie§r"
+        );
     }
 
     #[test]

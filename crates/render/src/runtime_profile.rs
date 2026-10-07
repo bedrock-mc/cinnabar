@@ -49,7 +49,7 @@ pub enum RuntimeStage {
     BlockEntities,
     /// Render-world wall time for one frame, excluding the drawable-acquisition wait.
     RenderFrame,
-    /// First to last GPU timestamp of one rendered frame.
+    /// First to last sampled GPU timestamp; absent when coverage includes only owned passes.
     GpuFrame,
     GpuShadows,
     GpuOpaque,
@@ -63,6 +63,12 @@ pub enum RuntimeStage {
     /// Draw categories timed inside passes; only with aggregate profiling on capable adapters.
     GpuTerrainOpaque,
     GpuTerrainTransparent,
+    /// Opaque draw categories measured only during explicit profiling.
+    GpuTerrainSolid,
+    GpuTerrainCutout,
+    GpuTerrainModel,
+    GpuTerrainDepthLiquid,
+    GpuOpaqueOther,
     GpuActors,
     GpuParticles,
     GpuSky,
@@ -80,7 +86,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 58] = [
+    pub const ALL: [Self; 63] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -126,6 +132,11 @@ impl RuntimeStage {
         Self::GpuBlit,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
+        Self::GpuTerrainSolid,
+        Self::GpuTerrainCutout,
+        Self::GpuTerrainModel,
+        Self::GpuTerrainDepthLiquid,
+        Self::GpuOpaqueOther,
         Self::GpuActors,
         Self::GpuParticles,
         Self::GpuSky,
@@ -142,7 +153,7 @@ impl RuntimeStage {
     ];
 
     /// GPU-timed stages, the contiguous tail of [`Self::ALL`].
-    pub const GPU: [Self; 25] = [
+    pub const GPU: [Self; 30] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -155,6 +166,11 @@ impl RuntimeStage {
         Self::GpuBlit,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
+        Self::GpuTerrainSolid,
+        Self::GpuTerrainCutout,
+        Self::GpuTerrainModel,
+        Self::GpuTerrainDepthLiquid,
+        Self::GpuOpaqueOther,
         Self::GpuActors,
         Self::GpuParticles,
         Self::GpuSky,
@@ -242,6 +258,11 @@ impl RuntimeStage {
             Self::GpuBlit => "gpu_blit",
             Self::GpuTerrainOpaque => "gpu_terrain_opaque",
             Self::GpuTerrainTransparent => "gpu_terrain_transparent",
+            Self::GpuTerrainSolid => "gpu_terrain_solid",
+            Self::GpuTerrainCutout => "gpu_terrain_cutout",
+            Self::GpuTerrainModel => "gpu_terrain_model",
+            Self::GpuTerrainDepthLiquid => "gpu_terrain_depth_liquid",
+            Self::GpuOpaqueOther => "gpu_opaque_other",
             Self::GpuActors => "gpu_actors",
             Self::GpuParticles => "gpu_particles",
             Self::GpuSky => "gpu_sky",
@@ -404,6 +425,9 @@ impl RuntimeStageProfiler {
 
     /// Records one read-back GPU frame, which typically trails the CPU by a few frames.
     pub fn record_gpu_frame(&self, frame: &crate::GpuFrameTimes) {
+        if let Some(trace) = &self.state.trace {
+            trace.gpu_frame(frame);
+        }
         for (stage, elapsed) in frame.iter() {
             if self.state.enabled {
                 self.state.stages[stage as usize].record(elapsed);
@@ -441,9 +465,9 @@ impl RuntimeStageProfiler {
     }
 
     /// Marks the main update boundary and its current window focus.
-    pub fn trace_frame(&self, focused: bool, occluded: bool) {
+    pub fn trace_frame(&self, focused: bool, occluded: bool, game_seconds: f64) {
         if let Some(trace) = &self.state.trace {
-            trace.frame(focused, occluded);
+            trace.frame(focused, occluded, game_seconds);
         }
     }
 
@@ -616,7 +640,7 @@ mod tests {
     fn gpu_frames_feed_aggregates_and_the_latest_snapshot() {
         let profiler = RuntimeStageProfiler::for_gameplay(true, None);
         assert_eq!(profiler.latest_gpu_frame(), None);
-        let frame = crate::gpu_timing::decode_spans([(RuntimeStage::GpuOpaque, 10, 30)], 1.0);
+        let frame = crate::gpu_timing::decode_spans([(RuntimeStage::GpuOpaque, 10, 30)], 1.0, true);
         profiler.record_gpu_frame(&frame);
         assert_eq!(profiler.latest_gpu_frame(), Some(frame));
         let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
@@ -631,7 +655,8 @@ mod tests {
         let path = root.path().join("trace.json");
         let profiler = RuntimeStageProfiler::for_gameplay(true, Some(path.clone()));
         profiler.set_frame_interval(Duration::from_secs_f64(1.0 / 120.0));
-        let over = crate::gpu_timing::decode_spans([(RuntimeStage::GpuOpaque, 1, 7_000_001)], 1.0);
+        let over =
+            crate::gpu_timing::decode_spans([(RuntimeStage::GpuOpaque, 1, 7_000_001)], 1.0, true);
         profiler.record_gpu_frame(&over);
         profiler.record_gpu_frame(&over);
         profiler.flush_trace();

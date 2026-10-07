@@ -16,6 +16,7 @@ use thiserror::Error;
 use diagnostics::metrics::AssetMetrics;
 
 mod font_fallback;
+pub(crate) mod oreui_fonts;
 use font_fallback::diagnostic_font_assets;
 mod optional_carriers;
 pub(crate) use optional_carriers::shell_quote_path;

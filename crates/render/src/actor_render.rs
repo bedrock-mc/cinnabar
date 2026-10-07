@@ -281,8 +281,7 @@ fn prepare_actor_resources(
     let structurally_valid = !rig.instances.is_empty()
         && rig.instances.len() <= crate::actor::MAX_ACTOR_RENDER_INSTANCES
         && rig.previous_bones.len() == rig.current_bones.len()
-        && rig.previous_bones.len()
-            <= crate::actor::MAX_ACTOR_RENDER_INSTANCES * render_model::MAX_RENDER_BONES_PER_ACTOR
+        && rig.previous_bones.len() <= crate::actor::MAX_ACTOR_POSE_BONES
         && rig.manifest.len() == rig.instances.len()
         && rig.maximum_vertex_count != 0
         && skins_resident
@@ -335,6 +334,17 @@ fn prepare_actor_resources(
             tracker.clear();
         }
         if structurally_valid {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "actor.frame_upload",
+                generation = rig.frame_generation,
+                instances = rig.instances.len(),
+                bones = rig.current_bones.len(),
+                bytes = std::mem::size_of_val(&*rig.instances)
+                    + std::mem::size_of_val(&*rig.previous_bones)
+                    + std::mem::size_of_val(&*rig.current_bones),
+            )
+            .entered();
             render_queue.write_buffer(
                 &gpu.instance_buffer,
                 0,
@@ -350,6 +360,8 @@ fn prepare_actor_resources(
                 0,
                 bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.current_bones),
             );
+            #[cfg(feature = "tracy")]
+            drop(_span);
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
@@ -594,6 +606,8 @@ fn submit_actor_presented_frame(
             reserved: false,
             acknowledged: false,
         });
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("actor.completion_poll").entered();
         if let Err(error) = render_device.poll(PollType::Poll) {
             bevy::log::warn!(
                 ?error,
@@ -626,6 +640,8 @@ fn submit_actor_presented_frame(
     let callback_gate = gate.clone();
     let callback_witness = witness.clone();
     command_buffer.on_submitted_work_done(move || {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("actor.completion_callback").entered();
         let acknowledged =
             callback_gate.publish_reserved(token, present_returned_at, std::time::Instant::now());
         callback_witness.observe_submit(ActorSubmitWitness {
@@ -635,6 +651,8 @@ fn submit_actor_presented_frame(
             acknowledged,
         });
     });
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("actor.completion_submit").entered();
     render_queue.submit([command_buffer]);
 }
 

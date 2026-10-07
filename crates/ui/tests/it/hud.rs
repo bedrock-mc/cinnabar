@@ -216,3 +216,15 @@ fn review_toast_expiry_keeps_notifications_that_have_not_started() {
     let first = hud.toasts().front().unwrap().started_millis;
     assert!(!hud.view_nodes(first).is_empty());
 }
+
+#[test]
+fn absorption_points_round_up_and_zero_remains_authoritative() {
+    let mut hud = HudStore::default();
+    for (points, expected) in [(0.001, 1), (3.25, 4), (0.0, 0)] {
+        hud.set_absorption(BoundedStat::from_absorption_points(points));
+        assert_eq!(hud.absorption().unwrap().current(), expected);
+    }
+    for points in [f32::NAN, f32::INFINITY, -1.0] {
+        assert!(BoundedStat::from_absorption_points(points).is_none());
+    }
+}

@@ -3,32 +3,11 @@
 
 use std::time::Duration;
 
-/// Provisional double-tap window; needs independent measurement.
-const DOUBLE_TAP_WINDOW: Duration = Duration::from_millis(350);
+/// Minimum forward input needed to begin sprinting.
+pub(super) const SPRINT_THRESHOLD: f32 = std::f32::consts::FRAC_1_SQRT_2;
+
 /// Food level at or below which survival sprinting is refused.
 pub const SPRINT_HUNGER_FLOOR: u16 = 6;
-
-/// Detects a second press inside the double-tap window.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DoubleTap {
-    last_press: Option<Duration>,
-}
-
-impl DoubleTap {
-    /// Records a press at `now`; true when it completes a double-tap.
-    pub fn press(&mut self, now: Duration) -> bool {
-        let double = self
-            .last_press
-            .is_some_and(|last| now.saturating_sub(last) <= DOUBLE_TAP_WINDOW);
-        // A completed double-tap must not chain into a triple.
-        self.last_press = if double { None } else { Some(now) };
-        double
-    }
-
-    pub fn reset(&mut self) {
-        self.last_press = None;
-    }
-}
 
 /// One render frame of sprint/sneak-relevant facts.
 #[derive(Debug, Clone, Copy, Default)]
@@ -36,6 +15,9 @@ pub struct ControlObservation {
     pub now: Duration,
     /// Forward axis after device normalization; positive is forward.
     pub forward: f32,
+    pub sideways: f32,
+    /// Touch sprint ends when its initiating sprint control is released.
+    pub touch_input: bool,
     pub sprint_pressed: bool,
     pub sprint_held: bool,
     pub sneak_pressed: bool,
@@ -43,18 +25,24 @@ pub struct ControlObservation {
     pub toggle_sprint: bool,
     pub always_sprint: bool,
     pub toggle_sneak: bool,
-    /// Something external forbids sprinting (hunger, item use, blindness).
+    /// Hunger prevents both new and continuing sprints.
     pub sprint_blocked: bool,
+    /// Using an item prevents a new sprint without stopping an existing one.
+    pub sprint_start_blocked: bool,
     /// Ability flight is active, where sneak means descend and never latches.
     pub flying: bool,
     /// Vanilla cannot stop an existing sprint while the previous
     /// swimming pose has current body-water contact.
     pub retain_sprint: bool,
+    /// Input is suspended under persistent controls, so sneak keeps its last state.
+    pub hold_sneak: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ControlOutput {
     pub sprint_request: bool,
+    pub sprint_down: bool,
+    pub stop_sprinting: bool,
     pub sneaking: bool,
 }
 
@@ -64,8 +52,9 @@ pub struct ControlModes {
     sprint_toggled: bool,
     was_always_sprint: bool,
     sneak_toggled: bool,
-    was_moving_forward: bool,
-    last_forward_press: Option<Duration>,
+    sneaking: bool,
+    stop_sprinting: bool,
+    started_by_sprint_control: bool,
 }
 
 impl ControlModes {
@@ -73,9 +62,20 @@ impl ControlModes {
         *self = Self::default();
     }
 
+    /// Clears latches while input is suspended; persistent controls keep sneak.
+    pub fn suspend(&mut self, persist_sneak: bool) {
+        let kept = *self;
+        self.reset();
+        if persist_sneak {
+            self.sneak_toggled = kept.sneak_toggled;
+            self.sneaking = kept.sneaking;
+        }
+    }
+
     /// Adopts the completed fixed tick's actor flag without changing toggle intent.
     pub(crate) fn adopt_tick_sprinting(&mut self, sprinting: bool) {
         self.sprinting = sprinting;
+        self.stop_sprinting = false;
     }
 
     /// Adopts server-authored sprint/sneak states; the next local transition still wins.
@@ -86,21 +86,15 @@ impl ControlModes {
         }
         if let Some(sneaking) = sneaking {
             self.sneak_toggled = sneaking;
+            self.sneaking = sneaking;
         }
     }
 
     pub fn update(&mut self, observed: ControlObservation) -> ControlOutput {
-        let moving_forward = observed.forward > 0.0;
-        let mut double_tap = false;
-        if moving_forward && !self.was_moving_forward {
-            double_tap = self
-                .last_forward_press
-                .is_some_and(|last| observed.now.saturating_sub(last) <= DOUBLE_TAP_WINDOW);
-            self.last_forward_press = Some(observed.now);
-        }
-        self.was_moving_forward = moving_forward;
-
-        let sneaking = if observed.toggle_sneak && !observed.flying {
+        let moving_forward = observed.forward >= SPRINT_THRESHOLD;
+        let sneaking = if observed.hold_sneak {
+            self.sneaking
+        } else if observed.toggle_sneak && !observed.flying {
             if observed.sneak_pressed {
                 self.sneak_toggled = !self.sneak_toggled;
             }
@@ -109,9 +103,11 @@ impl ControlModes {
             self.sneak_toggled = false;
             observed.sneak_held
         };
+        self.sneaking = sneaking;
 
         if self.was_always_sprint && !observed.always_sprint && !observed.retain_sprint {
             self.sprinting = false;
+            self.stop_sprinting = true;
         }
         self.was_always_sprint = observed.always_sprint;
 
@@ -120,30 +116,56 @@ impl ControlModes {
                 self.sprint_toggled = !self.sprint_toggled;
                 if !self.sprint_toggled && !observed.retain_sprint {
                     self.sprinting = false;
+                    self.stop_sprinting = true;
                 }
             }
         } else {
             self.sprint_toggled = false;
         }
 
-        // The 26.30 sprint trigger has no wall-collision stop, so a wall never drops sprint.
-        let can_sprint = moving_forward && !sneaking && !observed.sprint_blocked;
+        let sprint_down = observed.always_sprint
+            || if observed.toggle_sprint {
+                self.sprint_toggled
+            } else {
+                observed.sprint_held
+            };
+        let directional = if self.sprinting {
+            can_continue_sprint(observed.sideways, observed.forward)
+        } else {
+            moving_forward
+        };
+        let touch_released = observed.touch_input && self.started_by_sprint_control && !sprint_down;
+        let can_sprint = directional
+            && !observed.sprint_blocked
+            && !touch_released
+            && (self.sprinting || !observed.sprint_start_blocked);
         if !can_sprint {
             if !observed.retain_sprint {
                 self.sprinting = false;
             }
         } else if observed.always_sprint
             || (observed.sprint_held && !observed.toggle_sprint)
-            || double_tap
             || self.sprint_toggled
         {
+            if !self.sprinting {
+                self.started_by_sprint_control = sprint_down;
+            }
             self.sprinting = true;
         }
         ControlOutput {
             sprint_request: self.sprinting,
+            sprint_down,
+            stop_sprinting: self.stop_sprinting,
             sneaking,
         }
     }
+}
+
+/// Existing sprints permit a reduced forward component only within the forward cone.
+pub(super) fn can_continue_sprint(sideways: f32, forward: f32) -> bool {
+    (sideways * sideways + forward * forward).sqrt() >= SPRINT_THRESHOLD
+        && forward > 0.0
+        && sideways.abs() <= SPRINT_THRESHOLD
 }
 
 #[cfg(test)]
@@ -158,13 +180,117 @@ mod tests {
         }
     }
 
+    /// Analogue admission and continuation have distinct input thresholds.
     #[test]
-    fn double_tap_detector_does_not_chain_into_a_triple() {
-        let mut tap = DoubleTap::default();
-        assert!(!tap.press(Duration::from_millis(0)));
-        assert!(tap.press(Duration::from_millis(200)));
-        assert!(!tap.press(Duration::from_millis(300)));
-        assert!(!tap.press(Duration::from_millis(1000)));
+    fn analogue_sprint_uses_start_threshold_and_continuation_cone() {
+        let mut modes = ControlModes::default();
+        let below = f32::from_bits(SPRINT_THRESHOLD.to_bits() - 1);
+        assert!(
+            !modes
+                .update(ControlObservation {
+                    sprint_held: true,
+                    ..frame(0, below)
+                })
+                .sprint_request
+        );
+        assert!(
+            modes
+                .update(ControlObservation {
+                    sprint_held: true,
+                    ..frame(50, SPRINT_THRESHOLD)
+                })
+                .sprint_request
+        );
+        assert!(
+            modes
+                .update(ControlObservation {
+                    sideways: 0.6,
+                    ..frame(100, 0.5)
+                })
+                .sprint_request
+        );
+        assert!(
+            !modes
+                .update(ControlObservation {
+                    sideways: 0.8,
+                    ..frame(150, 0.5)
+                })
+                .sprint_request
+        );
+    }
+
+    /// A server sneak correction during suspended input replaces the retained sneak.
+    #[test]
+    fn server_sneak_correction_replaces_sneak_retained_while_suspended() {
+        let mut modes = ControlModes::default();
+        let toggle = ControlObservation {
+            toggle_sneak: true,
+            sneak_pressed: true,
+            ..frame(0, 0.0)
+        };
+        assert!(modes.update(toggle).sneaking);
+        modes.suspend(true);
+        modes.adopt_server_flags(None, Some(false));
+        let suspended = ControlObservation {
+            toggle_sneak: true,
+            hold_sneak: true,
+            ..frame(50, 0.0)
+        };
+        assert!(!modes.update(suspended).sneaking);
+    }
+
+    /// Touch release stops a key-started sprint while keyboard release remains latched.
+    #[test]
+    fn touch_sprint_control_release_ends_its_sprint() {
+        let mut modes = ControlModes::default();
+        assert!(
+            modes
+                .update(ControlObservation {
+                    touch_input: true,
+                    sprint_held: true,
+                    ..frame(0, 1.0)
+                })
+                .sprint_request
+        );
+        assert!(
+            !modes
+                .update(ControlObservation {
+                    touch_input: true,
+                    ..frame(50, 1.0)
+                })
+                .sprint_request
+        );
+    }
+
+    /// Item use blocks a new sprint while an existing sprint keeps its actor state.
+    #[test]
+    fn item_use_only_blocks_new_sprint_admission() {
+        let mut modes = ControlModes::default();
+        assert!(
+            !modes
+                .update(ControlObservation {
+                    sprint_held: true,
+                    sprint_start_blocked: true,
+                    ..frame(0, 1.0)
+                })
+                .sprint_request
+        );
+        assert!(
+            modes
+                .update(ControlObservation {
+                    sprint_held: true,
+                    ..frame(50, 1.0)
+                })
+                .sprint_request
+        );
+        assert!(
+            modes
+                .update(ControlObservation {
+                    sprint_start_blocked: true,
+                    ..frame(100, 1.0)
+                })
+                .sprint_request
+        );
     }
 
     #[test]
@@ -239,11 +365,11 @@ mod tests {
     }
 
     #[test]
-    fn double_tap_forward_sprints_only_inside_the_window() {
+    fn render_frame_forward_taps_wait_for_fixed_tick_admission() {
         let mut modes = ControlModes::default();
         modes.update(frame(0, 1.0));
         modes.update(frame(100, 0.0));
-        assert!(modes.update(frame(200, 1.0)).sprint_request);
+        assert!(!modes.update(frame(200, 1.0)).sprint_request);
 
         let mut slow = ControlModes::default();
         slow.update(frame(0, 1.0));
@@ -252,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn sneak_and_block_end_sprint() {
+    fn sneak_retains_sprint_and_hunger_ends_it() {
         let mut modes = ControlModes::default();
         let sprint = ControlObservation {
             sprint_held: true,
@@ -265,7 +391,7 @@ mod tests {
             ..sprint
         };
         let output = modes.update(sneak);
-        assert!(output.sneaking && !output.sprint_request);
+        assert!(output.sneaking && output.sprint_request);
 
         let hungry = ControlObservation {
             sprint_blocked: true,

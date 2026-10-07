@@ -101,6 +101,22 @@ fn dispatch(world: &mut World) {
             Command::Connect { address } => connect(world, address),
             Command::Disconnect => disconnect(world),
             Command::Input(command) => input::apply(world, &command),
+            Command::ImportSkin { path } => {
+                if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+                    menu.import_skin_path(path);
+                    Ok(json!({ "importing": true }))
+                } else {
+                    Err("the launcher menu is unavailable".into())
+                }
+            }
+            Command::ImportCape { path } => {
+                if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+                    menu.import_cape_path(path);
+                    Ok(json!({ "importing": true }))
+                } else {
+                    Err("the launcher menu is unavailable".into())
+                }
+            }
             Command::Chat { text } => chat(world, &text),
             Command::TestCape { enabled } => cape::apply(world, enabled),
             Command::CameraPath(path) => camera::start(world, path),

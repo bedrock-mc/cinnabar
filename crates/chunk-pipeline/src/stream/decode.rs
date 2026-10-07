@@ -2,6 +2,8 @@ use super::*;
 
 impl WorldStream {
     pub(super) fn accept_decode_completion(&mut self, completion: DecodeCompletion) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("decode.completion").entered();
         self.stats.phase2_stages.decode_jobs_completed = self
             .stats
             .phase2_stages
@@ -53,6 +55,8 @@ impl WorldStream {
             .collect()
     }
     pub(super) fn dispatch_decode_jobs(&mut self) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("decode.dispatch").entered();
         let budget = DECODE_DISPATCH_BUDGET_PER_POLL
             .min(MAX_IN_FLIGHT_DECODE_JOBS.saturating_sub(self.in_flight_decode_jobs));
         // Enqueueing is count-bounded; spent commit time must not idle the decode lane.
@@ -68,7 +72,15 @@ impl WorldStream {
                 .saturating_add(1);
             let tx = self.decode_tx.clone();
             workers::WORKERS.spawn(workers::Lane::Decode, move || {
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("decode.work").entered();
                 let completion = job.run(queued_at);
+                #[cfg(feature = "tracy")]
+                drop(_zone);
+                #[cfg(feature = "tracy")]
+                let _zone =
+                    tracing::info_span!("decode.completion_send", sequence = completion.sequence)
+                        .entered();
                 let _ = tx.send(completion);
             });
         }

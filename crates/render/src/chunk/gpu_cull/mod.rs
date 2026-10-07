@@ -32,7 +32,7 @@ use direct::{DirectOcclusion, direct_occlusion_supported, reset_direct_occlusion
 pub(in crate::chunk) use direct::{DirectOcclusionFrame, SkipOccludedTerrain};
 use model::STREAM_COUNT;
 pub(crate) use node::GpuCullLateLabel;
-pub(in crate::chunk) use node::{draw_function_ids, install_commands};
+pub(in crate::chunk) use node::{DrawGpuCulledCommands, draw_function_ids, install_commands};
 use prepare::{ChunkHiddenEntities, GpuCull, extract_hidden_chunks, prepare_gpu_cull};
 
 /// Forces the CPU culling path for A/B measurement.
