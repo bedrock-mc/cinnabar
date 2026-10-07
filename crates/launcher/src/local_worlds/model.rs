@@ -370,8 +370,11 @@ impl WorldsMenu {
         match button {
             PromptButton::UseDragonfly => match self.pending.take() {
                 Some(Pending::SubmitCreate) => {
+                    self.creation_backend_changed = true;
                     self.create.backend = Backend::Dragonfly;
-                    self.proceed(Pending::SubmitCreate)
+                    let mut effects = self.save_creation_choices();
+                    effects.extend(self.proceed(Pending::SubmitCreate));
+                    effects
                 }
                 _ => self.proceed(Pending::Create),
             },

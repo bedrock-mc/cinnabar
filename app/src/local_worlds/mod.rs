@@ -25,7 +25,7 @@ pub(crate) use form::{
     world_type_label,
 };
 pub(crate) use launch::core_args;
-pub(crate) use model::{Effect, Event, Input, Screen, Tab, WorldsMenu, WorldsView};
+pub(crate) use model::{Effect, Event, Input, Screen, WorldsMenu, WorldsView};
 pub(crate) use progress::{Progress, Stage};
 pub(crate) use prompt::{Prompt, PromptButton, PromptFor};
 

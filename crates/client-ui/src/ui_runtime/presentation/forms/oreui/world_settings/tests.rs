@@ -286,35 +286,39 @@ fn general_world_form_exposes_independent_choices_and_disables_unavailable_bds()
 #[test]
 fn keyboard_and_controller_focus_reveal_the_server_choice_after_scrolling() {
     use protocol::world_control::Backend;
-    let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
-    let mut view = MenuView::new(true, "Fixture".into());
-    view.screen = crate::menu::MenuScreen::Play;
-    view.local.screen = Screen::Create;
-    view.focused_action = Some(local(A::Backend(Backend::Dragonfly)));
-    view.navigation_focus_visible = true;
-    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
-    let hits = runtime
-        .append_oreui_screen(
-            &view,
-            &mut Vec::new(),
-            &mut 1,
-            metrics,
-            [1280.0, 720.0],
-            None,
-            &|_| None,
-        )
-        .unwrap()
-        .unwrap();
-    let target = hits
-        .iter()
-        .find(|(action, _)| Some(*action) == view.focused_action)
-        .unwrap()
-        .1;
-    assert!(target.min().y() >= 0.0 && target.max().y() <= 720.0);
-    assert!(
-        !runtime
-            .form_presentation
-            .menu_focus
-            .contains(&local(A::Backend(Backend::Bds)))
-    );
+    for gamepad in [false, true] {
+        let mut runtime = UiPresentationRuntime::new(fixture_font()).unwrap();
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.screen = crate::menu::MenuScreen::Play;
+        view.local.screen = Screen::Create;
+        view.focused_action = Some(local(A::Backend(Backend::Dragonfly)));
+        view.navigation_focus_visible = true;
+        view.gamepad_input = gamepad;
+        let metrics =
+            TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+        let hits = runtime
+            .append_oreui_screen(
+                &view,
+                &mut Vec::new(),
+                &mut 1,
+                metrics,
+                [1280.0, 720.0],
+                None,
+                &|_| None,
+            )
+            .unwrap()
+            .unwrap();
+        let target = hits
+            .iter()
+            .find(|(action, _)| Some(*action) == view.focused_action)
+            .unwrap()
+            .1;
+        assert!(target.min().y() >= 0.0 && target.max().y() <= 720.0);
+        assert!(
+            !runtime
+                .form_presentation
+                .menu_focus
+                .contains(&local(A::Backend(Backend::Bds)))
+        );
+    }
 }

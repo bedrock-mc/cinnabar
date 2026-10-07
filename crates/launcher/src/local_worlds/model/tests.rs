@@ -363,9 +363,18 @@ fn unavailable_saved_bds_choice_requires_an_explicit_server_change() {
         assert_eq!(menu.create_form().backend, Backend::Bds);
         menu.update(Input::SubmitCreate);
         let effects = menu.update(Input::Prompt(PromptButton::UseDragonfly));
-        let [Effect::Create(spec)] = effects.as_slice() else {
-            panic!("missing create");
+        let [
+            Effect::SaveCreationChoices {
+                backend,
+                generator: saved_generator,
+            },
+            Effect::Create(spec),
+        ] = effects.as_slice()
+        else {
+            panic!("missing explicit choice and create");
         };
+        assert_eq!(*backend, Backend::Dragonfly);
+        assert_eq!(*saved_generator, generator);
         assert_eq!(spec.backend, Some(Backend::Dragonfly));
         assert_eq!(spec.generator, generator);
         assert_eq!(spec.name, "My saved form");

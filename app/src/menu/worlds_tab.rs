@@ -6,7 +6,7 @@
 use protocol::world_control::{Difficulty, GameMode};
 
 use super::{MenuAction, MenuField, MenuRuntime, MenuScreen};
-use crate::local_worlds::{Input, LocalWorlds, Progress, Screen, Tab, WorldsView};
+use crate::local_worlds::{Input, LocalWorlds, Progress, Screen, WorldsView};
 
 pub(crate) use launcher::menu::worlds_tab::LocalWorldAction;
 use launcher::menu::worlds_tab::world_card;
@@ -218,28 +218,12 @@ impl MenuRuntime {
         }
         match view.screen {
             Screen::List | Screen::Opening | Screen::BackendPrompt => None,
-            Screen::Create => match view.tab {
-                Tab::General => local(&[
-                    A::Create,
-                    A::Tab(Tab::Advanced),
-                    A::NameField,
-                    A::GameMode(GameMode::Survival),
-                    A::GameMode(GameMode::Creative),
-                    A::Difficulty(Difficulty::Peaceful),
-                    A::Difficulty(Difficulty::Easy),
-                    A::Difficulty(Difficulty::Normal),
-                    A::Difficulty(Difficulty::Hard),
-                ]),
-                Tab::Advanced => local(&[
-                    A::Create,
-                    A::Tab(Tab::General),
-                    A::SeedField,
-                    A::Backend(protocol::world_control::Backend::Dragonfly),
-                    A::Backend(protocol::world_control::Backend::Bds),
-                    A::Flat(false),
-                    A::Flat(true),
-                ]),
-            },
+            Screen::Create => Some(
+                A::creation_focus(view)
+                    .into_iter()
+                    .map(MenuAction::LocalWorld)
+                    .collect(),
+            ),
             Screen::Edit => local(&[
                 A::PlayFromEdit,
                 A::NameField,
