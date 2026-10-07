@@ -51,11 +51,16 @@ impl MenuRuntime {
     }
 
     /// Presents a signed-in launcher with placeholder accounts, or restores the saved ones.
+    /// Refuses while a live account change is pending, since its dialog would mix with the fixture.
     #[cfg(any(test, feature = "developer-control"))]
-    pub(crate) fn set_presentation_accounts(&mut self, enabled: bool) {
+    pub(crate) fn set_presentation_accounts(&mut self, enabled: bool) -> bool {
+        if self.account_change_pending() {
+            return false;
+        }
         self.presentation_accounts = enabled;
         self.feeds.account_error = None;
         self.reload_accounts();
+        true
     }
 
     /// The feeds the UI sees; presentation mode hides the live profile behind the placeholders.
@@ -63,6 +68,7 @@ impl MenuRuntime {
         let mut feeds = self.feeds.clone();
         if self.presentation_accounts {
             feeds.profile = Default::default();
+            feeds.home = Default::default();
         }
         feeds
     }
@@ -355,7 +361,10 @@ mod tests {
     #[test]
     fn presentation_accounts_never_sign_in_or_queue_store_changes() {
         let mut menu = MenuRuntime::new(true, 2, "First".into());
-        menu.set_presentation_accounts(true);
+        menu.feeds.account_adding = true;
+        assert!(!menu.set_presentation_accounts(true));
+        menu.feeds.account_adding = false;
+        assert!(menu.set_presentation_accounts(true));
         assert_eq!(menu.view().auth_state, AuthState::Authenticated);
         menu.activate(MenuAction::OpenAccounts);
         assert_eq!(menu.dialog, Some(MenuDialog::Accounts));
@@ -376,7 +385,14 @@ mod tests {
         );
         menu.feeds.profile.gamertag = "RealGamertag".into();
         menu.feeds.profile.picture_path = "/real/picture.png".into();
+        menu.friends = vec![launcher::menu::view::MenuFriendCard {
+            gamertag: "RealFriend".into(),
+            world_name: String::new(),
+            members: String::new(),
+            xuid: "7".into(),
+        }];
         let view = menu.view();
+        assert!(view.friends.is_empty());
         assert_eq!(view.display_name, PRESENTATION_ACCOUNTS[2].1);
         assert!(view.feeds.profile.gamertag.is_empty());
         assert!(view.feeds.profile.picture_path.is_empty());

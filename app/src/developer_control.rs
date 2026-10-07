@@ -121,8 +121,11 @@ fn dispatch(world: &mut World) {
             Command::TestCape { enabled } => cape::apply(world, enabled),
             Command::TestAccounts { enabled } => {
                 if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
-                    menu.set_presentation_accounts(enabled);
-                    Ok(json!({ "test_accounts": enabled }))
+                    if menu.set_presentation_accounts(enabled) {
+                        Ok(json!({ "test_accounts": enabled }))
+                    } else {
+                        Err("an account change is in progress; try again when it finishes".into())
+                    }
                 } else {
                     Err("the launcher menu is unavailable".into())
                 }
