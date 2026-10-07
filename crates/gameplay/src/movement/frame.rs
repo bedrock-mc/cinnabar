@@ -1,5 +1,5 @@
 //! Local movement frame coordination before ordered interaction admission.
-use super::control_modes::{ControlModes, ControlObservation, DoubleTap};
+use super::control_modes::{ControlModes, ControlObservation};
 use super::local_facts::LocalMovementFacts;
 use super::physics_authority_fault_for_frame;
 use super::{
@@ -65,7 +65,6 @@ pub struct LocomotionState {
     controls: ControlModes,
     /// Last active device; suspended input keeps reporting it.
     input_mode: protocol::PlayerInputMode,
-    fly_tap: DoubleTap,
     previous_blocker: Option<String>,
 }
 
@@ -73,7 +72,6 @@ impl LocomotionState {
     /// Clears input latches when local prediction is inactive.
     pub fn reset(&mut self) {
         self.controls.reset();
-        self.fly_tap.reset();
     }
 
     /// Runs each fixed tick and admits its sample before any interaction producers run.
@@ -130,7 +128,6 @@ impl LocomotionState {
             if !active {
                 self.controls.suspend(input_mode.persists_sneak());
             }
-            let fly_toggle = jump.pressed && self.fly_tap.press(now);
             if let Some(server) = physics.take_server_control_flags() {
                 movement_speed.adopt_server_sprinting(server.sprinting);
                 self.controls
@@ -191,11 +188,11 @@ impl LocomotionState {
                         ride_seat: facts.ride_seat,
                         can_fly: facts.can_fly,
                         server_flying: facts.server_flying,
-                        fly_toggle,
                         fly_speed: facts.fly_speed,
                         vertical_fly_speed: facts.vertical_fly_speed,
                         creative_flight: facts.creative_flight,
                         elytra_ready: facts.elytra_ready,
+                        can_stand_on_snow: facts.can_stand_on_snow,
                         depth_strider: facts.depth_strider,
                         soul_speed: facts.soul_speed,
                         swift_sneak: facts.swift_sneak,

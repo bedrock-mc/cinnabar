@@ -401,7 +401,7 @@ func applyPhysicsOverride(record Record, override reviewedPhysicsOverride, entry
 	case behaviorPowderSnow:
 		entry.Flags |= physicsFlagPowderSnow | physicsFlagPassable
 	case behaviorScaffolding:
-		entry.Flags |= physicsFlagScaffolding | physicsFlagClimbable
+		entry.Flags |= physicsFlagScaffolding
 	case behaviorSlime:
 		entry.SurfaceResponse = SurfaceSlime
 	case behaviorHoney:

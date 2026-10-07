@@ -35,6 +35,15 @@ impl PlayerInventoryLedger {
         self.view().get(Cell::Inventory(slot))?.overlay.as_ref()
     }
 
+    /// The overlay presented for any gesture target, including armor cells.
+    #[must_use]
+    pub fn presented_target_overlay(
+        &self,
+        target: super::InventoryTarget,
+    ) -> Option<&StackResponseOverlay> {
+        self.view().get(target.cell())?.overlay.as_ref()
+    }
+
     /// The authoritative response overlay retained for the cursor cell.
     #[must_use]
     pub fn cursor_overlay(&self) -> Option<&StackResponseOverlay> {
