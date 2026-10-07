@@ -241,7 +241,7 @@ impl Aabb {
 /// tick equations.
 ///
 /// Iteratively applies each overlapping collider's
-/// [`Aabb::overlap_minimal_translation`] to the standing-player box until no
+/// [`Aabb::overlap_minimal_translation`] to the `height`-tall player box until no
 /// collider overlaps, [`max_iterations`] is exhausted, or the net feet
 /// displacement would exceed `max_displacement_blocks`. Returns the adjusted
 /// feet origin only when the final box is provably clear under the same
@@ -250,6 +250,7 @@ impl Aabb {
 #[must_use]
 pub fn depenetrate_player(
     feet: Vec3,
+    height: f64,
     colliders: &[Aabb],
     max_iterations: usize,
     max_displacement_blocks: f64,
@@ -260,7 +261,7 @@ pub fn depenetrate_player(
     let origin = feet;
     let mut feet = feet;
     for _ in 0..max_iterations {
-        let player = Aabb::player_at(feet);
+        let player = Aabb::player_with_height_at(feet, height);
         let mut deepest: Option<(f64, Vec3)> = None;
         for collider in colliders.iter().copied() {
             if collider.is_zero_volume() || !collider.min.is_finite() || !collider.max.is_finite() {
@@ -288,7 +289,7 @@ pub fn depenetrate_player(
             return None;
         }
     }
-    let player = Aabb::player_at(feet);
+    let player = Aabb::player_with_height_at(feet, height);
     colliders
         .iter()
         .all(|collider| {

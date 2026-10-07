@@ -495,11 +495,16 @@ impl LocalPhysicsController {
             // Before the first simulated tick of a freshly anchored epoch,
             // probe the anchor out of any solid overlap (provisional
             // recovery policy; see `anchor_probe`).
-            if tick_index == 0 && !input.immobile && !self.modes.mode().is_walking() {
-                // The probe only knows the standing box, so a low pose cannot be depenetrated by it.
+            if tick_index == 0 && !input.immobile && self.modes.mode() == sim::MovementMode::Riding
+            {
+                // A rider's position is its seat, not a body to depenetrate.
                 self.anchor_state.reset();
             } else if tick_index == 0 && !input.immobile {
-                match self.anchor_state.before_tick(world, state.position) {
+                match self.anchor_state.before_tick(
+                    world,
+                    state.position,
+                    self.modes.contact_height(),
+                ) {
                     BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
                     BeforeTick::Proceed => {}
                 }

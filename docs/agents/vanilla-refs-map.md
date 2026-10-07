@@ -1343,6 +1343,15 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
+- Ground contact: FinalizeMove `0x06dcbfc0` compares the move request (+0x30) with the
+  result (+0x3c). A vertical difference above float epsilon adds OnGround only when
+  request y < 0, otherwise removes it; with no vertical difference OnGround survives only
+  if it was already set and request y is exactly 0. AutoStep filter `0x09f5a7f0` admits a
+  step on last tick's OnGround, so a jump-tick step rises without grounding.
+- Sneak edge avoidance `0x0c597a70`: gated on sneak plus OnGround (no vertical-velocity
+  check); probes the actor's current AABB inset 0.025 on x/z and lowered by step height
+  times 1.01; clips request x, then z, then both while either is nonzero; zeroes a
+  velocity axis (+0x18/+0x20) only when its clipped request is at or below float epsilon.
 
 ## crates/sim/src/simulator/controls.rs
 ## crates/gameplay/src/movement/physics.rs (`item_use_factor`)
@@ -1354,6 +1363,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
+- `clip_sneak_edge`: see the sneak edge avoidance entry under simulator.rs (`0x0c597a70`).
 
 ## crates/sim/src/simulator/environment.rs
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)
