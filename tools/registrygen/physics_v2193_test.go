@@ -138,7 +138,7 @@ func decodeV2193PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) 
 func v2193PhysicsEntryIsNeutralReserved(entry v2193PhysicsEntry) bool {
 	return entry.Flags == physicsFlagPassable && len(entry.Boxes) == 0 &&
 		entry.Surface == SurfaceNone && entry.FluidHeight == 0 &&
-		entry.Friction == defaultSpeedQ1E8 && entry.HorizontalSpeed == defaultSpeedQ1E8 &&
+		entry.Friction == defaultFrictionQ1E8 && entry.HorizontalSpeed == defaultSpeedQ1E8 &&
 		entry.VerticalSpeed == defaultSpeedQ1E8
 }
 
@@ -376,7 +376,7 @@ func TestProjectV2193PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing
 			continue
 		}
 		reserved++
-		if entry.Flags != physicsFlagPassable || len(entry.Boxes) != 0 || entry.FrictionQ1E8 != defaultSpeedQ1E8 ||
+		if entry.Flags != physicsFlagPassable || len(entry.Boxes) != 0 || entry.FrictionQ1E8 != defaultFrictionQ1E8 ||
 			entry.HorizontalSpeedQ1E8 != defaultSpeedQ1E8 || entry.VerticalSpeedQ1E8 != defaultSpeedQ1E8 ||
 			entry.FluidHeightQ1E8 != 0 || entry.SurfaceResponse != SurfaceNone {
 			t.Fatalf("reserved runtime ID %d is not neutral: %+v", index, entry)
@@ -653,7 +653,7 @@ func TestProjectV2193PhysicsRequiresExactlyTheReviewedReservedCount(t *testing.T
 
 func v2193PhysicsEntryStructurallyNeutral(entry PhysicsRecord) bool {
 	return entry.Flags == physicsFlagPassable && len(entry.Boxes) == 0 && entry.SurfaceResponse == SurfaceNone &&
-		entry.FluidHeightQ1E8 == 0 && entry.FrictionQ1E8 == defaultSpeedQ1E8 &&
+		entry.FluidHeightQ1E8 == 0 && entry.FrictionQ1E8 == defaultFrictionQ1E8 &&
 		entry.HorizontalSpeedQ1E8 == defaultSpeedQ1E8 && entry.VerticalSpeedQ1E8 == defaultSpeedQ1E8
 }
 
