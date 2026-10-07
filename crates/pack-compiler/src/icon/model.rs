@@ -1,23 +1,20 @@
 //! Thumbnails for block items drawn in 3D that are not plain opaque cubes (slabs, stairs, walls,
-//! glass, server custom blocks): the visual's isolated template quads through the cube
-//! thumbnail's projection, depth-tested and alpha-tested. Provisional: vanilla's GUI tessellation of
-//! connected shapes (fences, walls) differs and is not modelled.
+//! glass, server custom blocks), from the quads `assets::gui_item::block_item_quads` selects,
+//! depth-tested and alpha-tested.
 
 use std::{borrow::Cow, sync::Arc};
 
-use assets::gui_item::{CUBE_FACES, GUI_ITEM_SIDE};
+use assets::gui_item::{
+    GUI_ITEM_SIDE, GuiBlockReject, block_item_quads, cube_face, face_brightness, material_tile,
+};
 use assets::{
-    BlockFace, BlockOverlay, BlockVisualId, IconSprite, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    Material, ModelQuad, ModelTemplate, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
-    TextureArray, TexturePage, VisualKind,
+    BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TexturePage, VisualKind,
 };
 
 use super::cube::Reject;
 
 pub(super) const SIDE: usize = 32;
-/// Largest tile side sampled; session overlays resample to at most 128.
-const MAX_TILE: usize = 128;
 
 struct Face<'a> {
     corners: [[f32; 3]; 4],
@@ -120,56 +117,20 @@ impl<'a> Model<'a> {
         materials: [u32; 6],
         template: Option<u32>,
     ) -> Result<Self, Reject> {
-        let mut faces = Vec::new();
-        match (kind, template) {
-            (VisualKind::Cube, _) => {
-                for face in BlockFace::ALL {
-                    let (corners, uvs) = cube_face(face);
-                    let (tile, side, blend) = tile(parts, materials[face as usize])?;
-                    faces.push(Face {
-                        corners,
-                        uvs,
-                        tile: Cow::Borrowed(tile),
-                        size: [side; 2],
-                        blend,
-                    });
-                }
-            }
-            (VisualKind::Model, Some(template)) => {
-                let first = parts
-                    .templates
-                    .get(template as usize)
-                    .ok_or(Reject::Geometry)?;
-                // A fence item shows its post with east and west arms (connection mask 2 | 8).
-                let offsets: &[usize] = if first.flags
-                    & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER)
-                    != 0
-                {
-                    &[0, 11]
-                } else {
-                    &[0]
-                };
-                for offset in offsets {
-                    let templates =
-                        assets::model_template_parts(parts.templates, template + *offset as u32)
-                            .ok_or(Reject::Geometry)?;
-                    for template in templates {
-                        let start = template.quad_start as usize;
-                        let quads = parts
-                            .quads
-                            .get(start..start + template.quad_count as usize)
-                            .ok_or(Reject::Geometry)?;
-                        for quad in quads {
-                            faces.push(model_face(parts, quad)?);
-                        }
-                    }
-                }
-            }
-            _ => return Err(Reject::Geometry),
-        }
-        if faces.is_empty() {
-            return Err(Reject::Geometry);
-        }
+        let faces = block_item_quads(kind, materials, template, parts.templates, parts.quads)
+            .map_err(reject)?
+            .into_iter()
+            .map(|quad| {
+                let (tile, side, blend) = tile(parts, quad.material)?;
+                Ok(Face {
+                    corners: quad.corners,
+                    uvs: quad.uvs,
+                    tile: Cow::Borrowed(tile),
+                    size: [side; 2],
+                    blend,
+                })
+            })
+            .collect::<Result<Vec<_>, Reject>>()?;
         Ok(Self {
             faces,
             projection: assets::gui_item::project_cube,
@@ -208,7 +169,7 @@ impl<'a> Model<'a> {
         let mut fragments = vec![Vec::new(); SIDE * SIDE];
         for face in &self.faces {
             let brightness = if self.face_lighting {
-                brightness(face.corners)
+                face_brightness(face.corners)
             } else {
                 1.0
             } * self.light;
@@ -239,100 +200,18 @@ impl<'a> Model<'a> {
 }
 
 fn tile(parts: Parts<'_>, id: u32) -> Result<(&[u8], usize, bool), Reject> {
-    if id == assets::DIAGNOSTIC_MATERIAL {
-        return Err(Reject::Material);
-    }
-    let material = parts.materials.get(id as usize).ok_or(Reject::Material)?;
-    let alpha = MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT;
-    // Tints, overlays and rotated UVs need per-biome or per-state data an icon lacks.
-    if material.flags & !alpha != 0 {
-        return Err(Reject::Material);
-    }
-    let array = match parts.textures {
-        Textures::World(pages) => {
-            &pages
-                .get(material.texture.page() as usize)
-                .ok_or(Reject::Texture)?
-                .texture
-        }
-        Textures::Overlay(array) if material.texture.page() == 1 => array,
-        Textures::Overlay(_) => return Err(Reject::Texture),
-    };
-    let mip = array.mips.first().ok_or(Reject::Texture)?;
-    let side = mip.size as usize;
-    if side == 0 || side > MAX_TILE || material.texture.layer() >= array.layers {
-        return Err(Reject::Texture);
-    }
-    let bytes = side * side * 4;
-    let start = material.texture.layer() as usize * bytes;
-    let tile = mip.rgba8.get(start..start + bytes).ok_or(Reject::Texture)?;
-    Ok((tile, side, material.flags & MATERIAL_FLAG_ALPHA_BLEND != 0))
-}
-
-fn model_face<'a>(parts: Parts<'a>, quad: &ModelQuad) -> Result<Face<'a>, Reject> {
-    let (tile, side, blend) = tile(parts, quad.material)?;
-    Ok(Face {
-        tile: Cow::Borrowed(tile),
-        size: [side; 2],
-        corners: quad
-            .positions
-            .map(|point| point.map(|component| f32::from(component) / 256.0)),
-        uvs: quad
-            .uvs
-            .map(|uv| uv.map(|component| f32::from(component) / 4096.0)),
-        blend,
+    material_tile(parts.materials, id, |page| match parts.textures {
+        Textures::World(pages) => pages.get(page as usize).map(|page| &page.texture),
+        Textures::Overlay(array) => (page == 1).then_some(array),
     })
+    .map_err(reject)
 }
 
-/// A full-block face with the cube thumbnail's UV orientation.
-fn cube_face(face: BlockFace) -> ([[f32; 3]; 4], [[f32; 2]; 4]) {
-    let side_uv = [[0., 1.], [1., 1.], [1., 0.], [0., 0.]];
-    match face {
-        BlockFace::Up => (
-            [[0., 1., 0.], [0., 1., 1.], [1., 1., 1.], [1., 1., 0.]],
-            [[0., 0.], [0., 1.], [1., 1.], [1., 0.]],
-        ),
-        BlockFace::Down => (
-            [[0., 0., 1.], [0., 0., 0.], [1., 0., 0.], [1., 0., 1.]],
-            [[0., 0.], [0., 1.], [1., 1.], [1., 0.]],
-        ),
-        BlockFace::South => (
-            [[0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]],
-            side_uv,
-        ),
-        BlockFace::North => (
-            [[1., 0., 0.], [0., 0., 0.], [0., 1., 0.], [1., 1., 0.]],
-            side_uv,
-        ),
-        BlockFace::West => (
-            [[0., 0., 0.], [0., 0., 1.], [0., 1., 1.], [0., 1., 0.]],
-            side_uv,
-        ),
-        BlockFace::East => (
-            [[1., 0., 1.], [1., 0., 0.], [1., 1., 0.], [1., 1., 1.]],
-            side_uv,
-        ),
-    }
-}
-
-/// The cube thumbnail's side shading, chosen by the face normal's dominant axis.
-fn brightness(corners: [[f32; 3]; 4]) -> f32 {
-    let [a, b, c] = [corners[0], corners[1], corners[2]];
-    let (u, v) = (
-        [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
-        [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
-    );
-    let normal = [
-        (u[1] * v[2] - u[2] * v[1]).abs(),
-        u[2] * v[0] - u[0] * v[2],
-        (u[0] * v[1] - u[1] * v[0]).abs(),
-    ];
-    if normal[1].abs() >= normal[0] && normal[1].abs() >= normal[2] {
-        CUBE_FACES[0].3
-    } else if normal[0] >= normal[2] {
-        CUBE_FACES[2].3
-    } else {
-        CUBE_FACES[1].3
+fn reject(reason: GuiBlockReject) -> Reject {
+    match reason {
+        GuiBlockReject::Geometry => Reject::Geometry,
+        GuiBlockReject::Material => Reject::Material,
+        GuiBlockReject::Texture => Reject::Texture,
     }
 }
 

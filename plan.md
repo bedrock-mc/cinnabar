@@ -1499,6 +1499,11 @@ The reported flat held-thumbnail and plain-tooltip regressions passed fresh
 macOS/Metal Retina-2 rendered-frame checks against offline official BDS. The
 first live offhand Shield exposed a missing expression-bound ModelPart origin;
 the correction now passes both hand poses and real-carrier tests.
+2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
+display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
+state). Incomplete: their GUI tessellation is still the provisional cube projection, blended
+materials (stained panes) keep the thumbnail, and the bamboo fence and fence gate items show
+misplaced quads, as their thumbnails already did.
 Integration retains upstream's gamma-space UI layer, font/animation paths and
 independently inherited image/sidecar overrides. Stateful inventory/HUD providers
 explicitly clear empty icon bindings so compact icon tables cannot leave duplicate

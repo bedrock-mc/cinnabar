@@ -7,7 +7,10 @@ use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
 use super::IconRef;
 
+mod block_model;
 mod shield;
+
+pub(super) use block_model::mesh as block_model;
 
 pub(super) fn shield(
     geometry: &assets::EntityGeometry,
@@ -21,7 +24,7 @@ pub(super) fn shield(
 pub(super) use assets::gui_item::{GUI_ITEM_SIDE, SHIELD_IDENTIFIER};
 
 /// Ordinary opaque cubes. `faces` retains the carried texture in `BlockFace::ALL` order.
-/// GUI shape-specific tessellation (stairs, fences, custom geometry) is a separate route.
+/// Other block shapes (slabs, stairs, fences) draw through [`block_model`].
 pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(CUBE_FACES.len() * 4);
     let mut indices = Vec::with_capacity(CUBE_FACES.len() * 6);
