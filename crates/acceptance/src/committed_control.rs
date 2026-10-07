@@ -27,6 +27,7 @@ pub fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::LocalMovementFlags { .. }
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
+        | CommittedControlEvent::LocalMovementBoost { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. } => return false,
     };

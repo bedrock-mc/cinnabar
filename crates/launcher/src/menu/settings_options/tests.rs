@@ -389,3 +389,12 @@ fn crosshair_preferences_persist_and_reset_without_changing_legacy_defaults() {
         assert_eq!(loaded.value(option.name), option.default);
     }
 }
+
+/// Vanilla 1.26.50 ships auto-jump off for keyboard/mouse and controller alike.
+#[test]
+fn auto_jump_defaults_off_for_every_input_mode() {
+    let settings = SettingsOptions::default();
+    for name in ["keyboard_mouse_autojump", "controller_autojump"] {
+        assert_eq!(settings.get(index(name)), 0, "{name}");
+    }
+}

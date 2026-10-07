@@ -56,6 +56,8 @@ pub fn build_local_player_feed(
         bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
         java_swing_ticks: client_world::ACTOR_SWING_TICKS,
         flying: matches!(physics.mode(), sim::MovementMode::Flying),
+        gliding: matches!(physics.mode(), sim::MovementMode::Gliding),
+        fall_fly_ticks: physics.fall_fly_ticks(),
         teleported: false,
         first_person,
         view_bobbing,

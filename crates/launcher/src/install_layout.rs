@@ -19,6 +19,7 @@ pub enum Platform {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstallEnvironment {
     pub executable: PathBuf,
+    pub user_root: Option<PathBuf>,
     pub home: Option<PathBuf>,
     pub local_app_data: Option<PathBuf>,
     pub xdg_config_home: Option<PathBuf>,
@@ -67,15 +68,23 @@ impl InstallLayout {
         }
         if let Some((root, binary_dir)) = development_root(&environment.executable) {
             let local = root.join(".local");
+            let isolated = isolated_user_roots(platform, environment)?;
+            let custom = isolated.is_some();
+            let (config, data, runtime) = isolated
+                .unwrap_or_else(|| (local.join("cinnabar"), local.clone(), local.join("run")));
             return Ok(Self {
                 resource_root: local.clone(),
                 compiled_assets: local.join("assets/compiled"),
                 physics_registry: local.join("assets/block-physics-v2193.bin"),
                 core_executable: binary_dir.join(core_filename(platform)),
-                user_config_root: local.join("cinnabar"),
-                user_data_root: local.clone(),
-                runtime_root: local.join("run"),
-                transient_runtime_root: local.join("cinnabar"),
+                user_config_root: config,
+                user_data_root: data,
+                runtime_root: runtime.clone(),
+                transient_runtime_root: if custom {
+                    runtime
+                } else {
+                    local.join("cinnabar")
+                },
             });
         }
 
@@ -142,6 +151,7 @@ impl InstallLayout {
             platform,
             &InstallEnvironment {
                 executable: std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
+                user_root: std::env::var_os("CINNABAR_USER_ROOT").map(PathBuf::from),
                 home,
                 local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
                 xdg_config_home: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
@@ -340,10 +350,33 @@ fn development_root(executable: &Path) -> Option<(PathBuf, PathBuf)> {
     None
 }
 
+fn isolated_user_roots(
+    platform: Platform,
+    environment: &InstallEnvironment,
+) -> Result<Option<(PathBuf, PathBuf, PathBuf)>, LayoutError> {
+    let Some(root) = environment.user_root.as_deref() else {
+        return Ok(None);
+    };
+    let name = match platform {
+        Platform::Windows => "Windows",
+        Platform::Linux => "Linux",
+        Platform::MacOs => "macOS",
+    };
+    require_absolute(root, platform, "CINNABAR_USER_ROOT", name)?;
+    Ok(Some((
+        root.join("config"),
+        root.join("data"),
+        root.join("run"),
+    )))
+}
+
 fn user_roots(
     platform: Platform,
     environment: &InstallEnvironment,
 ) -> Result<(PathBuf, PathBuf, PathBuf), LayoutError> {
+    if let Some(roots) = isolated_user_roots(platform, environment)? {
+        return Ok(roots);
+    }
     match platform {
         Platform::Windows => {
             let base = environment
@@ -480,11 +513,78 @@ mod tests {
     fn environment(executable: &str, home: &str) -> InstallEnvironment {
         InstallEnvironment {
             executable: PathBuf::from(executable),
+            user_root: None,
             home: Some(PathBuf::from(home)),
             local_app_data: None,
             xdg_config_home: None,
             xdg_data_home: None,
             xdg_runtime_dir: None,
+        }
+    }
+
+    #[test]
+    fn isolated_user_root_keeps_resources_and_all_user_paths_separate() {
+        for (platform, executable, root) in [
+            (
+                Platform::Windows,
+                "C:/app/bedrock-client.exe",
+                "D:/Zeno/profile",
+            ),
+            (
+                Platform::Linux,
+                "/opt/app/bin/bedrock-client",
+                "/tmp/zeno-profile",
+            ),
+            (
+                Platform::MacOs,
+                "/Applications/Cinnabar.app/Contents/MacOS/bedrock-client",
+                "/tmp/zeno-profile",
+            ),
+            (
+                Platform::Linux,
+                "/work/cinnabar/target/debug/bedrock-client",
+                "/tmp/zeno-profile",
+            ),
+        ] {
+            let mut env = environment(executable, "");
+            env.home = None;
+            env.user_root = Some(PathBuf::from(root));
+            env.xdg_runtime_dir = Some(PathBuf::from("/run/user/1000"));
+            let layout = InstallLayout::resolve(platform, &env).unwrap();
+            let root = PathBuf::from(root);
+            assert_eq!(layout.user_config_root, root.join("config"));
+            assert_eq!(layout.user_data_root, root.join("data"));
+            assert_eq!(layout.runtime_root, root.join("run"));
+            assert!(!layout.resource_root.starts_with(&root));
+            assert!(layout.auth_cache().starts_with(root.join("data")));
+            assert!(
+                layout
+                    .compiled_pack_cache_dir()
+                    .starts_with(root.join("data"))
+            );
+            assert!(
+                layout
+                    .skin_selection_file()
+                    .starts_with(root.join("config"))
+            );
+        }
+    }
+
+    #[test]
+    fn isolated_user_root_rejects_relative_and_empty_paths() {
+        for platform in [Platform::Windows, Platform::Linux, Platform::MacOs] {
+            for root in ["relative", ""] {
+                let mut env =
+                    environment("/work/cinnabar/target/debug/bedrock-client", "/home/dev");
+                env.user_root = Some(PathBuf::from(root));
+                assert!(matches!(
+                    InstallLayout::resolve(platform, &env),
+                    Err(LayoutError::InvalidUserRoot {
+                        variable: "CINNABAR_USER_ROOT",
+                        ..
+                    })
+                ));
+            }
         }
     }
 

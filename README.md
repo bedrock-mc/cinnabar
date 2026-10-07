@@ -10,7 +10,7 @@ networking.
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/MeEz7BEHcM)
 [![Website](https://img.shields.io/badge/Website-cinnabar.restartfu.com-B22222)](https://cinnabar.restartfu.com/)
 
-<img width="2534" height="1446" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/836cb337-3876-4b31-a97e-9cfb25227b11" />
+<img width="1282" height="752" alt="image" src="https://github.com/user-attachments/assets/ca040799-e00e-4a6e-85f8-a0e28af6ea72" />
 
 ## Download
 
@@ -42,14 +42,16 @@ Wayland or X11 automatically.
 
 ## Discord presence
 
-Discord presence is enabled by default using the built-in application. To use another application,
-set `CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launching.
-No bot token or client secret is needed. Set the override to `0` to disable presence.
+Discord presence is enabled by default using the built-in application; turn it off with
+**Discord Rich Presence** in Video settings. To use another application, set
+`CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launching. No bot token or
+client secret is needed. Setting the override to `0` disables presence entirely.
 
 With the Discord desktop app running and activity sharing enabled, presence shows menus, joining,
-or `Playing on host:port`, plus elapsed time and the original app icon served from GitHub.
-Updates run over local IPC, reconnect automatically and follow Discord's rate limit. The current
-server address is shown while playing; account details and join secrets are never included.
+`Playing on host:port`, `Singleplayer: <world>`, or a Realm, friend's world or experience without
+its identifier, plus the original app icon served from GitHub. The timer counts the current session
+in game and the launch otherwise. Updates run over local IPC, reconnect automatically and follow
+Discord's rate limit. Account details, Realm IDs, friend XUIDs and join secrets are never included.
 
 ## Beyond vanilla
 

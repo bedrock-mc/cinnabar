@@ -8,21 +8,20 @@
 //! keyframes in the exact `wield_first_person`/`wield_third_person` base clips;
 //! anything Molang/query-derived is left `NeedsMeasurement`.
 
-use std::{collections::BTreeMap, io::Cursor, path::Path, sync::Arc};
+use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     ArmorSlot, AssetError, AttachablePose, AttachablePoseBone, EntityAssetKind, EntityAssetSource,
     EntityAssetSymbol, EntityDependencyResolution, EquipmentBinding, EquipmentCategory,
     EquipmentReference, EquipmentTexture, EquipmentTransform, ItemDisplayScalar,
     ItemDisplayTransform, ItemUseDuration, MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_IDENTIFIER_BYTES,
-    MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
 };
-use image::{ImageFormat, ImageReader, Limits};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{SourcePayloads, invalid, json::parse_unique_json, read_bounded_source};
 mod textures;
+use textures::compile_texture_identifiers_with;
 pub use textures::{compile_textures_for_assets, compile_textures_for_assets_with};
 
 /// Literal transforms an item's attachable exposed, keyed by item identifier.
@@ -205,60 +204,6 @@ pub fn compile_textures_with(
         .map(|binding| binding.texture.identifier.as_ref())
         .collect::<Vec<_>>();
     compile_texture_identifiers_with(sources, identifiers, read)
-}
-
-/// Includes the shared enchantment raster alongside every requested equipment image.
-fn compile_texture_identifiers_with(
-    sources: &[EntityAssetSource],
-    mut identifiers: Vec<&str>,
-    read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
-) -> Result<Vec<EquipmentTexture>, AssetError> {
-    identifiers.push(assets::ACTOR_GLINT_TEXTURE_IDENTIFIER);
-    identifiers.sort_unstable();
-    identifiers.dedup();
-    let mut textures = Vec::new();
-    for identifier in identifiers {
-        let Some(source) = ["png", "tga"].into_iter().find_map(|extension| {
-            let path = format!("{identifier}.{extension}");
-            sources
-                .iter()
-                .find(|source| source.path.as_ref() == path)
-                .map(|source| (source, extension))
-        }) else {
-            continue;
-        };
-        let (source, extension) = source;
-        let bytes = read(source)?;
-        let format = if extension == "png" {
-            ImageFormat::Png
-        } else {
-            ImageFormat::Tga
-        };
-        let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
-        let mut limits = Limits::default();
-        limits.max_image_width = Some(MAX_EQUIPMENT_TEXTURE_SIDE.into());
-        limits.max_image_height = Some(MAX_EQUIPMENT_TEXTURE_SIDE.into());
-        limits.max_alloc = Some(2 * 1024 * 1024);
-        reader.limits(limits);
-        // An oversized or undecodable raster leaves that attachable untextured.
-        let Ok(image) = reader.decode() else {
-            continue;
-        };
-        let (Ok(width), Ok(height)) = (u16::try_from(image.width()), u16::try_from(image.height()))
-        else {
-            continue;
-        };
-        if textures.len() == MAX_EQUIPMENT_TEXTURES {
-            break;
-        }
-        textures.push(EquipmentTexture {
-            identifier: identifier.into(),
-            width,
-            height,
-            rgba8: Arc::from(image.into_rgba8().into_raw()),
-        });
-    }
-    Ok(textures)
 }
 
 fn binding(

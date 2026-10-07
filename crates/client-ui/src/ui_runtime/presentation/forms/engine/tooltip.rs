@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use json_ui::{Rect, TextureSource, nine_slice};
+use json_ui::{Rect, RectOut, TextureSource, nine_slice};
 use serde_json::Value;
 use ui::{TextShadow, UiVisual};
 
@@ -97,13 +97,15 @@ impl Painter<'_> {
                 alpha([255; 4]),
                 json_ui::SpriteFilter::default(),
             ) {
-                self.push(visual, self.logical(&quad.dest))?;
+                self.push(visual, self.snapped(&quad.dest))?;
             }
         }
-        let origin = [
-            (background.x as f32 + TEXT_OFFSET) * self.px,
-            (background.y as f32 + TEXT_OFFSET) * self.px,
-        ];
+        let origin = self.positioned(&RectOut {
+            x: background.x + f64::from(TEXT_OFFSET),
+            y: background.y + f64::from(TEXT_OFFSET),
+            w: 0.0,
+            h: 0.0,
+        });
         self.push(
             UiVisual::Text {
                 layout,

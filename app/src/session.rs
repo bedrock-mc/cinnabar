@@ -61,7 +61,8 @@ pub(crate) struct SessionController {
     /// The join provisioning behind the connecting screen.
     join: Option<JoinAttempt>,
     generation: u64,
-    server_address: Option<String>,
+    /// Where the current session plays, for Discord presence.
+    destination: Option<rich_presence::Destination>,
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
@@ -83,26 +84,21 @@ impl SessionController {
             directory: None,
             join: None,
             generation: 1,
-            server_address: None,
+            destination: None,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
             trust: None,
         }
     }
 
-    pub(crate) fn with_server_address(mut self, address: Option<&str>) -> Self {
-        self.set_server_address(address);
+    /// Names a direct `--address` session's destination.
+    pub(crate) fn with_address(mut self, address: Option<&str>) -> Self {
+        self.destination = address.map(|address| presence_destination(address, false));
         self
     }
 
-    pub(crate) fn server_address(&self) -> Option<&str> {
-        self.server_address.as_deref()
-    }
-
-    fn set_server_address(&mut self, address: Option<&str>) {
-        self.server_address = address
-            .filter(|address| launcher::menu::view::pingable(address))
-            .map(rich_presence::normalize_endpoint);
+    pub(crate) fn destination(&self) -> Option<&rich_presence::Destination> {
+        self.destination.as_ref()
     }
 
     pub(crate) fn status(&self) -> SessionStatus {
@@ -268,6 +264,22 @@ fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
     (!trimmed.is_empty()).then(|| format_transfer_address(trimmed, port))
 }
 
+/// Where a join to `address` plays: servers by endpoint with a port, local worlds by name,
+/// and Realms, friends and experiences without their identifiers.
+fn presence_destination(address: &str, local_world: bool) -> rich_presence::Destination {
+    use protocol::launcher_control::ConnectTarget;
+    use rich_presence::Destination;
+    if local_world {
+        return Destination::LocalWorld(address.to_owned());
+    }
+    match crate::menu::target_for(address) {
+        ConnectTarget::RakNet(endpoint) => Destination::Server(endpoint),
+        ConnectTarget::Realm(_) => Destination::Realm,
+        ConnectTarget::Friend(_) => Destination::FriendWorld,
+        ConnectTarget::Gathering(_) => Destination::Experience,
+    }
+}
+
 #[derive(SystemParam)]
 pub(crate) struct SessionResources<'w> {
     controller: ResMut<'w, SessionController>,
@@ -297,7 +309,7 @@ impl SessionResources<'_> {
             .core
             .stop_detached(move || drop((join, directory)));
         controller.connecting = false;
-        controller.server_address = None;
+        controller.destination = None;
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
@@ -344,9 +356,7 @@ fn attempt_connect(
     session.controller.trust = None;
     session.runtime.experiences.select_destination(&address);
     menu.begin_join_progress(&address, local_world);
-    session
-        .controller
-        .set_server_address((!local_world).then_some(address.as_str()));
+    session.controller.destination = Some(presence_destination(&address, local_world));
     let launcher = session.launcher.as_deref().and_then(|slot| {
         slot.begin_join(
             &address,
@@ -664,19 +674,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presence_endpoint_tracks_remote_destinations_and_clears_local_destinations() {
-        let mut controller =
-            SessionController::default().with_server_address(Some("first.example.net:19133"));
-        assert_eq!(controller.server_address(), Some("first.example.net:19133"));
-        controller.set_server_address(Some("[::1]:19134"));
-        assert_eq!(controller.server_address(), Some("[::1]:19134"));
-        controller.set_server_address(None);
-        assert_eq!(controller.server_address(), None);
-        controller.set_server_address(Some(&format!(
-            "{}fixture",
-            launcher::menu::view::EXPERIENCE_ADDRESS_PREFIX,
-        )));
-        assert_eq!(controller.server_address(), None);
+    fn presence_names_servers_with_ports_and_hides_realm_friend_and_experience_ids() {
+        use rich_presence::Destination;
+        let server = |endpoint: &str| Destination::Server(endpoint.to_owned());
+        assert_eq!(
+            presence_destination(" play.example.net ", false),
+            server(&format!(
+                "play.example.net:{}",
+                launcher::menu::DEFAULT_PORT
+            ))
+        );
+        assert_eq!(
+            presence_destination("[::1]:19134", false),
+            server("[::1]:19134")
+        );
+        assert_eq!(
+            presence_destination("::1", false),
+            server(&format!("[::1]:{}", launcher::menu::DEFAULT_PORT))
+        );
+        assert_eq!(
+            presence_destination("realm_id/123", false),
+            Destination::Realm
+        );
+        assert_eq!(
+            presence_destination("friend_xuid/2535400000000000", false),
+            Destination::FriendWorld
+        );
+        let experience = format!("{}fixture", launcher::menu::EXPERIENCE_ADDRESS_PREFIX);
+        assert_eq!(
+            presence_destination(&experience, false),
+            Destination::Experience
+        );
+        assert_eq!(
+            presence_destination("My World", true),
+            Destination::LocalWorld("My World".into())
+        );
     }
 
     #[test]

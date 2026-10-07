@@ -62,9 +62,9 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
         &VersionedFloor(1),
     );
     assert_eq!(frame.samples.len(), 3);
-    let factor = 0.7_f32 * 0.3_f32;
-    let expected = [(0.7_f32 * factor).to_bits(), (0.9_f32 * factor).to_bits()];
-    let wire_expected = [(-0.7_f32 * factor).to_bits(), (0.9_f32 * factor).to_bits()];
+    let scale = |axis: f32| (axis * 0.3_f32 * 0.7_f32).to_bits();
+    let expected = [scale(0.7), scale(0.9)];
+    let wire_expected = [scale(-0.7), scale(0.9)];
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);

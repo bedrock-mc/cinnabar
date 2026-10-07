@@ -145,7 +145,8 @@ fn landing_material_does_not_erase_a_contacting_bubble_column() {
         .unwrap();
     assert!(tick.collisions.y);
     assert_eq!(tick.environment.surface_response, SurfaceResponse::BubbleUp);
-    assert_eq!(tick.velocity.y, 0.1);
+    // The column cell is not topped by air here, so it pushes with the inside impulse.
+    assert_eq!(tick.velocity.y as f32, (-0.005_f32 + 0.06).min(0.7));
 }
 
 #[test]

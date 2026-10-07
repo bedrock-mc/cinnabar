@@ -88,7 +88,7 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
             PlayerInputFlags::STOP_SPRINTING
         };
     }
-    if sample.processed.forced_sneak {
+    if sample.input_mode.persists_sneak() {
         flags |= PlayerInputFlags::PERSIST_SNEAK;
     }
     flags | mode_flags(sample, previous)

@@ -34,20 +34,7 @@ pub(in crate::compiler) fn compile_rule(
 }
 
 fn native_cube_quads(materials: [u32; 6]) -> [ModelQuad; 6] {
-    let mut quads = cuboid_quads(materials, [0, 0, 0], [256, 256, 256]);
-    // Current cube emitters mirror North/East U;
-    // bottom emitter reverses V relative to the top. Unlike greedy
-    // cubes, immutable model quads do not run the shader's native UV helper.
-    for quad in &mut quads {
-        for uv in &mut quad.uvs {
-            match quad.flags & MODEL_QUAD_FLAG_FACE_MASK {
-                4 | 5 => uv[0] = 4096 - uv[0],
-                1 => uv[1] = 4096 - uv[1],
-                _ => {}
-            }
-        }
-    }
-    quads
+    super::geometry::vanilla_cuboid_quads(materials, [0, 0, 0], [256, 256, 256])
 }
 
 #[cfg(test)]

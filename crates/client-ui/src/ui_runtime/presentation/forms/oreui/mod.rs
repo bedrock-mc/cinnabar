@@ -10,9 +10,12 @@ mod bedtime;
 #[cfg(test)]
 mod dark_mode_tests;
 mod death;
+#[cfg(test)]
+mod destructive_tests;
 mod dressing_room;
 mod exit;
 mod focus;
+mod server_filter;
 mod friends;
 mod grid;
 mod home;

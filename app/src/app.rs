@@ -677,7 +677,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
     let primary_window = Window {
-        title: launcher::PRODUCT_NAME.to_owned(),
+        title: launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
         present_mode,
         ..default()
     };
@@ -734,9 +734,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(
-        SessionController::new(core_process).with_server_address(args.address.as_deref()),
-    )
+    .insert_resource(SessionController::new(core_process).with_address(args.address.as_deref()))
     .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)

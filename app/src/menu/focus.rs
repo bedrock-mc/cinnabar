@@ -4,6 +4,8 @@
 use super::*;
 use launcher::menu::view::{SettingsFocusAxis, SettingsFocusLandmark, SettingsFocusTarget};
 
+#[cfg(test)]
+mod filter_tests;
 mod settings;
 pub(super) use settings::SettingsFocusGeometry;
 
@@ -88,9 +90,11 @@ impl MenuRuntime {
         }
     }
 
-    /// Tracks each visible settings control once, preserving focus across value changes.
+    /// Tracks rendered settings and server controls while retaining the focused action.
     pub(super) fn refresh_settings_focus(&mut self, actions: impl IntoIterator<Item = MenuAction>) {
-        if self.screen != MenuScreen::Settings || self.dialog.is_some() {
+        if !matches!(self.screen, MenuScreen::Settings | MenuScreen::Servers)
+            || self.dialog.is_some()
+        {
             self.settings_focus.clear();
             self.settings_slider_selected = None;
             self.settings_focus_geometry = SettingsFocusGeometry::default();
@@ -175,7 +179,7 @@ impl MenuRuntime {
             }
             return;
         }
-        if self.screen != MenuScreen::Settings
+        if !matches!(self.screen, MenuScreen::Settings | MenuScreen::Servers)
             || self.dialog.is_some()
             || !self.settings_focus_geometry.native
         {
@@ -253,7 +257,9 @@ impl MenuRuntime {
         let previous = self.focus_actions().get(self.focused).copied();
         let had_native_focus = self.settings_focus_geometry.native;
         self.refresh_settings_focus(targets.iter().map(|target| target.action));
-        if self.screen != MenuScreen::Settings || self.dialog.is_some() {
+        if !matches!(self.screen, MenuScreen::Settings | MenuScreen::Servers)
+            || self.dialog.is_some()
+        {
             return;
         }
         self.settings_focus_geometry.update(targets, landmarks);
@@ -287,6 +293,23 @@ impl MenuRuntime {
         }
         if let Some(dialog) = self.dialog {
             return match dialog {
+                MenuDialog::ServerFilter => {
+                    let prefs = self.settings_options.server_list();
+                    let mut actions = Vec::new();
+                    for group in prefs.order() {
+                        actions.push(MenuAction::ServerList(
+                            launcher::menu::server_list::ServerListAction::ToggleVisibility(group),
+                        ));
+                        actions.extend(
+                            [false, true]
+                                .into_iter()
+                                .filter_map(|down| prefs.move_action(group, down))
+                                .map(MenuAction::ServerList),
+                        );
+                    }
+                    actions.push(MenuAction::DismissDialog);
+                    actions
+                }
                 MenuDialog::Accounts => {
                     if self.feeds.account_adding {
                         return vec![MenuAction::CancelSignIn];
@@ -352,6 +375,11 @@ impl MenuRuntime {
             MenuScreen::Home => {
                 let mut actions = nav();
                 actions[4] = MenuAction::OpenAccounts;
+                let realms = actions
+                    .iter()
+                    .position(|action| *action == MenuAction::Navigate(MenuScreen::Social))
+                    .expect("home navigation includes Realms");
+                actions.insert(realms + 1, MenuAction::Store(crate::store::OPEN));
                 actions.push(MenuAction::Navigate(MenuScreen::DressingRoom));
                 actions.extend((0..self.friends.len().min(1)).map(MenuAction::PlayFriend));
                 actions.extend((0..self.realms.len().min(1)).map(MenuAction::PlayRealm));
@@ -390,6 +418,11 @@ impl MenuRuntime {
                 actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
                 actions
             }
+            MenuScreen::Servers
+                if self.settings_focus_geometry.native || !self.settings_focus.is_empty() =>
+            {
+                self.settings_focus.clone()
+            }
             MenuScreen::Servers => {
                 let mut actions = nav();
                 actions.extend([
@@ -398,6 +431,7 @@ impl MenuRuntime {
                     MenuAction::SelectServerTab(MenuServerTab::Recent),
                     MenuAction::SelectServerTab(MenuServerTab::Saved),
                     MenuAction::PlayAddServer,
+                    MenuAction::OpenServerFilter,
                 ]);
                 match self.server_tab {
                     MenuServerTab::Featured => {
@@ -574,7 +608,8 @@ fn same_control(a: MenuAction, b: MenuAction) -> bool {
 mod review_tests {
     use super::*;
 
-    fn native_rows(menu: &mut MenuRuntime, rows: &[(MenuAction, [f32; 4])]) {
+    /// Supplies drawn controls for navigation regressions.
+    pub(super) fn native_rows(menu: &mut MenuRuntime, rows: &[(MenuAction, [f32; 4])]) {
         let rect = |[left, top, right, bottom]: [f32; 4]| {
             ui::UiRect::new(
                 ui::UiPoint::new(left, top).unwrap(),
