@@ -819,6 +819,11 @@ impl LocalPhysicsController {
         self.modes.mode()
     }
 
+    /// Consecutive completed gliding ticks, counting the tick the glide started.
+    pub const fn fall_fly_ticks(&self) -> u32 {
+        self.modes.fall_fly_ticks()
+    }
+
     /// The retained completed-tick sample for `tick`, for diagnostics.
     pub fn sample_at(&self, tick: u64) -> Option<&PhysicsMovementSample> {
         self.sample_history

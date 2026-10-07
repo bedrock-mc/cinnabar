@@ -375,6 +375,11 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - //! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
 - //! 26.30 reference's bobView and hand spring.
 
+## crates/client-presentation/src/presentation/actors.rs (glide_rotation, glide_tilted)
+- Glide/riptide body rotation: 1.26.50.26 `ActorRenderData::getDamageOrGlidingXYRotation` RVA `0x01fbf550` (26.30 macOS `0x1037108e0`), called from the data-driven mob rotation setup RVA `0x01fbfad0` (26.30 inlined in `DataDrivenRenderer::render`) after the death Z roll and Dinnerbone flip; X rotation by the first value, then Y by the second when nonzero. Suppressed when the player's `variable.is_first_person` (hash `0x2739f381184de4ae`) is nonzero.
+- Gliding (actor flag 32): ease `clamp((FallFlyTicks + a)^2 / 100, 0, 1)` (`0x14ffa2648` = 100, `0x14fea4060` = 1); pitch `(-90 - currentPitch) * ease` (`0x14ffd5074`), current pitch from the actor's cached rotation pointer (+0x228). Yaw: interpolated rotation (fmodf wrap 180/360/-180), table view vector (-PI `0x14ffab65c`, deg->rad `0x14ffab66c`, index scale `0x14ffab660`, quarter turn `0x14ffab664`), posDelta x/z (StateVector +0x18/+0x20); `acosf(dot / sqrt(deltaLenSq))` (view length not divided out), sign of `viewZ*dx - viewX*dz` zeroed when `|cross| < 0.0625` (`0x14ffa90e0`), times 57.2957763 (`0x14ffd5070`). Riptide (flag 56) returns `-90 - pitch, 0` and spins Y by `(tickCount + a) * -75` (`0x1500e24d8`); not implemented.
+- FallFlyTicks writers: only GlideInputSystem (`0x070be110`, view `0x070d1c80`, filter ActorMovementTickNeeded + PlayerInputRequest) and the Mob constructor's default emplace (`0x02341df0`), so remote players render with zero ticks.
+
 ## crates/client-presentation/src/presentation/equipment/display.rs
 - /// `ItemInHandRenderer::_applyDefaultItemTransforms` for a flat sprite in hand: the 1.5 scale
 - /// Camera-space placement of the first-person held item, from `renderFirstPerson`'s own item
