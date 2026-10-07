@@ -21,6 +21,7 @@ pub(crate) mod inbox;
 mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
+pub(crate) use launcher_core::target_for;
 mod navigation;
 #[cfg(test)]
 mod server_input_tests;

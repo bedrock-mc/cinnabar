@@ -40,6 +40,10 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 pub const ANIMATIONS_OPTION: SettingDefinition =
     dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
 
+/// Publishes the client's state to Discord Rich Presence.
+pub const DISCORD_PRESENCE_OPTION: SettingDefinition =
+    toggle("discord_presence", "Discord Rich Presence", true);
+
 /// Optional crosshair visibility in both third-person camera views.
 pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
     toggle("third_person_crosshair", "Third Person Crosshair", false);
@@ -500,4 +504,5 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         false,
     ),
     toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
+    DISCORD_PRESENCE_OPTION,
 ];

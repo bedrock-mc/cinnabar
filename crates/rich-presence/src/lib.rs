@@ -38,25 +38,35 @@ pub enum State {
     Playing,
 }
 
-/// A public server endpoint with an explicit port, including brackets for IPv6.
-pub fn normalize_endpoint(address: &str) -> String {
-    let (host, port) = launcher::menu::split_address(address.trim());
-    if host.contains(':') {
-        format!("[{host}]:{port}")
-    } else {
-        format!("{host}:{port}")
-    }
+/// Where a session plays. Realm, friend and experience identifiers are never published.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Destination {
+    /// A server endpoint with an explicit port, IPv6 bracketed.
+    Server(String),
+    Realm,
+    FriendWorld,
+    Experience,
+    /// A local world, by name.
+    LocalWorld(String),
 }
 
 impl State {
-    pub fn activity(self, started_at: u64, address: Option<&str>) -> Activity {
-        let mut state = match self {
-            Self::Menus => "In the menus".to_owned(),
-            Self::Joining => "Joining a world".to_owned(),
-            Self::Playing => match address {
-                Some(address) => format!("Playing on {address}"),
-                None => "In a world".to_owned(),
-            },
+    pub fn activity(self, started_at: u64, destination: Option<&Destination>) -> Activity {
+        let mut state = match (self, destination) {
+            (Self::Menus, _) => "In the menus".to_owned(),
+            (Self::Joining, _) => "Joining a world".to_owned(),
+            (Self::Playing, None) => "In a world".to_owned(),
+            (Self::Playing, Some(Destination::Server(endpoint))) => {
+                format!("Playing on {endpoint}")
+            }
+            (Self::Playing, Some(Destination::Realm)) => "Playing on a Realm".to_owned(),
+            (Self::Playing, Some(Destination::FriendWorld)) => {
+                "Playing in a friend's world".to_owned()
+            }
+            (Self::Playing, Some(Destination::Experience)) => "Playing an experience".to_owned(),
+            (Self::Playing, Some(Destination::LocalWorld(name))) => {
+                format!("Singleplayer: {}", name.trim())
+            }
         };
         state.truncate(state.floor_char_boundary(MAX_STATE_BYTES));
         Activity::new()
@@ -75,24 +85,37 @@ const MAX_STATE_BYTES: usize = 128;
 
 #[derive(Default)]
 struct Publication {
-    last: Option<(State, u64, Option<String>)>,
+    last: Option<(State, u64, Option<Destination>)>,
+    /// When the current destination went live, so the in-game timer counts the session.
+    playing_since: Option<u64>,
 }
 
 impl Publication {
-    fn changed(&mut self, state: State, connection: u64, address: Option<&str>) -> bool {
-        let address = if state == State::Playing {
-            address
-        } else {
-            None
-        };
-        if let Some((last_state, last_connection, last_address)) = &self.last
+    fn changed(
+        &mut self,
+        state: State,
+        connection: u64,
+        destination: Option<&Destination>,
+        now: u64,
+    ) -> bool {
+        let destination = destination.filter(|_| state == State::Playing);
+        if let Some((last_state, last_connection, last_destination)) = &self.last
             && *last_state == state
             && *last_connection == connection
-            && last_address.as_deref() == address
+            && last_destination.as_ref() == destination
         {
             return false;
         }
-        self.last = Some((state, connection, address.map(str::to_owned)));
+        let same_session = matches!(
+            &self.last,
+            Some((State::Playing, _, last)) if last.as_ref() == destination
+        );
+        if state != State::Playing {
+            self.playing_since = None;
+        } else if !same_session {
+            self.playing_since = Some(now);
+        }
+        self.last = Some((state, connection, destination.cloned()));
         true
     }
 }
@@ -103,6 +126,7 @@ pub struct Presence {
     connected: Option<EventCallbackHandle>,
     connection: Arc<AtomicU64>,
     publication: Publication,
+    /// Launch time, shown in the menus and while joining.
     started_at: u64,
 }
 
@@ -114,10 +138,7 @@ impl Presence {
         let connected = client.on_connected(move |_| {
             epoch.fetch_add(1, Ordering::Relaxed);
         });
-        let started_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let started_at = unix_seconds();
         client.start();
         Self {
             client: Some(client),
@@ -128,16 +149,25 @@ impl Presence {
         }
     }
 
-    pub fn update(&mut self, state: State, address: Option<&str>) {
-        if self
-            .publication
-            .changed(state, self.connection.load(Ordering::Relaxed), address)
-            && let Some(client) = self.client.as_mut()
+    pub fn update(&mut self, state: State, destination: Option<&Destination>) {
+        if self.publication.changed(
+            state,
+            self.connection.load(Ordering::Relaxed),
+            destination,
+            unix_seconds(),
+        ) && let Some(client) = self.client.as_mut()
         {
-            let started_at = self.started_at;
-            client.queue_activity(|_| state.activity(started_at, address));
+            let started_at = self.publication.playing_since.unwrap_or(self.started_at);
+            client.queue_activity(|_| state.activity(started_at, destination));
         }
     }
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 impl Drop for Presence {
