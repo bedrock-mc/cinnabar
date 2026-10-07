@@ -50,7 +50,7 @@ Keep comments to one or two lines that say what the code can't. Never restate si
 
 ## Parallel work: minimise bottlenecks
 
-When many agents run at once, compiling is the scarce resource. Route every cargo command through the shared build-slot limiter, run each check once, and hand verification to CI as early as possible instead of queueing local re-checks. Never hold a build slot or lock while waiting on another. Details are in `docs/agents/multi-agent-workflow.md`.
+When many agents run at once, compiling is the scarce resource. Route every cargo command through the shared build-slot limiter, run each check once, and hand verification to CI as early as possible instead of queueing local re-checks. Never hold a build slot or lock while waiting on another. Stop only processes you started, by PID: never `pkill`, `killall` or other pattern kills, which also match other agents' and builds' command lines (`.claude/settings.json` blocks them for Claude sessions). Details are in `docs/agents/multi-agent-workflow.md`.
 
 ## Gophertunnel
 
