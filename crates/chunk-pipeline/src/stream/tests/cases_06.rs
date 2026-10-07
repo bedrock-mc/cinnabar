@@ -229,7 +229,7 @@ fn movement_authority_retains_effective_current_and_identifies_only_native_sprin
             .unwrap();
         assert_eq!(stream.local_movement_speed(), Some(f64::from(current)));
         assert!(matches!(stream.take_committed_controls().as_slice(), [
-                CommittedControlEvent::LocalMovementSpeed { current: value, sprint_modifier, .. }
+                CommittedControlEvent::LocalMovementSpeed { current: Some(value), sprint_modifier, .. }
             ] if *value == f64::from(current) && *sprint_modifier == expected_modifier));
     };
     let factor = Some(1.0 + modifier.amount);
@@ -328,8 +328,10 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
             CommittedControlEvent::LocalMovementSpeed {
                 sequence: 2,
                 dimension: 0,
-                current: 0.0,
+                current: Some(0.0),
                 sprint_modifier: None,
+                underwater: None,
+                lava: None,
                 tick: 2,
             }
         ]
@@ -1178,4 +1180,47 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
     assert_eq!(actor.previous_pose.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.received_pose.position, [1.0, 64.0, 2.0]);
+}
+
+/// Each local attribute update commits one control however many speeds it
+/// carries, so a full undrained backlog fits the control queue.
+#[test]
+fn speed_attribute_backlog_commits_one_control_per_update() {
+    let mut stream = riding_stream();
+    let attribute = |name: &str, current: f32| ActorAttribute {
+        name: Arc::from(name),
+        ..movement_attribute(current)
+    };
+    for sequence in 1..=MAX_ADMITTED_WORLD_EVENTS as u64 {
+        let current = sequence as f32 / 1000.0;
+        stream
+            .submit(
+                sequence,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    attributes: Arc::from([
+                        movement_attribute(current),
+                        attribute("minecraft:underwater_movement", current * 2.0),
+                        attribute("minecraft:lava_movement", current * 3.0),
+                    ]),
+                    tick: sequence,
+                })),
+            )
+            .unwrap();
+    }
+    let controls = stream.take_committed_controls();
+    assert_eq!(controls.len(), MAX_ADMITTED_WORLD_EVENTS);
+    let last = MAX_ADMITTED_WORLD_EVENTS as f32 / 1000.0;
+    assert!(matches!(
+        controls.last(),
+        Some(CommittedControlEvent::LocalMovementSpeed {
+            current: Some(current),
+            underwater: Some(underwater),
+            lava: Some(lava),
+            ..
+        }) if *current == f64::from(last)
+            && *underwater == f64::from(last * 2.0)
+            && *lava == f64::from(last * 3.0)
+    ));
 }

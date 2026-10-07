@@ -88,16 +88,20 @@ impl CommittedGameplayState<'_> {
             dimension,
             current,
             sprint_modifier,
+            underwater,
+            lava,
             tick,
         } = control
         {
-            if self.speed.apply(
-                self.session_generation,
-                sequence,
-                dimension,
-                current,
-                sprint_modifier,
-            ) && self.movement.physics_is_authorized()
+            if let Some(current) = current
+                && self.speed.apply(
+                    self.session_generation,
+                    sequence,
+                    dimension,
+                    current,
+                    sprint_modifier,
+                )
+                && self.movement.physics_is_authorized()
                 && let Some((rewind, speed)) =
                     self.physics
                         .retime_movement_speed(tick, current, sprint_modifier)
@@ -107,23 +111,15 @@ impl CommittedGameplayState<'_> {
                     replay_timeline_edit(self.movement, self.physics, rewind, world);
                 }
             }
-            return ControlDisposition::Handled;
-        }
-        if let CommittedControlEvent::LocalLiquidMovementSpeeds {
-            sequence,
-            dimension,
-            underwater,
-            lava,
-            tick,
-        } = control
-        {
-            if let Some(speeds) = self.speed.apply_liquid(
-                self.session_generation,
-                sequence,
-                dimension,
-                underwater,
-                lava,
-            ) && self.movement.physics_is_authorized()
+            if (underwater.is_some() || lava.is_some())
+                && let Some(speeds) = self.speed.apply_liquid(
+                    self.session_generation,
+                    sequence,
+                    dimension,
+                    underwater,
+                    lava,
+                )
+                && self.movement.physics_is_authorized()
                 && let Some(rewind) = self.physics.retime_liquid_movement_speeds(tick, speeds)
             {
                 replay_timeline_edit(self.movement, self.physics, rewind, world);
@@ -394,7 +390,6 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
-            | CommittedControlEvent::LocalLiquidMovementSpeeds { .. }
             | CommittedControlEvent::LocalMovementFlags { .. }
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
