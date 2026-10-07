@@ -408,13 +408,6 @@ pub(super) fn dialog_model(
     translate: Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
-        MenuDialog::ServerFilter => (
-            "Server sections".into(),
-            String::new(),
-            "Done".into(),
-            "Done".into(),
-            MenuAction::DismissDialog,
-        ),
         MenuDialog::Accounts => (
             "Accounts".into(),
             String::new(),
