@@ -7,10 +7,6 @@ UI render. Point sampling the original item/skin art is not itself the defect: v
 point sampling too. The new model route submits geometry through the retained JSON-UI draw
 list so its triangle coverage is evaluated at the current physical framebuffer resolution.
 Flat item sprites retain their original authored pixels and point-sampling route.
-Other block shapes (slabs, stairs, walls, fences) draw the same template quads their carrier
-thumbnail projects, as depth-tested GUI geometry over their original material tiles; the icon
-carrier names the world state each such thumbnail came from. Their tessellation is still the
-provisional cube projection, not vanilla's per-shape GUI tessellation.
 
 ### Vanilla rules
 

@@ -3,12 +3,6 @@
 
 use crate::{BlockFace, EntityGeometryCube, EntityGeometryUv};
 
-mod block_model;
-pub use block_model::{
-    GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_item_quads, cube_face, face_brightness,
-    material_tile,
-};
-
 /// Native item-frame design pixels, not source-texture or framebuffer pixels.
 pub const GUI_ITEM_SIDE: f32 = 16.0;
 pub const CUBE_SCALE: f32 = 10.0;

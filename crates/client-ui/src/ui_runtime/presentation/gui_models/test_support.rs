@@ -71,25 +71,6 @@ pub fn assert_installed_geometry(
             );
         }
     }
-    let modelled = presentation
-        .icon_catalog
-        .as_deref()
-        .is_some_and(|icons| !icons.block_models().is_empty());
-    if modelled {
-        for identifier in [
-            "minecraft:oak_stairs",
-            "minecraft:cobblestone_wall",
-            "minecraft:oak_fence",
-        ] {
-            let icon = presentation.item_icon(identifier, 0).unwrap();
-            let mesh = presentation
-                .gui_models
-                .models
-                .get(&icon_key(icon))
-                .unwrap_or_else(|| panic!("{identifier} draws at the control's size"));
-            assert!(mesh.batches().iter().all(|batch| batch.depth_test));
-        }
-    }
     let beacon = presentation.item_icon("minecraft:beacon", 0).unwrap();
     assert!(
         !presentation
