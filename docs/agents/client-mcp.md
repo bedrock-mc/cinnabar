@@ -15,6 +15,8 @@ schemas document every argument. Agents drive the client only through this endpo
   `wheel: {y: -3}` scrolls down three lines; add `unit: "pixel"` for precise scrolling.
 - `test_cape` with `enabled: true` installs an original cape on the local player for captures;
   `false` removes it. This presentation fixture does not modify the server or saved skin.
+- `test_accounts` with `enabled: true` shows a signed-in launcher whose Accounts picker lists
+  placeholder accounts, so recordings never show real gamertags; it never signs in or saves.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per
   rendered frame, so it suits the local showcase server; record remote servers with
   `fixed_clock: false`. Audio is captured to a WAV and muxed in.

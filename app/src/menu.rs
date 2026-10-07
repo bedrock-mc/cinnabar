@@ -153,6 +153,8 @@ pub(crate) struct MenuRuntime {
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
+    /// Developer recordings present placeholder accounts; nothing signs in or touches the store.
+    presentation_accounts: bool,
     /// The device code whose sign-in page was last opened, so each code opens once.
     sign_in_page_code: Option<String>,
     sign_out_requested: bool,
@@ -298,6 +300,11 @@ impl MenuRuntime {
             AuthState::Checking | AuthState::AwaitingCode { .. }
         ) || (auth_state == AuthState::Authenticated
             && (!self.catalog_started || self.catalog_process.is_some()));
+        let auth_state = if self.presentation_accounts {
+            AuthState::Authenticated
+        } else {
+            auth_state
+        };
         MenuView {
             visible: self.visible,
             over_world: self.over_world(),
@@ -538,7 +545,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
-        if self.skin_editor_blocks(action) {
+        if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
             return;
         }
         if self.account_change_pending()

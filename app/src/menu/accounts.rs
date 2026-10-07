@@ -1,6 +1,14 @@
 use launcher::accounts::{AccountProfile, AccountStore};
 
-use super::{AuthState, MenuDialog, MenuRuntime};
+use super::{AuthState, MenuAction, MenuDialog, MenuRuntime};
+
+/// Placeholder identities shown while developer recordings present accounts.
+const PRESENTATION_ACCOUNTS: [(&str, &str); 4] = [
+    ("2535400000000001", "CinnabarDemo"),
+    ("2535400000000002", "PixelPioneer"),
+    ("2535400000000003", "BlockBuilder"),
+    ("2535400000000004", "SkylineSurfer"),
+];
 
 #[derive(Debug, Default)]
 pub(super) struct Manager {
@@ -42,7 +50,51 @@ impl MenuRuntime {
         self.feeds.account_error = None;
     }
 
+    /// Presents a signed-in launcher with placeholder accounts, or restores the saved ones.
+    pub(crate) fn set_presentation_accounts(&mut self, enabled: bool) {
+        self.presentation_accounts = enabled;
+        self.feeds.account_error = None;
+        self.reload_accounts();
+    }
+
+    /// Account actions only change the in-memory presentation while it is shown.
+    pub(super) fn presentation_blocks(&mut self, action: MenuAction) -> bool {
+        if !self.presentation_accounts {
+            return false;
+        }
+        match action {
+            MenuAction::SwitchAccount(index) => {
+                if let Some(account) = self.feeds.accounts.get(index) {
+                    self.feeds.account_active_id = Some(account.id.clone());
+                }
+                self.dialog = None;
+                true
+            }
+            MenuAction::StartSignIn | MenuAction::AddAccount | MenuAction::SignOut => true,
+            _ => false,
+        }
+    }
+
     fn reload_accounts(&mut self) {
+        if self.presentation_accounts {
+            self.feeds.accounts = PRESENTATION_ACCOUNTS
+                .iter()
+                .map(|(id, gamertag)| AccountProfile {
+                    id: (*id).into(),
+                    gamertag: (*gamertag).into(),
+                    picture_path: None,
+                })
+                .collect();
+            let shown = self
+                .feeds
+                .account_active_id
+                .as_deref()
+                .is_some_and(|active| PRESENTATION_ACCOUNTS.iter().any(|(id, _)| *id == active));
+            if !shown {
+                self.feeds.account_active_id = Some(PRESENTATION_ACCOUNTS[0].0.into());
+            }
+            return;
+        }
         let store = self.account_store();
         match store.list() {
             Ok(accounts) => {
@@ -277,7 +329,35 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::menu::MenuAction;
+
+    #[test]
+    fn presentation_accounts_never_sign_in_or_queue_store_changes() {
+        let mut menu = MenuRuntime::new(true, 2, "First".into());
+        menu.set_presentation_accounts(true);
+        assert_eq!(menu.view().auth_state, AuthState::Authenticated);
+        menu.activate(MenuAction::OpenAccounts);
+        assert_eq!(menu.dialog, Some(MenuDialog::Accounts));
+        assert_eq!(menu.feeds.accounts.len(), PRESENTATION_ACCOUNTS.len());
+        menu.activate(MenuAction::AddAccount);
+        menu.activate(MenuAction::StartSignIn);
+        menu.activate(MenuAction::SignOut);
+        assert!(menu.auth_process.is_none());
+        assert!(!menu.feeds.account_adding && !menu.sign_out_requested);
+        menu.activate(MenuAction::SwitchAccount(2));
+        assert!(menu.accounts.operation.is_none());
+        menu.activate(MenuAction::OpenAccounts);
+        assert_eq!(
+            menu.feeds.account_active_id.as_deref(),
+            Some(PRESENTATION_ACCOUNTS[2].0)
+        );
+        menu.set_presentation_accounts(false);
+        assert_ne!(menu.view().auth_state, AuthState::Authenticated);
+        assert!(menu.feeds.accounts.iter().all(|account| {
+            PRESENTATION_ACCOUNTS
+                .iter()
+                .all(|(id, _)| account.id != *id)
+        }));
+    }
 
     #[test]
     fn account_picker_queues_switch_without_replacing_live_credentials() {

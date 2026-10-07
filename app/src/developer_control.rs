@@ -119,6 +119,14 @@ fn dispatch(world: &mut World) {
             }
             Command::Chat { text } => chat(world, &text),
             Command::TestCape { enabled } => cape::apply(world, enabled),
+            Command::TestAccounts { enabled } => {
+                if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+                    menu.set_presentation_accounts(enabled);
+                    Ok(json!({ "test_accounts": enabled }))
+                } else {
+                    Err("the launcher menu is unavailable".into())
+                }
+            }
             Command::CameraPath(path) => camera::start(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),
