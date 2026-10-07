@@ -57,6 +57,7 @@ impl MenuRuntime {
     pub(crate) fn set_presentation_accounts(&mut self, enabled: bool) -> bool {
         if enabled
             && (self.account_change_pending()
+                || self.auth_restart_requested
                 || self.auth_process.as_ref().is_some_and(|process| {
                     matches!(
                         process.state(),
@@ -78,21 +79,31 @@ impl MenuRuntime {
     /// The feeds the UI sees; presentation mode shows the selected placeholder's loaded profile.
     pub(super) fn presented_feeds(&self) -> launcher::menu::view::MenuFeeds {
         let mut feeds = self.feeds.clone();
-        if self.presentation_accounts {
-            feeds.profile = launcher::menu::view::MenuProfile {
-                loaded: true,
-                xuid: feeds.account_active_id.clone().unwrap_or_default(),
-                gamertag: self.presented_display_name(),
-                statistics_loaded: true,
-                achievements_loaded: true,
-                avatar_loaded: true,
-                avatar_error: true,
-                featured_screenshot_loaded: true,
-                featured_screenshot_error: true,
-                ..Default::default()
-            };
+        if let std::borrow::Cow::Owned(profile) = self.presented_profile() {
+            feeds.profile = profile;
         }
         feeds
+    }
+
+    /// The live profile, or the selected placeholder's completed one in presentation mode.
+    pub(super) fn presented_profile(
+        &self,
+    ) -> std::borrow::Cow<'_, launcher::menu::view::MenuProfile> {
+        if !self.presentation_accounts {
+            return std::borrow::Cow::Borrowed(&self.feeds.profile);
+        }
+        std::borrow::Cow::Owned(launcher::menu::view::MenuProfile {
+            loaded: true,
+            xuid: self.feeds.account_active_id.clone().unwrap_or_default(),
+            gamertag: self.presented_display_name(),
+            statistics_loaded: true,
+            achievements_loaded: true,
+            avatar_loaded: true,
+            avatar_error: true,
+            featured_screenshot_loaded: true,
+            featured_screenshot_error: true,
+            ..Default::default()
+        })
     }
 
     /// The selected placeholder's name in presentation mode, otherwise the live display name.
@@ -394,6 +405,12 @@ mod tests {
             "a signed-in install is refused"
         );
         std::fs::remove_file(&cache).unwrap();
+        menu.auth_restart_requested = true;
+        assert!(
+            !menu.set_presentation_accounts(true),
+            "a queued sign-in is refused"
+        );
+        menu.auth_restart_requested = false;
         assert!(menu.set_presentation_accounts(true));
         assert_eq!(menu.view().auth_state, AuthState::Authenticated);
         menu.activate(MenuAction::OpenAccounts);

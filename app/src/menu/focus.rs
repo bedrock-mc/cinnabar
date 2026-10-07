@@ -454,7 +454,7 @@ impl MenuRuntime {
                     return vec![MenuAction::CancelSignIn];
                 }
                 if auth == Some(&AuthState::Authenticated) {
-                    let profile = self.presented_feeds().profile;
+                    let profile = self.presented_profile();
                     if profile.unavailable {
                         actions.push(MenuAction::RefreshProfile);
                     } else if profile.loaded {
