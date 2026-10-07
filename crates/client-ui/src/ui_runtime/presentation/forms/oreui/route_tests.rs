@@ -343,7 +343,7 @@ fn pause_dims_the_whole_world_evenly_and_keeps_the_character_clear_of_its_action
     view.over_world = true;
     let mut preview = None;
     let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
-        preview = super::pause::draw(canvas, &view, [1280.0, 720.0]).unwrap();
+        preview = super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
     });
     let overlays: Vec<_> = super::review_tests::solids(&nodes)
         .into_iter()
@@ -369,7 +369,7 @@ fn pause_dims_the_whole_world_evenly_and_keeps_the_character_clear_of_its_action
 fn pause_card_has_no_green_stripe_above_the_logo() {
     let view = MenuView::new(true, "Fixture".into());
     let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
-        super::pause::draw(canvas, &view, [1280.0, 720.0]).unwrap();
+        super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
     });
     let resume = hits
         .iter()
@@ -429,7 +429,7 @@ fn pause_resume_follows_its_caption_without_a_large_empty_gap() {
     let mut rem = 0.0;
     let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
         rem = canvas.rem;
-        super::pause::draw(canvas, &view, [1280.0, 720.0]).unwrap();
+        super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
     });
     let caption = nodes.iter().find(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. }
         if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == "Pick up where you left off."
@@ -455,7 +455,7 @@ fn pause_actions_align_with_the_character_footer_and_logo_has_extra_top_space() 
             uv: [0, 0, 300, 100],
             glint: false,
         });
-        super::pause::draw(canvas, &view, [1280.0, 720.0]).unwrap();
+        super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
     });
     let bounds = |action| hits.iter().find(|(found, _)| *found == action).unwrap().1;
     let leave = bounds(MenuAction::PauseDisconnect);
@@ -711,7 +711,7 @@ fn pause_character_name_follows_the_current_account_and_profile() {
     ] {
         view.feeds.profile.gamertag = profile_name.into();
         let (_, _, nodes) = super::review_tests::paint(Default::default(), |canvas| {
-            super::pause::draw(canvas, &view, [1280.0, 720.0]).unwrap();
+            super::pause::draw(canvas, &view, [1280.0, 720.0], &|_| None).unwrap();
         });
         let labels = nodes
             .iter()
