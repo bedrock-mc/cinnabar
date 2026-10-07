@@ -28,7 +28,7 @@ use super::{
     EXIT_QUIT, EXIT_UNAVAILABLE,
     canvas::{Canvas, Image, Rect, Text},
     gpu,
-    input::{Command, Input, Source},
+    input::{Command, Input, Source, pointer::Pointer},
     view,
 };
 use crate::install_layout::InstallLayout;
@@ -62,13 +62,12 @@ pub(super) struct SetupApp {
     updates: Receiver<Status>,
     worker: Option<Worker>,
     hits: Vec<(Action, Rect)>,
-    cursor: Option<(f32, f32)>,
+    pointer: Pointer,
     hovered: Option<Action>,
     input: Input,
     controllers: Option<gilrs::Gilrs>,
     settings: launcher::menu::settings_options::SettingsOptions,
     modifiers: ModifiersState,
-    active: bool,
     appearance: client_ui::oreui_theme::Appearance,
     gui_scale_offset: i8,
     overlay_dirty: bool,
@@ -123,13 +122,12 @@ impl SetupApp {
             updates,
             worker: None,
             hits: Vec::new(),
-            cursor: None,
+            pointer: Pointer::default(),
             hovered: None,
             input,
             controllers,
             settings,
             modifiers: ModifiersState::default(),
-            active: true,
             appearance,
             gui_scale_offset,
             overlay_dirty: true,
@@ -198,7 +196,7 @@ impl SetupApp {
     }
 
     fn hit(&self) -> Option<Action> {
-        let (x, y) = self.cursor?;
+        let (x, y) = self.pointer.hit_position()?;
         self.hits
             .iter()
             .find(|(_, rect)| rect.contains(x, y))
@@ -290,7 +288,7 @@ impl ApplicationHandler for SetupApp {
             }
             WindowEvent::ScaleFactorChanged { .. } => self.overlay_dirty = true,
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor = Some((position.x as f32, position.y as f32));
+                self.pointer.position = Some((position.x as f32, position.y as f32));
                 let hovered = self.hit();
                 if hovered != self.hovered {
                     self.hovered = hovered;
@@ -299,17 +297,16 @@ impl ApplicationHandler for SetupApp {
                 }
             }
             WindowEvent::CursorLeft { .. } => {
-                self.cursor = None;
+                self.pointer.position = None;
                 self.hovered = None;
                 self.overlay_dirty = true;
             }
             WindowEvent::Focused(active) => {
-                self.active = active;
+                self.pointer.focus(active);
+                self.hovered = self.hit();
                 self.overlay_dirty = true;
                 if !active {
                     self.input.blur();
-                    self.cursor = None;
-                    self.hovered = None;
                     self.modifiers = ModifiersState::default();
                     self.overlay_dirty = true;
                 }
@@ -378,7 +375,7 @@ impl ApplicationHandler for SetupApp {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         while let Some(event) = self.controllers.as_mut().and_then(gilrs::Gilrs::next_event) {
-            if !self.active {
+            if !self.pointer.active {
                 continue;
             }
             if let Some(command) = super::input::controller(event.event, &self.settings) {

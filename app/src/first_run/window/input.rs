@@ -197,5 +197,7 @@ impl Input {
     }
 }
 
+pub(super) mod pointer;
+
 #[cfg(test)]
 mod regression_tests;
