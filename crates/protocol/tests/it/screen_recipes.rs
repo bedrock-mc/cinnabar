@@ -136,3 +136,32 @@ fn crafting_recipes_expose_ingredient_views() {
     assert_eq!(log.aux, 0);
     assert_eq!(log.count, 1);
 }
+
+/// Block items such as spruce planks have negative network ids; a recipe making one is still a
+/// crafting recipe, and its output keeps that id.
+#[test]
+fn recipes_making_negative_id_block_items_are_kept() {
+    let recipe = |id, output| ShapedRecipePayload {
+        recipe_id: "test:planks".into(),
+        width: 1,
+        height: 1,
+        ingredients: vec![ingredient("name", "minecraft:spruce_log")],
+        results: vec![result(output, 4)],
+        tag: "crafting_table".into(),
+        net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: id },
+        ..Default::default()
+    };
+    let update = update(CraftingDataPacket {
+        shaped_recipes: vec![recipe(3, -739), recipe(4, 0)],
+        clear_recipes: true,
+        ..Default::default()
+    });
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &update));
+    let handles = catalog.crafting_handles();
+    // Air (id 0) makes nothing.
+    assert_eq!(handles.len(), 1);
+    assert_eq!(handles[0].network_id(), 3);
+    assert_eq!(handles[0].recipe().output().network_id, -739);
+}
