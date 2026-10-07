@@ -446,6 +446,7 @@ fn delayed_air_drag_modifier_rewinds_to_its_tick_and_matches_on_time_delivery() 
         None,
         "a repeated value changes nothing and needs no replay"
     );
+    assert_eq!(delayed.simulated_air_drag_modifier(), Some(2.0));
     assert_eq!(delayed.retime_air_drag_modifier(0, 3.0), None);
     assert_eq!(delayed.retime_air_drag_modifier(150, 3.0), None);
 }

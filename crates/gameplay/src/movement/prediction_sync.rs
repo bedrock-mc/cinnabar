@@ -26,11 +26,12 @@ const ATTRIBUTE_NAMES: [&str; 6] = [
     "minecraft:player.hunger",
 ];
 /// Optional modifier attributes in wire order, with the value sent while one is undefined.
-const MODIFIER_ATTRIBUTES: [(&str, f32); 3] = [
+const MODIFIER_ATTRIBUTES: [(&str, f32); 2] = [
     ("minecraft:friction_modifier", 1.0),
     ("minecraft:bounciness", 0.0),
-    (client_world::AIR_DRAG_MODIFIER_ATTRIBUTE, 1.0),
 ];
+/// Air drag modifier sent while the attribute is undefined.
+const UNDEFINED_AIR_DRAG_MODIFIER: f32 = 1.0;
 
 #[derive(Default)]
 pub struct PredictionSyncState {
@@ -52,12 +53,16 @@ pub fn send_movement_prediction_sync(
     let Some(actor) = stream.actor(stream.local_player_runtime_id()) else {
         return;
     };
-    let Some(attributes) = attributes(|name| {
-        actor
-            .attributes
-            .get(name)
-            .map(|attribute| attribute.current)
-    }) else {
+    let air_drag_modifier = physics.simulated_air_drag_modifier();
+    let Some(attributes) = attributes(
+        |name| {
+            actor
+                .attributes
+                .get(name)
+                .map(|attribute| attribute.current)
+        },
+        air_drag_modifier,
+    ) else {
         // An unset attribute would read as zero, which a server may treat as a cheat; retry later.
         if !state.skip_logged {
             state.skipped = state.skipped.saturating_add(1);
@@ -106,11 +111,18 @@ fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
     ]
 }
 
-fn attributes(current: impl Fn(&str) -> Option<f32>) -> Option<[f32; 9]> {
+/// `air_drag_modifier` is the value the simulation accepted, so a skipped
+/// non-finite update never reaches the sync; other modifiers skip it here.
+fn attributes(
+    current: impl Fn(&str) -> Option<f32>,
+    air_drag_modifier: Option<f32>,
+) -> Option<[f32; 9]> {
     let value = |index: usize| current(ATTRIBUTE_NAMES[index]);
     let modifier = |index: usize| {
         let (name, undefined) = MODIFIER_ATTRIBUTES[index];
-        current(name).unwrap_or(undefined)
+        current(name)
+            .filter(|value| value.is_finite())
+            .unwrap_or(undefined)
     };
     Some([
         value(0)?,
@@ -121,7 +133,7 @@ fn attributes(current: impl Fn(&str) -> Option<f32>) -> Option<[f32; 9]> {
         value(5)?,
         modifier(0),
         modifier(1),
-        modifier(2),
+        air_drag_modifier.unwrap_or(UNDEFINED_AIR_DRAG_MODIFIER),
     ])
 }
 
@@ -154,20 +166,40 @@ mod tests {
 
     #[test]
     fn any_unset_attribute_withholds_the_sync_and_undefined_modifiers_use_their_defaults() {
-        assert_eq!(attributes(|_| None), None);
+        assert_eq!(attributes(|_| None, None), None);
         assert_eq!(
-            attributes(|name| (name != "minecraft:player.hunger").then_some(0.1)),
+            attributes(
+                |name| (name != "minecraft:player.hunger").then_some(0.1),
+                None
+            ),
             None
         );
         let required = |name: &str| ATTRIBUTE_NAMES.contains(&name).then_some(0.1);
-        let block = attributes(required).unwrap();
+        let block = attributes(required, None).unwrap();
         assert_eq!(&block[..6], &[0.1; 6]);
         assert_eq!(&block[6..], &[1.0, 0.0, 1.0]);
-        let block = attributes(|_| Some(0.1)).unwrap();
+        let block = attributes(|_| Some(0.1), Some(0.1)).unwrap();
         assert_eq!(
             &block[6..],
             &[0.1; 3],
             "defined modifiers send their current"
+        );
+    }
+
+    #[test]
+    fn non_finite_stored_modifiers_never_reach_the_sync() {
+        let stored = |name: &str| {
+            if ATTRIBUTE_NAMES.contains(&name) {
+                Some(0.1)
+            } else {
+                Some(f32::INFINITY)
+            }
+        };
+        let block = attributes(stored, Some(2.0)).unwrap();
+        assert_eq!(
+            &block[6..],
+            &[1.0, 0.0, 2.0],
+            "air drag follows the simulated value; others fall back"
         );
     }
 }

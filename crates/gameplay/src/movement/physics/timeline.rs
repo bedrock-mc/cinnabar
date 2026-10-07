@@ -157,6 +157,18 @@ impl LocalPhysicsController {
         edited.then_some(tick)
     }
 
+    /// Air-drag modifier the newest simulated tick used; None while undefined.
+    #[must_use]
+    pub fn simulated_air_drag_modifier(&self) -> Option<f32> {
+        let tick = self.history.newest_tick()?;
+        let modifier = self
+            .history
+            .input_at(tick)?
+            .vertical_physics
+            .air_drag_modifier;
+        modifier.map(|modifier| modifier as f32)
+    }
+
     /// Replaces the live velocity, for timeline edits whose replay failed.
     pub fn replace_live_velocity(&mut self, motion: [f32; 3]) {
         if let Some(state) = self.state.as_mut()
