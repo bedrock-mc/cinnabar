@@ -93,6 +93,8 @@ impl CommittedGameplayState<'_> {
             tick,
         } = control
         {
+            // Both attribute edits share the packet's stamp, so one replay covers them.
+            let mut rewind = None;
             if let Some(current) = current
                 && self.speed.apply(
                     self.session_generation,
@@ -102,14 +104,12 @@ impl CommittedGameplayState<'_> {
                     sprint_modifier,
                 )
                 && self.movement.physics_is_authorized()
-                && let Some((rewind, speed)) =
+                && let Some((edited, speed)) =
                     self.physics
                         .retime_movement_speed(tick, current, sprint_modifier)
             {
                 self.speed.adopt_replayed_speed(speed);
-                if let Some(rewind) = rewind {
-                    replay_timeline_edit(self.movement, self.physics, rewind, world);
-                }
+                rewind = edited;
             }
             if (underwater.is_some() || lava.is_some())
                 && let Some(speeds) = self.speed.apply_liquid(
@@ -120,8 +120,11 @@ impl CommittedGameplayState<'_> {
                     lava,
                 )
                 && self.movement.physics_is_authorized()
-                && let Some(rewind) = self.physics.retime_liquid_movement_speeds(tick, speeds)
+                && let Some(edited) = self.physics.retime_liquid_movement_speeds(tick, speeds)
             {
+                rewind = Some(rewind.map_or(edited, |earlier: u64| earlier.min(edited)));
+            }
+            if let Some(rewind) = rewind {
                 replay_timeline_edit(self.movement, self.physics, rewind, world);
             }
             return ControlDisposition::Handled;

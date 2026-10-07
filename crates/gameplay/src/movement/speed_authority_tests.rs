@@ -142,3 +142,63 @@ fn liquid_speeds_order_independently_and_keep_omitted_values() {
     assert_eq!(invalid.underwater, None);
     assert_eq!(authority.liquid().underwater, Some(0.05));
 }
+
+/// An underwater speed beyond the sweep-safe bound is skipped; the largest
+/// admitted speed keeps a boosted sprint-swimmer inside one collision sweep.
+#[test]
+fn underwater_speed_admission_keeps_water_velocity_simulable() {
+    let mut authority = LocalMovementSpeedAuthority::default();
+    authority.begin_session(1, 0);
+    let skipped = authority.apply_liquid(1, 1, 0, Some(30.0), None).unwrap();
+    assert_eq!(skipped.underwater, None);
+    assert_eq!(authority.liquid().underwater, None);
+    let bound = super::MAX_SIMULABLE_UNDERWATER_SPEED;
+    let admitted = authority.apply_liquid(1, 2, 0, Some(bound), None).unwrap();
+    assert_eq!(admitted.underwater, Some(bound));
+
+    struct Water;
+    impl sim::CollisionWorld for Water {
+        fn collision_boxes(
+            &self,
+            _: sim::Aabb,
+        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+            Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+        fn block_physics(
+            &self,
+            _: [i32; 3],
+        ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+            Ok(sim::BlockPhysicsSample {
+                layers: Box::new([sim::BlockPhysicsFacts {
+                    friction: 0.6,
+                    horizontal_speed_factor: 1.0,
+                    vertical_speed_factor: 1.0,
+                    fluid_height_blocks: 1.0,
+                    flags: sim::BlockPhysicsFlags::WATER,
+                    surface_response: sim::SurfaceResponse::None,
+                }]),
+                identity: sim::CollisionQuery::synthetic(()).identity,
+            })
+        }
+    }
+    let mut state = sim::PlayerState::new(sim::Vec3::new(0.5, 5.0, 0.5));
+    state.swim_amount = 1.0;
+    state.swim_pose_active = true;
+    let input = sim::MovementInput {
+        mode: sim::MovementMode::Swimming,
+        forward: 1.0,
+        sprinting: true,
+        underwater_movement_speed: Some(bound),
+        effects: sim::MovementEffects {
+            dolphin_boost: true,
+            ..sim::MovementEffects::default()
+        },
+        ..sim::MovementInput::default()
+    };
+    for _ in 0..200 {
+        sim::Simulator::default()
+            .tick(&mut state, input, &Water)
+            .expect("bounded water speed stays simulable");
+    }
+    assert!(state.velocity.z < sim::MAX_COLLISION_QUERY_EXTENT - sim::PLAYER_HEIGHT);
+}

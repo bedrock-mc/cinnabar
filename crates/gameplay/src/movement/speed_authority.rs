@@ -1,5 +1,10 @@
 /// Largest effective speed that stays inside the collision query extent.
 const MAX_SIMULABLE_MOVEMENT_SPEED: f64 = sim::MAX_COLLISION_QUERY_EXTENT / 4.0;
+/// Largest underwater speed whose steady water velocity fits one collision sweep:
+/// sprint drag 0.9 retains nine accelerations and a dolphin boost doubles them,
+/// with a tenth of headroom for liquid currents.
+pub(crate) const MAX_SIMULABLE_UNDERWATER_SPEED: f64 =
+    (sim::MAX_COLLISION_QUERY_EXTENT - sim::PLAYER_HEIGHT) / 20.0;
 
 /// Attribute current and the native sprint modifier currently installed on it.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -144,9 +149,9 @@ impl LocalMovementSpeedAuthority {
             return None;
         }
         self.last_liquid_sequence = Some(sequence);
-        let admitted = |name, value: Option<f64>| {
+        let admitted = |name, value: Option<f64>, maximum: f64| {
             value.filter(|current| {
-                let valid = (0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(current);
+                let valid = (0.0..=maximum).contains(current);
                 if !valid {
                     super::diagnostics::note_skipped_authority(name, *current);
                 }
@@ -154,8 +159,13 @@ impl LocalMovementSpeedAuthority {
             })
         };
         let update = LiquidMovementSpeeds {
-            underwater: admitted("underwater_movement", underwater),
-            lava: admitted("lava_movement", lava),
+            underwater: admitted(
+                "underwater_movement",
+                underwater,
+                MAX_SIMULABLE_UNDERWATER_SPEED,
+            ),
+            // Lava's 0.5 drag settles at one acceleration, inside the movement bound.
+            lava: admitted("lava_movement", lava, MAX_SIMULABLE_MOVEMENT_SPEED),
         };
         self.liquid.underwater = update.underwater.or(self.liquid.underwater);
         self.liquid.lava = update.lava.or(self.liquid.lava);
