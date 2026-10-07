@@ -111,12 +111,12 @@ fn omission_traps_and_reload_revoke_camera_policy() {
         .frame_with_gameplay(false, Some(snapshot()))
         .unwrap();
     assert!(!trapped.preserves_teleport_rotation());
-    let (_dir, mut reloaded) = load(&call(true, false), true);
+    let (dir, mut reloaded) = load(&call(true, false), true);
     reloaded
         .frame_with_gameplay(false, Some(snapshot()))
         .unwrap();
     assert!(reloaded.preserves_teleport_rotation());
-    std::fs::write(&reloaded.path, source("")).unwrap();
+    std::fs::write(dir.path().join("camera.wat"), source("")).unwrap();
     assert!(reloaded.reload_if_changed().unwrap());
     assert!(!reloaded.preserves_teleport_rotation());
 }
