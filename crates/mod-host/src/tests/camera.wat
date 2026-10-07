@@ -1,5 +1,5 @@
 (component
-  (import "cinnabar:extension/camera@0.1.0" (instance $camera
+  (import "$CAMERA" (instance $camera
     (export "set-preserve-teleport-rotation" (func (param "enabled" bool)
       (result (result (error string)))))))
   (alias export $camera "set-preserve-teleport-rotation" (func $preserve))

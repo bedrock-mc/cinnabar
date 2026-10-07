@@ -1,7 +1,16 @@
 use super::*;
 
 fn source(frame: &str) -> String {
-    include_str!("camera.wat").replace("$FRAME", frame)
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    include_str!("camera.wat")
+        .replace("$CAMERA", &format!("{name}/camera@{version}"))
+        .replace("$FRAME", frame)
 }
 
 fn load(frame: &str, camera: bool) -> (tempfile::TempDir, ModHost) {

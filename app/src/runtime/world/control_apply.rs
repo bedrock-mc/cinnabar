@@ -136,7 +136,26 @@ mod tests {
         let mut settings = CameraSettingsAuthority::default();
         assert!(!settings.preserves_teleport_rotation());
         settings.set_preserve_teleport_rotation(true);
-        settings.reset_perspective();
+        let mut view = LocalViewPose::default();
+        let mut anchor = None;
+        apply_committed_control(
+            CommittedControlEvent::ChangeDimension {
+                sequence: 1,
+                change: protocol::ChangeDimensionEvent {
+                    dimension: 1,
+                    ..Default::default()
+                },
+                resolved: client_world::ResolvedServerPosition {
+                    position: [3.0, 64.0, 8.0],
+                    surface_anchor: Some([3, 8]),
+                },
+            },
+            &mut view,
+            &mut settings,
+            &mut anchor,
+        );
+        assert_eq!(view.eye_translation(), Vec3::new(3.0, 64.0, 8.0));
+        assert_eq!(anchor, Some([3, 8]));
         assert!(!settings.preserves_teleport_rotation());
     }
 }
