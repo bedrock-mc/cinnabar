@@ -442,6 +442,11 @@ impl MenuRuntime {
                     (_, Some(control)) => Some(control),
                     (supervisor, None) => supervisor,
                 };
+                let auth = if self.presentation_accounts {
+                    Some(&AuthState::Authenticated)
+                } else {
+                    auth
+                };
                 if matches!(
                     auth,
                     Some(AuthState::Checking | AuthState::AwaitingCode { .. })
@@ -449,15 +454,16 @@ impl MenuRuntime {
                     return vec![MenuAction::CancelSignIn];
                 }
                 if auth == Some(&AuthState::Authenticated) {
-                    if self.feeds.profile.unavailable {
+                    let profile = self.presented_profile();
+                    if profile.unavailable {
                         actions.push(MenuAction::RefreshProfile);
-                    } else if self.feeds.profile.loaded {
+                    } else if profile.loaded {
                         actions.extend([
                             MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Overview),
                             MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Stats),
                         ]);
                         if self.profile_tab == launcher::menu::ProfileTab::Overview
-                            && self.feeds.profile.friends.is_some_and(|n| n > 0)
+                            && profile.friends.is_some_and(|n| n > 0)
                         {
                             actions.push(MenuAction::Navigate(MenuScreen::Friends));
                         }
