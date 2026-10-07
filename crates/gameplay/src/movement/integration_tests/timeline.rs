@@ -450,3 +450,31 @@ fn delayed_air_drag_modifier_rewinds_to_its_tick_and_matches_on_time_delivery() 
     assert_eq!(delayed.retime_air_drag_modifier(0, 3.0), None);
     assert_eq!(delayed.retime_air_drag_modifier(150, 3.0), None);
 }
+
+/// A later update with the same stamp replaces the earlier one in replay and sync.
+#[test]
+fn same_tick_server_updates_replay_the_latest_value() {
+    let tripled = sim::VerticalPhysics {
+        air_drag_modifier: Some(3.0),
+        ..sim::VerticalPhysics::default()
+    };
+    let (mut on_time, _) = walked_physics(2);
+    run_tick_with(&mut on_time, vertical_input(tripled));
+    run_tick_with(&mut on_time, vertical_input(tripled));
+
+    let (mut delayed, mut ticker) = walked_physics(4);
+    assert_eq!(delayed.retime_air_drag_modifier(102, 2.0), Some(102));
+    assert_eq!(delayed.retime_air_drag_modifier(102, 3.0), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut delayed, 102, &VersionedFloor(1)).unwrap();
+    assert_eq!(delayed.state(), on_time.state());
+    assert_eq!(delayed.simulated_air_drag_modifier(), Some(3.0));
+
+    let (untouched, _) = walked_physics(4);
+    let (mut restored, mut ticker) = walked_physics(4);
+    let clear = flags(|flags| flags.has_gravity = Some(false));
+    let restore = flags(|flags| flags.has_gravity = Some(true));
+    assert_eq!(restored.apply_server_movement_flags(102, clear), Some(102));
+    assert_eq!(restored.apply_server_movement_flags(102, restore), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut restored, 102, &VersionedFloor(1)).unwrap();
+    assert_eq!(restored.state(), untouched.state());
+}

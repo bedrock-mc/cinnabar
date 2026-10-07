@@ -140,21 +140,12 @@ impl LocalPhysicsController {
             TimelineSlot::Rewind(tick) => tick,
             TimelineSlot::Stale => self.history.oldest_tick()?,
         };
-        let anchor = self
-            .history
-            .input_at(tick)?
-            .vertical_physics
-            .air_drag_modifier;
-        let current = Some(f64::from(current));
-        if anchor == current {
-            return None;
-        }
-        let (edited, _) = rewrite_run(
+        rewrite_server_owned(
             self.history.retained_inputs_after_mut(tick),
-            |input| input.vertical_physics.air_drag_modifier == anchor,
-            |input| input.vertical_physics.air_drag_modifier = current,
-        );
-        edited.then_some(tick)
+            |input| &mut input.vertical_physics.air_drag_modifier,
+            Some(f64::from(current)),
+        )
+        .then_some(tick)
     }
 
     /// Air-drag modifier the newest simulated tick used; None while undefined.
@@ -224,30 +215,19 @@ impl LocalPhysicsController {
             );
             changed |= edited;
         }
-        if let Some(has_gravity) = flags
-            .has_gravity
-            .filter(|value| *value != anchor.vertical_physics.has_gravity)
-        {
-            let (edited, _) = rewrite_run(
+        if let Some(has_gravity) = flags.has_gravity {
+            changed |= rewrite_server_owned(
                 self.history.retained_inputs_after_mut(tick),
-                |input| input.vertical_physics.has_gravity == anchor.vertical_physics.has_gravity,
-                |input| input.vertical_physics.has_gravity = has_gravity,
+                |input| &mut input.vertical_physics.has_gravity,
+                has_gravity,
             );
-            changed |= edited;
         }
-        if let Some(uniform) = flags
-            .uniform_air_drag
-            .filter(|value| *value != anchor.vertical_physics.uniform_air_drag)
-        {
-            let (edited, _) = rewrite_run(
+        if let Some(uniform) = flags.uniform_air_drag {
+            changed |= rewrite_server_owned(
                 self.history.retained_inputs_after_mut(tick),
-                |input| {
-                    input.vertical_physics.uniform_air_drag
-                        == anchor.vertical_physics.uniform_air_drag
-                },
-                |input| input.vertical_physics.uniform_air_drag = uniform,
+                |input| &mut input.vertical_physics.uniform_air_drag,
+                uniform,
             );
-            changed |= edited;
         }
         if let Some(sprinting) = flags.sprinting.filter(|value| *value != anchor.sprinting) {
             let (edited, reached) = rewrite_run(
@@ -342,6 +322,22 @@ fn rewrite_run<'a>(
         edited = true;
     }
     (edited, true)
+}
+
+/// Sets a value only the server authors on every input after the stamp; the
+/// latest update wins there, even over an earlier one with the same stamp.
+fn rewrite_server_owned<'a, T: PartialEq + Copy + 'a>(
+    inputs: impl Iterator<Item = &'a mut MovementInput>,
+    field: fn(&mut MovementInput) -> &mut T,
+    value: T,
+) -> bool {
+    let mut changed = false;
+    for input in inputs {
+        let slot = field(input);
+        changed |= *slot != value;
+        *slot = value;
+    }
+    changed
 }
 
 /// Whether a velocity keeps the next tick's collision sweep inside the query extent.
