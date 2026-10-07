@@ -84,7 +84,6 @@ fn observed() -> ModeObservation {
     ModeObservation {
         feet: Vec3::ZERO,
         on_ground: false,
-        velocity_y: 0.0,
         in_water: true,
         in_lava: false,
         sprinting: true,

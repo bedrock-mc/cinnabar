@@ -395,3 +395,80 @@ fn an_unsimulable_server_motion_is_skipped_and_prediction_keeps_running() {
     );
     assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
 }
+
+/// Glides from a jump press at height, optionally boosted live from `boost_from` on.
+fn glide_with_boost(
+    ticks: u64,
+    boost_from: Option<(u64, super::BoostSpan)>,
+) -> (
+    LocalPhysicsController,
+    MovementTicker,
+    super::LocalMovementEffectTimeline,
+) {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 50.620_01, 0.0], 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 50.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    let context = PhysicsSampleContext {
+        pitch: 20.0,
+        mode_intent: super::ModeIntent {
+            elytra_ready: true,
+            ..super::ModeIntent::default()
+        },
+        ..PhysicsSampleContext::default()
+    };
+    for index in 0..ticks {
+        if let Some((tick, span)) = boost_from
+            && physics.state().unwrap().tick == tick
+        {
+            effects.set_glide_boost(1, 1, Some(span));
+        }
+        let input = MovementInput {
+            jumping: index == 1,
+            ..MovementInput::default()
+        };
+        let frame = physics.advance_with_context_and_effects(
+            Duration::from_millis(50),
+            input,
+            context,
+            &VersionedFloor(1),
+            &mut effects,
+        );
+        assert_eq!(frame.completed_ticks, 1, "{:?}", frame.blocked);
+        for sample in frame.samples {
+            ticker.enqueue_completed_physics(sample).unwrap();
+        }
+    }
+    (physics, ticker, effects)
+}
+
+/// A delayed firework boost rewinds to its stamp and matches on-time delivery.
+#[test]
+fn delayed_glide_boost_rewinds_to_its_tick_and_matches_on_time_delivery() {
+    use super::physics::MovementEffectSource;
+    let span = super::BoostSpan::Ticks(5);
+    let (on_time, _, mut on_time_effects) = glide_with_boost(6, Some((103, span)));
+    let (mut delayed, mut ticker, _) = glide_with_boost(6, None);
+    assert_eq!(delayed.mode(), sim::MovementMode::Gliding);
+    assert_ne!(delayed.state(), on_time.state());
+
+    let (rewind, remaining) = delayed.retime_glide_boost(103, span);
+    assert_eq!(rewind, Some(103));
+    assert_eq!(remaining, Some(super::BoostSpan::Ticks(2)));
+    reconcile_timeline_rewind(&mut ticker, &mut delayed, 103, &VersionedFloor(1)).unwrap();
+    assert_eq!(delayed.state(), on_time.state());
+    for _ in 0..2 {
+        assert!(on_time_effects.snapshot().glide_boost);
+        on_time_effects.commit_successful_tick();
+    }
+    assert!(!on_time_effects.snapshot().glide_boost);
+
+    assert_eq!(
+        delayed.retime_glide_boost(106, span),
+        (None, Some(span)),
+        "a current stamp boosts from the next tick"
+    );
+}

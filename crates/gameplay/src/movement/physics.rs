@@ -222,7 +222,6 @@ pub struct LocalPhysicsController {
     previous_jump_held: bool,
     jump_edge_pending: bool,
     input_edges: super::input_state::PendingInputEdges,
-    fly_toggle_pending: bool,
     /// Open processed-jump-arc fold state carried across ticks. Reset with the
     /// rest of prediction state; rebuilt across correction replays.
     processed_jump_arc_active: bool,
@@ -264,7 +263,6 @@ impl Default for LocalPhysicsController {
             previous_jump_held: false,
             jump_edge_pending: false,
             input_edges: Default::default(),
-            fly_toggle_pending: false,
             processed_jump_arc_active: false,
             dropped_tick_count: 0,
             last_world_identity: None,
@@ -318,7 +316,6 @@ impl LocalPhysicsController {
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.input_edges = Default::default();
-        self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
@@ -377,7 +374,6 @@ impl LocalPhysicsController {
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.input_edges = Default::default();
-        self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
@@ -462,7 +458,6 @@ impl LocalPhysicsController {
         }
         self.previous_jump_held = input.jumping;
         input.jump_pressed = self.jump_edge_pending;
-        self.fly_toggle_pending ^= context.mode_intent.fly_toggle;
 
         let mut frame = fixed_ticks::frame(
             elapsed,
@@ -518,11 +513,9 @@ impl LocalPhysicsController {
             let [move_sideways, move_forward] = ModeObservation::input_vector(input);
             match self.modes.select(
                 context.mode_intent,
-                self.fly_toggle_pending,
                 ModeObservation {
                     feet: state.position,
                     on_ground: state.on_ground,
-                    velocity_y: state.velocity.y,
                     in_water: self.last_environment.in_water,
                     in_lava: self.last_environment.in_lava,
                     sprinting: sprint_request,
@@ -617,7 +610,6 @@ impl LocalPhysicsController {
                         eye_height: self.eye_offset.height(1.0),
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
-                        fly_toggle: self.fly_toggle_pending,
                         requested_sneak: sneak_request,
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
@@ -722,7 +714,6 @@ impl LocalPhysicsController {
                     );
                     self.jump_edge_pending = false;
                     self.input_edges = Default::default();
-                    self.fly_toggle_pending = false;
                     input.jump_pressed = false;
                 }
                 Err(error) => {

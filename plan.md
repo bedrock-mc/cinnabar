@@ -4911,14 +4911,15 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   See `docs/reference/flight-control-corrections.md` and
   `docs/reference/liquid-movement.md`, `docs/reference/liquid-currents.md` and
   `docs/reference/swimming-trigger.md` for identified
-  bodies and boundaries. Touch and stalled-entry swim predicates, the seven-tick flight
-  trigger versus our wall-time approximation,
+  bodies and boundaries. Touch and stalled-entry swim predicates,
   unregistered flow materials and specialized directional/waterlogged flow faces,
   specialized jump paths, bubble columns, custom movement components and
   complete waterlogged/surface behavior remain open. Controlled live results are recorded
   separately; source-derived regressions alone close no acceptance gate. Wire edges for
   swim/glide/crawl/fly and `PersistSneak` still need complete native input comparisons.
-  Glide retains the public movement-physics notes' provisional BedSim equations.
+  Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
+  the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
+  lift gated by an unidentified movement ability and geyser boosts remain incomplete.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat

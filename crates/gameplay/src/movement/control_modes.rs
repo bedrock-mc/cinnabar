@@ -3,35 +3,11 @@
 
 use std::time::Duration;
 
-/// Provisional double-tap window; needs independent measurement.
-const DOUBLE_TAP_WINDOW: Duration = Duration::from_millis(350);
 /// Minimum forward input needed to begin sprinting.
 pub(super) const SPRINT_THRESHOLD: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
 /// Food level at or below which survival sprinting is refused.
 pub const SPRINT_HUNGER_FLOOR: u16 = 6;
-
-/// Detects a second press inside the double-tap window.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DoubleTap {
-    last_press: Option<Duration>,
-}
-
-impl DoubleTap {
-    /// Records a press at `now`; true when it completes a double-tap.
-    pub fn press(&mut self, now: Duration) -> bool {
-        let double = self
-            .last_press
-            .is_some_and(|last| now.saturating_sub(last) <= DOUBLE_TAP_WINDOW);
-        // A completed double-tap must not chain into a triple.
-        self.last_press = if double { None } else { Some(now) };
-        double
-    }
-
-    pub fn reset(&mut self) {
-        self.last_press = None;
-    }
-}
 
 /// One render frame of sprint/sneak-relevant facts.
 #[derive(Debug, Clone, Copy, Default)]
@@ -247,15 +223,6 @@ mod tests {
                 })
                 .sprint_request
         );
-    }
-
-    #[test]
-    fn double_tap_detector_does_not_chain_into_a_triple() {
-        let mut tap = DoubleTap::default();
-        assert!(!tap.press(Duration::from_millis(0)));
-        assert!(tap.press(Duration::from_millis(200)));
-        assert!(!tap.press(Duration::from_millis(300)));
-        assert!(!tap.press(Duration::from_millis(1000)));
     }
 
     /// Item use blocks a new sprint while an existing sprint keeps its actor state.

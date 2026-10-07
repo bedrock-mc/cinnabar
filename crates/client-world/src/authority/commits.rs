@@ -36,6 +36,15 @@ impl WorldAuthority {
                     event: motion,
                 });
             }
+            WorldEvent::MovementEffect(event) => {
+                let sequence = sequence.expect("sequenced movement effects commit through submit");
+                if event.actor_runtime_id == self.local_player_runtime_id {
+                    self.push_committed_control(CommittedControlEvent::LocalMovementBoost {
+                        sequence,
+                        event,
+                    });
+                }
+            }
             WorldEvent::SetTime(update) => {
                 let sequence = sequence.expect("sequenced SetTime commits through submit");
                 self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });

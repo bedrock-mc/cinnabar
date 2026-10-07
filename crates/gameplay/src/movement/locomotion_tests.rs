@@ -17,38 +17,31 @@ use super::{
 
 const TICK: Duration = Duration::from_millis(50);
 
-/// A render frame without a fixed tick must retain the flight toggle.
+/// Flight toggles on a second jump press within the seven-tick window, counted in fixed ticks.
 #[test]
-fn flight_toggle_survives_a_frame_without_a_tick() {
-    let mut physics = grounded_controller();
-    let context = PhysicsSampleContext {
-        mode_intent: ModeIntent {
-            can_fly: true,
-            fly_toggle: true,
-            ..Default::default()
-        },
+fn flight_double_tap_counts_fixed_ticks() {
+    let can_fly = ModeIntent {
+        can_fly: true,
         ..Default::default()
     };
-    let frame = physics.advance_with_context(
-        Duration::from_millis(10),
-        MovementInput::default(),
-        context,
-        &VersionedFloor(1),
-    );
-    assert_eq!(frame.completed_ticks, 0);
-    let frame = physics.advance_with_context(
-        Duration::from_millis(40),
-        MovementInput::default(),
-        PhysicsSampleContext {
-            mode_intent: ModeIntent {
-                fly_toggle: false,
-                ..context.mode_intent
-            },
-            ..context
-        },
-        &VersionedFloor(1),
-    );
-    assert_eq!(frame.samples[0].processed.mode, MovementMode::Flying);
+    let world = VersionedFloor(1);
+    for (idle_ticks, flies) in [(5, true), (6, false)] {
+        let mut physics = grounded_controller();
+        let press = MovementInput {
+            jumping: true,
+            ..Default::default()
+        };
+        step(&mut physics, press, can_fly, &world);
+        for _ in 0..idle_ticks {
+            step(&mut physics, MovementInput::default(), can_fly, &world);
+        }
+        let second = step(&mut physics, press, can_fly, &world);
+        assert_eq!(
+            second.processed.mode == MovementMode::Flying,
+            flies,
+            "{idle_ticks}"
+        );
+    }
 }
 
 /// A spatial correction cannot cancel unacknowledged flight or erase a later server clear.
@@ -57,6 +50,21 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
     for server_flying in [false, true] {
         let mut physics = grounded_controller();
         let world = VersionedFloor(1);
+        let intent = ModeIntent {
+            can_fly: true,
+            server_flying,
+            ..Default::default()
+        };
+        if !server_flying {
+            // Open the double-tap window so the first recorded tick toggles flight.
+            for jumping in [true, false] {
+                let input = MovementInput {
+                    jumping,
+                    ..Default::default()
+                };
+                step(&mut physics, input, intent, &world);
+            }
+        }
         let mut ticker = MovementTicker::default();
         ticker.reset(
             1,
@@ -68,20 +76,7 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
             jumping: true,
             ..Default::default()
         };
-        let intent = ModeIntent {
-            can_fly: true,
-            server_flying,
-            ..Default::default()
-        };
-        let flying = step(
-            &mut physics,
-            input,
-            ModeIntent {
-                fly_toggle: !server_flying,
-                ..intent
-            },
-            &world,
-        );
+        let flying = step(&mut physics, input, intent, &world);
         assert_eq!(flying.processed.mode, MovementMode::Flying);
         ticker.enqueue_completed_physics(flying.clone()).unwrap();
         let started = ticker.pop_pending().unwrap().snapshot;
@@ -220,6 +215,22 @@ fn has(flags: PlayerInputFlags, flag: PlayerInputFlags) -> bool {
     flags.bits() & flag.bits() != 0
 }
 
+/// Releases and presses jump twice; the final press completes a flight double-tap.
+fn double_tap_jump(
+    physics: &mut LocalPhysicsController,
+    intent: ModeIntent,
+    world: &impl CollisionWorld,
+) -> PhysicsMovementSample {
+    let press = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    step(physics, MovementInput::default(), intent, world);
+    step(physics, press, intent, world);
+    step(physics, MovementInput::default(), intent, world);
+    step(physics, press, intent, world)
+}
+
 #[test]
 fn flight_start_ascend_and_stop_edges_follow_the_simulated_mode() {
     let mut physics = grounded_controller();
@@ -233,15 +244,7 @@ fn flight_start_ascend_and_stop_edges_follow_the_simulated_mode() {
     };
     let world = VersionedFloor(1);
 
-    let start = step(
-        &mut physics,
-        hold_jump,
-        ModeIntent {
-            fly_toggle: true,
-            ..can_fly
-        },
-        &world,
-    );
+    let start = double_tap_jump(&mut physics, can_fly, &world);
     assert_eq!(start.processed.mode, MovementMode::Flying);
     let start_flags = input_flags(&start, HeldInput::default());
     assert!(has(start_flags, PlayerInputFlags::START_FLYING));
@@ -253,19 +256,14 @@ fn flight_start_ascend_and_stop_edges_follow_the_simulated_mode() {
     assert!(!has(cruise_flags, PlayerInputFlags::START_FLYING));
     assert!(cruise.position[1] > start.position[1]);
 
-    let stop = step(
-        &mut physics,
-        MovementInput::default(),
-        ModeIntent {
-            fly_toggle: true,
-            ..can_fly
-        },
-        &world,
-    );
+    let before_stop = step(&mut physics, MovementInput::default(), can_fly, &world);
+    step(&mut physics, hold_jump, can_fly, &world);
+    step(&mut physics, MovementInput::default(), can_fly, &world);
+    let stop = step(&mut physics, hold_jump, can_fly, &world);
+    assert_eq!(before_stop.processed.mode, MovementMode::Flying);
     assert_eq!(stop.processed.mode, MovementMode::Walking);
-    let stop_flags = input_flags(&stop, HeldInput::from(&cruise));
+    let stop_flags = input_flags(&stop, HeldInput::from(&before_stop));
     assert!(has(stop_flags, PlayerInputFlags::STOP_FLYING));
-    assert!(!has(stop_flags, PlayerInputFlags::ASCEND));
 }
 
 #[test]
@@ -279,6 +277,11 @@ fn keyboard_vertical_intents_reach_server_flight_controls() {
         (true, true, 12),
     ] {
         let mut physics = grounded_controller();
+        let can_fly = ModeIntent {
+            can_fly: true,
+            ..Default::default()
+        };
+        let toggled = double_tap_jump(&mut physics, can_fly, &VersionedFloor(1));
         let sample = step(
             &mut physics,
             MovementInput {
@@ -286,15 +289,11 @@ fn keyboard_vertical_intents_reach_server_flight_controls() {
                 sneaking,
                 ..Default::default()
             },
-            ModeIntent {
-                can_fly: true,
-                fly_toggle: true,
-                ..Default::default()
-            },
+            can_fly,
             &VersionedFloor(1),
         );
         assert_eq!(sample.processed.mode, MovementMode::Flying);
-        let flags = input_flags(&sample, HeldInput::default());
+        let flags = input_flags(&sample, HeldInput::from(&toggled));
         let server_vertical_controls = (flags.bits() >> 14) & 12;
         assert_eq!(server_vertical_controls, expected);
         assert_eq!(has(flags, PlayerInputFlags::WANT_UP), jumping);
@@ -316,15 +315,7 @@ fn keyboard_vertical_intents_reach_server_flight_controls() {
 #[test]
 fn flight_without_permission_never_starts() {
     let mut physics = grounded_controller();
-    let sample = step(
-        &mut physics,
-        MovementInput::default(),
-        ModeIntent {
-            fly_toggle: true,
-            ..ModeIntent::default()
-        },
-        &VersionedFloor(1),
-    );
+    let sample = double_tap_jump(&mut physics, ModeIntent::default(), &VersionedFloor(1));
     assert_eq!(sample.processed.mode, MovementMode::Walking);
 }
 

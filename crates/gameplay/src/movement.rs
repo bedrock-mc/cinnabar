@@ -44,7 +44,7 @@ pub use correction_shape::{
     reconcile_prediction_correction, reconcile_timeline_rewind,
 };
 pub use diagnostics::{CorrectionKind, note_correction, note_motion};
-pub use effects::{LocalMovementEffectTimeline, MiningEffects};
+pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};

@@ -7,6 +7,7 @@ use super::control_modes::SPRINT_HUNGER_FLOOR;
 use player_state::PlayerState;
 
 const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
+const LEATHER_BOOTS_IDENTIFIER: &str = "minecraft:leather_boots";
 /// Bedrock enchantment ids; provisional until checked against a native item.
 pub(crate) const DEPTH_STRIDER_ENCHANTMENT_ID: i16 = 7;
 const SOUL_SPEED_ENCHANTMENT_ID: i16 = 36;
@@ -23,6 +24,7 @@ pub struct LocalMovementFacts {
     pub vertical_fly_speed: Option<f64>,
     pub creative_flight: bool,
     pub elytra_ready: bool,
+    pub can_stand_on_snow: bool,
     pub depth_strider: u8,
     pub soul_speed: u8,
     pub swift_sneak: u8,
@@ -45,8 +47,12 @@ pub fn read(
     let elytra_ready = !chestplate.is_empty()
         && stream
             .canonical_item_stack(&chestplate)
+            .is_some_and(|stack| elytra_flies(&stack));
+    let can_stand_on_snow = !boots.is_empty()
+        && stream
+            .canonical_item_stack(&boots)
             .and_then(|stack| stack.identifier)
-            .is_some_and(|identifier| &*identifier == ELYTRA_IDENTIFIER);
+            .is_some_and(|identifier| &*identifier == LEATHER_BOOTS_IDENTIFIER);
     let capabilities = player.facts.game_mode_capabilities();
     let can_fly = capabilities.is_some_and(|capabilities| capabilities.can_fly);
     let hunger_below_floor = player.facts.hunger().map(|hunger| {
@@ -82,6 +88,7 @@ pub fn read(
         }),
         creative_flight: capabilities.is_some_and(|capabilities| capabilities.creative_inventory),
         elytra_ready,
+        can_stand_on_snow,
         depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
         soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
         swift_sneak: protocol::item_enchantment_level(
@@ -93,6 +100,16 @@ pub fn read(
         sprint_blocked: !can_fly && hunger_below_floor.unwrap_or(true),
         sprint_start_blocked: item_in_use,
     }
+}
+
+/// An elytra flies until its damage reaches one below its maximum.
+fn elytra_flies(stack: &client_world::CanonicalItemStack) -> bool {
+    stack
+        .identifier
+        .as_deref()
+        .is_some_and(|identifier| identifier == ELYTRA_IDENTIFIER)
+        && client_world::vanilla_max_durability(ELYTRA_IDENTIFIER)
+            .is_some_and(|maximum| stack.damage.unwrap_or(0) < maximum - 1)
 }
 
 /// Reads a defined finite flight speed, including an authoritative zero.
@@ -157,6 +174,31 @@ mod tests {
                 .fly_speed_bits),
             None
         );
+    }
+
+    /// A damaged elytra stops flying one point of damage before it breaks.
+    #[test]
+    fn elytra_flies_until_one_damage_below_its_maximum() {
+        let elytra = |identifier: &str, damage| client_world::CanonicalItemStack {
+            identity: assets::ItemStackIdentity {
+                network_id: 1,
+                metadata: 0,
+                stack_network_id: 0,
+                count: 1,
+                nbt_digest: [0; 32],
+                block_runtime_id: 0,
+            },
+            identifier: Some(identifier.into()),
+            visual: assets::ItemVisualRoute::Missing,
+            charged_projectile: None,
+            damage,
+            enchanted: false,
+        };
+        let maximum = client_world::vanilla_max_durability(ELYTRA_IDENTIFIER).unwrap();
+        assert!(elytra_flies(&elytra(ELYTRA_IDENTIFIER, None)));
+        assert!(elytra_flies(&elytra(ELYTRA_IDENTIFIER, Some(maximum - 2))));
+        assert!(!elytra_flies(&elytra(ELYTRA_IDENTIFIER, Some(maximum - 1))));
+        assert!(!elytra_flies(&elytra(LEATHER_BOOTS_IDENTIFIER, None)));
     }
 
     /// Placeholder floats in layers without FlySpeed must not override it.

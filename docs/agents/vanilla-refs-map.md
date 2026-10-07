@@ -638,6 +638,8 @@ preview build is not an exact retail/platform capture for every supported client
 
 ## crates/gameplay/src/movement/locomotion.rs
 - // SprintTrigger runs before SwimTrigger and keeps the previous actor
+- Glide start/stop: StartGlidingIntent `0x0c5889b0` area (filter ArmorFlyEnabled, excludes Passenger/OnGround) needs a fresh jump edge (MoveInput+0x60 bit 4 and previous-tick copy VanillaClientGameplay+0x15 clear) and no fly/glide request; no velocity check. StopGlidingIntent `0x0c5886c0`: OnGround, missing ArmorFlyEnabled, WasInWater (not lava), fly request, Passenger, fresh jump with FallFlyTicks >= 11, WALLCLIMBING (0x40000), or CANCLIMB (0x80000) with the feet block's climbable bit (+0x130 bit 33) / powder snow when CanStandOnSnow. Pipeline `0x072b6020` order: SprintTimer, SwimTrigger, FlyTriggerIntent, Start/StopGlidingIntent, FlyTriggerAction, Start/StopGlidingAction (`0x0c5882c0`/`0x0c5884c0`), GlideInputSystem `0x070be110` (FallFlyTicks++ while gliding, else 0).
+- Flight double-tap: FlyTrigger::doIntentTick (26.30 `0x1059aaf10`) sets VanillaClientGameplay+8 = 7 on a fresh press when below 1, else toggles; SprintTimer (26.30 `0x1053d8080`) decrements +8 every tick before it. A second press within six ticks toggles.
 
 ## crates/gameplay/src/movement/locomotion/swimming_trigger.rs
 - //! Current SwimTriggerSystem (0x09fd25a0), for unmounted desktop input.
@@ -1303,6 +1305,7 @@ preview build is not an exact retail/platform capture for every supported client
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
+- // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
 
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
@@ -1332,6 +1335,13 @@ preview build is not an exact retail/platform capture for every supported client
 
 ## crates/sim/src/simulator/travel.rs
 - //! Flight controls and liquid movement follow the current mcsrc client systems.
+- Glide travel `0x070d31b0`: look from ActorRotation prev + wrap(cur - prev) (fmodf, -180), lift = min(len/0.4f,1)*cos(pitch)^2 from current pitch, gravity table `0x1502a31c0` (-0.01 slow falling / -0.08) independent of vy, PE constants 0x14ffab6c0/0x14fee6588/0x14ffab670/0x150106adc/0x1502a31c8/0x14ffab644; MovementEffects slot 0 (glide boost) applies `v + (look*1.5 - v)*0.5 + look*0.1` (0x14ffab674, 0x14fec3380) before drag 0.99/0.98 (0x1500eb858/0x1500eb864).
+
+## crates/gameplay/src/movement/local_facts.rs
+- Item::isFlyEnabled (26.30 `0x10a667e10`) / Item::isElytraBroken (`0x10a65e420`): elytra flies while user-data Damage < max damage - 1; LegacyActorArmorChangedListener adds ArmorFlyEnabledFlagComponent and CanStandOnSnowFlagComponent (leather boots).
+
+## crates/gameplay/src/movement/effects.rs; crates/gameplay/src/movement/physics/timeline.rs; crates/gameplay/src/committed_control.rs
+- MovementEffectPacket client handler (26.30 `LegacyClientNetworkHandler::handle` `0x1035699e0`): duration < -1 reads 0; with ReplayStateComponent it creates `History::createMovementEffectsCorrection` (`0x1064a4550`) and applies the frame correction at the packet tick, replaying with the full duration (`MovementEffectsReplay::advanceFrame` `0x1064b5690`). TickMovementEffectsSystem (`0x105a09240`, registered after normal travel) expires an effect after its duration (0 lasts one tick, -1 never). Effect slots: 0 glide boost, 1 dolphin boost, 2 geyser boost.
 
 ## crates/sim/src/simulator/water.rs
 - //! Current-client liquid drag, jump ascent and swimming pitch steering.

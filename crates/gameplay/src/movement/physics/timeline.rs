@@ -132,6 +132,35 @@ impl LocalPhysicsController {
         Some((changed.then_some(tick), speed))
     }
 
+    /// Writes a glide boost stamped `tick` into the retained inputs after it.
+    ///
+    /// Returns the tick to replay from when a retained input changed, and the
+    /// span left for live ticks. Live stamps start with the next tick; stale
+    /// stamps clamp to the oldest retained frame, as motion does.
+    pub(crate) fn retime_glide_boost(
+        &mut self,
+        tick: u64,
+        span: crate::movement::BoostSpan,
+    ) -> (Option<u64>, Option<crate::movement::BoostSpan>) {
+        let anchor = match self.timeline_slot(tick) {
+            TimelineSlot::Live => None,
+            TimelineSlot::Rewind(tick) => Some(tick),
+            TimelineSlot::Stale => self.history.oldest_tick(),
+        };
+        let Some(anchor) = anchor else {
+            return (None, Some(span));
+        };
+        let mut changed = false;
+        let mut elapsed = 0;
+        for input in self.history.retained_inputs_after_mut(anchor) {
+            elapsed += 1;
+            let boosted = span.covers(elapsed);
+            changed |= input.effects.glide_boost != boosted;
+            input.effects.glide_boost = boosted;
+        }
+        (changed.then_some(anchor), span.after(elapsed))
+    }
+
     /// Replaces the live velocity, for timeline edits whose replay failed.
     pub fn replace_live_velocity(&mut self, motion: [f32; 3]) {
         if let Some(state) = self.state.as_mut()
