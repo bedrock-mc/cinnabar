@@ -24,6 +24,8 @@ use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, TEXT, TEXT_DIMMER};
 use super::widgets::{Variant, button, divider, side_menu};
 use crate::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
+
+pub(super) const SIDEBAR_SCROLL: &str = "servers.side_menu";
 use launcher::menu::server_list::ServerGroup;
 
 pub(super) fn draw(
@@ -43,10 +45,7 @@ pub(super) fn draw(
     let row_right = menu_right - canvas.r(1.6);
     side_menu(canvas, [menu_left, body[1], row_right, body[3]])?;
     let pad = canvas.r(1.6);
-    let list = canvas.begin_scroll(
-        "servers.side_menu",
-        [menu_left, body[1], menu_right, body[3]],
-    )?;
+    let list = canvas.begin_scroll(SIDEBAR_SCROLL, [menu_left, body[1], menu_right, body[3]])?;
     let top = body[1] - list.offset;
     let mut y = top + space(canvas, 2);
     let add_height = canvas.r(4.4);

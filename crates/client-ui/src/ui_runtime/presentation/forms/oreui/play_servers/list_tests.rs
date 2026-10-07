@@ -391,3 +391,30 @@ fn hidden_sections_remove_selected_details_and_fall_back_to_visible_order() {
     assert_eq!(selection(&view), None);
     assert_eq!(view.feeds.selected_saved, Some(0));
 }
+
+#[test]
+fn fixed_worlds_tab_focus_does_not_scroll_the_servers_sidebar() {
+    let mut view = view();
+    view.screen = crate::menu::MenuScreen::Servers;
+    view.servers = vec![view.servers[0].clone(); 40];
+    let (areas, _, _) = paint(HashMap::new(), |canvas| {
+        canvas.capture_focus = true;
+        super::super::play::draw(canvas, &view, [1280.0, 720.0], &HashMap::new()).unwrap();
+    });
+    let mut scrolls = crate::ui_runtime::presentation::menu_scroll::MenuScrolls::default();
+    scrolls.set_areas(areas);
+    scrolls.scroll_by(SIDEBAR_SCROLL, -100.0);
+    let offsets = scrolls.offsets().clone();
+    assert!(offsets[SIDEBAR_SCROLL] > 0.0);
+    view.focused_action = Some(MenuAction::Navigate(crate::menu::MenuScreen::Play));
+    paint(offsets.clone(), |canvas| {
+        canvas.capture_focus = true;
+        super::super::play::draw(canvas, &view, [1280.0, 720.0], &HashMap::new()).unwrap();
+        assert!(!super::super::scroll_focus::reveal(
+            canvas,
+            &mut scrolls,
+            &view
+        ));
+    });
+    assert_eq!(scrolls.offsets(), &offsets);
+}
