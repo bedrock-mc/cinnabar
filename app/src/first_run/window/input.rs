@@ -1,6 +1,11 @@
 //! Focus and press capture shared by pointer, keyboard and controller input.
 
 use super::super::screen::{Action, Screen};
+use launcher::menu::settings_options::SettingsOptions;
+use winit::{
+    event::ElementState,
+    keyboard::{Key, NamedKey},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Source {
@@ -9,7 +14,7 @@ pub(super) enum Source {
     Controller,
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct Input {
     pub focused: Option<Action>,
     pub focus_visible: bool,
@@ -87,7 +92,7 @@ impl Input {
 }
 
 /// Controller commands use the same state machine as keyboard commands.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Command {
     Navigate(bool),
     Press,
@@ -96,112 +101,101 @@ pub(super) enum Command {
     Blur,
 }
 
-/// Converts gamepad button transitions without accepting held-button repeat events.
-pub(super) fn controller(event: gilrs::EventType) -> Option<Command> {
-    use gilrs::{Button, EventType};
+/// Converts gamepad transitions without accepting held-button repeat events.
+pub(super) fn controller(event: gilrs::EventType, settings: &SettingsOptions) -> Option<Command> {
     match event {
-        EventType::ButtonPressed(Button::DPadLeft | Button::DPadUp, _) => {
-            Some(Command::Navigate(true))
-        }
-        EventType::ButtonPressed(Button::DPadRight | Button::DPadDown, _) => {
-            Some(Command::Navigate(false))
-        }
-        EventType::ButtonPressed(Button::South, _) => Some(Command::Press),
-        EventType::ButtonReleased(Button::South, _) => Some(Command::Release),
-        EventType::ButtonPressed(Button::East, _) => Some(Command::Cancel),
-        EventType::Disconnected => Some(Command::Blur),
+        gilrs::EventType::ButtonPressed(button, _) => controller_button(button, true, settings),
+        gilrs::EventType::ButtonReleased(button, _) => controller_button(button, false, settings),
+        gilrs::EventType::Disconnected => Some(Command::Blur),
         _ => None,
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keyboard_and_controller_focus_wrap_and_activate_cancel() {
-        for source in [Source::Keyboard, Source::Controller] {
-            let mut input = Input::default();
-            input.reset(&Screen::Consent);
-            input.navigate(&Screen::Consent, true);
-            assert_eq!(input.focused, Some(Action::Quit));
-            assert!(input.focus_visible);
-            input.navigate(&Screen::Consent, false);
-            assert_eq!(input.focused, Some(Action::Accept));
-            input.reset(&Screen::Starting);
-            input.press(&Screen::Starting, source, None);
-            assert_eq!(input.pressed(None), Some(Action::Quit));
-            assert_eq!(input.release(source, None), Some(Action::Quit));
-            assert_eq!(input.release(source, None), None);
-        }
-    }
-
-    #[test]
-    fn cancel_press_survives_download_and_unpack_reports() {
-        let download = Screen::Downloading {
-            received: 50,
-            total: Some(100),
-            bytes_per_second: None,
-        };
-        let unpack = Screen::Preparing {
-            step: 1,
-            total: 2,
-            label: "Unpacking".into(),
-        };
-        for source in [Source::Keyboard, Source::Controller, Source::Pointer] {
-            let mut input = Input::default();
-            input.reset(&Screen::Starting);
-            input.press(&Screen::Starting, source, Some(Action::Quit));
-            input.update_screen(&Screen::Starting, &download);
-            input.update_screen(&download, &unpack);
-            assert_eq!(
-                input.release(source, Some(Action::Quit)),
-                Some(Action::Quit)
-            );
-            input.update_screen(
-                &unpack,
-                &Screen::Failed {
-                    message: "offline".into(),
-                },
-            );
-            assert_eq!(input.focused, Some(Action::Retry));
-        }
-    }
-
-    #[test]
-    fn pointer_drag_out_blur_and_screen_changes_cancel_presses() {
-        let mut input = Input::default();
-        input.reset(&Screen::Starting);
-        input.press(&Screen::Starting, Source::Pointer, Some(Action::Quit));
-        assert_eq!(input.pressed(None), None);
-        assert_eq!(input.release(Source::Pointer, None), None);
-        input.press(&Screen::Starting, Source::Keyboard, None);
-        input.blur();
-        assert_eq!(input.release(Source::Keyboard, None), None);
-        input.press(&Screen::Starting, Source::Keyboard, None);
-        input.reset(&Screen::Failed {
-            message: "offline".into(),
-        });
-        assert_eq!(input.focused, Some(Action::Retry));
-        assert_eq!(input.release(Source::Keyboard, None), None);
-        input.reset(&Screen::Done);
-        input.navigate(&Screen::Done, false);
-        assert_eq!(input.focused, None);
-    }
-
-    #[test]
-    fn retry_requires_matching_release_and_pointer_click_stays_hidden() {
-        let screen = Screen::Failed {
-            message: "offline".into(),
-        };
-        let mut input = Input::default();
-        input.reset(&screen);
-        input.press(&screen, Source::Pointer, Some(Action::Retry));
-        assert!(!input.focus_visible);
-        assert_eq!(input.release(Source::Keyboard, None), None);
-        assert_eq!(
-            input.release(Source::Pointer, Some(Action::Retry)),
-            Some(Action::Retry)
-        );
+/// Applies saved confirmation settings to the bootstrap controller buttons.
+fn controller_button(
+    button: gilrs::Button,
+    pressed: bool,
+    settings: &SettingsOptions,
+) -> Option<Command> {
+    use bevy::input::gamepad::GamepadButton;
+    use gilrs::Button;
+    let button = match button {
+        Button::DPadLeft | Button::DPadUp if pressed => return Some(Command::Navigate(true)),
+        Button::DPadRight | Button::DPadDown if pressed => return Some(Command::Navigate(false)),
+        Button::South => GamepadButton::South,
+        Button::East => GamepadButton::East,
+        _ => return None,
+    };
+    match (
+        crate::menu::settings_options::gamepad_button(settings, button),
+        pressed,
+    ) {
+        (GamepadButton::South, true) => Some(Command::Press),
+        (GamepadButton::South, false) => Some(Command::Release),
+        (GamepadButton::East, true) => Some(Command::Cancel),
+        _ => None,
     }
 }
+
+impl Input {
+    /// Returns an action and whether input changed the overlay's interaction state.
+    pub fn apply(
+        &mut self,
+        screen: &Screen,
+        source: Source,
+        command: Command,
+        hit: Option<Action>,
+    ) -> (Option<Action>, bool) {
+        let before = *self;
+        let action = match command {
+            Command::Navigate(backwards) => {
+                self.navigate(screen, backwards);
+                None
+            }
+            Command::Press => {
+                self.press(screen, source, hit);
+                None
+            }
+            Command::Release => self.release(source, hit),
+            Command::Cancel => Some(Action::Quit),
+            Command::Blur => {
+                self.blur();
+                None
+            }
+        };
+        (action, *self != before)
+    }
+
+    /// Ignores unrelated keys and navigation releases without rebuilding the overlay.
+    pub fn keyboard(
+        &mut self,
+        screen: &Screen,
+        key: &Key,
+        state: ElementState,
+        shift: bool,
+    ) -> (Option<Action>, bool) {
+        let pressed = state == ElementState::Pressed;
+        let command = match key {
+            Key::Named(NamedKey::Tab) if pressed => Some(Command::Navigate(shift)),
+            Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowUp) if pressed => {
+                Some(Command::Navigate(true))
+            }
+            Key::Named(NamedKey::ArrowRight | NamedKey::ArrowDown) if pressed => {
+                Some(Command::Navigate(false))
+            }
+            Key::Named(NamedKey::Enter | NamedKey::Space) => Some(if pressed {
+                Command::Press
+            } else {
+                Command::Release
+            }),
+            Key::Named(NamedKey::Escape) if pressed => Some(Command::Cancel),
+            _ => None,
+        };
+        command.map_or((None, false), |command| {
+            self.apply(screen, Source::Keyboard, command, None)
+        })
+    }
+}
+
+#[cfg(test)]
+mod regression_tests;

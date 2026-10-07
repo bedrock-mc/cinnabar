@@ -7,7 +7,10 @@ use crate::ui_runtime::oreui_fonts::OreUiFont;
 mod appearance;
 mod metrics;
 pub use appearance::Appearance;
-pub use metrics::*;
+pub use metrics::{
+    BUTTON_DEPTH, BUTTON_HEIGHT, CANCEL_WIDTH, GUI_PIXELS_PER_REM, LOADING_FOOTER_AREA,
+    LOADING_PAD, LOADING_PROGRESS_AREA, LOADING_WIDTH, PROGRESS_HEIGHT,
+};
 
 pub type Rgba = [u8; 4];
 

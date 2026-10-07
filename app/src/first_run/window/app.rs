@@ -15,7 +15,7 @@ use winit::{
     dpi::LogicalSize,
     event::{ElementState, KeyEvent, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
-    keyboard::{Key, ModifiersState, NamedKey},
+    keyboard::ModifiersState,
     window::{Window, WindowId},
 };
 
@@ -66,6 +66,7 @@ pub(super) struct SetupApp {
     hovered: Option<Action>,
     input: Input,
     controllers: Option<gilrs::Gilrs>,
+    settings: launcher::menu::settings_options::SettingsOptions,
     modifiers: ModifiersState,
     active: bool,
     appearance: client_ui::oreui_theme::Appearance,
@@ -126,6 +127,7 @@ impl SetupApp {
             hovered: None,
             input,
             controllers,
+            settings,
             modifiers: ModifiersState::default(),
             active: true,
             appearance,
@@ -313,13 +315,18 @@ impl ApplicationHandler for SetupApp {
                 button: MouseButton::Left,
                 ..
             } => {
-                if state == ElementState::Pressed {
+                let command = if state == ElementState::Pressed {
+                    Command::Press
+                } else {
+                    Command::Release
+                };
+                let (action, changed) =
                     self.input
-                        .press(&self.screen, Source::Pointer, self.hovered);
-                } else if let Some(action) = self.input.release(Source::Pointer, self.hovered) {
+                        .apply(&self.screen, Source::Pointer, command, self.hovered);
+                self.overlay_dirty |= changed;
+                if let Some(action) = action {
                     self.act(action, event_loop);
                 }
-                self.overlay_dirty = true;
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -331,32 +338,16 @@ impl ApplicationHandler for SetupApp {
                     },
                 ..
             } => {
-                match logical_key {
-                    Key::Named(NamedKey::Tab | NamedKey::ArrowLeft | NamedKey::ArrowUp)
-                        if state == ElementState::Pressed =>
-                    {
-                        let backwards =
-                            logical_key != Key::Named(NamedKey::Tab) || self.modifiers.shift_key();
-                        self.input.navigate(&self.screen, backwards);
-                    }
-                    Key::Named(NamedKey::ArrowRight | NamedKey::ArrowDown)
-                        if state == ElementState::Pressed =>
-                    {
-                        self.input.navigate(&self.screen, false)
-                    }
-                    Key::Named(NamedKey::Enter | NamedKey::Space) => {
-                        if state == ElementState::Pressed {
-                            self.input.press(&self.screen, Source::Keyboard, None);
-                        } else if let Some(action) = self.input.release(Source::Keyboard, None) {
-                            self.act(action, event_loop);
-                        }
-                    }
-                    Key::Named(NamedKey::Escape) if state == ElementState::Pressed => {
-                        self.act(Action::Quit, event_loop)
-                    }
-                    _ => {}
+                let (action, changed) = self.input.keyboard(
+                    &self.screen,
+                    &logical_key,
+                    state,
+                    self.modifiers.shift_key(),
+                );
+                self.overlay_dirty |= changed;
+                if let Some(action) = action {
+                    self.act(action, event_loop);
                 }
-                self.overlay_dirty = true;
             }
             WindowEvent::RedrawRequested => {
                 let (Some(window), Some(gpu)) = (&self.window, &mut self.gpu) else {
@@ -385,19 +376,14 @@ impl ApplicationHandler for SetupApp {
             if !self.active {
                 continue;
             }
-            if let Some(command) = super::input::controller(event.event) {
-                match command {
-                    Command::Navigate(backwards) => self.input.navigate(&self.screen, backwards),
-                    Command::Press => self.input.press(&self.screen, Source::Controller, None),
-                    Command::Release => {
-                        if let Some(action) = self.input.release(Source::Controller, None) {
-                            self.act(action, event_loop);
-                        }
-                    }
-                    Command::Cancel => self.act(Action::Quit, event_loop),
-                    Command::Blur => self.input.blur(),
+            if let Some(command) = super::input::controller(event.event, &self.settings) {
+                let (action, changed) =
+                    self.input
+                        .apply(&self.screen, Source::Controller, command, None);
+                self.overlay_dirty |= changed;
+                if let Some(action) = action {
+                    self.act(action, event_loop);
                 }
-                self.overlay_dirty = true;
             }
         }
         let now = Instant::now();

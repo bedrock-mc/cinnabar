@@ -132,7 +132,6 @@ impl Canvas {
                 y: rect.y + edge,
                 w: edge,
                 h: rect.h - 2.0 * edge,
-                ..rect
             },
             color,
         );
