@@ -234,8 +234,9 @@ fn grounded_movement_uses_snapshotted_authority_and_surface_formula() {
         )
         .unwrap();
 
+    // The support block's speed factor never scales ground acceleration.
     let friction: f64 = 0.91 * 0.8;
-    let expected = 0.98 * 0.25 * 1.3 * 0.4 * 0.162_771_36 / friction.powi(3);
+    let expected = 0.98 * 0.25 * 1.3 * 0.162_771_36 / friction.powi(3);
     assert!((tick.movement.z - expected).abs() <= 1.0e-7, "{tick:?}");
 }
 
