@@ -1,6 +1,6 @@
 {
   "type": "loaded",
-  "protocol": 2,
+  "protocol": 4,
   "id": "benergistics",
   "version": "0.1.0",
   "blocks": [
@@ -35,5 +35,6 @@
         "type": "unbreakable"
       }
     }
-  ]
+  ],
+  "focus": true
 }

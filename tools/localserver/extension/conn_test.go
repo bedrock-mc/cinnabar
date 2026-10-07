@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -214,8 +215,16 @@ func (f *connFixture) carrier() [][]byte {
 	return out
 }
 
-// hello is a developer client's Hello for the server's offer.
+// hello is a developer client's Hello for the server's offer, which offers every wire version
+// at the client's ceilings.
 func (f *connFixture) hello() Hello {
+	h := f.helloV1()
+	h.Wire = &WireOffer{Versions: []uint16{WireVersion, MaxWireVersion}, Limits: HostLimits}
+	return h
+}
+
+// helloV1 is a v1 developer client's Hello, which offers no wire.
+func (f *connFixture) helloV1() Hello {
 	return Hello{
 		Version:         WireVersion,
 		API:             APIVersion,
@@ -281,7 +290,7 @@ func (f *connFixture) channel(d Direction) Channel {
 func (f *connFixture) envelope(accept Accept, sequence uint64, change func(*Envelope)) []byte {
 	ch := f.channel(ToServer)
 	e := Envelope{
-		Version:    WireVersion,
+		Version:    wireOf(accept).Version,
 		Session:    accept.Session,
 		Connection: accept.Hello.Connection,
 		Subclient:  accept.Hello.Subclient,
@@ -297,6 +306,14 @@ func (f *connFixture) envelope(accept Accept, sequence uint64, change func(*Enve
 		change(&e)
 	}
 	return f.encode(e)
+}
+
+// wireOf is the wire that accept selected.
+func wireOf(accept Accept) Wire {
+	if accept.Wire == nil {
+		return v1Wire
+	}
+	return *accept.Wire
 }
 
 // sendToClient sends n on the manifest's to_client channel.
@@ -333,7 +350,7 @@ func TestHandshakeCarriesBothDirections(t *testing.T) {
 	offer, digest := markerOffer(t, f.s.Marker())
 	now := uint64(f.clock.Now().Unix())
 	switch {
-	case accept.Hello != h:
+	case !reflect.DeepEqual(accept.Hello, h):
 		t.Fatalf("Accept echoes %+v, not the Hello %+v", accept.Hello, h)
 	case accept.Audience != offer.Audience || accept.OfferDigest != digest || accept.Revision != offer.Revision:
 		t.Fatalf("Accept for %q, offer %s, revision %d", accept.Audience, accept.OfferDigest, accept.Revision)
@@ -348,6 +365,9 @@ func TestHandshakeCarriesBothDirections(t *testing.T) {
 	if accept.ServerChallenge == accept.Session {
 		t.Fatal("the challenge and the session are the same nonce")
 	}
+	if want := (Wire{MaxWireVersion, HostLimits}); accept.Wire == nil || *accept.Wire != want {
+		t.Fatalf("Accept selects %+v, want %+v", accept.Wire, want)
+	}
 	if f.sendToClient(1) {
 		t.Fatal("sent before Ready")
 	}
@@ -361,7 +381,7 @@ func TestHandshakeCarriesBothDirections(t *testing.T) {
 		}
 		out := f.carrier()
 		want := f.encode(Envelope{
-			Version:    WireVersion,
+			Version:    MaxWireVersion,
 			Session:    accept.Session,
 			Connection: h.Connection,
 			Subclient:  h.Subclient,
@@ -410,6 +430,10 @@ func TestHelloViolationsFallBack(t *testing.T) {
 		{"no capabilities", changedHello(func(h *Hello) { h.Capabilities = 0 })},
 		{"a short challenge", changedHello(func(h *Hello) { h.ClientChallenge = "c1" })},
 		{"a connection in upper case", changedHello(func(h *Hello) { h.Connection = strings.ToUpper(h.Connection) })},
+		{"no common wire version", changedHello(func(h *Hello) { h.Wire.Versions = []uint16{MaxWireVersion + 1} })},
+		{"no wire versions", changedHello(func(h *Hello) { h.Wire.Versions = nil })},
+		{"a zero fragment limit", changedHello(func(h *Hello) { h.Wire.Limits.MaxFragmentBytes = 0 })},
+		{"a message limit below the fragment limit", changedHello(func(h *Hello) { h.Wire.Limits.MaxMessageBytes = 1 })},
 		{"Ready first", func(f *connFixture) []byte {
 			r := f.ready(Accept{Session: strings.Repeat("00", 32)})
 			return f.encode(Control{Ready: &r})
@@ -544,15 +568,15 @@ func TestInboundEnvelopeViolationsFallBack(t *testing.T) {
 		{"another session", func(f *connFixture, a Accept) [][]byte {
 			return [][]byte{f.envelope(a, 1, func(e *Envelope) { e.Session = strings.Repeat("00", 32) })}
 		}, 0},
-		{"another world epoch", func(f *connFixture, a Accept) [][]byte {
-			return [][]byte{f.envelope(a, 1, func(e *Envelope) { e.WorldEpoch++ })}
-		}, 0},
 		{"a record outside the schema", func(f *connFixture, a Accept) [][]byte {
 			return [][]byte{f.envelope(a, 1, func(e *Envelope) { e.Payload = []experience.Scalar{integer(-1)} })}
 		}, 0},
 		{"a control message", func(f *connFixture, a Accept) [][]byte {
 			r := f.ready(a)
 			return [][]byte{f.encode(Control{Ready: &r})}
+		}, 0},
+		{"a v1 envelope", func(f *connFixture, a Accept) [][]byte {
+			return [][]byte{f.envelope(a, 1, func(e *Envelope) { e.Version = WireVersion })}
 		}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -606,12 +630,14 @@ func TestDisconnectEndsTheClientPart(t *testing.T) {
 	}
 }
 
-// A dimension change, which resets the client's world epoch, ends an active client part; before a
-// Hello there is no session for it to end.
-func TestDimensionChangeFallsBack(t *testing.T) {
+// A dimension change, which resets a v1 client's world epoch, ends its active client part; before
+// a Hello there is no session for it to end.
+func TestDimensionChangeEndsV1ClientParts(t *testing.T) {
 	change := &packet.ChangeDimension{Dimension: 1}
 	f := newConn(t, nil)
-	f.activate()
+	accept := f.accept(f.helloV1())
+	r := f.ready(accept)
+	f.deliver(f.encode(Control{Ready: &r}))
 	if err := f.conn.WritePacket(change); err != nil {
 		t.Fatal(err)
 	}

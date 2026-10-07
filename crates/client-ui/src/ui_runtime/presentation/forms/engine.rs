@@ -381,6 +381,23 @@ impl FormEngine {
         render_with(self.art(), inputs, out, art, None, draw)
     }
 
+    /// [`Self::draw`] over `textures` instead of the engine's own sources.
+    pub(super) fn draw_with<R: Borrow<FormRender>>(
+        &self,
+        textures: &TextureSet,
+        art: ScreenArt<'_>,
+        inputs: EngineInputs<'_>,
+        out: EngineOutput<'_>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        let sources = Art {
+            assets: &self.assets,
+            set: textures,
+            animator: &self.animator,
+        };
+        render_with(sources, inputs, out, art, None, draw)
+    }
+
     /// Render an allow-listed screen against `data` under `view`; `art` backs its custom renderers.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_screen<'a>(

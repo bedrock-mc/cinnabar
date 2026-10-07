@@ -3074,7 +3074,18 @@ dependencies = [
 name = "experience-sdk"
 version = "0.1.12"
 dependencies = [
+ "serde",
+ "serde_json",
+ "toml 0.9.12+spec-1.1.0",
  "wit-bindgen",
+]
+
+[[package]]
+name = "experience-terminal-client"
+version = "0.1.12"
+dependencies = [
+ "experience-sdk",
+ "serde_json",
 ]
 
 [[package]]
@@ -4441,6 +4452,7 @@ dependencies = [
  "tempfile",
  "ui",
  "wasmtime",
+ "wat",
  "wit-component",
 ]
 
