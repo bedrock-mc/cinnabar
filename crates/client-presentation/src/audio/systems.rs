@@ -318,64 +318,86 @@ pub fn drive_local_motion(
     if *last_tick == Some(state.tick) || !engine.has_bank() {
         return;
     }
-    *last_tick = Some(state.tick);
+    if last_tick.is_some_and(|tick| tick > state.tick) {
+        motion.reset();
+        *last_tick = None;
+    }
     let mode = stream.network_id_mode();
     let palette = PaletteWorld::new(
         stream.collision_store(),
         collisions.registry(mode),
         stream.current_dimension(),
     );
-    let position = [state.position.x, state.position.y, state.position.z];
-    let cell = |dy: f64| {
-        [
-            position[0].floor() as i32,
-            (position[1] + dy).floor() as i32,
-            position[2].floor() as i32,
-        ]
-    };
-    let in_water = is_water(identifier_at(&palette, collisions, mode, cell(0.5)).as_deref());
-    let below = identifier_at(&palette, collisions, mode, cell(-FEET_PROBE_BELOW));
-    let sneaking = physics
-        .latest_sneak_sprint()
-        .is_some_and(|(sneak, _)| sneak);
-    let cues = motion.advance(MotionSample {
-        position,
-        velocity_y: state.velocity.y,
-        on_ground: state.on_ground,
-        sneaking,
-        in_water,
+    let after = *last_tick;
+    physics.visit_motion_ticks(after, &mut |tick, sample| {
+        if last_tick.is_some_and(|previous| tick != previous + 1) {
+            motion.reset();
+        }
+        *last_tick = Some(tick);
+        let position = sample.position;
+        let below = identifier_at(
+            &palette,
+            collisions,
+            mode,
+            [
+                position[0].floor() as i32,
+                (position[1] - FEET_PROBE_BELOW).floor() as i32,
+                position[2].floor() as i32,
+            ],
+        );
+        let cues = motion.advance(sample);
+        for cue in cues {
+            let request = {
+                let Some(bank) = engine.bank() else { return };
+                let tables = bank.tables();
+                let material = below.as_deref().and_then(|name| tables.material_of(name));
+                let (route, volume) = match cue {
+                    LocalCue::Step => (
+                        material.and_then(|material| tables.interactive(PLAYER, "step", material)),
+                        None,
+                    ),
+                    LocalCue::Jump => (
+                        material.and_then(|material| tables.interactive(PLAYER, "jump", material)),
+                        None,
+                    ),
+                    LocalCue::Land { .. } => (
+                        material.and_then(|material| tables.interactive(PLAYER, "land", material)),
+                        None,
+                    ),
+                    LocalCue::Swim { volume } => {
+                        (tables.entity(PLAYER, "swim", None), Some(volume))
+                    }
+                    LocalCue::Splash { volume } => {
+                        (tables.entity(PLAYER, "splash", None), Some(volume))
+                    }
+                };
+                route.map(|route| {
+                    let volume = volume.map_or(route.volume, |value| assets::FloatRange {
+                        min: value,
+                        max: value,
+                    });
+                    SoundRequest::new(route.sound)
+                        .with_ranges(volume, route.pitch)
+                        .at(local_cue_position(cue, sample))
+                })
+            };
+            if let Some(request) = request {
+                engine.enqueue(request);
+            }
+        }
     });
-    let feet = [position[0] as f32, position[1] as f32, position[2] as f32];
-    let requests: Vec<SoundRequest> = {
-        let Some(bank) = engine.bank() else { return };
-        let tables = bank.tables();
-        let material = below.as_deref().and_then(|name| tables.material_of(name));
-        let interactive = |event: &str| {
-            tables
-                .interactive(PLAYER, event, material?)
-                .map(|route| (route.sound, route.volume, route.pitch))
+}
+
+/// Splashes originate at water sensing before travel; other cues use the completed position.
+fn local_cue_position(cue: LocalCue, sample: MotionSample) -> [f32; 3] {
+    std::array::from_fn(|axis| {
+        let previous = if matches!(cue, LocalCue::Splash { .. }) {
+            f64::from(sample.movement[axis])
+        } else {
+            0.0
         };
-        let entity = |event: &str| {
-            tables
-                .entity(PLAYER, event, None)
-                .map(|route| (route.sound, route.volume, route.pitch))
-        };
-        cues.iter()
-            .filter_map(|cue| match cue {
-                LocalCue::Step => interactive("step"),
-                LocalCue::Jump => interactive("jump"),
-                LocalCue::Land { .. } => interactive("land"),
-                LocalCue::Swim => entity("swim"),
-                LocalCue::Splash => entity("splash"),
-            })
-            .map(|(sound, volume, pitch)| {
-                SoundRequest::new(sound).with_ranges(volume, pitch).at(feet)
-            })
-            .collect()
-    };
-    for request in requests {
-        engine.enqueue(request);
-    }
+        (sample.position[axis] - previous) as f32
+    })
 }
 
 pub struct AmbientState {
@@ -676,6 +698,31 @@ mod tests {
                 7 | 0x8000_0007 => Some("minecraft:stone"),
                 _ => None,
             }
+        }
+    }
+
+    #[test]
+    fn splash_position_precedes_water_travel_and_other_cues_use_completed_feet() {
+        let sample = MotionSample {
+            position: [3.0, -2.0, 5.0],
+            velocity_y: -1.6,
+            entry_velocity: [0.0, -2.0, 0.0],
+            movement: [0.5, -1.5, 0.25],
+            on_ground: false,
+            sneaking: false,
+            in_water: true,
+        };
+        assert_eq!(
+            local_cue_position(LocalCue::Splash { volume: 0.4 }, sample),
+            [2.5, -0.5, 4.75]
+        );
+        for cue in [
+            LocalCue::Step,
+            LocalCue::Jump,
+            LocalCue::Land { speed: 2.0 },
+            LocalCue::Swim { volume: 0.4 },
+        ] {
+            assert_eq!(local_cue_position(cue, sample), [3.0, -2.0, 5.0]);
         }
     }
 

@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acceptance"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "bevy",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "architecture"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "clap",
  "serde",
@@ -397,7 +397,7 @@ dependencies = [
 
 [[package]]
 name = "asset-compiler"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "clap",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "assets"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "bitflags 2.13.0",
  "lewton",
@@ -632,7 +632,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bedrock-client"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "acceptance",
  "anyhow",
@@ -653,7 +653,7 @@ dependencies = [
  "futures-lite",
  "gameplay",
  "image",
- "inventory 0.1.10",
+ "inventory 0.1.11",
  "json-ui",
  "launcher",
  "meshing",
@@ -681,6 +681,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tracing-tracy",
  "ui",
  "url",
  "wgpu",
@@ -698,6 +699,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd310426290cec560221f9750c2f4484be4a8eeea7de3483c423329b465c40e"
 dependencies = [
  "bevy_internal",
+ "tracing",
 ]
 
 [[package]]
@@ -762,6 +764,7 @@ dependencies = [
  "downcast-rs 2.0.2",
  "log",
  "thiserror 2.0.18",
+ "tracing",
  "variadics_please",
  "wasm-bindgen",
  "web-sys",
@@ -947,6 +950,7 @@ dependencies = [
  "slotmap",
  "smallvec",
  "thiserror 2.0.18",
+ "tracing",
  "variadics_please",
 ]
 
@@ -1055,6 +1059,7 @@ dependencies = [
  "bevy_log",
  "bevy_math",
  "bevy_mesh",
+ "bevy_pbr",
  "bevy_platform",
  "bevy_post_process",
  "bevy_ptr",
@@ -1071,6 +1076,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_light"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d9d2ac64390a9baacb3c0fa0f5456ac1553959d5a387874c102a09aab8b92cc"
+dependencies = [
+ "bevy_app",
+ "bevy_asset",
+ "bevy_camera",
+ "bevy_color",
+ "bevy_ecs",
+ "bevy_image",
+ "bevy_math",
+ "bevy_mesh",
+ "bevy_platform",
+ "bevy_reflect",
+ "bevy_transform",
+ "bevy_utils",
+ "tracing",
+]
+
+[[package]]
 name = "bevy_log"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1082,6 +1108,8 @@ dependencies = [
  "bevy_platform",
  "bevy_utils",
  "tracing",
+ "tracing-chrome",
+ "tracing-error",
  "tracing-log",
  "tracing-oslog",
  "tracing-subscriber",
@@ -1130,7 +1158,9 @@ dependencies = [
  "bevy_asset",
  "bevy_derive",
  "bevy_ecs",
+ "bevy_image",
  "bevy_math",
+ "bevy_mikktspace",
  "bevy_platform",
  "bevy_reflect",
  "bevy_transform",
@@ -1141,6 +1171,49 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "wgpu-types",
+]
+
+[[package]]
+name = "bevy_mikktspace"
+version = "0.17.0-dev"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ef8e4b7e61dfe7719bb03c884dc270cd46a82efb40f93e9933b990c5c190c59"
+
+[[package]]
+name = "bevy_pbr"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5ab6944ffc6fd71604c0fbca68cc3e2a3654edfcdbfd232f9d8b88e3d20fdc0"
+dependencies = [
+ "bevy_app",
+ "bevy_asset",
+ "bevy_camera",
+ "bevy_color",
+ "bevy_core_pipeline",
+ "bevy_derive",
+ "bevy_diagnostic",
+ "bevy_ecs",
+ "bevy_image",
+ "bevy_light",
+ "bevy_log",
+ "bevy_math",
+ "bevy_mesh",
+ "bevy_platform",
+ "bevy_reflect",
+ "bevy_render",
+ "bevy_shader",
+ "bevy_transform",
+ "bevy_utils",
+ "bitflags 2.13.0",
+ "bytemuck",
+ "derive_more",
+ "fixedbitset",
+ "nonmax",
+ "offset-allocator",
+ "smallvec",
+ "static_assertions",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -1281,6 +1354,7 @@ dependencies = [
  "naga",
  "nonmax",
  "offset-allocator",
+ "profiling",
  "send_wrapper",
  "smallvec",
  "thiserror 2.0.18",
@@ -1502,6 +1576,7 @@ version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
 dependencies = [
+ "bytemuck",
  "serde_core",
 ]
 
@@ -1567,7 +1642,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1771,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "chunk-pipeline"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "bytes",
@@ -1820,7 +1895,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-cxb"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "protocol",
@@ -1836,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-mcp"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "developer-control",
  "image",
@@ -1908,7 +1983,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-presentation"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "assets",
@@ -1918,7 +1993,7 @@ dependencies = [
  "client-world",
  "crossbeam-queue",
  "image",
- "inventory 0.1.10",
+ "inventory 0.1.11",
  "launcher",
  "meshing",
  "pack-compiler",
@@ -1942,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "client-session"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "bytes",
@@ -1965,7 +2040,7 @@ dependencies = [
 
 [[package]]
 name = "client-ui"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1975,7 +2050,7 @@ dependencies = [
  "client-world",
  "crossbeam-channel",
  "image",
- "inventory 0.1.10",
+ "inventory 0.1.11",
  "json-ui",
  "launcher",
  "mod-host",
@@ -2002,7 +2077,7 @@ dependencies = [
 
 [[package]]
 name = "client-world"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "bytes",
@@ -2633,7 +2708,7 @@ dependencies = [
 
 [[package]]
 name = "developer-control"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "crossbeam-channel",
  "serde",
@@ -2643,7 +2718,7 @@ dependencies = [
 
 [[package]]
 name = "devtool"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "serde",
  "serde_json",
@@ -2652,7 +2727,7 @@ dependencies = [
 
 [[package]]
 name = "diagnostics"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "bevy",
@@ -2738,7 +2813,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 
 [[package]]
 name = "dist-local"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "same-file",
@@ -2974,14 +3049,14 @@ dependencies = [
 
 [[package]]
 name = "experience-probe"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "experience-sdk",
 ]
 
 [[package]]
 name = "experience-runtime"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "serde",
@@ -2996,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "experience-sdk"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "wit-bindgen",
 ]
@@ -3226,11 +3301,11 @@ dependencies = [
 
 [[package]]
 name = "gameplay"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "client-world",
- "inventory 0.1.10",
+ "inventory 0.1.11",
  "player-state",
  "protocol",
  "semantic-input",
@@ -3242,6 +3317,20 @@ dependencies = [
  "tokio",
  "tracing",
  "world",
+]
+
+[[package]]
+name = "generator"
+version = "0.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "605183a538e3e2a9c1038635cc5c2d194e2ee8fd0d1b66b8349fad7dbacce5a2"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "log",
+ "rustversion",
+ "windows 0.61.3",
 ]
 
 [[package]]
@@ -3498,7 +3587,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-mod"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "mod-api",
 ]
@@ -3797,7 +3886,7 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "bytes",
  "protocol",
@@ -3994,7 +4083,7 @@ dependencies = [
 
 [[package]]
 name = "json-ui"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "serde",
  "serde_json",
@@ -4003,7 +4092,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-editor"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "image",
@@ -4017,7 +4106,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-mcp"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "image",
  "json-ui",
@@ -4044,7 +4133,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "protocol",
@@ -4156,6 +4245,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
+name = "loom"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "419e0dc8046cb947daa77eb95ae174acfbddb7673b4151f56d1eed8e93fbfaca"
+dependencies = [
+ "cfg-if",
+ "generator",
+ "scoped-tls",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4213,7 +4315,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "mcp-stdio"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "serde_json",
 ]
@@ -4253,7 +4355,7 @@ dependencies = [
 
 [[package]]
 name = "meshing"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "bytemuck",
@@ -4309,14 +4411,14 @@ dependencies = [
 
 [[package]]
 name = "mod-api"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "wit-bindgen",
 ]
 
 [[package]]
 name = "mod-host"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "mod-api",
@@ -4333,7 +4435,7 @@ dependencies = [
 
 [[package]]
 name = "mod-render"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "bytemuck",
  "mod-api",
@@ -5008,7 +5110,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compiler"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -5063,7 +5165,7 @@ dependencies = [
 
 [[package]]
 name = "particles"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "bytemuck",
@@ -5176,10 +5278,10 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player-state"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "client-world",
- "inventory 0.1.10",
+ "inventory 0.1.11",
 ]
 
 [[package]]
@@ -5351,10 +5453,24 @@ name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
+dependencies = [
+ "profiling-procmacros",
+ "tracing",
+]
+
+[[package]]
+name = "profiling-procmacros"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4488a4a36b9a4ba6b9334a32a39971f77c1436ec82c38707bce707699cc3bbcb"
+dependencies = [
+ "quote",
+ "syn 2.0.118",
+]
 
 [[package]]
 name = "protocol"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "aes",
  "anyhow",
@@ -5731,7 +5847,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "render"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "bevy",
@@ -5750,17 +5866,18 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "tracy-client",
  "wgpu",
  "world",
 ]
 
 [[package]]
 name = "render-api"
-version = "0.1.10"
+version = "0.1.11"
 
 [[package]]
 name = "render-model"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "bytemuck",
@@ -5776,7 +5893,7 @@ dependencies = [
 
 [[package]]
 name = "render-sample-mod"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "mod-api",
 ]
@@ -5827,7 +5944,7 @@ dependencies = [
 
 [[package]]
 name = "resource-pack"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "aes",
  "protocol",
@@ -5851,7 +5968,7 @@ dependencies = [
 
 [[package]]
 name = "rich-presence"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "discord-presence",
  "launcher",
@@ -6049,7 +6166,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-input"
-version = "0.1.10"
+version = "0.1.11"
 
 [[package]]
 name = "semver"
@@ -6144,7 +6261,7 @@ dependencies = [
 
 [[package]]
 name = "server-experience"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "dav1d",
@@ -6227,7 +6344,7 @@ dependencies = [
 
 [[package]]
 name = "sim"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "serde",
  "serde_json",
@@ -6565,7 +6682,7 @@ dependencies = [
 
 [[package]]
 name = "time-changer-mod"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "mod-api",
 ]
@@ -6850,6 +6967,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-chrome"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf0a738ed5d6450a9fb96e86a23ad808de2b727fd1394585da5cdd6788ffe724"
+dependencies = [
+ "serde_json",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tracing-core"
 version = "0.1.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6857,6 +6985,16 @@ checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
  "valuable",
+]
+
+[[package]]
+name = "tracing-error"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b1581020d7a273442f5b45074a6a57d5757ad0a47dac0e9f0bd57b81936f3db"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -6901,6 +7039,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-tracy"
+version = "0.11.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0eaa1852afa96e0fe9e44caa53dc0bd2d9d05e0f2611ce09f97f8677af56e4ba"
+dependencies = [
+ "tracing-core",
+ "tracing-subscriber",
+ "tracy-client",
+]
+
+[[package]]
 name = "tracing-wasm"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6909,6 +7058,27 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "tracy-client"
+version = "0.18.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4f6fc3baeac5d86ab90c772e9e30620fc653bf1864295029921a15ef478e6a5"
+dependencies = [
+ "loom",
+ "once_cell",
+ "tracy-client-sys",
+]
+
+[[package]]
+name = "tracy-client-sys"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5f7c95348f20c1c913d72157b3c6dee6ea3e30b3d19502c5a7f6d3f160dacbf"
+dependencies = [
+ "cc",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -6966,7 +7136,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "semantic-input",
@@ -7112,7 +7282,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "visualcoverage"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "assets",
  "clap",
@@ -8515,7 +8685,7 @@ dependencies = [
 
 [[package]]
 name = "world"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "criterion",
  "hashbrown 0.16.1",

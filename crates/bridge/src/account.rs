@@ -84,6 +84,9 @@ pub struct FeaturedServer {
     pub screenshots: Vec<Artwork>,
     #[serde(default)]
     pub games: Vec<FeaturedGame>,
+    /// The experience's service count, absent until it is available.
+    #[serde(default)]
+    pub player_count: Option<i64>,
 }
 
 /// The signed-in account as the start and profile screens show it.
@@ -590,7 +593,33 @@ pub async fn poll_events(socket_dir: &Path) -> Result<Events, BridgeError> {
 
 /// Lists the featured servers.
 pub async fn list_featured_servers(socket_dir: &Path) -> Result<Vec<FeaturedServer>, BridgeError> {
-    let body: FeaturedBody = call::<_, ()>(socket_dir, "featured_servers.v1", None).await?;
+    featured_servers(socket_dir, None).await
+}
+
+#[derive(Serialize)]
+struct FeaturedParams {
+    include_player_counts: bool,
+}
+
+/// Reads featured details with live counts while an experience's details are visible.
+pub async fn list_featured_servers_with_counts(
+    socket_dir: &Path,
+) -> Result<Vec<FeaturedServer>, BridgeError> {
+    featured_servers(
+        socket_dir,
+        Some(FeaturedParams {
+            include_player_counts: true,
+        }),
+    )
+    .await
+}
+
+/// Uses the existing featured feed with an optional request for experience counts.
+async fn featured_servers(
+    socket_dir: &Path,
+    params: Option<FeaturedParams>,
+) -> Result<Vec<FeaturedServer>, BridgeError> {
+    let body: FeaturedBody = call(socket_dir, "featured_servers.v1", params).await?;
     Ok(body.servers)
 }
 
@@ -790,6 +819,20 @@ mod tests {
         assert_eq!(downloading.packs_total, 3);
         assert_eq!(downloading.received_bytes, 5_242_880);
         assert_eq!(downloading.total_bytes, 20_971_520);
+    }
+
+    #[test]
+    fn featured_player_counts_preserve_missing_zero_and_signed_values() {
+        for (payload, expected) in [
+            (r#"{}"#, None),
+            (r#"{"player_count":null}"#, None),
+            (r#"{"player_count":0}"#, Some(0)),
+            (r#"{"player_count":-1}"#, Some(-1)),
+            (r#"{"player_count":12345}"#, Some(12_345)),
+        ] {
+            let server: FeaturedServer = serde_json::from_str(payload).expect("featured server");
+            assert_eq!(server.player_count, expected);
+        }
     }
 
     #[test]

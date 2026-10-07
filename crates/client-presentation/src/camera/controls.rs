@@ -213,6 +213,7 @@ pub fn update_cursor_capture(
 }
 
 /// Routes device-scaled look input through freelook and the selected server rig.
+#[allow(clippy::too_many_arguments)]
 pub fn update_look(
     spyglass: (f32, Option<Res<fov::CameraFovInputs>>),
     input: crate::observations::InputObservation<'_>,

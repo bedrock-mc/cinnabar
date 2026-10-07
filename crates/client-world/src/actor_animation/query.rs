@@ -516,7 +516,7 @@ fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
 }
 
 // Undyed leather tints with the public default colour; every other stack tints white.
-const DEFAULT_LEATHER_RGB: u32 = 0x00A0_6540;
+use assets::DEFAULT_LEATHER_RGB;
 
 /// One 0..1 channel (0 red, 1 green, 2 blue, 3 alpha) of the worn stack's tint.
 fn armor_color_slot(context: &ActorTickContext, slot: Option<f32>, channel: Option<f32>) -> f32 {

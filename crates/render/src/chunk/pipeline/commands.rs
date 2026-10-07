@@ -201,7 +201,16 @@ pub(in crate::chunk) fn upload_indirect_commands_if_changed(
     if arena.uploaded_indirect_bytes == bytes {
         return 0;
     }
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "terrain.indirect_write",
+        commands = commands.len(),
+        bytes = bytes.len()
+    )
+    .entered();
     render_queue.write_buffer(&arena.indirect_buffer, 0, bytes);
+    #[cfg(feature = "tracy")]
+    drop(_span);
     arena.uploaded_indirect_bytes.clear();
     arena.uploaded_indirect_bytes.extend_from_slice(bytes);
     bytes.len() as u64

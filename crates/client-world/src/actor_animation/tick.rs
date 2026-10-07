@@ -177,7 +177,6 @@ pub(super) fn advance_motion(
         } else {
             ACTOR_SWING_TICKS
         },
-        hurt_time: actor.status.hurt_time,
         held: &java_held,
         held_slot: context.main_hand_slot,
         riding: context.is_riding,

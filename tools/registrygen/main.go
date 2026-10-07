@@ -446,12 +446,12 @@ func main() {
 			*blockV2193Allowlist == "" || *blockV2193Manifest == "" || *biomeOut != "" || *biomeCoverage != "" ||
 			*biomeV2193Executable != "" || *biomeV2193PMMP != "" || *biomeV2193Allowlist != "" || *biomeV2193Manifest != "" ||
 			*lightBREG != "" || *physicsOut != "" || *physicsSHAOut != "" || *physicsBREG != "" || *pmmpRoot != "" ||
-			*prismarineRoot != "" || *coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
+			*prismarineRoot == "" || *coverageManifest != "" || *blockItemOut != "" || *blockItemBREG != "" ||
 			*fallbackIn != "" || *fallbackOut != "" || *fallbackBREG != "" || *refreshBindings {
-			fmt.Fprintln(os.Stderr, "registrygen: v2193 block mode requires its source, legacy registries, allowlist, output, and manifest flags")
+			fmt.Fprintln(os.Stderr, "registrygen: v2193 block mode requires its source, legacy registries, allowlist, Prismarine collision source, output, and manifest flags")
 			os.Exit(2)
 		}
-		if err := writeV2193BlockProjection(*blockV2193Source, *blockV2193LegacyBREG, *blockV2193LegacyLight, *blockV2193Allowlist, *out, *lightOut, *blockV2193Manifest, *blockV2193Retail); err != nil {
+		if err := writeV2193BlockProjection(*blockV2193Source, *blockV2193LegacyBREG, *blockV2193LegacyLight, *blockV2193Allowlist, *out, *lightOut, *blockV2193Manifest, *blockV2193Retail, *prismarineRoot); err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}

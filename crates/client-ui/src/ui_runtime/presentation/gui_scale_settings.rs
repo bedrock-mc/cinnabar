@@ -21,11 +21,18 @@ impl UiPresentationRuntime {
     /// Returns the resolved GUI-scale track for app input integration tests.
     #[cfg(any(test, feature = "test-support"))]
     pub fn gui_scale_slider_track(&self) -> Option<ui::UiRect> {
+        self.slider_track(|action| matches!(action, crate::menu::MenuAction::SettingsScale(_)))
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    /// Unites visible hit regions for the existing scale-slider witness.
+    fn slider_track(
+        &self,
+        selected: impl Fn(crate::menu::MenuAction) -> bool,
+    ) -> Option<ui::UiRect> {
         self.menu_hit_targets
             .iter()
-            .filter_map(|(action, bounds)| {
-                matches!(action, crate::menu::MenuAction::SettingsScale(_)).then_some(*bounds)
-            })
+            .filter_map(|(action, bounds)| selected(*action).then_some(*bounds))
             .reduce(|track, bounds| {
                 super::rect(
                     track.min().x().min(bounds.min().x()),
@@ -41,14 +48,32 @@ impl UiPresentationRuntime {
     /// Only its horizontal position matters while dragging; leaving either
     /// end of the track selects that end's value.
     pub fn gui_scale_drag_action(&self, point: ui::UiPoint) -> Option<crate::menu::MenuAction> {
-        let targets = if self.gui_scale_drag_targets.is_empty() {
+        self.slider_drag_action(point, |action| {
+            matches!(action, crate::menu::MenuAction::SettingsScale(_))
+        })
+    }
+
+    /// The captured settings slider keeps tracking outside its hover region.
+    pub fn settings_slider_drag_action(
+        &self,
+        index: u16,
+        point: ui::UiPoint,
+    ) -> Option<crate::menu::MenuAction> {
+        self.slider_drag_action(point, |action| matches!(action, crate::menu::MenuAction::SettingsOption(candidate, _) if candidate == index))
+    }
+
+    /// Resolves the horizontal value using the captured slider's full geometry.
+    fn slider_drag_action(
+        &self,
+        point: ui::UiPoint,
+        selected: impl Fn(crate::menu::MenuAction) -> bool,
+    ) -> Option<crate::menu::MenuAction> {
+        let targets = if self.settings_slider_drag_targets.is_empty() {
             &self.menu_hit_targets
         } else {
-            &self.gui_scale_drag_targets
+            &self.settings_slider_drag_targets
         };
-        let slider = targets
-            .iter()
-            .filter(|(action, _)| matches!(action, crate::menu::MenuAction::SettingsScale(_)));
+        let slider = targets.iter().filter(|(action, _)| selected(*action));
         let left = slider
             .clone()
             .map(|(_, bounds)| bounds.min().x())

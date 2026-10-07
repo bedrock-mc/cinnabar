@@ -129,7 +129,7 @@ fn routed_look_uses_follow_orbit_angles_before_clamping_the_actor() {
     );
     server.apply(
         2,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             set: Some(CameraSetInstruction {
                 preset_id: 0,
                 ease: None,
@@ -142,7 +142,7 @@ fn routed_look_uses_follow_orbit_angles_before_clamping_the_actor() {
                 remove_ignore_starting_values: false,
             }),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     let initial = server.pose_override(&context).unwrap().rotation;

@@ -15,6 +15,7 @@ pub(super) fn prepare(
     atlas: &mut atlas::Atlas,
     entities: &RuntimeEntityAssets,
     icons: &RuntimeIconCatalog,
+    icon_refs: &[IconRef],
     equipment: Option<&RuntimeEquipmentCatalog>,
     blocks: &BTreeMap<u32, IconRef>,
 ) -> Result<BTreeMap<ItemVisualKey, PreviewHeldModel>, UiPresentationError> {
@@ -28,15 +29,20 @@ pub(super) fn prepare(
             visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
         });
         let model = match definition.map(|definition| definition.route) {
-            Some(ItemVisualDefinitionRoute::BlockItem { block_visual }) => blocks
-                .get(&block_visual.0)
-                .map(|source| block(*source, hand_pivots)),
+            Some(ItemVisualDefinitionRoute::BlockItem { block_visual })
+                if blocks.contains_key(&block_visual.0) =>
+            {
+                Some(block(blocks[&block_visual.0], hand_pivots))
+            }
             Some(ItemVisualDefinitionRoute::EmptyHand) => None,
             _ => {
                 let Some(sprite) = icons.sprites().get(entry.sprite as usize) else {
                     continue;
                 };
-                let source = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
+                // Sprite texels already live in the item atlas; keep their original region.
+                let source = *icon_refs
+                    .get(entry.sprite as usize)
+                    .ok_or(UiPresentationError::InvalidFontTexture)?;
                 held_sprite_vertices(
                     usize::from(sprite.width),
                     usize::from(sprite.height),
@@ -167,7 +173,10 @@ fn authored(
     else {
         return Ok(None);
     };
-    let [root] = &*entities.geometries()[index].bones else {
+    let Ok(bones) = render_model::resolve_geometry_bones(entities, index) else {
+        return Ok(None);
+    };
+    let [root] = &*bones else {
         return Ok(None);
     };
     let Some(texture) = equipment.texture(&binding.texture.identifier) else {
@@ -190,8 +199,8 @@ fn authored(
         axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let (Some(main), Some(off)) = (
-        attach(identity, *pivot, main),
-        attach(identity, *pivot, off),
+        attach(identity, *pivot, main, root.binding.is_some()),
+        attach(identity, *pivot, off, root.binding.is_some()),
     ) else {
         return Ok(None);
     };
@@ -200,61 +209,12 @@ fn authored(
         source,
         hand_pivots,
         vertices: Arc::clone(&geometry.vertices),
-        placements: [main, off]
-            .map(|bone| PreviewHeldPlacement::authored(bone, *pivot, root.binding.is_some())),
+        placements: [main, off].map(|bone| PreviewHeldPlacement::Authored {
+            bone,
+            pivot: *pivot,
+        }),
     }))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn held_block_is_the_shared_six_face_cube_not_a_gui_thumbnail() {
-        let source = IconRef {
-            page: 7,
-            uv: [
-                10,
-                20,
-                10 + assets::BLOCK_ITEM_SHEET_SIZE[0],
-                20 + assets::BLOCK_ITEM_SHEET_SIZE[1],
-            ],
-            glint: false,
-        };
-        let model = block(source, [[0.0; 3]; 2]);
-        assert_eq!(model.source, source);
-        assert_eq!(model.vertices.len(), 36);
-        for axis in 0..3 {
-            assert!(
-                model
-                    .vertices
-                    .iter()
-                    .any(|vertex| vertex.position[axis] == -0.5)
-            );
-            assert!(
-                model
-                    .vertices
-                    .iter()
-                    .any(|vertex| vertex.position[axis] == 0.5)
-            );
-        }
-        assert!(
-            model
-                .placements
-                .iter()
-                .all(|placement| matches!(placement, PreviewHeldPlacement::Block))
-        );
-        for (face, vertices) in model.vertices.chunks_exact(6).enumerate() {
-            let icon = super::super::sheet_faces(source)[face];
-            assert_eq!(
-                vertices[0].uv,
-                [
-                    f32::from(icon.uv[0] - source.uv[0])
-                        / f32::from(assets::BLOCK_ITEM_SHEET_SIZE[0]),
-                    f32::from(icon.uv[1] - source.uv[1])
-                        / f32::from(assets::BLOCK_ITEM_SHEET_SIZE[1]),
-                ]
-            );
-        }
-    }
-}
+mod tests;

@@ -32,6 +32,8 @@ use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
+#[path = "teleport_ack_wiring_tests/correction_presentation.rs"]
+mod correction_presentation;
 #[path = "teleport_ack_wiring_tests/respawn.rs"]
 mod respawn;
 

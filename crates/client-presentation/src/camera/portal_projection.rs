@@ -309,7 +309,7 @@ mod tests {
             );
             server.apply(
                 2,
-                &CameraEvent::Instruction(CameraInstructionEvent {
+                &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
                     set: Some(CameraSetInstruction {
                         preset_id: 0,
                         ease: None,
@@ -322,7 +322,7 @@ mod tests {
                         remove_ignore_starting_values: false,
                     }),
                     ..Default::default()
-                }),
+                })),
                 &context,
             );
         }

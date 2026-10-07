@@ -1,0 +1,11 @@
+capture,stage,field,measured_spans,missing_field_spans,total_units,zero_unit_spans,min_units,max_units,positive_payload_elapsed_ms,weighted_elapsed_ms_per_unit
+tracy-refined-1080,hand.light_write,bytes,39,0,3744,0,96,96,0.3465,9.254807692307691e-05
+tracy-refined-1080,hand.pose_upload,bytes,36990,0,21750120,0,132,816,2049.288699,9.42196502364125e-05
+tracy-refined-1080,ui.viewport_write,bytes,12330,0,197280,0,16,16,1372.335577,0.006956283338402271
+tracy-refined-1080,particles.instance_write,bytes,9355,0,1668160,0,80,480,1314.990849,0.0007882882031699598
+tracy-refined-1080,particles.instance_write,instances,9355,0,20852,0,1,6,1314.990849,0.06306305625359677
+tracy-refined-retina,hand.light_write,bytes,14,0,1344,0,96,96,10.106039999999998,0.007519374999999999
+tracy-refined-retina,hand.pose_upload,bytes,27135,0,15955380,0,132,816,5053.714867,0.0003167404892268313
+tracy-refined-retina,ui.viewport_write,bytes,9045,0,144720,0,16,16,3844.200361,0.026563020736594806
+tracy-refined-retina,particles.instance_write,bytes,6235,0,898160,0,80,400,3314.941059,0.0036908135065021825
+tracy-refined-retina,particles.instance_write,instances,6235,0,11227,0,1,5,3314.941059,0.2952650805201746

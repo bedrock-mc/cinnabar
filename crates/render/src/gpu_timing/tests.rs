@@ -89,8 +89,23 @@ fn timed_frame_is_read_back_on_a_later_frame_without_waiting() {
     timestamps.begin(|frame| frames.push(*frame));
     world.insert_resource(timestamps);
 
-    let buffers = run_opaque(&world, &device);
-    assert_eq!(buffers.len(), 1, "begin and end markers share one encoder");
+    let mut buffers = run_opaque(&world, &device);
+    if cfg!(target_os = "macos") {
+        let writes = render_pass_timestamps(&world, RuntimeStage::GpuOpaque).unwrap();
+        let mut context = RenderContext::new(device.clone(), None);
+        context
+            .command_encoder()
+            .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("NOOP readback lifecycle"),
+                timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+                    query_set: writes.query_set,
+                    beginning_of_pass_write_index: writes.beginning_of_pass_write_index,
+                    end_of_pass_write_index: writes.end_of_pass_write_index,
+                }),
+            });
+        buffers.extend(context.finish().0);
+    }
+    assert_eq!(buffers.len(), 1, "the sampled work shares one encoder");
     queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
     assert_eq!(timestamps.frame.passes.load(Ordering::Relaxed), 1);
@@ -105,6 +120,58 @@ fn timed_frame_is_read_back_on_a_later_frame_without_waiting() {
     // The NOOP backend writes no ticks, so the frame decodes to no durations.
     assert_eq!(frames[0].iter().count(), 0);
     assert!(timestamps.ring.oldest_in_flight().is_none());
+}
+
+#[test]
+fn metal_wrappers_encode_no_synthetic_passes() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let (mut world, runs) = timed_world();
+    let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+    timestamps.begin(|_| unreachable!("first frame has no readback"));
+    world.insert_resource(timestamps);
+    assert!(run_opaque(&world, &device).is_empty());
+    let mut context = RenderContext::new(device.clone(), None);
+    timed(&world, &mut context, RuntimeStage::GpuUi, |_| {});
+    assert!(context.finish().0.is_empty());
+    assert_eq!(runs.load(Ordering::Relaxed), 1);
+    let timestamps = world.resource::<GpuTimestamps>();
+    assert_eq!(timestamps.frame.passes.load(Ordering::Relaxed), 0);
+    assert_eq!(timestamps.frame.draws.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn metal_owned_pass_queries_reuse_bounded_storage() {
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+    timestamps.begin(|_| unreachable!("first frame has no readback"));
+    let mut world = World::new();
+    world.insert_resource(timestamps);
+    if !cfg!(target_os = "macos") {
+        assert!(render_pass_timestamps(&world, RuntimeStage::GpuUi).is_none());
+        assert_eq!(
+            world
+                .resource::<GpuTimestamps>()
+                .frame
+                .passes
+                .load(Ordering::Relaxed),
+            0
+        );
+        return;
+    }
+    for index in 0..PASS_SPANS {
+        let writes = render_pass_timestamps(&world, RuntimeStage::GpuUi).unwrap();
+        assert!(std::ptr::eq(
+            writes.query_set,
+            &world.resource::<GpuTimestamps>().queries
+        ));
+        assert_eq!(writes.beginning_of_pass_write_index, Some(index * 2));
+        assert_eq!(writes.end_of_pass_write_index, Some(index * 2 + 1));
+    }
+    assert!(render_pass_timestamps(&world, RuntimeStage::GpuUi).is_none());
+    assert_eq!(world.resource::<GpuTimestamps>().slots.len(), SLOTS);
 }
 
 #[test]

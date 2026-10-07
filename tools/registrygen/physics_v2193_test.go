@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,8 +22,12 @@ func loadV2193PhysicsInputs(t *testing.T) ([]byte, []Record) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := hexDigest(breg); got != v2193PhysicsBREGSHA256 {
-		t.Fatalf("v2193 BREG SHA-256 = %s, want %s", got, v2193PhysicsBREGSHA256)
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hexDigest(breg); got != blockHash {
+		t.Fatalf("v2193 BREG SHA-256 = %s, want %s", got, blockHash)
 	}
 	_, records, err := decodeBREGRecords(breg, v2193BlockProtocol)
 	if err != nil {
@@ -488,7 +493,7 @@ func TestV2193PhysicsSeedsTransplantLegacyCollisionVerbatim(t *testing.T) {
 	_, records := loadV2193PhysicsInputs(t)
 	matched := 0
 	for _, record := range records {
-		if record.Name == retailReservedName {
+		if record.Name == retailReservedName || isEducationConstructionName(record.Name) {
 			continue
 		}
 		reduced, err := v2193ReducedState(record.StateJSON)
@@ -513,6 +518,21 @@ func TestV2193PhysicsSeedsTransplantLegacyCollisionVerbatim(t *testing.T) {
 	}
 	if matched != 15_963+3_440+2_026 {
 		t.Fatalf("legacy fact-source states = %d, want exactly 21429", matched)
+	}
+}
+
+func TestEducationConstructionPhysicsUsesIdentifiedSolidCollision(t *testing.T) {
+	records, sources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount)
+	index := len(records) - 1
+	records[index].Name = "minecraft:deny"
+	records[index].CollisionSeed = CollisionSeed{Confidence: CollisionConfidenceCollisionOnly, Boxes: []CollisionBox{{MaxX: 100_000_000, MaxY: 100_000_000, MaxZ: 100_000_000}}}
+	sources.PMMP["minecraft:deny"] = PMMPLightProperties{Friction: 0.6000000238418579}
+	physics, err := projectV2193PhysicsRecords(records, sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if physics[index].Flags&physicsFlagPassable != 0 || len(physics[index].Boxes) != 1 || physics[index].Boxes[0].MaxY != 100_000_000 {
+		t.Fatalf("Education construction block lost its solid collision: %+v", physics[index])
 	}
 }
 
@@ -589,12 +609,12 @@ func TestProjectV2193PhysicsFailsClosedListingEveryMissingPMMPName(t *testing.T)
 func TestProjectV2193PhysicsRequiresExactlyTheReviewedReservedCount(t *testing.T) {
 	undercount, underSources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount - 1)
 	if _, err := projectV2193PhysicsRecords(undercount, underSources); err == nil ||
-		!strings.Contains(err.Error(), "662") {
+		!strings.Contains(err.Error(), fmt.Sprint(v2193PhysicsReservedCount)) {
 		t.Fatalf("undercount rejection = %v", err)
 	}
 	overcount, overSources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount + 1)
 	if _, err := projectV2193PhysicsRecords(overcount, overSources); err == nil ||
-		!strings.Contains(err.Error(), "662") {
+		!strings.Contains(err.Error(), fmt.Sprint(v2193PhysicsReservedCount)) {
 		t.Fatalf("overcount rejection = %v", err)
 	}
 
@@ -644,12 +664,12 @@ func TestV2193PhysicsManifestCrossCheckRejectsDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	projection := generic["projection"].(map[string]any)
-	projection["denied_count"] = 661
+	projection["denied_count"] = v2193PhysicsReservedCount - 1
 	mutated, err := json.Marshal(generic)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := crossCheckV2193PhysicsManifest(mutated); err == nil || !strings.Contains(err.Error(), "662") {
+	if err := crossCheckV2193PhysicsManifest(mutated); err == nil || !strings.Contains(err.Error(), fmt.Sprint(v2193PhysicsReservedCount)) {
 		t.Fatalf("drifted denial count rejection = %v", err)
 	}
 
@@ -661,5 +681,46 @@ func TestV2193PhysicsManifestCrossCheckRejectsDrift(t *testing.T) {
 	}
 	if err := crossCheckV2193PhysicsManifest(rebound); err == nil || !strings.Contains(err.Error(), "BREG") {
 		t.Fatalf("drifted BREG binding rejection = %v", err)
+	}
+}
+
+func TestV2193PhysicsManifestFollowsTargetBlockPin(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "..", "assets", "block-projection-v2193.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest v2193BlockProjectionManifest
+	if err := json.Unmarshal(payload, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	original := manifest.Output.SHA256
+	changed := strings.Repeat("a", 64)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	target, err := json.Marshal(map[string]any{"hashes": map[string]string{"block_registry": changed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "bedrock-target.json"), target, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	manifest.Output.SHA256 = changed
+	rebound, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := crossCheckV2193PhysicsManifest(rebound); err != nil {
+		t.Fatalf("rejected current target block binding: %v", err)
+	}
+	manifest.Output.SHA256 = original
+	stale, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := crossCheckV2193PhysicsManifest(stale); err == nil {
+		t.Fatal("accepted stale target block binding")
 	}
 }

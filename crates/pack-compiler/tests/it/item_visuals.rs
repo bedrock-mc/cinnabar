@@ -15,6 +15,39 @@ mod spawn_eggs;
 #[path = "item_visuals/beds.rs"]
 mod beds;
 
+#[test]
+fn leather_tga_atlas_sources_keep_their_opaque_untinted_trim() {
+    let pack = item_pack(false);
+    write(
+        pack.path(),
+        "textures/item_texture.json",
+        br#"{
+        "texture_data": {"helmet": {"textures": "textures/items/leather_helmet"}}
+    }"#,
+    );
+    let image = image::RgbaImage::from_fn(2, 1, |x, _| {
+        image::Rgba(if x == 0 {
+            [200, 100, 50, 3]
+        } else {
+            [200, 100, 50, 255]
+        })
+    });
+    image
+        .save(pack.path().join("textures/items/leather_helmet.tga"))
+        .unwrap();
+    let compiled = compile_icon_assets(pack.path(), MANIFEST).unwrap();
+    let icons = RuntimeIconCatalog::decode(&compiled.bytes).unwrap();
+    let sprite = icons
+        .lookup("minecraft:leather_helmet", 0)
+        .expect("TGA leather icon");
+    assert_eq!(sprite.rgba8[3], 255);
+    assert_eq!(sprite.rgba8[7], 255);
+    assert!(
+        sprite.rgba8[0] > sprite.rgba8[4],
+        "trim keeps its source color"
+    );
+}
+
 fn write(root: &Path, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -201,6 +234,35 @@ fn canonical_default_conflicts_are_rejected_without_replacing_atlas_routes() {
     fs::remove_file(pack.path().join("textures/items/blue.png")).unwrap();
     fs::remove_file(pack.path().join("textures/items/other.png")).unwrap();
     assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
+}
+
+#[test]
+fn food_default_icons_reach_lookup_when_the_atlas_keys_differ_from_item_names() {
+    let pack = item_pack(false);
+    write(
+        pack.path(),
+        "textures/item_texture.json",
+        br#"{"texture_data":{"potato_baked":{"textures":"textures/items/cooked"},"beef_raw":{"textures":"textures/items/raw"}}}"#,
+    );
+    for (name, rgba) in [("cooked", [31, 127, 73, 255]), ("raw", [173, 43, 29, 255])] {
+        image::save_buffer(
+            pack.path().join(format!("textures/items/{name}.png")),
+            &rgba,
+            1,
+            1,
+            image::ColorType::Rgba8,
+        )
+        .unwrap();
+    }
+    let compiled = compile_icon_assets(pack.path(), MANIFEST).unwrap();
+    let catalog = RuntimeIconCatalog::decode(&compiled.bytes).unwrap();
+    for (identifier, expected) in [
+        ("minecraft:baked_potato", [31, 127, 73, 255]),
+        ("minecraft:beef", [173, 43, 29, 255]),
+    ] {
+        let sprite = catalog.lookup(identifier, 0).expect("food default icon");
+        assert_eq!(sprite.rgba8.as_ref(), &expected);
+    }
 }
 
 #[test]

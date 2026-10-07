@@ -148,9 +148,14 @@ pub(crate) fn prepare_actor_render_frame(
                 let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
                 (playback.emote, playback.elapsed(now))
             }),
-        hide_hand: menu
-            .as_ref()
-            .is_some_and(|menu| menu.settings_snapshot().0.value("hide_hand") != 0),
+        hide_hand: menu.as_ref().is_some_and(|menu| {
+            let settings = menu.settings_snapshot().0;
+            !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
+                settings.value("hide_hud") != 0,
+                settings.value("hide_hand") != 0,
+            )
+            .hand
+        }),
     };
     let ClientWorld {
         stream,
@@ -233,6 +238,9 @@ pub(crate) fn publish_entity_shadows(
         let runtime_id = stream.local_player_runtime_id();
         client_presentation::entity_shadows::LocalShadowSource {
             runtime_id,
+            visible: local.snapshot().is_some_and(|visibility| {
+                visibility.runtime_id() == runtime_id && visibility.visible()
+            }),
             feet: local
                 .snapshot()
                 .filter(|visibility| visibility.runtime_id() == runtime_id)

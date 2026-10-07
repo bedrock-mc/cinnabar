@@ -62,6 +62,8 @@ pub const UI_BLEND_INVERT: u32 = 1;
 pub const UI_STYLE_GLINT: u32 = 1 << 1;
 /// Reject sampled texture alpha below one half before multiplying vertex alpha.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
+/// Texture alpha weights dye color; every surviving sampled texel is opaque.
+pub const UI_STYLE_COLOR_MASK: u32 = 1 << 5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UiRenderBatch {

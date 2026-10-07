@@ -30,6 +30,11 @@ type ScreenServices interface {
 	ReportMessage(ctx context.Context, event catalog.MessageEvent) error
 }
 
+// ScreenCountServices adds live populations only when experience details request them.
+type ScreenCountServices interface {
+	FeaturedServersWithCounts(context.Context) ([]catalog.FeaturedServer, error)
+}
+
 type homeResultV1 struct {
 	SchemaVersion uint32       `json:"schema_version"`
 	Home          catalog.Home `json:"home"`
@@ -92,7 +97,16 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 		})
 		return emptyResultV1{SchemaVersion: 1}, err
 	}
-	if len(raw) != 0 {
+	includeCounts := false
+	if method == methodFeaturedServers && len(raw) != 0 {
+		var params struct {
+			IncludePlayerCounts bool `json:"include_player_counts"`
+		}
+		if !decodeParams(raw, &params) {
+			return nil, errInvalidParams
+		}
+		includeCounts = params.IncludePlayerCounts
+	} else if len(raw) != 0 {
 		return nil, errInvalidParams
 	}
 	switch method {
@@ -100,7 +114,13 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 		home, err := screens.Home(ctx)
 		return homeResultV1{SchemaVersion: 1, Home: home}, err
 	case methodFeaturedServers:
-		servers, err := screens.FeaturedServers(ctx)
+		var servers []catalog.FeaturedServer
+		var err error
+		if counts, ok := screens.(ScreenCountServices); includeCounts && ok {
+			servers, err = counts.FeaturedServersWithCounts(ctx)
+		} else {
+			servers, err = screens.FeaturedServers(ctx)
+		}
 		if servers == nil {
 			servers = []catalog.FeaturedServer{}
 		}

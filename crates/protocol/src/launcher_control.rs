@@ -7,7 +7,7 @@ pub use bridge::{
     MessageEvent, MessageImage, Profile, ProfileAchievement, ProfileAchievements,
     ProfileStatistics, Realm, ServerDisconnect, ServerPing, ServerTrustPrompt, TransferPending,
     account_status, answer_server_trust, connect_target, control_endpoint_path, home,
-    list_featured_servers, list_friends, list_realms, ping_servers, poll_events, profile,
-    report_message_event, sign_out,
+    list_featured_servers, list_featured_servers_with_counts, list_friends, list_realms,
+    ping_servers, poll_events, profile, report_message_event, sign_out,
 };
 pub use bridge::{PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay};

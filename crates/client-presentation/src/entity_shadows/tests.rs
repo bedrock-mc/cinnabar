@@ -149,6 +149,7 @@ fn local_shadow_follows_body_visibility_without_hiding_other_casters() {
     spawn(&mut stream, 3, 7, "item", 6.0);
     let local = LocalShadowSource {
         runtime_id: stream.local_player_runtime_id(),
+        visible: true,
         feet: Some([9.0, 64.0, 0.0]),
         spectator: false,
     };
@@ -192,4 +193,25 @@ fn local_shadow_follows_body_visibility_without_hiding_other_casters() {
         &mut scene,
     );
     assert!(scene.0.shadows.iter().all(|shadow| shadow.feet[0] != 9.0));
+
+    publish_entity_shadows(
+        Some(&stream),
+        1.0,
+        Some(LocalShadowSource {
+            visible: false,
+            ..local
+        }),
+        None,
+        &[1, 5],
+        &mut staging,
+        &mut scene,
+    );
+    let mut casters: Vec<_> = scene
+        .0
+        .shadows
+        .iter()
+        .map(|shadow| shadow.feet[0])
+        .collect();
+    casters.sort_by(f32::total_cmp);
+    assert_eq!(casters, [2.0, 6.0]);
 }

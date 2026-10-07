@@ -67,11 +67,22 @@ impl BoxSpec {
     }
 }
 
+impl From<assets::block_entity_geometry::ModelBox> for BoxSpec {
+    fn from((origin, size, uv): assets::block_entity_geometry::ModelBox) -> Self {
+        Self::new(origin, size, uv)
+    }
+}
+
 // Directional face shade; needs native measurement against Bedrock entity lighting.
 const SHADE_UP: f32 = 1.0;
 const SHADE_DOWN: f32 = 0.5;
 const SHADE_Z: f32 = 0.8;
 const SHADE_X: f32 = 0.6;
+
+/// Directional brightness in the shared terrain face order.
+pub(super) const fn tile_face_shade(face: usize) -> f32 {
+    [SHADE_X, SHADE_X, SHADE_DOWN, SHADE_UP, SHADE_Z, SHADE_Z][face]
+}
 
 pub const WHITE: [f32; 4] = [1.0; 4];
 
@@ -115,48 +126,12 @@ impl MeshBuilder {
         spec: BoxSpec,
         tint: [f32; 4],
     ) {
-        let [ox, oy, oz] = spec.origin;
-        let [sx, sy, sz] = spec.size;
-        let inflate = spec.inflate;
-        let (x0, x1) = (ox - inflate, ox + sx + inflate);
-        let (y0, y1) = (oy - inflate, oy + sy + inflate);
-        let (z0, z1) = (oz - inflate, oz + sz + inflate);
-        let [u, v] = spec.uv;
-        // Corners are top-left, top-right, bottom-right, bottom-left seen from outside;
-        // texel rects are [u, v, width, height] of the box unwrap.
-        let faces: [([[f32; 3]; 4], [f32; 4], f32); 6] = [
-            (
-                [[x1, y1, z0], [x0, y1, z0], [x0, y0, z0], [x1, y0, z0]],
-                [u + sz, v + sz, sx, sy],
-                SHADE_Z,
-            ),
-            (
-                [[x0, y1, z1], [x1, y1, z1], [x1, y0, z1], [x0, y0, z1]],
-                [u + sz + sx + sz, v + sz, sx, sy],
-                SHADE_Z,
-            ),
-            (
-                [[x1, y1, z1], [x1, y1, z0], [x1, y0, z0], [x1, y0, z1]],
-                [u, v + sz, sz, sy],
-                SHADE_X,
-            ),
-            (
-                [[x0, y1, z0], [x0, y1, z1], [x0, y0, z1], [x0, y0, z0]],
-                [u + sz + sx, v + sz, sz, sy],
-                SHADE_X,
-            ),
-            (
-                [[x1, y1, z1], [x0, y1, z1], [x0, y1, z0], [x1, y1, z0]],
-                [u + sz, v, sx, sz],
-                SHADE_UP,
-            ),
-            (
-                [[x1, y0, z0], [x0, y0, z0], [x0, y0, z1], [x1, y0, z1]],
-                [u + sz + sx, v + sz, sx, -sz],
-                SHADE_DOWN,
-            ),
-        ];
-        for (corners, texels, shade) in faces {
+        let faces =
+            assets::block_entity_geometry::box_faces(spec.origin, spec.size, spec.uv, spec.inflate);
+        for ((corners, texels), shade) in faces
+            .into_iter()
+            .zip([SHADE_Z, SHADE_Z, SHADE_X, SHADE_X, SHADE_UP, SHADE_DOWN])
+        {
             if texels[2] <= 0.0 || texels[3] == 0.0 {
                 continue;
             }
@@ -255,35 +230,12 @@ impl MeshBuilder {
         rects: [AtlasRect; 6],
         tint: [f32; 4],
     ) {
-        let [x0, y0, z0] = min;
-        let [x1, y1, z1] = max;
-        let faces: [([[f32; 3]; 4], f32); 6] = [
-            (
-                [[x0, y1, z0], [x0, y1, z1], [x0, y0, z1], [x0, y0, z0]],
-                SHADE_X,
-            ),
-            (
-                [[x1, y1, z1], [x1, y1, z0], [x1, y0, z0], [x1, y0, z1]],
-                SHADE_X,
-            ),
-            (
-                [[x1, y0, z0], [x0, y0, z0], [x0, y0, z1], [x1, y0, z1]],
-                SHADE_DOWN,
-            ),
-            (
-                [[x1, y1, z1], [x0, y1, z1], [x0, y1, z0], [x1, y1, z0]],
-                SHADE_UP,
-            ),
-            (
-                [[x1, y1, z0], [x0, y1, z0], [x0, y0, z0], [x1, y0, z0]],
-                SHADE_Z,
-            ),
-            (
-                [[x0, y1, z1], [x1, y1, z1], [x1, y0, z1], [x0, y0, z1]],
-                SHADE_Z,
-            ),
-        ];
-        for ((corners, shade), rect) in faces.into_iter().zip(rects) {
+        let faces = assets::block_entity_geometry::tile_box_faces([min, max]);
+        for ((corners, shade), rect) in faces
+            .into_iter()
+            .zip((0..6).map(tile_face_shade))
+            .zip(rects)
+        {
             let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
             self.textured_quad(
                 layer,

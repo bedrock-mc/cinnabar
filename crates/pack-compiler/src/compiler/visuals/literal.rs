@@ -29,6 +29,8 @@ pub(in crate::compiler) fn is_literal_cube(record: &RegistryRecord) -> bool {
                 | "minecraft:budding_amethyst"
                 | "minecraft:crimson_nylium"
                 | "minecraft:warped_nylium"
+                | "minecraft:allow"
+                | "minecraft:deny"
         )
 }
 

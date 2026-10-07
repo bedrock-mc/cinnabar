@@ -134,4 +134,5 @@ pub(in crate::presentation::equipment) struct ArmorGeometry {
     pub(super) rig: EntityRigId,
     pub(super) names: Vec<Box<str>>,
     pub(super) pivots: Vec<[f32; 3]>,
+    pub(super) binding_expressions: Vec<bool>,
 }

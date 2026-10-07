@@ -152,35 +152,39 @@ fn offhand_raises_only_its_own_arm_in_the_live_controller() {
 }
 
 #[test]
-fn expression_binding_corrects_root_origin_without_changing_mesh_pivot() {
-    let pivot = [0.1, 0.9, 0.2];
-    let bone = RenderBoneTransform {
+fn bound_attachable_preview_preserves_the_resolved_hand_origin() {
+    use render_model::equipment::{BoneChannels, attach};
+    let pivot = [0.0, client_world::MODEL_PART_ORIGIN_Y / 16.0, 0.0];
+    let identity = RenderBoneTransform {
         rotation: Quat::IDENTITY.to_array(),
-        translation_scale: [0.2, 1.5, 0.3, 1.0],
+        translation_scale: [0.0, 0.0, 0.0, 1.0],
         axis_scale: render_model::UNIT_AXIS_SCALE,
     };
-    for bound in [false, true] {
-        let PreviewHeldPlacement::Authored {
-            bone: actual,
-            pivot: bind,
-        } = PreviewHeldPlacement::authored(bone, pivot, bound)
-        else {
-            panic!("authored placement")
-        };
-        assert_eq!(bind, pivot);
-        assert_eq!(actual.rotation, bone.rotation);
-        assert_eq!(actual.axis_scale, bone.axis_scale);
-        let offset = if bound {
-            client_world::MODEL_PART_ORIGIN_Y / 16.0
-        } else {
-            0.0
-        };
-        assert_eq!(
-            actual.translation_scale[1],
-            bone.translation_scale[1] - offset
-        );
-        assert_eq!(actual.translation_scale[0], bone.translation_scale[0]);
-        assert_eq!(actual.translation_scale[2], bone.translation_scale[2]);
+    let bone = attach(identity, pivot, BoneChannels::default(), true).unwrap();
+    let mut vertices = render_model::textured_cube_vertices([[0.0, 0.0, 1.0, 1.0]; 6]);
+    for vertex in &mut vertices {
+        vertex.position[1] += pivot[1];
+    }
+    let held = model(vertices, PreviewHeldPlacement::Authored { bone, pivot });
+    let mesh = draw([Some(&held); 2]);
+    let rig = Rig::new(Default::default(), PreviewView::default(), 0.0, [true; 2]);
+    for (hand, batch) in mesh.batches().iter().skip(1).enumerate() {
+        let origin = held.hand_pivots[hand];
+        let expected = rig.project(ActorVertex {
+            position: [-origin[0], origin[1], -origin[2]],
+            uv: [0.0; 2],
+            part: if hand == 0 { 2 } else { 3 },
+        });
+        let vertices =
+            &mesh.vertices()[batch.index_range.start as usize..batch.index_range.end as usize];
+        for (axis, size) in [PREVIEW_WIDTH, PREVIEW_HEIGHT].into_iter().enumerate() {
+            let centre = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .sum::<f32>()
+                / vertices.len() as f32;
+            assert!((centre * size as f32 - expected.screen[axis]).abs() < 1e-4);
+        }
     }
 }
 

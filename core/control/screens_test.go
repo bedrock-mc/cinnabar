@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
@@ -102,5 +103,39 @@ func TestScreenFeedsNeedAScreenBackend(t *testing.T) {
 	dir := startServices(t, NewStore(), &stubServices{})
 	if reply := rpc(t, dir, methodFeaturedServers, ""); reply.Error == nil || reply.Error.Code != codeServicesDisabled {
 		t.Fatalf("reply = %+v", reply.Error)
+	}
+}
+
+// countedScreens records whether the local caller requested the experience-details data.
+type countedScreens struct {
+	stubScreens
+	calls int
+}
+
+// FeaturedServersWithCounts supplies a real zero without losing its presence on the bridge.
+func (s *countedScreens) FeaturedServersWithCounts(context.Context) ([]catalog.FeaturedServer, error) {
+	s.calls++
+	count := int64(0)
+	return []catalog.FeaturedServer{{Name: "Experience", PlayerCount: &count}}, nil
+}
+
+// TestFeaturedCountsAreOptIn keeps background catalog reads from requesting populations.
+func TestFeaturedCountsAreOptIn(t *testing.T) {
+	s := new(countedScreens)
+	for _, params := range []string{"", `{}`, `{"include_player_counts":false}`} {
+		if _, err := screenResult(context.Background(), s, methodFeaturedServers, json.RawMessage(params)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s.calls != 0 {
+		t.Fatal("ordinary featured lookup requested player counts")
+	}
+	result, err := screenResult(context.Background(), s, methodFeaturedServers, json.RawMessage(`{"include_player_counts":true}`))
+	if err != nil || s.calls != 1 {
+		t.Fatalf("count request: calls=%d, error=%v", s.calls, err)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil || !strings.Contains(string(raw), `"player_count":0`) {
+		t.Fatalf("count result = %s, error=%v", raw, err)
 	}
 }

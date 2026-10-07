@@ -4,9 +4,11 @@ mod actor;
 mod atmosphere;
 mod audio;
 mod audio_pcm;
+pub mod banner;
 mod biome;
 mod blob;
 mod block_entity;
+pub mod block_entity_geometry;
 mod block_names;
 pub mod carriers;
 mod compiled;
@@ -159,11 +161,11 @@ pub use entity::{
 pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
-    ArmorSlot, AttachablePose, AttachablePoseBone, EQUIPMENT_CARRIER_MAGIC,
+    ArmorSlot, AttachablePose, AttachablePoseBone, DEFAULT_LEATHER_RGB, EQUIPMENT_CARRIER_MAGIC,
     EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory, EquipmentReference,
     EquipmentTexture, EquipmentTransform, ItemUseDuration, MAX_EQUIPMENT_BINDINGS,
     MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE,
-    MAX_EQUIPMENT_TEXTURES, RuntimeEquipmentCatalog, encode_equipment_catalog,
+    MAX_EQUIPMENT_TEXTURES, RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,
     encode_equipment_catalog_full, encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;

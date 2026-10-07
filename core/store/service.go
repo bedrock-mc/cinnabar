@@ -36,9 +36,6 @@ func (c *Client) sessionConfig(ctx context.Context) (*marketplace.SessionConfig,
 	}
 	c.mu.Lock()
 	c.config, c.configAt = cfg, c.cfg.Now()
-	if cfg.UserListsVersion != "" && c.lists == "" {
-		c.lists = cfg.UserListsVersion
-	}
 	c.mu.Unlock()
 	return cfg, nil
 }
@@ -84,11 +81,8 @@ func (c *Client) loadInventory(ctx context.Context, force bool) (*inventoryCache
 			break
 		}
 	}
+	fresh.version = c.cfg.Market.InventoryVersion()
 	c.mu.Lock()
-	if inventory.ETag != "" {
-		c.etag = inventory.ETag
-	}
-	fresh.version = c.etag
 	c.inventory = fresh
 	c.mu.Unlock()
 	return fresh, nil
@@ -127,14 +121,9 @@ func (c *Client) Entitlements(ctx context.Context, offset, limit int, refresh bo
 // RefreshInventory asks the service to rebuild the account's inventory. It is best effort: a failure
 // leaves the next inventory read to return whatever the service has.
 func (c *Client) RefreshInventory(ctx context.Context) {
-	version, err := c.cfg.Market.RefreshInventory(ctx)
-	if err != nil {
-		return
+	if _, err := c.cfg.Market.RefreshInventory(ctx); err == nil {
+		c.invalidateInventory()
 	}
-	c.mu.Lock()
-	c.etag = version
-	c.inventory = nil
-	c.mu.Unlock()
 }
 
 // MoreOffers loads the next items of a row from its continuation token.
@@ -160,10 +149,7 @@ func (c *Client) continueRow(ctx context.Context, token string) ([]marketplace.I
 	if _, err := c.loadInventory(ctx, false); err != nil {
 		return nil, "", err
 	}
-	c.mu.Lock()
-	version := c.etag
-	c.mu.Unlock()
-	return c.cfg.Market.ContinueRow(ctx, token, version)
+	return c.cfg.Market.ContinueRow(ctx, token, c.cfg.Market.InventoryVersion())
 }
 
 // owned reports whether the offer id is in the cached inventory; false when the inventory is unknown.

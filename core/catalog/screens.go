@@ -19,6 +19,7 @@ import (
 // a caller that caches the artwork.
 type FeaturedServer struct {
 	Name         string   `json:"name"`
+	PlayerCount  *int64   `json:"player_count,omitempty"`
 	Address      string   `json:"address"`
 	Caption      string   `json:"caption"`
 	Description  string   `json:"description,omitempty"`

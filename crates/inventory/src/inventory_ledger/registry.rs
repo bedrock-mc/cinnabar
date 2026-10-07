@@ -13,6 +13,13 @@ pub(super) enum OccupiedStackRelation {
 }
 
 impl PlayerInventoryLedger {
+    /// Retained registry identity for consumers caching identifier-dependent data.
+    pub fn item_registry_snapshot(
+        &self,
+    ) -> Option<&std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>> {
+        self.item_registry.as_ref()
+    }
+
     pub fn negotiated_item_entry(&self, network_id: i32) -> Option<&ItemRegistryEntry> {
         self.item_registry.as_ref()?.get(&network_id)
     }

@@ -1,6 +1,8 @@
 //! Reset groups follow the controls authored in general_section.json.
 
-use super::{SETTINGS_OPTIONS, SettingsOptions};
+use super::{
+    INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS, SettingsOptions, THIRD_PERSON_CROSSHAIR_OPTION,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SettingsGroup {
@@ -12,6 +14,13 @@ pub enum SettingsGroup {
 impl SettingsGroup {
     /// Limits resets to registered controls in the authored section, including shared controls.
     fn contains(self, name: &str) -> bool {
+        if self == Self::Video
+            && [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION]
+                .iter()
+                .any(|option| option.name == name)
+        {
+            return true;
+        }
         match self {
             // P:general_section.json:3000–4058; max_framerate is an inherited slider.
             Self::Video => matches!(

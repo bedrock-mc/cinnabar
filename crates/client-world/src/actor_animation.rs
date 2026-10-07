@@ -463,6 +463,16 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Applies Java's limb boost on every hurt event, independently of the hurt countdown.
+    pub(crate) fn hurt_java_limbs(&mut self, runtime_id: u64) {
+        let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
+            return;
+        };
+        if let Some(state) = self.rigs.get_mut(lifetime) {
+            state.java.hurt();
+        }
+    }
+
     /// Restarts the arm swing whose progress feeds `variable.attack_time`.
     pub(crate) fn start_swing(&mut self, runtime_id: u64, ticks: i32) {
         let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
@@ -747,6 +757,9 @@ pub use view::ActorAnimationView;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod hurt_tests;
 
 #[cfg(test)]
 #[path = "actor_animation/crystal_tests.rs"]

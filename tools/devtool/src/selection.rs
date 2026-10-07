@@ -69,9 +69,14 @@ pub struct ExtraChecks {
     pub packaging: bool,
 }
 
-/// Paths outside every crate root that a crate's tests read.
+/// Shared carrier identity input read by the Rust runtime and registry validators.
+const TARGET_MANIFEST: &str = "assets/bedrock-target.json";
+
+/// Paths outside crate roots read by production code or tests.
 const EXTERNAL_TEST_INPUTS: &[(&str, &str)] = &[
     ("assets/java-hud", "json-ui"),
+    (TARGET_MANIFEST, "assets"),
+    ("tools/registrygen/cmd/hashcheck/main.go", "bedrock-client"),
     ("plan.md", "architecture"),
     ("docs/evidence", "architecture"),
 ];
@@ -128,6 +133,13 @@ pub fn select_extra_checks(changed_paths: &[&str], go_modules: &[GoModule]) -> E
     for path in changed_paths {
         let path = normalize(path);
         packaging |= is_within(&path, "packaging");
+        if path == TARGET_MANIFEST || is_registry_manifest(&path) {
+            selected.extend(
+                go_modules
+                    .iter()
+                    .filter(|module| module.dir == "tools/registrygen"),
+            );
+        }
         let owner = go_modules
             .iter()
             .filter(|module| module.dir.is_empty() || is_within(&path, &module.dir))
@@ -173,10 +185,40 @@ fn is_workspace_input(path: &str) -> bool {
     ) || is_within(&path, ".cargo")
 }
 
+/// Recognizes the versioned metadata files consumed only by registrygen.
+fn is_registry_manifest(path: &str) -> bool {
+    [
+        "assets/block-projection-v",
+        "assets/registry-foundation-v",
+        "assets/vanilla-fallback-source-v",
+    ]
+    .iter()
+    .any(|prefix| {
+        path.strip_prefix(*prefix)
+            .and_then(|suffix| suffix.strip_suffix(".json"))
+            .is_some_and(|version| {
+                !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit())
+            })
+    })
+}
+
+/// Generator source affects Rust only through separately selected generated artifacts.
+fn is_generator_source(path: &str) -> bool {
+    (is_within(path, "tools/registrygen") && path.ends_with(".go"))
+        || matches!(
+            path,
+            "tools/registrygen/update_bindings.py"
+                | "tools/itembindinggen/main.py"
+                | "tools/itembindinggen/test_main.py"
+        )
+}
+
 /// Paths outside crate roots that no crate compiles or reads; CI checks workflows and
 /// packaging runs its own tests.
 fn is_rust_free(path: &str) -> bool {
-    path.ends_with(".md")
+    is_registry_manifest(path)
+        || is_generator_source(path)
+        || path.ends_with(".md")
         || path == "LICENSE"
         || ["docs", ".github", "packaging"]
             .iter()
@@ -185,7 +227,10 @@ fn is_rust_free(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExtraChecks, GoModule, Package, Selection, select_extra_checks, select_packages};
+    use super::{
+        ExtraChecks, GoModule, Package, Selection, TARGET_MANIFEST, select_extra_checks,
+        select_packages,
+    };
 
     fn workspace() -> Vec<Package> {
         vec![
@@ -233,6 +278,104 @@ mod tests {
                 "json-ui".into(),
             ])
         );
+    }
+
+    #[test]
+    fn target_manifest_selects_carrier_owner_and_reverse_consumers() {
+        let mut packages = workspace();
+        packages.push(Package::new("inventory", "crates/inventory", &[]));
+        assert_eq!(
+            select_packages(&[TARGET_MANIFEST], &packages),
+            Selection::Packages(vec![
+                "assets".into(),
+                "bedrock-client".into(),
+                "meshing".into(),
+                "render".into()
+            ])
+        );
+        assert_eq!(
+            select_extra_checks(&[TARGET_MANIFEST], &go_modules()).go_modules,
+            vec![GoModule::new("tools/registrygen", true)]
+        );
+    }
+
+    #[test]
+    fn registry_manifests_select_their_go_validator_without_rust_packages() {
+        for path in [
+            "assets/block-projection-v1.json",
+            "assets/registry-foundation-v1.json",
+            "assets/vanilla-fallback-source-v1.json",
+        ] {
+            assert_eq!(
+                select_packages(&[path], &workspace()),
+                Selection::NoPackages,
+                "{path}"
+            );
+            assert_eq!(
+                select_extra_checks(&[path], &go_modules()).go_modules,
+                vec![GoModule::new("tools/registrygen", true)],
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn generator_sources_do_not_select_unrelated_rust_packages() {
+        for path in [
+            "tools/registrygen/block_v1.go",
+            "tools/registrygen/cmd/check/main.go",
+            "tools/registrygen/internal/targetpin/light_test.go",
+            "tools/registrygen/update_bindings.py",
+            "tools/itembindinggen/main.py",
+            "tools/itembindinggen/test_main.py",
+        ] {
+            assert_eq!(
+                select_packages(&[path], &workspace()),
+                Selection::NoPackages,
+                "{path}"
+            );
+        }
+        assert_eq!(
+            select_extra_checks(
+                &["tools/registrygen/internal/targetpin/light_test.go"],
+                &go_modules()
+            )
+            .go_modules,
+            vec![GoModule::new("tools/registrygen", true)]
+        );
+        assert_eq!(
+            select_packages(
+                &["tools/itembindinggen/main.py", "app/src/main.rs"],
+                &workspace()
+            ),
+            Selection::Packages(vec!["bedrock-client".into()])
+        );
+    }
+
+    #[test]
+    fn hashcheck_source_selects_its_rust_installer_consumer() {
+        assert_eq!(
+            select_packages(&["tools/registrygen/cmd/hashcheck/main.go"], &workspace()),
+            Selection::Packages(vec!["bedrock-client".into()])
+        );
+    }
+
+    #[test]
+    fn unknown_generator_and_carrier_inputs_still_require_the_full_gate() {
+        for path in [
+            "assets/new-carrier.json",
+            "assets/block-projection-vnext.json",
+            "assets/registry-foundation-v1.json/child",
+            "tools/registrygen/build-input.txt",
+            "tools/registrygen/go.mod",
+            "tools/itembindinggen/unknown.py",
+        ] {
+            assert_eq!(
+                select_packages(&[path], &workspace()),
+                Selection::Workspace,
+                "{path}"
+            );
+        }
     }
 
     #[test]

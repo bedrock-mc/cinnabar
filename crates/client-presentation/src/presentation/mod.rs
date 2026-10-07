@@ -5,3 +5,4 @@ pub mod equipment;
 pub mod skin_layers;
 pub mod skin_rig;
 pub mod viewmodel;
+pub mod visibility;

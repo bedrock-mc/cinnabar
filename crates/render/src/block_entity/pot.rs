@@ -1,9 +1,10 @@
 //! Decorated pots: a body with four sherd faces, a neck and a lip.
 //!
 //! Neck, lip and top/bottom plane regions follow the pot base texture's unwrap and the side
-//! quads use the shared side tile plus the sherd pattern; heights, wobble and which sherd
+//! quads use the shared side tile plus the sherd pattern; wobble and which sherd
 //! sits on which face need native measurement.
 
+use assets::block_entity_geometry::{self as geometry, POT_BODY_HALF as BODY_HALF};
 use bevy::math::Vec3;
 
 use super::{
@@ -13,8 +14,6 @@ use super::{
 
 /// Sherd patterns sit this far off the side tile so they never fight it, in pixels.
 const PATTERN_LIFT: f32 = 0.02;
-const BODY_HALF: f32 = 7.0;
-const BODY_HEIGHT: f32 = 16.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecoratedPotModel {
@@ -39,19 +38,19 @@ pub(super) fn emit(
     model: &DecoratedPotModel,
 ) {
     let matrix = model_matrix(block, [0.5, 0.0, 0.5], model.facing.yaw_degrees());
-    if let Some(base) = atlas.texture("textures/blocks/decorated_pot_base", [32.0, 32.0]) {
+    if let Some(base) = atlas.texture(geometry::POT_BASE_TEXTURE.0, geometry::POT_BASE_TEXTURE.1) {
         builder.cuboid(
             Layer::Solid,
             &base,
             matrix,
-            BoxSpec::new([-4.0, BODY_HEIGHT, -4.0], [8.0, 3.0, 8.0], [0.0, 0.0]),
+            BoxSpec::from(geometry::POT_NECK).inflated(geometry::POT_NECK_INFLATE),
             WHITE,
         );
         builder.cuboid(
             Layer::Solid,
             &base,
             matrix,
-            BoxSpec::new([-3.0, BODY_HEIGHT + 3.0, -3.0], [6.0, 1.0, 6.0], [0.0, 5.0]),
+            BoxSpec::from(geometry::POT_LIP).inflated(geometry::POT_LIP_INFLATE),
             WHITE,
         );
         let plane = |texels: [f32; 4], y: f32| {
@@ -67,65 +66,23 @@ pub(super) fn emit(
                 corners.map(|corner| matrix.transform_point3(Vec3::from_array(corner)).to_array());
             (world, uv)
         };
-        for (texels, y) in [
-            ([0.0, 13.0, 14.0, 14.0], BODY_HEIGHT),
-            ([14.0, 13.0, 14.0, 14.0], 0.0),
-        ] {
+        for (texels, y) in geometry::POT_PLANES {
             let (corners, uv) = plane(texels, y);
             builder.quad(Layer::Solid, corners, uv, WHITE);
         }
     }
-    let Some(side) = atlas.texture("textures/blocks/decorated_pot_side", [16.0, 16.0]) else {
+    let Some(side) = atlas.texture(geometry::POT_SIDE_TEXTURE.0, geometry::POT_SIDE_TEXTURE.1)
+    else {
         return;
     };
     // Faces as outward direction, top-left first when seen from outside; index into `sherds`.
-    let faces: [([[f32; 3]; 4], [f32; 3], usize); 4] = [
-        // Front (-Z).
-        (
-            [
-                [BODY_HALF, BODY_HEIGHT, -BODY_HALF],
-                [-BODY_HALF, BODY_HEIGHT, -BODY_HALF],
-                [-BODY_HALF, 0.0, -BODY_HALF],
-                [BODY_HALF, 0.0, -BODY_HALF],
-            ],
-            [0.0, 0.0, -PATTERN_LIFT],
-            3,
-        ),
-        // Back (+Z).
-        (
-            [
-                [-BODY_HALF, BODY_HEIGHT, BODY_HALF],
-                [BODY_HALF, BODY_HEIGHT, BODY_HALF],
-                [BODY_HALF, 0.0, BODY_HALF],
-                [-BODY_HALF, 0.0, BODY_HALF],
-            ],
-            [0.0, 0.0, PATTERN_LIFT],
-            0,
-        ),
-        // Left as seen from the front (+X).
-        (
-            [
-                [BODY_HALF, BODY_HEIGHT, BODY_HALF],
-                [BODY_HALF, BODY_HEIGHT, -BODY_HALF],
-                [BODY_HALF, 0.0, -BODY_HALF],
-                [BODY_HALF, 0.0, BODY_HALF],
-            ],
-            [PATTERN_LIFT, 0.0, 0.0],
-            1,
-        ),
-        // Right as seen from the front (-X).
-        (
-            [
-                [-BODY_HALF, BODY_HEIGHT, -BODY_HALF],
-                [-BODY_HALF, BODY_HEIGHT, BODY_HALF],
-                [-BODY_HALF, 0.0, BODY_HALF],
-                [-BODY_HALF, 0.0, -BODY_HALF],
-            ],
-            [-PATTERN_LIFT, 0.0, 0.0],
-            2,
-        ),
+    let lifts = [
+        ([0.0, 0.0, -PATTERN_LIFT], 3),
+        ([0.0, 0.0, PATTERN_LIFT], 0),
+        ([PATTERN_LIFT, 0.0, 0.0], 1),
+        ([-PATTERN_LIFT, 0.0, 0.0], 2),
     ];
-    for (corners, lift, index) in faces {
+    for (corners, (lift, index)) in geometry::pot_sides().into_iter().zip(lifts) {
         let world = |offset: [f32; 3]| {
             corners.map(|corner| {
                 matrix
@@ -156,5 +113,47 @@ mod tests {
         );
         assert_eq!(sherd_pattern("minecraft:brick"), None);
         assert_eq!(sherd_pattern("archer_pottery_sherd"), None);
+    }
+    #[test]
+    fn decorated_pot_neck_and_lip_preserve_the_authored_height_and_inflation() {
+        let encoded = assets::encode_block_entity_catalog(
+            b"{}",
+            32,
+            32,
+            &vec![255; 32 * 32 * 4],
+            &[assets::BlockEntityPlacement {
+                name: "textures/blocks/decorated_pot_base".into(),
+                x: 0,
+                y: 0,
+                width: 32,
+                height: 32,
+            }],
+        )
+        .unwrap();
+        let atlas = BlockEntityAtlas::from_assets(
+            &assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap(),
+        );
+        let mut builder = MeshBuilder::new(atlas.size());
+        emit(
+            &mut builder,
+            &atlas,
+            [0; 3],
+            &DecoratedPotModel {
+                facing: Facing::North,
+                sherds: Default::default(),
+            },
+        );
+        let bounds = |vertices: &[super::super::mesh::BlockEntityVertex]| {
+            vertices
+                .iter()
+                .map(|vertex| vertex.position[1] * 16.0)
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), y| {
+                    (min.min(y), max.max(y))
+                })
+        };
+        let (neck_min, neck_max) = bounds(&builder.solid[..36]);
+        let (lip_min, lip_max) = bounds(&builder.solid[36..72]);
+        assert!((neck_min - 14.1).abs() < 1.0e-4 && (neck_max - 16.9).abs() < 1.0e-4);
+        assert!((lip_min - 15.8).abs() < 1.0e-4 && (lip_max - 17.2).abs() < 1.0e-4);
     }
 }

@@ -44,7 +44,7 @@ pub(crate) fn normalize_instruction(
     {
         validate_position([offset.x, offset.y, offset.z], "target.center_offset")?;
     }
-    Ok(CameraEvent::Instruction(CameraInstructionEvent {
+    Ok(CameraEvent::Instruction(Box::new(CameraInstructionEvent {
         set,
         spline,
         clear: instruction.clear,
@@ -75,7 +75,7 @@ pub(crate) fn normalize_instruction(
             .attach_to_entity
             .map(|attach| attach.entity_actor_id),
         detach_from_entity: instruction.detach_from_entity.unwrap_or(false),
-    }))
+    })))
 }
 
 /// Validates all supplied overrides before publishing a camera set.

@@ -171,6 +171,17 @@ pub fn geometry_bone_pivots(
         .map(|bones| bones.iter().map(bone_bind_pivot).collect())
 }
 
+/// Expression-binding flags in the inherited rig order used by mesh generation.
+#[must_use]
+pub fn geometry_bone_binding_expressions(
+    assets: &RuntimeEntityAssets,
+    geometry_index: usize,
+) -> Option<Vec<bool>> {
+    resolve_geometry_bones(assets, geometry_index)
+        .ok()
+        .map(|bones| bones.iter().map(|bone| bone.binding.is_some()).collect())
+}
+
 /// Index of the geometry with this identifier in the entity catalog.
 #[must_use]
 pub fn find_geometry_index(assets: &RuntimeEntityAssets, identifier: &str) -> Option<u32> {

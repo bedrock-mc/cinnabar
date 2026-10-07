@@ -24,7 +24,7 @@ pub use math::{Vec3, minecraft_cos, minecraft_sin, view_direction};
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
     AxisCollisions, ControlledTickResult, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
-    MovementEffects, MovementEnvironment, MovementInput, MovementMode, PlayerState,
+    MovementEffects, MovementEnvironment, MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState,
     ProcessedControls, SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, TICKS_PER_SECOND,
     TickResult, pose_fits, sample_liquid_submersion, sample_water_head,
 };

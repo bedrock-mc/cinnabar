@@ -29,7 +29,7 @@ use launcher::menu::view::{
 mod home_promo;
 
 mod feeds;
-use feeds::{CoreFeeds, catalog_round, feed_round};
+use feeds::{CoreFeeds, catalog_round};
 mod message_reports;
 pub(super) mod profile_worker;
 
@@ -55,6 +55,10 @@ struct Snapshot {
     auth_generation: u64,
     /// Wakes the catalog worker when its account identity changes.
     catalog_wake: Option<Sender<()>>,
+    /// Wakes featured details when their count subscription changes.
+    feed_wake: Option<Sender<()>>,
+    /// Wakes Home independently when its account identity changes.
+    home_wake: Option<Sender<()>>,
     /// Wakes Profile independently when its account identity changes.
     profile_wake: Option<Sender<()>>,
     account: Option<Account>,
@@ -62,6 +66,7 @@ struct Snapshot {
     friends: Option<Vec<Friend>>,
     /// Delivered once per fetch.
     featured: Option<Vec<FeaturedServer>>,
+    player_counts_visible: bool,
     profile: Option<Result<Profile, ()>>,
     ping_targets: Vec<String>,
     pings: Option<Vec<ServerPing>>,
@@ -82,6 +87,7 @@ impl Snapshot {
         self.auth_generation = self.auth_generation.wrapping_add(1);
         self.realms = None;
         self.friends = None;
+        self.featured = None;
         self.profile = None;
         self.home = None;
         if let Some(wake) = &self.catalog_wake {
@@ -89,6 +95,12 @@ impl Snapshot {
             let _ = wake.try_send(());
         }
         if let Some(wake) = &self.profile_wake {
+            let _ = wake.try_send(());
+        }
+        if let Some(wake) = &self.feed_wake {
+            let _ = wake.try_send(());
+        }
+        if let Some(wake) = &self.home_wake {
             let _ = wake.try_send(());
         }
     }
@@ -124,9 +136,13 @@ impl LauncherAccount {
     /// poll on their own worker, publishing every answer as it arrives.
     pub(crate) fn new(socket_dir: PathBuf) -> Self {
         let (catalog_wake, catalog_changes) = bounded(1);
+        let (feed_wake, feed_changes) = bounded(1);
+        let (home_wake, home_changes) = bounded(1);
         let (profile_refresh, profile_requests) = bounded(1);
         let snapshot = Arc::new(Mutex::new(Snapshot {
             catalog_wake: Some(catalog_wake),
+            feed_wake: Some(feed_wake),
+            home_wake: Some(home_wake),
             profile_wake: Some(profile_refresh.clone()),
             ..Default::default()
         }));
@@ -139,7 +155,9 @@ impl LauncherAccount {
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         thread::spawn(move || poll_catalog(&dir, &shared, &until, &catalog_changes));
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
-        thread::spawn(move || poll_feeds(&dir, &shared, &until));
+        thread::spawn(move || feeds::poll_featured(&dir, &shared, &until, &feed_changes));
+        let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
+        thread::spawn(move || feeds::poll_home(&dir, &shared, &until, &home_changes));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
         thread::spawn(move || profile_worker::poll(&dir, &shared, &stop, &profile_requests));
         Self {
@@ -302,23 +320,6 @@ fn poll_catalog(
             runtime.block_on(catalog_round(&CoreFeeds(socket_dir), shared, generation));
         }
         if !wait_catalog(stop, changes) {
-            return;
-        }
-    }
-}
-
-/// Polls Home and public catalogs without delaying the independent Profile worker.
-fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
-    let Some(runtime) = runtime() else {
-        return;
-    };
-    let mut reported = HashSet::new();
-    loop {
-        let (home, failed) = runtime.block_on(feed_round(&CoreFeeds(socket_dir), shared));
-        if let Some(home) = home {
-            report_impressions(&runtime, socket_dir, &home, &mut reported);
-        }
-        if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
             return;
         }
     }
@@ -516,6 +517,17 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
 }
 
 impl AccountControl for LauncherAccount {
+    fn set_player_counts_visible(&mut self, visible: bool) {
+        self.with(|snapshot| {
+            if snapshot.player_counts_visible != visible {
+                snapshot.player_counts_visible = visible;
+                if let Some(wake) = &snapshot.feed_wake {
+                    let _ = wake.try_send(());
+                }
+            }
+        });
+    }
+
     fn account_status(&mut self) -> Option<AuthState> {
         self.with(|snapshot| snapshot.account.as_ref().and_then(auth_state))
     }
@@ -684,6 +696,7 @@ impl AccountControl for LauncherAccount {
     }
 }
 
+/// Splits the core's featured entry into its menu card and selected details.
 fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
     let card = MenuServerCard {
         name: server.name.clone(),
@@ -693,6 +706,7 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
         icon: None,
     };
     let details = ServerDetails {
+        player_count: server.player_count,
         description: server.description.clone(),
         banner: server.background.path.clone(),
         news_title: server.news_title.clone(),
@@ -826,6 +840,7 @@ mod tests {
     fn featured_servers_split_into_cards_and_details() {
         let server = FeaturedServer {
             name: "S".into(),
+            player_count: Some(12_345),
             address: "a.test:19132".into(),
             news: "Update".into(),
             background: protocol::launcher_control::Artwork {
@@ -849,6 +864,7 @@ mod tests {
         assert_eq!(details.news, "Update");
         assert_eq!(details.screenshots, vec!["/art/t.img".to_owned()]);
         assert_eq!(details.banner, "/art/bg.img");
+        assert_eq!(details.player_count, Some(12_345));
     }
 
     #[test]

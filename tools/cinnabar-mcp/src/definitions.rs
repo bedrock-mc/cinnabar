@@ -61,6 +61,8 @@ pub fn definitions() -> Value {
                 "pointer": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "required": ["x", "y"], "additionalProperties": false, "description": "Absolute logical window pixels from top left, applied before button edges; combine with press:[MouseLeft] to click." },
                 "wheel": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "unit": { "enum": ["line", "pixel"] } }, "additionalProperties": false, "description": "One scroll event; axes default 0, unit defaults line, positive y scrolls up." },
                 "hotbar": { "type": "integer", "minimum": 1, "maximum": 9 },
+                "cursor": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "Logical window coordinates for menu clicks and dragging; does not move the OS pointer." },
+                "text": { "type": "string", "description": "Insert text into the focused editor through keyboard messages." },
                 "look": { "type": "object", "properties": {
                     "yaw": { "type": "number" }, "pitch": { "type": "number" },
                     "relative": { "type": "boolean" }, "frames": { "type": "integer", "description": "Turn over this many frames (0 snaps)" }

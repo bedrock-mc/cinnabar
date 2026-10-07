@@ -79,7 +79,10 @@ impl ViewNode for HandViewNode {
                 }),
                 stencil_ops: None,
             }),
-            timestamp_writes: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                crate::RuntimeStage::GpuHand,
+            ),
             occlusion_query_set: None,
         });
         pass.set_render_pipeline(pipeline);

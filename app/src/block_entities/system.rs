@@ -813,7 +813,7 @@ fn glass_tint(name: &str) -> Option<[f32; 3]> {
         "black" => 15,
         _ => return None,
     };
-    Some(render::banner_color(15 - java_id))
+    Some(assets::banner::color_linear(15 - java_id))
 }
 
 /// Blends the tint of each stained-glass block above the beacon, each new pane averaging

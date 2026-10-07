@@ -78,7 +78,9 @@ impl EquipmentRuntime {
             return false;
         };
         // Only single-bone models are placed; a hierarchy needs its parent chain composed.
-        let [pivot] = geometry.pivots[..] else {
+        let ([pivot], [has_binding_expression]) =
+            (&geometry.pivots[..], &geometry.binding_expressions[..])
+        else {
             return false;
         };
         let (Some(previous), Some(current)) = (
@@ -88,8 +90,8 @@ impl EquipmentRuntime {
             return false;
         };
         let (Some(previous), Some(current)) = (
-            attachable::attach(*previous, pivot, channels),
-            attachable::attach(*current, pivot, channels),
+            attachable::attach(*previous, *pivot, channels, *has_binding_expression),
+            attachable::attach(*current, *pivot, channels, *has_binding_expression),
         ) else {
             return false;
         };

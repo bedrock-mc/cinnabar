@@ -29,10 +29,10 @@ fn ctx(base: Transform) -> ViewContext<'static> {
 }
 
 fn set_event(set: CameraSetInstruction) -> CameraEvent {
-    CameraEvent::Instruction(CameraInstructionEvent {
+    CameraEvent::Instruction(Box::new(CameraInstructionEvent {
         set: Some(set),
         ..Default::default()
-    })
+    }))
 }
 
 fn empty_set() -> CameraSetInstruction {
@@ -104,10 +104,10 @@ fn instant_set_and_clear() {
     );
     view.apply(
         2,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert!(view.pose_override(&ctx(Transform::IDENTITY)).is_none());
@@ -151,7 +151,7 @@ fn fade_runs_in_hold_out_then_ends() {
     let mut view = free_view();
     view.apply(
         1,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             fade: Some(CameraFadeInstruction {
                 time: Some(CameraFadeTimes {
                     fade_in_seconds: 1.0,
@@ -165,7 +165,7 @@ fn fade_runs_in_hold_out_then_ends() {
                 }),
             }),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert_eq!(view.fade_overlay(), Some(([1.0, 0.0, 1.0], 0.0)));
@@ -183,7 +183,7 @@ fn fade_runs_in_hold_out_then_ends() {
 fn fov_override_blends_and_releases_to_the_setting() {
     let mut view = free_view();
     let fov = |degrees: f32, clear: bool| {
-        CameraEvent::Instruction(CameraInstructionEvent {
+        CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             fov: Some(CameraFovInstruction {
                 degrees,
                 ease_time_seconds: 1.0,
@@ -191,7 +191,7 @@ fn fov_override_blends_and_releases_to_the_setting() {
                 clear,
             }),
             ..Default::default()
-        })
+        }))
     };
     view.apply(1, &fov(50.0, false), &ctx(Transform::IDENTITY));
     assert_eq!(view.fov_override_degrees(90.0), Some(90.0));
@@ -363,10 +363,10 @@ fn attach_and_target_follow_actor_positions() {
     let mut view = free_view();
     view.apply(
         1,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             attach_to_entity: Some(7),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     let attached = view.pose_override(&context).unwrap();
@@ -376,14 +376,14 @@ fn attach_and_target_follow_actor_positions() {
 
     view.apply(
         2,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             target: Some(protocol::CameraTargetInstruction {
                 center_offset: None,
                 actor_unique_id: 7,
             }),
             detach_from_entity: true,
             ..Default::default()
-        }),
+        })),
         &context,
     );
     assert!(view.pose_override(&context).is_none());
@@ -395,10 +395,10 @@ fn missing_actors_are_counted_not_fatal() {
     let mut view = free_view();
     view.apply(
         1,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             attach_to_entity: Some(99),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert_eq!(view.skips().actor_bound, 1);
@@ -602,13 +602,13 @@ fn named_spline_continues_under_set_easing_then_returns_to_stationary_values() {
     );
     view.apply(
         2,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             spline: Some(protocol::CameraSplineInstruction {
                 spline: path,
                 load_from_json: true,
             }),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     view.advance(1.0);
@@ -652,13 +652,13 @@ fn missing_named_spline_preserves_pose_and_clear_releases_the_selected_camera() 
     view.apply(1, &set_event(set), &ctx(Transform::IDENTITY));
     view.apply(
         2,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             spline: Some(protocol::CameraSplineInstruction {
                 spline: spline_definition(),
                 load_from_json: true,
             }),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert_eq!(view.skips().invalid_splines, 1);
@@ -671,21 +671,21 @@ fn missing_named_spline_preserves_pose_and_clear_releases_the_selected_camera() 
     );
     view.apply(
         3,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             spline: Some(protocol::CameraSplineInstruction {
                 spline: spline_definition(),
                 load_from_json: false,
             }),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     view.apply(
         4,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert!(!view.has_pose_override());
@@ -698,7 +698,7 @@ fn combined_options_use_set_target_remove_clear_then_independent_effects() {
     set.position = Some([8.0; 3]);
     view.apply(
         1,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             set: Some(set),
             clear: Some(true),
             fade: Some(CameraFadeInstruction {
@@ -712,7 +712,7 @@ fn combined_options_use_set_target_remove_clear_then_independent_effects() {
                 clear: false,
             }),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert!(!view.has_pose_override());
@@ -720,7 +720,7 @@ fn combined_options_use_set_target_remove_clear_then_independent_effects() {
     assert_eq!(view.fov_override_degrees(90.0), Some(110.0));
     view.apply(
         2,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             fov: Some(CameraFovInstruction {
                 degrees: 1.0,
                 ease_time_seconds: 0.0,
@@ -728,7 +728,7 @@ fn combined_options_use_set_target_remove_clear_then_independent_effects() {
                 clear: false,
             }),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert_eq!(view.fov_override_degrees(90.0), Some(30.0));
@@ -739,13 +739,13 @@ fn inactive_stationary_cameras_advance_splines_until_selected() {
     let mut view = free_view();
     view.apply(
         1,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             spline: Some(protocol::CameraSplineInstruction {
                 spline: spline_definition(),
                 load_from_json: false,
             }),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert!(!view.has_pose_override());
@@ -761,10 +761,10 @@ fn inactive_stationary_cameras_advance_splines_until_selected() {
     );
     view.apply(
         3,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     view.advance(0.5);
@@ -784,7 +784,7 @@ fn full_camera_frame_evaluation_allocates_nothing() {
     view.apply(1, &set_preset(0), &ctx(Transform::IDENTITY));
     view.apply(
         2,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             spline: Some(protocol::CameraSplineInstruction {
                 spline: spline_definition(),
                 load_from_json: false,
@@ -800,7 +800,7 @@ fn full_camera_frame_evaluation_allocates_nothing() {
                 clear: false,
             }),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     view.apply(
@@ -841,13 +841,13 @@ fn target_center_offset_rotates_with_the_target_yaw() {
     view.apply(1, &set_preset(0), &context);
     view.apply(
         2,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             target: Some(protocol::CameraTargetInstruction {
                 actor_unique_id: 7,
                 center_offset: Some([1.0, 0.0, 0.0]),
             }),
             ..Default::default()
-        }),
+        })),
         &context,
     );
     let forward = view.pose_override(&context).unwrap().rotation * Vec3::NEG_Z;
@@ -876,10 +876,10 @@ fn server_camera_capabilities_control_first_person_rendering_until_clear() {
     }
     view.apply(
         3,
-        &CameraEvent::Instruction(CameraInstructionEvent {
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
+        })),
         &ctx(Transform::IDENTITY),
     );
     assert!(view.renders_first_person(true));
@@ -898,10 +898,10 @@ fn free_camera_publishes_the_local_body_and_clear_restores_first_person() {
         (2, set_preset(0), true),
         (
             3,
-            CameraEvent::Instruction(CameraInstructionEvent {
+            CameraEvent::Instruction(Box::new(CameraInstructionEvent {
                 clear: Some(true),
                 ..Default::default()
-            }),
+            })),
             false,
         ),
     ] {

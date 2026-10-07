@@ -48,6 +48,7 @@ type Config struct {
 	Remove   func(path string) error
 
 	Featured                  func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
+	ExperienceCounts          func(context.Context, *authcache.Account) ([]gatherings.ExperiencePlayerCount, error)
 	Profile                   func(context.Context, *authcache.Account) (catalog.Profile, error)
 	ProfileFeaturedScreenshot func(context.Context, *authcache.Account, string) (catalog.Image, error)
 	ProfileAvatar             func(context.Context, *authcache.Account, string, string) (catalog.Image, error)
@@ -92,6 +93,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Featured == nil {
 		cfg.Featured = catalog.FeaturedServers
+	}
+	if cfg.ExperienceCounts == nil {
+		cfg.ExperienceCounts = new(catalog.ExperienceCounts).Counts
 	}
 	if cfg.Profile == nil {
 		cfg.Profile = catalog.AccountProfile
@@ -153,6 +157,26 @@ func (s *Service) Friends(ctx context.Context) ([]catalog.Friend, error) {
 // FeaturedServers lists the featured servers with their artwork cached, from the last good fetch.
 func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer, error) {
 	return cached(ctx, s, featuredFeed)
+}
+
+// FeaturedServersWithCounts adds live populations while experience details are visible.
+func (s *Service) FeaturedServersWithCounts(ctx context.Context) ([]catalog.FeaturedServer, error) {
+	servers, err := s.FeaturedServers(ctx)
+	if err != nil || !hasExperiences(servers) {
+		return servers, err
+	}
+	src, err := s.source()
+	if err != nil {
+		return nil, err
+	}
+	counts, countErr := s.cfg.ExperienceCounts(ctx, src)
+	if countErr != nil {
+		s.logger.Warn("experience counts unavailable", "error", control.RedactError(countErr))
+	}
+	if _, err := s.source(); err != nil {
+		return nil, err
+	}
+	return withExperienceCounts(servers, counts), nil
 }
 
 // Home returns the start screen's service data with its artwork cached, from the last good fetch.

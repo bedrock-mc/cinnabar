@@ -17,6 +17,8 @@ use protocol::{
     StandardSkin, WorldBootstrap, WorldEvent,
 };
 
+mod hud_visibility;
+
 /// Gives the local player a known rig and skin without any server connection.
 fn player_world(entities: Arc<assets::RuntimeEntityAssets>) -> ClientWorld {
     let assets = Arc::new(assets::RuntimeAssets::diagnostic());

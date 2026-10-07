@@ -69,7 +69,7 @@ async fn play_ingress_preserves_wire_order_across_interleaved_camera_families() 
     assert_eq!(shake_index + 1, switch_index);
 
     let clear_instruction = match &events[instruction_index] {
-        WorldEvent::Camera(CameraEvent::Instruction(event)) => event.clone(),
+        WorldEvent::Camera(CameraEvent::Instruction(event)) => (**event).clone(),
         other => panic!("expected instruction event, got {other:?}"),
     };
     assert_eq!(

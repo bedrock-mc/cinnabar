@@ -1414,7 +1414,7 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 	client, err := minecraft.Dialer{
 		IdentityData: login.IdentityData{DisplayName: "RustClient"},
 		Protocol:     minecraft.DefaultProtocol,
-		RelayStartup: true,
+		Handoff:      minecraft.HandoffAtStartGame,
 		PacketFunc: func(header packet.Header, payload []byte, src, _ net.Addr) {
 			mu.Lock()
 			if _, seen := clientReceived[header.PacketID]; !seen {

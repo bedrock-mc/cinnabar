@@ -99,6 +99,14 @@ impl crate::observations::PhysicsObservation for JumpPhysics {
         None
     }
 
+    /// This actor-publication fixture does not retain motion ticks.
+    fn visit_motion_ticks(
+        &self,
+        _after: Option<u64>,
+        _visit: &mut dyn FnMut(u64, crate::audio::local::MotionSample),
+    ) {
+    }
+
     /// The fixture always has a current player state.
     fn is_active(&self) -> bool {
         true

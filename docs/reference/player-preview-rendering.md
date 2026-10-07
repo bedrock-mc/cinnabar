@@ -115,8 +115,8 @@ native parent/binding contract. Item normals follow the same bone, arm and view 
 before the native float FANCY formula; they are not guessed from projected icon triangles.
 Expression-bound roots retain
 the authored default root origin with Y pivot minus the shared model-part height.
-`PreviewHeldPlacement::authored` applies that origin adjustment once, retaining the original
-mesh bind pivot; it does not rotate an invented screen offset into the model. The player
+The shared attachable placement applies that origin adjustment once; the preview retains the
+resolved pose and original mesh bind pivot. The player
 pose VM and literal preview share `MODEL_PART_ORIGIN_Y` with the existing GUI model-part basis.
 The first live preview run caught an offhand Shield floating above the head because this
 bound-root origin was missing. That rejected capture is not a passing parity gate. The

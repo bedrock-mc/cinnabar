@@ -22,6 +22,8 @@ impl LocalPhysicsController {
                 .expect("local physics history capacity is non-zero");
             self.sample_history.clear();
             self.controller_history.clear();
+            self.motion_ticks.clear();
+            self.motion_anchor = None;
             self.server_motions.clear();
             self.previous_jump_held = false;
             self.jump_edge_pending = false;
@@ -30,6 +32,7 @@ impl LocalPhysicsController {
             self.modes.reset();
             self.last_environment = sim::MovementEnvironment::default();
             self.eye_offset = eye::LocalEyeOffset::default();
+            self.visual_correction = visual_correction::VisualCorrection::default();
             self.dimension_waiting = true;
         }
         let state = self.state.as_mut().expect("active local state checked");

@@ -32,9 +32,7 @@ mod spawner;
 mod statue;
 
 pub use atlas::{AtlasRect, BlockEntityAtlas, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef};
-pub use banner::{
-    BannerLayer, BannerModel, BannerMount, MAX_BANNER_LAYERS, banner_color, pattern_texture,
-};
+pub use banner::{BannerLayer, BannerModel, BannerMount, MAX_BANNER_LAYERS, pattern_texture};
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
 pub use bell::{BellAttachment, BellModel, swing_degrees};
@@ -57,7 +55,7 @@ pub use scene::{
     BlockEntitySubmission, CrackInstance, SceneClock,
 };
 pub use selection::{BLOCK_SELECTION_VERTICES_PER_EDGE, BlockSelectionFrame, BlockSelectionTarget};
-pub use shulker::{ShulkerModel, shulker_color_from_block_name};
+pub use shulker::ShulkerModel;
 pub use sign::{SignFace, SignModel, SignMount};
 pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees, skull_geometry};
 pub use spawner::SpawnerModel;

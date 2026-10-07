@@ -490,6 +490,7 @@ impl ViewNode for UiOverlayNode {
             .get_resource::<super::model_depth::UiModelDepths>()
             .and_then(|depths| depths.compatible(graph.view_entity(), layer));
         let layer_draw = UiLayerDraw {
+            world,
             gpu,
             pipeline_cache,
             alpha: layer_pipeline,
@@ -542,6 +543,7 @@ impl ViewNode for UiOverlayNode {
                 } else {
                     super::composite::composite(
                         context,
+                        world,
                         target,
                         &layer.view,
                         composite_pipeline,
@@ -590,7 +592,10 @@ impl ViewNode for UiOverlayNode {
                     color_attachments: &attachments,
                     depth_stencil_attachment: (scoped && needs_depth)
                         .then(|| model_depth_attachment(model_depth.unwrap(), &model_lifetime)),
-                    timestamp_writes: None,
+                    timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                        world,
+                        crate::RuntimeStage::GpuUi,
+                    ),
                     occlusion_query_set: None,
                 });
                 if scoped && needs_depth {
@@ -613,6 +618,7 @@ impl ViewNode for UiOverlayNode {
 }
 
 struct UiLayerDraw<'a> {
+    world: &'a World,
     gpu: &'a UiGpu,
     pipeline_cache: &'a PipelineCache,
     alpha: &'a RenderPipeline,
@@ -709,7 +715,10 @@ fn draw_ui_layer(
             color_attachments: &attachments,
             depth_stencil_attachment: needs_depth
                 .then(|| model_depth_attachment(draw.model_depth.unwrap(), lifetime)),
-            timestamp_writes: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                draw.world,
+                crate::RuntimeStage::GpuUi,
+            ),
             occlusion_query_set: None,
         });
         pass.set_render_pipeline(pipeline);

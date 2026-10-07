@@ -235,6 +235,55 @@ fn flowers_grass_and_mushrooms_are_pickable_but_remain_passable() {
 }
 
 #[test]
+fn cobweb_and_all_signs_are_pickable_independently_of_movement_colliders() {
+    let fixture = fixture();
+    let records: Vec<_> = fixture
+        .records
+        .iter()
+        .filter(|record| {
+            record.name.as_ref() == "minecraft:web"
+                || record.name.ends_with("standing_sign")
+                || record.name.ends_with("wall_sign")
+                || record.name.ends_with("hanging_sign")
+        })
+        .collect();
+    assert!(records.len() > 20);
+    for record in records {
+        let expected = shape(record).expect("the pinned selectable block has visual bounds");
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+            let registry = fixture.registries.registry(mode);
+            let id = runtime_id(record, mode);
+            if !record.name.ends_with("hanging_sign") {
+                assert!(
+                    registry.collision_shapes(id).unwrap().is_empty(),
+                    "{} is selectable without a movement collider",
+                    record.name
+                );
+            }
+            let store = store(mode, record);
+            let world = PaletteWorld::new(&store, registry, 0);
+            let center = (expected.min + expected.max) * 0.5;
+            let hit = world
+                .block_interaction_ray_current(
+                    Vec3::new(8.0 + center.x, 10.0, 8.0 + center.z),
+                    Vec3::new(0.0, -1.0, 0.0),
+                    4.0,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                hit.runtime_id, id,
+                "{} must stop the interaction ray above its support",
+                record.name
+            );
+            assert_eq!(hit.block_pos, [8, 8, 8]);
+            assert_eq!(hit.face, 1);
+            assert_eq!(hit.hit_local.y, expected.max.y);
+        }
+    }
+}
+
+#[test]
 fn every_reviewed_foliage_route_binds_selection_without_movement_changes() {
     let fixture = fixture();
     for record in &fixture.records {

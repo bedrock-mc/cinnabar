@@ -68,7 +68,11 @@ fn free_camera_retires_cpu_hand_draws_and_clear_restores_them() {
             true,
         ),
     ] {
-        camera.apply(sequence, &CameraEvent::Instruction(instruction), &context);
+        camera.apply(
+            sequence,
+            &CameraEvent::Instruction(Box::new(instruction)),
+            &context,
+        );
         presentation.hud_frame_mut().first_person =
             hand_first_person(PerspectiveMode::FirstPerson, Some(&camera));
         let input = presentation

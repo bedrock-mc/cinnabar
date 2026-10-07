@@ -672,23 +672,27 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: Some(primary_window),
-                ..default()
-            })
-            .set(render_plugin())
-            .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
-            // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
-            // graph requires post-process nodes that are intentionally absent
-            // from this compact custom renderer.
-            .disable::<AntiAliasPlugin>()
-            // The launcher owns the production process lifecycle. Keeping the
-            // OS default SIGINT action also preserves a real developer escape
-            // hatch if graceful Bevy teardown is wedged.
-            .disable::<TerminalCtrlCHandlerPlugin>(),
-    );
+    let plugins = DefaultPlugins
+        .set(WindowPlugin {
+            primary_window: Some(primary_window),
+            ..default()
+        })
+        .set(render_plugin())
+        .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
+        // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
+        // graph requires post-process nodes that are intentionally absent
+        // from this compact custom renderer.
+        .disable::<AntiAliasPlugin>()
+        // The launcher owns the production process lifecycle. Keeping the
+        // OS default SIGINT action also preserves a real developer escape
+        // hatch if graceful Bevy teardown is wedged.
+        .disable::<TerminalCtrlCHandlerPlugin>();
+    #[cfg(feature = "tracy")]
+    let plugins = plugins.set(bevy::log::LogPlugin {
+        custom_layer: crate::tracy::layer,
+        ..default()
+    });
+    app.add_plugins(plugins);
     app.add_plugins(FxaaPlugin);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);

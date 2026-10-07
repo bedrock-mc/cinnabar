@@ -43,6 +43,8 @@ pub(crate) trait AccountControl {
     fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
         None
     }
+    /// Requests live experience counts only while selected experience details are visible.
+    fn set_player_counts_visible(&mut self, _visible: bool) {}
     /// `profile.v1`: the signed-in profile, when fetched.
     fn profile(&mut self) -> Option<MenuProfile> {
         None
@@ -189,6 +191,7 @@ impl MenuRuntime {
             Vec::new()
         };
         control.set_ping_targets(targets);
+        control.set_player_counts_visible(self.experience_counts_visible());
         // A round updates the rows it covered; others keep their last pong.
         if let Some(pings) = control.pings() {
             self.feeds.pings.extend(pings);
@@ -246,10 +249,25 @@ impl MenuRuntime {
         self.catalog_started = false;
         self.realms.clear();
         self.friends.clear();
+        for details in self.feeds.details.values_mut() {
+            details.player_count = None;
+        }
         self.feeds.profile = MenuProfile::default();
         self.feeds.home = MenuHome::default();
         self.catalog_message = None;
         self.enter(super::MenuScreen::Profile);
+    }
+
+    /// An experience details panel owns the live count subscription for its visible lifetime.
+    fn experience_counts_visible(&self) -> bool {
+        self.visible
+            && !self.is_connecting()
+            && self.screen == super::MenuScreen::Servers
+            && self.feeds.selected_saved.is_none()
+            && self
+                .featured
+                .get(self.feeds.selected_featured.unwrap_or(0))
+                .is_some_and(|server| !launcher::menu::pingable(&server.address))
     }
 }
 
@@ -280,6 +298,32 @@ mod tests {
             "play.example.test",
         ];
         assert_eq!(ping_targets(addresses), ["play.example.test"]);
+    }
+
+    #[test]
+    fn player_counts_are_requested_only_for_visible_experience_details() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.featured.push(MenuServerCard {
+            name: "Experience".into(),
+            address: format!("{}example", launcher::menu::EXPERIENCE_ADDRESS_PREFIX),
+            caption: String::new(),
+            image_path: String::new(),
+            icon: None,
+        });
+        assert!(!menu.experience_counts_visible());
+        menu.enter(super::super::MenuScreen::Servers);
+        assert!(menu.experience_counts_visible());
+        menu.feeds.selected_saved = Some(0);
+        assert!(!menu.experience_counts_visible());
+        menu.feeds.selected_saved = None;
+        menu.visible = false;
+        assert!(!menu.experience_counts_visible());
+        menu.visible = true;
+        menu.observe_session(crate::session::SessionStatus {
+            connecting: true,
+            owns_directory: false,
+        });
+        assert!(!menu.experience_counts_visible());
     }
 
     struct Fake {

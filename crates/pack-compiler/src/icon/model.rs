@@ -23,8 +23,7 @@ struct Face<'a> {
     corners: [[f32; 3]; 4],
     uvs: [[f32; 2]; 4],
     tile: Cow<'a, [u8]>,
-    /// Square tile side in pixels.
-    side: usize,
+    size: [usize; 2],
     blend: bool,
 }
 
@@ -47,9 +46,42 @@ struct Parts<'a> {
 
 pub(super) struct Model<'a> {
     faces: Vec<Face<'a>>,
+    projection: fn([f32; 3]) -> [f32; 3],
+    light: f32,
+    face_lighting: bool,
 }
 
 impl<'a> Model<'a> {
+    /// Builds a model from source rectangles and its own inventory projection.
+    pub(super) fn textured(
+        quads: impl IntoIterator<Item = ([[f32; 3]; 4], [[f32; 2]; 4], &'a IconSprite)>,
+        projection: fn([f32; 3]) -> [f32; 3],
+        light: f32,
+    ) -> Self {
+        let faces = quads
+            .into_iter()
+            .map(|(corners, uvs, sprite)| Face {
+                corners,
+                uvs,
+                tile: Cow::Borrowed(&sprite.rgba8),
+                size: [usize::from(sprite.width), usize::from(sprite.height)],
+                blend: false,
+            })
+            .collect();
+        Self {
+            faces,
+            projection,
+            light,
+            face_lighting: true,
+        }
+    }
+
+    /// Preserves flat model lighting for inventory materials without face shading.
+    pub(super) fn unshaded(mut self) -> Self {
+        self.face_lighting = false;
+        self
+    }
+
     pub(super) fn read(world: &'a RuntimeAssets, visual: BlockVisualId) -> Result<Self, Reject> {
         if visual.0 as usize >= world.visual_count() {
             return Err(Reject::Geometry);
@@ -98,7 +130,7 @@ impl<'a> Model<'a> {
                         corners,
                         uvs,
                         tile: Cow::Borrowed(tile),
-                        side,
+                        size: [side; 2],
                         blend,
                     });
                 }
@@ -138,7 +170,12 @@ impl<'a> Model<'a> {
         if faces.is_empty() {
             return Err(Reject::Geometry);
         }
-        Ok(Self { faces })
+        Ok(Self {
+            faces,
+            projection: assets::gui_item::project_cube,
+            light: 1.0,
+            face_lighting: true,
+        })
     }
 
     /// A full cube from six 16x16 tiles and their alpha modes in `BlockFace` order.
@@ -152,12 +189,17 @@ impl<'a> Model<'a> {
                     corners,
                     uvs,
                     tile: Cow::Owned(tile.into_vec()),
-                    side: usize::from(assets::BLOCK_ITEM_FACE_SIDE),
+                    size: [usize::from(assets::BLOCK_ITEM_FACE_SIDE); 2],
                     blend: blending[face as usize],
                 }
             })
             .collect();
-        Model { faces }
+        Model {
+            faces,
+            projection: assets::gui_item::project_cube,
+            light: 1.0,
+            face_lighting: true,
+        }
     }
 
     pub(super) fn raster(&self) -> IconSprite {
@@ -165,8 +207,16 @@ impl<'a> Model<'a> {
         let mut depth = vec![f32::INFINITY; SIDE * SIDE];
         let mut fragments = vec![Vec::new(); SIDE * SIDE];
         for face in &self.faces {
-            let brightness = brightness(face.corners);
-            let points = face.corners.map(project);
+            let brightness = if self.face_lighting {
+                brightness(face.corners)
+            } else {
+                1.0
+            } * self.light;
+            let points = face.corners.map(|point| {
+                let [x, y, z] = (self.projection)(point);
+                let scale = SIDE as f32 / GUI_ITEM_SIDE;
+                [scale * x, scale * y, z]
+            });
             for indices in [[0, 1, 2], [0, 2, 3]] {
                 triangle(
                     &mut pixels,
@@ -223,7 +273,7 @@ fn model_face<'a>(parts: Parts<'a>, quad: &ModelQuad) -> Result<Face<'a>, Reject
     let (tile, side, blend) = tile(parts, quad.material)?;
     Ok(Face {
         tile: Cow::Borrowed(tile),
-        side,
+        size: [side; 2],
         corners: quad
             .positions
             .map(|point| point.map(|component| f32::from(component) / 256.0)),
@@ -286,13 +336,6 @@ fn brightness(corners: [[f32; 3]; 4]) -> f32 {
     }
 }
 
-/// The cube thumbnail's projection at twice its scale, plus a view depth (smaller is nearer).
-fn project(point: [f32; 3]) -> [f32; 3] {
-    let [x, y, z] = assets::gui_item::project_cube(point);
-    let scale = SIDE as f32 / GUI_ITEM_SIDE;
-    [scale * x, scale * y, z]
-}
-
 fn edge(a: [f32; 3], b: [f32; 3], p: [f32; 2]) -> f32 {
     (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
 }
@@ -336,10 +379,10 @@ fn triangle(
                 continue;
             }
             let [u, v] = [0, 1].map(|axis| (0..3).map(|i| weights[i] * uv[i][axis]).sum::<f32>());
-            let side = face.side;
-            let tx = ((u.rem_euclid(1.) * side as f32) as usize).min(side - 1);
-            let ty = ((v.rem_euclid(1.) * side as f32) as usize).min(side - 1);
-            let texel = &face.tile[(ty * side + tx) * 4..][..4];
+            let [width, height] = face.size;
+            let tx = ((u.rem_euclid(1.) * width as f32) as usize).min(width - 1);
+            let ty = ((v.rem_euclid(1.) * height as f32) as usize).min(height - 1);
+            let texel = &face.tile[(ty * width + tx) * 4..][..4];
             if texel[3] < 128 && !(face.blend && texel[3] > 0) {
                 continue;
             }
@@ -389,14 +432,14 @@ mod review_tests {
                 corners: [[0.0; 3]; 4],
                 uvs: [[0.0; 2]; 4],
                 tile: Cow::Owned(vec![0, 0, 255, 255]),
-                side: 1,
+                size: [1; 2],
                 blend: false,
             };
             let front = Face {
                 corners: [[0.0; 3]; 4],
                 uvs: [[0.0; 2]; 4],
                 tile: Cow::Owned(vec![255, 0, 0, 128]),
-                side: 1,
+                size: [1; 2],
                 blend: true,
             };
             let mut layers = [(&rear, 2.0), (&front, 1.0)];

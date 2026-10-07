@@ -10,6 +10,7 @@ const STYLE_GRAYSCALE: u32 = 4u;
 const STYLE_BILINEAR: u32 = 8u;
 // Injected from the renderer's single Rust style-bit definition.
 const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
+const STYLE_COLOR_MASK: u32 = UI_STYLE_COLOR_MASK;
 
 @group(0) @binding(0) var<uniform> viewport: UiViewport;
 @group(0) @binding(1) var ui_pages: texture_2d_array<f32>;
@@ -108,11 +109,21 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     // Mix the render-controller overlay into sampled RGB before lighting.
     // Sampled and node alpha remain unchanged.
     var model_rgb = mix(sample.rgb * straight_color.rgb, input.overlay_color.rgb, input.overlay_color.a);
+    let color_mask = (input.style_flags & STYLE_COLOR_MASK) != 0u;
+    if color_mask {
+        model_rgb = mix(mix(sample.rgb, sample.rgb * straight_color.rgb, sample.a),
+            input.overlay_color.rgb, input.overlay_color.a);
+        sample.a = 1.0;
+    }
     if direct {
         sample = vec4<f32>(srgb_to_linear(sample.rgb), sample.a);
         straight_color = vec4<f32>(srgb_to_linear(straight_color.rgb), straight_color.a);
-        model_rgb = mix(sample.rgb * straight_color.rgb,
-            srgb_to_linear(input.overlay_color.rgb), input.overlay_color.a);
+        if color_mask {
+            model_rgb = srgb_to_linear(model_rgb);
+        } else {
+            model_rgb = mix(sample.rgb * straight_color.rgb,
+                srgb_to_linear(input.overlay_color.rgb), input.overlay_color.a);
+        }
     }
     let alpha = sample.a * straight_color.a;
     var premultiplied_rgb = model_rgb * sample.a * straight_color.a * input.model_light;

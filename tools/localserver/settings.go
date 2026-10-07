@@ -18,9 +18,10 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {
-	primitiveShapes                 bool
-	dir, addr, name, gameMode, diff string
-	cameraTest                      bool
+	primitiveShapes, cameraTest            bool
+	terrainFixture, terrainFixtureGenerate bool
+	terrainFixtureRadius                   int
+	dir, addr, name, gameMode, diff        string
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -36,6 +37,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	var s settings
 	flags := flag.NewFlagSet("bedrock-local-server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.BoolVar(&s.terrainFixture, "terrain-fixture", false, "serve deterministic synthetic hills, caves, trees and water")
+	flags.BoolVar(&s.terrainFixtureGenerate, "terrain-fixture-generate", false, "generate a new synthetic terrain database and exit")
+	flags.IntVar(&s.terrainFixtureRadius, "terrain-fixture-radius", terrainDefaultRadius, "synthetic pregeneration radius in chunks")
 	flags.BoolVar(&s.primitiveShapes, "primitive-shapes", false, "emit a debug-shape gallery; /shapes, /shapes update, /shapes clear")
 	flags.StringVar(&s.dir, "dir", "", "world data directory")
 	flags.StringVar(&s.addr, "addr", "", "loopback UDP listen address")
@@ -53,8 +57,11 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
 	}
-	if s.dir == "" || s.addr == "" {
-		return settings{}, errors.New("-dir and -addr are required")
+	if s.dir == "" || (s.addr == "" && !s.terrainFixtureGenerate) {
+		return settings{}, errors.New("-dir and -addr are required; generation needs only -dir")
+	}
+	if s.terrainFixtureRadius < terrainMinRadius || s.terrainFixtureRadius > terrainMaxRadius {
+		return settings{}, fmt.Errorf("terrain fixture radius must be %d..%d", terrainMinRadius, terrainMaxRadius)
 	}
 	if s.experiences != "" && s.runtime == "" {
 		return settings{}, errors.New("-experience-runtime is required with -experiences")
@@ -156,5 +163,8 @@ func (s settings) applyTo(worlds ...*world.World) {
 	for _, w := range worlds {
 		w.SetDefaultGameMode(mode)
 		w.SetDifficulty(difficulty)
+		if s.terrainFixture {
+			freezeTerrainFixture(w)
+		}
 	}
 }

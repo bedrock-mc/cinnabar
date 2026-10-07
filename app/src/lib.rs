@@ -51,6 +51,8 @@ pub mod settings_runtime;
 mod store;
 mod survival_mining;
 mod thread_budget;
+#[cfg(feature = "tracy")]
+mod tracy;
 pub mod ui_runtime;
 mod window_icon;
 

@@ -151,6 +151,10 @@ impl EquipmentRuntime {
                 rig: render_model::pack_equipment_rig_id(index),
                 names: geometry_bone_names(&pack.assets, index as usize)?,
                 pivots: geometry_bone_pivots(&pack.assets, index as usize)?,
+                binding_expressions: geometry_bone_binding_expressions(
+                    &pack.assets,
+                    index as usize,
+                )?,
             }))
         });
         let entry = from_pack.or_else(|| {
@@ -159,6 +163,10 @@ impl EquipmentRuntime {
                     rig: equipment_rig_id(index),
                     names: geometry_bone_names(vanilla, index as usize)?,
                     pivots: geometry_bone_pivots(vanilla, index as usize)?,
+                    binding_expressions: geometry_bone_binding_expressions(
+                        vanilla,
+                        index as usize,
+                    )?,
                 }))
             })
         });

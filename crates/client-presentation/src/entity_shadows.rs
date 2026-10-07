@@ -10,6 +10,7 @@ use crate::presentation::actors::within_actor_candidate_cube;
 #[derive(Debug, Clone, Copy)]
 pub struct LocalShadowSource {
     pub runtime_id: u64,
+    pub visible: bool,
     pub feet: Option<[f32; 3]>,
     pub spectator: bool,
 }
@@ -45,7 +46,9 @@ pub fn publish_entity_shadows(
         for caster in stream.authority().actor_shadow_casters(partial_tick) {
             let local = local.filter(|local| local.runtime_id == caster.runtime_id);
             if local.is_some_and(|local| {
-                local.spectator || drawn_bodies.binary_search(&local.runtime_id).is_err()
+                !local.visible
+                    || local.spectator
+                    || drawn_bodies.binary_search(&local.runtime_id).is_err()
             }) {
                 continue;
             }

@@ -28,7 +28,7 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
-        self.gui_scale_drag_targets.clear();
+        self.settings_slider_drag_targets.clear();
         self.form_presentation.menu_focus_actions.clear();
         let Some(mut view) = self.menu_view.take() else {
             return Ok(Vec::new());
@@ -327,15 +327,13 @@ impl UiPresentationRuntime {
             if let Some(actions) = super::global_resources::slider_actions(view, region)
                 .or_else(|| menu_screens::slider_actions(view, region))
             {
-                if region.control_name.as_deref() == Some("gui_scale") {
-                    let mut track = region.clone();
-                    track.clip = track.rect;
-                    self.gui_scale_drag_targets.extend(
-                        segments(&track, actions.len(), frame.scale, origin)
-                            .into_iter()
-                            .map(|(step, bounds)| (actions[step], bounds)),
-                    );
-                }
+                let mut track = region.clone();
+                track.clip = track.rect;
+                self.settings_slider_drag_targets.extend(
+                    segments(&track, actions.len(), frame.scale, origin)
+                        .into_iter()
+                        .map(|(step, bounds)| (actions[step], bounds)),
+                );
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
                     if !region.takes_focus() {

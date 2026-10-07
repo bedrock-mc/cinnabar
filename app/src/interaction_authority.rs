@@ -290,3 +290,6 @@ mod tests {
         )));
     }
 }
+
+#[cfg(test)]
+mod correction_tests;

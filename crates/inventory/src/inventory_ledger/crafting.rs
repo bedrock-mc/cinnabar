@@ -48,6 +48,10 @@ pub enum CreativeDestination {
     Cursor,
     /// An empty player cell.
     Player(u8),
+    /// A drop from the catalog creates one item, or its whole stack with Control held.
+    Drop {
+        whole_stack: bool,
+    },
 }
 
 /// Where crafted output lands.
@@ -413,9 +417,8 @@ impl PlayerInventoryLedger {
         self.creative.as_ref()
     }
 
-    /// Takes a full stack of one creative entry into an empty destination:
-    /// CraftCreative, CraftResultsDeprecated, then a transfer from created
-    /// output named by this request's id.
+    /// Creates a catalog entry, declares its prototype, then transfers or drops
+    /// the requested amount from this request's created output.
     pub fn begin_creative_take(
         &mut self,
         creative_network_id: u32,
@@ -432,46 +435,56 @@ impl PlayerInventoryLedger {
             .negotiated_item_entry(item.stack.network_id)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let full = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
+        let amount = if destination == (CreativeDestination::Drop { whole_stack: false }) {
+            1
+        } else {
+            full
+        };
         // Vanilla's creative create-item scope
         // declares the selected prototype before creating the full transfer.
         let result = CraftResult {
             identifier: Arc::clone(&entry.identifier),
-            aux: i32::try_from(item.stack.metadata)
-                .map_err(|_| InventoryGestureError::InvalidRequest)?,
+            aux: i32::from_ne_bytes(item.stack.metadata.to_ne_bytes()),
             count: item.stack.count,
-            block_runtime_id: u32::try_from(item.stack.block_runtime_id)
-                .map_err(|_| InventoryGestureError::InvalidRequest)?,
+            block_runtime_id: u32::from_ne_bytes(item.stack.block_runtime_id.to_ne_bytes()),
             user_data: Arc::clone(&item.stack.extra_data),
         };
         let target = match destination {
-            CreativeDestination::Cursor => Cell::Cursor,
+            CreativeDestination::Cursor => Some(Cell::Cursor),
             CreativeDestination::Player(slot) => {
                 if !self.known.get(usize::from(slot)).copied().unwrap_or(false) {
                     return Err(InventoryGestureError::UnknownSlot(slot));
                 }
-                Cell::Inventory(slot)
+                Some(Cell::Inventory(slot))
             }
+            CreativeDestination::Drop { .. } => None,
         };
-        self.check_surfaces([target, Cell::CreatedOutput])?;
-        if self.view().get(target).is_some() {
+        self.check_surfaces(std::iter::once(Cell::CreatedOutput).chain(target))?;
+        if let Some(target) = target
+            && self.view().get(target).is_some()
+        {
             return Err(InventoryGestureError::InvalidRequest);
         }
         let request_id = self.peek_request_id()?;
         let mut stack = item.stack.clone();
-        stack.count = u16::from(full);
+        stack.count = u16::from(amount);
         stack.stack_network_id = request_id;
         let source = helpers::request_slot(Cell::CreatedOutput, request_id, None)?;
-        let destination_slot = helpers::request_slot(target, 0, None)?;
         let transfer = match destination {
             CreativeDestination::Cursor => StackRequestAction::Take {
-                amount: full,
+                amount,
                 source,
-                destination: destination_slot,
+                destination: helpers::request_slot(Cell::Cursor, 0, None)?,
             },
-            CreativeDestination::Player(_) => StackRequestAction::Place {
-                amount: full,
+            CreativeDestination::Player(slot) => StackRequestAction::Place {
+                amount,
                 source,
-                destination: destination_slot,
+                destination: helpers::request_slot(Cell::Inventory(slot), 0, None)?,
+            },
+            CreativeDestination::Drop { .. } => StackRequestAction::Drop {
+                amount,
+                source,
+                randomly: false,
             },
         };
         self.submit(Submission {
@@ -494,13 +507,20 @@ impl PlayerInventoryLedger {
                         overlay: None,
                     },
                 },
-                DeltaGroup::Transfer {
-                    source: Cell::CreatedOutput,
-                    destination: target,
-                    amount: u16::from(full),
-                    source_id: request_id,
-                    destination_id: None,
-                    capacity: None,
+                match target {
+                    Some(target) => DeltaGroup::Transfer {
+                        source: Cell::CreatedOutput,
+                        destination: target,
+                        amount: u16::from(amount),
+                        source_id: request_id,
+                        destination_id: None,
+                        capacity: None,
+                    },
+                    None => DeltaGroup::Shrink {
+                        source: Cell::CreatedOutput,
+                        amount: u16::from(amount),
+                        source_id: request_id,
+                    },
                 },
             ],
             personal_generation,

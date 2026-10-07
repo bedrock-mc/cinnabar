@@ -74,6 +74,15 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 		}
 		if stateResolved {
 			next := current&0xf0 | emission
+			if record.Name == "minecraft:sculk_sensor" || record.Name == "minecraft:calibrated_sculk_sensor" {
+				if exact, ok := retail[record.Name]; ok {
+					_, filter, err := checkedPMMPLight(record.Name, exact)
+					if err != nil {
+						return 0, err
+					}
+					next = filter<<4 | emission
+				}
+			}
 			if next != current {
 				properties[index] = next
 				changed++

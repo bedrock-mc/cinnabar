@@ -75,6 +75,8 @@ pub fn pingable(address: &str) -> bool {
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {
+    /// Live experience count; only positive values are shown in its details panel.
+    pub player_count: Option<i64>,
     pub description: String,
     /// The details banner; empty uses the first screenshot.
     pub banner: String,

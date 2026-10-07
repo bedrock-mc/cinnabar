@@ -17,6 +17,9 @@ sends the client's stderr to `logs/client.log`, rotated to `client.log.1` per la
 | Windows setup EXE + MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
 
+All release targets build the client with `bedrock-client/local-mods`, enabling the local module
+loader used by companion apps such as Cinnaroids.
+
 Installers also ship the bundled Cinnangles Sans font at `<resources>/fonts/`, so first-run setup can
 draw before any download.
 

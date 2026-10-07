@@ -223,3 +223,31 @@ fn resolved_hotbar_shortcut_swaps_both_cells_without_waiting_for_a_response() {
         .is_none()
     );
 }
+
+#[test]
+fn focused_inventory_text_does_not_dispatch_drop_requests() {
+    use crate::ui_runtime::interaction::dispatch_inventory_key;
+    use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = drained_inventory_runtime(&mut player);
+    runtime.screen_state_mut().search_focused = true;
+    let before = player.presented_hotbar_stack(3).unwrap().clone();
+    let pending = runtime.inventory_ledger(&player).pending_request_count();
+    assert!(
+        dispatch_inventory_key(
+            &mut player,
+            &mut runtime,
+            Some(InventoryCellHit::Player(3)),
+            bevy::prelude::KeyCode::KeyQ,
+            false,
+            None,
+            true,
+        )
+        .is_none()
+    );
+    assert_eq!(
+        runtime.inventory_ledger(&player).pending_request_count(),
+        pending
+    );
+    assert_eq!(player.presented_hotbar_stack(3), Some(&before));
+}

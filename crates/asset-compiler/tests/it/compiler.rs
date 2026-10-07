@@ -1,6 +1,9 @@
 #[path = "compiler/support.rs"]
 mod support;
 
+#[path = "compiler/education.rs"]
+mod education;
+
 #[path = "compiler/inventory.rs"]
 mod inventory;
 

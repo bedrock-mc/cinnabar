@@ -169,7 +169,7 @@ fn top_at(mesh: &meshing::ChunkMesh, block: [u8; 3]) -> PackedLiquidQuad {
 }
 
 /// Ice over water must not turn a calm source into a downhill stream or slope
-/// its top. Classic water hides the side touching ice but keeps sides facing air.
+/// its top. Water retains a single-winding contact beside transparent primary ice.
 #[test]
 fn compiled_ice_over_water_preserves_still_source_and_flat_top() {
     let fixture = fixture();
@@ -206,13 +206,12 @@ fn compiled_ice_over_water_preserves_still_source_and_flat_top() {
             top.material_id(),
             source.face(assets::BlockFace::Up).material_id()
         );
-        assert!(
-            !mesh
-                .liquid_quads()
-                .iter()
-                .any(|quad| { quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX }),
-            "classic water must omit the side touching primary ice"
-        );
+        let contact = mesh
+            .liquid_quads()
+            .iter()
+            .find(|quad| quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX)
+            .expect("extra air admits the water contact beside transparent primary ice");
+        assert!(!contact.is_two_sided());
         assert!(
             mesh.liquid_quads()
                 .iter()

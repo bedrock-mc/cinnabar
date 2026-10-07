@@ -162,6 +162,25 @@ pub fn dispatch_inventory_key(
             .scroll_loom(rows, super::screen_recipes::LOOM_PATTERNS.len());
         return None;
     }
+    if drop && runtime.screen_state().text_focused() {
+        return None;
+    }
+    if drop {
+        if runtime
+            .inventory_ledger(player_runtime)
+            .cursor_stack()
+            .is_some()
+        {
+            return Some(
+                runtime
+                    .inventory_ledger_mut(player_runtime)
+                    .begin_drop(DropSource::Cursor, (!control).then_some(1)),
+            );
+        }
+        if let Some(outcome) = runtime.drop_creative_hit(player_runtime, hit?, control) {
+            return Some(outcome);
+        }
+    }
     let target = super::inventory_actions::gesture_target(hit?)?;
     let ledger = runtime.inventory_ledger_mut(player_runtime);
     drop.then(|| ledger.begin_drop(DropSource::Target(target), (!control).then_some(1)))

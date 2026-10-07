@@ -83,7 +83,7 @@ fn block_face_rects_tile_the_three_by_two_sheet() {
 }
 
 #[test]
-fn attachable_bone_sits_at_its_pivot_plus_the_mirrored_literal_offset() {
+fn attachable_bone_uses_bound_model_origin_and_mirrored_literal_offset() {
     use super::{BoneChannels, attach};
     let hand = bone([1.0, 1.0, 1.0], 2.0);
     let channels = BoneChannels {
@@ -91,16 +91,33 @@ fn attachable_bone_sits_at_its_pivot_plus_the_mirrored_literal_offset() {
         rotation: [0.0; 3],
         scale: [1.0, -1.0, -1.0],
     };
-    let posed = attach(hand, [0.0, 1.5, 0.0], channels).unwrap();
+    let posed = attach(hand, [0.0, 1.5, 0.0], channels, true).unwrap();
     // Pivot and offset are in the hand frame, so the hand scale (2) stretches them.
     assert_eq!(
         posed.translation_scale,
-        [1.0 - 2.0, 1.0 + 2.0 * (1.5 + 0.5), 1.0 - 2.0, 2.0]
+        [1.0 - 2.0, 1.0 + 2.0 * 0.5, 1.0 - 2.0, 2.0]
     );
     assert_eq!(posed.axis_scale, [1.0, -1.0, -1.0, 1.0]);
     let mut broken = hand;
     broken.rotation = [0.0; 4];
-    assert!(attach(broken, [0.0; 3], channels).is_none());
+    assert!(attach(broken, [0.0; 3], channels, true).is_none());
+}
+
+#[test]
+fn third_person_bound_root_stays_at_the_hand_under_rotation_and_scale() {
+    use super::{BoneChannels, attach};
+    let mut hand = bone([2.0, 0.75, -3.0], 0.5);
+    hand.rotation = Quat::from_rotation_z(0.7).to_array();
+    let pivot = [0.0, assets::gui_item::SHIELD_MODEL_PART_HEIGHT / 16.0, 0.0];
+    let posed = attach(hand, pivot, BoneChannels::default(), true).unwrap();
+    assert_eq!(posed.translation_scale, hand.translation_scale);
+    assert!(
+        posed
+            .rotation
+            .iter()
+            .zip(hand.rotation)
+            .all(|(actual, expected)| (actual - expected).abs() < 1e-6)
+    );
 }
 
 #[test]
@@ -110,4 +127,20 @@ fn third_person_sword_points_forward_and_up_from_a_hanging_arm() {
     let tip = icon_point(sword, 15.0, 1.0);
     let blade = tip - handle;
     assert!(blade.z < -0.5 && blade.y > 0.0, "{blade}");
+}
+
+#[test]
+fn unbound_attachable_preserves_its_hand_relative_origin_under_rotation_and_scale() {
+    use super::{BoneChannels, attach};
+    let mut hand = bone([2.0, 0.75, -3.0], 0.5);
+    hand.rotation = Quat::from_rotation_z(0.7).to_array();
+    for pivot in [[0.0; 3], [0.25, 1.5, -0.125]] {
+        let posed = attach(hand, pivot, BoneChannels::default(), false).unwrap();
+        let expected = Vec3::from_array([2.0, 0.75, -3.0])
+            + Quat::from_rotation_z(0.7) * (Vec3::from_array(pivot) * 0.5);
+        for axis in 0..3 {
+            assert!((posed.translation_scale[axis] - expected[axis]).abs() < 1e-6);
+        }
+        assert_eq!(posed.translation_scale[3], 0.5);
+    }
 }

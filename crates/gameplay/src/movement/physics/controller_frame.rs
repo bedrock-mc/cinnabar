@@ -4,6 +4,8 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    /// Velocity before this tick applies liquid travel and drag.
+    pub entry_velocity: [f32; 3],
     pub eye_height: f32,
     pub intent: ModeIntent,
     pub jump_edge: bool,
@@ -121,6 +123,11 @@ impl ControllerFrame {
             ]);
             state.position = seat;
         }
+        self.entry_velocity = [
+            state.velocity.x as f32,
+            state.velocity.y as f32,
+            state.velocity.z as f32,
+        ];
         self.modes = *modes;
         self.input = *input;
         Ok(())

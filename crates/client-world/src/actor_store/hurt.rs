@@ -183,6 +183,7 @@ impl ActorStore {
                 actor.status.hurt_time = HURT_DURATION_TICKS;
                 actor.status.skip_red_flash = event.kind == ActorStatusKind::HurtWithoutDamage;
                 actor.status.hurt_direction = actor.streamed_hurt_direction();
+                self.animation.hurt_java_limbs(event.runtime_id);
             }
             ActorStatusKind::Death => {
                 if matches!(&actor.kind, super::ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_dragon")

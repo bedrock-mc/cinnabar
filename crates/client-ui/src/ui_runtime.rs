@@ -784,10 +784,10 @@ impl UiRuntime {
                 let resolved = self.resolve_raw_text(&event.document);
                 let mut text = event.text;
                 text.message = Arc::from(resolved.text);
-                self.apply_text(text, envelope.fifo_sequence, event_millis)?
+                self.apply_resolved_text(text, envelope.fifo_sequence, event_millis)?
             }
             UiEvent::RawText(event) => {
-                self.apply_text(event.text, envelope.fifo_sequence, event_millis)?
+                self.apply_resolved_text(event.text, envelope.fifo_sequence, event_millis)?
             }
             UiEvent::Title(mut event)
                 if event

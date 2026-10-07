@@ -90,7 +90,7 @@ pub use label::{LabelShape, TextOptions};
 pub use layout::{
     LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
 };
-pub use localize::localize_text;
+pub use localize::{localize_text, localize_text_prefix};
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
 pub use scene::{SceneEntry, SceneStack, ScreenNav, ScreenSettings};

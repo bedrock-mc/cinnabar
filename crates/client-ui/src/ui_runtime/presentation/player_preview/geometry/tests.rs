@@ -234,10 +234,12 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
     assert_eq!(model.batches().len(), 3);
     let armor_range = &model.batches()[1].index_range;
     assert_eq!(model.batches()[1].texture_page, armor.page);
+    assert_eq!(model.batches()[1].alpha_cutoff, Some(1.0 / 255.0));
     assert!(
         model.vertices()[armor_range.start as usize..armor_range.end as usize]
             .iter()
-            .all(|vertex| vertex.color == [110, 70, 200, 255])
+            .all(|vertex| vertex.color == [110, 70, 200, 255]
+                && u32::from(vertex.style_flags) & render_model::UI_STYLE_COLOR_MASK != 0)
     );
     let held_range = &model.batches()[2].index_range;
     assert_eq!(model.batches()[2].texture_page, held.page);

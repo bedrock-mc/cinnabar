@@ -31,9 +31,7 @@ impl PreviewTexture {
         let offset = (y * width + x) * 4;
         let mut texel: [u8; 4] = self.rgba[offset..offset + 4].try_into().ok()?;
         if let Some(tint) = self.tint {
-            for channel in 0..3 {
-                texel[channel] = (u16::from(texel[channel]) * u16::from(tint[channel]) / 255) as u8;
-            }
+            texel = assets::color_mask_texel(texel, tint);
         }
         Some(texel)
     }
@@ -77,22 +75,6 @@ pub enum PreviewHeldPlacement {
         bone: render_model::RenderBoneTransform,
         pivot: [f32; 3],
     },
-}
-
-impl PreviewHeldPlacement {
-    /// Vanilla attachable setup preserves expression-bound model-part defaults:
-    /// its root origin is authored pivot Y minus the shared model-part height.
-    /// Keep the mesh's original bind pivot: it is still subtracted during skinning.
-    pub fn authored(
-        mut bone: render_model::RenderBoneTransform,
-        pivot: [f32; 3],
-        expression_bound: bool,
-    ) -> Self {
-        if expression_bound {
-            bone.translation_scale[1] -= client_world::MODEL_PART_ORIGIN_Y / 16.0;
-        }
-        Self::Authored { bone, pivot }
-    }
 }
 
 /// One armor box: biped part, min corner and size in pixels, inflation, UV
@@ -273,5 +255,18 @@ mod review_tests {
             };
             assert_eq!(texture.sample([0.5, 0.5]), None);
         }
+    }
+
+    #[test]
+    fn leather_color_mask_keeps_low_alpha_trim_and_weights_the_dye() {
+        let texture = PreviewTexture {
+            rgba: Arc::from([200, 100, 50, 1, 200, 100, 50, 255, 0, 0, 0, 0]),
+            width: 3,
+            height: 1,
+            tint: Some([128, 255, 0]),
+        };
+        assert_eq!(texture.sample([0.0, 0.0]), Some([199, 100, 49, 255]));
+        assert_eq!(texture.sample([0.5, 0.0]), Some([100, 100, 0, 255]));
+        assert_eq!(texture.sample([1.0, 0.0]), Some([0, 0, 0, 0]));
     }
 }

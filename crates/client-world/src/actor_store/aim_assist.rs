@@ -42,8 +42,8 @@ impl ActorStore {
                     Some(protocol::GameModeUpdate::Explicit(
                         protocol::PlayerGameMode::Spectator
                     ))
-                ) && !(actor.player_game_mode == Some(protocol::GameModeUpdate::WorldDefault)
-                    && self.world_default_game_mode == Some(protocol::PlayerGameMode::Spectator)),
+                ) && (actor.player_game_mode != Some(protocol::GameModeUpdate::WorldDefault)
+                    || self.world_default_game_mode != Some(protocol::PlayerGameMode::Spectator)),
             ),
             ActorKind::Entity { identifier } => {
                 native_class(identifier).or_else(|| self.aim_actor_classes.get(identifier).copied())

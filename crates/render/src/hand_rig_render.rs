@@ -306,6 +306,9 @@ struct HandRigGpu {
     view_uniform: Buffer,
     material: Buffer,
     light_uniform: Buffer,
+    uniforms: Option<([f32; 16], HandRigLight)>,
+    #[cfg(test)]
+    uniform_uploads: [u64; 2],
     instances: Option<Buffer>,
     vertices: crate::actor::gpu::SegmentedVertexBuffer,
     spans: Option<Buffer>,
@@ -350,6 +353,9 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         view_uniform: uniform("first-person rig view", &[0u8; 64]),
         material,
         light_uniform: uniform("first-person rig light", &[0u8; size_of::<HandRigLight>()]),
+        uniforms: None,
+        #[cfg(test)]
+        uniform_uploads: [0; 2],
         instances: None,
         vertices: default(),
         spans: None,
@@ -404,12 +410,7 @@ fn prepare(
     let aspect = viewport.z as f32 / viewport.w as f32;
     let projection =
         Mat4::perspective_infinite_reverse_rh(frame.fov_radians, aspect, HAND_RIG_NEAR_PLANE);
-    queue.write_buffer(
-        &gpu.view_uniform,
-        0,
-        bytemuck::cast_slice(&projection.to_cols_array()),
-    );
-    queue.write_buffer(&gpu.light_uniform, 0, bytemuck::bytes_of(&frame.light));
+    upload_uniforms(&mut gpu, &queue, projection, frame.light);
     build_bind_group(&mut gpu, &device, &cache);
     let gpu = &mut *gpu;
     let layout = gpu.layout.clone();
@@ -419,6 +420,41 @@ fn prepare(
     if gpu.bind_group.is_none() || gpu.pipeline.is_none() {
         gpu.maximum_vertex_count = 0;
     }
+}
+
+/// Keeps unchanged hand projection and lighting out of the staging allocation path.
+fn upload_uniforms(
+    gpu: &mut HandRigGpu,
+    queue: &RenderQueue,
+    projection: Mat4,
+    light: HandRigLight,
+) {
+    let projection = projection.to_cols_array();
+    if gpu.uniforms.as_ref().is_none_or(|old| old.0 != projection) {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "hand.projection_write",
+            bytes = std::mem::size_of_val(&projection)
+        )
+        .entered();
+        queue.write_buffer(&gpu.view_uniform, 0, bytemuck::cast_slice(&projection));
+        #[cfg(test)]
+        {
+            gpu.uniform_uploads[0] += 1;
+        }
+    }
+    if gpu.uniforms.as_ref().is_none_or(|old| old.1 != light) {
+        #[cfg(feature = "tracy")]
+        let _span =
+            bevy::log::info_span!("hand.light_write", bytes = std::mem::size_of_val(&light))
+                .entered();
+        queue.write_buffer(&gpu.light_uniform, 0, bytemuck::bytes_of(&light));
+        #[cfg(test)]
+        {
+            gpu.uniform_uploads[1] += 1;
+        }
+    }
+    gpu.uniforms = Some((projection, light));
 }
 
 fn deactivate(gpu: &mut HandRigGpu) {
@@ -483,6 +519,14 @@ fn upload_pose(
             bytemuck::cast_slice::<_, u8>(&frame.rig.current_bones),
         ),
     ] {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "hand.pose_upload",
+            label,
+            revision = frame.revision,
+            bytes = bytes.len()
+        )
+        .entered();
         match slot {
             Some(buffer) if buffer.size() == bytes.len() as u64 => {
                 queue.write_buffer(buffer, 0, bytes);

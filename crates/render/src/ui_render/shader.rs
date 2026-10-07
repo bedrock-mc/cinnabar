@@ -20,6 +20,10 @@ pub(crate) fn source(raw: &str) -> String {
         "UI_STYLE_GLINT",
         &format!("{}u", render_model::UI_STYLE_GLINT),
     )
+    .replace(
+        "UI_STYLE_COLOR_MASK",
+        &format!("{}u", render_model::UI_STYLE_COLOR_MASK),
+    )
 }
 
 pub(super) fn from_wgsl(raw: &str, path: impl Into<String>) -> Shader {

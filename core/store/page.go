@@ -37,7 +37,7 @@ func (c *Client) Home(ctx context.Context, name string) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	page := Page{ID: name, Rows: []Row{}, InventoryVersion: c.notePage(layout)}
+	page := Page{ID: name, Rows: []Row{}, InventoryVersion: c.cfg.Market.InventoryVersion()}
 	for _, section := range layout.Layout {
 		for i := range section.Rows {
 			row := &section.Rows[i]
@@ -66,27 +66,7 @@ func (c *Client) layoutState(ctx context.Context) (marketplace.PageRequest, erro
 	if err != nil {
 		return marketplace.PageRequest{}, err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	state := marketplace.PageRequest{Entitlements: inv.ids, InventoryVersion: c.etag, ListVersion: c.lists}
-	if state.Entitlements == nil {
-		state.Entitlements = []string{}
-	}
-	return state, nil
-}
-
-// notePage keeps the inventory and user-lists versions a page answered with and returns the newest
-// inventory version.
-func (c *Client) notePage(page *marketplace.Page) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if page.HeaderInventoryETag != "" {
-		c.etag = page.HeaderInventoryETag
-	}
-	if page.HeaderListsVersion != "" {
-		c.lists = page.HeaderListsVersion
-	}
-	return c.etag
+	return c.cfg.Market.PageState(inv.ids), nil
 }
 
 func clip(s string) string {

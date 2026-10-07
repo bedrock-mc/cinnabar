@@ -1,13 +1,15 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
+use assets::{
+    banner::color_linear as banner_color, block_entity_geometry::shulker_color_from_block_name,
+};
 use std::sync::Arc;
 
 use render::{
     BannerLayer, BannerModel, BannerMount, BedModel, BellAttachment, BlockEntityKind, ChestModel,
     ChestPair, ChestVariant, CopperAge, DecoratedPotModel, Facing, ItemFrameModel,
     MAX_BANNER_LAYERS, Oxidation, ShulkerModel, SignMount, SkullKind, SkullModel, SkullMount,
-    SpawnerModel, StatueModel, StatuePose, banner_color, bed_color, pattern_texture, sherd_pattern,
-    shulker_color_from_block_name,
+    SpawnerModel, StatueModel, StatuePose, bed_color, pattern_texture, sherd_pattern,
 };
 use world::NbtCompound;
 

@@ -13,8 +13,8 @@ use render::{
 };
 use render_model::{
     ActorRigGeometry, EntityRigId, RenderBoneTransform, equipment_rig_id, find_geometry_index,
-    geometry_bone_names, geometry_bone_pivots, held_sprite_vertices, item_mesh_rig_id,
-    textured_cube_vertices,
+    geometry_bone_binding_expressions, geometry_bone_names, geometry_bone_pivots,
+    held_sprite_vertices, item_mesh_rig_id, textured_cube_vertices,
 };
 
 mod alpha;
@@ -560,6 +560,10 @@ impl EquipmentRuntime {
                 rig: equipment_rig_id(index),
                 names: geometry_bone_names(&self.assets, index as usize)?,
                 pivots: geometry_bone_pivots(&self.assets, index as usize)?,
+                binding_expressions: geometry_bone_binding_expressions(
+                    &self.assets,
+                    index as usize,
+                )?,
             }))
         });
         self.armor_geometry.insert(identifier.into(), entry.clone());

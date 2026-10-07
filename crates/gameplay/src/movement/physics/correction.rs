@@ -183,6 +183,8 @@ impl LocalPhysicsController {
         corrected_network_position: Option<[f32; 3]>,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let prior_position = self.state.as_ref().map(|state| state.position);
+        let prior_previous_position = self.previous_position;
         let on_ground = corrected.on_ground;
         let feet = corrected.position;
         let corrected_velocity = [
@@ -357,6 +359,7 @@ impl LocalPhysicsController {
             corrected_sample.world_identity.clone()
         };
 
+        self.refresh_motion_ticks();
         let state = self
             .state
             .as_ref()
@@ -374,7 +377,13 @@ impl LocalPhysicsController {
                 .state_at(final_tick.saturating_sub(1))
                 .map_or(feet, |previous| previous.position)
         };
-        self.accumulated_seconds = 0.0;
+        if let Some(prior_position) = prior_position {
+            self.visual_correction.correct(
+                prior_position - state.position,
+                prior_previous_position - self.previous_position,
+                state.velocity,
+            );
+        }
         self.last_world_identity = replayed_samples
             .last()
             .map(|sample| sample.world_identity.clone())

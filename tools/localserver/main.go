@@ -1,5 +1,5 @@
 // Command bedrock-local-server hosts one saved superflat world on dragonfly's default generators for
-// the core; vanilla terrain runs on BDS instead.
+// the core, or an opt-in synthetic terrain fixture; vanilla terrain runs on BDS instead.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin, and
 // "experience reload <id>" lines when it hosts Experiences; stdin EOF and SIGINT/SIGTERM also stop
 // it. docs/experience-runtime.md describes the Experiences of -experiences and the client parts of
@@ -46,6 +46,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	cfg, err := parseSettings(args, stderr)
 	if err != nil {
 		return err
+	}
+	if cfg.terrainFixtureGenerate {
+		return generateTerrainFixture(cfg, stdout)
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	// The offer's marker pack must be written before the resource packs load.
@@ -94,6 +97,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = primitiveListener(listen)
 		}
 	}
+	cfg.configureTerrainFixture(&conf)
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)

@@ -152,6 +152,7 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
     view.feeds.details.insert(
         "geo.hivebedrock.network:19132".to_owned(),
         ServerDetails {
+            player_count: None,
             description: "Minigames with friends, every day.".to_owned(),
             news_title: "Season 5".to_owned(),
             news: "A new season of Treasure Wars is live.".to_owned(),

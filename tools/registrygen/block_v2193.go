@@ -65,6 +65,7 @@ type v2193BlockProjectionManifest struct {
 		UnresolvedRetail    []string `json:"unresolved_retail"`
 		DeniedCount         int      `json:"denied_count"`
 		DeniedFingerprint   string   `json:"denied_fingerprint"`
+		EducationStates     int      `json:"education_states"`
 	} `json:"projection"`
 	Output struct {
 		Format string `json:"format"`
@@ -79,8 +80,8 @@ type v2193BlockProjectionManifest struct {
 }
 
 type v2193ProjectionStats struct {
-	legacy, reduced, twins, additions, denied int
-	deniedFingerprint, additionFingerprint    string
+	legacy, reduced, twins, additions, denied, education int
+	deniedFingerprint, additionFingerprint               string
 }
 
 type v2193SourceEntry struct {
@@ -256,6 +257,7 @@ const (
 	v2193ClassAddition
 	v2193ClassLegacyReduced
 	v2193ClassTwin
+	v2193ClassEducation
 )
 
 // v2193ConnectionProperties are the 1.26.50 neighbour-derived state properties.
@@ -316,6 +318,14 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 	}
 	for index, identity := range source {
 		projection.facts[index] = -1
+		if record, matched, err := educationRenderRecord(identity); err != nil {
+			return v2193Projection{}, v2193ProjectionStats{}, err
+		} else if matched {
+			projected[index] = record
+			projection.classes[index] = v2193ClassEducation
+			stats.education++
+			continue
+		}
 		key := canonicalRecordKey(identity.Name, identity.StateJSON)
 		if old, ok := legacyByKey[key]; ok {
 			adopt(index, identity, old, v2193ClassLegacyExact)
@@ -444,6 +454,7 @@ func resolveV2193Lights(projection v2193Projection, legacyProperties []byte) ([]
 	for index := range projection.records {
 		switch projection.classes[index] {
 		case v2193ClassDenied:
+		case v2193ClassEducation:
 		case v2193ClassAddition:
 			unresolved++
 		default:
@@ -484,7 +495,7 @@ func encodeResolvedLightRegistryForProtocol(protocol uint32, breg []byte, record
 	return append(encoded, payloadDigest[:]...), nil
 }
 
-func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allowlistPath, outputPath, lightOutputPath, manifestPath, retailLightPath string) error {
+func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allowlistPath, outputPath, lightOutputPath, manifestPath, retailLightPath, educationRoot string) error {
 	if lightOutputPath == "" || retailLightPath == "" {
 		return errors.New("v2193 block projection requires -light-out and -block-v2193-retail-light")
 	}
@@ -511,7 +522,13 @@ func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allo
 	if stats.additions != 0 {
 		return fmt.Errorf("v2193 projection has %d retail states without reviewed facts (fingerprint %s)", stats.additions, stats.additionFingerprint)
 	}
+	if stats.education != v2193EducationStateCount {
+		return fmt.Errorf("Education construction palette contains %d states, want %d", stats.education, v2193EducationStateCount)
+	}
 	projected := projection.records
+	if err := applyEducationCollisionSeeds(projected, educationRoot); err != nil {
+		return err
+	}
 	metadata := metadataForRecords(projected)
 	metadata.Protocol = v2193BlockProtocol
 	encoded, err := encodeWithMetadata(metadata, projected)
@@ -536,6 +553,9 @@ func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allo
 	}
 	retail, err := readPMMPLightProperties(retailLightPath)
 	if err != nil {
+		return err
+	}
+	if err := applyEducationLightProperties(projection, properties, retail); err != nil {
 		return err
 	}
 	if _, err := applyV2193RetailLightCorrections(projection, properties, retail); err != nil {
@@ -564,6 +584,7 @@ func writeV2193BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allo
 	manifest.Projection.TwinNames, manifest.Projection.TwinFingerprint = len(twinNames), fmt.Sprintf("%x", twinHash.Sum(nil))
 	manifest.Projection.UnresolvedRetail = append([]string(nil), v2193UnresolvedRetail...)
 	manifest.Projection.DeniedCount, manifest.Projection.DeniedFingerprint = stats.denied, stats.deniedFingerprint
+	manifest.Projection.EducationStates = stats.education
 	manifest.Output.Format, manifest.Output.Path, manifest.Output.SHA256 = registryHeader, v2193BlockOutputPath, fmt.Sprintf("%x", sha256.Sum256(encoded))
 	manifest.Light.Format, manifest.Light.Path, manifest.Light.SHA256 = lightRegistryHeader, v2193LightOutputPath, fmt.Sprintf("%x", sha256.Sum256(light))
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")

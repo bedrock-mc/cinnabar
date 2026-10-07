@@ -136,9 +136,10 @@ diagnostics are limited to one per 15 seconds.
 
 All Profile requests use the Go core's existing authenticated Xbox HTTP client.
 Rust receives display data through `profile.v1`, never account credentials.
-Statistics request the names documented above, with the shared
-`auth.ServiceConfigID`; the method, path and contract version follow
-[Microsoft's Xbox SDK UserStatisticsService](https://github.com/microsoft/xbox-live-api/blob/main/Source/Services/Stats/user_statistics_service.cpp).
+Statistics use gophertunnel's typed Profile API. Its Xbox batch reader owns the
+statistic names, service configurations, request body, headers and response decoding;
+it sums each statistic across the seven retail platform configurations. Cinnabar
+only maps the resulting values into its existing display fields.
 Numeric service strings retain fractional precision. A failed request is distinct
 from a successful response with no recorded statistics, and zero stays zero.
 

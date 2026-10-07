@@ -161,7 +161,7 @@ pub const PREVIEW_FEET_Y: f32 = 106.0;
 /// A player's eye height above its feet, the point a live renderer centres.
 pub const PLAYER_EYE_HEIGHT: f32 = 1.62;
 /// Undyed leather armor's colour (the equipment renderer's default).
-const LEATHER_RGB: u32 = 0x00a0_6540;
+use assets::DEFAULT_LEATHER_RGB as LEATHER_RGB;
 /// The player entity's render scale.
 pub(super) const PLAYER_MODEL_SCALE: f32 = 0.9375;
 /// The HUD translates its shared outer actor frame while swimming.

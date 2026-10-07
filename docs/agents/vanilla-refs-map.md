@@ -423,6 +423,30 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - // BushBlock uses
 - // minXYZ=(0,0,0), maxX=1; ctor literals set maxY=.8 and maxZ=1.
 - /// TorchBlock chooses the visual box by `torch_facing_direction`, independently
+- Signs: current 1.26.50.26 `SignBlock::getVisualShape` (RVA `0x0bbba0f0`), reached from the sign registration constructor `0x0bbb90c0` and vtable `0x1503be3d0` slot 10. Standing bounds are `(0.25,0,0.25)..(0.75,1,0.75)`; wall facing 2–5 uses Y `0.28125..0.78125` and a `0.125` thickness against its support. `HangingSignBlock::getVisualShape` (`0x0712ce90`, vtable `0x1502a5f20` slot 10) uses full Y and width with `0.375..0.625` thickness, choosing X for facing 4/5 and Z otherwise.
+- Cobweb selection: `WebBlock` retains `BlockType::getVisualShape` through its inherited vtable slot 10 (26.30 `0x10ac8d530`); its constructor clears movement collision rather than the full-cell visual AABB. Current registry maps `minecraft:web` as passable with cobweb response; picking consumes visual geometry independently of that empty movement shape.
+
+## crates/gameplay/src/movement/physics/visual_correction.rs
+## app/src/movement/runtime_system.rs
+## app/src/movement/teleport_ack_wiring_tests/correction_presentation.rs
+- Current 1.26.50.26 correction interpolation creation: `0x036c1530`, identified through `MovementCorrectionInterpolationSystem` registration `0x0369ed60` and adapter `0x036c1aa0`. It accumulates the position correction in `DynamicRenderOffsetComponent`, limits length to 4, records direction, and sets speed squared to `0.2 * length_squared`, floored by StateVector speed when the offset Y is nonpositive.
+- Both retained render-offset samples remain inside the 4-block radius: creation clamps current and the tick copies that bounded sample into previous. Replayed history in Cinnabar replaces both position endpoints, so compensating offsets must retain that same bound.
+- Current interpolation tick: `0x06bb4780`, reached by `ClientRewind::tickCorrectionInterpolation` adapter `0x06bb4a60`. It retains the prior offset, accelerates retained falling Y by `-0.08` when offset Y is positive, reduces offset length by the selected speed, and removes the offset once its remaining squared length is no larger than the step squared. Rendering interpolates previous/current offsets independently of corrected collision and outbound positions.
+- The current render-position interpolation (`0x01c35c20`) consumes those retained offset samples at the frame partial tick. Pausing Cinnabar input admission must therefore keep publishing that already interpolated pose; it must not expose a raw authority assignment or advance correction ticks behind the transport fence.
+
+## app/src/interaction_authority.rs
+## app/src/interaction_authority/correction_tests.rs
+- Current 1.26.50.26 `InGamePlayScreen::_pick(float)` (`0x004f71b0`) calculates its ordinary pick origin through `0x02c405e0` → `0x01c0db40` → unmounted interpolation `0x01c35c20`. That final routine reads `DynamicRenderOffsetComponent` through `0x01cd8870` (type hash `0x68b69ec0`), adds its previous/current offsets to the corresponding StateVector positions, and interpolates them at the frame partial tick. The pick origin then applies the actor's visual eye/riding offset; it does not use the corrected StateVector position alone.
+- The shared presented eye is therefore intentional for both selection and the hit data sent by interactions. A correction updates collision/outbound movement authority immediately while the player's visible aim and block pick ease together. Replacing picking with an authority-only origin during that interval would break the current vanilla crosshair contract.
+
+## crates/client-presentation/src/presentation/visibility.rs
+## app/src/ui_runtime/presentation/publish.rs
+## app/src/runtime/network/actor_publication.rs
+## app/src/tests/menu_scene/hud_visibility.rs
+- Hide HUD behavior is visible in the issue reporter's paired Cinnabar/vanilla captures for #234: first-person arms/items and actor name labels disappear together. Hide Hand remains an independent preference restored when Hide HUD is turned off.
+
+## crates/client-presentation/src/entity_shadows.rs
+- Local-player shadow admission follows the drawn body perspective; the vanilla first-person capture for #221 has no local-player volume shadow. Frozen local body visibility takes precedence over a stale body submission while changing perspective.
 
 ## crates/gameplay/src/movement/control_modes.rs
 - /// Native SprintTrigger cannot stop an existing sprint while the previous
@@ -2178,6 +2202,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## tools/registrygen/block_v2193_light.go
 - // DynamicLiquidBlock final registration has
 - // no version gate: still and flowing types differ.
+- Sensor state controls emission independently of opacity; the pinned PMMP property table gives both sensor types opacity 0.19999998807907104, preserving light filter 3 during palette regeneration.
 
 ## tools/registrygen/block_v2193_light_test.go
 - // 1.26.50.26 TopSnowBlock sets dampening to zero; the
@@ -2197,6 +2222,91 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/sim/src/simulator/water.rs
 - `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.
 
+<<<<<<< ours
+## Experience player counts
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/play_screen.rs`, `crates/launcher/src/menu/view.rs`,
+  `app/src/menu/account_control.rs`: installed 1.26.50.04 OreUI bundle
+  `data/gui/dist/hbui/index-168bae443ec79c00823c.js`, `Qoe` (offset 1754136) selects
+  `vanilla.menus.playerCountsQuery.playerCounts` by experience ID, substitutes zero for missing,
+  and mounts the raw numeric count beside the player icon only when positive. `ere` and `tre`
+  experience listing cards have no count. `Mn` subscribes at mount and disposes at unmount.
+- `core/launcher/service.go`, `app/src/menu/launcher_account/feeds.rs`: current 1.26.50.26
+  `src/__unmapped/0c.cpp`, `FUN_14cfec9b0` constructs the query and calls `FUN_14cfed4a0`
+  immediately; `FUN_14cfee1e0` refreshes after the service's request age reaches 300 seconds.
+  `src/__unmapped/05.cpp`, `FUN_14542d410` caches counts for 300 seconds from request start;
+  `FUN_145485de0` leaves the previous cache intact on failure and defaults absent count fields to zero.
+  `src/__unmapped/0d.cpp`, `FUN_14d002a30` retains published counts on failure and replaces them on success.
+
+## core/catalog/profile_statistics.go
+
+- Typed gophertunnel userstats batch: current 1.26.50.26 `src/__unmapped/01.cpp:970426` imports `XblUserStatisticsGetMultipleUserStatisticsForMultipleServiceConfigurationsAsync`; `00.cpp:1129438` builds the four-stat request for every configuration, `1192663` selects names, and `1192739` sums doubles across configurations.
+- Retail configuration order: `reference/26.30/src/__unmapped/03.cpp:27900-27971` initializes `BEDROCK_XBOXLIVE_ALL_SCIDS` as Kindle, Google, iOS, Xbox, Windows, Switch, Berwick. Installed release 1.26.50.04 binary strings corroborate the seven IDs; its bundled XboxServicesAPI framework identifies `XboxServicesAPI/2025.10.20251000.0`.
+- The batch wire schema and headers also match Microsoft's Xbox Live SDK `Source/Services/Stats/user_statistics_service.cpp` and `Source/Services/Common/http_call.cpp`; successful authenticated live requests were not captured.
+=======
+## crates/protocol/src/ui/commands.rs
+- Command-name suggestions use substring matching, as shown by the vanilla command-completion recording attached to issue 220: https://github.com/user-attachments/assets/8fc14920-47a1-4b4e-a57a-99f31e84ef83. Current `CommandRegistry::autoComplete` owns command-name candidate selection.
+
+## crates/client-ui/src/ui_runtime/presentation/gui_scale_settings.rs
+- Captured pointer motion follows `SliderComponent::receive` and `_updateSliderFromPosition` beyond the track's hover bounds; only button release ends capture.
+
+## crates/client-ui/src/ui_runtime/event_apply.rs
+- Text packet localization uses `Localization::_get` percent-token expansion, followed by parameter formatting; the pinned `texts/en_US.lang` entry `multiplayer.player.joined` is `%s joined the game`.
+
+## crates/client-ui/src/ui_runtime/presentation/primitives.rs
+- Translation and command-output rows apply the same `Localization::_get` expansion to marked keys and their arguments before formatting. Parameter formatting still expands percent escapes when the argument list is empty.
+
+## crates/client-ui/src/ui_runtime/raw_text_resolution.rs
+- Current 1.26.50.26 game-mode feedback builds `gameMode.changed` with a parameter vector through `TextObjectLocalizedTextWithParams` (artifact 6: `0xcaf2a70`, `0x51cdef0`, `0x5214cb0`, `0x34b0d00`, `0x34b1110`). Translation arguments pass through the I18n parameter formatter; ordinary rawtext text objects remain literal. The named `TextObjectLocalizedTextWithParams::asString` counterpart resolves its child strings before parameter formatting.
+
+## crates/inventory/src/inventory_ledger/crafting.rs
+- Creative output preserves every block runtime identifier bit in the declared prototype, including high-bit hashed IDs. The pinned protocol's signed stack field and unsigned craft-result field name the same identity.
+
+## crates/render-model/src/equipment/attachable.rs
+- Bound attachable roots use the parent's model-part origin: model-space pivot Y minus 24 pixels before applying hand rotation and scale. The same origin is used by `ActorAnimationController` binding expressions and the pinned `geometry.shield`/`geometry.trident` models.
+- Owner-name bindings clear the model-part defaults; unbound roots keep their authored hand-relative origin. Only explicit binding expressions retain the shared humanoid origin.
+- GUI held geometry consumes that resolved pose without another origin subtraction; only its original bind pivot is removed when transforming vertices.
+
+## crates/client-ui/src/ui_runtime/presentation/player_preview/equipment.rs
+## crates/render/src/ui.wgsl
+- Retail 1.26.50.4 `definitions/attachables/leather_helmet.player.json` selects `armor_leather`; `materials/entity.material` inherits `entity_alphatest_change_color` with `USE_COLOR_MASK`. `shaders/glsl/entity.fragment` discards only alpha zero and uses texture alpha as the original-versus-dyed RGB mask.
+
+## crates/pack-compiler/src/entity/item.rs
+## crates/pack-compiler/src/icon.rs
+- Pinned `textures/item_texture.json` supplies extensionless leather icon sources. Helmet, leggings, boots and horse armor are `.tga`; chestplate is `.png`. Retail color-mask material rules preserve the low-alpha original-color trim and make all surviving texels opaque.
+
+## crates/meshing/src/liquid.rs
+- Current `BlockTessellator::tessellateLiquidInWorld` (`0x06a1b960`, artifact 6, 1.26.50.26) reads extra-layer air for classic side/bottom admission and primary-layer air for reverse winding. `BlockTessellatorCache::getExtraBlock` and `getBlock` in the 26.30 reference corroborate the two distinct virtual slots.
+
+## crates/assets/src/banner.rs
+## crates/assets/src/block_entity_geometry.rs
+## crates/assets/src/gui_item.rs
+## crates/pack-compiler/src/icon/block_entity.rs
+## crates/pack-compiler/src/icon/bake.rs
+- Current 1.26.50.26 `BannerModel` constructor `0x1e6da00` authors a 20×40×1 cloth at `(-10,0,-2)` with model-part Y pivot −32, a 2×42×2 pole at `(-1,-30,-1)`, and a 20×2×2 crossbar at `(-10,-32,-1)`; UV origins are `(0,0)`, `(44,0)` and `(0,42)` on the 64×64 banner base texture.
+- Current banner GUI renderer `0x6c581a0` uses `T(8.5,11,-10) * S(5.5) * Rx(20°) * Ry(-30°)`, model units 1/16 and static cloth tilt zero. The frame is uncolored; only the cloth uses the base dye.
+- Current banner constant setup `0x6c57b00` reads `ItemColor` RGB entries from the table at `0x10128cd4`, black aux 0 through white aux 15 (`#f0f0f0`). `BannerItem::buildDescriptionId` `0x29b4620` corroborates identity aux-to-color mapping for values 0 through 15. The old sign atlas route does not represent the GUI banner model.
+
+## tools/registrygen/education_v2193.go
+## crates/pack-compiler/src/compiler/visuals/literal.rs
+- Pinned 1.26.50 palette `block_states.nbt` contains allow and deny with empty state, plus 162 border states (four wall connections in none/short/tall and byte wall_post_bit). Vanilla packs route them through `build_allow`, `build_deny`, and `border_block`.
+- `BorderBlock` inherits `WallBlock`; `BlockGraphics::initBlocks` registers it as shape 32 and `BlockTessellator` dispatches that shape to `tessellateWallInWorld`. Reference 26.30 `by-owner/b/BorderBlock.cpp`, `BlockGraphics.cpp`, `BlockTessellator.cpp`; current 1.26.50.26 border description/shape methods are in `__unmapped/03.cpp` near the `tile.border_block.name` owner.
+
+## crates/assets/data/default-sprite-bindings-1.26.50.json
+## crates/pack-compiler/src/entity/item_bindings.rs
+- Retail 1.26.50.4 `vanilla/__brarchive/items.brarchive` declares each food's `components.minecraft:icon` key; baked potato uses `potato_baked`, meat uses raw/cooked atlas aliases, golden carrot uses `carrot_golden`, and poisonous potato uses `potato_poisonous`. The installed archive and all four seed definitions match the existing witness hashes.
+
+## crates/assets/src/block_entity_geometry.rs
+## crates/pack-compiler/src/icon/block_entity.rs
+## crates/pack-compiler/src/icon/blocks.rs
+## crates/render/src/block_entity/book.rs
+## crates/render/src/block_entity/pot.rs
+- Pinned retail 1.26.50.4 `blocks.json` supplies separate inventory front/side/top terrain tiles for chest, trapped chest, ender chest, and each copper chest age/wax variant; placed entity-only visibility does not control their GUI cube route. Bell uses `carried_textures: bell_carried`, resolved through `textures/terrain_texture.json` to `textures/items/villagebell`.
+- Current 1.26.50.26 GUI item dispatch (`0x05e57730`, special model selector `0x05e5d740`) sends shulker shape `0x59` to `0x07be6330`, conduit shape `0x65` to `0x06c7f100`, and ordinary block geometry to `0x05e5b2a0`. Shulker GUI uses the ordinary cube matrix with global light `0.73`; `models/entity/shulker.geo.json` supplies the closed base/lid boxes and their 64px texture unwrap.
+- Conduit GUI (`0x06c7f100`) uses translation `(8,8.5,-10)`, scale `18.5`, pitch `30°`, yaw `-50°`; the model constructor in the block-entity model dispatcher (`0x06c5e9c0`) supplies the 6px shell and logical 24×12 texture.
+- Decorated-pot GUI (`0x06c81c90`) uses translation `(8,9,-10)`, scale `10`, pitch `-150°`, yaw `-45°`. The base constructor (`0x01e87a10`) supplies the 8×3×8 neck with inflation `-0.1`, 6×1×6 lip with inflation `0.2`, and two 14px body planes at heights 16 and 0; the side constructor (`0x01e88410`) supplies 14×16 side panels. The shared centered authoring bounds retain neck heights 14–17 and lip heights 16–17 before inflation.
+- Lectern shape `0x73` is registered by current `BlockGraphics::initBlocks` (`0x069f19a0`); inventory tessellation (`0x06aab610`, case `0x73`) uses the default north-facing state and invokes the same lectern tessellator (`0x06a72cc0`) as the placed model. Its native dimensions, four-direction board transform table (`0x150285160`), and texture rotations/crops (`0x150286280`–`0x1502862b0`) define the shared 18 faces: 16×2×16 base, 8×12×8 post, and 15.8×4×13 sloped board. Board pitch is `-22.5°` for north, centered pixel pivot `(0,7,-1)` and offset `(0,1.05,1)`.
+- Lectern post front/back uses an 8×13 crop rotated by a quarter turn; the board top uses rows 1–14. Face orientation was checked against the current generic up/north/south tessellators (`0x06a0f830`, `0x06a11a00`, `0x06a13c30`), pivot rotation helper (`0x062fa300`), and transformed vertex emission (`0x062f7760`). The pinned `textures/blocks/lectern_{base,front,sides,top}` files supply those pixels.
 
 ## Camera packet family and aim-assist runtime
 
@@ -2329,6 +2439,7 @@ Only add provenance to docs/agents/vanilla-refs-map.md.
 
 ## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
 - Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
+- Hurt event dispatch (`actor_store/hurt.rs` and `actor_animation.rs`): verified official 1.7.10 jar above, `sv.a(B)V` status 2 writes float 1.5 to `sv.aF` immediately, without comparing the hurt countdown. `sv.e(FF)V` copies `aF` to previous `aE`, eases by float 0.4 toward the capped movement target, then adds `aF` to phase `aG`. Consecutive events reset the amount; status 3 alone does not.
 - Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); bob: EntityOtherPlayerMP.onLivingUpdate and EntityPlayer.onLivingUpdate's grounded/live target; mounted reset: EntityPlayer.updateRidden. Walk distance cast order: Entity.moveEntity. Its walking trigger is disabled by EntityPlayer.canTriggerWalking while PlayerCapabilities.isFlying, freezing walked phase without stopping chasing coordinates. The local predicted flight observation enters through client-presentation/actor_feed.rs, LocalPlayerFeed and ActorTickContext.
 - Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation and cast order: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
 - Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
@@ -2434,3 +2545,42 @@ was not used as version evidence.
 - `crates/client-ui/src/ui_runtime/presentation/primitive_shapes.rs`: current `ScriptTextPrimitive::applyUpdatedData` `0x109193240` retains parsed `TextObjectRoot` or literal; `Renderer::onBeginRender` `0x104446fa0` resolves only when the helper dirty flag or player input/interaction mode changes. Domain dynamic-text markers preserve common-patch refresh without rebuilding literal text geometry.
 
 - Equal packet updates: current `ClientScriptPrimitiveShapesDataComponent::handlePacket` `0x1022bab10` unconditionally marks an existing present-type entry dirty after its updater, with no equality check. `generateDiscVerts` `0x10443ed90` zero-segment branch initializes both closing vertices and packed colors to zero, then appends the closing pair unconditionally.
+
+## Translation parameter localization
+- `Localization::_get` localizes a parameter only when it begins with `%`, using the whole remaining parameter as a key; unresolved keys retain the original argument. Ordinary player names and embedded percent text are literal. R:Localization:1830-1940.
+
+## crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs
+- Current 1.26.50.26 banner held path: humanoid additional rendering `0x05e2b300` calls banner item rendering `0x06c592a0`, sharing setup `0x06c57b00` with GUI `0x06c581a0`. The held renderer draws pole, crossbar and cloth with base/pattern materials. The existing sprite fallback preserves availability only; exact held geometry remains an open parity item.
+>>>>>>> theirs
+
+## Crosshair presentation preferences
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/engine/hud_renderers.rs`:
+  current 1.26.50.26 `FUN_149c5ff60` (artifact 6, RVA `0x9c5ff60`) selects
+  `ui_crosshair` and `textures/ui/cross_hair`, centered at 16×16 GUI pixels.
+  Vanilla 1.26.50.04 `materials/ui.material` makes `ui_crosshair` inherit
+  `ui_invert_overlay`, using `OneMinusDestColor` and `OneMinusSrcColor`.
+- `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  26.30 `HudCursorRenderer::render` (`0x1020b3700`) returns when
+  `ClientInstance::getRenderPlayerModel` (`0x102342080`) is true; the
+  `ClientInstance` vtable at `0x110b28730`, slot `+0x6a0`, confirms the call.
+  Current getter `FUN_146798550` (`0x6798550`) corroborates the camera's
+  `CameraRenderPlayerModelComponent` test, with an editor exception.
+  The current renderer's virtual slot has not been independently mapped.
+- Third-person visibility and disabling inversion are owner-requested options;
+  defaults retain first-person visibility and inverted colors. The Java HUD's
+  built-in fallback remains 15×15; a pack crosshair remains 16×16.
+
+
+## Absorption hearts
+
+- `crates/client-ui/src/ui_runtime/hud_adapter.rs`, `crates/ui/src/hud.rs`, and
+  `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  1.26.50.26 artifact 6 `FUN_149c64c10` (RVA `0x9c64c10`) reads absorption
+  current independently of its maximum, rounds upward, appends after health,
+  wraps at ten with fixed 10-pixel rows, blinks all container backgrounds, and selects wither sprites for absorption
+  only when wither wins the effect precedence. `FUN_149c65980` (RVA `0x9c65980`)
+  loads absorption full/half textures and hardcore variants.
+- `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
+  `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
+  `#show_survival_ui` to `#visible`; absorption is native renderer state.

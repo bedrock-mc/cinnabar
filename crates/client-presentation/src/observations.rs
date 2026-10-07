@@ -24,6 +24,12 @@ pub trait PhysicsObservation {
     fn last_world_identity(&self) -> Option<&WorldCollisionIdentity>;
     /// Reports whether gameplay currently owns player translation.
     fn is_active(&self) -> bool;
+    /// Visits completed motion ticks after the cursor, or only the latest tick to prime a new observer.
+    fn visit_motion_ticks(
+        &self,
+        after: Option<u64>,
+        visit: &mut dyn FnMut(u64, crate::audio::local::MotionSample),
+    );
     /// How far the frame sits between the last two completed ticks.
     fn tick_alpha(&self) -> f32 {
         1.0

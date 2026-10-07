@@ -131,6 +131,9 @@ impl UiPresentationRuntime {
             &mut atlas,
             entities,
             icons,
+            self.icon_refs
+                .as_deref()
+                .ok_or(UiPresentationError::InvalidFontTexture)?,
             self.equipment_catalog.as_deref(),
             &held_sources,
         )?;

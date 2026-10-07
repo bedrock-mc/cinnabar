@@ -1,3 +1,24 @@
+## Frame attribution and unchanged GPU uploads
+
+- Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
+  durations are delayed plots. macOS zones alone cannot separate preemption from waits.
+- Per-packet ingress admission preserves queued events when consumer fan-out fills
+  headroom; regression tests cover resumption and zero steady-state drain allocations.
+- Named schedule traces and bounded frame recordings separate main work, render
+  handoff, drawable acquisition, command submission and presentation. Metal
+  timestamp queries use owned render passes and leave uncovered stages absent.
+- Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
+  redundant staging work. Regression tests assert allocations, writes and retained
+  buffers; hardware captures measure elapsed time separately.
+- Incomplete: the large synthetic local terrain fixture is a diagnostic workload,
+  not vanilla terrain generation or the populated-lobby/flight release replay.
+  Hidden-window measurements do not establish displayed FPS. Shared-pass GPU
+  categories, exact per-item costs and complete long-stall attribution remain open.
+  Earlier captures reach 87 ms; later Tracy captures reproduce 100–187 ms stalls
+  with waiting observed at main/render handoff. Exact CPU/wait time and a short
+  native GPU regression remain unresolved. See [frame breakdown evidence](docs/evidence/frame-breakdown.md)
+  and [Tracy attribution](docs/evidence/frame-breakdown-tracy.md).
+
 ## Camera packets and aim assist
 
 - Packet admission covers spline registries/instructions, aim presets, commands
@@ -32,6 +53,10 @@
   frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Every hurt event immediately resets the limb boost, including consecutive hits; movement
+  still contributes to the phase, and death alone does not trigger a flail.
+  Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
+  verify single and repeated hits, walking while hurt, and recovery to idle.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
@@ -63,6 +88,13 @@
   and performance parity are not asserted.
 
 ## Compatibility landing
+
+- Education construction terrain restores allow, deny and all border wall states
+  from the pinned current palette, using the textures already in the fetched pack.
+  Collision and light read the pinned metadata sources; no guessed shapes or
+  sequential palette IDs are added. Linux captures at 1280×720 with GUI scale 2
+  show textured allow/deny cubes and connected border shapes. Broader Education
+  parity remains incomplete.
 
 - The owner accepted the final live macOS Metal build and authorized landing the
   accumulated server compatibility changes. Formatting and architecture checks
@@ -209,9 +241,17 @@
 
 ## Servers tab experiences
 
-- The Servers tab lists the ServerTab layout's experiences, joined by experience ID. Incomplete
-  parity: experiences show no player count (the game reads gatherings player counts), and a
-  listing-only experience's details panel stays empty until its linked detail page is read.
+- The Servers tab lists the ServerTab layout's experiences, joined by experience ID. The Go core
+  now consumes typed player counts, using the service client's five-minute cache and retaining
+  the last successful values on refresh failure. Counts are requested for visible experience
+  details on an independent worker, so Home cannot delay them; background layout reads do not
+  request them. The existing selected-details binding shows only positive counts as plain
+  decimal numbers, without capacity or digit grouping.
+- Incomplete parity: the OreUI experience banner still needs its count badge wired by its screen
+  owner; this change only supplies data and existing JSON-UI bindings. The menu rereads counts
+  through its independent featured worker every 30 seconds; exact refresh dispatch timing remains
+  unverified. Listing-only experience details still need their linked detail page. No visual or
+  performance gate is closed.
 
 ## Friends tab worlds
 
@@ -6053,3 +6093,33 @@ The 1920×1080 headless macOS/Metal local gallery verifies all six kinds, text b
 color updates, actor following without instance rebuilds, and complete removal.
 Synthetic CPU/upload benchmarks and this gallery do not qualify the release hardware frame,
 streaming or hitch budgets, or establish native 100k-shape performance.
+
+## Entity-only held item geometry
+
+Block items without a cube sheet retain their compiled icon in both player-preview
+hands, matching the existing world equipment fallback. Inventory banners retain their
+colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
+the fallback availability regression is fixed, but it does not close that parity gate.
+
+### Crosshair preferences
+
+Video settings expose Third Person Crosshair (off by default) and Invert
+Crosshair Colors (on by default). Both persist and reset with Video settings.
+The third-person option covers both camera directions; spectator and Hide HUD
+still suppress the crosshair. Color inversion uses the existing scene blend,
+and turning it off preserves the selected pack texture with ordinary blending.
+Nine focused crosshair tests pass, covering persistence, Video reset, live
+visibility/blend changes, hidden HUD, spectator mode, scaling, and pack textures.
+A macOS/Metal client pass at 1920×1080, DPI 1, GUI scale 2 verified centered
+geometry, scene-dependent inverted colors versus plain white, both third-person
+views, F1 visibility, and legible unclipped settings with working pointer focus
+and immediate toggle updates. This verifies the preferences, not broader HUD parity.
+
+
+## Absorption HUD limits
+
+Absorption uses the local attribute's current points and the vanilla JSON-UI native
+heart renderer. Incomplete: the retained HUD stat supports at most 65,535 current
+points and health containers remain capped at six rows. Larger valid values are
+skipped or bounded; this change does not close an unrestricted custom-health or
+visual-comparison parity gate. See `docs/reference/absorption-hearts.md` for the rules.

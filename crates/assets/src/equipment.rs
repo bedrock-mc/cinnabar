@@ -130,6 +130,22 @@ pub struct EquipmentTexture {
     pub rgba8: Arc<[u8]>,
 }
 
+/// The undyed leather armor tint, in RGB byte order.
+pub const DEFAULT_LEATHER_RGB: u32 = 0x00a0_6540;
+
+/// Resolves a leather material's dye mask while retaining its zero-alpha cutout.
+pub fn color_mask_texel(mut texel: [u8; 4], tint: [u8; 3]) -> [u8; 4] {
+    let mask = u32::from(texel[3]);
+    for channel in 0..3 {
+        let weight = 255 * (255 - mask) + u32::from(tint[channel]) * mask;
+        texel[channel] = (u32::from(texel[channel]) * weight / (255 * 255)) as u8;
+    }
+    if texel[3] != 0 {
+        texel[3] = 255;
+    }
+    texel
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct EquipmentCatalogPayload {

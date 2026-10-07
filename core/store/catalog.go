@@ -39,7 +39,6 @@ func (c *Client) Search(ctx context.Context, q SearchQuery) (SearchResults, erro
 		if err != nil {
 			return SearchResults{}, err
 		}
-		c.notePage(page)
 		if results := page.Component(marketplace.ComponentPagedItemList); results != nil {
 			items, next = results.Items, results.ContinuationToken
 		}
@@ -66,7 +65,6 @@ func (c *Client) Offer(ctx context.Context, id string) (OfferDetail, error) {
 	if err != nil {
 		return OfferDetail{}, err
 	}
-	c.notePage(page)
 	summary := page.Component(marketplace.ComponentItemSummary)
 	if summary == nil || summary.Item == nil {
 		return OfferDetail{}, errNoOffer

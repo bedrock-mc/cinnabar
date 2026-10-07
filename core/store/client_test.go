@@ -51,6 +51,7 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.S
 		t.Fatal(err)
 	}
 	env.HTTPClient = storeServer.Client()
+	env.Identity = marketplace.Identity{XUID: "2535", TitleID: "20CA2"}
 	entitlementsEnv := new(marketplace.EntitlementsEnvironment)
 	if err := json.Unmarshal([]byte(`{"serviceUri":"`+entitlementsServer.URL+`"}`), entitlementsEnv); err != nil {
 		t.Fatal(err)
@@ -60,7 +61,7 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.S
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(Config{Market: market, Identity: Identity{XUID: "2535", TitleID: "20CA2"}})
+	client, err := NewClient(Config{Market: market})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +259,8 @@ func request(id, offer string) PurchaseRequest {
 	return PurchaseRequest{PurchaseID: id, OfferID: offer, StoreID: "store-1", Currency: "mc", Amount: "320", Confirmed: true}
 }
 
-func TestPurchaseSendsTheVanillaRequestShape(t *testing.T) {
+// The account identity reaches the purchase tags and their correlation id is surfaced to the bridge.
+func TestPurchaseNamesTheAccountAndSurfacesItsCorrelation(t *testing.T) {
 	server := &purchaseServer{status: 200, header: map[string]string{"InventoryETag": "etag-2"}}
 	client, _ := newTestClient(t, server.handler(t))
 	res, err := client.Purchase(context.Background(), request("purchase-0000000001", "offer-1"))
@@ -267,8 +269,8 @@ func TestPurchaseSendsTheVanillaRequestShape(t *testing.T) {
 	}
 	raw, _ := json.Marshal(server.bodies[0])
 	for _, want := range []string{
-		`"VirtualCurrency":{"Amount":"320","Type":"Minecoin"}`, `"OfferId":"offer-1"`, `"StoreId":"store-1"`,
-		`"TitleId":"20CA2"`, `"BuildPlat":7`, `"Xuid":"2535"`, `"Seq":1`, `"CorrelationId":"` + res.CorrelationID + `"`,
+		`"OfferId":"offer-1"`, `"StoreId":"store-1"`, `"TitleId":"20CA2"`, `"Xuid":"2535"`,
+		`"CorrelationId":"` + res.CorrelationID + `"`,
 	} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("body %s lacks %s", raw, want)

@@ -114,14 +114,13 @@ pub(super) fn level_sound_request(
     let name = event.sound_event.as_ref();
     let position = (!event.is_global).then_some(event.position);
     let actor = event.actor_identifier.as_ref();
-    let baby = if event.is_baby { BABY_PITCH } else { 1.0 };
     if name == NOTE_EVENT {
         return note_request(tables, event, position);
     }
-    if !actor.is_empty() {
+    if !actor.is_empty() || matches!(name, "splash" | "swim") {
         match tables.entity_lookup(actor, name, None) {
             RouteLookup::Route(route) => {
-                return Some(from_route(route, position).scaled(1.0, baby));
+                return Some(from_level_route(route, event, position));
             }
             RouteLookup::Silent => return None,
             RouteLookup::Absent => {}
@@ -135,13 +134,38 @@ pub(super) fn level_sound_request(
             .block(material, name)
             .or_else(|| tables.interactive(mover, name, material));
         if let Some(route) = route {
-            return Some(from_route(route, position).scaled(1.0, baby));
+            return Some(from_level_route(route, event, position));
         }
     }
     tables
         .individual(name)
         .cloned()
-        .map(|route| from_route(route, position).scaled(1.0, baby))
+        .map(|route| from_level_route(route, event, position))
+}
+
+/// Water events carry their actor-computed volume and use the pack pitch without baby scaling.
+fn from_level_route(
+    route: SoundRoute,
+    event: &LevelAudioEvent,
+    position: Option<[f32; 3]>,
+) -> SoundRequest {
+    let mut request = from_route(route, position);
+    if matches!(event.sound_event.as_ref(), "splash" | "swim") {
+        let actor = event
+            .actor_identifier
+            .strip_prefix("minecraft:")
+            .unwrap_or(&event.actor_identifier);
+        if event.sound_event.as_ref() != "splash" || actor != "fishing_hook" {
+            let volume = super::water::encoded_volume(event.data);
+            request.volume = FloatRange {
+                min: volume,
+                max: volume,
+            };
+        }
+        request
+    } else {
+        request.scaled(1.0, if event.is_baby { BABY_PITCH } else { 1.0 })
+    }
 }
 
 /// A `note` event: data packs `note | instrument << 8`; the note sets pitch in semitones from 12.
@@ -254,6 +278,53 @@ mod tests {
             actor_unique_id: 0,
             fire_at_position: None,
         }
+    }
+
+    /// Uses deliberately different route volumes to expose packet-volume replacement.
+    fn water_tables() -> SoundEventTables {
+        SoundEventTables::from_json(
+            &json!({"entity_sounds": {"defaults": {"events": {
+                "splash": {"sound": "entity.generic.splash", "volume": 0.8,
+                    "pitch": [0.6, 1.4]},
+                "swim": {"sound": "random.swim", "volume": 0.8,
+                    "pitch": [0.6, 1.4]}}}}}),
+            &json!({}),
+        )
+    }
+
+    #[test]
+    fn water_sounds_use_encoded_impact_volume_and_pack_pitch() {
+        let tables = water_tables();
+        for name in ["splash", "swim"] {
+            for data in [
+                0,
+                838_860,
+                8_388_607,
+                super::super::water::VOLUME_DATA_SCALE as i32,
+            ] {
+                for actor in ["", "minecraft:player", "minecraft:zombie"] {
+                    let request =
+                        level_sound_request(&tables, &level(name, actor, data), &stone).unwrap();
+                    let expected = data as f32 / super::super::water::VOLUME_DATA_SCALE;
+                    assert_eq!(request.volume.min, expected);
+                    assert_eq!(request.volume.max, expected);
+                    assert_eq!(request.pitch.min, 0.6);
+                    assert_eq!(request.pitch.max, 1.4);
+                }
+            }
+        }
+        let mut baby = level("splash", "minecraft:zombie", 0);
+        baby.is_baby = true;
+        let baby = level_sound_request(&tables, &baby, &stone).unwrap();
+        assert_eq!(baby.pitch.min, 0.6);
+        assert_eq!(baby.pitch.max, 1.4);
+        let hook = level_sound_request(
+            &tables,
+            &level("splash", "minecraft:fishing_hook", 0),
+            &stone,
+        )
+        .unwrap();
+        assert_eq!(hook.volume.min, 0.8);
     }
 
     #[test]

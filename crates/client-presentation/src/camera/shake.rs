@@ -119,7 +119,7 @@ impl ShakeState {
 
     /// Advances both envelopes without allocating; final expiry removes the whole effect.
     pub fn advance(&mut self, delta_seconds: f32) {
-        if !(delta_seconds.is_finite() && delta_seconds > 0.0) || !self.is_active() {
+        if !(delta_seconds.is_finite() && delta_seconds > 0.0 && self.is_active()) {
             return;
         }
         self.positional.advance(delta_seconds);

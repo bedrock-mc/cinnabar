@@ -37,6 +37,41 @@ fn light() -> HandRigLight {
 }
 
 #[test]
+fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
+    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let buffers = [gpu.view_uniform.id(), gpu.light_uniform.id()];
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 1.5, HAND_RIG_NEAR_PLANE);
+    let mut light = light();
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(gpu.uniform_uploads, [1, 1]);
+    let allocated = crate::alloc_count::thread_allocations();
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(
+        gpu.uniform_uploads,
+        [1, 1],
+        "equal uniforms issue no queue writes"
+    );
+    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 2.0, HAND_RIG_NEAR_PLANE);
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(gpu.uniform_uploads, [2, 1]);
+    light.java_lights[1][2] = 0.75;
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(gpu.uniform_uploads, [2, 2]);
+    light.java_normal_axes[2][0] = 0.25;
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(gpu.uniform_uploads, [2, 3]);
+    assert_eq!([gpu.view_uniform.id(), gpu.light_uniform.id()], buffers);
+}
+
+#[test]
 fn java_fixed_light_directions_rotate_without_translation_or_world_brightness_changes() {
     let base = light();
     let transform = Mat4::from_translation(Vec3::new(3.0, 4.0, 5.0))

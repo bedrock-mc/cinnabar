@@ -29,23 +29,15 @@ func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: discover services: %w", err)
 	}
-	storeEnv := new(marketplace.Environment)
-	if err := discovery.Environment(storeEnv); err != nil {
-		return nil, fmt.Errorf("store: resolve store service: %w", err)
-	}
-	entitlementsEnv := new(marketplace.EntitlementsEnvironment)
-	if err := discovery.Environment(entitlementsEnv); err != nil {
-		return nil, fmt.Errorf("store: resolve entitlements service: %w", err)
-	}
-	market, err := storeEnv.New(account, entitlementsEnv)
-	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
-	}
 	env, err := account.Environment(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: resolve authorization service: %w", err)
 	}
-	return NewClient(Config{Market: market, Identity: Identity{XUID: xuid, TitleID: string(env.PlayFabTitleID)}})
+	market, err := marketplace.Open(discovery, account, marketplace.Identity{XUID: xuid, TitleID: string(env.PlayFabTitleID)})
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return NewClient(Config{Market: market})
 }
 
 // Session opens its Client on first use and serves every store call from it.

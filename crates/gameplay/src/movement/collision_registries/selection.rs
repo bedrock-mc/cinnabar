@@ -40,6 +40,23 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
         max.y = 1.0;
         return Some(Aabb::new(min, max));
     }
+    if name == "web" {
+        return Some(bounds([0.0; 3], [1.0; 3]));
+    }
+    if name.ends_with("standing_sign") {
+        return Some(bounds([0.25, 0.0, 0.25], [0.75, 1.0, 0.75]));
+    }
+    if name.ends_with("wall_sign") {
+        return wall_sign_shape(record);
+    }
+    if name.ends_with("hanging_sign") {
+        let state = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?;
+        return match state["facing_direction"]["value"].as_u64()? {
+            4 | 5 => Some(bounds([0.375, 0.0, 0.0], [0.625, 1.0, 1.0])),
+            0..=3 => Some(bounds([0.0, 0.0, 0.375], [1.0, 1.0, 0.625])),
+            _ => None,
+        };
+    }
     if name == "snow_layer" {
         let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
         let height = state.get("height")?.get("value")?.as_u64()?;
@@ -140,6 +157,21 @@ fn torch_shape(record: &RegistryRecord) -> Option<Aabb> {
         "north" => ([0.35, 0.2, 0.0], [0.65, 0.8, 0.3]),
         "south" => ([0.35, 0.2, 0.7], [0.65, 0.8, 1.0]),
         _ => ([0.4, 0.0, 0.4], [0.6, 0.6, 0.6]),
+    };
+    Some(bounds(min, max))
+}
+
+/// Selectable wall-sign bounds sit against the supporting face without movement collision.
+fn wall_sign_shape(record: &RegistryRecord) -> Option<Aabb> {
+    let state = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?;
+    let facing = state["facing_direction"]["value"].as_u64()?;
+    let (min, max) = match facing {
+        2 => ([0.0, 0.28125, 0.875], [1.0, 0.78125, 1.0]),
+        3 => ([0.0, 0.28125, 0.0], [1.0, 0.78125, 0.125]),
+        4 => ([0.875, 0.28125, 0.0], [1.0, 0.78125, 1.0]),
+        5 => ([0.0, 0.28125, 0.0], [0.125, 0.78125, 1.0]),
+        0 | 1 => ([0.0; 3], [1.0; 3]),
+        _ => return None,
     };
     Some(bounds(min, max))
 }

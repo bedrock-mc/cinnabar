@@ -16,6 +16,7 @@ const FALLBACK: SheetSprite = SheetSprite {
     },
 };
 
+/// Builds a cursor screen with optional server texture overrides.
 fn engine(files: &[(String, Vec<u8>)]) -> FormEngine {
     let mut catalog = Catalog::default();
     let (namespace, name) = json_ui::CROSSHAIR_SCREEN.split_once('.').unwrap();
@@ -32,12 +33,14 @@ fn engine(files: &[(String, Vec<u8>)]) -> FormEngine {
     engine
 }
 
-fn draw(engine: &FormEngine, visible: bool) -> (Vec<UiNode>, f32) {
+/// Emits cursor geometry for one visibility and blending combination.
+fn draw(engine: &FormEngine, visible: bool, blend: ui::UiBlendMode) -> (Vec<UiNode>, f32) {
     let font = fixture_font();
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None);
     let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
     let hud = HudPaint {
         crosshair: visible.then_some(FALLBACK),
+        crosshair_blend: blend,
         ..Default::default()
     };
     let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
@@ -74,6 +77,7 @@ fn draw(engine: &FormEngine, visible: bool) -> (Vec<UiNode>, f32) {
     (nodes, px)
 }
 
+/// Encodes a solid pack texture to check atlas selection.
 fn texture(color: [u8; 4]) -> Vec<u8> {
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(32, 32, image::Rgba(color))
@@ -86,7 +90,7 @@ fn texture(color: [u8; 4]) -> Vec<u8> {
 fn crosshair_uses_the_pack_texture_without_a_ui_override() {
     let color = [22, 33, 44, 255];
     let mut engine = engine(&[(format!("{CROSSHAIR_TEXTURE}.png"), texture(color))]);
-    let (nodes, px) = draw(&engine, true);
+    let (nodes, px) = draw(&engine, true, ui::UiBlendMode::Invert);
     let node = nodes
         .iter()
         .find(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
@@ -120,7 +124,7 @@ fn crosshair_missing_or_invalid_texture_keeps_the_builtin_hud_sprite() {
         vec![(format!("{CROSSHAIR_TEXTURE}.png"), vec![0])],
     ] {
         let engine = engine(&files);
-        let (nodes, _) = draw(&engine, true);
+        let (nodes, _) = draw(&engine, true, ui::UiBlendMode::Invert);
         assert!(nodes.iter().any(|node| matches!(node.visual(),
             UiVisual::InvertedSprite { texture_page, uv } if *texture_page == FALLBACK.page && *uv == FALLBACK.uv
         )));
@@ -130,10 +134,50 @@ fn crosshair_missing_or_invalid_texture_keeps_the_builtin_hud_sprite() {
 #[test]
 fn crosshair_pack_texture_does_not_bypass_visibility() {
     let engine = engine(&[(format!("{CROSSHAIR_TEXTURE}.png"), texture([255; 4]))]);
-    let (nodes, _) = draw(&engine, false);
+    let (nodes, _) = draw(&engine, false, ui::UiBlendMode::Invert);
     assert!(
         !nodes
             .iter()
             .any(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
     );
+}
+
+#[test]
+fn crosshair_color_toggle_preserves_pack_art_and_geometry() {
+    for files in [
+        Vec::new(),
+        vec![(
+            format!("{CROSSHAIR_TEXTURE}.png"),
+            texture([22, 33, 44, 255]),
+        )],
+    ] {
+        let engine = engine(&files);
+        let (inverted, _) = draw(&engine, true, ui::UiBlendMode::Invert);
+        let (normal, _) = draw(&engine, true, ui::UiBlendMode::Alpha);
+        let inverted = inverted
+            .iter()
+            .find(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
+            .unwrap();
+        let normal = normal
+            .iter()
+            .find(|node| matches!(node.visual(), UiVisual::Sprite { .. }))
+            .unwrap();
+        assert_eq!(inverted.bounds(), normal.bounds());
+        let UiVisual::InvertedSprite { texture_page, uv } = inverted.visual() else {
+            unreachable!()
+        };
+        assert_eq!(
+            normal.visual(),
+            &UiVisual::Sprite {
+                texture_page: *texture_page,
+                uv: *uv,
+                color: [255; 4]
+            }
+        );
+        let (hidden, _) = draw(&engine, false, ui::UiBlendMode::Alpha);
+        assert!(!hidden.iter().any(|node| matches!(
+            node.visual(),
+            UiVisual::Sprite { .. } | UiVisual::InvertedSprite { .. }
+        )));
+    }
 }

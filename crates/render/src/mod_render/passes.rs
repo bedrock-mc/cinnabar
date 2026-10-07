@@ -474,7 +474,7 @@ impl ViewNode for ModPassNode {
                     label: Some("mod post pass"),
                     color_attachments: &attachments,
                     depth_stencil_attachment: None,
-                    timestamp_writes: None,
+                    timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, stage),
                     occlusion_query_set: None,
                 });
                 render_pass.set_render_pipeline(pipeline);

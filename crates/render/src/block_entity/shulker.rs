@@ -3,6 +3,7 @@
 //! Geometry is the pack's `geometry.shulker` (base and lid; the head is hidden inside the
 //! box). Lid rise and spin per unit of openness need native measurement.
 
+use assets::block_entity_geometry as geometry;
 use bevy::math::{Mat4, Vec3};
 
 use super::{
@@ -24,34 +25,6 @@ pub struct ShulkerModel {
     pub open: f32,
 }
 
-/// The texture suffix for a shulker-box block name such as `minecraft:silver_shulker_box`.
-#[must_use]
-pub fn shulker_color_from_block_name(name: &str) -> Option<&'static str> {
-    let stem = name
-        .strip_prefix("minecraft:")?
-        .strip_suffix("_shulker_box")?;
-    Some(match stem {
-        "undyed" => "undyed",
-        "white" => "white",
-        "orange" => "orange",
-        "magenta" => "magenta",
-        "light_blue" => "light_blue",
-        "yellow" => "yellow",
-        "lime" => "lime",
-        "pink" => "pink",
-        "gray" => "gray",
-        "silver" | "light_gray" => "silver",
-        "cyan" => "cyan",
-        "purple" => "purple",
-        "blue" => "blue",
-        "brown" => "brown",
-        "green" => "green",
-        "red" => "red",
-        "black" => "black",
-        _ => return None,
-    })
-}
-
 /// Rotation carrying the model's +Y (lid) axis onto the facing direction.
 fn facing_rotation(facing: u8) -> Mat4 {
     match facing {
@@ -71,8 +44,8 @@ pub(super) fn emit(
     model: &ShulkerModel,
 ) {
     let Some(texture) = atlas.texture(
-        &format!("textures/entity/shulker/shulker_{}", model.color),
-        [64.0, 64.0],
+        &geometry::shulker_texture(model.color),
+        geometry::SHULKER_TEXTURE_SIZE,
     ) else {
         return;
     };
@@ -84,7 +57,7 @@ pub(super) fn emit(
         Layer::Solid,
         &texture,
         base,
-        BoxSpec::new([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0], [0.0, 28.0]),
+        BoxSpec::from(geometry::SHULKER_BASE),
         WHITE,
     );
     let open = model.open.clamp(0.0, 1.0);
@@ -95,7 +68,7 @@ pub(super) fn emit(
         Layer::Solid,
         &texture,
         lid,
-        BoxSpec::new([-8.0, 4.0, -8.0], [16.0, 12.0, 16.0], [0.0, 0.0]),
+        BoxSpec::from(geometry::SHULKER_LID),
         WHITE,
     );
 }
@@ -103,6 +76,7 @@ pub(super) fn emit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assets::block_entity_geometry::shulker_color_from_block_name;
 
     #[test]
     fn block_names_map_to_texture_suffixes() {
