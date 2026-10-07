@@ -618,5 +618,9 @@ fn delay_fix_retries_rejected_batches_but_not_an_accepted_same_tick() {
         ..throw
     };
     send_use(&mut runtime, &mut swings, &next, &ready);
-    assert_eq!(ready.pending_command_count(), 4);
+    assert_eq!(
+        ready.pending_command_count(),
+        3,
+        "the next tick admits its transaction while the existing arm swing remains active"
+    );
 }
