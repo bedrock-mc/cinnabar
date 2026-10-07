@@ -22,7 +22,8 @@ pub use control_bindings::{
 };
 pub use definitions::{
     ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION, INVERT_CROSSHAIR_OPTION,
-    SETTINGS_OPTIONS, SettingDefinition, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
+    MOUSE_SENSITIVITY_OPTION, SETTINGS_OPTIONS, SettingDefinition, SettingKind,
+    THIRD_PERSON_CROSSHAIR_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{KEY_BINDINGS, key_name};

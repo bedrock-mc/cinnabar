@@ -3,7 +3,7 @@ use protocol::{
     ActorActionKind, ActorEvent, ActorHandedness, EquipmentEvent, ItemActorEvent, ItemPacketError,
     MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
     MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, WorldEvent,
-    WorldPacketError, into_world_event,
+    WorldPacketError, WorldWireError, into_world_event,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::codec::Nbt;
@@ -398,7 +398,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
 }
 
 #[test]
-fn registry_preserves_signed_ids_and_rejects_duplicate_and_oversized_records() {
+fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_records() {
     let signed_id = ItemRegistryPacket {
         item_data: vec![ItemData {
             item_name: "minecraft:signed".into(),
@@ -431,8 +431,8 @@ fn registry_preserves_signed_ids_and_rejects_duplicate_and_oversized_records() {
                 ..Default::default()
             },
             ItemData {
-                item_name: "minecraft:stick".into(),
-                item_id: 6,
+                item_name: "minecraft:stone".into(),
+                item_id: 5,
                 ..Default::default()
             },
         ],
@@ -594,4 +594,90 @@ fn animate_rejects_invalid_runtime_non_finite_data_and_oversized_source() {
     ] {
         assert!(into_world_event(packet.into(), 0).is_err());
     }
+}
+
+#[test]
+fn registry_retains_every_numeric_alias_for_a_shared_item_identifier() {
+    let packet = ItemRegistryPacket {
+        item_data: [101, 102, 103]
+            .into_iter()
+            .map(|id| ItemData {
+                item_name: "example:menu_icon".into(),
+                item_id: id,
+                ..Default::default()
+            })
+            .collect(),
+    };
+    let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
+        into_world_event(packet.into(), 0).unwrap().unwrap()
+    else {
+        panic!("expected item registry")
+    };
+    assert_eq!(registry.entries.len(), 3);
+    assert_eq!(
+        registry
+            .entries
+            .iter()
+            .map(|entry| entry.network_id)
+            .collect::<Vec<_>>(),
+        [101, 102, 103]
+    );
+    assert!(
+        registry
+            .entries
+            .iter()
+            .all(|entry| entry.identifier.as_ref() == "example:menu_icon")
+    );
+}
+
+#[test]
+fn registry_collapses_identical_rows_without_losing_numeric_aliases() {
+    let packet = ItemRegistryPacket {
+        item_data: [101, 101, 102, 103, 103]
+            .into_iter()
+            .map(|id| ItemData {
+                item_name: "example:menu_icon".into(),
+                item_id: id,
+                ..Default::default()
+            })
+            .collect(),
+    };
+    let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
+        into_world_event(packet.into(), 0).unwrap().unwrap()
+    else {
+        panic!("expected item registry")
+    };
+    assert_eq!(
+        registry
+            .entries
+            .iter()
+            .map(|entry| entry.network_id)
+            .collect::<Vec<_>>(),
+        [101, 102, 103]
+    );
+}
+
+#[test]
+fn repeated_registry_rows_still_validate_component_framing() {
+    let packet = ItemRegistryPacket {
+        item_data: vec![
+            ItemData {
+                item_name: "example:menu_icon".into(),
+                item_id: 101,
+                ..Default::default()
+            },
+            ItemData {
+                item_name: "example:menu_icon".into(),
+                item_id: 101,
+                item_component_data: Nbt(Bytes::from_static(&[0xff])),
+                ..Default::default()
+            },
+        ],
+    };
+    assert!(matches!(
+        into_world_event(packet.into(), 0),
+        Err(WorldPacketError::Wire(WorldWireError::Item(
+            ItemPacketError::InvalidItemNbt
+        )))
+    ));
 }

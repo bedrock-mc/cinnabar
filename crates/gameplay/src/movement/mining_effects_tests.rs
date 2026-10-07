@@ -216,7 +216,7 @@ impl PairedPrediction {
                     ActorEffectAction::Add,
                     mining_id,
                     mining_amplifier,
-                    12,
+                    14,
                     u64::MAX,
                 ),
             );
@@ -298,22 +298,25 @@ fn passive_retention_preserves_frames_at_success_failure_drop_replay_and_reancho
             .completed_ticks,
         0
     );
-    pair.remaining(Some(12));
+    pair.remaining(Some(14));
     pair.anchor(100);
     assert_eq!(pair.advance(Duration::ZERO, &EmptyWorld).completed_ticks, 0);
-    pair.remaining(Some(12));
+    pair.remaining(Some(14));
     let blocked = pair.advance(Duration::from_millis(50), &UnavailableWorld);
     assert_eq!(blocked.completed_ticks, 0);
     assert!(blocked.blocked.is_some());
-    pair.remaining(Some(12));
+    pair.remaining(Some(14));
     assert_eq!(
         pair.advance(Duration::from_millis(50), &EmptyWorld)
             .completed_ticks,
         1
     );
-    pair.remaining(Some(11));
+    pair.remaining(Some(13));
     let catchup = pair.advance(Duration::from_secs(1), &EmptyWorld);
-    assert_eq!(catchup.completed_ticks, 8);
+    assert_eq!(
+        catchup.completed_ticks,
+        crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME
+    );
     assert!(catchup.dropped_ticks > 0);
     pair.remaining(Some(3));
 
@@ -360,7 +363,7 @@ fn passive_retention_preserves_frames_at_success_failure_drop_replay_and_reancho
     assert!(matches!(
         right.outcome,
         PhysicsCorrectionOutcome::Replayed {
-            replayed_ticks: 7,
+            replayed_ticks: 9,
             ..
         }
     ));

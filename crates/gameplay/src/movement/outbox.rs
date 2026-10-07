@@ -319,8 +319,8 @@ impl MovementTicker {
             return false;
         };
         sample.snapshot.pitch = pitch;
+        // Vanilla's aim-assist override leaves head rotation untouched.
         sample.snapshot.yaw = yaw;
-        sample.snapshot.head_yaw = yaw;
         true
     }
 

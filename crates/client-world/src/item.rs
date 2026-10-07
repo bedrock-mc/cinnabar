@@ -329,14 +329,9 @@ impl ItemStateStore {
             return false;
         }
         let mut next = built_in_registry();
-        let mut identifiers = HashMap::with_capacity(registry.entries.len());
         let mut network_ids = HashMap::with_capacity(registry.entries.len());
         for entry in registry.entries.iter() {
-            if network_ids.insert(entry.network_id, ()).is_some()
-                || identifiers
-                    .insert(Arc::clone(&entry.identifier), ())
-                    .is_some()
-            {
+            if network_ids.insert(entry.network_id, ()).is_some() {
                 return false;
             }
             next.insert(entry.network_id, registry_record(entry));
@@ -714,11 +709,124 @@ mod armor_tests {
     }
 
     #[test]
+    fn registry_retains_every_numeric_alias_for_a_shared_item_identifier() {
+        let entries = [101, 102, 103].map(|network_id| protocol::ItemRegistryEntry {
+            identifier: Arc::from("example:menu_icon"),
+            network_id,
+            component_based: true,
+            version: protocol::ItemRegistryVersion::DataDriven,
+            component_digest: [0; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: true,
+            item_tags: Arc::from([]),
+        });
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(ItemRegistryEvent {
+            entries: Arc::from(entries)
+        }));
+        for network_id in [101, 102, 103] {
+            let item = store.canonicalize(&stack(network_id, &[])).unwrap();
+            assert_eq!(item.identifier.as_deref(), Some("example:menu_icon"));
+        }
+    }
+
+    #[test]
     fn armor_with_a_wrong_nbt_digest_is_rejected_whole() {
         let mut store = ItemStateStore::diagnostic();
         let mut bad = stack(1, &dyed_extra());
         bad.nbt_digest = [9; 32];
         assert!(!store.apply_armor(lifetime(7, 1), 1, &event(7, bad)));
         assert!(store.armor(7).is_none());
+    }
+}
+
+/// Maximum durability for damageable vanilla items (Bedrock values).
+#[must_use]
+pub fn vanilla_max_durability(identifier: &str) -> Option<u32> {
+    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
+    let value = match name {
+        // Tools and weapons by material tier.
+        "wooden_sword" | "wooden_pickaxe" | "wooden_axe" | "wooden_shovel" | "wooden_hoe" => 59,
+        "stone_sword" | "stone_pickaxe" | "stone_axe" | "stone_shovel" | "stone_hoe" => 131,
+        "copper_sword" | "copper_pickaxe" | "copper_axe" | "copper_shovel" | "copper_hoe" => 190,
+        "iron_sword" | "iron_pickaxe" | "iron_axe" | "iron_shovel" | "iron_hoe" => 250,
+        "golden_sword" | "golden_pickaxe" | "golden_axe" | "golden_shovel" | "golden_hoe" => 32,
+        "diamond_sword" | "diamond_pickaxe" | "diamond_axe" | "diamond_shovel" | "diamond_hoe" => {
+            1_561
+        }
+        "netherite_sword" | "netherite_pickaxe" | "netherite_axe" | "netherite_shovel"
+        | "netherite_hoe" => 2_031,
+        // Armor: material base durability times the per-piece multiplier
+        // (helmet 11, chestplate 16, leggings 15, boots 13).
+        "leather_helmet" => 55,
+        "leather_chestplate" => 80,
+        "leather_leggings" => 75,
+        "leather_boots" => 65,
+        "golden_helmet" => 77,
+        "golden_chestplate" => 112,
+        "golden_leggings" => 105,
+        "golden_boots" => 91,
+        "copper_helmet" => 121,
+        "copper_chestplate" => 176,
+        "copper_leggings" => 165,
+        "copper_boots" => 143,
+        "chainmail_helmet" | "iron_helmet" => 165,
+        "chainmail_chestplate" | "iron_chestplate" => 240,
+        "chainmail_leggings" | "iron_leggings" => 225,
+        "chainmail_boots" | "iron_boots" => 195,
+        "diamond_helmet" => 363,
+        "diamond_chestplate" => 528,
+        "diamond_leggings" => 495,
+        "diamond_boots" => 429,
+        "netherite_helmet" => 407,
+        "netherite_chestplate" => 592,
+        "netherite_leggings" => 555,
+        "netherite_boots" => 481,
+        "turtle_helmet" => 275,
+        // Other damageable vanilla items (Bedrock maxima).
+        "bow" => 384,
+        "crossbow" => 464,
+        "trident" => 250,
+        "elytra" => 432,
+        "shield" => 336,
+        "fishing_rod" => 384,
+        "carrot_on_a_stick" => 25,
+        "warped_fungus_on_a_stick" => 100,
+        "flint_and_steel" => 64,
+        "shears" => 238,
+        "brush" => 64,
+        "mace" => 500,
+        _ => return None,
+    };
+    Some(value)
+}
+
+#[cfg(test)]
+mod durability_tests {
+    use super::*;
+
+    #[test]
+    fn copper_durabilities_follow_the_material_scheme() {
+        // Copper tools share the 190 tier between stone (131) and iron (250);
+        // copper armor is material base 11 times the per-piece multipliers.
+        for tool in [
+            "minecraft:copper_sword",
+            "minecraft:copper_pickaxe",
+            "minecraft:copper_axe",
+            "minecraft:copper_shovel",
+            "minecraft:copper_hoe",
+        ] {
+            assert_eq!(vanilla_max_durability(tool), Some(190), "{tool}");
+        }
+        assert_eq!(vanilla_max_durability("minecraft:copper_helmet"), Some(121));
+        assert_eq!(
+            vanilla_max_durability("minecraft:copper_chestplate"),
+            Some(176)
+        );
+        assert_eq!(
+            vanilla_max_durability("minecraft:copper_leggings"),
+            Some(165)
+        );
+        assert_eq!(vanilla_max_durability("minecraft:copper_boots"), Some(143));
     }
 }

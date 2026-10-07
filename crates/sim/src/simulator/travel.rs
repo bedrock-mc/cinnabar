@@ -1,7 +1,6 @@
 //! Non-walking locomotion: ability flight, pose-swimming and elytra gliding.
 //!
-//! Flight controls and liquid movement follow the current vanilla client.
-//! The glide equations remain provisional; see the locomotion gate in plan.md.
+//! Flight controls, liquid movement and glide steering follow the current vanilla client.
 
 use crate::{
     CollisionWorld, Vec3,
@@ -15,13 +14,22 @@ use super::{
     scaffolding::ScaffoldingView,
 };
 
-const GLIDE_LIFT_SCALE: f64 = 0.75;
-const GLIDE_FALL_CONVERSION: f64 = 0.1;
-const GLIDE_CLIMB_CONVERSION: f64 = 0.04;
-const GLIDE_CLIMB_VERTICAL_BOOST: f64 = 3.2;
-const GLIDE_ALIGNMENT: f64 = 0.1;
-const GLIDE_DRAG: [f64; 3] = [0.99, 0.98, 0.99];
-const SLOW_FALLING_GRAVITY: f64 = 0.01;
+// Vanilla glide coefficients, applied in f32 in the order of `glide_velocity`.
+const GLIDE_LIFT_SCALE: f32 = 0.75;
+const GLIDE_LOOK_LENGTH_DIVISOR: f32 = 0.4;
+const GLIDE_FALL_CONVERSION: f32 = -0.1;
+const GLIDE_CLIMB_CONVERSION: f32 = -0.04;
+const GLIDE_CLIMB_VERTICAL_BOOST: f32 = 3.2;
+const GLIDE_ALIGNMENT: f32 = 0.1;
+const GLIDE_HORIZONTAL_DRAG: f32 = 0.99;
+const GLIDE_VERTICAL_DRAG: f32 = 0.98;
+// Gliding gravity is signed downward; slow falling replaces it regardless of vertical direction.
+const GLIDE_GRAVITY: f32 = -0.08;
+const GLIDE_SLOW_FALLING_GRAVITY: f32 = -0.01;
+// Firework boost steers toward `look * 1.5` by half the difference, plus `look * 0.1`.
+const GLIDE_BOOST_TARGET: f32 = 1.5;
+const GLIDE_BOOST_BLEND: f32 = 0.5;
+const GLIDE_BOOST_PUSH: f32 = 0.1;
 
 pub(super) fn tick_mode(
     mut next: PlayerState,
@@ -87,7 +95,6 @@ pub(super) fn tick_mode(
                 input.yaw_degrees,
                 super::water_travel_speed(
                     &input,
-                    sampled.movement.horizontal_speed_factor,
                     super::depth_strider_level(input.depth_strider, grounded_at_start),
                 ),
             );
@@ -112,7 +119,7 @@ pub(super) fn tick_mode(
             }
         }
         MovementMode::Gliding => {
-            next.velocity = glide_velocity(next.velocity, input);
+            next.velocity = glide_velocity(next.velocity, &input, next.previous_rotation);
         }
         _ => {}
     }
@@ -120,7 +127,7 @@ pub(super) fn tick_mode(
     let view = ScaffoldingView::new(
         world,
         crate::Aabb::player_with_height_at(next.position, input.mode.hitbox_height(input.sneaking)),
-        input.sneaking,
+        sampled.descend_through,
     );
     let height = input.mode.hitbox_height(input.sneaking);
     next.requested_movement = next.velocity;
@@ -221,79 +228,86 @@ pub(super) fn tick_mode(
     })
 }
 
-/// Unit look direction; pitch is positive downward.
-fn look_vector(yaw_degrees: f64, pitch_degrees: f64) -> Vec3 {
-    let yaw = yaw_degrees.to_radians();
-    let pitch = pitch_degrees.to_radians();
-    let horizontal = minecraft_cos(pitch);
-    Vec3::new(
-        -minecraft_sin(yaw) * horizontal,
-        -minecraft_sin(pitch),
-        minecraft_cos(yaw) * horizontal,
-    )
-}
-
-fn glide_velocity(velocity: Vec3, input: MovementInput) -> Vec3 {
-    let pitch = input.pitch_degrees.to_radians();
-    let look = look_vector(input.yaw_degrees, input.pitch_degrees);
-    let look_horizontal = look.x.hypot(look.z);
-    let speed_horizontal = velocity.x.hypot(velocity.z);
-    let lift = minecraft_cos(pitch) * minecraft_cos(pitch);
-    let gravity = if input.effects.slow_falling && velocity.y < 0.0 {
-        SLOW_FALLING_GRAVITY
+/// Wraps a degree difference into `[-180, 180)` with float `fmod`, as vanilla does.
+fn wrap_degrees(degrees: f32) -> f32 {
+    let wrapped = (degrees + 180.0) % 360.0;
+    let wrapped = if wrapped < 0.0 {
+        wrapped + 360.0
     } else {
-        NORMAL_GRAVITY
+        wrapped
     };
-    let mut next = velocity;
-    next.y += gravity * (-1.0 + lift * GLIDE_LIFT_SCALE);
-    if look_horizontal > 0.0 {
-        if next.y < 0.0 {
-            let converted = next.y * -GLIDE_FALL_CONVERSION * lift;
-            next.y += converted;
-            next.x += look.x * converted / look_horizontal;
-            next.z += look.z * converted / look_horizontal;
-        }
-        if pitch < 0.0 {
-            let converted = speed_horizontal * -minecraft_sin(pitch) * GLIDE_CLIMB_CONVERSION;
-            next.y += converted * GLIDE_CLIMB_VERTICAL_BOOST;
-            next.x -= look.x * converted / look_horizontal;
-            next.z -= look.z * converted / look_horizontal;
-        }
-        next.x += (look.x / look_horizontal * speed_horizontal - next.x) * GLIDE_ALIGNMENT;
-        next.z += (look.z / look_horizontal * speed_horizontal - next.z) * GLIDE_ALIGNMENT;
-    }
-    Vec3::new(
-        next.x * GLIDE_DRAG[0],
-        next.y * GLIDE_DRAG[1],
-        next.z * GLIDE_DRAG[2],
-    )
+    wrapped + -180.0
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The previous rotation advanced by the wrapped difference to the current one.
+fn interpolated_degrees(previous: f32, current: f32) -> f32 {
+    wrap_degrees(current - previous) + previous
+}
 
-    fn glide_input(pitch_degrees: f64) -> MovementInput {
-        MovementInput {
-            mode: MovementMode::Gliding,
-            pitch_degrees,
-            ..MovementInput::default()
-        }
-    }
+/// Elytra travel: lift from the current pitch, look steering from the interpolated rotation.
+fn glide_velocity(
+    velocity: Vec3,
+    input: &MovementInput,
+    previous_rotation: Option<[f32; 2]>,
+) -> Vec3 {
+    let pitch = input.pitch_degrees as f32;
+    let yaw = input.yaw_degrees as f32;
+    let [previous_pitch, previous_yaw] = previous_rotation.unwrap_or([pitch, yaw]);
+    let look_yaw =
+        interpolated_degrees(previous_yaw, yaw) * -1.0_f32.to_radians() + -std::f32::consts::PI;
+    let look_pitch = interpolated_degrees(previous_pitch, pitch) * -1.0_f32.to_radians();
+    let sin = |angle: f32| minecraft_sin(f64::from(angle)) as f32;
+    let cos = |angle: f32| minecraft_cos(f64::from(angle)) as f32;
+    let horizontal = -cos(look_pitch);
+    let look = [
+        horizontal * sin(look_yaw),
+        sin(look_pitch),
+        cos(look_yaw) * horizontal,
+    ];
+    let look_horizontal_squared = look[0] * look[0] + look[2] * look[2];
+    let look_horizontal = look_horizontal_squared.sqrt();
+    let look_length = (look[1] * look[1] + look[0] * look[0] + look[2] * look[2]).sqrt()
+        / GLIDE_LOOK_LENGTH_DIVISOR;
+    let pitch_radians = pitch.to_radians();
+    let pitch_cos = cos(pitch_radians);
+    let lift = look_length.min(1.0) * pitch_cos * pitch_cos;
 
-    #[test]
-    fn look_vector_is_unit_and_points_down_for_positive_pitch() {
-        let look = look_vector(0.0, 45.0);
-        assert!((look.length_squared() - 1.0).abs() < 1.0e-3);
-        assert!(look.y < 0.0 && look.z > 0.0);
+    let [mut x, mut y, mut z] = [velocity.x as f32, velocity.y as f32, velocity.z as f32];
+    let speed_horizontal = (x * x + z * z).sqrt();
+    let gravity = if input.effects.slow_falling {
+        GLIDE_SLOW_FALLING_GRAVITY
+    } else {
+        GLIDE_GRAVITY
+    };
+    y -= (GLIDE_LIFT_SCALE * lift + -1.0) * gravity;
+    if look_horizontal_squared > 0.0 && y < 0.0 {
+        let converted = lift * GLIDE_FALL_CONVERSION * y;
+        x += (look[0] * converted) / look_horizontal;
+        y += converted;
+        z += (look[2] * converted) / look_horizontal;
     }
-
-    #[test]
-    fn steep_dive_gains_horizontal_speed_and_shallow_climb_trades_it_for_height() {
-        let dive = glide_velocity(Vec3::new(0.0, -0.5, 0.5), glide_input(60.0));
-        assert!(dive.z > 0.5 * GLIDE_DRAG[2] - 1.0e-9);
-        let climb = glide_velocity(Vec3::new(0.0, 0.0, 1.0), glide_input(-30.0));
-        assert!(climb.y > 0.0);
-        assert!(climb.z < 1.0);
+    // Vanilla leaves this unguarded; a zero horizontal look would only produce NaN here.
+    if pitch_radians < 0.0 && look_horizontal_squared > 0.0 {
+        let converted = sin(pitch_radians) * speed_horizontal * GLIDE_CLIMB_CONVERSION;
+        x -= (converted * look[0]) / look_horizontal;
+        y += GLIDE_CLIMB_VERTICAL_BOOST * converted;
+        z -= (converted * look[2]) / look_horizontal;
     }
+    if look_horizontal_squared > 0.0 {
+        x += ((look[0] / look_horizontal) * speed_horizontal - x) * GLIDE_ALIGNMENT;
+        z += ((look[2] / look_horizontal) * speed_horizontal - z) * GLIDE_ALIGNMENT;
+    }
+    if input.effects.glide_boost {
+        let boost = |axis: f32, look: f32| {
+            axis + (GLIDE_BOOST_TARGET * look - axis) * GLIDE_BOOST_BLEND + look * GLIDE_BOOST_PUSH
+        };
+        x = boost(x, look[0]);
+        y = boost(y, look[1]);
+        z = boost(z, look[2]);
+    }
+    Vec3::new(
+        f64::from(x * GLIDE_HORIZONTAL_DRAG),
+        f64::from(y * GLIDE_VERTICAL_DRAG),
+        f64::from(z * GLIDE_HORIZONTAL_DRAG),
+    )
 }

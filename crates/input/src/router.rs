@@ -545,11 +545,9 @@ impl SemanticInputRouter {
             strengths[Action::LookRight as usize] - strengths[Action::LookLeft as usize],
             strengths[Action::LookDown as usize] - strengths[Action::LookUp as usize],
         ];
+        // Mouse look stays in device counts; the camera applies vanilla's sensitivity curve.
         let (sensitivity, invert_y) = match input_mode {
-            InputMode::KeyboardMouse => (
-                self.settings.mouse_sensitivity,
-                self.settings.invert_mouse_y,
-            ),
+            InputMode::KeyboardMouse => (1.0, self.settings.invert_mouse_y),
             InputMode::GamePad => (
                 self.settings.gamepad_look_sensitivity,
                 self.settings.invert_gamepad_y,
