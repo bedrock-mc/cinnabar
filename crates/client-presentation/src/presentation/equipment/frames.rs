@@ -197,6 +197,7 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
+        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
         java_swing_ticks: client_world::ACTOR_SWING_TICKS,
         flying: false,
         teleported: false,

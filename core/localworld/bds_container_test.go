@@ -407,8 +407,8 @@ func TestCreateDuringPendingDetectionWaitsForTheResult(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Create never returned")
 	}
-	if _, err := m.Create(Spec{Name: "normal"}); !errors.Is(err, ErrVanillaNeedsBDS) {
-		t.Fatalf("normal world without Docker: %v", err)
+	if world, err := m.Create(Spec{Name: "normal"}); err != nil || world.Backend != BackendDragonfly {
+		t.Fatalf("normal Dragonfly world without Docker: %+v, %v", world, err)
 	}
 }
 

@@ -176,7 +176,7 @@ pub fn update_cursor_capture(
 
     // Focus loss has priority over every capture request, including auto-fly.
     // The trusted consent popup needs a pointer whatever settings the scene behind it declares.
-    if !window.focused || policy.consent {
+    if !window.focused || !policy.capture_allowed || policy.consent {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.capture_pending = false;

@@ -139,6 +139,9 @@ struct Glyph {
     draw_size_64: Option<[u32; 2]>,
     advance_64: i64,
     bold_offset_64: i64,
+    scale_1024: i64,
+    linear_sampling: bool,
+    rendering: assets::FontRendering,
 }
 
 struct LineCandidate {
@@ -180,15 +183,21 @@ fn snap_to_grid(offset_64: i64, grid_65536: u32) -> i64 {
 
 impl Lines<'_> {
     fn glyph(&self, codepoint: char, style: TextStyle) -> Result<Glyph, TextError> {
-        let (resolved, metrics) = resolve_glyph(self.request.font, codepoint)?;
+        let (source, resolved, metrics) = resolve_glyph(self.request.font, codepoint)?;
+        let scale_1024 = match (self.request.font.line_metrics(), source.line_metrics()) {
+            (Some(primary), Some(fallback)) => {
+                self.scale_1024 * i64::from(primary.em_64) / i64::from(fallback.em_64)
+            }
+            _ => self.scale_1024,
+        };
         let bold_offset_64 = if style.bold {
             i64::from(TEXT_BOLD_OFFSET_64)
         } else {
             0
         };
-        let advance_64 = i64::from(metrics.advance_64);
+        let advance_64 = scale_metric(i64::from(metrics.advance_64), scale_1024)?;
         let advance_64 = if advance_64 > 0 {
-            advance_64 + bold_offset_64
+            advance_64 + scale_metric(bold_offset_64, self.scale_1024)?
         } else {
             advance_64
         };
@@ -196,24 +205,40 @@ impl Lines<'_> {
             codepoint,
             resolved,
             metrics,
-            draw_size_64: self.request.font.draw_size_64(resolved),
-            advance_64: scale_metric(advance_64, self.scale_1024)?,
+            draw_size_64: source.draw_size_64(resolved),
+            advance_64: advance_64
+                .checked_add(i64::from(self.request.wrap.letter_spacing_64))
+                .ok_or(TextError::FixedPointOverflow)?,
             bold_offset_64: scale_metric(bold_offset_64, self.scale_1024)?,
+            scale_1024,
+            linear_sampling: source.linear_sampling(),
+            rendering: source.rendering(),
         })
     }
 
     fn candidate(&self, glyph: &Glyph) -> Result<LineCandidate, TextError> {
+        let pair = if self.glyphs.len() > self.line_start {
+            self.request.font.kerning_64(
+                self.glyphs.last().unwrap().resolved_codepoint,
+                glyph.resolved,
+            )
+        } else {
+            0
+        };
+        let x_64 = self
+            .x_64
+            .checked_add(scale_metric(i64::from(pair), self.scale_1024)?)
+            .ok_or(TextError::FixedPointOverflow)?;
         let bounds_64 = glyph_bounds(
             glyph.metrics,
             glyph.draw_size_64,
-            self.x_64,
+            x_64,
             self.line,
             self.pitch_64,
             self.baseline_64,
-            self.scale_1024,
+            glyph.scale_1024,
         )?;
-        let pen_end_64 = self
-            .x_64
+        let pen_end_64 = x_64
             .checked_add(glyph.advance_64)
             .ok_or(TextError::FixedPointOverflow)?;
         let min_64 = self.min_64.min(i64::from(bounds_64[0])).min(pen_end_64);
@@ -249,6 +274,8 @@ impl Lines<'_> {
             bounds_64: candidate.bounds_64,
             line: u16::try_from(self.line).map_err(|_| TextError::FixedPointOverflow)?,
             style,
+            linear_sampling: glyph.linear_sampling,
+            rendering: glyph.rendering,
         });
         self.marks.push(Mark {
             source,
@@ -419,6 +446,7 @@ impl Lines<'_> {
             size_64: [checked_u32(maximum_width_64)?, checked_u32(height_64)?],
             ellipsized: self.ellipsized,
             linear_sampling: self.request.font.linear_sampling(),
+            rendering: self.request.font.rendering(),
         })
     }
 }
@@ -446,13 +474,13 @@ fn normalize_vertical_bounds(
 fn resolve_glyph(
     font: &CompiledFontCatalog,
     codepoint: char,
-) -> Result<(char, GlyphMetrics), TextError> {
-    if let Some(metrics) = font.glyph(codepoint) {
-        return Ok((codepoint, *metrics));
+) -> Result<(&CompiledFontCatalog, char, GlyphMetrics), TextError> {
+    if let Some((source, metrics)) = font.glyph_source(codepoint) {
+        return Ok((source, codepoint, metrics));
     }
     font.glyph(REPLACEMENT_CODEPOINT)
         .copied()
-        .map(|metrics| (REPLACEMENT_CODEPOINT, metrics))
+        .map(|metrics| (font, REPLACEMENT_CODEPOINT, metrics))
         .ok_or(TextError::MissingReplacementGlyph)
 }
 

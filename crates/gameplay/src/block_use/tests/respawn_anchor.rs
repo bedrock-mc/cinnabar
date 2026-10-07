@@ -121,6 +121,8 @@ fn anchor_use_sends_click_block_success_with_the_clicked_anchor() {
                 [0.5, 65.62, 0.5],
                 trigger,
                 outcome,
+                None,
+                None,
                 42,
                 |_| true,
                 101,

@@ -262,6 +262,34 @@ pub(super) fn snapshot(world: &World) -> Value {
             "screen": format!("{:?}", menu.screen()),
             "connecting": menu.is_connecting(),
         })),
+        "dressing_room": menu.map(|menu| {
+            let view = menu.view();
+            let room = &view.dressing_room;
+            json!({
+                "selected": room.selected,
+                "selected_cape": room.selected_cape,
+                "section": format!("{:?}", room.section),
+                "editor": room.editor.as_ref().map(|editor| json!({"mode": format!("{:?}", editor.mode), "target": format!("{:?}", editor.target), "draft": editor.draft})),
+                "capes": room.capes.iter().map(|cape| json!({"id": cape.id, "name": cape.name, "imported": cape.imported})).collect::<Vec<_>>(),
+                "busy": room.busy,
+                "message": room.message,
+                "skins": room.skins.iter().map(|skin| json!({
+                    "id": skin.id, "name": skin.name, "model": skin.model,
+                    "imported": skin.imported,
+                })).collect::<Vec<_>>(),
+            })
+        }),
+        "skin": world.get_resource::<crate::player_skin::LocalPlayerSkin>().map(|skin| json!({
+            "width": skin.width, "height": skin.height, "arm_size": skin.arm_size,
+            "content_hash": skin.rgba8.content_hash(),
+            "cape": skin.cape.as_ref().map(|cape| json!({"width": cape.width, "height": cape.height})),
+        })),
+        "menu_preview": world.get_resource::<client_ui::ui_runtime::presentation::UiPresentationRuntime>().map(|ui| json!({
+            "angles": ui.menu_player_preview_angles(),
+            "bounds": ui.menu_player_preview_bounds().map(|bounds| [
+                bounds.min().x(), bounds.min().y(), bounds.max().x(), bounds.max().y(),
+            ]),
+        })),
         "driven": world.contains_resource::<crate::camera::DrivenInput>(),
         "camera": world.get_resource::<ScriptedCamera>().map(ScriptedCamera::summary),
         "server_camera": world.get_resource::<crate::camera::ServerCameraView>().map(|camera| json!({

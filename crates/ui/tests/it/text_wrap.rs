@@ -67,6 +67,56 @@ fn label(chop: WordChop) -> TextWrap {
     }
 }
 
+#[test]
+fn letter_spacing_moves_the_pen_and_changes_wrap_without_changing_ink() {
+    let spacing = TextWrap {
+        letter_spacing_64: 64,
+        ..TextWrap::default()
+    };
+    let spaced = layout("ab", 6, spacing).unwrap();
+    assert_eq!(spaced.size_64()[0], 6 * 64);
+    assert_eq!(spaced.glyphs()[1].bounds_64[0], 3 * 64);
+    assert_eq!(
+        spaced.glyphs()[1].bounds_64[2] - spaced.glyphs()[1].bounds_64[0],
+        2 * 64
+    );
+    assert_eq!(layout("ab", 4, spacing).unwrap().line_count(), 2);
+    assert_eq!(
+        layout("ab", 4, TextWrap::default()).unwrap().line_count(),
+        1
+    );
+}
+
+#[test]
+fn native_pair_advance_shapes_before_letter_spacing_and_restarts_at_line_boundaries() {
+    let font = font()
+        .with_kerning(std::collections::BTreeMap::from([(('a', 'b'), -64)]))
+        .unwrap();
+    let request = |text, width: u32| TextLayoutRequest {
+        text,
+        style: TextStyle::default(),
+        width_64: width * 64,
+        line_height_64: 8 * 64,
+        baseline_64: 0,
+        scale: UiScale::default(),
+        font: &font,
+        wrap: TextWrap {
+            letter_spacing_64: 64,
+            ..TextWrap::default()
+        },
+    };
+    let mut cache = TextLayoutCache::new(8, 65536);
+    let pair = cache.layout(request("ab", 5)).unwrap();
+    assert_eq!(pair.line_count(), 1);
+    assert_eq!(pair.size_64()[0], 5 * 64);
+    assert_eq!(pair.glyphs()[1].bounds_64[0], 2 * 64);
+    assert!(Arc::ptr_eq(&pair, &cache.layout(request("ab", 5)).unwrap()));
+    let broken = cache.layout(request("a\nb", 5)).unwrap();
+    assert!(broken.glyphs().iter().all(|glyph| glyph.bounds_64[0] == 0));
+    let wrapped = cache.layout(request("abab", 5)).unwrap();
+    assert_eq!(lines(&wrapped), ["ab", "ab"]);
+}
+
 // An overlong word chops so its prefix plus `-` fits, then draws the `-`.
 #[test]
 fn overlong_words_chop_with_a_hyphen() {

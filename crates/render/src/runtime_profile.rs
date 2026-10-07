@@ -63,6 +63,12 @@ pub enum RuntimeStage {
     /// Draw categories timed inside passes; only with aggregate profiling on capable adapters.
     GpuTerrainOpaque,
     GpuTerrainTransparent,
+    /// Opaque draw categories measured only during explicit profiling.
+    GpuTerrainSolid,
+    GpuTerrainCutout,
+    GpuTerrainModel,
+    GpuTerrainDepthLiquid,
+    GpuOpaqueOther,
     GpuActors,
     GpuParticles,
     GpuSky,
@@ -80,7 +86,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 58] = [
+    pub const ALL: [Self; 63] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -126,6 +132,11 @@ impl RuntimeStage {
         Self::GpuBlit,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
+        Self::GpuTerrainSolid,
+        Self::GpuTerrainCutout,
+        Self::GpuTerrainModel,
+        Self::GpuTerrainDepthLiquid,
+        Self::GpuOpaqueOther,
         Self::GpuActors,
         Self::GpuParticles,
         Self::GpuSky,
@@ -142,7 +153,7 @@ impl RuntimeStage {
     ];
 
     /// GPU-timed stages, the contiguous tail of [`Self::ALL`].
-    pub const GPU: [Self; 25] = [
+    pub const GPU: [Self; 30] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -155,6 +166,11 @@ impl RuntimeStage {
         Self::GpuBlit,
         Self::GpuTerrainOpaque,
         Self::GpuTerrainTransparent,
+        Self::GpuTerrainSolid,
+        Self::GpuTerrainCutout,
+        Self::GpuTerrainModel,
+        Self::GpuTerrainDepthLiquid,
+        Self::GpuOpaqueOther,
         Self::GpuActors,
         Self::GpuParticles,
         Self::GpuSky,
@@ -242,6 +258,11 @@ impl RuntimeStage {
             Self::GpuBlit => "gpu_blit",
             Self::GpuTerrainOpaque => "gpu_terrain_opaque",
             Self::GpuTerrainTransparent => "gpu_terrain_transparent",
+            Self::GpuTerrainSolid => "gpu_terrain_solid",
+            Self::GpuTerrainCutout => "gpu_terrain_cutout",
+            Self::GpuTerrainModel => "gpu_terrain_model",
+            Self::GpuTerrainDepthLiquid => "gpu_terrain_depth_liquid",
+            Self::GpuOpaqueOther => "gpu_opaque_other",
             Self::GpuActors => "gpu_actors",
             Self::GpuParticles => "gpu_particles",
             Self::GpuSky => "gpu_sky",

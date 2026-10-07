@@ -13,6 +13,12 @@ pub struct MovementEffects {
     pub slow_falling: bool,
     #[serde(default)]
     pub weaving: bool,
+    /// Active blindness blocks a new sprint without changing existing motion.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub blindness: bool,
+    /// Server-granted firework glide boost (`MovementEffect` glide boost) for this tick.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub glide_boost: bool,
 }
 
 impl MovementEffects {
@@ -22,9 +28,12 @@ impl MovementEffects {
             && self.levitation.is_none()
             && !self.slow_falling
             && !self.weaving
+            && !self.blindness
+            && !self.glide_boost
     }
 }
 
+/// Applies levitation or gravity, then the travel mode's vertical drag.
 pub(super) fn apply_vertical(
     velocity_y: &mut f64,
     effects: MovementEffects,
@@ -33,12 +42,22 @@ pub(super) fn apply_vertical(
 ) {
     let mut velocity = *velocity_y as f32;
     if let Some(amplifier) = effects.levitation {
-        let target = 0.05_f32 * (amplifier as f32 + 1.0);
-        velocity += (target - velocity) * 0.2;
+        velocity *= 0.8_f32;
+        velocity += amplifier.wrapping_add(1) as f32 * 0.01_f32;
     } else {
-        velocity = (velocity - gravity as f32) * gravity_multiplier as f32;
+        velocity -= gravity as f32;
     }
-    *velocity_y = f64::from(velocity);
+    *velocity_y = f64::from(velocity * gravity_multiplier as f32);
+}
+
+/// Clears a horizontal lane at the float epsilon before applying friction.
+pub(super) fn damp_horizontal(value: f64, retention: f32) -> f64 {
+    let value = value as f32;
+    if value.abs() <= f32::EPSILON {
+        0.0
+    } else {
+        f64::from(value * retention)
+    }
 }
 
 #[cfg(test)]

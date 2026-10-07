@@ -398,6 +398,7 @@ mod tests {
     #[test]
     fn experiences_show_no_ping_icon() {
         let pong = PingInfo {
+            motd: String::new(),
             online: true,
             players: 1,
             max_players: 10,
@@ -424,6 +425,7 @@ mod tests {
         view.feeds.pings.insert(
             address.clone(),
             PingInfo {
+                motd: String::new(),
                 online: true,
                 players: 2,
                 max_players: 10,
@@ -467,6 +469,7 @@ mod tests {
         view.feeds.pings.insert(
             address.to_owned(),
             PingInfo {
+                motd: String::new(),
                 online: true,
                 players: 3,
                 max_players: 20,
@@ -553,6 +556,7 @@ mod tests {
     #[test]
     fn pongs_pick_the_ping_icon_and_player_count() {
         let pong = |ping_ms| PingInfo {
+            motd: String::new(),
             online: true,
             players: 3,
             max_players: 20,

@@ -551,7 +551,10 @@ fn keyboard_carriers_keep_digital_buttons_separate_from_analogue_axes() {
         .unwrap();
     let snapshot = router.finalize().unwrap();
 
-    assert_eq!(snapshot.input_mode, semantic_input::InputMode::KeyboardMouse);
+    assert_eq!(
+        snapshot.input_mode,
+        semantic_input::InputMode::KeyboardMouse
+    );
     assert_eq!(snapshot.raw_movement, [1.0, 1.0]);
     assert_eq!(snapshot.analogue_movement, [0.0, 0.0]);
     assert!((snapshot.movement[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.000_001);
@@ -609,13 +612,13 @@ fn gamepad_digital_buttons_separate_the_raw_and_analogue_carriers() {
         context: InputContext::Gameplay,
         chord: empty_chord(PhysicalControl::GamepadButton(14)),
     });
-    let settings =
-        ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
+    let settings = ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
     let mut router = SemanticInputRouter::default();
     router.replace_bindings(settings).unwrap();
     router
         .route(DeviceFrame {
             controllers: vec![ControllerFrame {
+                button_edges: Default::default(),
                 device_id: 1,
                 activity_sequence: 1,
                 axes: [0.6, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -654,13 +657,13 @@ fn all_digital_gamepad_layout_reports_an_empty_analogue_axis_sample() {
             chord: empty_chord(PhysicalControl::GamepadButton(button)),
         });
     }
-    let settings =
-        ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
+    let settings = ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
     let mut router = SemanticInputRouter::default();
     router.replace_bindings(settings).unwrap();
     router
         .route(DeviceFrame {
             controllers: vec![ControllerFrame {
+                button_edges: Default::default(),
                 device_id: 1,
                 activity_sequence: 1,
                 axes: [0.0; 8],

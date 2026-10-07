@@ -59,6 +59,8 @@ fn drive(
     mut ownership: ResMut<super::input::ConsentInput>,
     time: Res<Time<Real>>,
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let generation = runtime.session_id();
@@ -143,7 +145,9 @@ fn drive(
         presentation.hover_experience(cursor);
     }
     let approval_ready = presentation.experience_approval_ready();
-    let focused = window.is_some_and(|window| window.focused);
+    let focused = driven.is_some()
+        || (window.is_some_and(|window| window.focused)
+            && focus.as_ref().is_none_or(|focus| focus.available()));
     let choice =
         if focused && can_disable(&extension.session.state) && keys.just_pressed(KeyCode::F9) {
             Some(Choice::Disable)
@@ -177,6 +181,12 @@ fn drive(
                 bevy::log::warn!(%error, "server experience choice rejected");
             }
             _ => {}
+        }
+        if wants_prompt
+            && !matches!(extension.session.state, State::Offered(_))
+            && let Some(focus) = focus.as_deref_mut()
+        {
+            focus.authorize_screen_return();
         }
     }
     network.set_experience_enabled(

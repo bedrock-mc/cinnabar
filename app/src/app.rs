@@ -60,9 +60,9 @@ use crate::{
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
-            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
-            publish_actor_render_frame, publish_entity_shadows, receive_network_events,
-            spawn_network,
+            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
+            prepare_actor_render_frame, publish_actor_render_frame, publish_entity_shadows,
+            receive_network_events, spawn_network,
         },
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
@@ -149,8 +149,28 @@ pub(crate) enum ClientFrameSet {
     ActorPreparation,
     UiPreparation,
     NetworkSend,
+    ActorFinalization,
     ActorPublication,
     UiPublication,
+}
+
+/// Registers the production actor observation and publication boundaries.
+pub(crate) fn configure_actor_render_systems(app: &mut App) {
+    app.init_resource::<client_presentation::actor_publication::ActorFrameState>()
+        .add_systems(
+            Update,
+            advance_actor_frame.in_set(ClientFrameSet::ActorPreparation),
+        )
+        .add_systems(
+            Update,
+            prepare_actor_render_frame.in_set(ClientFrameSet::ActorFinalization),
+        )
+        .add_systems(
+            Update,
+            (publish_actor_render_frame, publish_entity_shadows)
+                .chain()
+                .in_set(ClientFrameSet::ActorPublication),
+        );
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
@@ -160,6 +180,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.init_resource::<Phase3EvidenceEmitter>();
     app.init_resource::<crate::runtime::network::PackReload>();
     configure_client_authority_systems(app);
+    configure_actor_render_systems(app);
     crate::audio::configure(app);
     app.init_resource::<BlockUseRuntime>()
         .init_resource::<crate::item_use::ItemUseRuntime>()
@@ -238,19 +259,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            prepare_actor_render_frame.in_set(ClientFrameSet::ActorPreparation),
-        )
-        .add_systems(
-            Update,
-            (publish_actor_render_frame, publish_entity_shadows)
-                .chain()
-                .in_set(ClientFrameSet::ActorPublication),
-        )
-        .add_systems(
-            Update,
             crate::hotbar::select_hotbar_slot
                 .after(ClientFrameSet::SemanticFinalize)
-                .before(ClientFrameSet::UiPreparation),
+                .before(ClientFrameSet::ActorPreparation),
         )
         .add_systems(
             Update,
@@ -528,6 +539,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     block_entity_scene.install_mob_assets(&entity_runtime, &actor_catalog);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
+    let font_runtime =
+        crate::asset_startup::oreui_fonts::install(font_runtime, &layout.resource_root);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
@@ -545,7 +558,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .context("JSON-UI engine is missing its carrier catalog")?,
     );
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
-    // Dev-only: CINNABAR_OREUI_LOCAL_ASSETS compares OreUI against the install's originals.
+    // Installed OreUI artwork is discovered and decoded once for every native screen.
     if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images()
         && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
@@ -664,7 +677,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
     let primary_window = Window {
-        title: launcher::PRODUCT_NAME.to_owned(),
+        title: launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
         present_mode,
         ..default()
     };

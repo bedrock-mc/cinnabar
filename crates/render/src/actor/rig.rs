@@ -6,6 +6,8 @@ use bytemuck::{Pod, Zeroable};
 
 #[path = "rig/bone_arena.rs"]
 mod bone_arena;
+#[path = "rig/eligibility.rs"]
+mod eligibility;
 use bone_arena::PoseMatrixCache;
 #[path = "rig/catalog.rs"]
 mod catalog;
@@ -15,9 +17,9 @@ pub use catalog::ActorRigVertexSegments;
 use catalog::GeometryCatalog;
 use render_model::{
     ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, DIAGNOSTIC_RIG_ID, EntityRigId,
-    MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
-    diagnostic_geometry, equipment_rig_id, geometry_from_geometry_index,
-    geometry_from_runtime_assets, is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
+    MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform, diagnostic_geometry,
+    equipment_rig_id, geometry_from_geometry_index, geometry_from_runtime_assets,
+    is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
 };
 
 use super::{ActorArtworkPageId, ActorCullView};
@@ -26,8 +28,9 @@ pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
 /// Existing body/equipment allowance plus every animated skin layer per selected player.
 pub const MAX_ACTOR_RENDER_INSTANCES: usize =
     MAX_RENDERED_PLAYERS * (4 + render_api::MAX_SKIN_ANIMATION_LAYERS);
-pub const MAX_ACTOR_BONE_ARENA_BYTES: usize =
-    MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
+/// Shared previous/current pose storage, independent of one model's bone limit.
+pub const MAX_ACTOR_BONE_ARENA_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_BONE_MATRIX_BYTES);
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
@@ -392,7 +395,7 @@ impl ActorRigFrameBuilder {
         }
         let mut by_id = self.catalog.geometries.clone();
         pack::replace_range(&mut by_id, in_range, geometries);
-        self.catalog = GeometryCatalog::layout(by_id)?;
+        self.catalog = GeometryCatalog::layout_with_limit(by_id, self.catalog.maximum_vertices)?;
         self.matrices = PoseMatrixCache::default();
         Ok(())
     }
@@ -405,6 +408,31 @@ impl ActorRigFrameBuilder {
     #[must_use]
     pub const fn geometry_vertices(&self) -> &ActorRigVertexSegments {
         &self.catalog.vertices
+    }
+
+    /// Checks one camera-space draw without advancing frame generations or rebuilding buffers.
+    pub fn can_draw_submission(&self, submission: &ActorRigSubmission) -> bool {
+        if self.frame_generation == u64::MAX || eligibility::validate_input(submission).is_err() {
+            return false;
+        }
+        let Ok((id, geometry)) = eligibility::geometry(&self.catalog, submission) else {
+            return false;
+        };
+        let Some(&index) = self.catalog.indices.get(&id) else {
+            return false;
+        };
+        u32::try_from(submission.input.reset_generation).is_ok()
+            && self.catalog.published_spans[index as usize].vertex_count > 0
+            && self.matrices.pose_is_valid(
+                &submission.input.previous_bones,
+                id,
+                &geometry.bone_pivots,
+            )
+            && self.matrices.pose_is_valid(
+                &submission.input.current_bones,
+                id,
+                &geometry.bone_pivots,
+            )
     }
 
     #[must_use]
@@ -484,25 +512,8 @@ impl ActorRigFrameBuilder {
         });
         let mut body_count = 0usize;
         for submission in ordered.drain(..) {
-            if submission.route == ActorRigRoute::NoDraw {
-                rejects.no_draw = rejects.no_draw.saturating_add(1);
-                continue;
-            }
-            let diagnostic = submission.route == ActorRigRoute::Diagnostic;
-            if (!submission.input.identity.is_exact() || submission.input.completed_tick == 0)
-                && !diagnostic
-                || submission.input.reset_generation == 0
-            {
-                rejects.invalid_identity = rejects.invalid_identity.saturating_add(1);
-                continue;
-            }
-            if submission
-                .world_from_actor
-                .iter()
-                .flatten()
-                .any(|value| !value.is_finite())
-            {
-                rejects.invalid_world_transform = rejects.invalid_world_transform.saturating_add(1);
+            if let Err(error) = eligibility::validate_input(&submission) {
+                error.count(&mut rejects);
                 continue;
             }
             if !actor_rig_submission_is_visible(&submission, view) {
@@ -517,41 +528,18 @@ impl ActorRigFrameBuilder {
             }
             let previous = &submission.input.previous_bones;
             let current = &submission.input.current_bones;
-            if previous.len() != current.len() {
-                rejects.pose_length_mismatch = rejects.pose_length_mismatch.saturating_add(1);
-                continue;
-            }
-            if previous.is_empty() || previous.len() > MAX_RENDER_BONES_PER_ACTOR {
-                rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
-                continue;
-            }
-            if previous
-                .iter()
-                .chain(current.iter())
-                .any(|bone| !bone.is_finite())
-            {
-                rejects.non_finite_pose = rejects.non_finite_pose.saturating_add(1);
-                continue;
-            }
-            let geometry_id = match submission.route {
-                ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => submission.input.rig,
-                ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
-                ActorRigRoute::NoDraw => unreachable!(),
+            let (geometry_id, geometry) = match eligibility::geometry(&self.catalog, &submission) {
+                Ok(geometry) => geometry,
+                Err(error) => {
+                    error.count(&mut rejects);
+                    continue;
+                }
             };
-            let Some(geometry) = self.catalog.geometries.get(&geometry_id) else {
-                rejects.missing_geometry = rejects.missing_geometry.saturating_add(1);
-                continue;
-            };
-            // Construction already bounds every vertex bone by the pivots.
-            if geometry.bones_used() > previous.len() {
-                rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
-                continue;
-            }
             let Some(next_bone_count) = previous_bones.len().checked_add(previous.len()) else {
                 rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
                 continue;
             };
-            if next_bone_count > MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR {
+            if next_bone_count > MAX_ACTOR_POSE_BONES {
                 rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
                 continue;
             }

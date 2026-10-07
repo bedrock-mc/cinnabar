@@ -92,7 +92,7 @@ fn review_inbox_list_registers_its_full_scroll_extent() {
         })
         .collect();
     let (scrolls, _, _) = paint(HashMap::new(), |c| {
-        inbox::draw(c, &view, [1280.0, 720.0]).unwrap()
+        inbox::draw(c, &view, [1280.0, 720.0], &|_| None).unwrap()
     });
     assert!(scrolls.iter().any(|area| area.max > 0.0));
 }

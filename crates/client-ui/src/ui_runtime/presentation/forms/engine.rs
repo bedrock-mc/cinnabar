@@ -24,13 +24,16 @@ mod formatting_colors;
 pub mod hud_renderers;
 mod item_renderer;
 mod menu_renderers;
+mod menu_title;
+#[cfg(test)]
+mod ownership_tests;
 mod pack_catalog;
 mod pixel_snap;
 mod rounded;
 mod vector_icons;
 pub(super) use pack_catalog::layer_pack_catalog;
 pub(super) mod host_edit;
-pub(super) mod screen_cache;
+mod screen_cache;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
@@ -56,6 +59,7 @@ pub struct FormEngine {
     pub(super) server_pages: Vec<render_model::UiTexturePage>,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
+    menu_title_source: menu_title::TitleSource,
     /// The last form's bound tree and laid-out output, reused while unchanged.
     pub(super) cache: Option<FormCache>,
     /// Resolve+bind and layout passes run, for cache tests and profiling.
@@ -114,6 +118,8 @@ impl FormEngine {
         super::credits_screen::extend_catalog(&mut catalog);
         let vanilla = Arc::new(catalog);
         let base = Arc::new(hud_renderers::with_java_hud(&vanilla));
+        let context = super::menu_screens::retail_context();
+        let menu_title_source = menu_title::TitleSource::new(&base, &context);
         Self {
             textures: TextureSet::new(first_page).with_carrier(Arc::clone(&assets)),
             assets,
@@ -122,7 +128,8 @@ impl FormEngine {
             screens: screen_cache::ScreenCache::default(),
             vanilla,
             base,
-            context: super::menu_screens::retail_context(),
+            context,
+            menu_title_source,
             server_pages: Vec::new(),
             server_source: None,
             cache: None,
@@ -238,6 +245,7 @@ impl FormEngine {
 
     /// Publishes a worker-resolved catalog and retires caches holding the previous one.
     pub(super) fn install_pack_catalog(&mut self, catalog: Arc<Catalog>) {
+        self.menu_title_source = menu_title::TitleSource::new(&catalog, &self.context);
         self.formatting_palette = formatting_colors::from_catalog(&catalog);
         self.catalog = catalog;
         self.cache = None;
@@ -328,11 +336,6 @@ impl FormEngine {
 
     pub(super) fn assets(&self) -> &RuntimeUiAssets {
         &self.assets
-    }
-
-    /// Lay `screen` out off-thread; false keeps the previous screen visible until ready.
-    pub(super) fn prepare(&self, screen: screen_cache::Prepared) -> bool {
-        self.screens.prepare(screen, self)
     }
 
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
@@ -456,6 +459,7 @@ fn render_with<R: Borrow<FormRender>>(
         .nodes
         .iter()
         .chain(out.overlay)
+        .filter(|node| !art.omits(node))
         .filter_map(|node| match &node.draw {
             Draw::Sprite { texture, .. } => Some(texture.as_str()),
             Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
@@ -506,7 +510,7 @@ fn render_with<R: Borrow<FormRender>>(
     };
     let view = art.view;
     for node in render.nodes.iter().chain(out.overlay) {
-        if view.is_none_or(|view| node.shown(view)) {
+        if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
             painter.paint(node)?;
         }
     }
@@ -563,6 +567,8 @@ fn edit_texts(
 /// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
+    /// Native replacements retain the pack's backdrop while omitting the replaced controls.
+    pub(super) omit_controls: &'a [&'a str],
     pub(super) icons: &'a [IconRef],
     /// Icons an `#item_id_aux` renderer names, by that value.
     pub(super) id_aux: &'a [(i64, IconRef)],
@@ -572,6 +578,10 @@ pub(super) struct ScreenArt<'a> {
     pub(super) tooltip: Option<&'a str>,
     /// Where a drawn player renderer records how it wants the model posed.
     pub(super) preview_view: Option<&'a std::cell::Cell<Option<PreviewView>>>,
+    pub(super) preview_control: Option<
+        &'a std::cell::Cell<Option<super::super::player_preview::controller::PreviewControl>>,
+    >,
+    pub(super) preview_rotation: f32,
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) now: f64,
@@ -583,6 +593,16 @@ pub(super) struct ScreenArt<'a> {
     pub(super) splash: Option<&'a str>,
     pub(super) credits: Option<&'a super::credits_screen::CreditsPaint>,
     pub(super) edit: Option<host_edit::Feedback>,
+}
+
+impl ScreenArt<'_> {
+    fn omits(&self, node: &DrawNode) -> bool {
+        self.omit_controls.iter().any(|name| {
+            node.key
+                .split('/')
+                .any(|part| part.split(['[', '~']).next() == Some(*name))
+        })
+    }
 }
 
 /// Where a render writes its retained nodes, plus caller nodes painted on top (the held stack).

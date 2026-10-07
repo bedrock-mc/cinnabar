@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt, mem::size_of, ops::Deref, sync::Arc};
 
-use assets::CompiledFontCatalog;
+use assets::{CompiledFontCatalog, FontRendering};
 use sha2::{Digest, Sha256};
 
 use crate::UiScale;
@@ -197,6 +197,8 @@ pub enum WordChop {
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TextWrap {
     pub align: TextLineAlign,
+    /// Additional pen advance after each character, in output 1/64 pixels.
+    pub letter_spacing_64: i32,
     /// Extra pitch between lines in output 1/64 pixels (not scaled again).
     pub line_padding_64: i32,
     pub chop: WordChop,
@@ -216,6 +218,8 @@ pub struct GlyphQuad {
     pub bounds_64: [i32; 4],
     pub line: u16,
     pub style: TextStyle,
+    pub linear_sampling: bool,
+    pub rendering: FontRendering,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -228,9 +232,14 @@ pub struct TextLayout {
     size_64: [u32; 2],
     ellipsized: bool,
     linear_sampling: bool,
+    rendering: FontRendering,
 }
 
 impl TextLayout {
+    pub const fn rendering(&self) -> FontRendering {
+        self.rendering
+    }
+
     pub const fn linear_sampling(&self) -> bool {
         self.linear_sampling
     }

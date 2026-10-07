@@ -19,14 +19,21 @@ pub const LOADING_SCREENS: [&str; 3] = [
 ];
 pub const LOADING_SCREEN: &str = LOADING_SCREENS[0];
 
+const DIMENSION_TITLES: [(&str, &str); 3] = [
+    (
+        "cinnabar.progress.enteringOverworld",
+        "Entering the Overworld",
+    ),
+    ("cinnabar.progress.enteringNether", "Entering the Nether"),
+    ("cinnabar.progress.enteringEnd", "Entering the End"),
+];
+
 /// The shipped brand layout stays below server UI files, as the other menus do.
 pub(super) fn install_brand_layout(catalog: &mut json_ui::Catalog) {
     catalog.overlay_text("ui/cinnabar_loading_brand.json", BRAND_LAYOUT);
 }
 
-// Reuse the pack's dialog and image controls. The desktop title in the pinned
-// common-art file starts ten percent from the top. The user's loading layout
-// lowers that group slightly while keeping the logo and dialog near the top.
+// Keep the pack's title and backdrop layout; native components replace the modal.
 const BRAND_LAYOUT: &str = r##"{
   "namespace": "progress",
   "cinnabar_loading_group": {
@@ -76,43 +83,42 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(false);
         };
-        let reference = match self.hud_frame.dimension {
-            1 => LOADING_SCREENS[1],
-            2 => LOADING_SCREENS[2],
-            _ => LOADING_SCREEN,
-        };
+        let dimension = usize::try_from(self.hud_frame.dimension).ok();
+        let reference = dimension
+            .and_then(|dimension| LOADING_SCREENS.get(dimension))
+            .copied()
+            .unwrap_or(LOADING_SCREEN);
         let translate = |key: &str| runtime.translation(key);
         let text = |key: &str, fallback: &str| {
-            Scalar::Text(
-                translate(key).map_or_else(|| fallback.to_owned(), |text| text.to_string()),
-            )
+            translate(key).map_or_else(|| fallback.to_owned(), |text| text.to_string())
         };
         let mut data = DataSource::new();
         data.set_strict(true);
         // Vanilla's world generation handler titles the terrain wait.
-        data.set_global(
-            "#title_text",
-            match stage {
-                LoadingStage::Connecting => text(
-                    "progressScreen.title.connectingExternal",
-                    "Connecting to external server",
-                ),
-                LoadingStage::BuildingTerrain | LoadingStage::ChangingDimension => {
-                    text("progressScreen.generating", "Generating World")
-                }
-            },
-        );
-        data.set_global(
-            "#progress_text",
-            match stage {
-                LoadingStage::Connecting => {
-                    text("progressScreen.message.locating", "Locating server")
-                }
-                LoadingStage::BuildingTerrain | LoadingStage::ChangingDimension => {
-                    text("progressScreen.message.building", "Building terrain")
-                }
-            },
-        );
+        let title = match stage {
+            LoadingStage::Connecting => text(
+                "progressScreen.title.connectingExternal",
+                "Connecting to external server",
+            ),
+            LoadingStage::BuildingTerrain | LoadingStage::ChangingDimension => {
+                text("progressScreen.generating", "Generating World")
+            }
+        };
+        let destination_title = (stage == LoadingStage::ChangingDimension).then(|| {
+            let (key, fallback) = dimension
+                .and_then(|dimension| DIMENSION_TITLES.get(dimension))
+                .copied()
+                .unwrap_or(("cinnabar.progress.changingDimension", "Changing dimension"));
+            text(key, fallback)
+        });
+        let detail = match stage {
+            LoadingStage::Connecting => text("progressScreen.message.locating", "Locating server"),
+            LoadingStage::BuildingTerrain | LoadingStage::ChangingDimension => {
+                text("progressScreen.message.building", "Building terrain")
+            }
+        };
+        data.set_global("#title_text", Scalar::Text(title.clone()));
+        data.set_global("#progress_text", Scalar::Text(detail.clone()));
         data.set_global(
             "#bar_animation_visible",
             Scalar::Bool(stage != LoadingStage::ChangingDimension),
@@ -140,6 +146,14 @@ impl UiPresentationRuntime {
         let view = ViewState::default();
         let frame = renderer.draw(
             ScreenArt {
+                omit_controls: &[
+                    "world_modal_progress_panel",
+                    "modal_progress_panel",
+                    "title_panel_content",
+                    "cinnabar_loading_title",
+                    "title_panel",
+                    "realms_title_image",
+                ],
                 now: self.menu_seconds,
                 clocks: Some(&self.scene_clock),
                 images: Some(&self.menu_artwork.refs),
@@ -159,12 +173,41 @@ impl UiPresentationRuntime {
                 )
             },
         )?;
+        if frame.is_some() {
+            self.append_oreui_loading(
+                stage,
+                [destination_title.as_deref().unwrap_or(&title), &detail],
+                nodes,
+                next,
+                metrics,
+                content,
+            )?;
+        }
         Ok(frame.is_some())
     }
 }
 
 #[cfg(test)]
 impl UiPresentationRuntime {
+    pub(in super::super) fn loading_texture_sprite(
+        &self,
+        texture: &str,
+    ) -> Option<(u16, [u16; 4])> {
+        let engine = self.form_presentation.engine.as_deref()?;
+        let atlas = engine.textures.lock();
+        let textures = super::textures::Textures {
+            assets: engine.assets(),
+            set: &engine.textures,
+            atlas: &atlas,
+            images: Some(&self.menu_artwork.refs),
+        };
+        let (page, [x, y, width, height]) = textures.sprite(texture)?;
+        Some((
+            page,
+            [x, y, x + width, y + height].map(|value| value as u16),
+        ))
+    }
+
     /// The loading screen's last laid-out draw nodes, in virtual px.
     pub fn loading_draw_nodes(&self) -> &[json_ui::DrawNode] {
         self.form_presentation.hud.loading.nodes()

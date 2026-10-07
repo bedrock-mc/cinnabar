@@ -5,6 +5,7 @@ use valentine::bedrock::version::v1_26_51::SerializedSkinRef;
 use super::{MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE};
 
 mod alpha;
+pub use alpha::normalize_classic_skin_rgba8;
 mod animation;
 pub use animation::{SkinAnimation, SkinAnimationKind};
 pub use render_api::{
@@ -75,8 +76,15 @@ pub struct CapeImage {
     pub rgba8: Arc<[u8]>,
 }
 
+impl CapeImage {
+    pub fn is_valid(&self) -> bool {
+        CAPE_DIMENSIONS.contains(&(self.width, self.height))
+            && self.rgba8.len() == self.width as usize * self.height as usize * 4
+    }
+}
+
 /// Cape image sizes Bedrock skins use, as `(width, height)`.
-const CAPE_DIMENSIONS: [(u32, u32); 4] = [(64, 32), (128, 64), (256, 128), (1024, 512)];
+pub const CAPE_DIMENSIONS: [(u32, u32); 4] = [(64, 32), (128, 64), (256, 128), (1024, 512)];
 
 fn normalize_cape(
     image: &valentine::bedrock::version::v1_26_51::SkinImage,

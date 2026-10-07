@@ -16,11 +16,18 @@ fn fixture() -> resource_pack::InstalledPack {
         description: "A local resource pack for reload verification.".into(),
         min_engine_version: None,
         revision: 0,
-        subpacks: vec![resource_pack::Subpack {
-            folder: "high".into(),
-            name: "High resolution".into(),
-            memory_tier: 2,
-        }],
+        subpacks: vec![
+            resource_pack::Subpack {
+                folder: "low".into(),
+                name: "Low resolution".into(),
+                memory_tier: 0,
+            },
+            resource_pack::Subpack {
+                folder: "high".into(),
+                name: "High resolution".into(),
+                memory_tier: 2,
+            },
+        ],
     }
 }
 
@@ -46,6 +53,9 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
             revision: 0,
         }],
         selected: Some((true, 0)),
+        details_expanded: Some((true, 0)),
+        applied_selection: Some(Vec::new()),
+        memory_tier: 2,
         ..Snapshot::default()
     };
     view.global_resources = Arc::new(state.clone());
@@ -95,17 +105,29 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
         actions
             .iter()
             .any(|(action, _)| *action == MenuAction::GlobalResources(Action::Import)),
-        "import action must render through JSON UI"
+        "import action must remain available"
     );
     assert!(
         actions
             .iter()
             .any(|(action, _)| *action == MenuAction::GlobalResources(Action::Apply)),
-        "apply action must render through JSON UI"
+        "apply action must remain available"
     );
+    let sidebar = actions
+        .iter()
+        .find_map(|(action, bounds)| {
+            matches!(action, MenuAction::SettingsSection(_)).then_some(*bounds)
+        })
+        .expect("resource settings must retain the settings sidebar");
+    let sidebar_point = ui::UiPoint::new(
+        (sidebar.min().x() + sidebar.max().x()) * 0.5,
+        (sidebar.min().y() + sidebar.max().y()) * 0.5,
+    )
+    .unwrap();
+    assert!(presentation.scroll_menu(sidebar_point, -1.0, false));
     state.settings = Some(0);
-    view.global_resources = Arc::new(state);
-    presentation.set_menu_view(Some(view));
+    view.global_resources = Arc::new(state.clone());
+    presentation.set_menu_view(Some(view.clone()));
     let input = presentation
         .build(
             &player_runtime,
@@ -116,6 +138,64 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
         )
         .unwrap();
     snapshot::write(&input, "global-resource-settings");
+    nodes.clear();
+    next = 1;
+    let actions = presentation
+        .append_menu(&runtime, &mut nodes, &mut next, metrics, 1280.0, 720.0)
+        .unwrap();
+    let labels = pack_harness::drawn_texts(&nodes);
+    assert!(
+        labels.iter().any(|text| text.contains("High resolution")),
+        "the OreUI picker must show the selected variant: {labels:?}"
+    );
+    for action in [
+        Action::CloseSettings,
+        Action::Subpack(0),
+        Action::Subpack(1),
+    ] {
+        assert!(
+            actions
+                .iter()
+                .any(|(found, _)| *found == MenuAction::GlobalResources(action)),
+            "the pack variant choices must remain interactive: {action:?}; {actions:?}"
+        );
+    }
+    assert!(
+        actions.iter().all(|(action, _)| matches!(
+            action,
+            MenuAction::GlobalResources(Action::CloseSettings | Action::Subpack(_))
+        )),
+        "the overlay must exclusively own input: {actions:?}"
+    );
+    assert!(
+        presentation.visible_menu_actions().all(|action| matches!(
+            action,
+            MenuAction::GlobalResources(Action::CloseSettings | Action::Subpack(_))
+        )),
+        "background settings controls must not enter keyboard or controller focus"
+    );
+    let offsets = presentation.menu_scrolls.offsets().clone();
+    presentation.scroll_menu(sidebar_point, -1.0, false);
+    assert!(
+        offsets
+            .iter()
+            .all(|(key, offset)| presentation.menu_scrolls.offsets().get(key) == Some(offset)),
+        "scroll input over the overlay must not move the settings panels beneath it"
+    );
+    state.settings = None;
+    view.global_resources = Arc::new(state);
+    presentation.set_menu_view(Some(view));
+    nodes.clear();
+    next = 1;
+    let actions = presentation
+        .append_menu(&runtime, &mut nodes, &mut next, metrics, 1280.0, 720.0)
+        .unwrap();
+    assert!(
+        actions
+            .iter()
+            .any(|(action, _)| *action == MenuAction::GlobalResources(Action::Deactivate(0))),
+        "closing pack settings must restore the resource list's actions"
+    );
 }
 
 /// Builds an original test raster for a known HUD texture path.

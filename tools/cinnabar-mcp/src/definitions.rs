@@ -58,9 +58,10 @@ pub fn definitions() -> Value {
                 "press_frames": { "type": "integer", "description": "Frames a press stays down (default 1)" },
                 "move": { "type": "object", "properties": { "forward": { "type": "number" }, "strafe": { "type": "number" } }, "description": "Sign of each axis holds key.forward/back and key.right/left; 0 releases" },
                 "jump": { "type": "boolean" }, "sneak": { "type": "boolean" }, "sprint": { "type": "boolean" },
-                "pointer": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "required": ["x", "y"], "additionalProperties": false, "description": "Absolute logical window pixels from top left, applied before button edges; combine with press:[MouseLeft] to click." },
+                "pointer": { "oneOf": [{ "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "required": ["x", "y"], "additionalProperties": false }, { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }], "description": "Absolute logical window pixels from top left, as {x,y} or [x,y], applied before button edges; combine with press:[MouseLeft] to click." },
                 "wheel": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "unit": { "enum": ["line", "pixel"] } }, "additionalProperties": false, "description": "One scroll event; axes default 0, unit defaults line, positive y scrolls up." },
                 "hotbar": { "type": "integer", "minimum": 1, "maximum": 9 },
+                "scroll": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "pixels": { "type": "boolean" } }, "required": ["y"], "additionalProperties": false, "description": "One wheel delta in lines, or window-logical pixels when pixels is true. Positive y scrolls up." },
                 "cursor": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "Logical window coordinates for menu clicks and dragging; does not move the OS pointer." },
                 "text": { "type": "string", "description": "Insert text into the focused editor through keyboard messages." },
                 "look": { "type": "object", "properties": {

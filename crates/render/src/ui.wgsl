@@ -8,6 +8,8 @@ struct UiViewport {
 const STYLE_GLINT: u32 = UI_STYLE_GLINT;
 const STYLE_GRAYSCALE: u32 = 4u;
 const STYLE_BILINEAR: u32 = 8u;
+const STYLE_FONT_GAMMA: u32 = FONT_STYLE_COVERAGE_GAMMA;
+const STYLE_FONT_SDF: u32 = FONT_STYLE_SDF;
 // Injected from the renderer's single Rust style-bit definition.
 const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
 const STYLE_COLOR_MASK: u32 = UI_STYLE_COLOR_MASK;
@@ -85,15 +87,32 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     // bled a column of the neighbouring glyph in on the right. Model extrusion
     // side faces instead supply native fractional texel centers; preserve those too.
     let normalized_uv = input.uv / dimensions;
+    let native_font = (input.style_flags & STYLE_FONT_GAMMA) != 0u;
+    let sdf_font = (input.style_flags & STYLE_FONT_SDF) != 0u;
+    let uv_dx = dpdx(input.uv);
+    let uv_dy = dpdy(input.uv);
+    let texels_per_pixel = sqrt(abs(uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x));
     // Level 0 sampling keeps the per-vertex sampler choice legal in non-uniform flow.
     var sample: vec4<f32>;
-    if (input.style_flags & STYLE_BILINEAR) != 0u {
+    if native_font && !sdf_font {
+        let texel = clamp(vec2<i32>(floor(input.uv)), vec2<i32>(0), vec2<i32>(dimensions) - vec2<i32>(1));
+        sample = textureLoad(ui_pages, texel, i32(input.texture_page), 0);
+    } else if sdf_font || (input.style_flags & STYLE_BILINEAR) != 0u {
         sample = textureSampleLevel(ui_pages, ui_linear_sampler, normalized_uv, i32(input.texture_page), 0.0);
     } else {
         sample = textureSampleLevel(ui_pages, ui_sampler, normalized_uv, i32(input.texture_page), 0.0);
     }
     if ui_page_format.x != 0u {
         sample = vec4<f32>(1.0, 1.0, 1.0, sample.r);
+    }
+    if sdf_font {
+        let distance = sample.a * 7.96875 - 3.984375;
+        let threshold = max((128.0 / 255.0) * texels_per_pixel, 0.000001);
+        sample = vec4<f32>(1.0, 1.0, 1.0, smoothstep(-threshold, threshold, distance));
+    }
+    if native_font {
+        let exponent = 1.45 - dot(input.color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+        sample = vec4<f32>(1.0, 1.0, 1.0, pow(sample.a, exponent));
     }
     if (input.style_flags & STYLE_GRAYSCALE) != 0u {
         // Provisional luma weights (Rec. 601); the retail material is not inspected.

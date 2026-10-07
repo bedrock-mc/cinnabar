@@ -17,6 +17,7 @@ pub struct TextMetrics {
     pub(super) scale: UiScale,
     /// Physical pixels per GUI unit: the GUI scale, on whose pixel grid draws land.
     pub(super) gui_scale: f32,
+    pub(super) dpi_scale: DpiScale,
     pub(super) line_height_64: u32,
     pub(super) baseline_64: u32,
     shadow: TextShadow,
@@ -38,6 +39,7 @@ impl TextMetrics {
             scale: UiScale::new_display(scale)
                 .expect("supported GUI scale and DPI produce a valid display scale"),
             gui_scale: k,
+            dpi_scale,
             line_height_64: TEXT_LINE_HEIGHT_64,
             baseline_64: TEXT_BASELINE_64,
             shadow: TextShadow::Offset64(TEXT_SHADOW_OFFSET_64),

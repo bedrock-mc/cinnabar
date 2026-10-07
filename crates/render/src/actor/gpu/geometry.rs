@@ -5,7 +5,7 @@ use bevy::render::{
     render_resource::{Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor},
     renderer::{RenderDevice, RenderQueue},
 };
-use render_model::{ActorRigVertex, MAX_ACTOR_RIG_VERTICES};
+use render_model::{ActorRigVertex, MAX_ACTOR_CATALOG_VERTICES};
 use std::collections::BTreeSet;
 
 /// Mirrors changed pages; growth and relocation copy retained GPU bytes instead of uploading them.
@@ -115,7 +115,7 @@ impl SegmentedVertexBuffer {
         )
         .entered();
         if plan.replace {
-            let capacity = (vertices.len() + vertices.len() / 4).min(MAX_ACTOR_RIG_VERTICES);
+            let capacity = vertex_buffer_capacity(vertices.len());
             let buffer = device.create_buffer(&BufferDescriptor {
                 label: Some(label),
                 size: (capacity * stride) as u64,
@@ -170,10 +170,29 @@ impl SegmentedVertexBuffer {
     }
 }
 
+fn vertex_buffer_capacity(vertices: usize) -> usize {
+    (vertices + vertices / 4).min(MAX_ACTOR_CATALOG_VERTICES)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn buffer_growth_accommodates_the_aggregate_catalog_budget() {
+        for vertices in [
+            render_model::MAX_ACTOR_RIG_VERTICES + 1,
+            MAX_ACTOR_CATALOG_VERTICES,
+        ] {
+            let capacity = vertex_buffer_capacity(vertices);
+            assert!(capacity >= vertices);
+            assert!(
+                capacity * std::mem::size_of::<ActorRigVertex>()
+                    <= render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES
+            );
+        }
+    }
 
     /// Makes distinguishable page contents for transfer equality checks.
     fn page(count: usize, marker: f32) -> Vec<ActorRigVertex> {

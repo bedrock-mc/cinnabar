@@ -26,7 +26,7 @@ pub enum Screen {
     Opening,
     /// The user must accept the Minecraft EULA before the server is downloaded.
     Eula,
-    /// Default worlds need Docker; see [`WorldsMenu::prompt`].
+    /// BDS worlds need Docker on macOS; see [`WorldsMenu::prompt`].
     BackendPrompt,
     Error,
 }
@@ -45,6 +45,7 @@ pub enum Input {
     SetGameMode(GameMode),
     SetDifficulty(Difficulty),
     SetFlat(bool),
+    SetBackend(Backend),
     SubmitCreate,
     /// Opens the settings of the world at this list index.
     BeginEdit(usize),
@@ -129,8 +130,9 @@ pub struct WorldsView {
     pub prompt: Option<Prompt>,
     pub progress: Option<Progress>,
     pub busy: bool,
-    /// Where a default world cannot run, so the create screen marks Flat as the only choice.
+    /// Whether the selected BDS backend can run on this machine.
     pub bds_can_run: bool,
+    pub bds_unavailable: Option<UnavailableReason>,
 }
 
 /// What a Docker modal or EULA gate resumes once cleared.
@@ -159,10 +161,8 @@ pub struct WorldsMenu {
     busy: bool,
     /// A submitted disk mutation still owns the busy state after navigation.
     mutation_pending: bool,
-    prefs: Prefs,
     setup: Option<Setup>,
     unavailable: Option<UnavailableReason>,
-    prompt_acknowledged: bool,
     pending: Option<Pending>,
     eula_for: Option<String>,
 }
@@ -201,6 +201,7 @@ impl WorldsMenu {
             progress: self.progress(),
             busy: self.busy,
             bds_can_run: self.bds_can_run(),
+            bds_unavailable: self.unavailable,
         }
     }
 
@@ -255,28 +256,23 @@ impl WorldsMenu {
             return None;
         }
         let blocking = match self.pending? {
-            Pending::Create => PromptFor::BeginCreate,
-            Pending::SubmitCreate => PromptFor::CreateDefault,
+            Pending::Create => return None,
+            Pending::SubmitCreate => PromptFor::CreateBds,
             Pending::Play => PromptFor::Play,
         };
         Some(Prompt {
-            kind: self.prompt_kind(blocking)?,
+            kind: self.prompt_kind()?,
             blocking,
         })
     }
 
-    /// Why default worlds cannot run, when that should interrupt `blocking`.
-    fn prompt_kind(&self, blocking: PromptFor) -> Option<PromptKind> {
-        let kind = match self.unavailable? {
-            UnavailableReason::DockerMissing => PromptKind::DockerMissing,
-            UnavailableReason::DockerNotRunning => PromptKind::DockerNotRunning,
-            UnavailableReason::Other => return None,
-        };
-        // Only the informational modal on the way into the create screen can be put away.
-        let informational = blocking == PromptFor::BeginCreate
-            && (self.prompt_acknowledged
-                || (kind == PromptKind::DockerMissing && self.prefs.docker_prompt_dismissed));
-        (!informational).then_some(kind)
+    /// Why the BDS backend cannot run on this machine.
+    fn prompt_kind(&self) -> Option<PromptKind> {
+        match self.unavailable? {
+            UnavailableReason::DockerMissing => Some(PromptKind::DockerMissing),
+            UnavailableReason::DockerNotRunning => Some(PromptKind::DockerNotRunning),
+            UnavailableReason::Other => None,
+        }
     }
 
     fn note_status(&mut self, status: &WorldStatus) {
@@ -289,16 +285,16 @@ impl WorldsMenu {
     /// Runs `pending` now, or parks it behind the Docker modal.
     fn gate(&mut self, pending: Pending) -> Vec<Effect> {
         let blocking = match pending {
-            Pending::Create => Some(PromptFor::BeginCreate),
+            Pending::Create => None,
             Pending::SubmitCreate => {
-                (self.create.generator == Generator::Normal).then_some(PromptFor::CreateDefault)
+                (self.create.backend == Backend::Bds).then_some(PromptFor::CreateBds)
             }
             Pending::Play => self
                 .selected()
                 .is_some_and(|w| w.backend == Backend::Bds)
                 .then_some(PromptFor::Play),
         };
-        if blocking.is_some_and(|blocking| self.prompt_kind(blocking).is_some()) {
+        if blocking.is_some() && self.prompt_kind().is_some() {
             self.pending = Some(pending);
             self.screen = Screen::BackendPrompt;
             return Vec::new();
@@ -312,10 +308,6 @@ impl WorldsMenu {
             Pending::Create => {
                 self.create = CreateForm::default();
                 self.tab = Tab::General;
-                if !self.bds_can_run() {
-                    // Default terrain is BDS-only; Flat is all the built-in server hosts.
-                    self.create.generator = Generator::Flat;
-                }
                 self.form_error = None;
                 self.screen = Screen::Create;
                 Vec::new()
@@ -357,26 +349,14 @@ impl WorldsMenu {
             return Vec::new();
         }
         match button {
-            PromptButton::CreateFlat => {
-                self.prompt_acknowledged = true;
-                match self.pending.take() {
-                    Some(Pending::SubmitCreate) => {
-                        self.create.generator = Generator::Flat;
-                        self.proceed(Pending::SubmitCreate)
-                    }
-                    _ => self.proceed(Pending::Create),
+            PromptButton::UseDragonfly => match self.pending.take() {
+                Some(Pending::SubmitCreate) => {
+                    self.create.backend = Backend::Dragonfly;
+                    self.proceed(Pending::SubmitCreate)
                 }
-            }
+                _ => self.proceed(Pending::Create),
+            },
             PromptButton::GetDocker => vec![Effect::OpenUrl(DOCKER_URL)],
-            PromptButton::DontShowAgain => {
-                self.prefs.docker_prompt_dismissed = true;
-                let mut effects = vec![Effect::SetPrefs {
-                    dismiss_docker_prompt: true,
-                    redetect: false,
-                }];
-                effects.extend(self.proceed(Pending::Create));
-                effects
-            }
             PromptButton::Retry => {
                 self.busy = true;
                 vec![Effect::SetPrefs {
@@ -415,7 +395,9 @@ impl WorldsMenu {
                 }
                 Vec::new()
             }
-            Input::BeginCreate if self.screen == Screen::List => self.gate(Pending::Create),
+            Input::BeginCreate if matches!(self.screen, Screen::List | Screen::Templates) => {
+                self.gate(Pending::Create)
+            }
             Input::OpenTemplates if self.screen == Screen::List => {
                 self.screen = Screen::Templates;
                 Vec::new()
@@ -454,6 +436,10 @@ impl WorldsMenu {
                 } else {
                     Generator::Normal
                 };
+                Vec::new()
+            }
+            Input::SetBackend(backend) if self.screen == Screen::Create => {
+                self.create.backend = backend;
                 Vec::new()
             }
             Input::SubmitCreate if self.screen == Screen::Create => {
@@ -665,8 +651,7 @@ impl WorldsMenu {
                 self.note_status(&status);
                 self.apply_status(status)
             }
-            Event::Prefs(prefs, status) => {
-                self.prefs = prefs;
+            Event::Prefs(_, status) => {
                 self.note_status(&status);
                 self.busy = self.mutation_pending;
                 // The Docker probe outlives core startup; keep reading until it reports a verdict.

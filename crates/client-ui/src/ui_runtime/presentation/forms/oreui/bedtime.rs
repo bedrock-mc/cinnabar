@@ -127,6 +127,7 @@ pub(super) fn draw(
     for (hit, label) in buttons {
         let bounds = [left, y, left + column, y + button_height];
         let interaction = Interaction {
+            action: None,
             hovered: interactive && state.hovered == Some(hit),
             pressed: interactive && state.pressed == Some(hit),
             focused: false,

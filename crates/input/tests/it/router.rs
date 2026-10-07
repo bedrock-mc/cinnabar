@@ -60,3 +60,4 @@ include!("router/player_list.rs");
 include!("router/bindings_and_activity.rs");
 include!("router/authority_and_neutrality.rs");
 include!("router/controller_arbitration.rs");
+include!("router/movement_lanes.rs");

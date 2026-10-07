@@ -128,3 +128,85 @@ fn render_frame_budget_and_invalid_fraction_keep_the_completed_layers() {
     );
     assert!(frame.layers(999).is_none());
 }
+
+/// Captures only authored VM/controller/clock state that render evaluation must not commit.
+fn authored_state(store: &ActorAnimationStore) -> String {
+    let state = store.rigs.values().next().unwrap();
+    format!(
+        "{:?}",
+        (&state.variables, &state.controllers, &state.clip_clocks)
+    )
+}
+
+#[test]
+fn native_complete_sample_keeps_authored_state_and_borrows_unchanged_skin_layers() {
+    let actor = super::super::tests::actor_with_metadata(HashMap::new());
+    let mut store = ActorAnimationStore::with_assets(counting_random_assets());
+    store.insert(1, 0, &actor);
+    store.advance_tick(
+        &HashMap::from([(actor.runtime_id, actor.clone())]),
+        None,
+        None,
+        true,
+        true,
+        |_| ActorTickContext::default(),
+    );
+    let before = authored_state(&store);
+    let stats = store.stats();
+    let rig = store.get(actor.runtime_id).unwrap();
+    let completed = (
+        rig.completed_tick,
+        rig.previous.to_vec(),
+        rig.current.to_vec(),
+        rig.render.to_vec(),
+    );
+    for alpha in [0.25, 0.75, 0.25] {
+        let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let sampled = store
+            .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut budget, true)
+            .unwrap();
+        assert!(matches!(sampled.render, Cow::Owned(_)));
+        assert!(matches!(sampled.skin, Cow::Borrowed(_)));
+        assert_eq!(sampled.render[0].color[0], 1.0);
+        assert_eq!(sampled.render[0].color[2..], [alpha; 2]);
+        assert_eq!(authored_state(&store), before);
+        assert_eq!(store.stats(), stats);
+    }
+    let unchanged = store.get(actor.runtime_id).unwrap();
+    assert_eq!(
+        (
+            unchanged.completed_tick,
+            unchanged.previous.to_vec(),
+            unchanged.current.to_vec(),
+            unchanged.render.to_vec()
+        ),
+        completed
+    );
+}
+
+#[test]
+fn native_complete_sample_budget_failure_keeps_both_completed_slices_borrowed() {
+    let store = fixture();
+    let rig = store.actor_rig(1).unwrap();
+    let mut frame = store.render_frame(0.5);
+    frame.remaining_ops = 1;
+    let sampled = frame.layers_with_skin(1).unwrap();
+    assert!(matches!(sampled.render, Cow::Borrowed(_)));
+    assert!(matches!(sampled.skin, Cow::Borrowed(_)));
+    assert!(std::ptr::eq(sampled.render.as_ptr(), rig.render.as_ptr()));
+    assert!(std::ptr::eq(
+        sampled.skin.as_ptr(),
+        rig.skin_layers.as_ptr()
+    ));
+    assert_eq!(frame.remaining_ops, 0);
+    assert!(matches!(
+        frame.layers_with_skin(1).unwrap().render,
+        Cow::Borrowed(_)
+    ));
+    assert!(frame.layers_with_skin(999).is_none());
+    for alpha in [f32::NAN, f32::INFINITY, -1.0] {
+        let sampled = store.render_frame(alpha).layers_with_skin(1).unwrap();
+        assert!(matches!(sampled.render, Cow::Borrowed(_)));
+        assert!(matches!(sampled.skin, Cow::Borrowed(_)));
+    }
+}
