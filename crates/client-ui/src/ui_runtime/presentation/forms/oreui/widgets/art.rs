@@ -1,6 +1,7 @@
 //! Pressable artwork uses the installed state's native border-image slices.
 
 use super::super::motion::{Feedback, opacity};
+use super::super::theme::{BUTTON_DEPTH, GUI_PIXELS_PER_REM};
 use super::{Bounds, Canvas, Interaction, UiPresentationError, Variant};
 
 #[cfg(test)]
@@ -61,8 +62,8 @@ pub(super) fn elevated_motion(
         return Ok(false);
     }
     let mut face = bounds;
-    face[1] += canvas.r(0.4) * motion.press;
-    let widths = [0.4, 0.4, 0.8 - 0.4 * motion.press, 0.4];
+    face[1] += canvas.r(BUTTON_DEPTH) * motion.press;
+    let widths = [0.4, 0.4, 0.8 - BUTTON_DEPTH * motion.press, 0.4];
     canvas.nine_slice(keys[0], face, [2, 2, 4, 2], widths, true, [255; 4])?;
     if motion.hover > 0.0 {
         canvas.nine_slice(
@@ -86,7 +87,7 @@ pub(super) fn elevated_motion(
             keys[2],
             focused,
             [3, 3, 5, 3],
-            [0.6, 0.6, 1.0 - 0.4 * motion.press, 0.6],
+            [0.6, 0.6, 1.0 - BUTTON_DEPTH * motion.press, 0.6],
             true,
             opacity([255; 4], motion.focus * (1.0 - motion.press)),
         )?;
@@ -140,7 +141,7 @@ pub(super) fn elevated(
             [3, 3, 5, 3]
         }
         3 => {
-            bounds[1] += canvas.r(0.4);
+            bounds[1] += canvas.r(BUTTON_DEPTH);
             [2, 2, 2, 2]
         }
         4 => [1, 1, 3, 1],
@@ -155,7 +156,7 @@ pub(super) fn elevated(
         key,
         bounds,
         slices,
-        slices.map(|slice| f32::from(slice) / 5.0),
+        slices.map(|slice| f32::from(slice) / GUI_PIXELS_PER_REM),
         true,
         [255; 4],
     )

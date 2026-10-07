@@ -15,7 +15,7 @@ use winit::{
     dpi::LogicalSize,
     event::{ElementState, KeyEvent, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
-    keyboard::{Key, NamedKey},
+    keyboard::{Key, ModifiersState, NamedKey},
     window::{Window, WindowId},
 };
 
@@ -27,7 +27,9 @@ use super::{
     },
     EXIT_QUIT, EXIT_UNAVAILABLE,
     canvas::{Canvas, Image, Rect, Text},
-    gpu, view,
+    gpu,
+    input::{Command, Input, Source},
+    view,
 };
 use crate::install_layout::InstallLayout;
 
@@ -60,8 +62,14 @@ pub(super) struct SetupApp {
     updates: Receiver<Status>,
     worker: Option<Worker>,
     hits: Vec<(Action, Rect)>,
-    cursor: (f32, f32),
+    cursor: Option<(f32, f32)>,
     hovered: Option<Action>,
+    input: Input,
+    controllers: Option<gilrs::Gilrs>,
+    modifiers: ModifiersState,
+    active: bool,
+    appearance: client_ui::oreui_theme::Appearance,
+    gui_scale_offset: i8,
     overlay_dirty: bool,
     overlay_at: Option<Instant>,
     done_at: Option<Instant>,
@@ -79,6 +87,27 @@ impl SetupApp {
         updating: bool,
     ) -> Self {
         let (sender, updates) = mpsc::channel();
+        let screen = if consented {
+            Screen::Starting
+        } else {
+            Screen::Consent
+        };
+        let mut input = Input::default();
+        input.reset(&screen);
+        let settings = launcher::menu::settings_options::SettingsOptions::load(
+            &layout
+                .server_file()
+                .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+        );
+        let appearance = client_ui::oreui_theme::Appearance::from_dark(settings.oreui_dark_mode());
+        let gui_scale_offset = crate::menu::video_settings::load(&layout.user_config_root)
+            .unwrap_or_default()
+            .gui_scale_offset;
+        let controllers = gilrs::Gilrs::new()
+            .map_err(|error| {
+                eprintln!("setup controller input unavailable: {error}");
+            })
+            .ok();
         Self {
             layout,
             text,
@@ -87,18 +116,20 @@ impl SetupApp {
             logo,
             window: None,
             gpu: None,
-            screen: if consented {
-                Screen::Starting
-            } else {
-                Screen::Consent
-            },
+            screen,
             meter: Meter::default(),
             sender,
             updates,
             worker: None,
             hits: Vec::new(),
-            cursor: (0.0, 0.0),
+            cursor: None,
             hovered: None,
+            input,
+            controllers,
+            modifiers: ModifiersState::default(),
+            active: true,
+            appearance,
+            gui_scale_offset,
             overlay_dirty: true,
             overlay_at: None,
             done_at: None,
@@ -145,6 +176,8 @@ impl SetupApp {
     fn act(&mut self, action: Action, event_loop: &ActiveEventLoop) {
         let (next, effect) = self.screen.on_action(action);
         if let Some(next) = next {
+            self.input.reset(&next);
+            self.hovered = None;
             self.screen = next;
             self.overlay_dirty = true;
         }
@@ -163,7 +196,7 @@ impl SetupApp {
     }
 
     fn hit(&self) -> Option<Action> {
-        let (x, y) = self.cursor;
+        let (x, y) = self.cursor?;
         self.hits
             .iter()
             .find(|(_, rect)| rect.contains(x, y))
@@ -183,15 +216,23 @@ impl SetupApp {
             &mut self.text,
             &self.screen,
             &view::Style {
-                scale: window.scale_factor() as f32,
+                rem: f32::from(
+                    ui::DesktopGuiScale::for_window([size.width, size.height])
+                        .scale_for_offset(self.gui_scale_offset),
+                ) * client_ui::oreui_theme::GUI_PIXELS_PER_REM,
+                appearance: self.appearance,
                 hovered: self.hovered,
+                focused: self.input.focused.filter(|_| self.input.focus_visible),
+                pressed: self.input.pressed(self.hovered),
                 updating: self.updating,
                 logo: self.logo.as_ref(),
                 log_hint: &log_hint,
             },
         );
         gpu.set_overlay(canvas.width, canvas.height, &canvas.pixels);
-        self.overlay_dirty = false;
+        let hovered = self.hit();
+        self.overlay_dirty = hovered != self.hovered;
+        self.hovered = hovered;
         self.overlay_at = Some(Instant::now());
     }
 }
@@ -242,40 +283,81 @@ impl ApplicationHandler for SetupApp {
             }
             WindowEvent::ScaleFactorChanged { .. } => self.overlay_dirty = true,
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor = (position.x as f32, position.y as f32);
+                self.cursor = Some((position.x as f32, position.y as f32));
                 let hovered = self.hit();
                 if hovered != self.hovered {
                     self.hovered = hovered;
+                    self.input.focus_visible = false;
                     self.overlay_dirty = true;
                 }
             }
+            WindowEvent::CursorLeft { .. } => {
+                self.cursor = None;
+                self.hovered = None;
+                self.overlay_dirty = true;
+            }
+            WindowEvent::Focused(active) => {
+                self.active = active;
+                self.overlay_dirty = true;
+                if !active {
+                    self.input.blur();
+                    self.cursor = None;
+                    self.hovered = None;
+                    self.modifiers = ModifiersState::default();
+                    self.overlay_dirty = true;
+                }
+            }
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::MouseInput {
-                state: ElementState::Pressed,
+                state,
                 button: MouseButton::Left,
                 ..
             } => {
-                if let Some(action) = self.hit() {
+                if state == ElementState::Pressed {
+                    self.input
+                        .press(&self.screen, Source::Pointer, self.hovered);
+                } else if let Some(action) = self.input.release(Source::Pointer, self.hovered) {
                     self.act(action, event_loop);
                 }
+                self.overlay_dirty = true;
             }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
-                        state: ElementState::Pressed,
+                        state,
                         logical_key,
                         repeat: false,
                         ..
                     },
                 ..
-            } => match logical_key {
-                Key::Named(NamedKey::Enter) => {
-                    if let Some(action) = self.screen.primary() {
-                        self.act(action, event_loop);
+            } => {
+                match logical_key {
+                    Key::Named(NamedKey::Tab | NamedKey::ArrowLeft | NamedKey::ArrowUp)
+                        if state == ElementState::Pressed =>
+                    {
+                        let backwards =
+                            logical_key != Key::Named(NamedKey::Tab) || self.modifiers.shift_key();
+                        self.input.navigate(&self.screen, backwards);
                     }
+                    Key::Named(NamedKey::ArrowRight | NamedKey::ArrowDown)
+                        if state == ElementState::Pressed =>
+                    {
+                        self.input.navigate(&self.screen, false)
+                    }
+                    Key::Named(NamedKey::Enter | NamedKey::Space) => {
+                        if state == ElementState::Pressed {
+                            self.input.press(&self.screen, Source::Keyboard, None);
+                        } else if let Some(action) = self.input.release(Source::Keyboard, None) {
+                            self.act(action, event_loop);
+                        }
+                    }
+                    Key::Named(NamedKey::Escape) if state == ElementState::Pressed => {
+                        self.act(Action::Quit, event_loop)
+                    }
+                    _ => {}
                 }
-                Key::Named(NamedKey::Escape) => self.act(Action::Quit, event_loop),
-                _ => {}
-            },
+                self.overlay_dirty = true;
+            }
             WindowEvent::RedrawRequested => {
                 let (Some(window), Some(gpu)) = (&self.window, &mut self.gpu) else {
                     return;
@@ -299,9 +381,33 @@ impl ApplicationHandler for SetupApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        while let Some(event) = self.controllers.as_mut().and_then(gilrs::Gilrs::next_event) {
+            if !self.active {
+                continue;
+            }
+            if let Some(command) = super::input::controller(event.event) {
+                match command {
+                    Command::Navigate(backwards) => self.input.navigate(&self.screen, backwards),
+                    Command::Press => self.input.press(&self.screen, Source::Controller, None),
+                    Command::Release => {
+                        if let Some(action) = self.input.release(Source::Controller, None) {
+                            self.act(action, event_loop);
+                        }
+                    }
+                    Command::Cancel => self.act(Action::Quit, event_loop),
+                    Command::Blur => self.input.blur(),
+                }
+                self.overlay_dirty = true;
+            }
+        }
         let now = Instant::now();
         while let Ok(status) = self.updates.try_recv() {
-            self.screen = screen::from_status(&status, &mut self.meter, now);
+            let next = screen::from_status(&status, &mut self.meter, now);
+            self.input.update_screen(&self.screen, &next);
+            if self.screen.actions() != next.actions() {
+                self.hovered = None;
+            }
+            self.screen = next;
             self.overlay_dirty = true;
         }
         if self.screen == Screen::Done {

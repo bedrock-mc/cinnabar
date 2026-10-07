@@ -1451,7 +1451,7 @@ preview build is not an exact retail/platform capture for every supported client
 - `button_face`: pressable `sf`/`bf`/`hf`; menus theme `--pressableElevated*` nine-slices.
 - `menu_item`: dropdown item `bV` (classes `gV`) in `MV`; check icon `Fp`.
 
-## crates/client-ui/src/ui_runtime/presentation/forms/oreui/theme.rs
+## crates/client-ui/src/oreui_theme/mod.rs
 - Role table: theme `pD` colour roles over the palette constants defined beside `Zc`.
 
 ## docs/evidence/desktop-video-settings.md

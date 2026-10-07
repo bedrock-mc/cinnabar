@@ -40,7 +40,7 @@ mod settings;
 #[cfg(test)]
 mod settings_tests;
 mod sidebar;
-mod theme;
+use crate::oreui_theme as theme;
 mod transitions;
 mod widgets;
 mod world_settings;

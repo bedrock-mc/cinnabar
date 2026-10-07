@@ -113,7 +113,7 @@ jobs:
       - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
       # Everything ci.yml's verify job compiles, so its dependencies are cached too.
       - run: cargo build -p architecture --locked
       - continue-on-error: true

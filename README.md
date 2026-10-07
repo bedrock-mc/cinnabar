@@ -37,7 +37,7 @@ make core UPSTREAM=zeqa.net:19132
 make client
 ```
 
-`make help` lists every target. On Debian/Ubuntu, install `libwayland-dev` first; Linux picks
+`make help` lists every target. On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first; Linux picks
 Wayland or X11 automatically.
 
 ## Discord presence
