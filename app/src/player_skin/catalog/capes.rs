@@ -176,7 +176,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<protocol::CapeImage, String> {
     };
     if !cape.is_valid() {
         return Err(format!(
-            "Unsupported cape dimensions {}×{}. Choose a standard or cropped cape PNG.",
+            "Unsupported cape dimensions {}×{}. Choose a supported cape PNG.",
             cape.width, cape.height
         ));
     }
