@@ -26,8 +26,51 @@ fn configuration_uses_default_override_and_explicit_disable() {
     }
 }
 
-fn server(endpoint: &str) -> Destination {
-    Destination::Server(endpoint.to_owned())
+fn server(endpoint: &str) -> Target {
+    Target {
+        destination: Destination::Server(endpoint.to_owned()),
+        join: Some(endpoint.to_owned()),
+        badge: None,
+    }
+}
+
+fn place(destination: Destination, join: Option<&str>) -> Target {
+    Target {
+        destination,
+        join: join.map(str::to_owned),
+        badge: None,
+    }
+}
+
+#[test]
+fn featured_art_badges_the_card_only_while_playing_and_only_over_https() {
+    let badged = |url: &str| Target {
+        badge: Some(Badge {
+            image_url: url.to_owned(),
+            name: "The Hive".to_owned(),
+        }),
+        ..server("geo.hivebedrock.network:19132")
+    };
+    let hive = badged("https://cdn.example/hive.png");
+    let payload = serde_json::to_value(State::Playing.activity(1, Some(&hive))).unwrap();
+    assert_eq!(
+        payload["assets"]["small_image"],
+        "https://cdn.example/hive.png"
+    );
+    assert_eq!(payload["assets"]["small_text"], "The Hive");
+    assert_eq!(payload["assets"]["large_image"], LARGE_IMAGE_URL);
+    let joining = serde_json::to_value(State::Joining.activity(1, Some(&hive))).unwrap();
+    assert!(joining["assets"].get("small_image").is_none());
+    let long = format!("https://cdn.example/{}", "a".repeat(MAX_IMAGE_BYTES));
+    for rejected in [
+        "http://cdn.example/hive.png",
+        "file:///hive.png",
+        long.as_str(),
+    ] {
+        let payload =
+            serde_json::to_value(State::Playing.activity(1, Some(&badged(rejected)))).unwrap();
+        assert!(payload["assets"].get("small_image").is_none(), "{rejected}");
+    }
 }
 
 #[test]
@@ -48,7 +91,8 @@ fn activity_states_keep_start_time_and_exclude_account_and_join_data() {
     let mut states = Vec::new();
     for state in [State::Menus, State::Joining, State::Playing] {
         let payload = serde_json::to_value(state.activity(1234, None)).unwrap();
-        assert_eq!(payload["details"], launcher::PRODUCT_NAME);
+        // Discord already titles the card with the application's name.
+        assert!(payload.get("details").is_none());
         assert_eq!(payload["timestamps"]["start"], 1234);
         assert_eq!(payload["assets"]["large_image"], LARGE_IMAGE_URL);
         assert_eq!(payload["assets"]["large_text"], launcher::PRODUCT_NAME);
@@ -64,13 +108,14 @@ fn activity_states_keep_start_time_and_exclude_account_and_join_data() {
 #[test]
 fn playing_text_names_servers_and_worlds_but_not_realm_or_friend_identities() {
     let text = |destination: Destination| {
-        serde_json::to_value(State::Playing.activity(1234, Some(&destination))).unwrap()["state"]
+        let target = place(destination, None);
+        serde_json::to_value(State::Playing.activity(1234, Some(&target))).unwrap()["state"]
             .as_str()
             .unwrap()
             .to_owned()
     };
     assert_eq!(
-        text(server("play.example.net:19133")),
+        text(Destination::Server("play.example.net:19133".into())),
         "Playing on play.example.net:19133"
     );
     assert_eq!(
@@ -83,6 +128,60 @@ fn playing_text_names_servers_and_worlds_but_not_realm_or_friend_identities() {
         "Playing in a friend's world"
     );
     assert_eq!(text(Destination::Experience), "Playing an experience");
+}
+
+#[test]
+fn invites_carry_the_join_address_only_in_the_secret_and_only_while_playing() {
+    let experience = place(Destination::Experience, Some("gathering/secret-id"));
+    let payload = serde_json::to_value(State::Playing.activity(1, Some(&experience))).unwrap();
+    let secret = payload["secrets"]["join"].as_str().unwrap();
+    assert_eq!(join_address(secret), Some("gathering/secret-id"));
+    let party = payload["party"]["id"].as_str().unwrap();
+    assert!(!party.contains("secret-id"));
+    assert!(!payload["state"].as_str().unwrap().contains("secret-id"));
+    for state in [State::Menus, State::Joining] {
+        let payload = serde_json::to_value(state.activity(1, Some(&experience))).unwrap();
+        assert!(payload.get("secrets").is_none() && payload.get("party").is_none());
+    }
+    let local = place(Destination::LocalWorld("My World".into()), None);
+    let payload = serde_json::to_value(State::Playing.activity(1, Some(&local))).unwrap();
+    assert!(payload.get("secrets").is_none() && payload.get("party").is_none());
+}
+
+#[test]
+fn players_on_one_destination_share_a_party() {
+    let payload = |target: &Target| serde_json::to_value(State::Playing.activity(1, Some(target)));
+    let first = payload(&server("play.example.net:19132")).unwrap();
+    let second = payload(&server("play.example.net:19132")).unwrap();
+    let other = payload(&server("other.example.net:19132")).unwrap();
+    assert_eq!(first["party"]["id"], second["party"]["id"]);
+    assert_ne!(first["party"]["id"], other["party"]["id"]);
+}
+
+#[test]
+fn received_secrets_must_be_ones_cinnabar_publishes() {
+    for rejected in [
+        "play.example.net:19132",
+        "cinnabar1:",
+        "cinnabar1:bad host",
+        "cinnabar1:host\n:19132",
+        "cinnabar2:play.example.net:19132",
+    ] {
+        assert_eq!(join_address(rejected), None, "{rejected:?}");
+    }
+    let oversized = format!("cinnabar1:{}", "a".repeat(128));
+    assert_eq!(join_address(&oversized), None);
+    let unpublishable = server(&"a".repeat(128));
+    let payload = serde_json::to_value(State::Playing.activity(1, Some(&unpublishable))).unwrap();
+    assert!(payload.get("secrets").is_none() && payload.get("party").is_none());
+}
+
+#[test]
+fn another_experience_republishes_its_invite() {
+    let experience = |id: &str| place(Destination::Experience, Some(id));
+    let mut publication = Publication::default();
+    assert!(publication.changed(State::Playing, 0, Some(&experience("gathering/1")), 0));
+    assert!(publication.changed(State::Playing, 0, Some(&experience("gathering/2")), 0));
 }
 
 #[test]

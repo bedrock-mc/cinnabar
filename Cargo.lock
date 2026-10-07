@@ -5995,9 +5995,13 @@ dependencies = [
 name = "rich-presence"
 version = "0.1.12"
 dependencies = [
+ "crossbeam-channel",
  "discord-presence",
  "launcher",
  "serde_json",
+ "sha2",
+ "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
