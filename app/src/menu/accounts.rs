@@ -51,10 +51,20 @@ impl MenuRuntime {
     }
 
     /// Presents a signed-in launcher with placeholder accounts, or restores the saved ones.
+    #[cfg(any(test, feature = "developer-control"))]
     pub(crate) fn set_presentation_accounts(&mut self, enabled: bool) {
         self.presentation_accounts = enabled;
         self.feeds.account_error = None;
         self.reload_accounts();
+    }
+
+    /// The feeds the UI sees; presentation mode hides the live profile behind the placeholders.
+    pub(super) fn presented_feeds(&self) -> launcher::menu::view::MenuFeeds {
+        let mut feeds = self.feeds.clone();
+        if self.presentation_accounts {
+            feeds.profile = Default::default();
+        }
+        feeds
     }
 
     /// Account actions only change the in-memory presentation while it is shown.
@@ -350,6 +360,12 @@ mod tests {
             menu.feeds.account_active_id.as_deref(),
             Some(PRESENTATION_ACCOUNTS[2].0)
         );
+        menu.feeds.profile.gamertag = "RealGamertag".into();
+        menu.feeds.profile.picture_path = "/real/picture.png".into();
+        let view = menu.view();
+        assert!(view.feeds.profile.gamertag.is_empty());
+        assert!(view.feeds.profile.picture_path.is_empty());
+        assert_eq!(menu.feeds.profile.gamertag, "RealGamertag");
         menu.set_presentation_accounts(false);
         assert_ne!(menu.view().auth_state, AuthState::Authenticated);
         assert!(menu.feeds.accounts.iter().all(|account| {

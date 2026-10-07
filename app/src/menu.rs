@@ -362,7 +362,7 @@ impl MenuRuntime {
             language_choices: std::sync::Arc::clone(&self.language_choices),
             key_remap: self.key_remap,
             settings_advanced_graphics: self.settings_advanced_graphics,
-            feeds: self.feeds.clone(),
+            feeds: self.presented_feeds(),
             store: self.store_snapshot.clone(),
             global_resources: self.global_resources.clone(),
         }
