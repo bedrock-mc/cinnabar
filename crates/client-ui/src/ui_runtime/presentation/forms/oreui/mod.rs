@@ -9,6 +9,8 @@ mod bed_runtime;
 mod bedtime;
 #[cfg(test)]
 mod dark_mode_tests;
+#[cfg(test)]
+mod destructive_tests;
 mod death;
 mod dressing_room;
 mod exit;
