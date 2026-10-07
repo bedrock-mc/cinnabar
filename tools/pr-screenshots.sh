@@ -1,5 +1,5 @@
 #!/bin/bash
-# pr-screenshots.sh <pr-number> <image>...: posts images on a PR as one comment.
+# pr-screenshots.sh <pr-number> <image>...: appends the images to the PR description.
 # Images are uploaded as assets of the `pr-screenshots` release (never committed); captions come from file names.
 set -euo pipefail
 [ $# -ge 2 ] || { echo "usage: $0 <pr-number> <image>..." >&2; exit 2; }
@@ -12,7 +12,7 @@ if ! gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
 fi
 staging=$(mktemp -d)
 trap 'rm -rf "$staging"' EXIT
-body="Screenshots"$'\n'
+body=$'\n\n## Screenshots\n'
 stamp=$(date +%Y%m%d%H%M%S)
 for image in "$@"; do
   [ -f "$image" ] || { echo "missing $image" >&2; exit 1; }
@@ -23,5 +23,6 @@ for image in "$@"; do
   caption=${base%.*}
   body+=$'\n'"**${caption//[-_]/ }**"$'\n\n'"![${caption}](https://github.com/${repo}/releases/download/${tag}/${name})"$'\n'
 done
-printf '%s' "$body" > "$staging/comment.md"
-gh pr comment "$pr" --repo "$repo" --body-file "$staging/comment.md"
+gh pr view "$pr" --repo "$repo" --json body --jq .body > "$staging/body.md"
+printf '%s' "$body" >> "$staging/body.md"
+gh pr edit "$pr" --repo "$repo" --body-file "$staging/body.md" >/dev/null
