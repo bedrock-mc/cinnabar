@@ -18,6 +18,32 @@ fn bounded_bone(name: &str, count: usize) -> EntityGeometryBone {
 }
 
 #[test]
+fn entity_geometry_bone_budget_is_independent_of_player_skin_budget() {
+    let bone_count = assets::MAX_SKIN_GEOMETRY_BONES + 1;
+    let bones: Vec<_> = (0..bone_count)
+        .map(|index| bounded_bone(&format!("part_{index}"), 0))
+        .collect();
+    let mut merged = Vec::new();
+    let mut count = 0;
+    append_geometry_bones(&mut merged, &mut count, &bones)
+        .expect("entity rigs can exceed the separate player skin bone limit");
+    let geometry = ActorRigGeometry::new(
+        EntityRigId(1),
+        vec![
+            super::super::ActorRigVertex {
+                bone_index: (bone_count - 1) as u32,
+                ..Default::default()
+            };
+            3
+        ],
+        vec![[0.0; 3]; bone_count],
+    )
+    .unwrap();
+    assert_eq!(merged.len(), bone_count);
+    assert_eq!(geometry.bones_used(), bone_count);
+}
+
+#[test]
 fn inherited_cube_budget_covers_all_bones_and_levels_before_append_or_clone() {
     let mut merged = Vec::new();
     let mut count = 0;

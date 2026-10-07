@@ -17,9 +17,9 @@ pub use catalog::ActorRigVertexSegments;
 use catalog::GeometryCatalog;
 use render_model::{
     ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, DIAGNOSTIC_RIG_ID, EntityRigId,
-    MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
-    diagnostic_geometry, equipment_rig_id, geometry_from_geometry_index,
-    geometry_from_runtime_assets, is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
+    MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform, diagnostic_geometry,
+    equipment_rig_id, geometry_from_geometry_index, geometry_from_runtime_assets,
+    is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
 };
 
 use super::{ActorArtworkPageId, ActorCullView};
@@ -28,8 +28,9 @@ pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
 /// Existing body/equipment allowance plus every animated skin layer per selected player.
 pub const MAX_ACTOR_RENDER_INSTANCES: usize =
     MAX_RENDERED_PLAYERS * (4 + render_api::MAX_SKIN_ANIMATION_LAYERS);
-pub const MAX_ACTOR_BONE_ARENA_BYTES: usize =
-    MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
+/// Shared previous/current pose storage, independent of one model's bone limit.
+pub const MAX_ACTOR_BONE_ARENA_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_BONE_MATRIX_BYTES);
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
@@ -394,7 +395,7 @@ impl ActorRigFrameBuilder {
         }
         let mut by_id = self.catalog.geometries.clone();
         pack::replace_range(&mut by_id, in_range, geometries);
-        self.catalog = GeometryCatalog::layout(by_id)?;
+        self.catalog = GeometryCatalog::layout_with_limit(by_id, self.catalog.maximum_vertices)?;
         self.matrices = PoseMatrixCache::default();
         Ok(())
     }
@@ -538,7 +539,7 @@ impl ActorRigFrameBuilder {
                 rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
                 continue;
             };
-            if next_bone_count > MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR {
+            if next_bone_count > MAX_ACTOR_POSE_BONES {
                 rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
                 continue;
             }

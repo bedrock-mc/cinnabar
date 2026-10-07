@@ -20,9 +20,9 @@ pub(super) fn start_game_item_registry(
         // A semantically unsupported registry removes merge authority but does
         // not turn an otherwise valid StartGame into a transport failure.
         Ok(_) => Ok(None),
-        Err(protocol::WorldPacketError::Item(_)) => {
+        Err(protocol::WorldPacketError::Item(error)) => {
             warn!(
-                "StartGame item registry was semantically unsupported; merge authority unavailable"
+                %error, "StartGame item registry was semantically unsupported; merge authority unavailable"
             );
             Ok(None)
         }

@@ -56,6 +56,8 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
         bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
         java_swing_ticks: client_world::ACTOR_SWING_TICKS,
         flying: false,
+        gliding: false,
+        fall_fly_ticks: 0,
         teleported: false,
         first_person: false,
         view_bobbing: true,

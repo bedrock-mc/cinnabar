@@ -44,7 +44,7 @@ pub use correction_shape::{
     reconcile_prediction_correction, reconcile_timeline_rewind,
 };
 pub use diagnostics::{CorrectionKind, note_correction, note_motion};
-pub use effects::{LocalMovementEffectTimeline, MiningEffects};
+pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -60,8 +60,8 @@ pub use outbox::{
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
-    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMotionSample, PhysicsMovementSample,
-    PhysicsSampleContext, physics_movement_input,
+    MovementEffectSource, PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMotionSample,
+    PhysicsMovementSample, PhysicsSampleContext, physics_movement_input,
 };
 pub use prediction_sync::{PredictionSyncState, send_movement_prediction_sync};
 use sim::WorldCollisionIdentity;
@@ -931,7 +931,7 @@ mod zeqa_tests;
 pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
-pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput};
+pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput, wire_head_yaw, wire_yaw};
 
 #[cfg(test)]
 mod input_state_tests;

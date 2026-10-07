@@ -17,6 +17,9 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     fn mode(&self) -> sim::MovementMode {
         std::ops::Deref::deref(self).mode()
     }
+    fn fall_fly_ticks(&self) -> u32 {
+        std::ops::Deref::deref(self).fall_fly_ticks()
+    }
     /// Borrows the collision frontier used by the completed tick.
     fn last_world_identity(&self) -> Option<&sim::WorldCollisionIdentity> {
         std::ops::Deref::deref(self).last_world_identity()

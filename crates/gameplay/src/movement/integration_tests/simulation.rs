@@ -600,7 +600,13 @@ fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
     assert!(active.sneaking);
     assert!(active.sprinting);
     assert!(!active.using_consumable);
-    assert_eq!(active.item_use_movement_modifier, Some(0.35));
+    assert_eq!(
+        active.item_use_movement_modifier,
+        Some(f64::from(0.35_f32 * 0.35_f32)),
+        "vanilla slows by the modifier's f32 square"
+    );
+    let near_one = physics_movement_input([0.0, 1.0], 0.0, true, false, false, false, Some(f64::from(1.0_f32 - f32::EPSILON / 2.0)));
+    assert_eq!(near_one.item_use_movement_modifier, Some(1.0));
 
     assert_eq!(
         physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, Some(0.35)),
@@ -743,7 +749,7 @@ fn completed_motion_ticks_survive_minimum_rewind_window() {
         assert_eq!(physics.history_len(), 1);
     }
     let frame = physics.advance(Duration::from_millis(400), MovementInput::default(), &Floor);
-    assert_eq!(frame.completed_ticks, super::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME);
+    assert_eq!(frame.completed_ticks, 8);
     let mut ticks = Vec::new();
     physics.visit_completed_ticks(Some(40), &mut |sample, _, _| ticks.push(sample.tick));
     assert_eq!(ticks, (41..=48).collect::<Vec<_>>());

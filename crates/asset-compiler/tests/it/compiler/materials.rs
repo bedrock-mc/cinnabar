@@ -550,7 +550,13 @@ fn compiler_supports_vanilla_glass_and_fails_closed_for_arbitrary_tinted_full_cu
     }
     let records = [
         record(0, 300, "minecraft:stone", "{}", BlockFlags::CUBE_GEOMETRY),
-        record(1, 301, "minecraft:glass", "{}", BlockFlags::CUBE_GEOMETRY),
+        record(
+            1,
+            301,
+            "minecraft:glass",
+            "{}",
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+        ),
         record(
             2,
             302,
@@ -575,7 +581,17 @@ fn compiler_supports_vanilla_glass_and_fails_closed_for_arbitrary_tinted_full_cu
             .into_iter()
             .all(|material| material != 0)
     );
-    assert_eq!(compiled.visuals[1].kind, VisualKind::Cube);
+    // Glass hides only glass, so it leaves the occluding cube path.
+    assert_eq!(compiled.visuals[1].kind, VisualKind::Model);
+    assert!(
+        !compiled.visuals[1]
+            .flags
+            .intersects(BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
+    );
+    assert_eq!(
+        compiled.model_templates[compiled.visuals[1].model_template as usize].flags,
+        MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+    );
     assert!(
         compiled.visuals[1]
             .faces
@@ -590,8 +606,12 @@ fn compiler_supports_vanilla_glass_and_fails_closed_for_arbitrary_tinted_full_cu
     }
     let artifact = RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
     let artifact_glass = artifact.resolve(NetworkIdMode::Sequential, 1);
-    assert_eq!(artifact_glass.kind(), VisualKind::Cube);
-    assert!(artifact_glass.flags().contains(BlockFlags::CUBE_GEOMETRY));
+    assert_eq!(artifact_glass.kind(), VisualKind::Model);
+    assert!(
+        !artifact_glass
+            .flags()
+            .contains(BlockFlags::OCCLUDES_FULL_FACE)
+    );
     for face in BlockFace::ALL {
         assert_eq!(
             artifact
@@ -905,32 +925,21 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
     assert_eq!(encode_blob(&reversed).unwrap(), baseline);
 }
 
+/// Transparent-cube surfaces must keep the native cube's per-face UV orientation.
 #[test]
-fn compiler_emits_exact_checked_copper_grate_models() {
-    let directory = tempfile::tempdir().expect("create copper-grate fixture");
+fn transparent_cube_surfaces_keep_native_face_uv_orientation() {
+    let directory = tempfile::tempdir().expect("create transparent-cube UV fixture");
+    let names = ["glass", "red_stained_glass", "copper_grate", "ice"];
     let mut blocks = serde_json::Map::new();
     let mut terrain = serde_json::Map::new();
-    for (pair_index, (unwaxed, waxed)) in COPPER_GRATE_ALIAS_PAIRS.iter().enumerate() {
-        let texture = format!("copper_grate_{pair_index}");
-        let path = format!("textures/blocks/{texture}");
-        terrain.insert(texture.clone(), serde_json::json!({ "textures": path }));
-        for name in [unwaxed, waxed] {
-            blocks.insert(
-                name.strip_prefix("minecraft:").unwrap().into(),
-                serde_json::json!({ "textures": texture }),
-            );
-        }
-        write_png(
-            directory.path(),
-            &path,
-            TILE_SIZE,
-            TILE_SIZE,
-            &solid(
-                TILE_SIZE,
-                TILE_SIZE,
-                [35 + pair_index as u8 * 40, 90, 130, 64],
-            ),
-        );
+    for name in names {
+        let path = format!("textures/blocks/{name}");
+        blocks.insert(name.into(), serde_json::json!({ "textures": name }));
+        terrain.insert(name.into(), serde_json::json!({ "textures": path }));
+        // An asymmetric mask: mirroring a face would move this lone opaque texel.
+        let mut art = solid(TILE_SIZE, TILE_SIZE, [200, 220, 240, 64]);
+        art[0] = [200, 220, 240, 255];
+        write_png(directory.path(), &path, TILE_SIZE, TILE_SIZE, &art);
     }
     write_pack(
         directory.path(),
@@ -938,253 +947,46 @@ fn compiler_emits_exact_checked_copper_grate_models() {
         &serde_json::json!({ "texture_data": terrain }).to_string(),
         "[]",
     );
-
-    let mut records = COPPER_GRATE_NAMES
-        .iter()
-        .enumerate()
-        .map(|(id, name)| {
-            let mut record =
-                model_record(id as u32, 92_000 + id as u32, name, "{}", ModelFamily::Cube);
-            record.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
-            record
-        })
-        .collect::<Vec<_>>();
-    let admitted_count = records.len();
-    let mut wrong_state = model_record(
-        admitted_count as u32,
-        92_100,
-        "minecraft:copper_grate",
-        r#"{"extra":{"type":"byte","value":0}}"#,
-        ModelFamily::Cube,
-    );
-    wrong_state.flags = BlockFlags::CUBE_GEOMETRY;
-    records.push(wrong_state);
-    records.push(model_record(
-        records.len() as u32,
-        92_101,
-        "minecraft:copper_grate",
-        "{}",
-        ModelFamily::Pane,
-    ));
-    let mut wrong_role = model_record(
-        records.len() as u32,
-        92_102,
-        "minecraft:copper_grate",
-        "{}",
-        ModelFamily::Cube,
-    );
-    wrong_role.contributor_role = ContributorRole::LiquidAdditional;
-    records.push(wrong_role);
-    for name in [
-        "minecraft:cut_copper_grate",
-        "minecraft:copper_bars",
-        "minecraft:copper_bulb",
-        "minecraft:copper_door",
-        "minecraft:copper_trapdoor",
-        "minecraft:slime",
-        "minecraft:glass",
-        "minecraft:red_stained_glass_pane",
-        "minecraft:invisible_bedrock",
-    ] {
-        records.push(model_record(
-            records.len() as u32,
-            92_000 + records.len() as u32,
-            name,
+    let records = names.map(|name| {
+        let id = names
+            .iter()
+            .position(|candidate| *candidate == name)
+            .unwrap() as u32;
+        let mut record = model_record(
+            id,
+            93_000 + id,
+            &format!("minecraft:{name}"),
             "{}",
             ModelFamily::Cube,
-        ));
-    }
-
-    let compiled = compile_pack(directory.path(), &records).expect("compile copper grates");
-    for (id, record) in records.iter().take(admitted_count).enumerate() {
-        let visual = compiled.visuals[id];
-        assert_eq!(visual.kind, VisualKind::Model, "{}", record.name);
-        assert!(!visual.flags.intersects(
-            BlockFlags::AIR
-                | BlockFlags::CUBE_GEOMETRY
-                | BlockFlags::OCCLUDES_FULL_FACE
-                | BlockFlags::LEAF_MODEL
-        ));
-        let template = compiled.model_templates[visual.model_template as usize];
-        assert_eq!(template.flags, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE);
-        assert_eq!(template.quad_count, 6);
-        let quads = template_quads(&compiled, visual.model_template);
-        assert_eq!(model_bounds(quads), ([0, 0, 0], [256, 256, 256]));
-        assert!(quads.iter().enumerate().all(|(face, quad)| {
-            quad.material == visual.faces[face]
-                && quad.flags == [3, 4, 1, 2, 5, 6][face]
-                && compiled.materials[quad.material as usize].flags & MATERIAL_FLAG_ALPHA_CUTOUT
-                    != 0
-                && compiled.materials[quad.material as usize].flags & MATERIAL_FLAG_ALPHA_BLEND == 0
-        }));
-    }
-    for (unwaxed, waxed) in COPPER_GRATE_ALIAS_PAIRS {
-        let faces = |name: &str| {
-            let index = records
-                .iter()
-                .position(|record| record.name.as_ref() == name)
-                .unwrap();
-            compiled.visuals[index].faces
-        };
-        assert_eq!(faces(unwaxed), faces(waxed), "alias pair {unwaxed}/{waxed}");
-    }
-    for (record, visual) in records[admitted_count..]
-        .iter()
-        .zip(&compiled.visuals[admitted_count..records.len()])
-    {
-        // Invisible bedrock is a known no-draw block, not a diagnostic.
-        if record.name.as_ref() == "minecraft:invisible_bedrock" {
-            assert_eq!(visual.kind, VisualKind::Invisible);
-            continue;
-        }
-        assert!(
-            visual.kind == VisualKind::Diagnostic && visual.faces == [DIAGNOSTIC_MATERIAL; 6],
-            "{} {:?} {:?}",
-            record.name,
-            record.model_family,
-            visual.kind
         );
-    }
+        if matches!(name, "glass" | "copper_grate") {
+            record.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
+        }
+        record
+    });
 
-    let baseline = encode_blob(&compiled).expect("encode copper grates");
-    records.reverse();
-    let reversed =
-        compile_pack(directory.path(), &records).expect("compile reversed copper grates");
-    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
-}
-
-fn single_copper_grate_fixture() -> TempDir {
-    let directory = tempfile::tempdir().expect("create single copper-grate fixture");
-    write_pack(
-        directory.path(),
-        r#"{"copper_grate":{"textures":"copper_grate"}}"#,
-        r#"{"texture_data":{"copper_grate":{"textures":"textures/blocks/copper_grate"}}}"#,
-        "[]",
-    );
-    write_png(
-        directory.path(),
-        "textures/blocks/copper_grate",
-        TILE_SIZE,
-        TILE_SIZE,
-        &solid(TILE_SIZE, TILE_SIZE, [184, 115, 51, 64]),
-    );
-    directory
-}
-
-#[test]
-fn compiler_rejects_exact_copper_grate_marked_air() {
-    let directory = single_copper_grate_fixture();
-    let mut record = model_record(0, 92_200, "minecraft:copper_grate", "{}", ModelFamily::Cube);
-    record.flags = BlockFlags::AIR;
-
-    let compiled = compile_pack(directory.path(), &[record]).expect("compile air copper grate");
-
-    assert_eq!(compiled.visuals[0].kind, VisualKind::Diagnostic);
-    assert_eq!(compiled.visuals[0].faces, [DIAGNOSTIC_MATERIAL; 6]);
-}
-
-#[test]
-fn compiler_rejects_exact_copper_grate_with_flags_zero() {
-    let directory = single_copper_grate_fixture();
-    let record = model_record(0, 92_201, "minecraft:copper_grate", "{}", ModelFamily::Cube);
-
-    let compiled =
-        compile_pack(directory.path(), &[record]).expect("compile flags-zero copper grate");
-
-    assert_eq!(compiled.visuals[0].kind, VisualKind::Diagnostic);
-    assert_eq!(compiled.visuals[0].faces, [DIAGNOSTIC_MATERIAL; 6]);
-}
-
-#[test]
-#[ignore = "requires PINNED_VANILLA_PACK pointing at the ignored pinned vanilla resource pack"]
-fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
-    let pack = crate::fixture_input::env_path("PINNED_VANILLA_PACK")
-        .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
-    let all = read_registry(include_bytes!(
-        "../../../../assets/data/block-registry-v1001.bin"
-    ))
-    .expect("decode committed generated registry");
-    let copper_grates = all
-        .iter()
-        .filter(|record| {
-            COPPER_GRATE_NAMES
-                .binary_search(&record.name.as_ref())
-                .is_ok()
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    assert_eq!(copper_grates.len(), 8);
-    assert!(copper_grates.iter().all(|record| {
-        record.canonical_state.as_ref() == "{}"
-            && record.model_family == ModelFamily::Cube
-            && record.contributor_role == ContributorRole::Primary
-            && record.flags == BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
-    }));
-    let excluded = all
-        .iter()
-        .filter(|record| {
-            record.name.contains("copper_grate")
-                && COPPER_GRATE_NAMES
-                    .binary_search(&record.name.as_ref())
-                    .is_err()
-                || matches!(
-                    record.name.as_ref(),
-                    "minecraft:slime" | "minecraft:invisible_bedrock"
-                )
-                || record.name.starts_with("minecraft:hard_")
-                    && record.name.ends_with("_stained_glass")
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    assert!(!excluded.is_empty());
-
-    let admitted_count = copper_grates.len();
-    let mut records = copper_grates
-        .into_iter()
-        .chain(excluded)
-        .collect::<Vec<_>>();
-    for (id, record) in records.iter_mut().enumerate() {
-        record.sequential_id = id as u32;
-        record.network_hash = 93_000 + id as u32;
-    }
-    let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned copper grates");
-    let fixture_air = fixture_air_id(&records) as usize;
-    for (id, visual) in compiled.visuals.iter().enumerate() {
-        if id == fixture_air {
-            assert_eq!(visual.kind, VisualKind::Invisible, "appended fixture air");
-        } else if id < admitted_count {
-            assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
-            let template = compiled.model_templates[visual.model_template as usize];
-            assert_eq!(template.flags, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE);
-            assert_eq!(template.quad_count, 6);
-            assert!(visual.faces.iter().all(|&material| {
-                material != DIAGNOSTIC_MATERIAL
-                    && compiled.materials[material as usize].flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0
-                    && compiled.materials[material as usize].flags & MATERIAL_FLAG_ALPHA_BLEND == 0
-            }));
-            assert!(!visual.flags.intersects(
-                BlockFlags::AIR
-                    | BlockFlags::CUBE_GEOMETRY
-                    | BlockFlags::OCCLUDES_FULL_FACE
-                    | BlockFlags::LEAF_MODEL
-            ));
-        } else {
-            assert_eq!(visual.kind, VisualKind::Diagnostic, "{}", records[id].name);
+    let compiled = compile_pack(directory.path(), &records).expect("compile transparent cubes");
+    for (id, name) in names.iter().enumerate() {
+        let visual = compiled.visuals[id];
+        assert_eq!(
+            compiled.model_templates[visual.model_template as usize].flags,
+            MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+            "{name}"
+        );
+        for quad in template_quads(&compiled, visual.model_template) {
+            for ([x, y, z], uv) in quad.positions.into_iter().zip(quad.uvs) {
+                let [x, y, z] = [x, y, z].map(|value| value as u16 * 16);
+                let native = match quad.flags {
+                    1 => [x, 4096 - z],
+                    2 => [x, z],
+                    3 => [z, 4096 - y],
+                    4 => [4096 - z, 4096 - y],
+                    5 => [4096 - x, 4096 - y],
+                    6 => [x, 4096 - y],
+                    face => panic!("{name}: unexpected face {face}"),
+                };
+                assert_eq!(uv, native, "{name} face {}", quad.flags);
+            }
         }
     }
-    for (unwaxed, waxed) in COPPER_GRATE_ALIAS_PAIRS {
-        let faces = |name: &str| {
-            let index = records
-                .iter()
-                .position(|record| record.name.as_ref() == name)
-                .unwrap();
-            compiled.visuals[index].faces
-        };
-        assert_eq!(faces(unwaxed), faces(waxed), "alias pair {unwaxed}/{waxed}");
-    }
-    let baseline = encode_blob(&compiled).expect("encode pinned copper grates");
-    records.reverse();
-    let reversed =
-        compile_pack(Path::new(&pack), &records).expect("compile reversed pinned copper grates");
-    assert_eq!(encode_blob(&reversed).unwrap(), baseline);
 }

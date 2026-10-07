@@ -814,6 +814,14 @@ fn smallest_compact_viewport_keeps_four_category_targets_and_close_usable() {
 fn monochrome_theme_uses_exact_palette_for_both_layouts() {
     use super::widgets::Palette;
     let mut spec = panel();
+    spec.sections = vec![ui::mod_panel::Section {
+        icon: ui::mod_panel::Icon::Settings,
+        id: "visual".into(),
+        label: "Visual".into(),
+        category: "Visual".into(),
+        toggle: Some("enabled".into()),
+        controls: vec!["strength".into(), "mode".into(), "binding".into()],
+    }];
     for style in [
         ui::mod_panel::Style::Standard,
         ui::mod_panel::Style::Compact,
@@ -857,6 +865,13 @@ fn monochrome_theme_uses_exact_palette_for_both_layouts() {
                     "missing palette color {color:?} for {style:?}"
                 );
             }
+            let selected = point(&presentation, "mod.category:0", 0.92);
+            let image = snapshot::rasterize(&rendered);
+            assert_eq!(
+                image.get_pixel(selected[0] as u32, selected[1] as u32).0,
+                [0x30, 0x2c, 0x30, 255],
+                "selected navigation must use the monochrome raised color for {style:?}"
+            );
             spec.theme = ui::mod_panel::Theme::Default;
         }
     }
