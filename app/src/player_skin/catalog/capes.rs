@@ -1,7 +1,9 @@
-//! Imported cape pixels retain their source dimensions and private file ownership.
+//! Imported capes retain source texels and private file ownership.
 
 use super::*;
 use launcher::dressing_room::DressingRoomCape;
+
+const CROPPED_CAPE_DIMENSIONS: (u32, u32) = (46, 22);
 
 pub(super) fn load(layout: &InstallLayout, saved: Vec<ImportedCape>) -> Vec<DressingRoomCape> {
     saved
@@ -148,6 +150,25 @@ pub(super) fn decode(bytes: &[u8]) -> Result<protocol::CapeImage, String> {
         .decode()
         .map_err(|error| format!("The cape PNG could not be read: {error}"))?
         .to_rgba8();
+    let padded_dimensions = protocol::CAPE_DIMENSIONS
+        .iter()
+        .copied()
+        .find(|(width, _)| {
+            let scale = width / protocol::CAPE_DIMENSIONS[0].0;
+            rgba.dimensions()
+                == (
+                    CROPPED_CAPE_DIMENSIONS.0 * scale,
+                    CROPPED_CAPE_DIMENSIONS.1 * scale,
+                )
+        });
+    let rgba = if let Some((width, height)) = padded_dimensions {
+        // Cropped textures keep the full sheet's UV origin; only missing margins are transparent.
+        let mut padded = image::RgbaImage::new(width, height);
+        image::imageops::replace(&mut padded, &rgba, 0, 0);
+        padded
+    } else {
+        rgba
+    };
     let cape = protocol::CapeImage {
         width: rgba.width(),
         height: rgba.height(),
@@ -155,7 +176,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<protocol::CapeImage, String> {
     };
     if !cape.is_valid() {
         return Err(format!(
-            "Unsupported cape dimensions {}×{}. Choose a supported cape PNG.",
+            "Unsupported cape dimensions {}×{}. Choose a standard or cropped cape PNG.",
             cape.width, cape.height
         ));
     }

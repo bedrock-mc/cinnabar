@@ -12,6 +12,89 @@ fn png(path: &Path, size: (u32, u32), color: [u8; 4]) {
 }
 
 #[test]
+fn cropped_cape_import_pads_without_resampling_and_survives_reload() {
+    let layout = layout();
+    super::super::tests::native_fixture(&layout);
+    let local = LocalPlayerSkin::generated_default("cropped cape");
+    let mut view = super::super::load(&layout, &local);
+    let source = layout.user_data_root.join("cropped-cape.png");
+    let scale = protocol::CAPE_DIMENSIONS[1].0 / protocol::CAPE_DIMENSIONS[0].0;
+    let pixels = image::RgbaImage::from_fn(
+        CROPPED_CAPE_DIMENSIONS.0 * scale,
+        CROPPED_CAPE_DIMENSIONS.1 * scale,
+        |x, y| image::Rgba([x as u8, y as u8, (x + y) as u8, (x * y) as u8]),
+    );
+    pixels.save(&source).unwrap();
+    let original = fs::read(&source).unwrap();
+    import_cape(&layout, &mut view, &source).unwrap();
+    let selected = view.selected_cape().unwrap().clone();
+    assert_eq!(
+        (selected.cape.width, selected.cape.height),
+        protocol::CAPE_DIMENSIONS[1]
+    );
+    for (index, texel) in selected.cape.rgba8.chunks_exact(4).enumerate() {
+        let x = index as u32 % selected.cape.width;
+        let y = index as u32 / selected.cape.width;
+        let expected = if x < pixels.width() && y < pixels.height() {
+            pixels.get_pixel(x, y).0
+        } else {
+            [0; 4]
+        };
+        assert_eq!(texel, expected);
+    }
+    assert_eq!(fs::read(&source).unwrap(), original);
+    assert_eq!(fs::read(&selected.path).unwrap(), original);
+    fs::remove_file(source).unwrap();
+    assert_eq!(
+        super::super::load(&layout, &local).selected_cape(),
+        Some(&selected)
+    );
+    assert_eq!(
+        LocalPlayerSkin::load(&layout, "cropped cape")
+            .to_client_skin()
+            .cape
+            .unwrap()
+            .rgba8,
+        selected.cape.rgba8.as_ref()
+    );
+}
+
+#[test]
+fn cropped_cape_decode_only_accepts_matching_supported_scales() {
+    for (width, height) in protocol::CAPE_DIMENSIONS {
+        let scale = width / protocol::CAPE_DIMENSIONS[0].0;
+        let pixels = image::RgbaImage::from_pixel(
+            CROPPED_CAPE_DIMENSIONS.0 * scale,
+            CROPPED_CAPE_DIMENSIONS.1 * scale,
+            image::Rgba([3, 8, 13, 21]),
+        );
+        let mut bytes = Cursor::new(Vec::new());
+        pixels
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let cape = decode(bytes.get_ref()).unwrap();
+        assert_eq!((cape.width, cape.height), (width, height));
+        assert!(cape.is_valid());
+    }
+    let (width, height) = CROPPED_CAPE_DIMENSIONS;
+    let skin_side = protocol::CLASSIC_SKIN_SIDE as u32;
+    for (width, height) in [
+        (width, height + 1),
+        (width * 2, height * 2 - 1),
+        (width * 2 + 1, height * 2),
+        (skin_side, skin_side),
+        (width * 8, height * 8),
+    ] {
+        let pixels = image::RgbaImage::new(width, height);
+        let mut bytes = Cursor::new(Vec::new());
+        pixels
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        assert!(decode(bytes.get_ref()).is_err(), "{width}×{height}");
+    }
+}
+
+#[test]
 fn imported_cape_retains_texels_and_persists_independently_of_skin_choice() {
     let layout = layout();
     super::super::tests::native_fixture(&layout);
