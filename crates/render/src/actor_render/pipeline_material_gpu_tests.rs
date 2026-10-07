@@ -163,6 +163,86 @@ fn additive_actor_material_adds_rgb_even_when_texture_alpha_is_zero() {
 }
 
 #[test]
+fn alpha_weighted_additive_actor_preserves_destination_and_fades_source() {
+    let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
+        "alpha_weighted_additive_actor_preserves_destination_and_fades_source",
+    ) else {
+        return;
+    };
+    let material = crate::ActorMaterial {
+        state: Some(EntityRenderMaterialState {
+            cull: false,
+            blend: true,
+            depth_write: false,
+            additive: true,
+            additive_alpha: true,
+            emissive: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+    ActorPipelineSpecializer
+        .specialize(
+            ActorPipelineKey {
+                msaa: Msaa::Off,
+                hdr: false,
+                enhanced: false,
+                material: material.gpu_word(),
+            },
+            &mut descriptor,
+        )
+        .unwrap();
+    assert!(!descriptor.depth_stencil.unwrap().depth_write_enabled);
+    let fragment = descriptor.fragment.unwrap();
+    let target = fragment.targets[0].as_ref().unwrap();
+    let blend = target.blend.unwrap();
+    assert_eq!(
+        blend.color.src_factor,
+        bevy::render::render_resource::BlendFactor::SrcAlpha
+    );
+    assert_eq!(
+        blend.color.dst_factor,
+        bevy::render::render_resource::BlendFactor::One
+    );
+    let srgb = target.format.is_srgb();
+    let gamma = fragment.shader_defs.iter().any(
+        |define| matches!(define, ShaderDefVal::Bool(name, true) if name == "ACTOR_GAMMA_BLEND"),
+    );
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let clear = actor_raster::raster_material_target(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[0; 4]; 2],
+        srgb,
+        gamma,
+    );
+    for alpha in [0, 64, 255] {
+        let source = [32, 64, 96, alpha];
+        let result = actor_raster::raster_material_target(
+            &gpu,
+            &plane,
+            material,
+            false,
+            [source; 2],
+            srgb,
+            gamma,
+        );
+        for ((actual, destination), source) in center(&result)[..3]
+            .iter()
+            .zip(&center(&clear)[..3])
+            .zip(source)
+        {
+            let expected =
+                i32::from(*destination) + (i32::from(source) * i32::from(alpha) + 127) / 255;
+            assert!((i32::from(*actual) - expected).abs() <= 1);
+        }
+    }
+}
+
+#[test]
 fn actor_material_black_plate_blends_encoded_destination_channels() {
     let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
         "actor_material_black_plate_blends_encoded_destination_channels",

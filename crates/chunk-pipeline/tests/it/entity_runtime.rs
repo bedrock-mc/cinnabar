@@ -336,7 +336,7 @@ fn stream_with_entity_assets(entity_assets: Arc<RuntimeEntityAssets>) -> WorldSt
 
 #[test]
 fn runtime_budgets_are_the_reviewed_exact_ceilings() {
-    assert_eq!(MAX_RUNTIME_BONES_PER_RIG, 96);
+    assert_eq!(MAX_RUNTIME_BONES_PER_RIG, assets::MAX_ENTITY_GEOMETRY_BONES);
     assert_eq!(MAX_CONTROLLER_TRANSITIONS_PER_TICK, 8);
     assert_eq!(MAX_MOLANG_OPS_PER_ACTOR_TICK, 4_096);
     assert_eq!(MAX_MOLANG_OPS_PER_WORLD_TICK, 262_144);

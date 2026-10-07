@@ -89,13 +89,12 @@ impl ActorPipeline {
 }
 
 fn prewarm_materials() -> impl Iterator<Item = u32> {
-    let ordinary = [
+    let kinds = [
         assets::EntityRenderMaterial::Default,
         assets::EntityRenderMaterial::DissolveDepth,
         assets::EntityRenderMaterial::DissolveColor,
-    ]
-    .into_iter()
-    .flat_map(|kind| {
+    ];
+    let ordinary = kinds.into_iter().flat_map(|kind| {
         [false, true].into_iter().flat_map(move |cull| {
             [false, true].into_iter().flat_map(move |blend| {
                 [false, true].into_iter().map(move |depth_write| {
@@ -110,15 +109,20 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
             })
         })
     });
-    let additive = [false, true].into_iter().flat_map(|cull| {
-        [false, true].into_iter().map(move |depth_write| {
-            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
-                cull,
-                depth_write,
-                blend: true,
-                additive: true,
-                ..Default::default()
-            }))
+    let additive = kinds.into_iter().flat_map(|kind| {
+        [false, true].into_iter().flat_map(move |cull| {
+            [false, true].into_iter().flat_map(move |depth_write| {
+                [false, true].into_iter().map(move |additive_alpha| {
+                    kind.word(Some(assets::EntityRenderMaterialState {
+                        cull,
+                        depth_write,
+                        blend: true,
+                        additive: true,
+                        additive_alpha,
+                        ..Default::default()
+                    }))
+                })
+            })
         })
     });
     ordinary.chain(additive)
@@ -334,6 +338,7 @@ pub(super) struct ActorPipelineContract {
     blend: bool,
     depth_write: bool,
     additive: bool,
+    additive_alpha: bool,
 }
 
 impl ActorPipelineKey {
@@ -373,6 +378,7 @@ impl ActorPipelineKey {
             blend: state.blend,
             depth_write: state.depth_write,
             additive: state.blend && state.additive,
+            additive_alpha: state.blend && state.additive && state.additive_alpha,
         }
     }
 }

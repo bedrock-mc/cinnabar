@@ -16,6 +16,11 @@
 
 # Vanilla reference map
 
+## crates/client-world/src/actor_animation.rs; crates/client-world/src/actor_animation/geometry/large_rig_tests.rs
+
+- Owner-supplied 1.26.50 Galaxite comparison on 2026-10-07 shows the complete Battle Pass display: characters, furniture and a vehicle beside the GEMS entrance. The served `entity/battlepass_display.entity.json` selects `geometry.battlepass_display`, whose authored geometry contains 190 bones. Native rendering of that composite disproves a player-skin-sized 96-bone runtime limit for custom entities.
+- `reference/26.30/src/by-owner/g/Geometry.cpp`, `Geometry::_parseBones`, iterates the authored bone array and grows its part collection. This older implementation corroborates dynamic entity skeletons; the owner screenshot and matching served geometry supply the version-matched witness. Cinnabar's shared entity-geometry bound is a resource policy, not a claimed native maximum, and the player-skin admission bound remains independent.
+
 ## app/src/runtime/network/block_overlay.rs; app/src/runtime/network/block_overlay/tests/builtins.rs
 
 - The current [geometry component documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/blockreference/examples/blockcomponents/minecraftblock_geometry?view=minecraft-bedrock-stable) and [1.26.0 Creator update](https://github.com/MicrosoftDocs/minecraft-creator/blob/main/creator/Documents/Update1.26.0.md) establish `minecraft:geometry.full_block_v1` as the intrinsic that preserves the original full-cube DOWN orientation. For block format 1.26.0 and later, `minecraft:geometry.full_block` rotates that face by 180 degrees to match ordinary full blocks. The intrinsic uses the native cube path; the versioned DOWN material reverses its existing UVs without changing other faces or duplicating source pixels.
@@ -3031,3 +3036,72 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   records and lets a populated definition refine a canonical empty declaration
   only when name, ID, version and component-based status agree. Conflicting
   identities and two differing populated definitions remain unsupported.
+
+## Authored additive actor materials
+
+- `crates/pack-compiler/src/entity/animation/render/materials.rs`,
+  `crates/assets/src/entity/v4/render.rs` and
+  `crates/render/src/actor/material.rs` retain independently inherited source
+  and destination blending factors. A child overriding `blendSrc` to
+  `SourceAlpha` while retaining destination `One` stays additive and weights
+  only its source contribution.
+- Retail 1.26.50.26 `current/1.26.50.26/src/__unmapped/05.cpp` material blend
+  parsing near lines 515740–515775 writes `blendSrc` and `blendDst` independently;
+  absent explicit alpha factors, an overridden RGB factor also updates the
+  corresponding alpha factor. The Galaxite authored `materials/entity.material`
+  defines its emissive glow child with this source-only override, with blending,
+  disabled culling and disabled depth writes inherited from its parent.
+- The pinned runtime pack's `materials/entity.material` declares
+  `skeleton:entity_alphatest` without overrides. Server source sets without that
+  definition keep the same double-sided alpha-test contract through the compiler
+  builtin, including the ordinary `.skinning` variant.
+
+## Actor render light sampling (pending)
+
+- Pending: actor presentation currently reuses the query sample; endpoint sampling
+  remains incomplete. `crates/client-world/src/actor_store` lighting and
+  client-presentation `light_bodies`: current 1.26.50.26 `src/__unmapped/02.cpp:228229–228731`,
+  `FUN_14213d220` (RVA `0x0213d220`), corroborates the ordinary actor shader
+  contract. It floors actor-position X/Z and samples AABB maximum Y plus
+  `0.01`, then minimum Y when their floored cells differ. Block and sky light
+  each take the maximum across those points, preserving the caller's minimum
+  block brightness. This differs from the `Actor::getBrightness` query's
+  `0.66`-height sample.
+- Current `src/__unmapped/03.cpp:282008–282067`, `FUN_14319f150`
+  (RVA `0x0319f150`), returns sky then block brightness bytes and applies its
+  minimum-brightness argument to block light. The top call supplies the actor
+  floor, while the bottom call supplies zero. The shared constant
+  `0x1500c2b70` is `0.00999999978`; near-version
+  `reference/26.30/src/by-owner/a/ActorShaderManager.cpp:600–865`
+  independently identifies the same AABB endpoint contract.
+
+## Versioned custom block bone visibility
+
+- `crates/protocol/src/world/custom_blocks.rs` and its tests retain versioned
+  network expression nodes before state-dependent bone filtering, while keeping
+  direct scalar forms and the existing bounded map admission.
+- Retail 1.26.50.26 `src/__unmapped/0a.cpp:1984217–1984252` registers geometry's
+  `bone_visibility` field. Near-version
+  `reference/26.30/src/by-owner/b/BlockGeometryDescription.cpp:1930–1970` identifies
+  its legacy expression map; `reference/26.30/src/by-owner/e/ExpressionNodeSerializer.cpp:77–164`
+  retains the expression string and Molang version for nonconstant nodes, while
+  constants use the numeric variant. A live StartGame definition confirms these
+  versioned values arrive as compounds with `expression` and `version` fields.
+
+## Custom geometry default light absorption
+
+- `crates/protocol/src/world/custom_blocks.rs` retains geometry's
+  `useBlockTypeLightAbsorption` flag and resolves missing explicit absorption;
+  `app/src/runtime/network/block_overlay.rs` consumes that value, and its
+  permutation resolver replaces the flag together with geometry. Explicit
+  dampening wins. Geometry without the legacy flag absorbs zero light;
+  geometryless or legacy geometry uses the base type absorption.
+- Current 1.26.50.26 `src/__unmapped/0a.cpp:1098669–1098752`,
+  `FUN_14a636c60` (RVA `0x0a636c60`), identifies finalization order: state
+  dampening, type dampening, then the geometry flag or base type fallback.
+  `src/__unmapped/0a.cpp:1987910–1987955`, `FUN_14ab61cb0`
+  (RVA `0x0ab61cb0`), names `useBlockTypeLightAbsorption` at geometry offset
+  `0x41`; absent/wrong-type flags are false. Near-version
+  `reference/26.30/src/by-owner/b/BlockComponentDirectData.cpp:103–126`
+  explicitly writes zero in the nonlegacy geometry branch, and
+  `BlockGeometryDescription.cpp:3915–3930` identifies the same network flag.

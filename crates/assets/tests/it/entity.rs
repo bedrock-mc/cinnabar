@@ -7,6 +7,8 @@ mod animation_capacity;
 mod bind_pose;
 #[path = "entity/controller_blend.rs"]
 mod controller_blend;
+#[path = "entity/material_states.rs"]
+mod material_states;
 #[path = "entity/review_regressions.rs"]
 mod review_regressions;
 #[path = "entity/suite.rs"]

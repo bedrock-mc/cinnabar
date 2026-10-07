@@ -14,7 +14,7 @@ use crate::actor_store::ActorSnapshot;
 /// Simulation tick duration used by actor clocks and Molang time queries.
 pub use world::TICK_DURATION as ACTOR_TICK_DURATION;
 
-pub const MAX_RUNTIME_BONES_PER_RIG: usize = 96;
+pub const MAX_RUNTIME_BONES_PER_RIG: usize = assets::MAX_ENTITY_GEOMETRY_BONES;
 const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;

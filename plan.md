@@ -6279,13 +6279,15 @@ does not close the broader native body-motion or live visual parity gate. See
 
 ## Server pack compatibility
 
-Galaxite's full-block geometry, large actor models, custom hotbar/held items and
-source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client pass. Item registries retain
-numeric aliases and populated definitions accompanying empty declarations.
+Galaxite's full-block geometry, composite Battle Pass models, translucent podium
+glows, state-filtered path borders, correctly lit benches, custom hotbar/held items
+and source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client
+pass. Custom geometry preserves explicit absorption and its legacy type-light flag.
+Item registries retain numeric aliases and populated definitions accompanying empty declarations.
 Zeqa equipment sources and dynamic UI textures retain bounded native dimensions;
 rejected UI publications preserve the previous catalog and retry pending artwork.
 
 Incomplete: merging multiple different populated component definitions, unrestricted
-pack-size parity, exact native frame comparisons and release hardware budgets remain
-open. Two terrain texture keys absent from the served Galaxite stack still report
-diagnostic textures; this compatibility work does not close those parity gates.
+pack-size parity, ordinary actor endpoint lighting, exact native frame comparisons
+and release hardware budgets remain open. Two terrain texture keys absent from the
+served Galaxite stack still report diagnostic textures; this compatibility work does not close those parity gates.

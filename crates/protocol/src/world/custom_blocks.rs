@@ -67,6 +67,8 @@ pub struct CustomBlockVisuals {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomVisualComponents {
     pub geometry: Option<Arc<str>>,
+    /// Geometry's legacy `useBlockTypeLightAbsorption` flag; absent means false.
+    pub geometry_use_block_type_light_absorption: bool,
     /// `bone_visibility` of the same geometry component: bone name and Molang expression.
     pub bone_visibility: Box<[(Arc<str>, Arc<str>)]>,
     pub materials: Option<Box<[CustomMaterialInstance]>>,
@@ -75,6 +77,21 @@ pub struct CustomVisualComponents {
     pub light_dampening: Option<u8>,
     /// `minecraft:light_emission` (0..=15).
     pub light_emission: Option<u8>,
+}
+
+impl CustomVisualComponents {
+    /// Resolves absorption when an explicit component is absent.
+    pub fn effective_light_dampening(&self) -> u8 {
+        self.light_dampening
+            .unwrap_or_else(|| {
+                if self.geometry.is_some() && !self.geometry_use_block_type_light_absorption {
+                    0
+                } else {
+                    15
+                }
+            })
+            .min(15)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -525,13 +542,14 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
     };
     let bone_visibility =
         match geometry_component.and_then(|geometry| geometry.field("bone_visibility")) {
-            // Vanilla sends every entry as a string; numeric tags are kept for lenient servers.
+            // Versioned Molang nodes carry an expression field; scalar server variants remain valid.
             Some(Nbt::Compound(bones)) => bones
                 .iter()
                 .take(MAX_BONE_VISIBILITY)
                 .filter_map(|(bone, value)| {
                     let expression: Arc<str> = match value {
                         Nbt::String(expression) => expression.as_str().into(),
+                        Nbt::Compound(_) => value.field("expression")?.as_str()?.into(),
                         value => value
                             .number()
                             .filter(|value| value.is_finite())?
@@ -633,6 +651,10 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
     };
     CustomVisualComponents {
         geometry,
+        geometry_use_block_type_light_absorption: matches!(
+            geometry_component.and_then(|geometry| geometry.field("useBlockTypeLightAbsorption")),
+            Some(Nbt::Byte(value)) if *value != 0
+        ),
         bone_visibility,
         materials,
         transformation,
@@ -682,3 +704,6 @@ mod tests;
 
 #[cfg(test)]
 mod compatibility_tests;
+
+#[cfg(test)]
+mod lighting_tests;

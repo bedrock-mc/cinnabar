@@ -11,6 +11,7 @@ use super::{OverlayGaps, compile_block_overlay};
 
 mod builtins;
 mod legacy;
+mod lighting;
 mod vines;
 
 fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
@@ -649,7 +650,7 @@ fn flipbook_frames_are_capped_and_shrunk() {
     );
 }
 
-// Explicit light components override the full-dampening, no-emission default.
+// Explicit light components override geometry absorption and the no-emission default.
 #[test]
 fn light_components_drive_state_light() {
     use protocol::{CustomBlockVisuals, CustomVisualComponents};
@@ -689,8 +690,8 @@ fn light_components_drive_state_light() {
     assert_eq!((light[0].emission(), light[0].filter()), (13, 0));
     assert_eq!(
         (light[1].emission(), light[1].filter()),
-        (0, 15),
-        "vanilla default"
+        (0, 0),
+        "modern geometry defaults to no absorption"
     );
 }
 

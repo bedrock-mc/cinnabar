@@ -28,6 +28,9 @@ mod horse_tests;
 #[path = "geometry/inherited_cubes_tests.rs"]
 mod inherited_cubes_tests;
 #[cfg(test)]
+#[path = "geometry/large_rig_tests.rs"]
+mod large_rig_tests;
+#[cfg(test)]
 #[path = "geometry/pig_tests.rs"]
 mod pig_tests;
 #[cfg(test)]
