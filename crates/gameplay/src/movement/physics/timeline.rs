@@ -132,13 +132,14 @@ impl LocalPhysicsController {
         Some((changed.then_some(tick), speed))
     }
 
-    /// Writes a glide boost stamped `tick` into the retained inputs after it.
+    /// Writes a movement boost stamped `tick` into the retained inputs after it.
     ///
     /// Returns the tick to replay from when a retained input changed, and the
     /// span left for live ticks. Live stamps start with the next tick; stale
     /// stamps clamp to the oldest retained frame, as motion does.
-    pub(crate) fn retime_glide_boost(
+    pub(crate) fn retime_movement_boost(
         &mut self,
+        boost: crate::movement::MovementBoost,
         tick: u64,
         span: crate::movement::BoostSpan,
     ) -> (Option<u64>, Option<crate::movement::BoostSpan>) {
@@ -155,10 +156,37 @@ impl LocalPhysicsController {
         for input in self.history.retained_inputs_after_mut(anchor) {
             elapsed += 1;
             let boosted = span.covers(elapsed);
-            changed |= input.effects.glide_boost != boosted;
-            input.effects.glide_boost = boosted;
+            let lane = boost.flag(&mut input.effects);
+            changed |= *lane != boosted;
+            *lane = boosted;
         }
         (changed.then_some(anchor), span.after(elapsed))
+    }
+
+    /// Rewrites the liquid speed attributes of retained ticks after an
+    /// `UpdateAttributes` stamped `tick`; returns the tick to replay from when
+    /// an input changed. Live and stale stamps need no rewrite.
+    pub(crate) fn retime_liquid_movement_speeds(
+        &mut self,
+        tick: u64,
+        speeds: crate::movement::speed_authority::LiquidMovementSpeeds,
+    ) -> Option<u64> {
+        let TimelineSlot::Rewind(tick) = self.timeline_slot(tick) else {
+            return None;
+        };
+        let mut changed = false;
+        for input in self.history.retained_inputs_after_mut(tick) {
+            for (field, value) in [
+                (&mut input.underwater_movement_speed, speeds.underwater),
+                (&mut input.lava_movement_speed, speeds.lava),
+            ] {
+                if value.is_some() && *field != value {
+                    *field = value;
+                    changed = true;
+                }
+            }
+        }
+        changed.then_some(tick)
     }
 
     /// Replaces the live velocity, for timeline edits whose replay failed.

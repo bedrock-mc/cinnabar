@@ -142,6 +142,9 @@ impl LocomotionState {
             input.immobile = facts.immobile;
             movement_speed.set_sprinting(input.sprinting);
             input.movement_speed = movement_speed.prediction_speed();
+            let liquid = movement_speed.liquid();
+            input.underwater_movement_speed = liquid.underwater;
+            input.lava_movement_speed = liquid.lava;
             requested_speed = input.movement_speed;
             physics.advance_with_context_and_effects(
                 frame.delta,

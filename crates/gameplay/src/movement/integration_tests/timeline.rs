@@ -424,7 +424,7 @@ fn glide_with_boost(
         if let Some((tick, span)) = boost_from
             && physics.state().unwrap().tick == tick
         {
-            effects.set_glide_boost(1, 1, Some(span));
+            effects.set_movement_boost(1, 1, super::MovementBoost::Glide, Some(span));
         }
         let input = MovementInput {
             jumping: index == 1,
@@ -455,7 +455,7 @@ fn delayed_glide_boost_rewinds_to_its_tick_and_matches_on_time_delivery() {
     assert_eq!(delayed.mode(), sim::MovementMode::Gliding);
     assert_ne!(delayed.state(), on_time.state());
 
-    let (rewind, remaining) = delayed.retime_glide_boost(103, span);
+    let (rewind, remaining) = delayed.retime_movement_boost(super::MovementBoost::Glide, 103, span);
     assert_eq!(rewind, Some(103));
     assert_eq!(remaining, Some(super::BoostSpan::Ticks(2)));
     reconcile_timeline_rewind(&mut ticker, &mut delayed, 103, &VersionedFloor(1)).unwrap();
@@ -467,8 +467,25 @@ fn delayed_glide_boost_rewinds_to_its_tick_and_matches_on_time_delivery() {
     assert!(!on_time_effects.snapshot().glide_boost);
 
     assert_eq!(
-        delayed.retime_glide_boost(106, span),
+        delayed.retime_movement_boost(super::MovementBoost::Glide, 106, span),
         (None, Some(span)),
         "a current stamp boosts from the next tick"
+    );
+}
+
+/// A delayed liquid speed attribute rewrites the retained inputs after its stamp once.
+#[test]
+fn delayed_liquid_movement_speeds_rewrite_retained_inputs_once() {
+    let (mut physics, _) = walked_physics(4);
+    let speeds = super::speed_authority::LiquidMovementSpeeds {
+        underwater: Some(0.05),
+        lava: None,
+    };
+    assert_eq!(physics.retime_liquid_movement_speeds(102, speeds), Some(102));
+    assert_eq!(physics.retime_liquid_movement_speeds(102, speeds), None);
+    assert_eq!(
+        physics.retime_liquid_movement_speeds(104, speeds),
+        None,
+        "a current stamp applies live"
     );
 }

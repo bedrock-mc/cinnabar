@@ -118,3 +118,25 @@ fn processed_sprint_rewrites_keep_the_effective_attribute() {
         Some(f64::from(0.13_f32 / sim::SPRINT_SPEED_MULTIPLIER as f32))
     );
 }
+
+/// Liquid speeds arrive in the same attribute packet as movement and keep values a later update omits.
+#[test]
+fn liquid_speeds_order_independently_and_keep_omitted_values() {
+    let mut authority = LocalMovementSpeedAuthority::default();
+    authority.begin_session(1, 0);
+    assert!(authority.apply(1, 5, 0, 0.1, None));
+    let update = authority.apply_liquid(1, 5, 0, Some(0.05), None).unwrap();
+    assert_eq!(update.underwater, Some(0.05));
+    authority.apply_liquid(1, 6, 0, None, Some(0.03)).unwrap();
+    assert_eq!(
+        authority.liquid(),
+        super::LiquidMovementSpeeds {
+            underwater: Some(0.05),
+            lava: Some(0.03),
+        }
+    );
+    assert!(authority.apply_liquid(1, 6, 0, Some(0.2), None).is_none());
+    let invalid = authority.apply_liquid(1, 7, 0, Some(f64::NAN), None).unwrap();
+    assert_eq!(invalid.underwater, None);
+    assert_eq!(authority.liquid().underwater, Some(0.05));
+}

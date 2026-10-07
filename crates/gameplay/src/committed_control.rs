@@ -109,6 +109,27 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
+        if let CommittedControlEvent::LocalLiquidMovementSpeeds {
+            sequence,
+            dimension,
+            underwater,
+            lava,
+            tick,
+        } = control
+        {
+            if let Some(speeds) = self.speed.apply_liquid(
+                self.session_generation,
+                sequence,
+                dimension,
+                underwater,
+                lava,
+            ) && self.movement.physics_is_authorized()
+                && let Some(rewind) = self.physics.retime_liquid_movement_speeds(tick, speeds)
+            {
+                replay_timeline_edit(self.movement, self.physics, rewind, world);
+            }
+            return ControlDisposition::Handled;
+        }
         if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
             if self.movement.physics_is_authorized()
                 && let Some(rewind) = self.physics.apply_server_movement_flags(tick, flags)
@@ -128,17 +149,21 @@ impl CommittedGameplayState<'_> {
             return ControlDisposition::Environment;
         }
         if let CommittedControlEvent::LocalMovementBoost { sequence, event } = control {
-            // Vanilla predicts a firework's glide boost from the tick the server
-            // stamped, so the boost enters retained inputs and replays from there.
-            if event.kind == protocol::MovementEffectKind::GlideBoost {
+            // Vanilla predicts a boost from the tick the server stamped, so it
+            // enters retained inputs and replays from there.
+            if let Some(boost) = movement::MovementBoost::from_kind(event.kind) {
                 let span = movement::BoostSpan::from_wire(event.duration_ticks);
                 let (rewind, remaining) = if self.movement.physics_is_authorized() {
-                    self.physics.retime_glide_boost(event.tick, span)
+                    self.physics.retime_movement_boost(boost, event.tick, span)
                 } else {
                     (None, Some(span))
                 };
-                self.effects
-                    .set_glide_boost(self.session_generation, sequence, remaining);
+                self.effects.set_movement_boost(
+                    self.session_generation,
+                    sequence,
+                    boost,
+                    remaining,
+                );
                 if let Some(rewind) = rewind {
                     replay_timeline_edit(self.movement, self.physics, rewind, world);
                 }
@@ -364,6 +389,7 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
+            | CommittedControlEvent::LocalLiquidMovementSpeeds { .. }
             | CommittedControlEvent::LocalMovementFlags { .. }
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }

@@ -24,6 +24,7 @@ pub fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::Weather { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
+        | CommittedControlEvent::LocalLiquidMovementSpeeds { .. }
         | CommittedControlEvent::LocalMovementFlags { .. }
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }

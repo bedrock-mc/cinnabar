@@ -137,6 +137,27 @@ impl WorldAuthority {
                             tick: update.tick,
                         });
                     }
+                    let liquid = |name: &str| {
+                        update
+                            .attributes
+                            .iter()
+                            .rev()
+                            .find(|attribute| attribute.name.as_ref() == name)
+                            .map(|attribute| f64::from(attribute.current))
+                    };
+                    let underwater = liquid("minecraft:underwater_movement");
+                    let lava = liquid("minecraft:lava_movement");
+                    if underwater.is_some() || lava.is_some() {
+                        self.push_committed_control(
+                            CommittedControlEvent::LocalLiquidMovementSpeeds {
+                                sequence,
+                                dimension: update.dimension,
+                                underwater,
+                                lava,
+                                tick: update.tick,
+                            },
+                        );
+                    }
                 }
                 if let ActorEvent::Metadata(update) = &event
                     && update.runtime_id == self.local_player_runtime_id

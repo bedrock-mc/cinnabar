@@ -53,6 +53,12 @@ pub struct MovementInput {
     /// preceding flying state keeps toggle ticks and correction replay aligned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub liquid_flow_enabled: Option<bool>,
+    /// Effective `minecraft:underwater_movement` current; `None` selects its vanilla default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underwater_movement_speed: Option<f64>,
+    /// Effective `minecraft:lava_movement` current; `None` selects its vanilla default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lava_movement_speed: Option<f64>,
     /// Depth Strider level on the boots; scales water travel toward ground travel.
     #[serde(default, skip_serializing_if = "is_zero_level")]
     pub depth_strider: u8,
@@ -124,9 +130,14 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
     {
         return Err(SimulationError::InvalidItemUseMovementModifier);
     }
-    if input
-        .movement_speed
-        .is_some_and(|value| !value.is_finite() || value < 0.0)
+    if [
+        input.movement_speed,
+        input.underwater_movement_speed,
+        input.lava_movement_speed,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !value.is_finite() || value < 0.0)
     {
         return Err(SimulationError::InvalidMovementSpeed);
     }

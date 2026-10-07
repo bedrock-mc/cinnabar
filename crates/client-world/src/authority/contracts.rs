@@ -118,6 +118,16 @@ pub enum CommittedControlEvent {
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
     },
+    /// `minecraft:underwater_movement` and `minecraft:lava_movement` currents
+    /// from one local attribute update; absent attributes are `None`.
+    LocalLiquidMovementSpeeds {
+        sequence: u64,
+        dimension: i32,
+        underwater: Option<f64>,
+        lava: Option<f64>,
+        /// Local input tick the server stamped; zero when unstamped.
+        tick: u64,
+    },
     MovePlayer {
         sequence: u64,
         movement: MovePlayerEvent,

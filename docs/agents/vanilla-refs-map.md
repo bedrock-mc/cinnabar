@@ -1306,6 +1306,7 @@ preview build is not an exact retail/platform capture for every supported client
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
 - // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
+- Water travel speed `0x0dc3eeb0` (adapter `0x0dc3f070`): base = MovementAttributes underwater_movement (0 if absent; dolphins use movement); swim multiplier <= 1 blends Depth Strider (halved off ground) toward minecraft:movement; otherwise base * multiplier * ((level / max) * 0.3 + 0.7) (PE 0x150056088, 0x15005ea04). SwimSpeedMultiplier `0x09a0b500`: 2.0 (PE 0x14feff2b8) when actor flag 57 (swimming) and MovementEffects slot 1 (dolphin boost) is active, else 1.0. Lava travel (26.30 LavaTravelSystem view `0x1051bf080`) sets speed to lava_movement (0 if absent).
 
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
@@ -1358,6 +1359,7 @@ preview build is not an exact retail/platform capture for every supported client
 - /// excludes MobIsJumpingFlagComponent and lets MobJumpSystem handle ascent.
 - // RVA 0x09fd2140: ordinary upward steering requires the liquid material
 - // flag written by bounding-box input update, even if velocity was falling.
+- Water drag `0x0320fc20`: a swim speed multiplier above 1 keeps the base 0.8/0.9 horizontal drag without the Depth Strider blend.
 
 ## crates/sim/src/world/current.rs
 - //! Player liquid-current impulse from the preceding pose (native 0x0a5d5c40).

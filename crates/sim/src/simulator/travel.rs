@@ -96,7 +96,7 @@ pub(super) fn tick_mode(
                 super::water_travel_speed(
                     &input,
                     sampled.movement.horizontal_speed_factor,
-                    super::depth_strider_level(input.depth_strider, grounded_at_start),
+                    grounded_at_start,
                 ),
             );
             let attach = (!input.jumping)
