@@ -168,7 +168,10 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 );
             }
             MenuScreen::Pause => {
-                data.set_global("#playername", text(view.display_name.clone()));
+                data.set_global(
+                    "#playername",
+                    text(super::accounts::current_name(view).to_owned()),
+                );
                 flags(&mut data, &["#playername_visible"]);
                 data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
                 // A non-edu client draws the retail pause content, not edu_pause's.
@@ -217,7 +220,10 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 });
             }
             MenuScreen::Store => return store_screen(view, &context, translate),
-            MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
+            MenuScreen::Profile
+            | MenuScreen::DressingRoom
+            | MenuScreen::Inbox
+            | MenuScreen::Friends => return None,
         }
         reference
     };
@@ -536,7 +542,7 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
     let step = view
         .gui_scale_choices
         .iter()
-        .position(|offset| *offset == view.gui_scale_offset)
+        .position(|choice| choice.offset == view.gui_scale_offset)
         .unwrap_or(0);
     data.set_global("#gui_scale", Scalar::Num(step as f64));
     data.set_global(
@@ -746,7 +752,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.signin" => MenuAction::StartSignIn,
         "button.sign_out" => MenuAction::SignOut,
         "button.menu_profile" if view.screen == MenuScreen::Home => MenuAction::OpenAccounts,
-        "button.menu_profile" | "button.to_profile_screen" | "button.manage_account" => {
+        "button.to_profile_screen" => MenuAction::Navigate(MenuScreen::DressingRoom),
+        "button.menu_profile" | "button.manage_account" => {
             MenuAction::Navigate(MenuScreen::Profile)
         }
         // The join progress screen's cancel; the menu drops it where vanilla cannot cancel.
@@ -821,8 +828,7 @@ pub(super) fn slider_actions(view: &MenuView, region: &HitRegion) -> Option<Vec<
         return Some(
             view.gui_scale_choices
                 .iter()
-                .copied()
-                .map(MenuAction::SettingsScale)
+                .map(|choice| MenuAction::SettingsScale(choice.offset))
                 .collect(),
         );
     }

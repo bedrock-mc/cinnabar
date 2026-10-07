@@ -84,7 +84,32 @@ fn flag_harness() -> Harness {
 /// admitted admission stays queued for correction witnesses that reconcile a
 /// retained range.
 fn step_retained(harness: &mut Harness, input: MovementInput) -> (u128, PhysicsMovementSample) {
-    let frame = harness.physics.advance(TICK, input, &VersionedFloor(1));
+    let previous = harness
+        .physics
+        .sample_at(harness.physics.state().unwrap().tick)
+        .map(|s| s.input)
+        .unwrap_or_default();
+    let context = super::PhysicsSampleContext {
+        input: super::TickInput {
+            jump: semantic_input::ActionPhase {
+                held: input.jumping,
+                pressed: input.jumping && !previous.jump.held,
+                released: !input.jumping && previous.jump.held,
+            },
+            sneak: semantic_input::ActionPhase {
+                held: input.sneaking,
+                pressed: input.sneaking && !previous.sneak.held,
+                released: !input.sneaking && previous.sneak.held,
+            },
+            sneak_down: input.sneaking,
+            sprint_down: input.sprinting,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let frame = harness
+        .physics
+        .advance_with_context(TICK, input, context, &VersionedFloor(1));
     assert!(
         frame.blocked.is_none(),
         "unexpected blocked tick: {:?}",
@@ -179,12 +204,16 @@ fn released_jump_clears_wire_jumping_while_the_simulated_arc_continues() {
 
     let mut takeoff = settled_sample(41, [0.0, 64.620_01, 0.0]);
     takeoff.jumping = true;
+    takeoff.input.jump = semantic_input::ActionPhase {
+        held: true,
+        pressed: true,
+        released: false,
+    };
     takeoff.processed = ProcessedMovementState {
         jump_initiated: true,
         jump_arc_active: true,
         sneaking: false,
         sprinting: false,
-        direction_flags: None,
         mode: sim::MovementMode::Walking,
         forced_sneak: false,
         ride: None,
@@ -192,6 +221,7 @@ fn released_jump_clears_wire_jumping_while_the_simulated_arc_continues() {
     let mut released = settled_sample(42, [0.0, 64.9, 0.0]);
     // The button is up but the simulated arc is still in progress.
     released.processed.jump_arc_active = true;
+    released.input.jump.released = true;
 
     ticker.enqueue_completed_physics(takeoff).unwrap();
     ticker.enqueue_completed_physics(released).unwrap();
@@ -412,10 +442,10 @@ fn sneak_flags_track_the_simulator_state() {
 
     let (stop, _) = step(&mut harness, sneak_input(false));
     assert_ne!(stop & PlayerInputFlags::STOP_SNEAKING.bits(), 0);
-    assert_eq!(
+    assert_ne!(
         stop & PlayerInputFlags::SNEAK_RELEASED_RAW.bits(),
         0,
-        "a processed stop without a physical button is no raw release"
+        "a physical sneak release retains its raw event"
     );
     assert_eq!(stop & PlayerInputFlags::SNEAKING.bits(), 0);
     assert_eq!(stop & PlayerInputFlags::WANT_DOWN.bits(), 0);
@@ -935,7 +965,10 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
     // Both buttons physically held while the processed states are active.
     let mut held = settled_sample(41, [0.0; 3]);
     held.sneaking = true;
-    held.sneak_button = true;
+    held.input.sneak.held = true;
+    held.input.sneak.pressed = true;
+    held.input.sneak_down = true;
+    held.input.sprint_down = true;
     held.sprinting = true;
     held.processed.sneaking = true;
     held.processed.sprinting = true;
@@ -944,6 +977,7 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
     // stay physically held while a future rule narrows the processed states.
     let mut narrowed = held.clone();
     narrowed.tick = 42;
+    narrowed.input.sneak.pressed = false;
     narrowed.processed.sneaking = false;
     narrowed.processed.sprinting = false;
 
@@ -995,7 +1029,7 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
         narrowed_snapshot.flags.bits() & PlayerInputFlags::STOP_SPRINTING.bits(),
         0
     );
-    assert_eq!(
+    assert_ne!(
         narrowed_snapshot.flags.bits() & PlayerInputFlags::WANT_DOWN.bits(),
         0
     );
@@ -1019,7 +1053,7 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
         0,
         "no fresh start edges exist without a physical change"
     );
-    assert_eq!(
+    assert_ne!(
         still_snapshot.flags.bits() & PlayerInputFlags::WANT_DOWN.bits(),
         0
     );
@@ -1035,6 +1069,7 @@ fn raw_sneak_carriers_follow_the_physical_button() {
     let mut toggled = settled_sample(42, [0.0; 3]);
     toggled.sneaking = true;
     toggled.processed.sneaking = true;
+    toggled.input.sneak_down = true;
     let toggled_flags = encode(&toggled, &idle);
     assert_ne!(toggled_flags & PlayerInputFlags::SNEAKING.bits(), 0);
     let raw = (PlayerInputFlags::SNEAK_PRESSED_RAW
@@ -1044,7 +1079,8 @@ fn raw_sneak_carriers_follow_the_physical_button() {
     assert_eq!(toggled_flags & raw, 0, "a latched sneak holds no button");
 
     let mut pressed = toggled.clone();
-    pressed.sneak_button = true;
+    pressed.input.sneak.held = true;
+    pressed.input.sneak.pressed = true;
     let pressed_flags = encode(&pressed, &toggled);
     assert_ne!(
         pressed_flags & PlayerInputFlags::SNEAK_PRESSED_RAW.bits(),
@@ -1054,6 +1090,7 @@ fn raw_sneak_carriers_follow_the_physical_button() {
         pressed_flags & PlayerInputFlags::SNEAK_CURRENT_RAW.bits(),
         0
     );
+    toggled.input.sneak.released = true;
     let released_flags = encode(&toggled, &pressed);
     assert_ne!(
         released_flags & PlayerInputFlags::SNEAK_RELEASED_RAW.bits(),
@@ -1069,6 +1106,11 @@ fn raw_sneak_carriers_follow_the_physical_button() {
 fn airborne_jump_press_sends_held_and_raw_flags_without_start_jumping() {
     let mut sample = settled_sample(41, [0.0, 64.620_01, 0.0]);
     sample.jumping = true;
+    sample.input.jump = semantic_input::ActionPhase {
+        held: true,
+        pressed: true,
+        released: false,
+    };
     sample.grounded_before_tick = false;
     sample.grounded_after_tick = false;
     sample.processed.jump_initiated = false;

@@ -1,8 +1,12 @@
 //! Nonblocking GPU timing sums elapsed pass latencies, including overlap and gaps, not active work.
-//! Metal times owned passes only; whole-frame, stock opaque/FXAA and shared draw categories stay absent.
+//! Metal times owned passes and the stock opaque pass; whole-frame, FXAA and shared draw categories stay absent.
 
+mod categories;
+mod health;
 #[cfg(all(test, target_os = "macos"))]
 mod metal_tests;
+mod opaque;
+mod overdraw;
 mod pass;
 pub(crate) mod readback;
 #[cfg(test)]
@@ -62,6 +66,12 @@ impl Plugin for GpuTimingPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
+        if overdraw::requested() {
+            overdraw::install(render_app);
+        }
+        if categories::requested() {
+            render_app.insert_resource(categories::CategoryProfiling);
+        }
         render_app
             .insert_resource(profiler)
             // RenderStartup runs inside the render app after every plugin has built the graph,
@@ -118,6 +128,7 @@ fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
 }
 
 fn wrap_timed_nodes(world: &mut World) {
+    let mut replacement = categories::replacement(world).or_else(|| opaque::replacement(world));
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -129,7 +140,13 @@ fn wrap_timed_nodes(world: &mut World) {
             continue;
         };
         // Replacing the node alone preserves its slots and edges.
-        let inner = std::mem::replace(&mut state.node, Box::new(EmptyNode));
+        let mut inner = std::mem::replace(&mut state.node, Box::new(EmptyNode));
+        if label == Node3d::MainOpaquePass.intern()
+            && categories::replaceable(&*inner)
+            && let Some(replacement) = replacement.take()
+        {
+            inner = replacement;
+        }
         state.node = Box::new(TimedNode { inner, stage });
     }
 }
@@ -271,6 +288,7 @@ pub(crate) struct GpuTimestamps {
     period_ns: f32,
     draw_spans: bool,
     frame: FrameSpans,
+    health: Option<health::QueryHealth>,
 }
 
 impl GpuTimestamps {
@@ -321,6 +339,7 @@ impl GpuTimestamps {
                 draws: AtomicU32::new(0),
                 stages: std::array::from_fn(|_| AtomicU8::new(0)),
             },
+            health: health::QueryHealth::requested(),
         })
     }
 
@@ -366,6 +385,9 @@ impl GpuTimestamps {
             match slot.state.load(Ordering::Acquire) {
                 PENDING => break,
                 MAPPED => {
+                    if let Some(health) = &mut self.health {
+                        health.readback();
+                    }
                     let bytes = slot.buffer.slice(..).get_mapped_range();
                     let tick = |query: u32| {
                         let start = query as usize * TIMESTAMP_BYTES as usize;
@@ -380,7 +402,11 @@ impl GpuTimestamps {
                     let frame = decode_spans(
                         passes.chain(draws).map(|query| {
                             let stage = slot.stages[query as usize / 2];
-                            (stage, tick(query), tick(query + 1))
+                            let (begin, end) = (tick(query), tick(query + 1));
+                            if let Some(health) = &mut self.health {
+                                health.sample(stage, begin, end);
+                            }
+                            (stage, begin, end)
                         }),
                         self.period_ns,
                         !cfg!(target_os = "macos"),
@@ -391,12 +417,19 @@ impl GpuTimestamps {
                     tracy::record(&frame);
                     sink(&frame);
                 }
-                _ => {}
+                _ => {
+                    if let Some(health) = &mut self.health {
+                        health.map_failure();
+                    }
+                }
             }
             slot.state.store(PENDING, Ordering::Relaxed);
             self.ring.release(index);
         }
         let slot = self.ring.acquire().map_or(NO_SLOT, |slot| slot as u32);
+        if let Some(health) = &mut self.health {
+            health.frame(slot == NO_SLOT);
+        }
         self.frame.passes.store(0, Ordering::Relaxed);
         self.frame.draws.store(0, Ordering::Relaxed);
         self.frame.slot.store(slot, Ordering::Release);
@@ -469,9 +502,14 @@ fn init_gpu_timestamps(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     profiler: Res<RuntimeStageProfiler>,
+    categories: Option<Res<categories::CategoryProfiling>>,
 ) {
     match GpuTimestamps::new(&device, &queue, profiler.enabled()) {
-        Some(timestamps) => commands.insert_resource(timestamps),
+        Some(mut timestamps) => {
+            // Category passes already split the opaque phase; in-pass spans would double count.
+            timestamps.draw_spans &= categories.is_none();
+            commands.insert_resource(timestamps);
+        }
         None => info!("GPU timestamps unsupported by this adapter; gpu_* stages stay empty"),
     }
 }

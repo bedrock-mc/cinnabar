@@ -29,12 +29,42 @@ pub struct Move {
     pub strafe: f32,
 }
 
-/// Absolute pointer position in logical window pixels, measured from its top-left corner.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// A wheel delta uses lines unless `pixels` selects window-logical pixels.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Scroll {
+    #[serde(default)]
+    pub x: f32,
+    pub y: f32,
+    #[serde(default)]
+    pub pixels: bool,
+}
+
+/// Absolute pointer position in logical window pixels, measured from its top-left corner.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Pointer {
     pub x: f32,
     pub y: f32,
+}
+
+impl<'de> Deserialize<'de> for Pointer {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Coordinates {
+            x: f32,
+            y: f32,
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Object(Coordinates),
+            Pair([f32; 2]),
+        }
+        Ok(match Wire::deserialize(deserializer)? {
+            Wire::Object(Coordinates { x, y }) | Wire::Pair([x, y]) => Self { x, y },
+        })
+    }
 }
 
 /// Scroll distance follows Bevy's wheel sign: positive Y scrolls up.
@@ -85,6 +115,8 @@ pub struct InputCommand {
     pub text: Option<String>,
     pub pointer: Option<Pointer>,
     pub wheel: Option<Wheel>,
+    /// Compatibility wheel delta; `wheel` takes precedence.
+    pub scroll: Option<Scroll>,
     #[serde(default)]
     pub release_all: bool,
     /// Releases everything and hands the window back to the real keyboard and mouse.
@@ -145,6 +177,14 @@ pub enum Command {
     },
     Disconnect,
     Input(InputCommand),
+    /// Imports a classic PNG through the same path as the Dressing Room file picker.
+    ImportSkin {
+        path: PathBuf,
+    },
+    /// Imports a PNG cape through the same path as the Dressing Room file picker.
+    ImportCape {
+        path: PathBuf,
+    },
     /// A chat line, or a command when it starts with `/`.
     Chat {
         text: String,

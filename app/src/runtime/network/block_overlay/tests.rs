@@ -9,6 +9,7 @@ use resource_pack::LayeredPackView;
 
 use super::{OverlayGaps, compile_block_overlay};
 
+mod builtins;
 mod legacy;
 mod vines;
 

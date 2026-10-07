@@ -1,7 +1,196 @@
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/world_settings/; widgets/choice.rs
+
+- Owner-supplied Create New World reference (2026-10-06) shows a neutral80 sidebar, 16:9 forest/river
+  preview, native category icons and neutral form sections with recessed fields, primary selected
+  choices and secondary unselected choices. Installed hbui `1.26.51.01` is near-version, not the
+  pinned `1.26.50` witness.
+- `bpe`/`Epe`/`vpe` use `RK.Item`, `RK.ListItem` and `V_` for the preview/actions/seven categories.
+  `ype` frames `world-preview-default-d0210bba13d939ca9e72.jpg` at 16:9. `RK` has 1.6rem desktop
+  item insets and 4.8rem category rows, with its own vertical viewport.
+- General `cfe` wraps world name `rD`, game/difficulty `wX` and Hardcore `O_` in neutral panels.
+  `YK` defaults to onRole primary/offRole secondary; selection lowers its face by 0.4rem and draws
+  a centered 4.8rem bottom marker. `wX` uses `FX` below 15rem per option; Cinnabar's compact choices
+  still wrap instead. `O_` uses `hardcore-heart-engraved-75556ce94d9bfdecca12.png` on its thumb.
+- The owner's quick motion and subdued commerce remain intentional deviations. Unimplemented
+  categories/Hardcore/Realm creation are disabled, so this visual pass cannot close full parity.
+
 # Vanilla reference map
+
+## app/src/runtime/network/block_overlay.rs; app/src/runtime/network/block_overlay/tests/builtins.rs
+
+- The current [geometry component documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/blockreference/examples/blockcomponents/minecraftblock_geometry?view=minecraft-bedrock-stable) and [1.26.0 Creator update](https://github.com/MicrosoftDocs/minecraft-creator/blob/main/creator/Documents/Update1.26.0.md) establish `minecraft:geometry.full_block_v1` as the intrinsic that preserves the original full-cube DOWN orientation. For block format 1.26.0 and later, `minecraft:geometry.full_block` rotates that face by 180 degrees to match ordinary full blocks. The intrinsic uses the native cube path; the versioned DOWN material reverses its existing UVs without changing other faces or duplicating source pixels.
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/inbox/; crates/client-ui/src/ui_runtime/presentation/forms/oreui/sidebar.rs
+- Installed near-version `1.26.51.01` hbui `W3` uses a 102rem narrow breakpoint, a 0.8rem top spacer, desktop 1/3/7/1 grid columns and narrow 0/2/6 columns. `c3`/`i3` select `RK.ListItem` and `V_`: neutral80 sidebar, 1.6rem top/bottom spacing, 4.8rem rows, native category icons and selected icon highlight. CSS `d3b4fa33c4466e32479a` owns the sidebar's 0.2rem border; its ListItem states are indexed in the Settings sidebar entry below.
+- `R3`/`A3`/`L3` select category-specific empty cards. `RO` is neutral80 with a 0.2rem border and 1.6rem padding; `AO` uses centered secondaryButton type, `NO` adds 1.6rem above and below the illustration, and `LO` uses centered dimmest captionShort. CSS `c4efde010b75d43947fa` displays the five 128×48 Inbox_No* PNGs at 256×96 times base1Scale. English strings are `data/resource_packs/oreui/texts/en_US.lang` under `hbui.InboxRoute`.
+- `W3` opens `/inbox-settings` from the native filter navigation button. `j3` owns a separate settings route with secondary Mark all as read and destructive Delete all read messages buttons. Cinnabar currently exposes those existing maintenance actions; invite preference toggles, subscriber-specific promotions and rich message templates remain incomplete. The owner's quick transitions and quiet commerce treatment are custom extensions, not native animation/parity evidence.
+
+
+## crates/launcher/src/dressing_room.rs; app/src/player_skin.rs; app/src/player_skin/catalog.rs; app/src/menu/dressing_room.rs; crates/protocol/src/skin_change.rs
+- Runtime default choices are declared by installed `data/skin_packs/vanilla/skins.json`: free entries select their original PNG and either `geometry.humanoid.custom` or `geometry.humanoid.customSlim`. The `Dummy` custom slot is not an owned default skin. The installed pack's `geometry.json` supplies the complete source and inheritance; PNGs and geometry remain runtime assets.
+- Classic imported PNGs use the same declared wide/slim geometry roots. The requested starter roster exposes Steve and Alex only. Private immutable imports, rename/delete modals and the custom Dressing Room gallery are Cinnabar UI flows; this does not close a vanilla Dressing Room layout/parity gate.
+- Versioned `PlayerSkinPacket` carries UUID, serialized image, resource patch, geometry, arm size, cape image/identity and localized names. The live update replaces the retained local profile appearance without replacing roster identity. Login resource patches select the same arm model as the active upload, and ClientData includes the same cape bytes/dimensions/identity.
+- Cape upload sizes reuse the existing versioned SerializedSkin normalization: 64×32, 128×64, 256×128 and 1024×512. Imported capes retain source texels, including alpha; skin-body alpha rules do not apply to capes. The custom cape gallery persists its selection independently of the body skin and treats no cape as an absent image.
+- Runtime cape sources are indexed under `app/src/player_skin/catalog/default_capes.rs` below; the custom cross-edition wardrobe does not close native Bedrock gallery parity.
 
 Agent cross-reference index: for each file, the vanilla symbols and addresses its behaviour was matched against, removed from source comments by #126. Use it to locate the matching vanilla code; keep source comments free of these references. Entries go stale as code moves.
 
+## app/src/asset_startup/oreui_fonts.rs; crates/client-ui/src/ui_runtime/oreui_fonts.rs; crates/pack-compiler/src/font/outline/runtime/
+- Installed hbui `index-800b52fb984b5ed54515.css` uses `Minecraft Seven v2`/`Minecraft Ten v2` followed by the locale-specific Noto family list. Its font-face declarations resolve Merged, SC, TC, JP, KR, Arabic, Mongolian, Syriac and TamilSupplement sources. `index-168bae443ec79c00823c.js` prioritizes JP for Japanese, KR for Korean, TC for traditional Chinese, SC for simplified Chinese and Arabic for Arabic; other locales begin with the merged face. The current `1.26.50.26` reconstruction names `SmoothFontWithHangulFallback` in `src/__unmapped/01.cpp`; `reference/26.30/src/by-owner/f/FontRepository.cpp` records default-face selection. Font tables, rather than handpicked Unicode substitutions, decide glyph coverage.
+- The near-version `1.26.51.01` hbui CSS `@font-face` declarations select Seven v2 and Ten v2 OTF, Seven v4 and Five v3 TTF, and Five v2 regular/bold OTF. Native headings use Ten; body uses Seven at 1.6rem/2rem and descriptions at 1.4rem/2rem; ordinary tracking is 0.04rem. The font files' hhea/hmtx tables supply ascent/descent and fractional advances.
+- Seven's GPOS kern lookup changes `ra` by -100 and `Fa` by -200 units at 1000 units/em; all DFLT/cyrl/grek/latn kern features share lookup 0. Core OTF pairs use first-glyph horizontal advance only, with pair positioning formats 1 and 2.
+- Gameface's [font documentation](https://docs.coherent-labs.com/cpp-gameface/content_development/fonts_frontend/) states that HarfBuzz uses GPOS kerning when available. Its CSS support table accepts letter-spacing and has no font-kerning override. Applying those default pairs together with native tracking is an inference from the host contract and the unmodified native font tables. Full glyph substitution/script shaping and native SDF pixel comparison remain open.
+- Current `1.26.50.26` `OreUI::Library::_initializeSystem` passes `--disableSDFonGPU` (`src/__unmapped/05.cpp:1032845`). The near-version native pack `data/shaders/glsl/hb_text_sdf.fragment` samples the red distance channel linearly, decodes `sample*7.96875-3.984375`, and smoothsteps around zero with threshold `(128/255)/Additional.z`. Both `hb_text_sdf.fragment` and `hb_text.fragment` apply exponent `1.45-dot(rgb,[.2126,.7152,.0722])`; raster text uses nearest texel fetch when texture size is available. `data/resource_packs/vanilla/materials/gameface.material` registers these text paths.
+- Installed `1.26.51.01` Mach-O retains Renoir symbols. `TypefaceImpl::SDF_BASE_CHAR_SIZE` at `0x1112ff85c` is 52 and `SDF_TEXT_SIZE_THRESHOLD` at `0x1112ff858` is 10. `FT_New_Library` (`0x100a56e48`) initializes embedded FreeType 2.13.2. CPU glyph creation (`0x10015d51c`, called from named `GetOrCreateSDFonCPUGlyphImages`) uses 52 px, FreeType no-hint/no-bitmap flags 10 and normal gray rendering, then pads 4 px on every side. `GenerateDFFromA8` (`0x100124274`) and `GenerateDistanceFieldFromImage` (`0x100123ca0`) initialize weighted coverage gradients with diagonal 1/middle √2 and epsilon .001, propagate edge vectors in forward/backward sweeps, and encode `trunc(128+32*signedDistance)` with saturation outside ±4. The pinned bundled freetype-sys 0.23.0 source uses upstream 2.13.2; native FreeType modifications and an atlas/frame comparison remain a separate acceptance witness.
+- `CommandProcessor::SplitCollections` (`0x1000a10d0`) writes CPU type 1's `Additional.z` as requested size divided by 52; `GeometryGenerator::GenerateRectsForGlyphsCollectionScratchGPUData` (`0x1000cc738`) copies it into every vertex. UV derivatives therefore recover its inverse for axis-aligned text in the native pixel coordinate system. The `.41→.27` heuristic in `GetDistanceFieldDeltaPerPixel` belongs to GPU type 2/3 and is not used by the disabled-GPU CPU SDF shader.
+- `GetFontDescriptionFromRule` (`0x1007b0e40`) defaults to Auto; `FontManager::RegisterFontForLoadedResource` (`0x100728634`) maps Auto to Typeface policy 2. `GetFontRenderingType` (`0x10015bf18`) selects raster strictly below 10 px, retaining CPU SDF at exactly 10. Raster creation (`0x10015bfcc`, size conversion at `0x10015c240`) truncates the positive requested physical size before `FT_Set_Pixel_Sizes`, loads flags 10 and renders normal gray coverage. Runtime Auto families retain exact raster sizes 1–9; alias selection uses physical pixel size and a distinct cache identity. Explicit raster Seven v4 body/input/item roles are 1.6 rem; Five v3 keyboard labels are 1 rem in `gameplay-580ca3647ed30f2abdb2.css` and `index-800b52fb984b5ed54515.css`. Their exact used raster sizes follow the existing desktop GUI scale range, alongside the small-size variants. Fractional raster geometry and arbitrary future pixel-role sizes remain separate acceptance checks.
+- All six installed faces omit U+FFFD and contain an inked glyph 0 `.notdef`; native compilation uses that font-owned missing-glyph outline and metrics rather than the HUD's synthetic replacement. FreeType bitmap top bearings point upward, while the UI adds its owned bearing to a down-Y baseline, so native bitmap top is negated and SDF top padding subtracts 4. The ordinary HUD compiler and its existing minimum-height synthetic replacement remain unchanged.
+- Seven v2 GSUB offers stylistic alternates and has no liga feature. Ten/Five v2 liga maps FI/FL case combinations. Current English Settings title/section headings contain none of those pairs, and shared modal titles currently select Seven body; complex-script shaping remains open independently of the English Settings coverage path.
+
+## app/src/menu/focus.rs; app/src/menu/focus/settings.rs; crates/client-ui/src/ui_runtime/presentation/forms/oreui/focus.rs
+- Near-version `1.26.51.01` hbui `gn` dispatches directions to a focused node's optional callbacks before invoking visual neighbor search `Ea`; Select invokes a separate `G.A` shortcut. Inline `wX`/`kX`/`PX`/`YK` choices have distinct aliases and no directional callbacks, so arrows move focus and activation commits. Only the responsive `FX` picker explicitly requests selected-item entry focus.
+- `Ea` compares full `getBoundingClientRect` bounds, using directional edge gaps, asymmetric overlap fractions, logit penalties capped at 10000/7500, and a 75-degree angular cutoff. Its perpendicular anchor persists across directions on one axis; changing axes or imperative/pointer focus resets it. Matching scroll-axis descendants receive a 0.000001 score multiplier; equal scores retain registration order, and no candidate leaves focus unchanged. Settings supplies no grid-navigation parameters.
+- `em` delegates through enabled remembered children, then an explicit target/landmark alias, then the first enabled DOM descendant. Foreign landmark descendants are excluded from direct neighbor comparison; the landmark rectangle wins first and then delegates. `$N` supplies screen/header/content landmarks; `RK` supplies sidebar memory plus selected-category alias; `xde` and `Ide` supply detail and per-tab scroll landmarks. `X_` retains visited tabs with `display:none`, so their focus memory survives category changes.
+- `Ug` binds picker focus and supplies memory plus the selected-item alias. Its `gm` header is a separate ordinary landmark; `Ug.Content` disables focus control on both `ap` wrapper landmarks while retaining the inner scroll axis. Those wrappers affect scrolling but do not intercept delegation or remembered item identity. Picker unmounting expires its subtree memory.
+- Slider `cue`/`oue` Select toggles adjustment mode without changing the option. Left/Right change a step only while selected and consume input at either endpoint; Up/Down navigate spatially. Back or losing focus clears selection. Switches expose Select only, and each activation reads the current option before generating its inverse target.
+- Native key maps `ye`/`Se` bind Select to Enter/Space and Back to Escape/Backspace (`index-168bae443ec79c00823c.js`, UTF-8 offsets 215679/216509). `Gn` selects the FullKeyboard variant, which additionally binds Q; keyboard-type selection remains a separate host integration. `hu` Select dispatch at 344818 and `O_` Switch callback at 716174 preserve one element identity and read its latest value/disabled facets when clicked.
+- Slider `cue` registers `Ns` on its inset `sliderRef` wrapper: height 3.2rem and horizontal margins 1.6rem. The moving thumb alone owns hover entry/exit and pointer focus; rail clicks change the value without causing thumb hover or focus. `due` leaves its enclosing `qp` non-interactive.
+- Switch `O_` requests the enclosing `qp` focus frame only when disabled and `tr()` is true. The narration provider `Sc`/`bc` derives `tr()` from the host's `core.screenReader.isUITextToSpeechEnabled`; enabled switches show only `P_`'s inherited thumb outline. Cinnabar currently reports no platform TTS support, so disabled narration-only focus still lacks the corresponding host capability.
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/settings/; crates/client-ui/src/ui_runtime/presentation/forms/oreui/transitions.rs
+- The near-version hbui BaseSwitch classes keep both rail glyphs mounted. Their interactive click enables a 250ms step-start timeline with the native animated margins and final static snap; unmodified externally supplied values mount statically. Slider thumb/overlay transitions use 300ms cubic-bezier(.39,1.34,.66,1.02), CSS reversal shortening, and overshoot; active mouse dragging disables transition while touch dragging retains it. Track clicks do not capture; the visible thumb retains unrounded drag fractions until release restores the saved step.
+- The shared `hu`/`G.A` input driver retains keyboard/gamepad pressed state for 150ms after keydown/onPress. Mouse and touch callbacks commit on release click. Switch focus identities survive inverse target values; source arrow handlers belong to sliders rather than switches. All source timelines use the existing scene clock and retire when their controls unmount.
+- Current 1.26.50.26 settings factories in `mcsrc-1.26.50/current/1.26.50.26/src/__unmapped/08.cpp`: accessibility `0x08381f60`, account `0x08385580`. Accessibility orders text-to-speech, gameplay, and user-interface sections; each control reads the option's label, description, value, and state.
+- Current video registration `0x00c0d130` and root groups `0x00ccf7e0` in `src/__unmapped/00.cpp`: General, Graphics/performance/layout, View customization, Accessibility: Video. Group factories `0x00cc8610`, `0x00cca7c0`, `0x00ccdb30`, and `0x00cce650`; ordinary graphics groups share `0x00cc20c0` (Fancy callback `0x00cc48f0`). The recovered `VideoSettingsFactoryDetails::createUiScaleModifier` label on `0x00cce650` is a navigation overlay, not a complete description of that body.
+- Current sidebar controls `0x049df6c0` and general categories `0x049dff60` in `src/__unmapped/04.cpp`; visibility follows input capability and setting state.
+- Native PlayCover `1.26.51.01` hbui bundle is a near-version layout witness, not a matching-version acceptance artifact: `data/gui/dist/hbui/index-168bae443ec79c00823c.js`, `index-800b52fb984b5ed54515.css`, and `menus-theme-b1a483c329eea7188853.css`. Settings route component `Bde`, side menu `RK`, panels `qp`, switch `O_`/`P_`, slider `due`/`oue`, and common grid `yO` identify shell geometry and widget behavior.
+- Bundle settings shell uses the global centered title, separate scroll views, a 4/12 + 8/12 wide grid and 3/8 + 5/8 narrow grid. Ordinary setting rows use the neutral palette; depth-three controls use neutral80 indentation. The sidebar uses OreUI assets such as `accessibility`, `keyboard-mouse`, `controls`, `work-bench`, `painting`, `sound-block`, `account`, `subscriptions`, `chest`, and `storage` loaded at runtime.
+- Video graphics-group rows keep their full outer width. `qp`'s base CSS class `b9a5bc43d761ce775811` supplies 2.4rem padding on both horizontal sides; indented `e934527bca2094c1a1ef` only adds top/bottom borders. `Eue`'s `hue` wrapper (`a5c24a33713584f2053f`) changes child top margins without a horizontal inset. Its ordinary `ese` wrapper is a fragment outside UI debug mode, and `Rm` adds no layout element.
+- Native localization is split between `data/resource_packs/vanilla/texts/en_US.lang` (`menu.*`/`options.*` descriptors) and `data/resource_packs/oreui/texts/en_US.lang` (`hbui.Settings.*` shell strings).
+- Bundle option renderer `_se` opens the modal menu for more than five choices, labels longer than 40 UTF-16 code units, or labels longer than 26 when the Settings content column is narrower than 70rem. `Bde`/`Ude` provide the entire content column as the measured container; `wX` also switches to a picker below 15rem per choice. `FX`/`EX` use the shared `SV`/`CV` modal menu, selected checks, and close without changing the option on overlay, X, or Back.
+- Picker rows `bV` use `neutral60` interactive background and its `dimmest` border: #8c8d90 throughout, with default/hovered/pressed faces #58585a/#48494a/#313233. Selection adds the 1.6rem × 1.2rem white check; it does not change the fill. `FX` inserts 0.8rem before the closed control, whereas `kX` inserts 0.4rem before segmented choices.
+- Closed picker `EX` uses the procedural `sf` path: the active `pD` semantic collection has no pressable component mapping. Its child height is 4.2rem, outer borders are 0.2rem, and elevated padding-bottom/margin-top are +0.4/-0.4rem, yielding 4.6rem flow allocation and 5rem visible height. Pressing removes that padding and margin, keeping the flow allocation unchanged.
+- Settings action rows use `Kse`/`Vse`, whose CSS selects native `pressableElevatedSecondary*` border images independently of semantic component mappings. Default height is 4.8rem, pressed height 4.4rem, minimum width 14rem, label padding 2rem. The wrapper's +0.4rem margin cancels the normal button's -0.4rem margin; pressing descends 0.4rem with unchanged flow. CSS focused artwork follows hovered artwork and therefore wins when both states apply. Compact input-reset `PB` instead uses procedural `sf`: 4.4rem width/flow height, 4rem child face, and the 2.4rem runtime `FN.Reset` icon.
+- External action `Kse` inserts `FN.ExternalLink` before its label. Class `e637b7180724adbd0253` contributes 0.8rem right margin; the shared Icon24 contributes 2.4rem. The bundle's alpha mask is `assets/external-link@0.5x.icon-28016636e9d767b57dffe6e45fa749aa.png`; icon, gap and label form the centered button content.
+- Interactive primitive `hu` retains virtual focus on pointer input but applies focused CSS only when `isFocused && (isLastInputKeyboard || isLastInputGamepad)`. Its explicit interaction mock can override that predicate. The helpers `bt` and `gt` resolve those last-input facets; mouse/touch focus therefore must remain navigable without drawing the keyboard outline.
+- Modality tracker `mo` switches to mouse on button-down/wheel, or after mouse movement exceeds 10 pixels from its stored anchor. Keyboard arrows/Tab switch to keyboard. `Ug.Header` hides the close X when the last input is gamepad; pointer and keyboard retain it. `CV` content margins are -0.2rem at both ends, overlapping the 0.2rem header shadow and panel bottom border.
+- Settings `Bde` selects `yO(noGutters=true)`. `yO` retains grid gutters only at the 128rem desktop breakpoint; narrow/tablet use the full width. Grid classes `d9f7fd9db73956916b44`/`e5175c04cc2688edc82d`/`c2f03d5f052a87d1367c` establish 2.4rem desktop outer padding and 0.8rem column padding. The Row caps its own width at 128rem after outer padding; the option-provider ref includes column padding.
+- Text selectors `ce8c4be1ddc9476d017f` (label) and `d0a4b3633729acae2e4d` (description) use `fonts/Minecraft-Seven-66398119c2c20ee73019.otf`, sizes 1.6/1.4rem, line height 2rem, and 0.04rem letter spacing. The `sectionHeader` selector `e7a4b308889c682b9fc5` uses `fonts/Minecraft-Ten-ed29a1bbe6a620b83378.otf`, size 1.6rem and line height 2rem. Switch row `c2aa1e8dcf8fc0e0d91d` centers the text stack and control in a minimum 4rem body, plus the panel's 1.2rem top/bottom spacing.
+- The Settings global title uses `header5A` (`bb757715d5fe9b10e439`): Ten v2, 2rem font size, 2.4rem line height, and 0.04rem letter spacing. `YK` labels explicitly use `body`: Seven v2, 1.6rem/2rem, with the same letter spacing. Adjacent `YK` borders overlap by 0.2rem; the focused wrapper has z-index 1.
+- Native v2 OTFs use 1000 units/em and fractional advances: Seven `A`/`i`/space are 600/200/300 units; Ten `A`/`m`/space are 595/805/245. All four v2 faces have GPOS kern features, including Seven `ra` -100 and `Fa` -200 units. [Gameface font documentation](https://docs.coherent-labs.com/cpp-gameface/content_development/fonts_frontend/) describes default GPOS kerning through HarfBuzz; installed SDK behavior with nonzero letter spacing and native rasterization still require a frame witness.
+- Switch `P_`, slider `cue`, segmented control `YK`, and radio `JX` use procedural role surfaces rather than pressable textures. Palette `pD` and disabled inheritance `ll` establish primary/neutral50/secondary values and speculars; `P_` selects `assets/onImage-b40d0be137ba09eb7464.png` and `assets/offImage-cc9095b148d166ec7212.png`. Switch position keyframes `a105b6f3afff8c19e69f`/`fb3f380ff3fe1a7abdde` last 250ms with step-start; slider thumb and overlay use a 0.3s cubic-bezier(0.39,1.34,0.66,1.02), disabled during mouse dragging.
+- `YK` classes `f14f117a42c5071db91e`/`d4a323c88c739114b4aa`/`da157b4b552e316102c4` establish the 5.2rem face, 0.2rem borders, 0.4rem unselected shadow, and 0.4rem selected/pressed descent. Selected mark `f0bf371d97d59dd95aaa` is 4.8rem wide and 0.2rem high at the bottom center. `JX` class `dbc5182f1ac677f923f3` rotates a 2rem square with 0.2rem borders by 45 degrees; its 0.8rem checked center has white/e6e8eb/e6e8eb/d0d1d4 quarters before rotation. `RadioBoxCheckedDisabled` exists as CSS but is not attached by `JX`.
+- Settings Number renderer maps `showSteps` from a present positive metadata `step`, independently of the number of generated slider values. Slider thumb hover styling follows pointer hover, drag, or gamepad selection; focus separately controls its outline. Current `GuiScaleDataProvider::_updateOptions` (`0x04996960`, `src/__recovered/GuiScaleDataProvider.cpp`) produces percentage-labelled option descriptors with values relative to the optimal scale; `createUiScaleModifier` attaches that provider as an OptionComponent rather than a Number slider.
+- The bundle does not specify `box-sizing`; [Gameface's documented layout defaults](https://docs.coherent-labs.com/cpp-gameface/what_is_gfp/htmlfeaturesupport/) establish border-box sizing and flex-shrink 0. Absolute positioning in this engine differs from browsers, so final switch offset calculations still require a native frame witness.
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/settings/sidebar.rs; crates/client-ui/src/ui_runtime/presentation/forms/oreui/settings/account_icon.rs; crates/client-ui/src/ui_runtime/oreui_assets.rs
+- Near-version `1.26.51.01` hbui `Sse` maps Settings categories to static 24×24 PNGs: accessibility→accessibility, keyboard-and-mouse→keyboard-mouse, controller→controls, touch→touch, party→party, general→work-bench, video→painting, audio→sound-block, account→account, view_subscriptions→subscriptions, global_resources→chest, storage→storage, language→language, creator→command-block. Controller specifically selects `assets/controls-5b4a0c8bc7ac0539b349.png`; the unrelated 14×14 `controls-a12e1e11fbedb31b0eef.png` is not this category icon. `Sse` starts at UTF-8 offset 1816879 in `index-168bae443ec79c00823c.js`.
+- `Cse` (UTF-8 offset 1817211) uses `profile.data.xblProfilePic` only for the Account category when `vanilla.userAccount.isLoggedInWithMicrosoftAccount` is true and the path is nonempty. Otherwise it uses `assets/account-46c198f87391d9c79cf7.png`, the gray person silhouette. `V_` paints the gamerpic with centered cover scaling and pixelated sampling, then overlays a 0.2rem neutral border (#1e1e1f) on the same 2.4rem square; the static fallback has no added border.
+- `V_` (UTF-8 offset 725022) overlays `assets/icon-highlight-spritesheet-87ec62988bf89f63558d.png`, a 216×24 image containing nine 24×24 crops. `j_` (723468) uses 500ms, `steps(8)` with the default end position, one iteration, normal direction, and forwards fill. Keyframes `caa327c01ef79259bfeb` move background-position from 0% to 100%; frame `min(floor(8*t/500ms),8)` crops at x=24×frame, y=0. Frames 7 and 8 are transparent. CSS `f1cf63a33a644e24eafe` crops the background with overflow hidden; the overlay sits at the icon's left edge without rotation or additional ancestor clipping.
+- The highlight's only trigger is the selected facet: unselected sets display:none and selected sets display:flex. Selection after being hidden restarts it; selecting the already-selected category and hovering do not replay it. Neither `V_` nor `j_` consults Screen Animations. Their CSS has no reduced-motion override.
+- `Ni` sets rem=5×guiScale and base1Scale=max(floor(guiScale/2),0.5). `V_` and its highlight use 24×base1Scale physical pixels, rounding down at odd scales. Selected `RK` rows carry select classes, so pressed selectors do not change their fill or bevel. Unselected pressed rows without hover retain the sidebar fill and zero-width borders.
+- `qp` (UTF-8 offset 443752) calls `_d` (386456) with interactive=false and left/right=false. Ordinary rows retain neutral base fill #48494a, absolute 0.2rem white10% top and black30% bottom edges across idle/hover/press/focus/disabled. Adjacent rows show a 0.4rem pair; `mue` compact headings (1842115) omit both edges, leaving the preceding row's dark bottom visible. Indented `qp` uses neutral80 fill and 0.2rem solid #1e1e1f top/bottom borders; its explicit border flag adds left/right borders. Edges consume no flow height. CSS padding/border selectors occur at offsets 48443–48980; absolute edge rules at 11871–12128 in `index-800b52fb984b5ed54515.css`.
+- `RK.ListItem` (UTF-8 offset 1019185) inherits neutral80. Normal rows have no horizontal border; hover and selected classes `aed28ff95c5f041a25dd`/`a9a2aa9391ba4148dad6` add 0.2rem top and bottom borders. `pD` supplies hover fill #48494a with white10% top/black40% bottom; selected fill #48494a with black40% top/white10% bottom. Selected hover keeps the selected role; an unselected hovered pressed row uses #242425 with black80% top/white10% bottom. These are semantic border colors, not shadows or image skins.
+- CSS `ad386353cd5071c72c3a` keeps the row at 4.8rem with 1.6rem horizontal padding (0.8rem narrow), a centered 2.4rem icon, and 0.8rem icon/text gap. Its `kd` outline is 0.2rem white; sidebar overrides keep left/right at zero and top/bottom at -0.2rem, or -0.4rem when selected/hovered. `RK.Divider` has a 4.8rem caption with 0.8rem bottom padding, followed by `rj`'s 0.2rem flow slot: its bottom-anchored absolute child paints two 0.2rem reversed bevel strips, black40% above white10%, extending 0.2rem upward. The row selectors are in `index-800b52fb984b5ed54515.css` at offsets 117532–119107.
+
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/settings/resources.rs
+- The pack-management layout is an owner-requested design exception. Installed near-version
+  `1.26.51.01` hbui `Mge`/`Phe` identify the base-pack image as
+  `assets/minecraft-texture-pack-4c96be5bfdd5a55edf09.png` (256×256); the pack-list fallback is
+  `assets/missing-pack-icon-010c87c773e1a21c8ac7.png` (64×64). `Tx` renders its 7×4 chevron
+  alpha masks at 1.4×0.8rem. Buttons reuse the shared native elevated state artwork.
+
+## app/src/menu.rs; app/src/screen_policy.rs; app/src/ui_runtime/presentation/forms/panorama.rs
+- Near-version `1.26.51.01` hbui `Bde` uses `r$`, whose `qO` background is the full-screen `neutral50` overlay. The role's explicit color is `rgba(0,0,0,0.5)`; this Settings shell introduces no panorama image. Settings retains the world beneath an in-game pause/death stack, while launcher Settings retains the title background. Pack-authored `render_game_behind` still controls whether that underlying game scene may render.
+
+## Movement and input audit repairs (2026-10-07)
+
+Primary reference: Lens artifact 6, reconstructed client 1.26.50.26. The local
+26.30 sources under `~/Coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30`
+identify systems; current implementations corroborate the rules below. This
+preview build is not an exact retail/platform capture for every supported client.
+
+- `crates/gameplay/src/movement/correction_shape.rs` and
+  `physics/prediction_corrections.rs`: `_isValidCorrection` `0x04ae62d0`
+  requires a nonzero tick at or above the retained floor, without an upper bound;
+  `_onCorrectPlayerMovePredictionPacket` `0x04ae6670` and `_applyCorrectionToTick`
+  `0x04ae6100` pass it into frame correction. `ReplayStateComponent::applyFrameCorrection`
+  `0x02c2a1f0` and `_applyCorrection` `0x02c29db0` have no distance cutoff.
+  Missing ticks attach to the current replay frame; `ActorHistory::addCorrectionToFrame`
+  `0x02fadc90` sets history correction bits without initiating a frame rewind.
+  `RewindSimulation::handleAdvanceAndRewind` `0x038db020` applies corrections
+  before each captured input, and clears dirty bits after replay. A later
+  same-frame spatial correction wins. The 26.30 `ClientRewind::_advanceRewindFrameSystem`
+  `0x058f3850` identifies current-frame capture; current replay logic corroborates
+  the pre-input correction order. MovePlayer's separate teleport distance rule
+  remains unchanged.
+- `crates/sim/src/simulator/environment.rs`, `collision.rs` and `travel.rs`:
+  horizontal travel `0x099cc8b0`, walking `0x099ccb00`, flying `0x099cce30`
+  sample material at AABB minimum Y minus `0.1f` (`0x14ffab670`). Landing
+  response `0x099c4920` selects collision provenance through `0x0208c6f0`:
+  highest qualifying shape center below feet minus `0.2f`, then squared distance
+  to the feet-plane center, retaining the first exact tie. Restitution minimum
+  downward speed at `0x150344840` is `0.08000011742115021f`.
+- `crates/sim/src/simulator/effects.rs`: levitation `0x03233fc0` computes
+  `v * 0.8f + (amplifier + 1) * 0.01f`, then vertical drag `0x032150c0`
+  multiplies by `0.98f`. Horizontal friction `0x03203a50` clears each component
+  at or below float epsilon (`0x14ffab690`) before drag.
+- Auto-climb `0x09003d90`, registration `0x09004100`: fresh horizontal collision,
+  climbable and non-water/non-gliding admission; the resulting travel flag
+  excludes later gravity and vertical drag. Ground/air adapters require their
+  respective travel tags; travel sensing `0x09fefcb0` selects lava travel
+  separately. Lava adapter `0x0904f160` and body `0x09003f40` additionally
+  require navigation capability, excluding ordinary player lava auto-climb.
+- `crates/input`, `app/src/semantic_controls`, and gameplay input encoding:
+  packet fill `0x070fcfd0` and input update `0x07108cc0` retain independent
+  digital, raw button, request and actor transition lanes. Raw jump/sneak edges
+  accumulate until packet fill clears their bits with `0xfc3fffff`.
+  Sprint predicate `0x0c5b6310` uses `0.70710677f` direction/magnitude admission
+  (`0x14feff2ac`) and absolute horizontal displacement components against
+  `0.0000499999987f` (`0x1503dcba0`), including the swimming exception.
+  Pre-move capture `0x0dc09dc0` copies requested motion from `MoveRequest + 0x3c`
+  and pre-move position from `StateVector` into gameplay state `+0x1c` and `+0x28`.
+  `TravelMoveRequest` `0x09feefb0` supplies velocity to those request fields;
+  `SneakMovement` `0x0c597a70` clips them before the resolver in pipeline
+  `0x072b3190`. Sprint pipeline registration `0x072b6020` places the seven-tick
+  timer (constructor `0x0c5b0650`, callback `0x0c5b0900`) before sprint request
+  and intent processing in stage 6.
+  Request setup `0x0c5b1b60` supplies vehicle eligibility at `+0xf` and hunger
+  admission at `+0x10`; intent processing checks hunger again on the stop path.
+  `StorePreviousClientInput` `0x09fda3f0` captures processed forward input and
+  the independent sneak request for the following tick. Sneak intent
+  `0x0c581310` does not cancel sprint, and sprint action `0x0c5b8810` plus
+  setter `0x0c587750` impose no extra sneak veto.
+  Item slowdown callback `0x0dc2b3c0` multiplies the intent axes before the
+  sprint stage; `SetMoveCommon` `0x099bf880` and `SetMoveClient` `0x099c0590`
+  do not overwrite them. Sneak/crawl slowdown follows intent processing.
+- Swift Sneak: equipment `0x037597c0`, enchantment registration `0x0373a940`
+  (ID 37), and `SneakingSystem` adapter `0x0c59f5a0` corroborate leggings
+  lookup and `min(level * 0.15f + 0.3f, 1.0f)`. Constants are at
+  `0x150056088`, `0x14ffab6c8`, and `0x14fea4060`.
+  Blindness registration `0x0347a4d0` identifies effect 15; sprint intent
+  `0x0c5b6310` applies it only when starting sprint.
+
+## Block-interaction movement (2026-10-07)
+
+RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS build.
+
+- `crates/sim/src/simulator/environment.rs`, `simulator.rs` (climbing): walking travel
+  `0x099ccb00` and MobJumpSystem `0x0a5dc2e0` read one block at (floor x, floor AABB min y,
+  floor z); climbable is property bit 33 of `+0x130`, the sneak hold additionally needs byte
+  `+0x134` bit 2 at the same cell (which blocks carry it is untraced, so every climbable
+  holds). Clamp `vy < -0.2 → -0.2`; the ladder jump branch sets `0.2` and returns before the
+  JumpFromGround request without a jump delay. Scaffolding constructor `0x08efe770` assigns
+  property word `0x2020000` (no climbable bit).
+- `crates/sim/src/simulator/scaffolding.rs`, `simulator.rs` (scaffolding): BlockClimber
+  (mac `0x1058b3690`, helpers mac `0x1058b3d10`/`0x1058b3f80`) scans footprint columns
+  floor(min)..floor(max) at floor(min y) and floor(min y - 1) for flags 69/70, and for
+  99/100 when the block under the scaffold is not air, water or flowing water. Scaffolding
+  action `0x089909b0`: flag 100 plus sneak sets flag 71, `vy = -0.15` and zero fall distance.
+  MobJumpSystem `0x0a5dc2e0`: (69 or 99) without 71 sets `vy = 0.15` and jump delay 10 before
+  the ladder branch. Gravity setter `0x032252b0` returns when 71 and (69 or 70). Collision
+  shape mac `0x10ab628c0` keeps the top only for feet at or above it, without flag 71.
 
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
@@ -93,6 +282,9 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - ConnectStageConnecting ConnectStage = "connecting" // GameServerConnectProgressHandler
 - ConnectStagePacks      ConnectStage = "packs"      // ResourcePackProgressHandler
 
+## core/proxy/proxy.go
+- The pinned Gophertunnel `minecraft/protocol/packet/player_skin.go` defines `PlayerSkin.UUID` as the UUID used in Login; the server applies it only to that player-list identity. The downstream Rust transport identity can differ from the upstream login identity, so the outgoing relay resolves the canonical UUID through `IdentityData()` on the existing session wrappers. Only UUID is rewritten; the serialized skin/model/cape/animation payload and skin-name fields retain their received values. Missing or malformed upstream identity and server-originated skin packets retain raw forwarding.
+
 ## core/proxy/targets.go
 - remoteServerNetwork / gophertunnel AddressNetwork: MinecraftGame::joinMultiplayerWithAddress (bool false via joinRemoteServerWithAddress; ConnectionType 1/2/8) -> ClientNetworkSystem::probeTransportLayer (URL list, port 0 => 19132 0x4abc) -> TransportProber::start (3 s "TransportProber::timeout") / _tryNextUrl (GET {url}/v1/join, Method variant index 2, 2xx) -> $_0 continuation: error => _joinMultiplayerAfterTransportLayerDetermined(..., 0 RakNet), success => host replaced by URL, TransportLayer 2 (NetherNet). 26.50 adds an https-only fast path and TofuServerIdentityVerifier for http:// results.
 - HTTP signaling: ClientNetherNetConnector::connect (types 1/2/8 build HttpSignalingClient, remote id from HttpSignalingClientAnon::createRandomNetworkID), HttpSignalingClient::SendSignal (POST "{}/v1/join/{}", application/sdp, body = payload after 2nd space; response => "CONNECTRESPONSE <id> <body>", error => ESessionError 0x1a), NetherNet::HttpSignalingServer::onRequest/_handleJoin (GET /v1/join => 200 "OK" in 26.30, JSON status in 26.50; 400 "Missing SDP offer in request body").
@@ -183,9 +375,21 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/client-presentation/src/camera.rs
 - /// Native `getNormalizedViewportSize` measures viewport fractions of the full
 
+## crates/client-presentation/src/camera/look.rs; crates/client-presentation/src/camera/controls.rs; crates/input/src/binding.rs; crates/launcher/src/menu/settings_options/definitions.rs
+- Mouse look chain, 1.26.50.26 Windows client. `GameControllerHandler_GameCore::refresh` (RVA 0x0008ba40) feeds GameInput mouse position differences as short counts to `MouseDevice::feed` (RVA 0x0038f130) with no scaling. `MouseMapper::tick` (RVA 0x0038faf0) enqueues a direction event `(float)dx / (float)mScreenWidth`, `(float)(dy * mYAxisInversionFactor) / (float)mScreenWidth`; `mScreenWidth` is `InputDeviceMapper` +8, set from `Config::mWidth` by `MinecraftInputHandler::onConfigChanged`. `InGamePlayScreen::handleDirection` sums the events at +0x34/+0x38.
+- `InGamePlayScreen::applyInput` (RVA 0x004f5aa0): `c = getGameSensitivity(mode) * 0.6f + 0.15f; c = c*c*c*9600.0f`; yaw `(sumX * c) * 0.3f * modeScale` (1.0 mouse, 0.7 gamepad), pitch `(c * sumY) * 0.3f`; then `LocalPlayer::localPlayerTurn` (RVA 0x04f324b0, spyglass ratio from vtable +0x1a0) and the camera look handler (RVA 0x07162b00, degrees x 0.017453292). Constants at 0x14ffab698, 0x14ffab6c8, 0x15005ea00, 0x150056088, 0x15005ea04.
+- Options (`OptionRegistry::_registerOptions`, RVA 0x0239ba00): 0x183 `options.sensitivity`/`ctrl_sensitivity2` InputModeFloat default 0.5, range 0..1 (call at 0x1423a1ee2); 0x18d `gameSensitivity`, unsaved, default 0.628, range 0..1 (0x1423c911d). OptionRegistry vtable 0x150106e40: +0x190 getSensitivity (RVA 0x010efe80), +0x1a0 getSpyglassDamping, +0x1b8 getGameSensitivity (RVA 0x010f01c0, read by applyInput).
+- `_setOptionCallbacks` lambda (RVA 0x0245d7c0), an InputMode observer on 0x183 registered in RVA 0x0239a340: `gameSensitivity.set(mode, powf(sens * 1.1f, 0.6125f) * 0.81f)` (constants 0x1500b53d0, 0x1500cde9c, 0x1500cdea0). `InputModeFloatOption::set` (RVA 0x009b3ee0) stores and notifies only when `|old - new| > 0.001` (ctor RVA 0x009b6570), clamping to the range; load of an unchanged value notifies nothing, so 0.628 persists until the slider really changes.
+- macOS 1.26.30 primary matches: `InGamePlayScreen::applyInput` 0x102779ad0 (same constants, `getGameSensitivity` vtable +0x1d0), `MouseMapper::tick` 0x10c3a6db0, option 0x188/0x192. Mac Config width units and the macOS mouse source were not traced.
+
 ## crates/client-presentation/src/camera/bob.rs
 - //! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
 - //! 26.30 reference's bobView and hand spring.
+
+## crates/client-presentation/src/presentation/actors.rs (glide_rotation, glide_tilted)
+- Glide/riptide body rotation: 1.26.50.26 `ActorRenderData::getDamageOrGlidingXYRotation` RVA `0x01fbf550` (26.30 macOS `0x1037108e0`), called from the data-driven mob rotation setup RVA `0x01fbfad0` (26.30 inlined in `DataDrivenRenderer::render`) after the death Z roll and Dinnerbone flip; X rotation by the first value, then Y by the second when nonzero. Suppressed when the player's `variable.is_first_person` (hash `0x2739f381184de4ae`) is nonzero.
+- Gliding (actor flag 32): ease `clamp((FallFlyTicks + a)^2 / 100, 0, 1)` (`0x14ffa2648` = 100, `0x14fea4060` = 1); pitch `(-90 - currentPitch) * ease` (`0x14ffd5074`), current pitch from the actor's cached rotation pointer (+0x228). Yaw: interpolated rotation (fmodf wrap 180/360/-180), table view vector (-PI `0x14ffab65c`, deg->rad `0x14ffab66c`, index scale `0x14ffab660`, quarter turn `0x14ffab664`), posDelta x/z (StateVector +0x18/+0x20); `acosf(dot / sqrt(deltaLenSq))` (view length not divided out), sign of `viewZ*dx - viewX*dz` zeroed when `|cross| < 0.0625` (`0x14ffa90e0`), times 57.2957763 (`0x14ffd5070`). Riptide (flag 56) returns `-90 - pitch, 0` and spins Y by `(tickCount + a) * -75` (`0x1500e24d8`); not implemented.
+- FallFlyTicks writers: only GlideInputSystem (`0x070be110`, view `0x070d1c80`, filter ActorMovementTickNeeded + PlayerInputRequest) and the Mob constructor's default emplace (`0x02341df0`), so remote players render with zero ticks.
 
 ## crates/client-presentation/src/presentation/equipment/display.rs
 - /// `ItemInHandRenderer::_applyDefaultItemTransforms` for a flat sprite in hand: the 1.5 scale
@@ -287,6 +491,9 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - //! HUD visibility follows HudPlayerRenderer::update.
 
 ## crates/client-ui/src/ui_runtime/presentation/player_preview.rs
+- Current `1.26.50.26` PaperDoll constructor `FUN_149c8c3d0` maps `rotation="gesture_x"` to mode 2, preserving `starting_rotation` as the initial/current yaw and `camera_tilt_degrees` as a separate view transform. The pinned `v1.26.50.4` pack's `ui/start_screen.json:657–740` and `ui/pause_screen.json:320–380` both use starting rotation 30°, tilt −10°, and an input panel with `gesture_tracking_button="button.turn_doll"`, pressed Select mapping, and button-up first refusal. `ui/persona_SDL.json` uses the same gesture mode for the active appearance viewer.
+- Current `FUN_144cb4dc0` publishes pointer deltas only while the tracked button is held; release clears the held flag/deltas. `FUN_149c8cd20` consumes source-3 X delta once, retains cumulative yaw after release, and computes pointer head angles with the Live renderer's atan divisor/pitch multiplier, the paper-doll's distinct yaw multiplier, and a sign flip while facing backward. It has no release recenter. `FUN_149c8e390` maps `#disable_head_follow_mouse` to `variable.should_look_at_target_ui`; only an explicit `#set_target_rotation` starts shortest-angle interpolation and then restores the prior rotation mode. The mouse/controller gains remain unresolved data globals `_DAT_150068e78`/`_DAT_15012d148` multiplied by the renderer-context factor: the matching executable/Lens transfer is unavailable, so a chosen numeric drag gain remains incomplete rather than a verified parity constant.
+- The installed near-version `1.26.51.01` `data/skin_packs/vanilla/skins.json` marks Steve/Ari/Kai/Zuri as free `geometry.humanoid.custom` and Alex/Efe/Makena/Noor/Sunny as free `geometry.humanoid.customSlim`, with sibling PNG textures. Dummy is the custom placeholder. `skin_packs/custom/skins.json` starts empty. These runtime manifests establish free catalog/model facts; they do not establish marketplace ownership. The older named `CustomSkinManager::pickCustomSkin` reference delegates asynchronously to the skin repository and is an import-navigation aid, not current-version validation evidence.
 - /// UI rendering retains the native ModelPart origin rather than the world feet origin.
 - /// renderer's centre minus the pointer in GUI pixels
 - /// (`LivePlayerRenderer::_getMousePosition`).
@@ -449,6 +656,10 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - Local-player shadow admission follows the drawn body perspective; the vanilla first-person capture for #221 has no local-player volume shadow. Frozen local body visibility takes precedence over a stale body submission while changing perspective.
 
 ## crates/gameplay/src/movement/control_modes.rs
+- Suspended input: `0x07108cc0` returns untouched while the game is paused; with a
+  menu open it masks processed flags and button state (`+0x00`, `+0x10`) with
+  `0xffe0001f`, also clearing SneakDown and the toggle-sneak latch (bit 0) unless
+  the persistent-controls bit `0x80` at `+0x60` is set. Toggle sprint always clears.
 - /// Native SprintTrigger cannot stop an existing sprint while the previous
 
 ## crates/gameplay/src/movement/correction_shape.rs
@@ -458,6 +669,10 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - /// Server StateVector motion; `None` keeps the retained velocity.
 
 ## crates/gameplay/src/movement/encoding.rs
+- PersistSneak: packet fill `0x070fcfd0` writes `MoveInputComponent +0x60` bit
+  `0x80` to wire bit 24 every tick. Its only writer, virtual
+  `ClientInstance::setupPersistentControls(InputMode)` `0x067a6390`, sets it for
+  Touch/GamePad; `ClientInputCallbacks::handleInputModeChanged` calls it with the new mode.
 - // Raw jump-button carriers track the physical button exactly. Native
 - // 0x07108cc0 also sets processed up; 0x070fcfd0 sends it as WantUp,
 - // which the server's 0x0998fe80 reads independently of JumpDown.
@@ -467,6 +682,8 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## crates/gameplay/src/movement/locomotion.rs
 - // SprintTrigger runs before SwimTrigger and keeps the previous actor
+- Glide start/stop: StartGlidingIntent `0x0c5889b0` area (filter ArmorFlyEnabled, excludes Passenger/OnGround) needs a fresh jump edge (MoveInput+0x60 bit 4 and previous-tick copy VanillaClientGameplay+0x15 clear) and no fly/glide request; no velocity check. StopGlidingIntent `0x0c5886c0`: OnGround, missing ArmorFlyEnabled, WasInWater (not lava), fly request, Passenger, fresh jump with FallFlyTicks >= 11, WALLCLIMBING (0x40000), or CANCLIMB (0x80000) with the feet block's climbable bit (+0x130 bit 33) / powder snow when CanStandOnSnow. Pipeline `0x072b6020` order: SprintTimer, SwimTrigger, FlyTriggerIntent, Start/StopGlidingIntent, FlyTriggerAction, Start/StopGlidingAction (`0x0c5882c0`/`0x0c5884c0`), GlideInputSystem `0x070be110` (FallFlyTicks++ while gliding, else 0).
+- Flight double-tap: FlyTrigger::doIntentTick (26.30 `0x1059aaf10`) sets VanillaClientGameplay+8 = 7 on a fresh press when below 1, else toggles; SprintTimer (26.30 `0x1053d8080`) decrements +8 every tick before it. A second press within six ticks toggles.
 
 ## crates/gameplay/src/movement/locomotion/swimming_trigger.rs
 - //! Current SwimTriggerSystem (0x09fd25a0), for unmounted desktop input.
@@ -478,8 +695,22 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - // directly; raw JumpDown/Ascend alone do not populate these control lanes.
 - // CurrentSwimAmount precedes SwimTrigger. The first dry tick still advances
 
+## crates/gameplay/src/movement/frame.rs
+## crates/gameplay/src/movement/outbox.rs
+- Yaw: `UpdatePlayerFromCameraSystemUtil::_updatePlayer` `0x071b0fe0` computes
+  `atan2f * 57.29578f - 90` (`0x14ffd5070`/`0x14ffd5074`), writes it unwrapped to
+  head rotation (hash `0xbabe7211`) and wraps actor yaw with
+  `fmodf(x + 180, 360)`, `+360` if negative, `-180`. A
+  `CameraAimAssistRotationOverrideComponent` replaces rotation and skips the head
+  write. Packet builder `0x04f3b1a0` copies rotation via `0x050abce0`/`0x0435a250`
+  and reads head yaw directly.
+
 ## crates/gameplay/src/movement/physics.rs
 - /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
+- Frame clamp and tick cap: `Timer::advanceTime` `0x04efbe50` clamps each
+  frame's scaled elapsed seconds to `0.1f` (`0x14ffab644`), adds the excess to a
+  lost-time counter, then caps whole ticks at 10 while keeping the fraction.
+  `fixed_ticks.rs` and `dimension_wait.rs` share this through `fixed_ticks::frame`.
 
 ## crates/gameplay/src/movement/physics/correction.rs
 - // MovePlayer changes spatial state without resetting jump input or
@@ -725,6 +956,12 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - /// `ClientInstance::isShowingMenu`.
 - /// history alone when it holds none (`popScreensBackToFirstInstanceOf`).
 
+## crates/json-ui/src/sidecar.rs; crates/pack-compiler/src/ui.rs; crates/json-ui/src/sprite.rs
+
+- Current `1.26.50.26` `UITextureInfo::_loadNineslice` (`0x0043be10`, `src/__recovered/UITextureInfo.cpp:245` and `:565`) initializes base UV dimensions to zero, parses a numeric or four-element `nineslice_size` independently, and assigns explicit base dimensions only from `base_size` arrays with at least two elements. Numeric, absent and malformed base sizes leave the default dimensions without discarding a valid slice.
+- The slice conversion at `0x00445f00` (`src/__unmapped/00.cpp:842392`) expands a numeric inset to all four edges; the four-element form preserves its edge values. Insets and explicit base dimensions have nonnegative assertions.
+- The Sprite draw path at `0x04d1a3d0` (`src/__unmapped/04.cpp:2215585` and `:2215721`) obtains the source UV extent from the explicit region or raster dimensions. It uses sidecar base dimensions only when both are nonzero; otherwise the source extent divides by itself, preserving source-pixel border widths. A numeric `base_size` therefore cannot rescale a border even when its number differs from the raster size.
+
 ## crates/json-ui/src/sprite.rs
 - //! The `image` control's sprite, following vanilla's `SpriteComponent` draw
 - //! dispatch: nine-slice first, then a clipped, tiled, filled (cover), kept-ratio
@@ -778,6 +1015,10 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## crates/launcher/src/menu/settings_options/definitions.rs
 - // current OptionRegistry values are recovered; see plan.md.
+- Auto-jump: `OptionRegistry::_registerOptions` (`0x0239ba00`, bytes at VA `0x1423acef1`)
+  registers InputModeBoolOption id `0x186` "ctrl_autojump" / "options.autojump" with default
+  argument 0; constructor `0x009b7840` writes that one default for input modes 1-3, so
+  keyboard/mouse, touch and gamepad all default off in 1.26.50 (mac 26.30 registered true).
 
 ## crates/launcher/src/menu/settings_options/emotes.rs
 - /// R: native EmoteWheelScreenController equipped top/right/bottom/left slots.
@@ -828,6 +1069,16 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/pack-compiler/src/animation.rs
 - /// Overlay-mask sources (grass sides) use the TextureAtlas::updateTextureAtUVs /
 - /// _buildAtlasMips byte-space box mips, as every vanilla atlas tile does.
+
+## crates/pack-compiler/src/compiler/classification.rs (`is_clear_glass_cube`); crates/meshing/tests/it/mesh/stained_glass.rs
+- Neighbour face culling: BlockOccluder::_updateRenderFace (RVA 0x06a043a0) calls the per-face
+  predicate at RVA 0x06a05760. For a legacy neighbour with full-block shape (0 or 0x1f) it culls
+  only when RVA 0x06a04050 holds (neighbour render layer in mask 0x20220 = layers 5/9/17 and full
+  visual bounds); otherwise it draws unless the neighbour shares this block's BlockType
+  (Block+0x108), returning BlockGraphics+0x19 (allow-same; false for glass, so glass culls glass).
+- registerBlock<GlassBlock> (RVA 0x0dfbada0) sets BlockType+0x162 render layer 3 (default is 5);
+  1.26.30 macOS `Block::_isSolid` reads BlockType+0x134 bit 1, which GlassBlock clears, so glass is
+  also not solid for AO.
 
 ## crates/pack-compiler/src/compiler/lily_pad_textures.rs
 - // TextureAtlas::updateTextureAtUVs multiplies RGB only.
@@ -1127,18 +1378,45 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - /// Native look vector used by the swimming trigger (current RVA 0x09fd25a0).
 
 ## crates/sim/src/simulator.rs
+- Ground acceleration `0x070d9630` stores speed * (0.546 / (friction * 0.91))^3 with the
+  friction block at AABB min y - 0.1 (soul sand friction * 1.225 unless Soul Speed, air
+  0.546); no block speed factor. Water acceleration `0x0dc3eeb0` reads only the water
+  movement attribute blended toward ground speed by Depth Strider; 26.30
+  `LavaTravelSystem::tickLavaTravelSystem` reads only MovementAttributesComponent, with no
+  block source. Block speed factors never reach these relative speeds.
 - // FinalizeMove uses the native float epsilon.
 - /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
+- // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
+- Ground contact: FinalizeMove `0x06dcbfc0` compares the move request (+0x30) with the
+  result (+0x3c). A vertical difference above float epsilon adds OnGround only when
+  request y < 0, otherwise removes it; with no vertical difference OnGround survives only
+  if it was already set and request y is exactly 0. AutoStep filter `0x09f5a7f0` admits a
+  step on last tick's OnGround, so a jump-tick step rises without grounding.
+- Sneak edge avoidance `0x0c597a70`: gated on sneak plus OnGround (no vertical-velocity
+  check); probes the actor's current AABB inset 0.025 on x/z and lowered by step height
+  times 1.01; clips request x, then z, then both while either is nonzero; zeroes a
+  velocity axis (+0x18/+0x20) only when its clipped request is at or below float epsilon.
+
+## crates/sim/src/simulator/controls.rs
+## crates/gameplay/src/movement/physics.rs (`item_use_factor`)
+- Move vector: `0x00480a10` normalises the digital/analog axes and multiplies by
+  the sneak factor (`SneakingComponent`, default `0.3f`). Item slowdown
+  `ItemUseSlowdownSystemImpl::applyItemUseSlowdown` `0x0dc2b3c0` then multiplies
+  `MoveInputComponent +0x24/+0x28` by `m*m`; `doItemUseSlowdownSystem` `0x0dc28b60`
+  installs `m` (default `0.35f` at `0x150103070`) only when `|m - 1| > FLT_EPSILON`.
 
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
+- `clip_sneak_edge`: see the sneak edge avoidance entry under simulator.rs (`0x0c597a70`).
 
 ## crates/sim/src/simulator/environment.rs
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)
 - // reads getBlock's primary material, without secondary layers.
+- Shared horizontal movement (0x099cc8b0) defaults ground friction to 0.6 and samples the block at
+  floor(x), floor(feet y + -0.1f), floor(z); it takes that block's friction only when its type is not air.
 
 ## crates/sim/src/simulator/flight.rs
 - // HorizontalFlySpeedControl current RVA 0x03235360, PE VA 0x1501672a8.
@@ -1161,6 +1439,13 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## crates/sim/src/simulator/travel.rs
 - //! Flight controls and liquid movement follow the current mcsrc client systems.
+- Glide travel `0x070d31b0`: look from ActorRotation prev + wrap(cur - prev) (fmodf, -180), lift = min(len/0.4f,1)*cos(pitch)^2 from current pitch, gravity table `0x1502a31c0` (-0.01 slow falling / -0.08) independent of vy, PE constants 0x14ffab6c0/0x14fee6588/0x14ffab670/0x150106adc/0x1502a31c8/0x14ffab644; MovementEffects slot 0 (glide boost) applies `v + (look*1.5 - v)*0.5 + look*0.1` (0x14ffab674, 0x14fec3380) before drag 0.99/0.98 (0x1500eb858/0x1500eb864).
+
+## crates/gameplay/src/movement/local_facts.rs
+- Item::isFlyEnabled (26.30 `0x10a667e10`) / Item::isElytraBroken (`0x10a65e420`): elytra flies while user-data Damage < max damage - 1; LegacyActorArmorChangedListener adds ArmorFlyEnabledFlagComponent and CanStandOnSnowFlagComponent (leather boots).
+
+## crates/gameplay/src/movement/effects.rs; crates/gameplay/src/movement/physics/timeline.rs; crates/gameplay/src/committed_control.rs
+- MovementEffectPacket client handler (26.30 `LegacyClientNetworkHandler::handle` `0x1035699e0`): duration < -1 reads 0; with ReplayStateComponent it creates `History::createMovementEffectsCorrection` (`0x1064a4550`) and applies the frame correction at the packet tick, replaying with the full duration (`MovementEffectsReplay::advanceFrame` `0x1064b5690`). TickMovementEffectsSystem (`0x105a09240`, registered after normal travel) expires an effect after its duration (0 lasts one tick, -1 never). Effect slots: 0 glide boost, 1 dolphin boost, 2 geyser boost.
 
 ## crates/sim/src/simulator/water.rs
 - //! Current-client liquid drag, jump ascent and swimming pitch steering.
@@ -2222,7 +2507,33 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/sim/src/simulator/water.rs
 - `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.
 
-<<<<<<< ours
+## app/src/player_skin/catalog/default_capes.rs
+- Cape names and public texture identities were discovered through [MCProfiles' official cape catalog](https://mcprofiles.me/capes/official), including its Minecon, promotional and Realms MapMaker entries. These are runtime image inputs for the custom wardrobe, not a claim that an account owns the corresponding vanilla entitlement.
+- Original PNGs come directly from Mojang's `https://textures.minecraft.net/texture/{texture_id}` endpoint. Admission pins the actual encoded PNG SHA256 separately from the texture identity, verifies the PNG and checks its dimensions against `protocol::CAPE_DIMENSIONS`; no cape art is embedded in the repository.
+- Direct primary-host witnesses include [MINECON 2011](https://textures.minecraft.net/texture/953cac8b779fe41383e675ee2b86071a71658f2180f56fbce8aa315ea70e2ed6) and [15th Anniversary](https://textures.minecraft.net/texture/cd9d82ab17fd92022dbd4a86cde4c382a7540e117fae7b9a2853658505a80625). Modern PNG responses can have a content digest different from their texture URL identity; requesting the content-digest alias returns 404, so the loader must retain both identities.
+
+## crates/client-ui/src/ui_runtime/presentation/player_preview/cape.rs
+
+- Runtime `skin_packs/vanilla/geometry.json` from installed Bedrock 1.26.51.01 supplies `geometry.cape`: texture 64×32, box origin [−5,8,3], size [10,16,1], pivot [0,24,3], Y rotation 180°, parent `body`. This is a near-version geometry witness, distinct from the pinned pack.
+- Pinned `bedrock-samples` v1.26.50.4 `animations/player.animation.json`, `animation.player.cape`, supplies the resting X rotation −6° and the movement expression `lerp(0,−126,cape_flap_amount)−6`; `entity/player.entity.json` supplies model scale 0.9375 and the cape geometry alias.
+- The shared entity-cube builder supplies the rectangular UV net. Preview meshes retain original cape pixels, attach to the torso transform, and share model depth. Cape gallery cards deliberately use an unobscured back view under the user's custom Dressing Room design scope.
+- Current preview input supplies a resting cape, without movement flutter, the armor-neck locator offset, or elytra hiding. Those behaviors and world-actor cape rendering remain separate parity work.
+
+## crates/client-presentation/src/presentation/cape.rs
+
+- Installed Bedrock 1.26.51.01 `skin_packs/vanilla/geometry.json` gives the separate `geometry.cape` shoulder pivot [0,24,3], while `geometry.humanoid.customSlim`'s virtual `cape` marker has [0,24,-3]. Classic `geometry.humanoid.custom` uses [0,24,3]. The marker's animated delta must be retargeted onto the separate cape geometry rather than copied as a completed world translation.
+- The pinned pack's `models/mobs.json` supplies the carrier cape hierarchy, cube, pivot and Y-180 bind orientation. `animations/player.animation.json` supplies `animation.player.cape`'s movement X rotation and neck-locator translation. Runtime rig rest transforms are the source attachment frame; current/previous posed transforms supply parent rotation, scale and animation deltas.
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/play/tabs.rs; crates/client-ui/src/ui_runtime/presentation/forms/oreui/paint/typing.rs
+
+- Installed PlayCover `1.26.51.01` hbui is a near-version artwork/layout witness; matching-version acceptance remains open. `data/gui/dist/hbui/index-168bae443ec79c00823c.js` identifies the Play bar through `Y7`, `Q7`, and the `V_` icons; `index-800b52fb984b5ed54515.css` and `menus-theme-b1a483c329eea7188853.css` supply border-image geometry.
+- Play tabs use `assets/tabBar_neutral_{default,hovered,pressed,default_focused,pressed_focused}*.png`. Raised faces slice 2/2/4/2 texels into 0.4/0.4/0.8/0.4 rem edges; pressed faces slice 2 texels on every edge into 0.4 rem. Focus adds a one-texel white outset. Raised height is 4.8 rem; selected/pressed height is 4.4 rem with a 0.4 rem top offset. The selected indicator is 4.8 rem wide and one GUI texel tall, just below the face.
+- `UI_Menu_WorldsTab`, `UI_Menu_RealmsTab`, and `UI_Menu_ServerTab` are 24×24 images. Small `V_` uses 24×base1Scale and a 0.8 rem spacer before the body label, with the shared icon highlight sheet. Owner-authorized motion shortens the highlight to 200 ms and adds 75 ms typing reveals/caret travel. Caret blink uses the existing JSON-UI interval and restarts on caret revision changes.
+
+## core/catalog/servers.go; crates/client-ui/src/ui_runtime/presentation/forms/oreui/play_servers.rs
+
+- Current 1.26.50.26 `src/__unmapped/0c.cpp`, third-party world-list bindings at `0x0c822600`, expose separate `featuredExperiences` and `creatorExperiences` facets. The repository's discovery-blob path is distinct from the flighted server-tab layout API. Current live discovery returns six ranked experiences and seven creator entries; rank presence identifies featured entries, including rank zero. The older `ThirdPartyUtil::sort3PPServers` witness in `reference/26.30/src/by-owner/_/_1--b3955df4611b.cpp` supplies descending rank comparison. Creator ordering is randomized per catalogue refresh; matching-version ordering acceptance remains open.
+- Installed PlayCover 1.26.51.01 hbui is a near-version layout witness. `Iae`/`Oae` and `xae` supply transparent idle list items, 40×base1Scale bordered icons, optional real MOTD captions and separate group headings. `yne` supplies the 4/8 desktop and 3/5 narrow columns. `gne` supplies a 10:3 banner, a 6 rem metadata strip, neutral80 name/Play and description sections. `Dae` supplies 15.2 rem activity images and wrapped title/subtitle/body text; activities precede `Wae` news. `Uae` shows current player count beside the player-online icon; `Vae` supplies ping tier artwork and pending animation. The owner's native screenshot is the visual witness for MegaSMP banner, group membership and detail sections.
+- Artwork roles use discovery image tags independently of image type: Icon, Banner and activity ImageTag. Localized metadata falls back to NEUTRAL. Legacy advertised host/port entries retain RakNet ping and direct joins; entries without an endpoint resolve their experience target at join time.
 ## Experience player counts
 
 - `crates/client-ui/src/ui_runtime/presentation/forms/play_screen.rs`, `crates/launcher/src/menu/view.rs`,
@@ -2243,7 +2554,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - Typed gophertunnel userstats batch: current 1.26.50.26 `src/__unmapped/01.cpp:970426` imports `XblUserStatisticsGetMultipleUserStatisticsForMultipleServiceConfigurationsAsync`; `00.cpp:1129438` builds the four-stat request for every configuration, `1192663` selects names, and `1192739` sums doubles across configurations.
 - Retail configuration order: `reference/26.30/src/__unmapped/03.cpp:27900-27971` initializes `BEDROCK_XBOXLIVE_ALL_SCIDS` as Kindle, Google, iOS, Xbox, Windows, Switch, Berwick. Installed release 1.26.50.04 binary strings corroborate the seven IDs; its bundled XboxServicesAPI framework identifies `XboxServicesAPI/2025.10.20251000.0`.
 - The batch wire schema and headers also match Microsoft's Xbox Live SDK `Source/Services/Stats/user_statistics_service.cpp` and `Source/Services/Common/http_call.cpp`; successful authenticated live requests were not captured.
-=======
+
 ## crates/protocol/src/ui/commands.rs
 - Command-name suggestions use substring matching, as shown by the vanilla command-completion recording attached to issue 220: https://github.com/user-attachments/assets/8fc14920-47a1-4b4e-a57a-99f31e84ef83. Current `CommandRegistry::autoComplete` owns command-name candidate selection.
 
@@ -2286,6 +2597,14 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - Current 1.26.50.26 `BannerModel` constructor `0x1e6da00` authors a 20×40×1 cloth at `(-10,0,-2)` with model-part Y pivot −32, a 2×42×2 pole at `(-1,-30,-1)`, and a 20×2×2 crossbar at `(-10,-32,-1)`; UV origins are `(0,0)`, `(44,0)` and `(0,42)` on the 64×64 banner base texture.
 - Current banner GUI renderer `0x6c581a0` uses `T(8.5,11,-10) * S(5.5) * Rx(20°) * Ry(-30°)`, model units 1/16 and static cloth tilt zero. The frame is uncolored; only the cloth uses the base dye.
 - Current banner constant setup `0x6c57b00` reads `ItemColor` RGB entries from the table at `0x10128cd4`, black aux 0 through white aux 15 (`#f0f0f0`). `BannerItem::buildDescriptionId` `0x29b4620` corroborates identity aux-to-color mapping for values 0 through 15. The old sign atlas route does not represent the GUI banner model.
+
+## tools/registrygen/physics_v2193.go
+- Reserved v2193 states (element and chemistry blocks, hard glass and panes, coloured and
+  underwater torches, chalkboard, camera, underwater TNT, poplar signs, shelf mushroom,
+  straw bed) all keep the default block friction 0.6: every one with a pinned PMMP
+  `block_properties_table.json` row (166 of 170 names) reads 0.6000000238. Their collision
+  shapes still differ per block (Prismarine: cubes, panes, none), so they stay passable
+  until reviewed per-block facts exist.
 
 ## tools/registrygen/education_v2193.go
 ## crates/pack-compiler/src/compiler/visuals/literal.rs
@@ -2439,6 +2758,7 @@ Only add provenance to docs/agents/vanilla-refs-map.md.
 
 ## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
 - Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
+- Hurt event dispatch (`actor_store/hurt.rs` and `actor_animation.rs`): verified official 1.7.10 jar above, `sv.a(B)V` status 2 writes float 1.5 to `sv.aF` immediately, without comparing the hurt countdown. `sv.e(FF)V` copies `aF` to previous `aE`, eases by float 0.4 toward the capped movement target, then adds `aF` to phase `aG`. Consecutive events reset the amount; status 3 alone does not.
 - Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); bob: EntityOtherPlayerMP.onLivingUpdate and EntityPlayer.onLivingUpdate's grounded/live target; mounted reset: EntityPlayer.updateRidden. Walk distance cast order: Entity.moveEntity. Its walking trigger is disabled by EntityPlayer.canTriggerWalking while PlayerCapabilities.isFlying, freezing walked phase without stopping chasing coordinates. The local predicted flight observation enters through client-presentation/actor_feed.rs, LocalPlayerFeed and ActorTickContext.
 - Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation and cast order: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
 - Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
@@ -2550,7 +2870,6 @@ was not used as version evidence.
 
 ## crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs
 - Current 1.26.50.26 banner held path: humanoid additional rendering `0x05e2b300` calls banner item rendering `0x06c592a0`, sharing setup `0x06c57b00` with GUI `0x06c581a0`. The held renderer draws pole, crossbar and cloth with base/pattern materials. The existing sprite fallback preserves availability only; exact held geometry remains an open parity item.
->>>>>>> theirs
 
 ## Crosshair presentation preferences
 
@@ -2569,3 +2888,134 @@ was not used as version evidence.
 - Third-person visibility and disabling inversion are owner-requested options;
   defaults retain first-person visibility and inverted colors. The Java HUD's
   built-in fallback remains 15×15; a pack crosshair remains 16×16.
+
+## Swing duration publication
+
+- `crates/gameplay/src/melee.rs` and `melee/swing.rs`: Bedrock 1.26.50 `Mob::getModifiedSwingDuration`, `Mob::swing` and `Mob::aiStep`; Java 1.7.10 `EntityLivingBase.getArmSwingAnimationEnd`, `swingItem` and `updateArmSwingProgress`.
+- `crates/client-world/src/actor_animation/motion.rs` and `tick.rs`: Bedrock 1.26.50 `Mob::aiStep` and `Mob::swing`; Java swing publication follows `EntityLivingBase.updateArmSwingProgress`.
+- `crates/client-world/src/actor_animation/render_frame.rs`, `render_frame/clips.rs` and `tick/selection.rs`: vanilla pack `animation_controllers/player.animation_controllers.json` first-person attack weights and `animations/player.animation.json` attack channels.
+- `app/src/runtime/network/actor_publication.rs` and `crates/client-presentation/src/actor_publication/preparation.rs`: local tick admission precedes swing-counter publication; actor picking retains the actor interpolation boundary.
+- `crates/client-world/src/actor_animation/java/body.rs` and `local_motion.rs`: Java 1.7.10 `EntityLivingBase.onUpdate` calls `onLivingUpdate` before its swing-dependent facing choice and `func_110146_f`; `EntityPlayer.updateEntityActionState` updates arm swing progress during that living update.
+- Rules: `docs/reference/swing-duration.md`.
+
+## Desktop cursor focus ownership
+
+- `crates/client-presentation/src/camera/focus.rs`, `app/src/camera/focus.rs`, `app/src/camera/focus/native.rs`: `MinecraftGame::onAppFocusLost` releases held controls and cursor capture; `onAppFocusGained` checks the active screen before capture (R:MinecraftGame:102683–103207).
+- Focus-loss pause preference: R:GeneralSettingsFactoryAnon--b69a8d87dfcb:1789. Gameplay steals mouse outside touch input; ordinary screens do not (R:InGamePlayScreen:4997–5062; R:BaseScreen:823–830).
+- Cursor release clears logical capture and shows the pointer (R:MinecraftGame:124942–125235). macOS periodic centering requires captured state (R:__unmapped/00:1690783–1690824).
+
+- Version-matched Windows focus handlers: `current/1.26.50.26/src/__unmapped/00.cpp`: loss 1606419–1606753, gain 1606898–1607108; pause-screen dispatch 825180–825251 and 876546 onward; factory constructs `pause.pause_screen` at 1021123. Windows capture/release use hide/show, clip/unclip, and capture/release at 152158–152249. Focus-pause option is mapped in `__unmapped/04.cpp`:1635569–1635571.
+
+## Held block placement (1.26.50)
+
+Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.rs`,
+`crates/gameplay/src/block_use/intention.rs`, `crates/gameplay/src/block_use/packets.rs`,
+`crates/gameplay/src/block_use/stopping.rs`, `app/src/block_use.rs`,
+`app/src/block_use/target.rs`, `crates/protocol/src/interaction.rs`.
+
+- Primary current evidence: Lens artifact 6, normalized build `1.26.50.26`,
+  source-backed `artifact_function` reads at RVAs `0x28b63a0`
+  (`continueBuildBlockAction`), `0x28b66b0` (`continueBuildBlock`),
+  `0x28b6f00` (`stopBuildBlock`), and `0x28d3ed0` (build callback).
+  Local canonical counterparts are
+  `~/coding/go/lunar/refs/mcsrc-1.26.50/current/1.26.50.26/src/__unmapped/02.cpp`.
+  These confirm the hold flags, fresh-pick targeting, strict due-time comparison,
+  movement direction, line-cell intersection, cached orientation intercept,
+  clicked runtime ID before prediction, start/swing/transaction order and miss click zero.
+- Current Lens artifact 6, `_tickBuildAction` at `0x67883a0`, refreshes picks before
+  held continuation. The target-type early returns in `0x28b63a0` retain hold flags;
+  `useItemOn` at `0x28b74d0` disables intention after interaction while retaining the line.
+- Lens `read_data` on artifact 6 confirms float data addresses:
+  `0x150132700` = 300 ms, `0x14ff9cdc8` = 200 ms,
+  `0x15005ea40` = 900 speed divisor, `0x14feff2c8` = 180 ms,
+  `0x14ffa2648` = 100 ms survival floor, `0x14ffa90dc` = 20 Hz movement scale,
+  `0x1500c2b70` = 0.01 squared movement threshold.
+- Named-owner reference root:
+  `~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src`.
+  `by-owner/g/GameMode.cpp`: `startBuildBlock` RVA `0xa0bd770`,
+  `buildBlock` `0xa0bd790`, `continueBuildBlockAction` `0xa0bdd30`,
+  `continueBuildBlock` `0xa0bdfe0`, `_calculatePlacePos` `0xa0be670`,
+  `stopBuildBlock` `0xa0be750`, and `getPickRange` `0xa0c1450`.
+  The GameMode hold stores prior success, interactive-use and placement-intention flags,
+  successful destination, locked direction/face, next destination and first world intercept.
+- `by-owner/c/ClientInstance.cpp`: `_tickBuildAction` RVA `0x2334cd0`,
+  refreshes main and liquid HitResults before held continuation; `resetBai`,
+  `clearInProgressBAI` and `getInProgressBAI` own input intention.
+  `by-owner/h/HitResultUtils.cpp`: `refreshHitResult` refreshes world pick evidence.
+  `by-owner/c/ClientInputCallbacks.cpp`: `handleBuildAction` RVA `0x23178c0`
+  owns first press; selected-slot and gameplay-input routing own stopping boundaries.
+- `by-owner/b/BlockItem.cpp`: `_calculatePlacePos` RVA `0xa5f6dc0`,
+  replace the clicked cell when admitted, otherwise offset by face.
+  `by-owner/p/PlanterItemComponent.cpp`: `getBlockPlacementContext` RVA `0xa2e0430`
+  supplies the qualifying intention bit, which is not equivalent to any nonzero block ID.
+  Current Lens artifact 6, source-backed raw RVA `0x3bd0ef0`, confirms
+  property mask `0x40003`, three virtual bool predicates, and carpet bit `0x80`
+  at BlockType offset `0x130`; custom block_placer component offset `0x42` enables
+  intention. The named reference uses mask `0x200003` and carpet bit `0x100` at
+  offset `0x108`. Lens vtable pointer read at `0x110ff1998` maps slots
+  `0xe8/0xf8/0x100` to `isFenceBlock/isThinFenceBlock/isWallBlock`;
+  `isFenceGateBlock` at `0xf0` is omitted. Stair and slab constructors set bits
+  1 and 2; the ordinary BlockType constructor supplies cube `0x200000`.
+  Runtime block-property admission in Cinnabar remains incomplete.
+  `crates/gameplay/src/movement/collision_registries.rs` and its `tags.rs`
+  admit conservative model families; `by-owner/l/LeavesBlock.cpp:130–145`
+  ORs leaf properties into the inherited ordinary cube properties, confirming
+  leaves retain placement intention. Chest, Bed, FenceGate and TrapDoor constructors
+  replace the default property mask and do not qualify merely from collision shape.
+  `by-owner/s/SoulSandBlock.cpp:38`, `by-owner/m/MudBlock.cpp:95`,
+  `by-owner/b/BarrierBlock.cpp:38`, and `by-owner/c/ChiseledBookShelfBlock.cpp:146`
+  call the ordinary BlockType constructor without replacing its cube property;
+  the identifier exceptions and their two-ID-space regressions cover these cases.
+- `by-owner/b/BlockStateHelper.cpp`: `isAnyDirection` RVA `0xb4b8560`,
+  initial world-intercept caching for cardinal direction, facing direction, vertical half,
+  direction, weirdo direction, orientation, upside-down/top-slot, standing rotation,
+  hanging, rotation, torch facing, vine bits and coral direction; pillar axis is absent.
+- Packet reference owners: `support/std/__func--bc8d9908b204/9.cpp:130567–131030`
+  (build callback), `support/std/__func--bc8d9908b204/1.cpp:135810–135897`
+  (use callback), `by-owner/c/CommonGameModeMessenger.cpp:101–229`,
+  `by-owner/i/ItemUseInventoryTransaction.cpp:3529–3556`,
+  `by-owner/l/LocalPlayer.cpp:10292–10413`. Lens named function
+  `0x10a0dc360` corroborates transaction construction. The current callback above
+  corroborates the first-success action and transaction fields for the target build.
+
+- Current Lens artifact 6, `handleItemStackResponse` at `0x28d10d0`, rejects IDs
+  unless `(~request_id & 0x80000001) == 0`: only negative odd client request IDs.
+  Canonical current `02.cpp:1476783–1476901` confirms this validation. Legacy
+  even placement scopes do not register in that response queue.
+  The local server pin `hashimthearab/dragonfly@58003c1d2ced`,
+  `server/session/handler_inventory_transaction.go:18–74`, processes
+  `LegacySetItemSlots` through `sendItem`/`sendInv`; `server/session/player.go:258–277`
+  sends `InventorySlot`/`InventoryContent`, not `ItemStackResponse`.
+
+## Absorption hearts
+
+- `crates/client-ui/src/ui_runtime/hud_adapter.rs`, `crates/ui/src/hud.rs`, and
+  `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  1.26.50.26 artifact 6 `FUN_149c64c10` (RVA `0x9c64c10`) reads absorption
+  current independently of its maximum, rounds upward, appends after health,
+  wraps at ten with fixed 10-pixel rows, blinks all container backgrounds, and selects wither sprites for absorption
+  only when wither wins the effect precedence. `FUN_149c65980` (RVA `0x9c65980`)
+  loads absorption full/half textures and hardcore variants.
+- `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
+  `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
+  `#show_survival_ui` to `#visible`; absorption is native renderer state.
+
+## crates/protocol/src/item.rs; crates/protocol/tests/it/items_actions.rs
+
+- Current `1.26.50.26` `src/__recovered/ItemRegistry.cpp:1665–2368`,
+  `ItemRegistry::matchServerItemIds` (RVA `0x03984630`), registers definitions
+  before assigning their advertised numeric IDs. Its component pass at
+  `2160–2219` walks the original `ItemData` vector in order, skips a missing
+  `components` compound, resolves the item by identifier and initializes it
+  from each present compound. An empty root declaration therefore does not
+  suppress a populated declaration for the same item, in either order.
+- Near-version `reference/26.30/src/by-owner/i/ItemRegistry.cpp:11263–11308`
+  corroborates the compound-type check and virtual initialization call;
+  `by-owner/i/Item.cpp:6640` and `by-owner/c/ComponentItem.cpp:8050` identify
+  `initializeFromNetwork(CompoundTag const&)`. Component initialization can
+  update fields and accumulate tags, so arbitrary replacement of two different
+  populated definitions is not established by this witness.
+- The normalized registry retains unique numeric bindings, collapses identical
+  records and lets a populated definition refine a canonical empty declaration
+  only when name, ID, version and component-based status agree. Conflicting
+  identities and two differing populated definitions remain unsupported.

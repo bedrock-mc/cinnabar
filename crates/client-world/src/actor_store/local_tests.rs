@@ -46,6 +46,8 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         velocity: [0.0; 3],
         on_ground: true,
         flying: false,
+        gliding: false,
+        fall_fly_ticks: 0,
         yaw,
         head_yaw: yaw,
         pitch: 0.0,
@@ -54,6 +56,7 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         main_hand_metadata: 0,
         main_hand_stack_id: None,
         main_hand_slot: 0,
+        bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
         java_swing_ticks: crate::ACTOR_SWING_TICKS,
         teleported: false,
         first_person: false,
@@ -557,4 +560,27 @@ fn client_skin_override_restores_the_retained_server_appearance() {
             );
         }
     }
+}
+
+/// The predicted glide owns the local gliding flag and the ticks that ease in its body tilt.
+#[test]
+fn local_glide_prediction_sets_the_gliding_flag_and_its_ticks() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.gliding = true;
+    feed.fall_fly_ticks = 1;
+    store.sync_local_player(1, -100, &feed);
+    let actor = store.get(1).unwrap();
+    assert!(actor.is_gliding());
+    assert_eq!(actor.status.fall_fly_ticks, 1);
+    feed.fall_fly_ticks = 7;
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(store.get(1).unwrap().status.fall_fly_ticks, 7);
+    feed.gliding = false;
+    feed.fall_fly_ticks = 0;
+    store.sync_local_player(1, -100, &feed);
+    let actor = store.get(1).unwrap();
+    assert!(!actor.is_gliding());
+    assert_eq!(actor.status.fall_fly_ticks, 0);
 }

@@ -36,6 +36,29 @@ impl Default for LocalWorldsUi {
 }
 
 impl MenuRuntime {
+    /// Includes deliberate joins whose local-world preparation completes on a later frame.
+    pub(super) fn gameplay_return_pending(&self) -> bool {
+        use crate::local_worlds::{PromptButton, PromptFor};
+        self.intents.join.is_some()
+            || self.local_world_requested.is_some()
+            || self.local_ui.actions.iter().any(|action| match *action {
+                LocalWorldAction::Create
+                | LocalWorldAction::PlayFromEdit
+                | LocalWorldAction::AcceptEula => true,
+                LocalWorldAction::Prompt(button) => {
+                    self.local_ui.view.prompt.is_some_and(|prompt| {
+                        prompt.buttons().contains(&button)
+                            && matches!(
+                                (button, prompt.blocking),
+                                (PromptButton::UseDragonfly, PromptFor::CreateBds)
+                                    | (PromptButton::Retry, PromptFor::Play | PromptFor::CreateBds)
+                            )
+                    })
+                }
+                _ => false,
+            })
+    }
+
     /// Mirror the module's worlds and screens, forward presses and typed text, join a world
     /// that finished opening, and track whether a local-world session is live.
     pub(crate) fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds, in_session: bool) {
@@ -211,6 +234,8 @@ impl MenuRuntime {
                     A::Create,
                     A::Tab(Tab::General),
                     A::SeedField,
+                    A::Backend(protocol::world_control::Backend::Dragonfly),
+                    A::Backend(protocol::world_control::Backend::Bds),
                     A::Flat(false),
                     A::Flat(true),
                 ]),
@@ -254,6 +279,52 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backend_prompt_only_retains_gameplay_return_for_available_join_actions() {
+        use launcher::local_worlds::prompt::{Prompt, PromptButton, PromptFor, PromptKind};
+
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        for (kind, blocking, expected) in [
+            (
+                PromptKind::DockerMissing,
+                PromptFor::CreateBds,
+                &[PromptButton::UseDragonfly][..],
+            ),
+            (
+                PromptKind::DockerNotRunning,
+                PromptFor::CreateBds,
+                &[PromptButton::UseDragonfly, PromptButton::Retry][..],
+            ),
+            (PromptKind::DockerMissing, PromptFor::Play, &[][..]),
+            (
+                PromptKind::DockerNotRunning,
+                PromptFor::Play,
+                &[PromptButton::Retry][..],
+            ),
+        ] {
+            menu.local_ui.view.prompt = Some(Prompt { kind, blocking });
+            for button in [
+                PromptButton::UseDragonfly,
+                PromptButton::Retry,
+                PromptButton::GetDocker,
+                PromptButton::Cancel,
+            ] {
+                menu.local_ui.actions.clear();
+                assert!(!menu.gameplay_return_pending());
+                menu.queue_local_action(LocalWorldAction::Prompt(button));
+                assert_eq!(
+                    menu.gameplay_return_pending(),
+                    expected.contains(&button),
+                    "{kind:?}, {blocking:?}, {button:?}",
+                );
+            }
+        }
+        menu.local_ui.view.prompt = None;
+        menu.local_ui.actions.clear();
+        menu.queue_local_action(LocalWorldAction::Prompt(PromptButton::UseDragonfly));
+        assert!(!menu.gameplay_return_pending());
+    }
 
     #[test]
     fn a_chosen_card_selects_the_world_in_the_module() {

@@ -1,7 +1,7 @@
 //! Local-world control intents and their model inputs.
 use super::{LocalWorldCard, MenuField};
 use crate::local_worlds::{Input, PromptButton, Tab, game_mode_label, world_type_label};
-use protocol::world_control::{Difficulty, GameMode, World};
+use protocol::world_control::{Backend, Difficulty, GameMode, World};
 
 /// A press on a local-world screen or modal; the menu forwards it to the module.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,6 +17,7 @@ pub enum LocalWorldAction {
     GameMode(GameMode),
     Difficulty(Difficulty),
     Flat(bool),
+    Backend(Backend),
     Create,
     Save,
     Discard,
@@ -50,6 +51,7 @@ impl LocalWorldAction {
             Self::GameMode(mode) => Input::SetGameMode(mode),
             Self::Difficulty(difficulty) => Input::SetDifficulty(difficulty),
             Self::Flat(flat) => Input::SetFlat(flat),
+            Self::Backend(backend) => Input::SetBackend(backend),
             Self::Create => Input::SubmitCreate,
             Self::Save => Input::SubmitEdit,
             Self::Discard => Input::DiscardEdit,

@@ -99,6 +99,7 @@ func TestRefreshAheadReplacesServiceTokenBeforeExpiry(t *testing.T) {
 	if err != nil || exchanges.Load() != 1 || remaining <= serviceRefreshLead {
 		t.Fatalf("refresh: err=%v exchanges=%d remaining=%v", err, exchanges.Load(), remaining)
 	}
+	settle(t, account)
 	if _, err := account.refreshServiceAhead(context.Background(), serviceRefreshLead); err != nil || exchanges.Load() != 1 {
 		t.Fatalf("fresh token was refreshed again: err=%v exchanges=%d", err, exchanges.Load())
 	}
@@ -325,5 +326,149 @@ func TestEarlyRefreshDoesNotBlockForegroundServiceToken(t *testing.T) {
 	}
 	if token, err := account.ServiceToken(context.Background()); err != nil || token.AuthorizationHeader != "MCToken replacement" {
 		t.Fatalf("replacement was not installed: err=%v", err)
+	}
+}
+
+// A service token restored from disk carries its JWT claims, which messaging reads directly.
+func TestRestoredServiceTokenCarriesItsClaims(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	state.ServiceToken = &service.Token{AuthorizationHeader: skewedServiceJWT(t, now, now.Add(time.Hour)), ValidUntil: now.Add(time.Hour)}
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	deps := defaultDerivedDeps()
+	deps.discover = func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil }
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.Claims.PlayerMessagingID.String() != "6a1c9a1e-0000-4000-8000-000000000000" {
+		t.Fatalf("restored service token messaging ID = %v", token.Claims.PlayerMessagingID)
+	}
+}
+
+// An exchange superseded by an account reset derives again instead of returning the stale token.
+func TestSupersededServiceExchangeDerivesAgain(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	var account *Account
+	var exchanges atomic.Int32
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			if exchanges.Add(1) == 1 {
+				account.gate <- struct{}{}
+				account.resetLocked(oauthBinding(testOAuthToken("account-a-rotated")))
+				account.unlock()
+				return &service.Token{AuthorizationHeader: "MCToken superseded", ValidUntil: time.Now().Add(time.Hour)}, nil
+			}
+			return &service.Token{AuthorizationHeader: "MCToken current", ValidUntil: time.Now().Add(time.Hour)}, nil
+		}),
+	}
+	account = newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	account.gate <- struct{}{}
+	account.oauth = oauthSourceFunc(func() (*oauth2.Token, error) { return testOAuthToken("account-a-rotated"), nil })
+	account.binding = oauthBinding(testOAuthToken("account-a-rotated"))
+	account.unlock()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || token.AuthorizationHeader != "MCToken current" {
+		t.Fatalf("superseded exchange returned %v, err=%v", token, err)
+	}
+}
+
+// resumingSource hands back its seed after onResume runs, as a native source resuming a restored token.
+type resumingSource struct {
+	seed     *service.Token
+	onResume func()
+	exchange func() *service.Token
+}
+
+func (r *resumingSource) ServiceToken(context.Context) (*service.Token, error) {
+	if r.seed != nil && r.seed.Valid() {
+		r.onResume()
+		return r.seed, nil
+	}
+	return r.exchange(), nil
+}
+
+// A restored token refused while its source resumes it is never installed; a fresh one is exchanged.
+func TestServiceTokenRefusedWhileResumingIsNotInstalled(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	var account *Account
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: func(_ *service.AuthorizationEnvironment, _ service.SessionTicketSource, seed *service.Token, _, _ string) service.TokenSource {
+			return &resumingSource{
+				seed:     seed,
+				onResume: func() { account.InvalidateServiceToken(seed) },
+				exchange: func() *service.Token {
+					return &service.Token{AuthorizationHeader: "MCToken replacement", ValidUntil: time.Now().Add(time.Hour)}
+				},
+			}
+		},
+	}
+	account = newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || token.AuthorizationHeader != "MCToken replacement" {
+		t.Fatalf("service token after a refusal during resume = %v, err=%v", token, err)
+	}
+}
+
+// A restored token another process evicted while its source resumed it is never reinstalled.
+func TestServiceTokenEvictedByAReloadMidExchangeIsNotInstalled(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	var account *Account
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: func(_ *service.AuthorizationEnvironment, _ service.SessionTicketSource, seed *service.Token, _, _ string) service.TokenSource {
+			return &resumingSource{
+				seed: seed,
+				onResume: func() {
+					// Another process evicts the token, and a concurrent call reloads that eviction.
+					state, err := loadDerived(path)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					state.ServiceToken = nil
+					b, _ := json.Marshal(state)
+					if err := savePrivate(path, append(b, '\n')); err != nil {
+						t.Error(err)
+					}
+					if _, err := account.Environment(context.Background()); err != nil {
+						t.Error(err)
+					}
+				},
+				exchange: func() *service.Token {
+					return &service.Token{AuthorizationHeader: "MCToken replacement", ValidUntil: time.Now().Add(time.Hour)}
+				},
+			}
+		},
+	}
+	account = newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || token.AuthorizationHeader != "MCToken replacement" {
+		t.Fatalf("service token after an eviction mid-exchange = %v, err=%v", token, err)
 	}
 }

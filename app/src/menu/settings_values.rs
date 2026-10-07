@@ -51,7 +51,7 @@ pub(crate) const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [
     (super::settings_options::VOLUME_SETTINGS[10], None),
 ];
 impl MenuRuntime {
-    /// A capture's fixed CLI scale, cleared when the native slider is changed.
+    /// A capture's fixed CLI scale, cleared when the native option is changed.
     pub(crate) fn gui_scale_preference(&self) -> Option<u8> {
         self.gui_scale_preference
     }
@@ -68,7 +68,11 @@ impl MenuRuntime {
     }
 
     pub(super) fn set_gui_scale_offset(&mut self, offset: i8) {
-        if self.gui_scale_choices.contains(&offset) {
+        if self
+            .gui_scale_choices
+            .iter()
+            .any(|choice| choice.offset == offset)
+        {
             self.gui_scale_preference = None;
             self.gui_scale_offset = offset;
             self.gui_scale_display_offset = offset;
@@ -77,10 +81,14 @@ impl MenuRuntime {
 
     /// The native choices track the physical viewport; the saved modifier
     /// survives resize and is clamped when the rendering scale is evaluated.
-    pub(crate) fn sync_gui_scale(&mut self, displayed_offset: i8, choices: Vec<i8>) {
+    pub(crate) fn sync_gui_scale(
+        &mut self,
+        displayed_offset: i8,
+        choices: Vec<ui::DesktopGuiScaleChoice>,
+    ) {
         self.gui_scale_display_offset = displayed_offset.clamp(
-            choices.first().copied().unwrap_or(0),
-            choices.last().copied().unwrap_or(0),
+            choices.first().map_or(0, |choice| choice.offset),
+            choices.last().map_or(0, |choice| choice.offset),
         );
         if self.gui_scale_choices != choices {
             self.gui_scale_choices = choices;
@@ -125,7 +133,12 @@ mod tests {
     fn native_gui_scale_choice_clears_the_fixed_cli_override() {
         let mut menu = menu();
         menu.set_gui_scale_preference(Some(2));
-        menu.sync_gui_scale(0, vec![-1, 0]);
+        menu.sync_gui_scale(
+            0,
+            ui::DesktopGuiScale::for_window([1280, 720])
+                .choices()
+                .collect(),
+        );
         menu.activate(super::super::MenuAction::SettingsScale(-1));
         assert_eq!(menu.gui_scale_preference(), None);
         assert_eq!(menu.gui_scale_offset(), -1);

@@ -47,6 +47,8 @@ pub struct ActorStatus {
     pub(super) movement_interpolation: super::movement_interpolation::MovementInterpolation,
     /// Vanilla velocity per tick, distinct from query-derived movement speed.
     pub(crate) native_velocity: [f32; 3],
+    /// Consecutive gliding ticks; vanilla advances them only for the input-driven local player.
+    pub fall_fly_ticks: u32,
     /// Ticks of hurt state remaining.
     pub hurt_time: u8,
     /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
@@ -183,6 +185,7 @@ impl ActorStore {
                 actor.status.hurt_time = HURT_DURATION_TICKS;
                 actor.status.skip_red_flash = event.kind == ActorStatusKind::HurtWithoutDamage;
                 actor.status.hurt_direction = actor.streamed_hurt_direction();
+                self.animation.hurt_java_limbs(event.runtime_id);
             }
             ActorStatusKind::Death => {
                 if matches!(&actor.kind, super::ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_dragon")

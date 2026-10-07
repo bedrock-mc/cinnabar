@@ -52,6 +52,15 @@ pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
 pub const INVERT_CROSSHAIR_OPTION: SettingDefinition =
     toggle("invert_crosshair", "Invert Crosshair Colors", true);
 
+/// Percent slider over vanilla's `0.0..=1.0` mouse sensitivity option.
+pub const MOUSE_SENSITIVITY_OPTION: SettingDefinition = slider(
+    "keyboard_mouse_sensitivity",
+    "options.sensitivity",
+    0,
+    100,
+    (semantic_input::DEFAULT_MOUSE_SENSITIVITY * 100.0) as i32,
+);
+
 /// Defines one boolean binding with an integral persisted value.
 const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
     SettingDefinition {
@@ -274,13 +283,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle("field_of_view_toggle", "options.fov.toggle", true),
     dropdown("third_person", "options.thirdperson", PERSPECTIVES, 0),
     dropdown("graphics_mode", "options.graphicsMode", GRAPHICS, 1),
-    slider(
-        "keyboard_mouse_sensitivity",
-        "options.sensitivity",
-        0,
-        100,
-        50,
-    ),
+    MOUSE_SENSITIVITY_OPTION,
     slider(
         "spyglass_mouse_dampening",
         "options.spyglassdampen",
@@ -289,7 +292,8 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         50,
     ),
     toggle("keyboard_mouse_invert_y_axis", "options.invertYAxis", false),
-    toggle("keyboard_mouse_autojump", "options.autojump", true),
+    // Vanilla 1.26.50 ships auto-jump off for every input mode.
+    toggle("keyboard_mouse_autojump", "options.autojump", false),
     toggle(
         "keyboard_show_full_keyboard_options",
         "options.fullKeyboardGameplay",
@@ -314,7 +318,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     ),
     // P:ui/settings_sections/controls_section.json:732; default is not yet recovered.
     toggle("controller_invert_y_axis", "options.invertYAxis", false),
-    // P:ui/settings_sections/controls_section.json:741; default is not yet recovered.
+    // P:ui/settings_sections/controls_section.json:741; vanilla 1.26.50 default is off.
     toggle("controller_autojump", "options.autojump", false),
     // P:ui/settings_sections/controls_section.json:750; default is not yet recovered.
     toggle("hide_tooltips", "options.hidetooltips", false),
@@ -494,5 +498,11 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     slider("chat_font_size", "chat.settings.fontSize", 5, 20, 10),
     slider("chat_line_spacing", "chat.settings.lineSpacing", 0, 100, 0),
     toggle("always_sprint", "Always Sprint", false),
+    toggle(
+        super::SHOW_EXACT_SERVER_PING,
+        "options.showExactServerPing",
+        false,
+    ),
+    toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
     DISCORD_PRESENCE_OPTION,
 ];

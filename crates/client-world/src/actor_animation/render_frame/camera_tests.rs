@@ -204,7 +204,7 @@ fn light_multiplier_defaults_to_one_and_evaluates_unclamped_values_between_ticks
     compiled.render.layers[1].ignore_lighting = true;
     compiled.render.layers[2].light_color_multiplier = Some(3);
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
-    assert!(needs_frame_sampling(&assets, 0));
+    assert!(sampling::needs_frame_sampling(&assets, 0));
     let store = fixture_with_assets(assets);
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
     for alpha in [0.0, 0.75] {
@@ -360,4 +360,290 @@ fn camera_frame_budget_exhaustion_keeps_all_completed_geometry_poses() {
     }
     assert!(saw_exhausted_frame);
     assert!(saw_sampled_frame);
+}
+
+#[test]
+fn local_swing_samples_molang_layers_and_poses_at_the_physics_fraction() {
+    let mut compiled = camera_compiled();
+    compiled.molang_symbols[1].kind = MolangSymbolKind::Variable;
+    compiled.molang_symbols[1].identifier = "variable.attack_time".into();
+    compiled.molang_ops = vec![MolangOp::LoadVariable(1)].into_boxed_slice();
+    compiled.molang_expressions = vec![CompiledMolangExpression {
+        first_op: 0,
+        op_count: 1,
+        max_stack: 1,
+    }]
+    .into_boxed_slice();
+    for keyframe in &mut compiled.animation_keyframes {
+        keyframe.expressions = [Some(0), None, None];
+    }
+    for layer in &mut compiled.render.layers {
+        layer.color = Some([0; 4]);
+    }
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let mut store = fixture_with_assets(assets);
+    store.exclude_remote_state_for(1);
+    let completed_tick = store.actor_rig(1).unwrap().completed_tick;
+    let progress = crate::LocalSwingProgress {
+        bedrock: [0.25, 0.5],
+        java: [0.25, 0.5],
+        frame_alpha: Some(0.75),
+    };
+    store.sync_local_swing(1, progress);
+    store.advance_interpolation_frame(0);
+    assert_eq!(store.actor_rig(1).unwrap().render[0].color, [0.5; 4]);
+    for actor_alpha in [0.0, 0.25, 1.0] {
+        let layers = store
+            .render_frame(actor_alpha)
+            .layers(1)
+            .unwrap()
+            .into_owned();
+        assert_eq!(layers[0].color, [0.4375; 4]);
+        let expected = pose::quat_from_euler([-0.4375, 0.0, 0.0]);
+        assert_rotation(layers[0].pose[0].rotation, expected);
+        assert_rotation(layers[1].pose[1].rotation, expected);
+        assert_eq!(layers[0].pose, layers[0].previous_pose);
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
+    let stats = store.animation_stats();
+    store.sync_local_swing(
+        1,
+        crate::LocalSwingProgress {
+            frame_alpha: Some(0.25),
+            ..progress
+        },
+    );
+    store.advance_interpolation_frame(0);
+    assert_eq!(
+        store.render_frame(0.9).layers(1).unwrap()[0].color,
+        [0.3125; 4]
+    );
+    assert_eq!(store.actor_rig(1).unwrap().java.swing_progress(0.9), 0.3125);
+    assert_eq!(store.animation_stats(), stats);
+    let idle = crate::LocalSwingProgress {
+        frame_alpha: Some(0.1),
+        ..Default::default()
+    };
+    store.sync_local_swing(1, idle);
+    store.advance_interpolation_frame(0);
+    let stats = store.animation_stats();
+    let pose = Arc::clone(&store.actor_rig(1).unwrap().render[0].pose);
+    store.sync_local_swing(
+        1,
+        crate::LocalSwingProgress {
+            frame_alpha: Some(0.9),
+            ..idle
+        },
+    );
+    store.advance_interpolation_frame(0);
+    let layers = store.render_frame(0.75).layers(1).unwrap();
+    assert!(matches!(layers, Cow::Borrowed(_)));
+    assert!(Arc::ptr_eq(&pose, &layers[0].pose));
+    assert_eq!(store.animation_stats(), stats);
+}
+
+#[test]
+fn local_swing_wrap_resamples_controller_weight_without_advancing_tick_state() {
+    let mut compiled = camera_compiled();
+    compiled.molang_symbols[1].kind = MolangSymbolKind::Variable;
+    compiled.molang_symbols[1].identifier = "variable.attack_time".into();
+    compiled.molang_ops = vec![
+        MolangOp::LoadVariable(1),
+        MolangOp::LoadVariable(1),
+        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
+        MolangOp::Greater,
+    ]
+    .into_boxed_slice();
+    compiled.molang_expressions = vec![
+        CompiledMolangExpression {
+            first_op: 0,
+            op_count: 1,
+            max_stack: 1,
+        },
+        CompiledMolangExpression {
+            first_op: 1,
+            op_count: 3,
+            max_stack: 2,
+        },
+    ]
+    .into_boxed_slice();
+    for keyframe in &mut compiled.animation_keyframes {
+        keyframe.expressions = [Some(0), None, None];
+    }
+    let mut symbols = compiled.symbols.into_vec();
+    symbols.insert(
+        4,
+        EntityAssetSymbol {
+            kind: EntityAssetKind::AnimationController,
+            identifier: "controller.animation.test".into(),
+            source_index: 0,
+            dependencies: Box::new([]),
+        },
+    );
+    compiled.symbols = symbols.into_boxed_slice();
+    let mut sources = compiled.sources.into_vec();
+    sources.insert(
+        0,
+        assets::EntityAssetSource {
+            path: "animation_controllers/test.json".into(),
+            source_bytes: 1,
+            source_sha256: [1; 32],
+        },
+    );
+    compiled.sources = sources.into_boxed_slice();
+    for symbol in &mut compiled.symbols {
+        symbol.source_index += 1;
+    }
+    compiled.symbols[4].source_index = 0;
+    for geometry in &mut compiled.geometries {
+        geometry.source_index += 1;
+    }
+    for clip in &mut compiled.animation_clips {
+        clip.source += 1;
+    }
+
+    compiled.rig_bindings[0].render_controller = 5;
+    for candidate in &mut compiled.render.candidates {
+        candidate.source = 5;
+    }
+    compiled.controllers = vec![assets::EntityAnimationController {
+        symbol: 4,
+        first_state: 0,
+        state_count: 1,
+        initial_state: 0,
+    }]
+    .into_boxed_slice();
+    compiled.controller_states = vec![assets::EntityControllerState {
+        name: 0,
+        first_animation: 0,
+        animation_count: 1,
+        ..Default::default()
+    }]
+    .into_boxed_slice();
+    compiled.controller_animations = vec![assets::EntityControllerAnimation {
+        target: assets::EntityControllerAnimationTarget::Clip(0),
+        weight: Some(1),
+    }]
+    .into_boxed_slice();
+    compiled.rig_geometries[0].animation_count = 0;
+    compiled.rig_animations = Box::new([]);
+    compiled.rig_geometries[0].controller_count = 1;
+    compiled.rig_controllers = vec![assets::EntityRigControllerBinding {
+        name: 0,
+        controller: 0,
+        weight: None,
+        order: 0,
+    }]
+    .into_boxed_slice();
+    for static_channel in [false, true] {
+        for gate in 0..3 {
+            let mut variant = compiled.clone();
+            if static_channel {
+                for keyframe in &mut variant.animation_keyframes {
+                    keyframe.expressions = [None; 3];
+                    keyframe.value[0] = EntityGeometryScalar::new(10.0).unwrap();
+                }
+            }
+            if gate == 0 {
+                variant.rig_geometries[0].animation_count = 1;
+                variant.rig_geometries[0].controller_count = 0;
+                variant.rig_controllers = Box::new([]);
+                variant.rig_animations = vec![assets::EntityRigAnimationBinding {
+                    name: 0,
+                    clip: 0,
+                    weight: Some(1),
+                    order: 0,
+                }]
+                .into_boxed_slice();
+            } else if gate == 1 {
+                variant.rig_controllers[0].weight = Some(1);
+                variant.controller_animations[0].weight = None;
+            }
+            let mut store = fixture_with_assets(Arc::new(
+                RuntimeEntityAssets::from_compiled(variant).unwrap(),
+            ));
+            store.exclude_remote_state_for(1);
+            let completed_tick = store.actor_rig(1).unwrap().completed_tick;
+            store.sync_local_swing(
+                1,
+                crate::LocalSwingProgress {
+                    bedrock: [5.0 / 6.0, 0.0],
+                    java: [5.0 / 6.0, 0.0],
+                    frame_alpha: Some(0.5),
+                },
+            );
+            store.advance_interpolation_frame(0);
+            let stats = store.animation_stats();
+            let completed_pose = store.actor_rig(1).unwrap().current.to_vec();
+            for _ in 0..2 {
+                let layers = store.render_frame(0.0).layers(1).unwrap().into_owned();
+                let angle = if static_channel { -10.0 } else { -11.0 / 12.0 };
+                let expected = pose::quat_from_euler([angle, 0.0, 0.0]);
+                assert_rotation(layers[0].pose[0].rotation, expected);
+            }
+            assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
+            assert_eq!(store.actor_rig(1).unwrap().current, completed_pose);
+            assert_eq!(store.animation_stats(), stats);
+        }
+    }
+}
+
+#[test]
+fn local_swing_frame_preserves_the_authored_item_rotation_factor() {
+    let mut compiled = camera_compiled();
+    compiled.molang_symbols[1].kind = MolangSymbolKind::Variable;
+    compiled.molang_symbols[1].identifier = "variable.attack_time".into();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    for identifier in [
+        "variable.first_person_item_rotation_factor",
+        "variable.first_person_rotation_factor",
+    ] {
+        symbols.push(MolangSymbol {
+            kind: MolangSymbolKind::Variable,
+            identifier: identifier.into(),
+        });
+    }
+    compiled.molang_symbols = symbols.into_boxed_slice();
+    compiled.rig_bindings[0].pre_animation = Some(1);
+    compiled.molang_ops = vec![
+        MolangOp::LoadVariable(2),
+        MolangOp::LoadVariable(1),
+        MolangOp::StoreVariable(3),
+        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
+    ]
+    .into_boxed_slice();
+    compiled.molang_expressions = vec![
+        CompiledMolangExpression {
+            first_op: 0,
+            op_count: 1,
+            max_stack: 1,
+        },
+        CompiledMolangExpression {
+            first_op: 1,
+            op_count: 3,
+            max_stack: 1,
+        },
+    ]
+    .into_boxed_slice();
+    for keyframe in &mut compiled.animation_keyframes {
+        keyframe.expressions = [Some(0), None, None];
+    }
+    let mut store = fixture_with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    store.exclude_remote_state_for(1);
+    store.sync_local_swing(
+        1,
+        crate::LocalSwingProgress {
+            bedrock: [0.25, 0.5],
+            java: [0.25, 0.5],
+            frame_alpha: Some(0.75),
+        },
+    );
+    store.advance_interpolation_frame(0);
+    let layers = store.render_frame(0.0).layers(1).unwrap().into_owned();
+    assert_rotation(
+        layers[0].pose[0].rotation,
+        pose::quat_from_euler([-0.4375, 0.0, 0.0]),
+    );
 }

@@ -137,7 +137,8 @@ impl ActorSnapshot {
     }
 
     /// Vanilla velocity units (blocks/tick) for tick-driven engine animation.
-    pub(crate) fn native_velocity(&self) -> [f32; 3] {
+    #[must_use]
+    pub fn native_velocity(&self) -> [f32; 3] {
         self.status.native_velocity
     }
 
@@ -256,6 +257,7 @@ impl ActorSnapshot {
             float_properties: HashMap::new(),
             status: ActorStatus {
                 native_velocity: feed.velocity,
+                fall_fly_ticks: feed.fall_fly_ticks,
                 ..ActorStatus::default()
             },
             dragon_animation: None,
@@ -264,11 +266,12 @@ impl ActorSnapshot {
         snapshot
     }
 
-    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim and
-    /// predicted item use. Shield blocking stays server-owned.
+    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim, glide
+    /// and predicted item use. Shield blocking stays server-owned.
     fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
         self.set_flag(ACTOR_FLAG_SNEAKING, feed.sneaking);
         self.set_flag(ACTOR_FLAG_SPRINTING, feed.sprinting);
+        self.set_flag(ACTOR_FLAG_GLIDING, feed.gliding);
         // Sprinting in water is swimming; the water sample lags one frame.
         let in_water = self.status.fluid.is_some_and(|(water, _)| water);
         self.set_flag(ACTOR_FLAG_SWIMMING, feed.sprinting && in_water);
@@ -404,6 +407,11 @@ impl ActorSnapshot {
     #[must_use]
     pub fn is_sneaking(&self) -> bool {
         self.flag(ACTOR_FLAG_SNEAKING)
+    }
+
+    #[must_use]
+    pub fn is_gliding(&self) -> bool {
+        self.flag(ACTOR_FLAG_GLIDING)
     }
 
     #[must_use]
@@ -594,6 +602,10 @@ pub struct LocalPlayerFeed {
     pub on_ground: bool,
     /// Active flight from the client's completed movement mode, rather than server abilities.
     pub flying: bool,
+    /// Predicted elytra glide; overrides the streamed gliding flag on the local rig.
+    pub gliding: bool,
+    /// Consecutive completed gliding ticks, which ease the body into its glide tilt.
+    pub fall_fly_ticks: u32,
     /// Look-input yaw driving the body target, not the camera boom.
     pub yaw: f32,
     pub head_yaw: f32,
@@ -607,7 +619,9 @@ pub struct LocalPlayerFeed {
     pub main_hand_stack_id: Option<i32>,
     /// Selected hotbar slot; equal stacks in different slots still re-equip.
     pub main_hand_slot: u8,
-    /// Current Java swing duration, recalculated from the active effects each tick.
+    /// Current Bedrock swing duration, recalculated from the active effects each tick.
+    pub bedrock_swing_ticks: i32,
+    /// Current Java swing duration, which excludes Conduit Power.
     pub java_swing_ticks: i32,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
@@ -678,6 +692,7 @@ pub(crate) struct ActorStore {
     local_main_metadata: u32,
     local_main_stack_id: Option<i32>,
     local_main_slot: u8,
+    local_bedrock_swing_ticks: i32,
     local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],

@@ -10,7 +10,7 @@ networking.
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/MeEz7BEHcM)
 [![Website](https://img.shields.io/badge/Website-cinnabar.restartfu.com-B22222)](https://cinnabar.restartfu.com/)
 
-<img width="2534" height="1446" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/836cb337-3876-4b31-a97e-9cfb25227b11" />
+<img width="1282" height="752" alt="image" src="https://github.com/user-attachments/assets/ca040799-e00e-4a6e-85f8-a0e28af6ea72" />
 
 ## Download
 

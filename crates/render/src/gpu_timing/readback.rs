@@ -107,6 +107,31 @@ impl GpuFrameTimes {
     }
 }
 
+/// Classifies invalid samples before subtraction; Metal reports failed counters as `u64::MAX`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SpanValidity {
+    Valid,
+    ZeroBegin,
+    ZeroEnd,
+    Reversed,
+    Sentinel,
+}
+
+/// Checks both samples, with sentinel and missing-value errors taking priority over ordering.
+pub(super) fn span_validity(begin: u64, end: u64) -> SpanValidity {
+    if begin == u64::MAX || end == u64::MAX {
+        SpanValidity::Sentinel
+    } else if begin == 0 {
+        SpanValidity::ZeroBegin
+    } else if end == 0 {
+        SpanValidity::ZeroEnd
+    } else if end < begin {
+        SpanValidity::Reversed
+    } else {
+        SpanValidity::Valid
+    }
+}
+
 /// Sums valid tick spans; frame bounds are emitted only when coverage spans the frame.
 #[must_use]
 pub(crate) fn decode_spans(
@@ -117,7 +142,7 @@ pub(crate) fn decode_spans(
     let mut times = GpuFrameTimes::default();
     let mut bounds: Option<(u64, u64)> = None;
     for (stage, begin, end) in spans {
-        if begin == 0 || end < begin {
+        if span_validity(begin, end) != SpanValidity::Valid {
             continue;
         }
         times.add(stage, ticks_to_duration(end - begin, period_ns));
@@ -222,6 +247,25 @@ mod tests {
         );
         assert_eq!(times.get(RuntimeStage::MainFrame), None);
         assert_eq!(times.iter().count(), 3);
+    }
+
+    #[test]
+    fn error_sentinels_never_become_zero_or_unbounded_durations() {
+        for (begin, end) in [(u64::MAX, u64::MAX), (100, u64::MAX), (u64::MAX, 100)] {
+            assert_eq!(span_validity(begin, end), SpanValidity::Sentinel);
+            assert_eq!(
+                decode_spans([(RuntimeStage::GpuOpaque, begin, end)], 1.0, true),
+                GpuFrameTimes::default()
+            );
+        }
+        assert_eq!(span_validity(0, 0), SpanValidity::ZeroBegin);
+        assert_eq!(span_validity(1, 0), SpanValidity::ZeroEnd);
+        assert_eq!(span_validity(2, 1), SpanValidity::Reversed);
+        assert_eq!(span_validity(1, 1), SpanValidity::Valid);
+        assert_eq!(
+            decode_spans([(RuntimeStage::GpuOpaque, 1, 1)], 1.0, true).get(RuntimeStage::GpuOpaque),
+            Some(Duration::ZERO)
+        );
     }
 
     #[test]

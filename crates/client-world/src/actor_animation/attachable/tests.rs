@@ -219,7 +219,7 @@ fn fixture() -> Arc<RuntimeEntityAssets> {
     Arc::new(RuntimeEntityAssets::from_compiled(compiled_fixture()).unwrap())
 }
 
-fn owner_rig() -> ActorRigSnapshot<'static> {
+pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
     ActorRigSnapshot {
         actor: ActorLifetimeId {
             session_id: 1,
@@ -1103,3 +1103,34 @@ fn downloaded_offhand_shield_retracts_while_owner_draws_bow() {
 
 #[path = "worn_tests.rs"]
 mod worn_tests;
+
+#[test]
+fn local_attachable_swing_samples_the_physics_fraction() {
+    let mut compiled = compiled_fixture();
+    compiled.rig_bindings[0].pre_animation = None;
+    compiled.molang_symbols[7].identifier = "variable.attack_time".into();
+    compiled.molang_ops[11] = MolangOp::LoadVariable(7);
+    compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let mut runtime = AttachablesRuntime::new(assets);
+    let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    let mut rig = owner_rig();
+    rig.item_animation[0].attack_time = 0.25;
+    rig.item_animation[1].attack_time = 0.5;
+    rig.java.local_swing_alpha = Some(0.75);
+    for actor_alpha in [0.0, 0.25, 1.0] {
+        let snapshot = runtime
+            .evaluate(
+                "minecraft:test_item",
+                &owner,
+                &rig,
+                AttachableAnimationInput {
+                    first_person: true,
+                    frame_alpha: actor_alpha,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!((snapshot.pose[0].translation_scale[0] + 0.4375).abs() < 1e-6);
+    }
+}

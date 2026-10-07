@@ -30,12 +30,10 @@ const PLAYER: &str = "minecraft:player";
 const FEET_PROBE_BELOW: f64 = 0.2;
 const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
-const UI_CLICK: &str = "random.click";
-
-pub use client_ui::sound_requests::{ui_click, ui_control_sound, ui_sound};
+pub use client_ui::sound_requests::{ui_control_sound, ui_sound};
 
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
-/// calling [`ui_click`].
+/// using the named interface sound queue.
 #[derive(Debug, Clone, PartialEq, Message)]
 pub struct UiSoundCue(pub &'static str);
 
@@ -181,10 +179,9 @@ pub fn ingest_audio_events(
     mut state: Local<IngestState>,
 ) {
     for cue in cues.read() {
-        engine.enqueue(SoundRequest::new(cue.0));
-    }
-    if client_ui::sound_requests::take_click() {
-        engine.enqueue(SoundRequest::new(UI_CLICK));
+        if client_ui::sound_requests::interface_sound_enabled(cue.0) {
+            engine.enqueue(SoundRequest::new(cue.0));
+        }
     }
     let sounds = client_ui::sound_requests::take_sounds();
     for (name, volume, pitch) in sounds {

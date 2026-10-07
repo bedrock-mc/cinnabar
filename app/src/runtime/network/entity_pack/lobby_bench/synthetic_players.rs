@@ -280,7 +280,7 @@ fn synthetic_player_lobby_bench() {
         let tick_before = completed_tick(&world);
         let start = Instant::now();
         let cpu_start = thread_cpu_time();
-        world.run_system_cached(prepare_actor_render_frame).unwrap();
+        prepare_offline_actor_frame(&mut world);
         world.run_system_cached(publish_actor_render_frame).unwrap();
         let wall_time = start.elapsed();
         let cpu_time = thread_cpu_time()

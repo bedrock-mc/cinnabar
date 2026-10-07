@@ -207,18 +207,21 @@ func TestAccountLifetimeCancellationInterruptsOAuthWait(t *testing.T) {
 	}
 }
 
-// waitForAccountOperation waits until the test call holds the account gate;
+// waitForAccountOperation waits until the test call has begun on the account;
 // the competing lease stays held until after shutdown has finished.
 func waitForAccountOperation(t *testing.T, account *Account) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if len(account.gate) != 0 {
+		account.activeMu.Lock()
+		active := account.active
+		account.activeMu.Unlock()
+		if active != 0 {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatal("credential operation never acquired the account gate")
+	t.Fatal("credential operation never began")
 }
 
 func TestAccountQueuedCallRespectsDeadline(t *testing.T) {

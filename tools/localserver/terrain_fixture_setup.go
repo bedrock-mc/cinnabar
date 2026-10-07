@@ -28,7 +28,10 @@ func (s settings) configureTerrainFixture(conf *server.Config) {
 	}
 	conf.Generator = func(world.Dimension) world.Generator { return newTerrainFixture() }
 	conf.RandomTickSpeed = -1
-	conf.ChunkLoadWorkers = 4
+	conf.ChunkLoadWorkers = defaultChunkWorkers
+	if s.chunkWorkers > 0 {
+		conf.ChunkLoadWorkers = s.chunkWorkers
+	}
 }
 
 // freezeTerrainFixture prevents weather and daylight changes between matched captures.

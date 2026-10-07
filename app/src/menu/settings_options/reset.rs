@@ -27,6 +27,7 @@ impl MenuRuntime {
             }
         }
         self.settings_dropdown = None;
+        self.settings_scale_picker = false;
     }
 }
 
