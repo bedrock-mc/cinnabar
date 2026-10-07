@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 )
 
 // Permission is a Rust manifest::Permission.
@@ -35,7 +36,7 @@ type Permissions uint8
 
 // ImplementedPermissions are the permissions that have client adapters: Rust's
 // implemented_permissions(). A developer client's Hello offers exactly these.
-const ImplementedPermissions = Permissions(1<<PermissionUI | 1<<PermissionMessaging)
+const ImplementedPermissions = Permissions(1<<PermissionUI | 1<<PermissionModalUI | 1<<PermissionInput | 1<<PermissionMessaging)
 
 // NewPermissions returns the set of ps.
 func NewPermissions(ps ...Permission) Permissions {
@@ -290,7 +291,141 @@ func (m *Marker) decodeJSON(r *reader) error {
 	})
 }
 
-// Hello is a Rust negotiation::Hello, the client's first handshake message.
+// Limits is a Rust negotiation::Limits, the ceilings of a wire version. A Hello offers the
+// client's; an Accept may lower each and never raise one.
+type Limits struct {
+	// MaxFragmentBytes bounds an inline record and the data of one fragment.
+	MaxFragmentBytes uint32
+	// MaxMessageBytes bounds a reassembled record.
+	MaxMessageBytes uint32
+	// MaxReassemblyBytes bounds the carrier bytes one direction holds for undelivered messages,
+	// an open fragmented one included.
+	MaxReassemblyBytes uint32
+}
+
+// HostLimits are the ceilings this server offers, which equal the client's.
+var HostLimits = Limits{MaxPayloadBytes, MaxMessageBytes, MaxQueueBytes}
+
+// v1Limits are wire v1's fixed ceilings: whole envelopes of at most MaxPayloadBytes.
+var v1Limits = Limits{MaxPayloadBytes, MaxPayloadBytes, MaxQueueBytes}
+
+// lowest is each ceiling of l no higher than other's.
+func (l Limits) lowest(other Limits) Limits {
+	return Limits{
+		min(l.MaxFragmentBytes, other.MaxFragmentBytes),
+		min(l.MaxMessageBytes, other.MaxMessageBytes),
+		min(l.MaxReassemblyBytes, other.MaxReassemblyBytes),
+	}
+}
+
+// ordered reports what the client checks besides the offer: nonzero and each ceiling within
+// the next.
+func (l Limits) ordered() bool {
+	return 0 < l.MaxFragmentBytes && l.MaxFragmentBytes <= l.MaxMessageBytes && l.MaxMessageBytes <= l.MaxReassemblyBytes
+}
+
+var limitsFields = []string{"max_fragment_bytes", "max_message_bytes", "max_reassembly_bytes"}
+
+func (l Limits) appendJSON(b []byte) ([]byte, error) {
+	o := object{b: b, names: limitsFields}
+	o.uint(uint64(l.MaxFragmentBytes))
+	o.uint(uint64(l.MaxMessageBytes))
+	o.uint(uint64(l.MaxReassemblyBytes))
+	return o.end()
+}
+
+func (l *Limits) decodeJSON(r *reader) error {
+	*l = Limits{}
+	return r.fields(limitsFields, func(name string) (err error) {
+		switch name {
+		case "max_fragment_bytes":
+			l.MaxFragmentBytes, err = readUint[uint32](r)
+		case "max_message_bytes":
+			l.MaxMessageBytes, err = readUint[uint32](r)
+		case "max_reassembly_bytes":
+			l.MaxReassemblyBytes, err = readUint[uint32](r)
+		}
+		return err
+	})
+}
+
+// WireOffer is a Rust negotiation::WireOffer: every wire version a v2 client speaks, a set that
+// encodes ascending, and its ceilings.
+type WireOffer struct {
+	Versions []uint16
+	Limits   Limits
+}
+
+var wireOfferFields = []string{"versions", "limits"}
+
+func (w WireOffer) appendJSON(b []byte) ([]byte, error) {
+	o := object{b: b, names: wireOfferFields}
+	o.key()
+	versions := slices.Compact(slices.Sorted(slices.Values(w.Versions)))
+	o.b = append(o.b, '[')
+	for i, v := range versions {
+		if i > 0 {
+			o.b = append(o.b, ',')
+		}
+		o.b = strconv.AppendUint(o.b, uint64(v), 10)
+	}
+	o.b = append(o.b, ']')
+	o.value(w.Limits)
+	return o.end()
+}
+
+func (w *WireOffer) decodeJSON(r *reader) error {
+	*w = WireOffer{}
+	return r.fields(wireOfferFields, func(name string) (err error) {
+		switch name {
+		case "versions":
+			// A BTreeSet<u16>: any order, repeats merged, held ascending.
+			err = r.array(func() error {
+				v, err := readUint[uint16](r)
+				w.Versions = append(w.Versions, v)
+				return err
+			})
+			w.Versions = slices.Compact(slices.Sorted(slices.Values(w.Versions)))
+		case "limits":
+			err = w.Limits.decodeJSON(r)
+		}
+		return err
+	})
+}
+
+// Wire is a Rust negotiation::Wire: the version and ceilings that an Accept selects.
+type Wire struct {
+	Version uint16
+	Limits  Limits
+}
+
+// v1Wire is the session of a v1 Accept, which selects nothing.
+var v1Wire = Wire{WireVersion, v1Limits}
+
+var wireFields = []string{"version", "limits"}
+
+func (w Wire) appendJSON(b []byte) ([]byte, error) {
+	o := object{b: b, names: wireFields}
+	o.uint(uint64(w.Version))
+	o.value(w.Limits)
+	return o.end()
+}
+
+func (w *Wire) decodeJSON(r *reader) error {
+	*w = Wire{}
+	return r.fields(wireFields, func(name string) (err error) {
+		switch name {
+		case "version":
+			w.Version, err = readUint[uint16](r)
+		case "limits":
+			err = w.Limits.decodeJSON(r)
+		}
+		return err
+	})
+}
+
+// Hello is a Rust negotiation::Hello, the client's first handshake message. Wire is nil in a v1
+// client's Hello.
 type Hello struct {
 	Version         uint16
 	API             uint16
@@ -299,9 +434,10 @@ type Hello struct {
 	ClientChallenge string
 	Connection      string
 	Subclient       uint8
+	Wire            *WireOffer
 }
 
-var helloFields = []string{"version", "api", "capabilities", "offer_digest", "client_challenge", "connection", "subclient"}
+var helloFields = []string{"version", "api", "capabilities", "offer_digest", "client_challenge", "connection", "subclient", "wire"}
 
 func (h Hello) appendJSON(b []byte) ([]byte, error) {
 	o := object{b: b, names: helloFields}
@@ -312,6 +448,11 @@ func (h Hello) appendJSON(b []byte) ([]byte, error) {
 	o.str(h.ClientChallenge)
 	o.str(h.Connection)
 	o.uint(uint64(h.Subclient))
+	if h.Wire != nil {
+		o.value(*h.Wire)
+	} else {
+		o.skip()
+	}
 	return o.end()
 }
 
@@ -333,13 +474,18 @@ func (h *Hello) decodeJSON(r *reader) error {
 			h.Connection, err = r.str()
 		case "subclient":
 			h.Subclient, err = readUint[uint8](r)
+		case "wire":
+			if !r.null() {
+				h.Wire = new(WireOffer)
+				err = h.Wire.decodeJSON(r)
+			}
 		}
 		return err
-	})
+	}, "wire")
 }
 
 // Accept is a Rust negotiation::Accept, signed under AcceptDomain by the offer's server key.
-// Hello is the client's Hello, echoed.
+// Hello is the client's Hello, echoed. Wire is nil when the server selects v1.
 type Accept struct {
 	Hello           Hello
 	ServerChallenge string
@@ -348,9 +494,10 @@ type Accept struct {
 	OfferDigest     string
 	Revision        uint64
 	ExpiresUnix     uint64
+	Wire            *Wire
 }
 
-var acceptFields = []string{"hello", "server_challenge", "session", "audience", "offer_digest", "revision", "expires_unix"}
+var acceptFields = []string{"hello", "server_challenge", "session", "audience", "offer_digest", "revision", "expires_unix", "wire"}
 
 func (a Accept) appendJSON(b []byte) ([]byte, error) {
 	o := object{b: b, names: acceptFields}
@@ -361,6 +508,11 @@ func (a Accept) appendJSON(b []byte) ([]byte, error) {
 	o.str(a.OfferDigest)
 	o.uint(a.Revision)
 	o.uint(a.ExpiresUnix)
+	if a.Wire != nil {
+		o.value(*a.Wire)
+	} else {
+		o.skip()
+	}
 	return o.end()
 }
 
@@ -382,9 +534,14 @@ func (a *Accept) decodeJSON(r *reader) error {
 			a.Revision, err = readUint[uint64](r)
 		case "expires_unix":
 			a.ExpiresUnix, err = readUint[uint64](r)
+		case "wire":
+			if !r.null() {
+				a.Wire = new(Wire)
+				err = a.Wire.decodeJSON(r)
+			}
 		}
 		return err
-	})
+	}, "wire")
 }
 
 // Ready is the body of Rust's Control::Ready: the client's runtime is up. Packages are the bundle
@@ -457,12 +614,42 @@ func (y *Ready) decodeJSON(r *reader) error {
 	})
 }
 
+// Epoch is the body of Rust's Control::Epoch: on wire v2 a client whose world epoch changed
+// keeps its runtime and names its session and new epoch.
+type Epoch struct {
+	Session    string
+	WorldEpoch uint64
+}
+
+var epochFields = []string{"session", "world_epoch"}
+
+func (e Epoch) appendJSON(b []byte) ([]byte, error) {
+	o := object{b: b, names: epochFields}
+	o.str(e.Session)
+	o.uint(e.WorldEpoch)
+	return o.end()
+}
+
+func (e *Epoch) decodeJSON(r *reader) error {
+	*e = Epoch{}
+	return r.fields(epochFields, func(name string) (err error) {
+		switch name {
+		case "session":
+			e.Session, err = r.str()
+		case "world_epoch":
+			e.WorldEpoch, err = readUint[uint64](r)
+		}
+		return err
+	})
+}
+
 // Control is a Rust session::Control, a handshake message on the carrier: {"kind":…,"body":…}.
 // Exactly one field is set.
 type Control struct {
 	Hello  *Hello
 	Accept *SignedDocument
 	Ready  *Ready
+	Epoch  *Epoch
 	// Disabled is reserved: the client never sends it and revocation never relies on it.
 	Disabled bool
 }
@@ -483,6 +670,10 @@ func (c Control) appendJSON(b []byte) ([]byte, error) {
 	}
 	if c.Ready != nil {
 		kind, body = "ready", *c.Ready
+		variants++
+	}
+	if c.Epoch != nil {
+		kind, body = "epoch", *c.Epoch
 		variants++
 	}
 	if c.Disabled {
@@ -522,6 +713,9 @@ func (c *Control) decodeJSON(r *reader) error {
 	case "ready":
 		c.Ready = new(Ready)
 		body = c.Ready
+	case "epoch":
+		c.Epoch = new(Epoch)
+		body = c.Epoch
 	case "disabled":
 		c.Disabled = true
 	default:
@@ -593,10 +787,13 @@ type Manifest struct {
 	Channels  []Channel
 	// Actions is a set of identifiers; it encodes sorted.
 	Actions []string
-	Files   []ContentFile
+	// Templates is the set of indexed JSON-UI template paths; it encodes sorted, and not at all
+	// when empty.
+	Templates []string
+	Files     []ContentFile
 }
 
-var manifestFields = []string{"version", "api", "id", "publisher_key", "package_version", "permissions", "component", "channels", "actions", "files"}
+var manifestFields = []string{"version", "api", "id", "publisher_key", "package_version", "permissions", "component", "channels", "actions", "templates", "files"}
 
 func (m Manifest) appendJSON(b []byte) ([]byte, error) {
 	o := object{b: b, names: manifestFields}
@@ -615,6 +812,12 @@ func (m Manifest) appendJSON(b []byte) ([]byte, error) {
 	o.value(list[Channel](m.Channels))
 	o.key()
 	o.add(appendSet(o.b, m.Actions))
+	if len(m.Templates) > 0 {
+		o.key()
+		o.add(appendSet(o.b, m.Templates))
+	} else {
+		o.skip()
+	}
 	o.value(list[ContentFile](m.Files))
 	return o.end()
 }
@@ -645,9 +848,11 @@ func (m *Manifest) decodeJSON(r *reader) error {
 			m.Channels, err = readList[Channel](r)
 		case "actions":
 			m.Actions, err = readSet(r)
+		case "templates":
+			m.Templates, err = readSet(r)
 		case "files":
 			m.Files, err = readList[ContentFile](r)
 		}
 		return err
-	}, "component")
+	}, "component", "templates")
 }

@@ -4926,6 +4926,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
   the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
   lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Water and lava travel read the underwater and lava movement attributes, and a swimmer's
+  dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
@@ -5715,6 +5717,12 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 - Production remote execution must remain unavailable until restricted helpers,
   compiler limits and media decoding pass independent cross-platform validation.
 - See `docs/server-experiences.md` for the client implementation and remaining gates.
+- Provisional, labeled incomplete: server WIT 0.4 focus snapshots stop counting when the
+  player is farther than `provisionalFocusRange` (`tools/localserver/experience/limits.go`,
+  Dragonfly's survival block reach). Vanilla closes a block container screen beyond the
+  player's pick range (per input mode, survival or creative), measured squared from the
+  player's eyes to the block centre; the range constants are not yet known. Replace the
+  constant with those values, per game mode, once they are known.
 
 - Implemented client preview: admitted marker, signed session challenge, scoped trust
   JSON-UI, HTTPS/hash cache, bounded ordered ScriptMessage records, versioned WIT,
