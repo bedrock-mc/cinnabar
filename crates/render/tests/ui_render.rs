@@ -1,3 +1,6 @@
+#[path = "../src/alloc_count.rs"]
+mod alloc_count;
+
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]
 mod material_shader;
