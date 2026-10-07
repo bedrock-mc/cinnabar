@@ -594,3 +594,29 @@ fn a_position_correction_revokes_an_old_throw_retry() {
     );
     assert!(runtime.has_work(false));
 }
+
+#[test]
+fn delay_fix_retries_rejected_batches_but_not_an_accepted_same_tick() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.set_delay_fix(true);
+    let mut swings = SwingTracker::default();
+    let throw = item_frame(100, false, stack(4, SNOWBALL, 16), "minecraft:snowball");
+    let (full, _) = AdmissionQueue::with_command_capacity(0);
+    let (ready, _) = AdmissionQueue::with_command_capacity(8);
+    runtime.observe_press(true);
+    send_use(&mut runtime, &mut swings, &throw, &full);
+    assert_eq!(ready.pending_command_count(), 0);
+    send_use(&mut runtime, &mut swings, &throw, &ready);
+    assert_eq!(ready.pending_command_count(), 2);
+    runtime.observe_press(true);
+    send_use(&mut runtime, &mut swings, &throw, &ready);
+    assert_eq!(ready.pending_command_count(), 2);
+    runtime.observe_press(true);
+    let next = UseFrame {
+        tick: 101,
+        now_millis: throw.now_millis + 50,
+        ..throw
+    };
+    send_use(&mut runtime, &mut swings, &next, &ready);
+    assert_eq!(ready.pending_command_count(), 4);
+}
