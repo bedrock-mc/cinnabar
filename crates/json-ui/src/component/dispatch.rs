@@ -227,6 +227,35 @@ impl Dispatcher {
         out
     }
 
+    /// A screen controller's text for the edit boxes whose `text_box_name` is `name`, as vanilla
+    /// sets an edit box's text: it replaces the text, cut to `max_length` characters, keeps each
+    /// box's selection, and raises no event.
+    pub fn set_edit_text(
+        &mut self,
+        regions: &[HitRegion],
+        view: &mut ViewState,
+        name: &str,
+        text: &str,
+    ) -> Dispatch {
+        let components = &mut view.components;
+        for region in regions {
+            let Some(meta) = &region.widget.edit else {
+                continue;
+            };
+            if meta.name.as_deref() != Some(name) {
+                continue;
+            }
+            let limit = usize::try_from(meta.max_length).unwrap_or(0);
+            let cut: String = text.chars().take(limit).collect();
+            let selected = components.selected() == Some(region.key.as_str());
+            let edit = components.edit_mut(&region.key, &meta.text);
+            edit.caret = cut.chars().count();
+            edit.text.clone_from(&cut);
+            write_text(region, &cut, selected, components);
+        }
+        Dispatch::default()
+    }
+
     /// A controller direction (`ControllerDirectionEventData`) for the focused control.
     pub fn direction(
         &mut self,

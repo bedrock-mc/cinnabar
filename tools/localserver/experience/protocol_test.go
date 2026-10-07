@@ -14,13 +14,15 @@ import (
 
 // fixtureLimits mirrors the limits fixture: the constants the Go adapter must share with Rust.
 type fixtureLimits struct {
-	MaxFrameBytes     int    `json:"max_frame_bytes"`
-	Protocol          uint32 `json:"protocol"`
-	MaxBlockDataBytes int    `json:"max_block_data_bytes"`
-	MaxStagedOps      int    `json:"max_staged_ops"`
-	MaxTells          int    `json:"max_tells"`
-	MaxTellBytes      int    `json:"max_tell_bytes"`
-	MaxClientSends    int    `json:"max_client_sends"`
+	MaxFrameBytes      int    `json:"max_frame_bytes"`
+	Protocol           uint32 `json:"protocol"`
+	MaxBlockDataBytes  int    `json:"max_block_data_bytes"`
+	MaxStagedOps       int    `json:"max_staged_ops"`
+	MaxTells           int    `json:"max_tells"`
+	MaxTellBytes       int    `json:"max_tell_bytes"`
+	MaxClientSends     int    `json:"max_client_sends"`
+	MaxClientSendBytes int    `json:"max_client_send_bytes"`
+	MaxValueDepth      int    `json:"max_value_depth"`
 }
 
 // rustLimits reads the limits fixture.

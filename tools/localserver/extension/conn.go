@@ -3,6 +3,7 @@ package extension
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 
@@ -70,7 +71,7 @@ const (
 
 // Conn is a player's connection with the server half on it. Reading intercepts the carrier's
 // script messages and passes every other packet through untouched; writing passes everything
-// through and watches for a dimension change, which resets the client's world epoch.
+// through and watches for a dimension change, which on wire v1 resets the client's world epoch.
 //
 // Dragonfly's default listener does not expose packet headers, so the sub-client route of a
 // carrier message is the one its body names, which must be 0; Dragonfly admits no sub-client
@@ -82,16 +83,19 @@ type Conn struct {
 
 	mu    sync.Mutex
 	phase phase
-	// hello and session are the Hello and the session that the Accept bound.
+	// hello, session and wire are the Hello, the session and the wire that the Accept bound.
 	hello   Hello
 	session string
 	expires uint64
+	wire    Wire
 	// grant, epoch, ingress, egress and sequence are Ready's session, set when active.
 	grant    *Grant
 	epoch    uint64
 	ingress  *Ingress
 	egress   RateLimit
 	sequence uint64
+	// epochChanged is set by a v2 epoch control until receive tells the Experiences.
+	epochChanged bool
 }
 
 // ReadPacket returns the next packet that is not on the carrier, handling carrier messages on the
@@ -110,10 +114,10 @@ func (c *Conn) ReadPacket() (packet.Packet, error) {
 	}
 }
 
-// WritePacket writes pk; a dimension change ends the client part, whose epoch it resets.
+// WritePacket writes pk; a dimension change ends a v1 client part, whose epoch it resets.
 func (c *Conn) WritePacket(pk packet.Packet) error {
 	if _, ok := pk.(*packet.ChangeDimension); ok {
-		c.end("dimension change")
+		c.dimensionChanged()
 	}
 	return c.Conn.WritePacket(pk)
 }
@@ -124,20 +128,36 @@ func (c *Conn) Close() error {
 	return c.Conn.Close()
 }
 
-// receive handles one carrier message and passes a valid client part message on.
+// receive handles one carrier message and passes a valid client part message, or a v2 client's
+// new world epoch, on.
 func (c *Conn) receive(data []byte) {
 	c.mu.Lock()
 	envelope, err := c.handle(data)
 	if err != nil {
 		c.fallBack(err)
 	}
+	var changed []string
+	if c.epochChanged && c.phase == active {
+		for _, exp := range slices.Sorted(maps.Keys(c.grant.Recipients)) {
+			if c.grant.Recipients[exp].Permissions.Has(PermissionMessaging) {
+				changed = append(changed, exp)
+			}
+		}
+	}
+	c.epochChanged = false
 	c.mu.Unlock()
 	if envelope != nil && c.s.receive != nil {
 		c.s.receive(c.player, envelope.Bundle, envelope.Channel, envelope.Schema, envelope.Payload)
 	}
+	if c.s.epoch != nil {
+		for _, exp := range changed {
+			c.s.epoch(c.player, exp)
+		}
+	}
 }
 
-// handle advances the handshake by one message and returns a valid inbound envelope.
+// handle advances the handshake by one message and returns a valid, whole and current inbound
+// envelope.
 func (c *Conn) handle(data []byte) (*Envelope, error) {
 	now := c.s.now()
 	if c.phase == fallenBack {
@@ -152,13 +172,51 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 	case awaitingReady:
 		return nil, c.acceptReady(data, uint64(now.UnixMilli()))
 	}
-	envelope, err := c.ingress.Receive(data, uint64(now.UnixMilli()), c.epoch, c.grant)
-	if err == nil && envelope == nil {
+	nowMs := uint64(now.UnixMilli())
+	skipped, stale := c.ingress.Skipped, c.ingress.Stale
+	var envelope *Envelope
+	var err error
+	if c.wire.Version == WireVersion {
+		envelope, err = c.ingress.Receive(data, nowMs, c.epoch, c.grant)
+	} else if err = c.ingress.charge(len(data), nowMs); err == nil {
+		// After Ready a v2 client sends one kind of control message besides its envelopes.
+		if msg, controlErr := control(data); controlErr == nil {
+			return nil, c.changeEpoch(msg)
+		}
+		envelope, err = c.ingress.take(data, c.epoch, c.grant)
+	}
+	switch {
+	case err != nil:
+	case c.ingress.Skipped != skipped:
 		// The client's ingress skips these as possibly newer schema revisions; the server
 		// knows the client part's exact manifest, so here they can only be a violation.
-		err = errors.New("an undeclared channel schema or another world epoch")
+		err = errors.New("an undeclared channel schema")
+	case c.ingress.Stale != stale && c.wire.Version == WireVersion:
+		// A v1 client keeps one world epoch for its session; a v2 client's envelopes of an
+		// epoch it has since left are dropped and counted.
+		err = errors.New("another world epoch")
 	}
 	return envelope, err
+}
+
+// changeEpoch takes a v2 client's epoch control: its world epoch changed and its runtime kept
+// running, so its later envelopes, and the server's, carry the new epoch.
+func (c *Conn) changeEpoch(msg Control) error {
+	e := msg.Epoch
+	switch {
+	case e == nil:
+		return errors.New("a control message other than epoch after Ready")
+	case e.Session != c.session:
+		return errors.New("epoch for another session")
+	case e.WorldEpoch <= c.epoch:
+		return fmt.Errorf("world epoch %d after %d", e.WorldEpoch, c.epoch)
+	case c.ingress.open():
+		return errors.New("epoch inside a fragmented message")
+	}
+	c.epoch = e.WorldEpoch
+	c.epochChanged = true
+	c.s.log.Info("client part world epoch", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch)
+	return nil
 }
 
 // control decodes a handshake message of at most a carrier message's size.
@@ -170,7 +228,8 @@ func control(data []byte) (Control, error) {
 	return msg, Decode(data, &msg)
 }
 
-// acceptHello checks the client's Hello and answers it with a signed Accept.
+// acceptHello checks the client's Hello and answers it with a signed Accept, which selects the
+// highest wire version both sides speak.
 func (c *Conn) acceptHello(data []byte, nowUnix uint64) error {
 	msg, err := control(data)
 	if err != nil {
@@ -197,6 +256,10 @@ func (c *Conn) acceptHello(data []byte, nowUnix uint64) error {
 			return fmt.Errorf("hello nonce: %w", err)
 		}
 	}
+	wire, err := selectWire(h)
+	if err != nil {
+		return err
+	}
 	challenge, err := c.s.nonce()
 	if err != nil {
 		return err
@@ -205,7 +268,7 @@ func (c *Conn) acceptHello(data []byte, nowUnix uint64) error {
 	if err != nil {
 		return err
 	}
-	document, err := Sign(AcceptDomain, Accept{
+	accept := Accept{
 		Hello:           *h,
 		ServerChallenge: challenge,
 		Session:         sessionID,
@@ -213,7 +276,11 @@ func (c *Conn) acceptHello(data []byte, nowUnix uint64) error {
 		OfferDigest:     c.s.digest,
 		Revision:        offer.Revision,
 		ExpiresUnix:     offer.ExpiresUnix,
-	}, c.s.key)
+	}
+	if wire.Version != WireVersion {
+		accept.Wire = &wire
+	}
+	document, err := Sign(AcceptDomain, accept, c.s.key)
 	if err != nil {
 		return err
 	}
@@ -224,9 +291,34 @@ func (c *Conn) acceptHello(data []byte, nowUnix uint64) error {
 	if err := c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: reply}); err != nil {
 		return err
 	}
-	c.hello, c.session, c.expires = *h, sessionID, offer.ExpiresUnix
+	c.hello, c.session, c.expires, c.wire = *h, sessionID, offer.ExpiresUnix, wire
 	c.phase = awaitingReady
 	return nil
+}
+
+// selectWire picks the highest wire version that h and the server both speak, at the lower of
+// each ceiling. A v1 Hello offers nothing and gets v1, whose Accept selects nothing.
+func selectWire(h *Hello) (Wire, error) {
+	if h.Wire == nil {
+		return v1Wire, nil
+	}
+	var version uint16
+	for _, v := range h.Wire.Versions {
+		if WireVersion <= v && v <= MaxWireVersion {
+			version = max(version, v)
+		}
+	}
+	switch version {
+	case 0:
+		return Wire{}, fmt.Errorf("no common wire version in %v", h.Wire.Versions)
+	case WireVersion:
+		return v1Wire, nil
+	}
+	limits := HostLimits.lowest(h.Wire.Limits)
+	if !limits.ordered() {
+		return Wire{}, fmt.Errorf("unusable wire limits %+v", h.Wire.Limits)
+	}
+	return Wire{version, limits}, nil
 }
 
 // acceptReady checks the client's Ready against the Accept, the offer and what the bundles and
@@ -266,6 +358,7 @@ func (c *Conn) acceptReady(data []byte, nowMs uint64) error {
 		Session:    c.session,
 		Connection: c.hello.Connection,
 		Subclient:  c.hello.Subclient,
+		Wire:       c.wire,
 		Recipients: recipients,
 	}
 	c.epoch = r.WorldEpoch
@@ -274,11 +367,12 @@ func (c *Conn) acceptReady(data []byte, nowMs uint64) error {
 	c.sequence = 1
 	c.phase = active
 	c.s.activate(c)
-	c.s.log.Info("client part active", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch)
+	c.s.log.Info("client part active", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch, "wire", c.wire.Version)
 	return nil
 }
 
-// send sends one to_client envelope if the client part is active and would take it.
+// send sends one to_client message, in fragments when it does not fit inline, if the client part
+// is active and would take it. Its fragments go together or not at all.
 func (c *Conn) send(exp, channel string, schema uint16, payload []experience.Scalar) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -295,11 +389,11 @@ func (c *Conn) send(exp, channel string, schema uint16, payload []experience.Sca
 		return false
 	}
 	i := slices.IndexFunc(recipient.Channels, func(ch Channel) bool { return ch.ID == channel && ch.Schema == schema })
-	if i < 0 || recipient.Channels[i].Validate(payload, ToClient) != nil {
+	if i < 0 || recipient.Channels[i].Validate(payload, ToClient, int(c.wire.Limits.MaxMessageBytes)) != nil {
 		return false
 	}
-	data, err := Encode(Envelope{
-		Version:    WireVersion,
+	messages, err := EncodeEnvelope(Envelope{
+		Version:    c.wire.Version,
 		Session:    c.session,
 		Connection: c.hello.Connection,
 		Subclient:  c.hello.Subclient,
@@ -310,13 +404,22 @@ func (c *Conn) send(exp, channel string, schema uint16, payload []experience.Sca
 		Sequence:   c.sequence,
 		WorldEpoch: c.epoch,
 		Payload:    payload,
-	})
-	if err != nil || c.egress.Charge(len(data), uint64(now.UnixMilli())) != nil {
+	}, c.wire)
+	if err != nil {
 		return false
 	}
-	if err := c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {
-		c.fallBack(err)
+	sizes := make([]int, len(messages))
+	for i, data := range messages {
+		sizes[i] = len(data)
+	}
+	if c.egress.ChargeAll(sizes, uint64(now.UnixMilli())) != nil {
 		return false
+	}
+	for _, data := range messages {
+		if err := c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {
+			c.fallBack(err)
+			return false
+		}
 	}
 	c.sequence++
 	return true
@@ -328,6 +431,17 @@ func (c *Conn) end(reason string) {
 	defer c.mu.Unlock()
 	if c.phase != awaitingHello {
 		c.fallBack(errors.New(reason))
+	}
+}
+
+// dimensionChanged ends a v1 client part, whose client resets its world epoch with its runtime;
+// a v2 client keeps both and sends an epoch control instead. Before a Hello there is no session
+// to end.
+func (c *Conn) dimensionChanged() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.phase != awaitingHello && c.wire.Version == WireVersion {
+		c.fallBack(errors.New("dimension change"))
 	}
 }
 

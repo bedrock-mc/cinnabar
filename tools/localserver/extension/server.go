@@ -79,6 +79,8 @@ type Server struct {
 
 	// receive gets the valid messages of client parts; nil drops them.
 	receive func(player uuid.UUID, exp, channel string, schema uint16, payload []experience.Scalar)
+	// epoch learns of each v2 client part that moved to a new world epoch; nil drops them.
+	epoch func(player uuid.UUID, exp string)
 
 	mu sync.Mutex
 	// active holds each player's connection whose client part is active.
@@ -249,6 +251,14 @@ func (s *Server) OnClientMessage(receive func(player uuid.UUID, exp, channel str
 	s.receive = receive
 }
 
+// OnEpoch sets the function told, once per Experience exp with an active client part, when that
+// player's wire v2 client changed world epoch and kept its client part running, so the
+// Experience can resend its state. It runs on that player's packet reader, so it must not block.
+// Set it before the server listens.
+func (s *Server) OnEpoch(epoch func(player uuid.UUID, exp string)) {
+	s.epoch = epoch
+}
+
 // Declares reports whether the bundle of the Experience exp declares channel, revision schema,
 // in the direction to the client.
 func (s *Server) Declares(exp, channel string, schema uint16) bool {
@@ -258,10 +268,11 @@ func (s *Server) Declares(exp, channel string, schema uint16) bool {
 	})
 }
 
-// Send sends payload on channel, revision schema, to the client part of exp that player runs. It
-// reports false when the player has no active client part, the bundle was not granted messaging,
-// the channel is not a declared to_client channel, the record does not fit it, or the client's
-// rate would be exceeded.
+// Send sends payload on channel, revision schema, to the client part of exp that player runs, in
+// fragments on wire v2 when it does not fit inline. It reports false when the player has no
+// active client part, the bundle was not granted messaging, the channel is not a declared
+// to_client channel, the record does not fit it or the session's message limit, or the client's
+// rate would be exceeded by the whole message.
 func (s *Server) Send(player uuid.UUID, exp, channel string, schema uint16, payload []experience.Scalar) bool {
 	s.mu.Lock()
 	c := s.active[player]

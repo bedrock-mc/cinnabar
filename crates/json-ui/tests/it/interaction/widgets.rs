@@ -615,3 +615,29 @@ fn review_slider_release_outside_its_region_clears_pointer_capture() {
     let later = screen.dispatcher.pointer(&regions, &mut screen.view, input);
     assert!(slider_values(&later.events).is_empty());
 }
+
+// A screen controller sets an edit box's text by its text_box_name: the text target shows it,
+// cut to max_length, the placeholder hides, and no edit event fires.
+#[test]
+fn host_sets_edit_box_text_by_name() {
+    let mut screen = Screen::new(page(vec![edit_box(json!({}))]));
+    let regions = screen.regions();
+    let set = screen
+        .dispatcher
+        .set_edit_text(&regions, &mut screen.view, "name", "stonecutter");
+    assert!(set.events.is_empty(), "{:?}", set.events);
+    assert_eq!(text_of(&screen, "display"), "stone");
+    assert!(!screen.visible("hint"));
+    let other = screen
+        .dispatcher
+        .set_edit_text(&regions, &mut screen.view, "other", "x");
+    assert!(other.events.is_empty());
+    assert_eq!(text_of(&screen, "display"), "stone");
+    // Typing continues from the host's text.
+    screen.click([5.0, 5.0]);
+    let regions = screen.regions();
+    screen
+        .dispatcher
+        .text(&regions, &mut screen.view, "\u{8}", None);
+    assert_eq!(text_of(&screen, "display"), "ston");
+}

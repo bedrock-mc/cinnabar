@@ -5,5 +5,20 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+# Every feature is on by default, so the SDK's own build, tests and docs cover all of it. A crate
+# that uses the SDK sets `default-features = false` and names what it uses: each half is its own
+# component, a guest takes `server` or `client`, and its build script `declarations`.
+[features]
+default = ["server", "client", "declarations"]
+# The server half: `server::Experience` and `export_experience!`.
+server = ["dep:wit-bindgen"]
+# The client part: `client::ClientPart`, `client::send` and `export_client_part!`.
+client = ["dep:wit-bindgen", "dep:serde", "dep:serde_json"]
+# For build scripts: `declarations::generate` reads `experience.toml`.
+declarations = ["dep:serde", "dep:toml"]
+
 [dependencies]
-wit-bindgen.workspace = true
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+toml = { version = "0.9", optional = true }
+wit-bindgen = { workspace = true, optional = true }

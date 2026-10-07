@@ -68,7 +68,7 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
     );
     write(
         &root.join("crates/alpha/src/lib.rs"),
-        "pub use hidden::*;\npub fn exposed_for_test() {}\npub fn for_test() {}\nuse crate::*;\ninclude!(\"fragment.rs\");\n",
+        "pub use hidden::*;\npub fn exposed_for_test() {}\npub fn for_test() {}\nuse crate::*;\ninclude!(\"fragment.rs\");\ninclude!(concat!(env!(\"OUT_DIR\"), \"/generated.rs\"));\n",
     );
     write(
         &root.join("app/src/acceptance/markers.rs"),
@@ -137,10 +137,14 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
             .iter()
             .any(|line| line.contains("crate-wide private preludes"))
     );
-    assert!(
-        diagnostics
-            .iter()
-            .any(|line| line.contains("source fragments"))
+    // Only the first-party fragment: build-script output in `OUT_DIR` is generated code.
+    let fragments: Vec<_> = diagnostics
+        .iter()
+        .filter(|line| line.contains("source fragments"))
+        .collect();
+    assert_eq!(
+        fragments,
+        ["crates/alpha/src/lib.rs:5: first-party Rust source fragments are forbidden"]
     );
     assert!(
         diagnostics

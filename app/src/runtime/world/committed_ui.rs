@@ -68,14 +68,10 @@ pub(crate) fn drain_committed_ui_before_authority(
     }
     for committed in committed_ui {
         let result = match committed {
-            CommittedUiEvent::Experience {
-                dimension_epoch: event_epoch,
-                event,
-                ..
-            } => {
-                if event_epoch == dimension_epoch {
-                    ui_runtime.experiences.receive(&event.bytes, local_millis);
-                }
+            // Every message reaches the extension: its ingress drops and counts envelopes of a
+            // world epoch it has left, while their sequence numbers stay spent.
+            CommittedUiEvent::Experience { event, .. } => {
+                ui_runtime.experiences.receive(&event.bytes, local_millis);
                 Ok(())
             }
             CommittedUiEvent::LocalAbilities {

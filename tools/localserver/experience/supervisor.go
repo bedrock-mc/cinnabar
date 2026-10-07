@@ -124,6 +124,12 @@ func (s *Supervisor) Call(req CallbackRequest) (Outcome, error) {
 	return outcome, nil
 }
 
+// Focus reports whether the Experience's world takes its player's focus in client messages and
+// epochs. Every helper's load must agree with the first.
+func (s *Supervisor) Focus() bool {
+	return s.registered.Focus
+}
+
 // Quarantined reports whether the Experience is quarantined. It never waits for a running Call.
 func (s *Supervisor) Quarantined() bool {
 	return s.quarantined.Load()
@@ -296,6 +302,9 @@ func checkResult(resp Response, seq uint64) error {
 func matchRegistration(registered, loaded Loaded) error {
 	if loaded.ID != registered.ID {
 		return fmt.Errorf("its id changed from %q to %q", registered.ID, loaded.ID)
+	}
+	if loaded.Focus != registered.Focus {
+		return fmt.Errorf("whether it takes a focus changed from %v to %v", registered.Focus, loaded.Focus)
 	}
 	if reflect.DeepEqual(loaded.Blocks, registered.Blocks) {
 		return nil

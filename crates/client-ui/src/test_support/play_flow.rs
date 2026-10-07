@@ -159,6 +159,7 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
             news_title: "Season 5".to_owned(),
             news: "A new season of Treasure Wars is live.".to_owned(),
             banner: String::new(),
+            logo_url: String::new(),
             screenshots: vec![art(dir, "hive_banner", [512, 154], [180, 120, 30])],
             games: vec![MenuGameCard {
                 title: "Treasure Wars".to_owned(),
