@@ -7,7 +7,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -19,7 +18,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"syscall"
 
@@ -91,6 +89,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer generators.close()
+	if cfg.generationStats && len(generators) > 0 {
+		defer meterGeneration(&conf, stdout)()
+	}
+	for dim, generator := range generators {
+		logger.Info("world generation acceleration", "dimension", dim, "status", generator.AccelerationStatus())
+	}
 	_, spawnErr := os.Stat(filepath.Join(cfg.dir, "db", "level.dat"))
 	firstWorld := errors.Is(spawnErr, fs.ErrNotExist)
 	if ext != nil {
@@ -115,6 +119,20 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
+	conf.ChunkLoadWorkers = cfg.chunkWorkers
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	lines, stopped := readCommands(ctx, stdin)
+	if cfg.pregenRadius > 0 {
+		startup, cancelStartup := startupContext(ctx, stopped)
+		defer cancelStartup()
+		if err := preparePregeneration(startup, conf.WorldProvider, conf.Generator(world.Overworld), firstWorld, cfg.pregenRadius, cfg.chunkWorkers, stdout); err != nil {
+			if exps != nil {
+				err = errors.Join(err, exps.closeSupervisors())
+			}
+			return errors.Join(err, conf.WorldProvider.Close(), conf.PlayerProvider.Close())
+		}
+	}
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
@@ -162,9 +180,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}()
 	fmt.Fprintln(stdout, "ready")
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	serveCommands(ctx, stdin, cmds)
+	serveCommandLines(ctx, lines, cmds)
 	closeErr := srv.Close()
 	<-accepting
 	if host != nil {
@@ -267,59 +283,4 @@ func discoverArtifacts(root string) ([]string, error) {
 		dirs = append(dirs, dir)
 	}
 	return dirs, nil
-}
-
-// commands are the actions of the stdin protocol. reload is nil without Experiences, and its
-// lines are then ignored like any unknown line.
-type commands struct {
-	pause  func(paused bool)
-	reload func(id string)
-}
-
-// serveCommands runs the stdin protocol until "stop", EOF or ctx ends.
-func serveCommands(ctx context.Context, stdin io.Reader, cmds commands) {
-	lines := make(chan string)
-	go func() {
-		defer close(lines)
-		scanner := bufio.NewScanner(stdin)
-		for scanner.Scan() {
-			lines <- strings.TrimSpace(scanner.Text())
-		}
-	}()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case line, ok := <-lines:
-			if !ok || line == "stop" {
-				return
-			}
-			switch line {
-			case "pause":
-				cmds.pause(true)
-			case "resume":
-				cmds.pause(false)
-			default:
-				if id, ok := reloadID(line); ok && cmds.reload != nil {
-					cmds.reload(id)
-				}
-			}
-		}
-	}
-}
-
-// reloadID returns the id of an "experience reload <id>" line.
-func reloadID(line string) (string, bool) {
-	fields := strings.Fields(line)
-	if len(fields) != 3 || fields[0] != "experience" || fields[1] != "reload" {
-		return "", false
-	}
-	return fields[2], true
-}
-
-// setPaused suspends every dimension's simulation; connected players stay connected.
-func setPaused(worlds []*world.World, paused bool) {
-	for _, w := range worlds {
-		w.SetPaused(paused)
-	}
 }
