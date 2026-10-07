@@ -123,7 +123,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
-          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control --locked -- -D warnings
+          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
           cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
       - name: Test local WASM mod and developer control adapters
         if: ${{ !cancelled() }}

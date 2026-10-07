@@ -23,10 +23,15 @@ enhanced = ["render/enhanced"]
 local-mods = ["mod-host/execution"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control", "dep:objc2", "dep:objc2-app-kit"]
+# Records Bevy schedules, systems, render graph, submission and presentation spans.
+frame-trace = ["bevy/trace_chrome", "bevy/debug"]
+# Live CPU attribution through Bevy and the owned streaming/render hot paths.
+tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "chunk-pipeline/tracy", "render/tracy"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
 
 [dependencies]
+tracing-tracy = { version = "=0.11.4", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 acceptance = { path = "../crates/acceptance", optional = true }
 diagnostics = { path = "../crates/diagnostics" }
 developer-control = { path = "../crates/developer-control", optional = true }
@@ -86,11 +91,13 @@ futures-lite = "2"
 zbus = "5"
 
 [target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_System_SystemInformation",
     "Win32_UI_Controls_Dialogs",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }

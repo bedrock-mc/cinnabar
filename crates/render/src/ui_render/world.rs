@@ -112,7 +112,10 @@ fn draw_ui_view(
             } else {
                 None
             },
-            timestamp_writes: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                crate::RuntimeStage::GpuUi,
+            ),
             occlusion_query_set: None,
         });
         pass.set_render_pipeline(pipeline);

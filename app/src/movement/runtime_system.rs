@@ -90,6 +90,8 @@ pub(crate) fn advance_local_physics(
             movement,
             raw_movement,
             analogue_movement,
+            movement_buttons: semantic
+                .map_or_else(Default::default, |snapshot| snapshot.movement_buttons),
             yaw,
             pitch: -bevy_pitch.to_degrees(),
             camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),

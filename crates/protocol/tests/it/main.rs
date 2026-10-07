@@ -14,6 +14,7 @@ mod disconnect_wire;
 mod fixtures;
 mod form_element_images;
 mod generated_reservations;
+mod held_placement_packets;
 mod hud_state_packets;
 mod interaction_packets;
 mod inventory_packets;

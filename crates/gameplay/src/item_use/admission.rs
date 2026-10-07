@@ -31,6 +31,13 @@ pub fn step_and_send(
         candidate.latched_press = true;
         candidate.deferred_selection = runtime.deferred_selection.clone();
     }
+    if outcome.swung
+        && swings.tick_is_published(frame.tick)
+        && runtime.rejected_swing_tick != Some((frame.tick, swings.authority_identity()))
+    {
+        return false;
+    }
+    candidate.rejected_swing_tick = None;
     let mut packets = outcome.packets;
     if outcome.swung && candidate_swings.try_swing(frame.tick, swing_duration) {
         packets.insert(
@@ -50,6 +57,10 @@ pub fn step_and_send(
             outcome.started
         }
         Err(BatchSendError::Full) => {
+            swings.defer_unadmitted_attempt(&candidate_swings);
+            if outcome.swung {
+                runtime.rejected_swing_tick = Some((frame.tick, swings.authority_identity()));
+            }
             if outcome.used {
                 runtime.latched_press = true;
                 runtime.deferred_selection = frame.selection.clone();

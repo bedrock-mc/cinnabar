@@ -262,13 +262,26 @@ impl UiPresentationRuntime {
                     })
                 })
         });
-        player_preview::geometry::mesh_with_body(
+        let unposed = [None; 6];
+        let body = if self.player_preview_view == player_preview::PreviewView::Hud {
             (self.player_preview_view == player_preview::PreviewView::Hud)
                 .then_some((
                     self.gui_models.live_player.vertices.as_slice(),
                     &self.gui_models.live_player.parts,
                 ))
-                .filter(|(vertices, _)| !vertices.is_empty()),
+                .filter(|(vertices, _)| !vertices.is_empty())
+        } else {
+            self.menu_preview_model
+                .vertices
+                .as_deref()
+                .map(|vertices| (vertices, &unposed))
+        };
+        let cape = self.menu_preview_model.cape_key.as_deref().and_then(|key| {
+            self.menu_artwork_icon(key)
+                .map(|icon| (player_preview::cape::rest_vertices(), icon))
+        });
+        player_preview::geometry::mesh_with_cape(
+            body,
             self.player_preview_pose.unwrap_or_default(),
             self.player_preview_view,
             self.player_preview_bob,
@@ -283,6 +296,7 @@ impl UiPresentationRuntime {
             } else {
                 [0.0; 4]
             },
+            cape,
         )
     }
 }

@@ -18,7 +18,9 @@ use thiserror::Error;
 mod outline;
 
 pub use outline::{
-    GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
+    GlyphAdvances, NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, OutlineFontConfig,
+    compile_native_fallback_fonts, compile_native_outline_font, compile_native_outline_font_sizes,
+    compile_outline_font, compile_outline_font_with_fallback, compile_runtime_outline_font,
 };
 
 const DESCRIPTOR_PATH: &str = "font/catalog.json";

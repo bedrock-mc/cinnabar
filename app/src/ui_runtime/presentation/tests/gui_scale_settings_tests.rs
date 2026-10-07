@@ -81,12 +81,16 @@ fn largest_font_quad_height(input: &render_model::UiRenderInput) -> f32 {
         .fold(0.0, f32::max)
 }
 
-fn native_fullscreen_toggle_height(app: &App, dpi: DpiScale) -> f32 {
+fn native_toggle_height(app: &App, dpi: DpiScale) -> f32 {
     let presentation = app.world().resource::<UiPresentationRuntime>();
     let (action, bounds) = client_ui::test_support::menu_hit_targets(presentation)
         .iter()
-        .find(|(action, _)| matches!(action, MenuAction::SettingsFullscreen(_)))
-        .expect("the native video screen renders its fullscreen toggle");
+        .find(|(action, _)| {
+            matches!(action, MenuAction::SettingsOption(index, _)
+            if matches!(crate::menu::settings_options::SETTINGS_OPTIONS[usize::from(*index)].kind,
+                crate::menu::settings_options::SettingKind::Toggle))
+        })
+        .expect("the initial native Settings category renders a toggle");
     let physical_centre = [
         (bounds.min().x() + bounds.max().x()) / 2.0 * dpi.get(),
         (bounds.min().y() + bounds.max().y()) / 2.0 * dpi.get(),
@@ -115,7 +119,7 @@ fn gui_scale_minimum_on_high_dpi_resizes_native_menu_text_controls_and_pointer()
     let physical = [1280, 720];
     let dpi = DpiScale::new(2.0).unwrap();
     let before = build_menu(&mut app, physical, dpi.get());
-    let before_toggle = native_fullscreen_toggle_height(&app, dpi);
+    let before_toggle = native_toggle_height(&app, dpi);
     let point = UiPoint::new(120.0, 90.0).unwrap();
     let before_pointer = app
         .world()
@@ -132,10 +136,7 @@ fn gui_scale_minimum_on_high_dpi_resizes_native_menu_text_controls_and_pointer()
         largest_font_quad_height(&before) / 2.0,
         "native scale 1 is half scale 2 even when the platform DPI is 2"
     );
-    assert_eq!(
-        native_fullscreen_toggle_height(&app, dpi),
-        before_toggle / 2.0
-    );
+    assert_eq!(native_toggle_height(&app, dpi), before_toggle / 2.0);
     assert_ne!(before.revision, after.revision);
     let presentation = app.world().resource::<UiPresentationRuntime>();
     assert_eq!(
@@ -255,7 +256,7 @@ fn gui_scale_keeps_auto_responsive_and_clamps_saved_native_offset_after_resize()
     assert_eq!(
         menu.view().gui_scale_offset,
         -1,
-        "the slider shows the clamped modifier"
+        "the native option shows the clamped modifier"
     );
     let restored = build_menu(&mut app, [1920, 1080], 1.0);
     assert_eq!(

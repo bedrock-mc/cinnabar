@@ -27,6 +27,9 @@ impl ArenaWrites {
     /// queue submit runs them first, so they must be issued before a
     /// migration slice copies the regions they touch.
     pub(in crate::chunk) fn issue(&mut self, arena: &ChunkGpuArena, render_queue: &RenderQueue) {
+        #[cfg(feature = "tracy")]
+        let _span =
+            bevy::log::info_span!("terrain.arena_upload", chunks = self.origins.len()).entered();
         let quads = std::mem::take(&mut self.quads);
         let origins = std::mem::take(&mut self.origins);
         let model = std::mem::take(&mut self.model);
@@ -85,6 +88,13 @@ fn stage<'a, T: bytemuck::Pod>(
 /// `write_buffer` call allocates its own staging memory. Overlapping ranges keep their issue
 /// order unmerged, so the buffer ends identical either way. Drains `staged`.
 fn write_merged(render_queue: &RenderQueue, buffer: &Buffer, staged: &mut Vec<(u64, &[u8])>) {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "terrain.merge_upload_ranges",
+        ranges = staged.len(),
+        bytes = staged.iter().map(|(_, bytes)| bytes.len()).sum::<usize>(),
+    )
+    .entered();
     let mut sorted = staged.clone();
     sorted.sort_by_key(|(offset, _)| *offset);
     let overlapping = sorted
@@ -92,6 +102,9 @@ fn write_merged(render_queue: &RenderQueue, buffer: &Buffer, staged: &mut Vec<(u
         .any(|pair| pair[0].0 + pair[0].1.len() as u64 > pair[1].0);
     if overlapping {
         for (offset, bytes) in staged.drain(..) {
+            #[cfg(feature = "tracy")]
+            let _span =
+                bevy::log::info_span!("terrain.arena_write", offset, bytes = bytes.len()).entered();
             render_queue.write_buffer(buffer, offset, bytes);
         }
         return;
@@ -101,10 +114,21 @@ fn write_merged(render_queue: &RenderQueue, buffer: &Buffer, staged: &mut Vec<(u
         let run = &sorted[run];
         let offset = run[0].0;
         if let [(_, bytes)] = run {
+            #[cfg(feature = "tracy")]
+            let _span =
+                bevy::log::info_span!("terrain.arena_write", offset, bytes = bytes.len()).entered();
             render_queue.write_buffer(buffer, offset, bytes);
             continue;
         }
         let size = run.iter().map(|(_, bytes)| bytes.len() as u64).sum();
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "terrain.arena_write_merged",
+            offset,
+            bytes = size,
+            ranges = run.len()
+        )
+        .entered();
         if let Some(size) = NonZeroU64::new(size)
             && let Some(mut view) = render_queue.write_buffer_with(buffer, offset, size)
         {

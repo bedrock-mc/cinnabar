@@ -62,6 +62,31 @@ fn mesh() -> Arc<UiMesh> {
 }
 
 #[test]
+fn mesh_fades_share_topology_and_do_not_change_the_cached_source() {
+    let source = mesh();
+    let faded = (*source).clone().with_opacity(0.5);
+    assert_eq!(faded.vertices()[0].color, [200, 100, 50, 128]);
+    assert_eq!(source.vertices()[0].color, [200, 100, 50, 255]);
+    assert!(std::ptr::eq(
+        source.indices().as_ptr(),
+        faded.indices().as_ptr()
+    ));
+    assert!(std::ptr::eq(
+        source.batches().as_ptr(),
+        faded.batches().as_ptr()
+    ));
+    assert_eq!((*source).clone().with_opacity(f32::NAN), *source);
+    assert_eq!(
+        (*source).clone().with_opacity(-1.0).vertices()[0].color[3],
+        0
+    );
+    assert!(std::ptr::eq(
+        source.vertices().as_ptr(),
+        (*source).clone().with_opacity(1.0).vertices().as_ptr()
+    ));
+}
+
+#[test]
 fn ui_mesh_keeps_node_layout_clips_homogeneous_depth_and_authored_material_order() {
     let mut tree = UiTree::new(vec![
         UiNode::new(UiNodeId::new(1), None, rect(0.0, 0.0, 50.0, 50.0)).with_clip_children(true),

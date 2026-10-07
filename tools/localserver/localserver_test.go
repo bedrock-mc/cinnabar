@@ -29,7 +29,7 @@ func TestParseSettingsValidates(t *testing.T) {
 	for _, bad := range [][]string{
 		{"-addr", "a"}, {"-dir", "d"},
 		{"-dir", "d", "-addr", "a", "-game-mode", "hardcore"},
-		{"-dir", "d", "-addr", "a", "-generator", "normal"}, // vanilla terrain is BDS-only
+		{"-dir", "d", "-addr", "a", "-generator", "unknown"},
 		{"-dir", "d", "-addr", "a", "-difficulty", "brutal"},
 	} {
 		if _, err := parseSettings(bad, io.Discard); err == nil {

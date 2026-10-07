@@ -32,7 +32,7 @@ pub(super) fn process(input: MovementInput) -> ProcessedControls {
         );
         let factor = item
             * if slowed {
-                super::SNEAK_INPUT_MULTIPLIER as f32
+                sneak_factor(input.swift_sneak)
             } else {
                 1.0
             };
@@ -52,7 +52,7 @@ pub(super) fn process(input: MovementInput) -> ProcessedControls {
         });
     let factor = item
         * if slowed {
-            super::SNEAK_INPUT_MULTIPLIER
+            f64::from(sneak_factor(input.swift_sneak))
         } else {
             1.0
         };
@@ -60,4 +60,9 @@ pub(super) fn process(input: MovementInput) -> ProcessedControls {
     ProcessedControls {
         move_vector: [process_axis(input.strafe), process_axis(input.forward)],
     }
+}
+
+/// Swift Sneak increases crouch and crawl input up to ordinary walking input.
+fn sneak_factor(level: u8) -> f32 {
+    (f32::from(level) * 0.15_f32 + super::SNEAK_INPUT_MULTIPLIER as f32).min(1.0)
 }

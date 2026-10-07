@@ -58,6 +58,8 @@ impl WorldStream {
         event: PreparedWorldEvent,
         sequence: Option<u64>,
     ) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.commit", sequence).entered();
         match event {
             PreparedWorldEvent::InlineLevelChunk {
                 event,

@@ -188,6 +188,14 @@ impl UiGpuTextures {
             self.allocation_identity = Some(catalog.static_identity());
             self.allocation_plan = Some(catalog.plan().clone());
             for bucket in catalog.plan().buckets() {
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!(
+                    "ui.texture_allocate",
+                    width = bucket.dimensions[0],
+                    height = bucket.dimensions[1],
+                    layers = bucket.layers,
+                )
+                .entered();
                 let texture = device.create_texture(&TextureDescriptor {
                     label: Some("bounded UI dimension bucket"),
                     size: Extent3d {
@@ -237,6 +245,16 @@ impl UiGpuTextures {
         let buckets = &self.buckets;
         self.state.execute(catalog, &dirty, |_, page, location| {
             let [width, height] = page.dimensions();
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "ui.texture_write",
+                bucket = location.bucket,
+                layer = location.layer,
+                width,
+                height,
+                bytes = page.pixels().len(),
+            )
+            .entered();
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &buckets[location.bucket].texture,
@@ -373,8 +391,8 @@ mod tests {
     #[test]
     fn local_font_replacement_writes_one_reserved_page_without_static_reallocation() {
         use render_model::{
-            MAX_UI_DYNAMIC_PAGES, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
-            UI_LOCAL_FONT_PAGE_SIDE,
+            MAX_UI_DYNAMIC_PAGES, UI_DYNAMIC_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_OFFSET,
+            UI_FALLBACK_FONT_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
         };
 
         let page = |side, value| {
@@ -384,8 +402,16 @@ mod tests {
             )
             .unwrap()
         };
+        let fallback = UiTexturePage::coverage(
+            [UI_FALLBACK_FONT_PAGE_SIDE; 2],
+            vec![0; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize].into(),
+        )
+        .unwrap();
         let mut pages = vec![page(1, 255)];
         pages.extend((0..MAX_UI_DYNAMIC_PAGES).map(|offset| {
+            if offset >= UI_FALLBACK_FONT_PAGE_OFFSET {
+                return fallback.clone();
+            }
             page(
                 if offset == UI_LOCAL_FONT_PAGE_OFFSET {
                     UI_LOCAL_FONT_PAGE_SIDE
@@ -401,22 +427,40 @@ mod tests {
         state
             .execute(&base, &dirty, |_, _, _| Ok::<_, ()>(()))
             .unwrap();
-        let mut replacement = base.pages()[base.dynamic_start()..].to_vec();
-        replacement[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_LOCAL_FONT_PAGE_SIDE, 41);
-        let changed = base.replace_dynamic(replacement).unwrap();
-        assert_eq!(changed.static_identity(), base.static_identity());
-        assert_eq!(changed.plan(), base.plan());
-        let target = base.dynamic_start() + UI_LOCAL_FONT_PAGE_OFFSET;
-        assert_eq!(state.dirty(&changed).unwrap(), [target]);
-        let mut written = Vec::new();
-        state
-            .execute(&changed, &[target], |index, _, _| {
-                written.push(index);
-                Ok::<_, ()>(())
-            })
-            .unwrap();
-        assert_eq!(written, [target]);
-        assert!(state.dirty(&changed).unwrap().is_empty());
+        let mut current = base.clone();
+        for offset in [
+            UI_LOCAL_FONT_PAGE_OFFSET,
+            UI_FALLBACK_FONT_PAGE_OFFSET,
+            MAX_UI_DYNAMIC_PAGES - 1,
+        ] {
+            let mut replacement = current.pages()[current.dynamic_start()..].to_vec();
+            replacement[offset] = if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+                page(UI_LOCAL_FONT_PAGE_SIDE, 41)
+            } else {
+                UiTexturePage::coverage(
+                    [UI_FALLBACK_FONT_PAGE_SIDE; 2],
+                    vec![41; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize]
+                        .into(),
+                )
+                .unwrap()
+            };
+            current = current.replace_dynamic(replacement).unwrap();
+            assert_eq!(current.static_identity(), base.static_identity());
+            assert_eq!(current.plan(), base.plan());
+            let target = base.dynamic_start() + offset;
+            assert_eq!(state.dirty(&current).unwrap(), [target]);
+            let mut written = Vec::new();
+            state
+                .execute(&current, &[target], |index, page, _| {
+                    written.push(index);
+                    assert_eq!(page.format(), base.pages()[target].format());
+                    assert_eq!(page.pixels().len(), base.pages()[target].pixels().len());
+                    Ok::<_, ()>(())
+                })
+                .unwrap();
+            assert_eq!(written, [target]);
+            assert!(state.dirty(&current).unwrap().is_empty());
+        }
         let mut wrong = base.pages()[base.dynamic_start()..].to_vec();
         wrong[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_DYNAMIC_PAGE_SIDE, 0);
         assert!(base.replace_dynamic(wrong).is_err());

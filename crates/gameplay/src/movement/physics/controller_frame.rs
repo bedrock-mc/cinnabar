@@ -4,12 +4,16 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    /// Velocity before this tick applies liquid travel and drag.
+    pub entry_velocity: [f32; 3],
     pub eye_height: f32,
     pub intent: ModeIntent,
     pub jump_edge: bool,
     pub fly_toggle: bool,
     pub requested_sneak: bool,
     pub requested_sprint: bool,
+    pub sprint_down: bool,
+    pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,
     pub sprint_override: Option<bool>,
@@ -56,6 +60,7 @@ impl ControllerFrame {
             modes.restore_controls(sprinting, modes.sneaking());
         }
         let previous_modes = *modes;
+        let [move_sideways, move_forward] = ModeObservation::input_vector(*input);
         let choice = modes.select(
             self.intent,
             self.fly_toggle,
@@ -66,8 +71,12 @@ impl ControllerFrame {
                 in_water: environment.in_water,
                 in_lava: environment.in_lava,
                 sprinting: input.sprinting,
-                move_sideways: input.strafe as f32,
-                move_forward: input.forward as f32,
+                sprint_blinded: input.effects.blindness,
+                sprint_down: self.sprint_down,
+                input_mode: self.input_mode,
+                requested_movement: state.requested_movement,
+                move_sideways,
+                move_forward,
                 sneaking: self.requested_sneak,
                 pitch: input.pitch_degrees as f32,
                 yaw: input.yaw_degrees as f32,
@@ -121,6 +130,12 @@ impl ControllerFrame {
             ]);
             state.position = seat;
         }
+        modes.record_controls(*input, self.requested_sneak);
+        self.entry_velocity = [
+            state.velocity.x as f32,
+            state.velocity.y as f32,
+            state.velocity.z as f32,
+        ];
         self.modes = *modes;
         self.input = *input;
         Ok(())

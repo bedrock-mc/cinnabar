@@ -1147,6 +1147,13 @@ func (s *fakeSession) written() []packet.Packet {
 	return append([]packet.Packet(nil), s.writes...)
 }
 
+// setFlushErr fails later flushes; safe while a pump goroutine is flushing.
+func (s *fakeSession) setFlushErr(err error) {
+	s.batchesMu.Lock()
+	s.flushErr = err
+	s.batchesMu.Unlock()
+}
+
 func (s *fakeSession) flushedBatches() [][]packet.Packet {
 	s.batchesMu.Lock()
 	defer s.batchesMu.Unlock()

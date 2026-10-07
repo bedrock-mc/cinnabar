@@ -16,6 +16,9 @@ mod diagnostics;
 pub mod diagnostics_config;
 mod effects;
 mod encoding;
+mod input_state;
+
+pub use input_state::TickInput;
 mod evidence;
 pub mod local_facts;
 mod locomotion;
@@ -32,7 +35,7 @@ pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsA
 pub use collision_registries::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
 pub use control_trace::{trace_local_attributes, trace_server_control};
 pub use coordination::physics_authority_fault_for_frame;
-pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
+pub use correction_shape::CorrectionShape;
 pub use correction_shape::{
     PhysicsAnchor, reconcile_candidate_physics_correction, reconcile_physics_anchor,
 };
@@ -51,13 +54,14 @@ pub use outbox::OUTBOX_CAPACITY;
 #[cfg(any(test, feature = "test-support"))]
 pub use outbox::flush_player_auth_inputs;
 pub use outbox::{
-    InteractionPacketGuard, MovementOutboxReconciliation, flush_player_auth_inputs_guarded,
+    InteractionPacketGuard, MovementOutboxReconciliation, UnsentSampleView,
+    flush_player_auth_inputs_guarded,
 };
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
-    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
-    physics_movement_input,
+    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMotionSample, PhysicsMovementSample,
+    PhysicsSampleContext, physics_movement_input,
 };
 pub use prediction_sync::{PredictionSyncState, send_movement_prediction_sync};
 use sim::WorldCollisionIdentity;
@@ -86,6 +90,7 @@ pub enum MovementSource {
 struct QueuedPhysicsSample {
     session_generation: u64,
     snapshot: PlayerAuthInputSnapshot,
+    displacement: [f32; 3],
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
     mining: Option<crate::mining::QueuedMiningInteraction>,
@@ -351,6 +356,7 @@ impl MovementTicker {
         self.outbox.push_back(QueuedPhysicsSample {
             session_generation: self.session_generation,
             snapshot,
+            displacement: completed.movement,
             world_identity: completed.world_identity,
             evidence,
             mining: None,
@@ -834,6 +840,7 @@ impl MovementTicker {
                     }
                     pending.snapshot.position = replayed.position;
                     pending.snapshot.delta = replayed.velocity;
+                    pending.displacement = replayed.movement;
                     pending.snapshot.move_vector = encoding::wire_move_vector(replayed.move_vector);
                     // Tick-bound actions survive; all movement flags come from replay.
                     pending.snapshot.flags = [
@@ -925,3 +932,6 @@ pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
 pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput};
+
+#[cfg(test)]
+mod input_state_tests;

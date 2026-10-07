@@ -21,7 +21,7 @@ impl UiRuntime {
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    json_ui::localize_parameter_prefix(parameter, &translate, usize::MAX)
+                    protocol::localize_parameter_prefix(parameter, &translate, usize::MAX)
                         .into_owned()
                 })
                 .collect::<Vec<_>>();

@@ -205,6 +205,12 @@ fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue
         let enabled = cull.table.enabled();
         let words = enabled.len().min((storage.capacity as usize).div_ceil(32));
         if words != 0 {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "terrain.cull_enabled_write",
+                bytes = words * std::mem::size_of::<u32>()
+            )
+            .entered();
             queue.write_buffer(&storage.enabled, 0, bytemuck::cast_slice(&enabled[..words]));
         }
     }
@@ -235,6 +241,14 @@ pub(super) fn write_dirty_records(
     let source = table.records();
     for run in dirty.chunk_by(|left, right| left + 1 == *right) {
         let (first, last) = (run[0] as usize, run[run.len() - 1] as usize);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "terrain.cull_records_write",
+            first,
+            records = run.len(),
+            bytes = run.len() as u64 * record_bytes,
+        )
+        .entered();
         queue.write_buffer(
             records,
             first as u64 * record_bytes,

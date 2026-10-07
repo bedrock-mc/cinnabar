@@ -65,36 +65,35 @@ mod tests {
                 .iter()
                 .find_map(|(name, index)| (*name == section).then_some(*index))
                 .unwrap();
-            presentation.set_menu_view(Some(view));
+            presentation.set_menu_view(Some(view.clone()));
             let runtime = crate::ui_runtime::UiRuntime::new(1);
             let dpi = ui::DpiScale::new(1.0).unwrap();
+            presentation
+                .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+                .unwrap();
+            let action = MenuAction::SettingsResetGroup(group);
+            assert!(
+                presentation
+                    .menu_focus_actions()
+                    .any(|candidate| candidate == action),
+                "{section} must expose its reset action to keyboard navigation",
+            );
+            view.focused_action = Some(action);
+            presentation.set_menu_view(Some(view));
             presentation
                 .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
                 .unwrap();
             let bounds = presentation
                 .menu_hit_targets
                 .iter()
-                .find_map(|(action, bounds)| {
-                    matches!(
-                        action,
-                        MenuAction::SettingsOption(..) | MenuAction::SettingsDropdown(_)
-                    )
-                    .then_some(*bounds)
-                })
-                .expect("section exposes a control inside its scroll view");
-            let point = ui::UiPoint::new(bounds.min().x() + 1.0, bounds.min().y() + 1.0).unwrap();
-            assert!(presentation.scroll_menu(point, -1000.0, false));
-            presentation
-                .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
-                .unwrap();
-            assert!(
-                presentation
-                    .menu_hit_targets
-                    .iter()
-                    .any(|(action, _)| *action == MenuAction::SettingsResetGroup(group)),
-                "{section}: {:?}",
-                presentation.menu_hit_targets
-            );
+                .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
+                .expect("keyboard focus reveals the section's reset button");
+            let point = ui::UiPoint::new(
+                (bounds.min().x() + bounds.max().x()) * 0.5,
+                (bounds.min().y() + bounds.max().y()) * 0.5,
+            )
+            .unwrap();
+            assert_eq!(presentation.hit_test_menu(point), Some(action), "{section}");
         }
     }
 }

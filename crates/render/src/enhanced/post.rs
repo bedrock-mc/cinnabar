@@ -121,6 +121,7 @@ fn post_bind_group(
 /// Draws one fullscreen pass.
 fn fullscreen_pass(
     context: &mut RenderContext,
+    world: &World,
     label: &'static str,
     target: &TextureView,
     load: LoadOp<wgpu::Color>,
@@ -141,7 +142,10 @@ fn fullscreen_pass(
             },
         })],
         depth_stencil_attachment: None,
-        timestamp_writes: None,
+        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+            world,
+            crate::RuntimeStage::GpuPost,
+        ),
         occlusion_query_set: None,
     });
     pass.set_render_pipeline(pipeline);
@@ -219,6 +223,7 @@ impl ViewNode for EnhancedPostNode {
             let group = bind(black, black, black);
             fullscreen_pass(
                 context,
+                world,
                 "enhanced light shafts",
                 shaft_view,
                 clear,
@@ -231,6 +236,7 @@ impl ViewNode for EnhancedPostNode {
         let group = bind(post.source, black, shaft_view.unwrap_or(black));
         fullscreen_pass(
             context,
+            world,
             "enhanced composite",
             post.destination,
             clear,

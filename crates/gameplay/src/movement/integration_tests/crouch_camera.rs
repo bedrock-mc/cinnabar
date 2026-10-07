@@ -11,7 +11,14 @@ fn crouch_camera_uses_completed_stance_ticks_without_moving_the_network_anchor()
         ..MovementInput::default()
     };
     let context = PhysicsSampleContext {
-        sneak_button: true,
+        input: crate::movement::TickInput {
+            sneak: semantic_input::ActionPhase {
+                held: true,
+                ..Default::default()
+            },
+            sneak_down: true,
+            ..Default::default()
+        },
         ..PhysicsSampleContext::default()
     };
     let first = physics.advance_with_context(Duration::from_millis(75), input, context, &Floor);
@@ -20,7 +27,7 @@ fn crouch_camera_uses_completed_stance_ticks_without_moving_the_network_anchor()
     assert_eq!(physics.latest_sneak_sprint(), Some((true, false)));
     assert_eq!(first.samples[0].position, network);
     assert!(first.samples[0].processed.sneaking);
-    assert!(first.samples[0].sneak_button);
+    assert!(first.samples[0].input.sneak.held);
     assert!((physics.render_eye_position().unwrap()[1] - (standing - 0.0875)).abs() < 1.0e-6);
     assert_eq!(physics.render_feet_position(), Some([0.0, 1.0, 0.0]));
 
@@ -65,6 +72,6 @@ fn a_low_ceiling_keeps_the_eye_crouched_without_a_held_sneak_button() {
     assert_eq!(frame.completed_ticks, 1);
     assert!(frame.samples[0].processed.forced_sneak);
     assert!(frame.samples[0].processed.sneaking);
-    assert!(!frame.samples[0].sneak_button);
+    assert!(!frame.samples[0].input.sneak.held);
     assert!((physics.render_eye_position().unwrap()[1] - (standing - 0.0875)).abs() < 1.0e-6);
 }

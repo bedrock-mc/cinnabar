@@ -9,9 +9,10 @@ use crate::ui::{
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, UiRenderRejectReason,
 };
 
-pub const MAX_UI_TEXTURE_BUCKETS: usize = 8;
+/// Buckets bind independently; page count and byte limits bound their residency.
+pub const MAX_UI_TEXTURE_BUCKETS: usize = MAX_UI_TEXTURE_LAYERS as usize;
 /// Replaceable pages after static UI: models, session glyphs, server UI, then a local font.
-pub const MAX_UI_DYNAMIC_PAGES: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
+pub const MAX_UI_DYNAMIC_PAGES: usize = UI_FALLBACK_FONT_PAGE_OFFSET + MAX_UI_FALLBACK_FONT_PAGES;
 /// Side length shared by general dynamic UI pages outside original-resolution model slots.
 pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
 /// Fixed dynamic slot carrying the original player skin, not a projected thumbnail.
@@ -24,6 +25,9 @@ pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
 /// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
 pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;
+pub const UI_FALLBACK_FONT_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
+pub const MAX_UI_FALLBACK_FONT_PAGES: usize = assets::MAX_FONT_FALLBACK_PAGES;
+pub const UI_FALLBACK_FONT_PAGE_SIDE: u32 = assets::FONT_FALLBACK_ATLAS_SIDE;
 /// Replaceable full-resolution pages after the small ones, for menu artwork.
 pub const MAX_UI_ART_PAGES: usize = 2;
 pub const UI_ART_PAGE_SIDE: u32 = 1024;
@@ -64,6 +68,22 @@ pub struct UiTexturePage {
 }
 
 impl UiTexturePage {
+    /// One alpha byte per texel for demand-filled white font pages.
+    pub fn coverage(dimensions: [u32; 2], pixels: Arc<[u8]>) -> Result<Self, UiRenderRejectReason> {
+        let expected = page_bytes_in(dimensions, UiTextureFormat::Coverage)?;
+        if pixels.len() != expected {
+            return Err(UiRenderRejectReason::TextureByteLengthInvalid {
+                actual: pixels.len(),
+                expected,
+            });
+        }
+        Ok(Self {
+            dimensions,
+            identity: Sha256::digest(&pixels).into(),
+            format: UiTextureFormat::Coverage,
+            pixels: Pixels::Owned(pixels),
+        })
+    }
     pub fn owned(dimensions: [u32; 2], pixels: Arc<[u8]>) -> Result<Self, UiRenderRejectReason> {
         let expected = page_bytes(dimensions)?;
         if pixels.len() != expected {
@@ -290,14 +310,16 @@ impl UiTextureCatalog {
             .iter()
             .enumerate()
             .filter(|(offset, page)| {
-                *offset != UI_SESSION_ICON_PAGE_OFFSET && page.dimensions == [UI_ART_PAGE_SIDE; 2]
+                *offset >= MAX_UI_DYNAMIC_PAGES && page.dimensions == [UI_ART_PAGE_SIDE; 2]
             })
             .count();
         let small = dynamic.len() - art;
         if small > MAX_UI_DYNAMIC_PAGES
             || art > MAX_UI_ART_PAGES
             || dynamic.iter().enumerate().any(|(offset, page)| {
-                (matches!(&page.pixels, Pixels::Font { .. }) && offset != UI_LOCAL_FONT_PAGE_OFFSET)
+                (matches!(&page.pixels, Pixels::Font { .. })
+                    && offset != UI_LOCAL_FONT_PAGE_OFFSET
+                    && !(UI_FALLBACK_FONT_PAGE_OFFSET..MAX_UI_DYNAMIC_PAGES).contains(&offset))
                     || !valid_dynamic_dimensions(offset, page.dimensions)
             })
         {
@@ -380,6 +402,9 @@ fn is_resizable_slot(offset: usize) -> bool {
 
 /// Accepts only the dimensions supported by each reserved dynamic page's producer.
 fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
+    if (UI_FALLBACK_FONT_PAGE_OFFSET..MAX_UI_DYNAMIC_PAGES).contains(&offset) {
+        return [width, height] == [UI_FALLBACK_FONT_PAGE_SIDE; 2];
+    }
     if offset == UI_LOCAL_FONT_PAGE_OFFSET {
         return [width, height] == [UI_LOCAL_FONT_PAGE_SIDE; 2];
     }
@@ -407,6 +432,25 @@ fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_fonts_art_and_skin_dimensions_share_the_resident_budget() {
+        let mut pages = [256, 512, 1024]
+            .map(|side| ([side; 2], UiTextureFormat::Coverage))
+            .to_vec();
+        pages.extend(
+            [16, 256, 512, 1024, 2048, 3072].map(|side| ([side; 2], UiTextureFormat::Rgba8)),
+        );
+        let plan = UiTexturePlan::with_formats(&pages).unwrap();
+        assert_eq!(plan.buckets().len(), pages.len());
+        assert!(plan.bytes() < MAX_UI_TEXTURE_BYTES);
+        for (page, location) in pages.iter().zip(plan.locations()) {
+            let bucket = plan.buckets()[location.bucket];
+            assert_eq!((bucket.dimensions, bucket.format), *page);
+            assert_eq!(location.layer, 0);
+        }
+        assert!(plan.validate_device(4096, 1).is_ok());
+    }
 
     /// Coverage pages get their own one-byte-per-texel buckets beside same-sized RGBA pages.
     #[test]

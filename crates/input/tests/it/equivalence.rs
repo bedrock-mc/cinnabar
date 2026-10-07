@@ -23,6 +23,7 @@ fn keyboard_controller_and_touch_scripts_are_semantically_equivalent() {
     };
     let controller = DeviceFrame {
         controllers: vec![ControllerFrame {
+            button_edges: Default::default(),
             device_id: 1,
             activity_sequence: 1,
             axes: [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],

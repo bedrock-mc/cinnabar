@@ -22,9 +22,13 @@ impl LocalPhysicsController {
                 .expect("local physics history capacity is non-zero");
             self.sample_history.clear();
             self.controller_history.clear();
+            self.motion_ticks.clear();
+            self.motion_anchor = None;
             self.server_motions.clear();
+            self.deferred_corrections = Default::default();
             self.previous_jump_held = false;
             self.jump_edge_pending = false;
+            self.input_edges = Default::default();
             self.fly_toggle_pending = false;
             self.processed_jump_arc_active = false;
             self.modes.reset();
@@ -36,6 +40,7 @@ impl LocalPhysicsController {
         let state = self.state.as_mut().expect("active local state checked");
         state.velocity = Vec3::ZERO;
         state.movement = Vec3::ZERO;
+        state.requested_movement = Vec3::ZERO;
         state.collisions = sim::AxisCollisions::default();
         state.jump_delay = 0;
         self.previous_position = state.position;
@@ -80,7 +85,7 @@ impl LocalPhysicsController {
                 camera_orientation: context.camera_orientation,
                 jumping: false,
                 sneaking: false,
-                sneak_button: false,
+                input: Default::default(),
                 sprinting: false,
                 input_mode: context.input_mode,
                 grounded_before_tick: state.on_ground,

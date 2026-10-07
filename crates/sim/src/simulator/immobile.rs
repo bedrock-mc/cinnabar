@@ -18,6 +18,7 @@ pub(super) fn tick(
     state.tick = tick;
     state.velocity = Vec3::ZERO;
     state.movement = Vec3::ZERO;
+    state.requested_movement = Vec3::ZERO;
     if mode != MovementMode::Riding {
         state.jump_delay = 0;
     }

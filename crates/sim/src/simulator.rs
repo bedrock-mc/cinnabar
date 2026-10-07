@@ -72,8 +72,8 @@ const SCAFFOLDING_SNEAK_DESCENT: f64 = 0.15;
 /// runs on ticks whose resolved vertical movement is exactly zero, so `yMov` is
 /// zero and the factor collapses to its constant term.
 const SLIME_WALK_DAMPING: f64 = 0.4;
-/// `bedsim v0.1.3` `landOnBlock` zeroes a slime rebound below this magnitude.
-const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
+/// Restitution ignores descents below the ordinary gravity step.
+const MIN_REBOUND_SPEED: f32 = 0.080_000_12;
 // Known modelling limitation: bedsim distinguishes `state.Sneaking` (the
 // latched sneak state, which start/stop edges can drive independently) from
 // `state.PressingSneak` (the raw held button), and `walkOnBlock` and
@@ -348,6 +348,7 @@ impl Simulator {
         }
 
         let pre_collision_velocity = next.velocity;
+        next.requested_movement = pre_collision_velocity;
         let motion = resolve_motion(
             &scaffolding::ScaffoldingView::new(
                 world,
@@ -370,13 +371,33 @@ impl Simulator {
                 && !motion.collisions.y
                 && next.velocity.y.abs() <= COLLISION_EPSILON);
 
+        let landing_surface = if motion.collisions.y && pre_collision_velocity.y < 0.0 {
+            let surface = if let Some(block) = motion.support {
+                let support =
+                    environment::sample_primary(world, block, &mut sampled.block_samples)?;
+                identity = identity.merge(&support.identity)?;
+                support.value.surface_response
+            } else {
+                crate::SurfaceResponse::None
+            };
+            if !matches!(
+                sampled.movement.surface_response,
+                crate::SurfaceResponse::BubbleUp | crate::SurfaceResponse::BubbleDown
+            ) {
+                sampled.movement.surface_response = surface;
+            }
+            surface
+        } else {
+            sampled.movement.surface_response
+        };
+
         // `bedsim v0.1.3` applies `walkOnBlock` to the resolved velocity before
         // publishing this tick's movement, so the damping is visible in both.
         let mut resolved = motion.resolved;
         if resolved.y == 0.0
             && next.on_ground
             && !input.sneaking
-            && sampled.movement.surface_response == crate::SurfaceResponse::Slime
+            && landing_surface == crate::SurfaceResponse::Slime
         {
             resolved.x = f64::from(resolved.x as f32 * (SLIME_WALK_DAMPING) as f32);
             resolved.z = f64::from(resolved.z as f32 * (SLIME_WALK_DAMPING) as f32);
@@ -390,18 +411,9 @@ impl Simulator {
             next.velocity.x = 0.0;
         }
         if motion.collisions.y {
-            // `bedsim v0.1.3` `landOnBlock` bounces only an airborne, non-sneaking
-            // descent; sneaking zeroes the rebound on every surface.
-            let bounces = !grounded_at_start && !input.sneaking && pre_collision_velocity.y < 0.0;
-            next.velocity.y = match sampled.movement.surface_response {
-                crate::SurfaceResponse::Slime if bounces => {
-                    let rebound = -pre_collision_velocity.y;
-                    if rebound.abs() < SLIME_REBOUND_DEADZONE {
-                        0.0
-                    } else {
-                        rebound
-                    }
-                }
+            let bounces = !input.sneaking && pre_collision_velocity.y as f32 <= -MIN_REBOUND_SPEED;
+            next.velocity.y = match landing_surface {
+                crate::SurfaceResponse::Slime if bounces => -pre_collision_velocity.y,
                 crate::SurfaceResponse::Bed if bounces => {
                     // Vanilla bed restitution.
                     f64::from(-0.75_f32 * pre_collision_velocity.y as f32)
@@ -415,6 +427,25 @@ impl Simulator {
 
         let liquid_ledge_exit = (sampled.movement.in_water || sampled.movement.in_lava)
             && (motion.collisions.x || motion.collisions.z);
+        let auto_climb = if !sampled.movement.in_water
+            && !sampled.movement.in_lava
+            && (motion.collisions.x || motion.collisions.z)
+        {
+            let feet = environment::sample_primary(
+                world,
+                environment::block_at(next.position)?,
+                &mut sampled.block_samples,
+            )?;
+            identity = identity.merge(&feet.identity)?;
+            feet.value
+                .flags
+                .contains(crate::BlockPhysicsFlags::CLIMBABLE)
+        } else {
+            false
+        };
+        if auto_climb {
+            next.velocity.y = CLIMB_SPEED;
+        }
         if sampled.movement.in_cobweb {
             next.velocity = Vec3::ZERO;
             effects::apply_vertical(
@@ -450,11 +481,15 @@ impl Simulator {
             effects::apply_vertical(
                 &mut next.velocity.y,
                 input.effects,
-                gravity,
-                NORMAL_GRAVITY_MULTIPLIER,
+                if auto_climb { 0.0 } else { gravity },
+                if auto_climb {
+                    1.0
+                } else {
+                    NORMAL_GRAVITY_MULTIPLIER
+                },
             );
-            next.velocity.x = f64::from(next.velocity.x as f32 * (friction) as f32);
-            next.velocity.z = f64::from(next.velocity.z as f32 * (friction) as f32);
+            next.velocity.x = effects::damp_horizontal(next.velocity.x, friction as f32);
+            next.velocity.z = effects::damp_horizontal(next.velocity.z, friction as f32);
         }
         if liquid_ledge_exit {
             if motion.collisions.x {

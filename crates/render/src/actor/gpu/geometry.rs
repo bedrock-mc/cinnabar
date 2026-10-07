@@ -104,6 +104,16 @@ impl SegmentedVertexBuffer {
             .as_ref()
             .map_or(0, |buffer| buffer.size() as usize / stride);
         let plan = PageTransfer::between(&self.vertices, vertices, capacity);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "actor.geometry_transfer",
+            label,
+            replace = plan.replace,
+            writes = plan.writes.len(),
+            copies = plan.copies.len(),
+            vertices = vertices.len(),
+        )
+        .entered();
         if plan.replace {
             let capacity = (vertices.len() + vertices.len() / 4).min(MAX_ACTOR_RIG_VERTICES);
             let buffer = device.create_buffer(&BufferDescriptor {
@@ -126,7 +136,10 @@ impl SegmentedVertexBuffer {
                         (len * stride) as u64,
                     );
                 }
-                queue.submit([encoder.finish()]);
+                let command = encoder.finish();
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!("actor.geometry_submit").entered();
+                queue.submit([command]);
             }
             self.buffer = Some(buffer);
         }
@@ -135,6 +148,13 @@ impl SegmentedVertexBuffer {
             .as_ref()
             .expect("nonempty pages allocate a buffer");
         for index in plan.writes {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "actor.geometry_write",
+                page = index,
+                bytes = vertices.segments[index].len() * stride,
+            )
+            .entered();
             queue.write_buffer(
                 buffer,
                 (vertices.offsets[index] * stride) as u64,

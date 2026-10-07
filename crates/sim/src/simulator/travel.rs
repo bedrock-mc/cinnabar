@@ -35,6 +35,7 @@ pub(super) fn tick_mode(
     if input.mode == MovementMode::Riding {
         next.velocity = Vec3::ZERO;
         next.movement = Vec3::ZERO;
+        next.requested_movement = Vec3::ZERO;
         next.jump_delay = 0;
         next.collisions = AxisCollisions::default();
         let result = TickResult {
@@ -58,10 +59,7 @@ pub(super) fn tick_mode(
     let in_water = sampled.movement.in_water;
     let mut identity = sampled.identity.clone();
     let flight_ground_friction = if input.mode == MovementMode::Flying && grounded_at_start {
-        let ground =
-            super::flight::sample_ground_friction(world, next.position, sampled.block_samples)?;
-        identity = identity.merge(&ground.identity)?;
-        ground.value
+        sampled.friction
     } else {
         1.0
     };
@@ -125,6 +123,7 @@ pub(super) fn tick_mode(
         input.sneaking,
     );
     let height = input.mode.hitbox_height(input.sneaking);
+    next.requested_movement = next.velocity;
     let motion = resolve_motion(
         &view,
         next.position,

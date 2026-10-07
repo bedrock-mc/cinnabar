@@ -5,6 +5,11 @@ use std::collections::HashMap;
 
 use ui::{UiPoint, UiRect};
 
+mod smoothing;
+#[cfg(test)]
+mod smoothing_tests;
+use smoothing::ScrollTween;
+
 /// One scroll view as drawn; offsets are in the drawing system's own units.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScrollArea {
@@ -62,13 +67,37 @@ pub struct MenuScrolls {
     drag: Option<(String, f32)>,
     screen: Option<String>,
     focused: Option<crate::menu::MenuAction>,
+    smooth: bool,
+    seconds: f64,
+    motion: HashMap<String, ScrollTween>,
 }
 
 impl MenuScrolls {
+    /// Samples wheel motion once per rendered menu frame using the real menu clock.
+    pub fn configure_motion(&mut self, smooth: bool, seconds: f64) {
+        self.smooth = smooth;
+        self.seconds = seconds;
+        self.motion.retain(|key, motion| {
+            let value = if smooth {
+                motion.sample(seconds)
+            } else {
+                motion.target
+            };
+            if let Some(offset) = self.offsets.get_mut(key) {
+                *offset = value;
+            }
+            if let Some(area) = self.areas.iter_mut().find(|area| &area.key == key) {
+                area.offset = value.clamp(0.0, area.max);
+            }
+            smooth && !motion.settled(seconds)
+        });
+    }
+
     /// Forget every offset when the menu shows another screen.
     pub fn begin_frame(&mut self, screen: String) {
         if self.screen.as_ref() != Some(&screen) {
             self.offsets.clear();
+            self.motion.clear();
             self.drag = None;
             self.screen = Some(screen);
             self.focused = None;
@@ -102,6 +131,7 @@ impl MenuScrolls {
                 }
                 offset = offset.clamp(0.0, max);
                 self.offsets.insert(key.to_owned(), offset);
+                self.motion.remove(key);
             }
         }
         offset
@@ -154,8 +184,29 @@ impl MenuScrolls {
         &self.offsets
     }
 
+    /// Records focus outside scroll views so returning to a view can reveal its control.
+    pub fn observe_focus(&mut self, action: Option<crate::menu::MenuAction>) {
+        self.focused = action;
+    }
+
     pub fn set_areas(&mut self, areas: Vec<ScrollArea>) {
         self.areas = areas;
+        self.motion.retain(|key, motion| {
+            let Some(area) = self.areas.iter().find(|area| &area.key == key) else {
+                return false;
+            };
+            motion.clamp(area.max);
+            true
+        });
+        for area in &self.areas {
+            if let Some(offset) = self.offsets.get_mut(&area.key) {
+                *offset = offset.clamp(0.0, area.max);
+            }
+        }
+    }
+
+    pub(super) fn clear_areas(&mut self) {
+        self.areas.clear();
     }
 
     fn at(&self, point: UiPoint) -> Option<&ScrollArea> {
@@ -166,24 +217,49 @@ impl MenuScrolls {
     }
 
     fn set(&mut self, key: &str, offset: f32) {
+        self.motion.remove(key);
         if let Some(area) = self.areas.iter_mut().find(|area| area.key == key) {
             area.offset = offset.clamp(0.0, area.max);
             self.offsets.insert(key.to_owned(), area.offset);
         }
     }
 
+    /// Direct edge scrolling during a captured drag follows the pointer without wheel easing.
+    pub(super) fn scroll_by(&mut self, key: &str, pixels: f32) {
+        if let Some(area) = self.areas.iter().find(|area| area.key == key) {
+            self.set(key, area.offset - pixels / area.scale);
+        }
+    }
+
     /// Scrolls the view under `point` by `notches` (lines) or window pixels.
     pub fn wheel(&mut self, point: UiPoint, notches: f32, pixels: bool) -> bool {
+        if !notches.is_finite() {
+            return false;
+        }
         let Some(area) = self.at(point) else {
             return false;
         };
+        let base = self
+            .motion
+            .get(&area.key)
+            .map_or(area.offset, |motion| motion.target);
         let offset = match area.engine_at(point) {
             Some((metrics, _)) if !pixels => metrics.offset_for_wheel(f64::from(notches)) as f32,
-            _ if pixels => area.offset - notches / area.scale,
-            _ => area.offset - notches * area.speed,
+            _ if pixels => base - notches / area.scale,
+            _ => base - notches * area.speed,
         };
         let key = area.key.clone();
-        self.set(&key, offset);
+        let target = offset.clamp(0.0, area.max);
+        if self.smooth && area.engine.is_none() {
+            let current = area.offset;
+            self.offsets.entry(key.clone()).or_insert(current);
+            self.motion
+                .entry(key)
+                .and_modify(|motion| motion.retarget(target, pixels, self.seconds))
+                .or_insert_with(|| ScrollTween::new(current, target, pixels, self.seconds));
+        } else {
+            self.set(&key, target);
+        }
         true
     }
 
@@ -199,6 +275,7 @@ impl MenuScrolls {
             return false;
         };
         let key = area.key.clone();
+        self.motion.remove(&key);
         if let Some((metrics, at)) = area.engine_at(point) {
             let along = at[usize::from(!metrics.horizontal)] as f32;
             match area.thumb {
@@ -285,7 +362,7 @@ impl super::UiPresentationRuntime {
 mod tests {
     use super::*;
 
-    fn area() -> ScrollArea {
+    pub(super) fn area() -> ScrollArea {
         let rect = |x0, y0, x1, y1| UiRect::new(point(x0, y0), point(x1, y1)).unwrap();
         ScrollArea {
             key: "list".to_owned(),
@@ -301,7 +378,7 @@ mod tests {
         }
     }
 
-    fn point(x: f32, y: f32) -> UiPoint {
+    pub(super) fn point(x: f32, y: f32) -> UiPoint {
         UiPoint::new(x, y).unwrap()
     }
 

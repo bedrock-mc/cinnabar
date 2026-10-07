@@ -1,5 +1,6 @@
 use crate::{
-    Aabb, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld, WorldQueryError,
+    Aabb, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
+    ProvenancedCollider, WorldQueryError,
 };
 
 /// How far below a scaffolding top the feet may sit and still stand on it.
@@ -25,6 +26,22 @@ impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
 
 impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let colliders = self.collision_boxes_with_provenance(query)?;
+        Ok(CollisionQuery {
+            value: colliders
+                .value
+                .into_iter()
+                .map(|collider| collider.aabb)
+                .collect(),
+            identity: colliders.identity,
+        })
+    }
+
+    /// Keeps source cells attached to the contextual collision shapes.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
         let colliders = self.inner.collision_boxes_with_provenance(query)?;
         let mut kept = Vec::with_capacity(colliders.value.len());
         let mut identity = colliders.identity;
@@ -47,7 +64,7 @@ impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
                     continue;
                 }
             }
-            kept.push(collider.aabb);
+            kept.push(collider);
         }
         Ok(CollisionQuery {
             value: kept,

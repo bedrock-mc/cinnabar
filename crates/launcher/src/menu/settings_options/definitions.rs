@@ -490,4 +490,10 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     slider("chat_font_size", "chat.settings.fontSize", 5, 20, 10),
     slider("chat_line_spacing", "chat.settings.lineSpacing", 0, 100, 0),
     toggle("always_sprint", "Always Sprint", false),
+    toggle(
+        super::SHOW_EXACT_SERVER_PING,
+        "options.showExactServerPing",
+        false,
+    ),
+    toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
 ];

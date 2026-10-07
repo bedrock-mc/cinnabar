@@ -156,7 +156,10 @@ impl ViewNode for GammaTransparentPass {
                 label: Some("sorted ordinary transparent colour-space range"),
                 color_attachments: &[Some(colour)],
                 depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    world,
+                    crate::RuntimeStage::GpuTransparent,
+                ),
                 occlusion_query_set: None,
             });
             if let Some(viewport) =

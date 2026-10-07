@@ -3,13 +3,22 @@ use std::{collections::BTreeMap, str, sync::Arc};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+mod fallback;
+mod rendering;
+mod runtime;
+pub use fallback::FontGlyphRequests;
+pub use rendering::{FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontRendering};
+
 pub const FONT_CARRIER_MAGIC: [u8; 9] = *b"MCBEFONT1";
 pub const FONT_CARRIER_SCHEMA: u32 = 1;
 pub const MAX_FONT_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_FONT_PAGES: usize = 256;
 pub const MAX_FONT_GLYPHS: usize = 65_536;
+pub const MAX_FONT_KERNING_PAIRS: usize = 65_536;
 pub const MAX_FONT_PAGE_SIDE: u32 = 4_096;
 pub const MAX_FONT_PATH_BYTES: usize = 512;
+pub const FONT_FALLBACK_ATLAS_SIDE: u32 = 1024;
+pub const MAX_FONT_FALLBACK_PAGES: usize = 16;
 
 const MAX_FONT_DECODED_BYTES: usize = MAX_FONT_SOURCE_BYTES as usize;
 const MAX_FONT_CARRIER_BYTES: usize = 128 * 1024 * 1024;
@@ -88,6 +97,14 @@ pub struct FontCatalogIdentity {
     pub carrier_sha256: [u8; 32],
 }
 
+/// Outline metrics in atlas pixels, independent of a label's CSS line height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FontLineMetrics {
+    pub em_64: u32,
+    pub ascent_64: u32,
+    pub descent_64: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompiledFontCatalog {
     identity: FontCatalogIdentity,
@@ -96,7 +113,13 @@ pub struct CompiledFontCatalog {
     /// Drawn size in 1/64 px for glyphs that are not drawn at their texel size.
     draw_sizes_64: Arc<BTreeMap<char, [u32; 2]>>,
     named: Arc<BTreeMap<String, Self>>,
+    sizes: Arc<BTreeMap<u32, Self>>,
     linear_sampling: bool,
+    rendering: FontRendering,
+    line_metrics: Option<FontLineMetrics>,
+    kerning_64: Arc<BTreeMap<(char, char), i32>>,
+    fallback: Option<Arc<Self>>,
+    requests: Option<Arc<FontGlyphRequests>>,
 }
 
 pub type RuntimeFontCatalog = CompiledFontCatalog;
@@ -127,7 +150,13 @@ impl CompiledFontCatalog {
             pages: pages.into(),
             draw_sizes_64: Arc::default(),
             named: Arc::default(),
+            sizes: Arc::default(),
             linear_sampling: false,
+            rendering: FontRendering::Coverage,
+            line_metrics: None,
+            kerning_64: Arc::default(),
+            fallback: None,
+            requests: None,
         })
     }
 
@@ -171,7 +200,13 @@ impl CompiledFontCatalog {
             pages: Arc::clone(&self.pages),
             draw_sizes_64: Arc::new(draw_sizes_64),
             named: Arc::clone(&self.named),
+            sizes: Arc::clone(&self.sizes),
             linear_sampling: self.linear_sampling,
+            rendering: self.rendering,
+            line_metrics: self.line_metrics,
+            kerning_64: Arc::clone(&self.kerning_64),
+            fallback: self.fallback.clone(),
+            requests: self.requests.clone(),
         }
     }
 
@@ -188,13 +223,92 @@ impl CompiledFontCatalog {
     }
 
     pub const fn linear_sampling(&self) -> bool {
-        self.linear_sampling
+        match self.rendering {
+            FontRendering::Coverage => self.linear_sampling,
+            FontRendering::NativeCoverage => false,
+            FontRendering::NativeSdf => true,
+        }
+    }
+
+    pub fn with_rendering(mut self, rendering: FontRendering) -> Self {
+        if self.rendering != rendering {
+            let mut hash = Sha256::new();
+            hash.update(self.identity.carrier_sha256);
+            hash.update(b"runtime font rendering");
+            hash.update([rendering.style_flags()]);
+            self.identity.carrier_sha256 = hash.finalize().into();
+            self.rendering = rendering;
+        }
+        self
+    }
+
+    pub const fn rendering(&self) -> FontRendering {
+        self.rendering
+    }
+
+    /// Runtime outline faces retain their source baseline and em for semantic text sizing.
+    pub fn with_line_metrics(mut self, metrics: FontLineMetrics) -> Result<Self, FontCatalogError> {
+        if self.line_metrics == Some(metrics) {
+            return Ok(self);
+        }
+        if metrics.em_64 == 0
+            || metrics.em_64 > MAX_FONT_PAGE_SIDE * 64
+            || metrics.ascent_64 == 0
+            || metrics.ascent_64.saturating_add(metrics.descent_64) > metrics.em_64 * 4
+        {
+            return Err(invalid_catalog("outline line metrics exceed bounds"));
+        }
+        let mut hash = Sha256::new();
+        hash.update(self.identity.carrier_sha256);
+        hash.update(metrics.em_64.to_le_bytes());
+        hash.update(metrics.ascent_64.to_le_bytes());
+        hash.update(metrics.descent_64.to_le_bytes());
+        self.identity.carrier_sha256 = hash.finalize().into();
+        self.line_metrics = Some(metrics);
+        Ok(self)
+    }
+
+    pub const fn line_metrics(&self) -> Option<FontLineMetrics> {
+        self.line_metrics
+    }
+
+    /// Runtime horizontal pair advances in the same atlas units as glyph advances.
+    pub fn with_kerning(
+        mut self,
+        pairs: BTreeMap<(char, char), i32>,
+    ) -> Result<Self, FontCatalogError> {
+        if pairs.len() > MAX_FONT_KERNING_PAIRS
+            || pairs.iter().any(|(&(left, right), &value)| {
+                value.unsigned_abs() > MAX_FONT_PAGE_SIDE * 64
+                    || self.glyph(left).is_none()
+                    || self.glyph(right).is_none()
+            })
+        {
+            return Err(invalid_catalog("outline kerning exceeds bounds"));
+        }
+        if *self.kerning_64 == pairs {
+            return Ok(self);
+        }
+        let mut hash = Sha256::new();
+        hash.update(self.identity.carrier_sha256);
+        for (&(left, right), &value) in &pairs {
+            hash.update(u32::from(left).to_le_bytes());
+            hash.update(u32::from(right).to_le_bytes());
+            hash.update(value.to_le_bytes());
+        }
+        self.identity.carrier_sha256 = hash.finalize().into();
+        self.kerning_64 = Arc::new(pairs);
+        Ok(self)
+    }
+
+    pub fn kerning_64(&self, left: char, right: char) -> i32 {
+        self.kerning_64.get(&(left, right)).copied().unwrap_or(0)
     }
 
     /// Keeps white-glyph pages as one coverage byte per texel, a quarter of their RGBA size.
-    /// Filtered sampling would blend transparent texels' colour, so linear catalogs keep RGBA.
+    /// Native distance fields use white RGB throughout, so their linear sampling also permits R8.
     pub fn with_coverage_pages(mut self) -> Self {
-        if self.linear_sampling {
+        if self.linear_sampling() && self.rendering != FontRendering::NativeSdf {
             return self;
         }
         let pages = self
@@ -210,68 +324,6 @@ impl CompiledFontCatalog {
             .collect::<Vec<_>>();
         self.pages = pages.into();
         self
-    }
-
-    /// Adds runtime font aliases without changing the pinned carrier format.
-    pub fn with_named_fonts(mut self, fonts: BTreeMap<String, Self>) -> Self {
-        let mut hash = Sha256::new();
-        hash.update(self.identity.carrier_sha256);
-        for (name, font) in &fonts {
-            hash.update(name.as_bytes());
-            hash.update(font.identity.carrier_sha256);
-        }
-        self.identity.carrier_sha256 = hash.finalize().into();
-        self.named = Arc::new(fonts);
-        self
-    }
-
-    /// Attaches an authenticated font's pages and rebases its alias without changing default glyphs.
-    pub fn with_named_font(&self, name: &str, font: &Self) -> Result<Self, FontCatalogError> {
-        if name.is_empty()
-            || name.len() > MAX_FONT_PATH_BYTES
-            || self.pages.len() + font.pages.len() > MAX_FONT_PAGES
-        {
-            return Err(invalid_catalog("named font exceeds catalog bounds"));
-        }
-        let offset = u16::try_from(self.pages.len())
-            .map_err(|_| invalid_catalog("named font page offset exceeds bounds"))?;
-        let mut alias = font.clone();
-        for glyph in alias.glyphs.iter_mut() {
-            glyph.page = glyph
-                .page
-                .checked_add(offset)
-                .ok_or_else(|| invalid_catalog("named font page offset exceeds bounds"))?;
-        }
-        let mut identity = Sha256::new();
-        identity.update(font.identity.carrier_sha256);
-        identity.update(offset.to_le_bytes());
-        alias.identity.carrier_sha256 = identity.finalize().into();
-        let mut pages = self.pages.to_vec();
-        pages.extend_from_slice(&font.pages);
-        let bytes = pages.iter().try_fold(0usize, |total, page| {
-            total.checked_add(page.pixels.bytes().len())
-        });
-        if bytes.is_none_or(|bytes| bytes > MAX_FONT_DECODED_BYTES) {
-            return Err(invalid_catalog(
-                "named font pages exceed decoded byte bounds",
-            ));
-        }
-        let pages: Arc<[FontTexturePage]> = pages.into();
-        alias.pages = Arc::clone(&pages);
-        let mut aliases = (*self.named).clone();
-        aliases.insert(name.into(), alias);
-        let mut result = self.clone();
-        result.pages = pages;
-        Ok(result.with_named_fonts(aliases))
-    }
-
-    pub fn named_fonts(&self) -> &BTreeMap<String, Self> {
-        &self.named
-    }
-
-    /// Unknown aliases use the default font, as do callers without a font selection.
-    pub fn font_named(&self, name: &str) -> &Self {
-        self.named.get(name).unwrap_or(self)
     }
 
     /// Drawn `[width, height]` in 1/64 px when it differs from the glyph's texel size.

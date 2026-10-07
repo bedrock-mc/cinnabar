@@ -1,0 +1,309 @@
+category,stage,before_count,before_p50_ms,before_p99_ms,before_max_ms,after_count,after_p50_ms,after_p99_ms,after_max_ms
+"Main schedules, extraction and render handoff",main app: ,2034,1.507500,5.091292,44.152834,2167,0.978125,1.426208,2.053042
+"Main schedules, extraction and render handoff",schedule:ExtractSchedule,2035,0.157250,0.547291,7.768166,2168,0.119708,0.198750,0.349834
+"Main schedules, extraction and render handoff",schedule:First,2034,0.061417,0.469459,5.382125,2167,0.047792,0.098375,1.106292
+"Main schedules, extraction and render handoff",schedule:FixedMain,1156,0.016250,0.083250,7.217583,1156,0.013833,0.024625,0.034000
+"Main schedules, extraction and render handoff",schedule:FixedPostUpdate,1156,0.011542,0.078042,7.196375,1156,0.009834,0.019375,0.026833
+"Main schedules, extraction and render handoff",schedule:Last,2035,0.054791,0.507083,10.102917,2168,0.045416,0.060042,0.114042
+"Main schedules, extraction and render handoff",schedule:Main,2034,1.504000,5.087833,44.149167,2167,0.976167,1.423542,2.051917
+"Main schedules, extraction and render handoff",schedule:PostUpdate,2035,0.151542,1.120541,10.319250,2168,0.115750,0.156750,0.312667
+"Main schedules, extraction and render handoff",schedule:PreUpdate,2035,0.069625,0.397459,9.694542,2168,0.050083,0.080083,0.110916
+"Main schedules, extraction and render handoff",schedule:Render,2034,8.242959,23.869750,63.729917,2167,8.113209,9.366125,9.482958
+"Main schedules, extraction and render handoff",schedule:RunFixedMainLoop,2035,0.018500,0.074792,12.087000,2168,0.016667,0.029458,0.042167
+"Main schedules, extraction and render handoff",schedule:Update,2035,1.098625,3.258458,13.596375,2168,0.675792,1.062042,1.297167
+"Main schedules, extraction and render handoff",sub app: name=RenderApp,2034,8.247042,23.875625,63.741125,2167,8.115584,9.368417,9.485709
+"Main schedules, extraction and render handoff",sub app: name=RenderExtractApp,2035,6.545875,20.379875,61.765041,2168,7.043667,8.407166,8.557750
+"Main schedules, extraction and render handoff",update: ,2034,8.154250,23.525209,67.202458,2167,8.045833,9.319167,9.447500
+Application stages,acceptance_telemetry,2035,0.004666,0.023833,0.181375,2168,0.001583,0.004833,0.031791
+Application stages,actor_animation,2035,0.001000,0.126500,0.227792,2168,0.000208,0.076416,0.086000
+Application stages,actor_preparation,2035,0.014959,0.032792,0.072000,2168,0.006209,0.012916,0.032458
+Application stages,actor_publication,4070,0.024666,0.178000,0.309667,4336,0.009792,0.093459,0.117916
+Application stages,actor_rig_build,4070,0.001375,0.007625,0.027125,4336,0.000750,0.002833,0.007083
+Application stages,audio,2035,0.043708,0.210459,0.899834,2168,0.031625,0.069500,0.098750
+Application stages,block_entities,2035,0.078250,0.219417,0.631959,2168,0.060958,0.081500,0.129625
+Application stages,cave_visibility,2035,0.000417,0.001125,0.009667,2168,0.000125,0.000416,0.001250
+Application stages,chunk_extraction,2035,0.001917,0.013125,0.059959,2168,0.001125,0.009292,0.044541
+Application stages,gpu_preparation,2035,0.007250,0.022333,0.043167,2168,0.003584,0.007000,0.019875
+Application stages,indirect_preparation,4070,0.014667,0.243542,1.976958,4336,0.001333,0.031584,0.081583
+Application stages,main_frame,2035,1.429542,4.723875,38.059375,2168,0.913333,1.318958,2.853959
+Application stages,network_ingestion,2035,0.003875,0.056916,0.564708,2168,0.001291,0.033958,0.042083
+Application stages,opaque_diagnostics,6105,0.004875,0.024459,0.329042,6504,0.005250,0.009208,0.050042
+Application stages,opaque_queue,2035,0.186917,0.473583,1.302791,2168,0.211625,0.249375,0.277958
+Application stages,pack_reload,2035,0.000250,0.000708,0.001500,2168,0.000084,0.000417,0.000750
+Application stages,particles,2035,0.071750,0.621000,1.106375,2168,0.031125,0.306041,0.345542
+Application stages,render_frame,2034,3.154459,19.598833,57.845875,2167,1.730584,4.572917,8.459083
+Application stages,render_queue_application,2035,0.000417,0.000959,0.002583,2168,0.000083,0.000500,0.005208
+Application stages,render_submission,2035,1.370375,3.824750,28.361875,2168,0.720916,0.898708,1.381125
+Application stages,surface_preparation,2035,5.002250,7.241375,10.406000,2168,6.366416,7.661458,7.704750
+Application stages,transparent_preparation,2035,0.051625,0.223250,0.398084,2168,0.039625,0.057541,0.112709
+Application stages,transparent_queue,2035,0.009000,0.071958,0.367875,2168,0.007750,0.011667,0.017417
+Application stages,ui_preparation,2035,0.024875,0.058000,0.168583,2168,0.013459,0.023084,0.038583
+Application stages,ui_publication,2035,0.166125,0.403333,3.808541,2168,0.105833,0.146958,0.180500
+Application stages,world_poll,2035,0.007417,0.022750,0.326250,2168,0.002208,0.006250,0.014667
+Application stages,world_stream,2035,0.004292,0.010250,0.019458,2168,0.001208,0.003458,0.007333
+Extraction systems and deferred extraction commands,system:bevy_core_pipeline::core_2d::extract_core_2d_camera_phases,2035,0.001667,0.016583,0.113500,2168,0.000625,0.010167,0.058917
+Extraction systems and deferred extraction commands,system:bevy_core_pipeline::core_3d::extract_camera_prepass_phase,2035,0.002958,0.022166,0.116833,2168,0.000792,0.016583,0.099417
+Extraction systems and deferred extraction commands,system:bevy_core_pipeline::core_3d::extract_core_3d_camera_phases,2035,0.002958,0.022875,0.082709,2168,0.000959,0.017500,0.063708
+Extraction systems and deferred extraction commands,system:bevy_post_process::dof::extract_depth_of_field_settings,2035,0.001292,0.016125,0.156792,2168,0.000584,0.009708,0.041791
+Extraction systems and deferred extraction commands,system:bevy_render::apply_extract_commands,2035,0.080750,0.235458,0.394750,2168,0.051709,0.095666,0.154000
+Extraction systems and deferred extraction commands,system:bevy_render::camera::extract_cameras,2035,0.009167,0.044916,0.112041,2168,0.005625,0.060917,0.110625
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_anti_alias::fxaa::Fxaa>,2035,0.002083,0.020041,0.151833,2168,0.000709,0.013500,0.053375
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_camera::camera::CameraMainTextureUsages>,2035,0.001458,0.013583,0.033125,2168,0.000667,0.027208,0.057250
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_camera::components::Camera2d>,2035,0.001084,0.012458,0.054958,2168,0.000500,0.009833,0.057792
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_camera::components::Camera3d>,2035,0.001459,0.016583,0.142875,2168,0.000583,0.014625,0.055833
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_core_pipeline::oit::OrderIndependentTransparencySettings>,2035,0.001500,0.016958,0.165166,2168,0.000542,0.012667,0.071667
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_core_pipeline::skybox::Skybox>,2035,0.001500,0.014417,0.069208,2168,0.000541,0.008417,0.063708
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_core_pipeline::tonemapping::DebandDither>,2035,0.001417,0.015125,0.132792,2168,0.000583,0.010208,0.062500
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_core_pipeline::tonemapping::Tonemapping>,2035,0.001291,0.014666,0.071917,2168,0.000500,0.011542,0.088500
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_post_process::bloom::settings::Bloom>,2035,0.001500,0.017167,0.079708,2168,0.000584,0.013792,0.061750
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_post_process::effect_stack::ChromaticAberration>,2035,0.001833,0.019708,0.070958,2168,0.000666,0.011000,0.051875
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_post_process::motion_blur::MotionBlur>,2035,0.001584,0.014667,0.071583,2168,0.000666,0.008459,0.067167
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_render::experimental::occlusion_culling::OcclusionCulling>,2035,0.001375,0.015417,0.054666,2168,0.000542,0.010125,0.024667
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_render::gpu_readback::Readback>,2035,0.001500,0.012459,0.079458,2168,0.000541,0.010709,0.119250
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_render::view::Hdr>,2035,0.001333,0.013542,0.040916,2168,0.000500,0.010958,0.051959
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::extract_components<bevy_render::view::Msaa>,2035,0.001500,0.015417,0.091792,2168,0.000583,0.021250,0.097375
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::prepare_uniform_components<bevy_core_pipeline::skybox::SkyboxUniforms>,2035,0.001667,0.009041,0.149542,2168,0.000917,0.001792,0.011834
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::prepare_uniform_components<bevy_post_process::bloom::downsampling_pipeline::BloomUniforms>,2035,0.001500,0.007292,0.328958,2168,0.000750,0.001792,0.011083
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::prepare_uniform_components<bevy_post_process::dof::DepthOfFieldUniform>,2035,0.001125,0.007708,0.058208,2168,0.000667,0.001667,0.004583
+Extraction systems and deferred extraction commands,system:bevy_render::extract_component::prepare_uniform_components<bevy_post_process::motion_blur::MotionBlurUniform>,2035,0.001292,0.008167,0.066042,2168,0.000625,0.001625,0.013833
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<bevy_camera::clear_color::ClearColor>,2035,0.000958,0.010500,0.068750,2168,0.000458,0.014625,0.051750
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<bevy_core_pipeline::tonemapping::TonemappingLuts>,2035,0.001000,0.011875,0.072000,2168,0.000459,0.011000,0.055125
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<bevy_render::texture::manual_texture_view::ManualTextureViews>,2035,0.000959,0.011542,0.102833,2168,0.000458,0.006167,0.065792
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::actor::ActorRenderFrame>,2035,0.002250,0.020375,0.094208,2168,0.000834,0.013250,0.051583
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::atmosphere::AtmosphereFrame>,2035,0.001084,0.012875,0.085292,2168,0.000417,0.006834,0.095458
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::atmosphere::AtmosphereTextureAssets>,2035,0.000916,0.010334,0.116583,2168,0.000459,0.008750,0.053625
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::block_entity::scene::BlockEntityFrame>,2035,0.001667,0.015041,0.112583,2168,0.000583,0.015125,0.060417
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::block_entity::selection::BlockSelectionFrame>,2035,0.001250,0.013583,0.056708,2168,0.000583,0.009084,0.035334
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::chunk::api::ChunkGpuRemovalQueue>,2035,0.000917,0.011625,0.176959,2168,0.000458,0.007000,0.040583
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::chunk::api::ChunkUploadBudget>,2035,0.000916,0.010000,0.477209,2168,0.000458,0.015667,0.057542
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::chunk::biome_tints::ChunkBiomeTints>,2035,0.001083,0.010458,0.257209,2168,0.000458,0.010583,0.071709
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::chunk::presentation::model_witness::ModelWitnessRequest>,2035,0.000875,0.009459,0.064875,2168,0.000500,0.012334,0.055792
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::chunk::presentation::transparent_witness::TransparentWitnessRequest>,2035,0.001125,0.014458,0.103833,2168,0.000500,0.012791,0.073916
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::chunk::texture_reload::ChunkTextureReload>,2035,0.000917,0.012458,0.079667,2168,0.000458,0.007500,0.037958
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::chunk::textures::ChunkAnimationClock>,2035,0.000917,0.010792,0.061625,2168,0.000458,0.007459,0.034542
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::chunk::textures::ChunkTextureAssets>,2035,0.000750,0.007708,0.081333,2168,0.000458,0.014167,0.050750
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::cloud_render::CloudVisibility>,2035,0.001125,0.016458,0.141583,2168,0.000625,0.014708,0.098334
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::dropped_item::DroppedItemScene>,2035,0.001750,0.018625,0.084958,2168,0.000708,0.011083,0.057666
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>,2035,0.001041,0.011625,0.151458,2168,0.000458,0.011833,0.071417
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::entity_shadow_render::EntityShadowScene>,2035,0.001375,0.014792,0.071125,2168,0.000500,0.015750,0.071791
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::hand_rig_render::HandRigScene>,2035,0.002042,0.017875,0.068042,2168,0.000833,0.021458,0.069750
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::lighting::WorldFullbright>,2035,0.000792,0.014583,0.142000,2168,0.000458,0.007250,0.069542
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::lighting::WorldLighting>,2035,0.002250,0.022041,0.146208,2168,0.001000,0.011834,0.037708
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::lightning::LightningScene>,2035,0.000958,0.008250,0.087500,2168,0.000500,0.011125,0.032917
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::media_screen::MediaScreenScene>,2035,0.000958,0.012375,0.097000,2168,0.000458,0.008125,0.051666
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::nametag_render::NametagSceneResource>,2035,0.001250,0.012542,0.058250,2168,0.000500,0.016417,0.063084
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::native_sunlight::AtmosphereViewInputs>,2035,0.001208,0.013958,0.089333,2168,0.000500,0.011083,0.053042
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::panorama::PanoramaScene>,2035,0.001250,0.012875,0.089541,2168,0.000541,0.013042,0.049459
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::particle_render::ParticleGpuFrame>,2035,0.001666,0.015167,0.050458,2168,0.000625,0.009917,0.053667
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::primitive_shapes::PrimitiveShapesScene>,2035,0.001292,0.011583,0.140667,2168,0.000583,0.011667,0.042875
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::screen_overlay::ScreenOverlayScene>,2035,0.001292,0.012416,0.104917,2168,0.000542,0.008291,0.043334
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::ui_render::UiRenderSceneResource>,2035,0.001291,0.012500,0.068166,2168,0.000500,0.013458,0.052083
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::ui_render::glint::UiGlintSettings>,2035,0.000917,0.008666,0.130834,2168,0.000417,0.007875,0.048833
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::viewmodel::ViewmodelScene>,2035,0.001291,0.012875,0.042291,2168,0.000459,0.017708,0.056875
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::visibility_diagnostics::VisibilityDiagnosticsInput>,2035,0.001167,0.014542,0.025666,2168,0.000541,0.013000,0.051042
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::weather::PrecipitationScene>,2035,0.001000,0.013333,0.153416,2168,0.000500,0.016084,0.068750
+Extraction systems and deferred extraction commands,system:bevy_render::extract_resource::extract_resource<render::weather::WeatherTextureAssets>,2035,0.000834,0.009959,0.361166,2168,0.000417,0.014917,0.059875
+Extraction systems and deferred extraction commands,system:bevy_render::globals::extract_frame_count,2035,0.000916,0.009750,0.099625,2168,0.000458,0.011708,0.101250
+Extraction systems and deferred extraction commands,system:bevy_render::globals::extract_time,2035,0.000959,0.008791,0.049500,2168,0.000417,0.007625,0.062625
+Extraction systems and deferred extraction commands,system:bevy_render::render_asset::extract_render_asset<bevy_render::mesh::RenderMesh>,2035,0.001750,0.013292,0.029459,2168,0.000791,0.006042,0.050041
+Extraction systems and deferred extraction commands,system:bevy_render::render_asset::extract_render_asset<bevy_render::storage::GpuShaderStorageBuffer>,2035,0.001792,0.014084,0.044500,2168,0.000708,0.006584,0.044000
+Extraction systems and deferred extraction commands,system:bevy_render::render_asset::extract_render_asset<bevy_render::texture::gpu_image::GpuImage>,2035,0.001708,0.010625,0.030458,2168,0.000667,0.005708,0.020875
+Extraction systems and deferred extraction commands,system:bevy_render::render_asset::extract_render_asset_bytes_per_frame,2035,0.000959,0.007291,0.024042,2168,0.000417,0.007917,0.055375
+Extraction systems and deferred extraction commands,system:bevy_render::render_resource::pipeline_cache::PipelineCache::extract_shaders,2035,0.000875,0.011042,0.033917,2168,0.000500,0.018083,0.048250
+Extraction systems and deferred extraction commands,system:bevy_render::view::visibility::range::extract_visibility_ranges,2035,0.001500,0.014833,0.120667,2168,0.000584,0.012250,0.055166
+Extraction systems and deferred extraction commands,system:bevy_render::view::window::extract_windows,2035,0.002541,0.019375,0.063250,2168,0.000916,0.028584,0.068833
+Extraction systems and deferred extraction commands,system:bevy_render::view::window::screenshot::extract_screenshots,2035,0.003334,0.017375,0.038750,2168,0.001750,0.007875,0.026916
+Extraction systems and deferred extraction commands,system:render::chunk::extract::extract_chunk_render_instances,2035,0.003459,0.028416,0.088292,2168,0.001791,0.020208,0.070083
+Extraction systems and deferred extraction commands,system:render::chunk::gpu_cull::prepare::extract_hidden_chunks,2035,0.003125,0.018625,0.047459,2168,0.002208,0.038667,0.065000
+"Owned prepare, queue and completion systems",system:render::actor_render::phase::queue_actors,2035,0.001417,0.006041,1.176125,2168,0.000667,0.001250,0.009708
+"Owned prepare, queue and completion systems",system:render::actor_render::pipeline::prepare_actor_pipelines,2035,0.005875,0.018958,0.099000,2168,0.004333,0.006000,0.013833
+"Owned prepare, queue and completion systems",system:render::actor_render::prepare_actor_bind_group,2035,0.099041,0.275875,0.616417,2168,0.084333,0.102083,0.130000
+"Owned prepare, queue and completion systems",system:render::actor_render::prepare_actor_resources,2035,0.006625,0.029167,0.115625,2168,0.002542,0.005959,0.058917
+"Owned prepare, queue and completion systems",system:render::actor_render::submit_actor_presented_frame,2035,0.002292,0.043083,20.086000,2168,0.000708,0.020542,0.107083
+"Owned prepare, queue and completion systems",system:render::atmosphere_render::prepare_atmosphere_bind_group,2035,0.000958,0.003333,0.014667,2168,0.000500,0.001208,0.015292
+"Owned prepare, queue and completion systems",system:render::atmosphere_render::prepare_atmosphere_textures,2035,0.001166,0.004333,0.018833,2168,0.000459,0.001208,0.013792
+"Owned prepare, queue and completion systems",system:render::atmosphere_render::prepare_atmosphere_uniform,2035,0.013875,1.135209,10.215042,2168,0.009917,0.060959,0.152417
+"Owned prepare, queue and completion systems",system:render::atmosphere_render::queue_atmosphere,2035,0.005666,0.018916,0.044875,2168,0.002667,0.004750,0.020917
+"Owned prepare, queue and completion systems",system:render::block_entity::gpu::prepare_bind_groups,2035,0.002709,0.026667,0.143625,2168,0.001125,0.010625,0.032041
+"Owned prepare, queue and completion systems",system:render::block_entity::gpu::prepare_resources,2035,0.014667,0.995334,40.113583,2168,0.000750,0.001625,0.031125
+"Owned prepare, queue and completion systems",system:render::block_entity::gpu::queue_additive,2035,0.000542,0.002500,0.018625,2168,0.000417,0.001125,0.002875
+"Owned prepare, queue and completion systems",system:render::block_entity::gpu::queue_crack,2035,0.000625,0.002959,0.010125,2168,0.000375,0.001084,0.003667
+"Owned prepare, queue and completion systems",system:render::block_entity::gpu::queue_outline,2035,0.000833,0.004000,0.243500,2168,0.000458,0.001208,0.003792
+"Owned prepare, queue and completion systems",system:render::block_entity::gpu::queue_overlay,2035,0.001250,0.004750,0.150833,2168,0.000667,0.001375,0.003917
+"Owned prepare, queue and completion systems",system:render::block_entity::gpu::queue_solid,2035,0.000834,0.003791,0.017250,2168,0.000542,0.001166,0.002583
+"Owned prepare, queue and completion systems",system:render::chunk::draw::queue_chunks,2035,0.190208,0.482083,1.311292,2168,0.213125,0.251208,0.281000
+"Owned prepare, queue and completion systems",system:render::chunk::draw::queue_transparent_chunks,2035,0.010417,0.077917,0.369959,2168,0.008500,0.013250,0.019750
+"Owned prepare, queue and completion systems",system:render::chunk::gpu::bind_groups::prepare_chunk_animation_clock,2035,0.055500,0.169084,4.520500,2168,0.021834,0.044875,0.074083
+"Owned prepare, queue and completion systems",system:render::chunk::gpu::bind_groups::prepare_chunk_bind_group,2035,0.001291,0.003542,0.016000,2168,0.000666,0.001791,0.015708
+"Owned prepare, queue and completion systems",system:render::chunk::gpu::bind_groups::prepare_chunk_biome_tints,2035,0.001334,0.013167,0.855167,2168,0.000666,0.002292,0.018208
+"Owned prepare, queue and completion systems",system:render::chunk::gpu::bind_groups::prepare_chunk_texture_assets,2035,0.002333,0.015833,0.040792,2168,0.000916,0.009500,0.034834
+"Owned prepare, queue and completion systems",system:render::chunk::gpu::types::publish_graphics_runtime_metadata,2035,0.001250,0.004500,0.044833,2168,0.000542,0.002000,0.010125
+"Owned prepare, queue and completion systems",system:render::chunk::gpu::upload::prepare_gpu_chunks,2035,0.009500,0.029834,0.062375,2168,0.004833,0.010583,0.023000
+"Owned prepare, queue and completion systems",system:render::chunk::gpu_cull::admit_depth_sampling,4070,0.001042,0.004708,0.025417,4336,0.000541,0.001500,0.015459
+"Owned prepare, queue and completion systems",system:render::chunk::gpu_cull::direct::prepare_direct_occlusion,2035,0.036375,0.288250,1.980750,2168,0.027625,0.035125,0.083334
+"Owned prepare, queue and completion systems",system:render::chunk::gpu_cull::direct::reset_direct_occlusion_frame,2035,0.000875,0.007542,0.030250,2168,0.000417,0.001416,0.016541
+"Owned prepare, queue and completion systems",system:render::chunk::gpu_cull::direct::submit_direct_occlusion,2035,0.001375,0.018541,0.052458,2168,0.000583,0.007042,0.096166
+"Owned prepare, queue and completion systems",system:render::chunk::gpu_cull::reset_gpu_cull_frame,2035,0.001125,0.017042,0.064333,2168,0.000500,0.009458,0.058333
+"Owned prepare, queue and completion systems",system:render::chunk::pipeline::commands::prepare_chunk_indirect_batches,2035,0.001875,0.007666,0.189791,2168,0.000959,0.002166,0.013375
+"Owned prepare, queue and completion systems",system:render::chunk::presentation::frame_probe::submit_presented_frame_probe,2035,0.003000,0.032667,10.254250,2168,0.001000,0.014333,0.062542
+"Owned prepare, queue and completion systems",system:render::chunk::queue::apply_chunk_render_queue,2035,0.002000,0.007833,0.539833,2168,0.000916,0.004291,0.014958
+"Owned prepare, queue and completion systems",system:render::chunk::queue::update_chunk_animation_clock,2035,0.000834,0.005833,0.041042,2168,0.000375,0.000958,0.003667
+"Owned prepare, queue and completion systems",system:render::chunk::transparent::gamma_pass::admit_copy_destination,2035,0.001125,0.007792,0.035250,2168,0.000584,0.001375,0.002000
+"Owned prepare, queue and completion systems",system:render::chunk::transparent::gamma_pass::target::prepare_gamma_targets,2035,0.001666,0.005625,0.943709,2168,0.000833,0.001708,0.025042
+"Owned prepare, queue and completion systems",system:render::chunk::transparent::model::prepare_transparent_model_sorts,2035,0.040958,0.223125,0.438875,2168,0.034375,0.043666,0.100625
+"Owned prepare, queue and completion systems",system:render::chunk::transparent::sort::prepare::prepare_transparent_sorts,2035,0.053708,0.229708,0.405042,2168,0.040792,0.060209,0.113375
+"Owned prepare, queue and completion systems",system:render::cloud_render::prepare_cloud_bind_group,2035,0.001041,0.004000,0.032250,2168,0.000667,0.001542,0.006291
+"Owned prepare, queue and completion systems",system:render::cloud_render::prepare_cloud_colour,2035,0.017166,0.932625,20.082333,2168,0.000791,0.001708,0.023625
+"Owned prepare, queue and completion systems",system:render::cloud_render::prepare_cloud_records,2035,0.003250,0.018667,3.478458,2168,0.001375,0.005750,0.029042
+"Owned prepare, queue and completion systems",system:render::cloud_render::queue_clouds,2035,0.002500,0.008625,0.026917,2168,0.001416,0.002625,0.010500
+"Owned prepare, queue and completion systems",system:render::dropped_item_render::prepare_bind_group,2035,0.000958,0.002958,0.049500,2168,0.000500,0.001333,0.009667
+"Owned prepare, queue and completion systems",system:render::dropped_item_render::prepare_items,2035,0.039583,2.645792,30.120958,2168,0.000500,0.001167,0.010041
+"Owned prepare, queue and completion systems",system:render::dropped_item_render::queue_items,2035,0.001167,0.012750,0.034125,2168,0.000875,0.001459,0.008709
+"Owned prepare, queue and completion systems",system:render::dropped_item_render::terrain_items::begin_frame,2035,0.001417,0.008375,0.027125,2168,0.000542,0.005416,0.024666
+"Owned prepare, queue and completion systems",system:render::entity_shadow_render::prepare_shadow_bind_groups,2035,0.001084,0.005041,0.024458,2168,0.000584,0.001583,0.007291
+"Owned prepare, queue and completion systems",system:render::entity_shadow_render::prepare_shadow_buffers,2035,0.002042,0.007209,0.171417,2168,0.000875,0.001958,0.005209
+"Owned prepare, queue and completion systems",system:render::entity_shadow_render::prepare_shadow_views,2035,0.001834,0.007208,0.022625,2168,0.000917,0.002125,0.027541
+"Owned prepare, queue and completion systems",system:render::gpu_timing::begin_gpu_frame,2035,0.072209,0.233667,0.434500,2168,0.031625,0.053709,0.121375
+"Owned prepare, queue and completion systems",system:render::gpu_timing::submit_gpu_frame,2035,0.044917,0.178834,0.530584,2168,0.024542,0.045167,0.119958
+"Owned prepare, queue and completion systems",system:render::hand_rig_render::prepare,2035,0.072167,2.844792,30.143292,2168,0.026958,0.091125,0.199625
+"Owned prepare, queue and completion systems",system:render::lighting::prepare,2035,0.001541,0.008583,0.043750,2168,0.000834,0.001917,0.038125
+"Owned prepare, queue and completion systems",system:render::lightning_render::prepare_lightning_bind_group,2035,0.000875,0.003042,0.067209,2168,0.000500,0.001459,0.005083
+"Owned prepare, queue and completion systems",system:render::lightning_render::prepare_lightning_records,2035,0.000834,0.003459,0.125458,2168,0.000458,0.001334,0.012042
+"Owned prepare, queue and completion systems",system:render::lightning_render::queue_lightning,2035,0.001083,0.008459,0.034833,2168,0.000459,0.001208,0.011417
+"Owned prepare, queue and completion systems",system:render::media_screen::prepare_media_screens,2035,0.001209,0.003917,0.032916,2168,0.000625,0.001666,0.007708
+"Owned prepare, queue and completion systems",system:render::media_screen::queue_media_screens,2035,0.001000,0.005208,0.025375,2168,0.000542,0.001125,0.005709
+"Owned prepare, queue and completion systems",system:render::nametag_render::prepare_nametag_bind_group,2035,0.000917,0.003209,0.040333,2168,0.000500,0.001667,0.008583
+"Owned prepare, queue and completion systems",system:render::nametag_render::prepare_nametags,2035,0.001042,0.004416,0.329250,2168,0.000583,0.001417,0.028208
+"Owned prepare, queue and completion systems",system:render::nametag_render::queue_nametags,2035,0.000875,0.002917,0.012792,2168,0.000417,0.000959,0.004750
+"Owned prepare, queue and completion systems",system:render::opaque_phase::reset_opaque_phases,2035,0.002958,0.018292,0.047541,2168,0.001625,0.004334,0.049125
+"Owned prepare, queue and completion systems",system:render::panorama::world_passes_enabled,38665,0.000750,0.002500,0.056750,41192,0.000375,0.000875,0.015292
+"Owned prepare, queue and completion systems",system:render::panorama_render::prepare_bind_group,2035,0.000958,0.003708,0.068958,2168,0.000541,0.001542,0.015500
+"Owned prepare, queue and completion systems",system:render::panorama_render::prepare_panorama,2035,0.001000,0.003666,0.265292,2168,0.000542,0.001375,0.012584
+"Owned prepare, queue and completion systems",system:render::panorama_render::queue_panorama,2035,0.001042,0.003583,0.050583,2168,0.000667,0.001250,0.002542
+"Owned prepare, queue and completion systems",system:render::panorama_render::sync_scene_antialiasing,2035,0.001209,0.004042,0.015750,2168,0.000458,0.001208,0.006292
+"Owned prepare, queue and completion systems",system:render::particle_render::prepare_particle_bind_group,2035,0.000917,0.002875,0.022250,2168,0.000500,0.001542,0.009292
+"Owned prepare, queue and completion systems",system:render::particle_render::prepare_particle_resources,2035,0.015750,1.260375,20.646583,2168,0.007250,0.066333,0.129041
+"Owned prepare, queue and completion systems",system:render::particle_render::queue_particles,2035,0.001792,0.006791,0.043167,2168,0.000875,0.001708,0.003833
+"Owned prepare, queue and completion systems",system:render::primitive_shapes::gpu::prepare,2035,0.002084,0.008334,0.178916,2168,0.000875,0.002083,0.042416
+"Owned prepare, queue and completion systems",system:render::primitive_shapes::pipeline::prepare_bind_groups,2035,0.001000,0.003667,0.064708,2168,0.000625,0.001583,0.010667
+"Owned prepare, queue and completion systems",system:render::primitive_shapes::pipeline::queue,2035,0.001459,0.005000,0.014792,2168,0.000583,0.001125,0.002167
+"Owned prepare, queue and completion systems",system:render::screen_overlay_render::prepare_bind_group,2035,0.000916,0.003209,0.067459,2168,0.000459,0.001458,0.015417
+"Owned prepare, queue and completion systems",system:render::screen_overlay_render::prepare_overlay,2035,0.001333,0.005667,0.076291,2168,0.000667,0.001500,0.008000
+"Owned prepare, queue and completion systems",system:render::screen_overlay_render::queue_overlay,2035,0.001042,0.004250,0.037250,2168,0.000625,0.001292,0.004834
+"Owned prepare, queue and completion systems",system:render::surface_lifecycle::release_orphan_targets<bevy_render::view::ViewTarget>,2036,0.001292,0.008958,0.051000,2168,0.000584,0.006291,0.038875
+"Owned prepare, queue and completion systems",system:render::ui_render::composite::prepare_ui_layers,2035,0.003083,0.009875,0.171792,2168,0.001416,0.002917,0.030375
+"Owned prepare, queue and completion systems",system:render::ui_render::overlay::queue_ui_overlay,2035,0.005000,0.022500,0.177000,2168,0.002250,0.004334,0.021708
+"Owned prepare, queue and completion systems",system:render::ui_render::prepare_ui_resources,2035,0.016292,0.730417,20.149792,2168,0.010833,0.061333,0.192084
+"Owned prepare, queue and completion systems",system:render::ui_render::textures::prepare_ui_bind_group,2035,0.001083,0.007666,0.310584,2168,0.000500,0.001458,0.005208
+"Owned prepare, queue and completion systems",system:render::viewmodel_render::prepare,2035,0.001791,0.005708,0.057375,2168,0.000792,0.001833,0.034250
+"Owned prepare, queue and completion systems",system:render::viewmodel_render::submit_completion,2035,0.003541,0.043250,1.320708,2168,0.001667,0.004417,0.088875
+"Owned prepare, queue and completion systems",system:render::weather_render::prepare_weather_bind_group,2035,0.001000,0.004208,0.017041,2168,0.000541,0.001625,0.009667
+"Owned prepare, queue and completion systems",system:render::weather_render::prepare_weather_records,2035,0.001167,0.005000,0.030000,2168,0.000541,0.001375,0.008500
+"Owned prepare, queue and completion systems",system:render::weather_render::queue_weather,2035,0.001000,0.004792,0.029625,2168,0.000583,0.001250,0.002458
+Stock render preparation and queue systems,system:bevy_anti_alias::fxaa::prepare_fxaa_pipelines,2035,0.001875,0.007875,0.025167,2168,0.000958,0.002042,0.009292
+Stock render preparation and queue systems,system:bevy_core_pipeline::core_2d::prepare_core_2d_depth_textures,2035,0.001459,0.007792,0.132375,2168,0.000792,0.001625,0.013500
+Stock render preparation and queue systems,system:bevy_core_pipeline::core_3d::check_msaa,2035,0.001083,0.003667,0.014958,2168,0.000459,0.001125,0.004583
+Stock render preparation and queue systems,system:bevy_core_pipeline::core_3d::configure_occlusion_culling_view_targets,2035,0.001792,0.014458,0.036542,2168,0.000791,0.002875,0.009000
+Stock render preparation and queue systems,system:bevy_core_pipeline::core_3d::prepare_core_3d_depth_textures,2035,0.005541,0.026292,0.539084,2168,0.002417,0.004458,0.026750
+Stock render preparation and queue systems,system:bevy_core_pipeline::core_3d::prepare_core_3d_transmission_textures,2035,0.001500,0.006042,0.033500,2168,0.000958,0.001875,0.033542
+Stock render preparation and queue systems,system:bevy_core_pipeline::core_3d::prepare_prepass_textures,2035,0.001500,0.006375,0.019333,2168,0.001125,0.001916,0.029125
+Stock render preparation and queue systems,system:bevy_core_pipeline::deferred::copy_lighting_id::prepare_deferred_lighting_id_textures,2035,0.001250,0.003375,0.015208,2168,0.000625,0.001500,0.020000
+Stock render preparation and queue systems,system:bevy_core_pipeline::experimental::mip_generation::create_downsample_depth_pipelines,2035,0.001042,0.003541,0.083541,2168,0.000667,0.001417,0.008416
+Stock render preparation and queue systems,system:bevy_core_pipeline::experimental::mip_generation::prepare_downsample_depth_view_bind_groups,2035,0.001125,0.006083,0.023667,2168,0.000667,0.001292,0.012750
+Stock render preparation and queue systems,system:bevy_core_pipeline::experimental::mip_generation::prepare_view_depth_pyramids,2035,0.001083,0.008833,0.983625,2168,0.000542,0.001125,0.005500
+Stock render preparation and queue systems,system:bevy_core_pipeline::oit::check_msaa,2035,0.001083,0.010208,0.095375,2168,0.000750,0.001584,0.016083
+Stock render preparation and queue systems,system:bevy_core_pipeline::oit::configure_depth_texture_usages,2035,0.001667,0.005000,0.033625,2168,0.000667,0.001542,0.003958
+Stock render preparation and queue systems,system:bevy_core_pipeline::oit::prepare_oit_buffers,2035,0.001875,0.008083,0.037458,2168,0.001000,0.002125,0.010583
+Stock render preparation and queue systems,system:bevy_core_pipeline::oit::resolve::prepare_oit_resolve_bind_group,2035,0.009667,0.035958,0.085333,2168,0.004292,0.012709,0.051833
+Stock render preparation and queue systems,system:bevy_core_pipeline::oit::resolve::queue_oit_resolve_pipeline,2035,0.001750,0.013375,0.153417,2168,0.000958,0.001750,0.014750
+Stock render preparation and queue systems,system:bevy_core_pipeline::skybox::prepare_skybox_bind_groups,2035,0.001333,0.006917,0.044209,2168,0.000916,0.001708,0.016542
+Stock render preparation and queue systems,system:bevy_core_pipeline::skybox::prepare_skybox_pipelines,2035,0.001250,0.005375,0.032958,2168,0.000541,0.001458,0.010750
+Stock render preparation and queue systems,system:bevy_core_pipeline::skybox::prepass::prepare_skybox_prepass_bind_groups,2035,0.001083,0.004417,0.029708,2168,0.000666,0.001417,0.003000
+Stock render preparation and queue systems,system:bevy_core_pipeline::skybox::prepass::prepare_skybox_prepass_pipelines,2035,0.001167,0.003917,0.040500,2168,0.000541,0.001458,0.028917
+Stock render preparation and queue systems,system:bevy_core_pipeline::tonemapping::prepare_view_tonemapping_pipelines,2035,0.001875,0.006167,0.072125,2168,0.001084,0.002208,0.039875
+Stock render preparation and queue systems,system:bevy_core_pipeline::upscaling::prepare_view_upscaling_pipelines,2035,0.002375,0.009750,0.023750,2168,0.001459,0.002334,0.035541
+Stock render preparation and queue systems,system:bevy_post_process::bloom::downsampling_pipeline::prepare_downsampling_pipeline,2035,0.001208,0.006000,0.241708,2168,0.000750,0.001666,0.027500
+Stock render preparation and queue systems,system:bevy_post_process::bloom::prepare_bloom_bind_groups,2035,0.001000,0.003667,0.030333,2168,0.000708,0.001584,0.015625
+Stock render preparation and queue systems,system:bevy_post_process::bloom::prepare_bloom_textures,2035,0.001000,0.003084,0.020875,2168,0.000708,0.001625,0.039292
+Stock render preparation and queue systems,system:bevy_post_process::bloom::upsampling_pipeline::prepare_upsampling_pipeline,2035,0.001042,0.004583,0.091583,2168,0.000541,0.001500,0.029792
+Stock render preparation and queue systems,system:bevy_post_process::dof::configure_depth_of_field_view_targets,2035,0.001333,0.008834,0.028917,2168,0.000916,0.001750,0.016125
+Stock render preparation and queue systems,system:bevy_post_process::dof::prepare_auxiliary_depth_of_field_textures,2035,0.001542,0.012750,0.038416,2168,0.000875,0.002417,0.049125
+Stock render preparation and queue systems,system:bevy_post_process::dof::prepare_depth_of_field_global_bind_group,2035,0.000667,0.003917,0.036542,2168,0.000542,0.001500,0.008125
+Stock render preparation and queue systems,system:bevy_post_process::dof::prepare_depth_of_field_pipelines,2035,0.001500,0.006375,0.030000,2168,0.001125,0.001750,0.004875
+Stock render preparation and queue systems,system:bevy_post_process::dof::prepare_depth_of_field_view_bind_group_layouts,2035,0.001041,0.005542,0.033833,2168,0.000625,0.001500,0.010958
+Stock render preparation and queue systems,system:bevy_post_process::effect_stack::prepare_post_processing_pipelines,2035,0.001208,0.007750,0.041000,2168,0.000708,0.001584,0.012333
+Stock render preparation and queue systems,system:bevy_post_process::effect_stack::prepare_post_processing_uniforms,2035,0.001417,0.007708,0.252250,2168,0.000667,0.001583,0.013375
+Stock render preparation and queue systems,system:bevy_post_process::motion_blur::pipeline::prepare_motion_blur_pipelines,2035,0.001291,0.004500,0.062792,2168,0.000583,0.001500,0.031125
+Stock render preparation and queue systems,system:bevy_post_process::msaa_writeback::prepare_msaa_writeback_pipelines,2035,0.001500,0.008875,0.026500,2168,0.000750,0.001708,0.031958
+Stock render preparation and queue systems,system:bevy_render::batching::gpu_preprocessing::clear_indirect_parameters_buffers,2035,0.000750,0.005208,0.032958,2168,0.000500,0.002000,0.034208
+Stock render preparation and queue systems,system:bevy_render::batching::gpu_preprocessing::write_indirect_parameters_buffers,2035,0.002208,0.007292,0.027208,2168,0.001125,0.002042,0.006125
+Stock render preparation and queue systems,system:bevy_render::camera::camera_system,2035,0.003792,0.019875,0.077875,2168,0.001500,0.003834,0.022292
+Stock render preparation and queue systems,system:bevy_render::camera::sort_cameras,2036,0.003000,0.018375,0.042792,2168,0.001292,0.010584,0.035584
+Stock render preparation and queue systems,system:bevy_render::globals::prepare_globals_buffer,2035,0.021500,0.158500,10.102209,2168,0.009375,0.016458,0.067875
+Stock render preparation and queue systems,system:bevy_render::gpu_readback::map_buffers,2035,0.001625,0.016375,0.056583,2168,0.000708,0.004958,0.017708
+Stock render preparation and queue systems,system:bevy_render::gpu_readback::prepare_buffers,2035,0.001416,0.008208,0.204334,2168,0.000750,0.001667,0.010167
+Stock render preparation and queue systems,system:bevy_render::gpu_readback::sync_readbacks,2035,0.000958,0.012041,0.214417,2168,0.000583,0.007708,0.026542
+Stock render preparation and queue systems,system:bevy_render::mesh::allocator::allocate_and_free_meshes,2035,0.001542,0.012875,0.038541,2168,0.000792,0.006875,0.022500
+Stock render preparation and queue systems,system:bevy_render::render_asset::prepare_assets<bevy_render::mesh::RenderMesh>,2035,0.001125,0.009791,0.031709,2168,0.000667,0.006292,0.033208
+Stock render preparation and queue systems,system:bevy_render::render_asset::prepare_assets<bevy_render::storage::GpuShaderStorageBuffer>,2035,0.001042,0.006667,0.020625,2168,0.000625,0.007375,0.023666
+Stock render preparation and queue systems,system:bevy_render::render_asset::prepare_assets<bevy_render::texture::gpu_image::GpuImage>,2035,0.001500,0.010208,0.091292,2168,0.000667,0.006459,0.029083
+Stock render preparation and queue systems,system:bevy_render::render_asset::reset_render_asset_bytes_per_frame,2035,0.001083,0.014000,0.042750,2168,0.000708,0.006542,0.020291
+Stock render preparation and queue systems,system:bevy_render::render_phase::sort_phase_system<bevy_core_pipeline::core_2d::Transparent2d>,2035,0.001083,0.007667,0.515666,2168,0.000750,0.001292,0.015167
+Stock render preparation and queue systems,system:bevy_render::render_phase::sort_phase_system<bevy_core_pipeline::core_3d::Transmissive3d>,2035,0.001208,0.008709,0.052209,2168,0.000500,0.001250,0.007083
+Stock render preparation and queue systems,system:bevy_render::render_phase::sort_phase_system<bevy_core_pipeline::core_3d::Transparent3d>,2035,0.003292,0.013250,0.048792,2168,0.004083,0.005708,0.012459
+Stock render preparation and queue systems,system:bevy_render::render_resource::pipeline_cache::PipelineCache::process_pipeline_queue_system,2035,0.001042,0.004125,0.025708,2168,0.000708,0.001209,0.004000
+Stock render preparation and queue systems,system:bevy_render::renderer::render_system,2035,1.322917,3.675542,28.285417,2168,0.694958,0.866000,1.354167
+Stock render preparation and queue systems,system:bevy_render::sync_world::despawn_temporary_render_entities,2035,0.001583,0.012875,0.052000,2168,0.000750,0.003041,0.009875
+Stock render preparation and queue systems,system:bevy_render::texture::texture_cache::update_texture_cache_system,2035,0.001583,0.008791,0.065542,2168,0.000542,0.002083,0.047375
+Stock render preparation and queue systems,system:bevy_render::view::cleanup_view_targets_for_resize,2036,0.001583,0.009250,0.037292,2168,0.000708,0.007042,0.041958
+Stock render preparation and queue systems,system:bevy_render::view::clear_view_attachments,2036,0.001250,0.006584,0.025375,2168,0.000542,0.002459,0.017292
+Stock render preparation and queue systems,system:bevy_render::view::prepare_view_attachments,2035,0.003375,0.015750,0.135333,2168,0.001166,0.003958,0.017500
+Stock render preparation and queue systems,system:bevy_render::view::prepare_view_targets,2035,0.007250,0.023417,0.053459,2168,0.003084,0.007917,0.018167
+Stock render preparation and queue systems,system:bevy_render::view::prepare_view_uniforms,2035,0.020833,0.746500,20.151459,2168,0.011625,0.057167,0.177333
+Stock render preparation and queue systems,system:bevy_render::view::visibility::range::write_render_visibility_ranges,2035,0.001125,0.006792,0.024000,2168,0.000833,0.001334,0.004500
+Stock render preparation and queue systems,system:bevy_render::view::window::need_surface_configuration,2035,0.001042,0.006541,0.039584,2168,0.000459,0.001458,0.008833
+Stock render preparation and queue systems,system:bevy_render::view::window::prepare_windows,2035,4.942958,7.173791,10.353792,2168,6.326250,7.616666,7.648625
+Stock render preparation and queue systems,system:bevy_render::view::window::screenshot::clear_screenshots,2035,0.001250,0.008959,0.020750,2168,0.000584,0.001750,0.012958
+Stock render preparation and queue systems,system:bevy_render::view::window::screenshot::prepare_screenshots,2035,0.001459,0.010708,0.055709,2168,0.000917,0.002792,0.013375
+Stock render preparation and queue systems,system:bevy_render::view::window::screenshot::trigger_screenshots,2035,0.001167,0.008584,0.036375,2168,0.000709,0.001583,0.019500
+Graph nodes,"node: name=""bevy_core_pipeline::experimental::mip_generation::DownsampleDepthNode""",4070,0.000417,0.001708,0.006042,4336,0.000334,0.000667,0.001458
+Graph nodes,"node: name=""bevy_render::render_graph::camera_driver_node::CameraDriverNode""",2035,0.010875,0.033458,0.586417,2168,0.004792,0.008792,0.016291
+Graph nodes,"node: name=""bevy_render::render_graph::node::EmptyNode""",10175,0.000292,0.001291,0.048541,10840,0.000209,0.000500,0.002375
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_anti_alias::fxaa::node::FxaaNode>""",2035,0.002834,0.008334,0.024000,2168,0.001375,0.002042,0.006125
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::core_3d::main_opaque_pass_3d_node::MainOpaquePass3dNode>""",2035,0.125667,0.354584,2.086417,2168,0.026167,0.042625,0.069417
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::core_3d::main_transmissive_pass_3d_node::MainTransmissivePass3dNode>""",2035,0.002375,0.007709,0.028333,2168,0.001667,0.002292,0.002875
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::deferred::copy_lighting_id::CopyDeferredLightingIdNode>""",2035,0.000333,0.001208,0.015750,2168,0.000292,0.000709,0.000875
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::deferred::node::EarlyDeferredGBufferPrepassNode>""",2035,0.000500,0.001917,0.004334,2168,0.000375,0.000750,0.001708
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::deferred::node::LateDeferredGBufferPrepassNode>""",2035,0.000333,0.001875,0.018833,2168,0.000250,0.000625,0.010500
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::oit::resolve::node::OitResolveNode>""",2035,0.000500,0.002041,0.006583,2168,0.000333,0.000625,0.001917
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::prepass::node::EarlyPrepassNode>""",2035,0.000583,0.002875,0.029917,2168,0.000417,0.001041,0.002167
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::prepass::node::LatePrepassNode>""",2035,0.000250,0.001417,0.003834,2168,0.000292,0.000583,0.001334
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::tonemapping::node::TonemappingNode>""",2035,0.001500,0.005417,0.019000,2168,0.000584,0.001041,0.009375
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_post_process::bloom::BloomNode>""",2035,0.000333,0.001542,0.008791,2168,0.000291,0.000542,0.001750
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_post_process::dof::DepthOfFieldNode>""",2035,0.000333,0.001083,0.021417,2168,0.000250,0.000459,0.001166
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_post_process::effect_stack::PostProcessingNode>""",2035,0.000417,0.001208,0.022166,2168,0.000333,0.000667,0.000875
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_post_process::motion_blur::node::MotionBlurNode>""",2035,0.000416,0.001667,0.005625,2168,0.000292,0.000583,0.000708
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_post_process::msaa_writeback::MsaaWritebackNode>""",2035,0.000500,0.003208,0.030708,2168,0.000250,0.000583,0.001084
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::chunk::gpu_cull::direct::TerrainPassNode>""",2035,0.003334,0.008833,0.046583,2168,0.000667,0.001083,0.001833
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::chunk::transparent::gamma_pass::GammaTransparentPass>""",2035,0.024458,0.069875,0.229750,2168,0.015834,0.021167,0.030458
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::entity_shadow_render::EntityShadowNode>""",2035,0.000459,0.003209,0.011917,2168,0.000416,0.000833,0.002958
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::ui_render::composite::UiPresentNode>""",2035,0.005750,0.027125,0.614125,2168,0.003167,0.004542,0.010125
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::ui_render::overlay::GradeStage<render::hand_rig_render::node::HandRigViewNode, false>>""",2035,0.002542,0.007625,0.035667,2168,0.001458,0.002084,0.004750
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::ui_render::overlay::GradeStage<render::ui_render::overlay::UiOverlayNode, false>>""",2035,0.007083,0.021125,0.066625,2168,0.003459,0.005167,0.011875
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::ui_render::overlay::GradeStage<render::ui_render::overlay::UiOverlayNode, true>>""",2035,0.000833,0.003625,0.116917,2168,0.000292,0.001250,0.002166
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::ui_render::overlay::GradeStage<render::viewmodel_render::node::HandViewNode, false>>""",2035,0.001333,0.003667,0.008375,2168,0.000709,0.001250,0.002458
+Graph nodes,"node: name=""bevy_render::render_graph::node::ViewNodeRunner<render::ui_render::overlay::world::UiWorldNode>""",2035,0.001708,0.005083,0.022750,2168,0.000708,0.001208,0.003875
+Graph nodes,"run_graph: name=""Core3d"" debug_group=""Camera 0 (0v0)""",2035,0.249500,0.698416,2.276833,2168,0.112958,0.146542,0.195667
+Graph nodes,"run_graph: name=""main_graph""",2035,0.267542,0.744375,2.304584,2168,0.121958,0.161625,0.215833
+"Command generation, submit and surface handling",collect_screenshots: ,2035,0.001125,0.004833,0.014250,2168,0.000542,0.001042,0.002125
+"Command generation, submit and surface handling",command_buffer_generation_tasks: ,2035,0.252625,0.790292,1.042709,2168,0.235250,0.275750,0.448750
+"Command generation, submit and surface handling",entity_sync: ,2035,0.001875,0.005958,0.014792,2168,0.000666,0.003542,0.008916
+"Command generation, submit and surface handling",main_opaque_pass_3d: ,2035,0.233708,0.732125,0.986541,2168,0.226417,0.265583,0.436250
+"Command generation, submit and surface handling",main_transmissive_pass_3d: ,2035,0.000542,0.002459,0.011167,2168,0.000334,0.000666,0.000958
+"Command generation, submit and surface handling",no_camera_clear_pass: ,2035,0.005584,0.014958,0.064875,2168,0.002083,0.004291,0.008250
+"Command generation, submit and surface handling",opaque_main_pass_3d: ,2035,0.099458,0.270833,0.564708,2168,0.092375,0.109125,0.114708
+"Command generation, submit and surface handling",present_frames: ,2035,0.014292,0.075667,0.221334,2168,0.006917,0.014458,0.024750
+"Command generation, submit and surface handling",submit_graph_commands: ,2035,0.164292,0.734958,3.406791,2168,0.068833,0.104167,0.124167
+"Command generation, submit and surface handling",system:bevy_render::render_resource::pipeline_cache::PipelineCache::process_pipeline_queue_system,2035,0.001042,0.004125,0.025708,2168,0.000708,0.001209,0.004000
+"Command generation, submit and surface handling",system:bevy_render::renderer::render_system,2035,1.322917,3.675542,28.285417,2168,0.694958,0.866000,1.354167
+"Command generation, submit and surface handling",system:bevy_render::view::window::prepare_windows,2035,4.942958,7.173791,10.353792,2168,6.326250,7.616666,7.648625

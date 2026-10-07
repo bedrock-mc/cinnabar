@@ -168,6 +168,7 @@ fn quarantined_controller_axis_requires_deadzone_neutrality_across_sign_change()
     router
         .route(DeviceFrame {
             controllers: vec![ControllerFrame {
+                button_edges: Default::default(),
                 device_id: 7,
                 activity_sequence: 4,
                 buttons: vec![0],
@@ -239,6 +240,7 @@ fn deadzone_neutral_reconnect_cannot_take_input_mode_from_still_held_keyboard() 
     router
         .route(DeviceFrame {
             controllers: vec![ControllerFrame {
+                button_edges: Default::default(),
                 device_id: 7,
                 activity_sequence: 4,
                 buttons: vec![0],
@@ -488,6 +490,7 @@ fn raising_move_deadzone_releases_axis_and_allows_fresh_button_activity() {
     router
         .route(DeviceFrame {
             controllers: vec![ControllerFrame {
+                button_edges: Default::default(),
                 device_id: 7,
                 activity_sequence: 2,
                 buttons: vec![0],
@@ -574,6 +577,7 @@ fn repeated_max_controller_churn_is_bounded_and_cannot_leave_stale_input() {
                 activity_sequence,
                 axes: [1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0],
                 buttons: (0..32).collect(),
+                button_edges: Default::default(),
             })
             .collect::<Vec<_>>()
     };
@@ -644,6 +648,7 @@ fn repeated_focus_loss_controller_churn_compacts_without_panicking_or_stale_inpu
                 activity_sequence,
                 axes: [1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0],
                 buttons: (0..32).collect(),
+                button_edges: Default::default(),
             })
             .collect::<Vec<_>>()
     };

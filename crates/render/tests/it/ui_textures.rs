@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use render_model::{
-    MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, UI_DYNAMIC_PAGE_SIDE,
+    MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_SIDE,
+    UI_DYNAMIC_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_OFFSET, UI_FALLBACK_FONT_PAGE_SIDE,
     UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
     UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET,
     UiRenderRejectReason, UiTextureCatalog, UiTexturePage, UiTexturePlan,
@@ -23,13 +24,26 @@ fn mixed_dimensions_plan_native_bytes_before_materialization() {
 
 #[test]
 fn planner_checks_entire_catalog_and_all_limits() {
-    assert!(UiTexturePlan::new(&[[4096, 4096], [4096, 4096]]).is_ok());
-    assert!(UiTexturePlan::new(&[[4096, 4096], [4096, 4096], [1, 1]]).is_err());
+    let mut dimensions = rgba_dimensions_for_bytes(MAX_UI_TEXTURE_BYTES);
+    assert_eq!(
+        UiTexturePlan::new(&dimensions).unwrap().bytes(),
+        MAX_UI_TEXTURE_BYTES
+    );
+    dimensions.push([1; 2]);
+    assert_eq!(
+        UiTexturePlan::new(&dimensions),
+        Err(UiRenderRejectReason::TextureByteLimitExceeded {
+            actual: MAX_UI_TEXTURE_BYTES + 4,
+            limit: MAX_UI_TEXTURE_BYTES,
+        })
+    );
     assert!(UiTexturePlan::new(&[[u32::MAX, u32::MAX]]).is_err());
     assert!(UiTexturePlan::new(&[[0, 256]]).is_err());
     assert!(UiTexturePlan::new(&vec![[1, 1]; 257]).is_err());
-    let nine_dimensions = (1..=9).map(|n| [n, n]).collect::<Vec<_>>();
-    assert!(UiTexturePlan::new(&nine_dimensions).is_err());
+    let distinct_dimensions = (1..=render_model::MAX_UI_TEXTURE_LAYERS)
+        .map(|n| [n, 1])
+        .collect::<Vec<_>>();
+    assert!(UiTexturePlan::new(&distinct_dimensions).is_ok());
     assert!(UiTexturePage::owned([1, 1], vec![0; 3].into()).is_err());
     assert!(UiTexturePage::owned([4097, 1], vec![0; 4].into()).is_err());
     assert!(UiTextureCatalog::new(Vec::new(), 0).is_err());
@@ -108,9 +122,16 @@ fn rgba_page(dimensions: [u32; 2], value: u8) -> UiTexturePage {
 fn reserved_dynamic_pages() -> Vec<UiTexturePage> {
     let small = rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0);
     let font = rgba_page([UI_LOCAL_FONT_PAGE_SIDE; 2], 0);
+    let fallback = UiTexturePage::coverage(
+        [UI_FALLBACK_FONT_PAGE_SIDE; 2],
+        vec![0; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize].into(),
+    )
+    .unwrap();
     (0..MAX_UI_DYNAMIC_PAGES)
         .map(|offset| {
-            if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+            if offset >= UI_FALLBACK_FONT_PAGE_OFFSET {
+                fallback.clone()
+            } else if offset == UI_LOCAL_FONT_PAGE_OFFSET {
                 font.clone()
             } else {
                 small.clone()
@@ -123,6 +144,41 @@ fn model_catalog() -> UiTextureCatalog {
     let mut pages = vec![rgba_page([16; 2], 255)];
     pages.extend(reserved_dynamic_pages());
     UiTextureCatalog::with_source_identity(pages, 1, [41; 32]).unwrap()
+}
+
+fn rgba_dimensions_for_bytes(bytes: usize) -> Vec<[u32; 2]> {
+    assert_eq!(bytes % 4, 0);
+    let side = MAX_UI_TEXTURE_SIDE as usize;
+    let page_bytes = side * side * 4;
+    let mut dimensions = vec![[MAX_UI_TEXTURE_SIDE; 2]; bytes / page_bytes];
+    let remaining = bytes % page_bytes;
+    let rows = remaining / (side * 4);
+    if rows > 0 {
+        dimensions.push([MAX_UI_TEXTURE_SIDE, rows as u32]);
+    }
+    let pixels = remaining % (side * 4) / 4;
+    if pixels > 0 {
+        dimensions.push([pixels as u32, 1]);
+    }
+    dimensions
+}
+
+fn nearly_full_catalog() -> UiTextureCatalog {
+    let dynamic = reserved_dynamic_pages();
+    let dynamic_bytes = dynamic
+        .iter()
+        .map(|page| page.pixels().len())
+        .sum::<usize>();
+    let dimensions = rgba_dimensions_for_bytes(MAX_UI_TEXTURE_BYTES - dynamic_bytes - 4);
+    let mut pages = dimensions
+        .into_iter()
+        .map(|size| rgba_page(size, 0))
+        .collect::<Vec<_>>();
+    let dynamic_start = pages.len();
+    pages.extend(dynamic);
+    let catalog = UiTextureCatalog::new(pages, dynamic_start).unwrap();
+    assert_eq!(catalog.plan().bytes(), MAX_UI_TEXTURE_BYTES - 4);
+    catalog
 }
 
 #[test]
@@ -237,6 +293,12 @@ fn native_model_slots_cannot_expand_other_reservations_or_admit_malformed_extent
             UI_LOCAL_FONT_PAGE_OFFSET,
             [UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_FONT_PAGE_SIDE / 2],
         ),
+        (UI_FALLBACK_FONT_PAGE_OFFSET, [UI_DYNAMIC_PAGE_SIDE; 2]),
+        (UI_FALLBACK_FONT_PAGE_OFFSET, [UI_LOCAL_FONT_PAGE_SIDE; 2]),
+        (
+            MAX_UI_DYNAMIC_PAGES - 1,
+            [UI_FALLBACK_FONT_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_SIDE / 2],
+        ),
     ] {
         let mut pages = base.pages()[base.dynamic_start()..].to_vec();
         pages[offset] = rgba_page(dimensions, 0);
@@ -259,15 +321,9 @@ fn native_model_slots_cannot_expand_other_reservations_or_admit_malformed_extent
 
 #[test]
 fn model_resize_rechecks_full_catalog_byte_budget_before_acceptance() {
-    let mut pages = vec![rgba_page([4096; 2], 0)];
-    pages.extend(vec![rgba_page([2048; 2], 0); 3]);
-    pages.extend(vec![rgba_page([1024; 2], 0); 3]);
-    let dynamic_start = pages.len();
-    pages.extend(vec![
-        rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0);
-        UI_SESSION_ICON_PAGE_OFFSET
-    ]);
-    let base = UiTextureCatalog::new(pages, dynamic_start).unwrap();
+    let base = nearly_full_catalog();
+    let dynamic_start = base.dynamic_start();
+    let before = base.clone();
     let mut replacement = base.pages()[dynamic_start..].to_vec();
     for page in &mut replacement
         [UI_MODEL_ATLAS_PAGE_OFFSET..UI_MODEL_ATLAS_PAGE_OFFSET + MAX_UI_MODEL_ATLAS_PAGES]
@@ -276,8 +332,10 @@ fn model_resize_rechecks_full_catalog_byte_budget_before_acceptance() {
     }
     assert!(matches!(
         base.replace_dynamic(replacement),
-        Err(UiRenderRejectReason::TextureByteLimitExceeded { .. })
+        Err(UiRenderRejectReason::TextureByteLimitExceeded { actual, limit })
+            if limit == MAX_UI_TEXTURE_BYTES && actual > limit
     ));
+    assert_eq!(base, before);
     assert_eq!(
         base.pages()[dynamic_start + UI_MODEL_ATLAS_PAGE_OFFSET].dimensions(),
         [UI_DYNAMIC_PAGE_SIDE; 2]
@@ -286,21 +344,15 @@ fn model_resize_rechecks_full_catalog_byte_budget_before_acceptance() {
 
 #[test]
 fn session_icon_resize_rejects_over_budget_catalog_without_mutating_it() {
-    let large = rgba_page([render_model::MAX_UI_TEXTURE_SIDE; 2], 7);
-    let mut pages = vec![
-        large.clone(),
-        rgba_page([render_model::MAX_UI_TEXTURE_SIDE / 2; 2], 0),
-    ];
-    let dynamic_start = pages.len();
-    pages.extend(reserved_dynamic_pages());
-    let base = UiTextureCatalog::new(pages, dynamic_start).unwrap();
+    let base = nearly_full_catalog();
+    let dynamic_start = base.dynamic_start();
     let before = base.clone();
     let mut replacement = base.pages()[dynamic_start..].to_vec();
-    replacement[UI_SESSION_ICON_PAGE_OFFSET] = large;
+    replacement[UI_SESSION_ICON_PAGE_OFFSET] = rgba_page([UI_DYNAMIC_PAGE_SIDE * 2; 2], 7);
     assert!(matches!(
         base.replace_dynamic(replacement),
         Err(UiRenderRejectReason::TextureByteLimitExceeded { actual, limit })
-            if limit == render_model::MAX_UI_TEXTURE_BYTES && actual > limit
+            if limit == MAX_UI_TEXTURE_BYTES && actual > limit
     ));
     assert_eq!(base, before);
     assert_eq!(
