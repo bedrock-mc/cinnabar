@@ -67,11 +67,7 @@ impl UiPresentationRuntime {
             Ok(None) | Err(_) => {
                 let owned_dialog = matches!(
                     shown.dialog,
-                    Some(
-                        crate::menu::MenuDialog::Accounts
-                            | crate::menu::MenuDialog::Exit
-                            | crate::menu::MenuDialog::ServerFilter
-                    )
+                    Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
                 );
                 let fallback = owned_dialog.then(|| {
                     let mut view = shown.clone();
@@ -420,17 +416,11 @@ impl UiPresentationRuntime {
         };
         if matches!(
             dialog,
-            Some(
-                crate::menu::MenuDialog::Accounts
-                    | crate::menu::MenuDialog::Exit
-                    | crate::menu::MenuDialog::ServerFilter
-            )
+            Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
         ) {
             self.form_presentation.menu_sounds = Vec::new();
             let rollback = (nodes.len(), *next);
-            let drawn = if dialog == Some(crate::menu::MenuDialog::ServerFilter) {
-                self.append_oreui_server_filter(view, nodes, next, metrics, [width, height])
-            } else if dialog == Some(crate::menu::MenuDialog::Exit) {
+            let drawn = if dialog == Some(crate::menu::MenuDialog::Exit) {
                 self.append_oreui_exit(view, nodes, next, metrics, [width, height], &|key| {
                     runtime.translation(key)
                 })

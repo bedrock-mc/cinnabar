@@ -52,7 +52,6 @@ pub enum MenuServerTab {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuDialog {
-    ServerFilter,
     Accounts,
     Exit,
     RemoveSaved(usize),
@@ -82,7 +81,6 @@ pub enum MenuAction {
     Inbox(inbox::Action),
     Navigate(MenuScreen),
     OpenExitDialog,
-    OpenServerFilter,
     ConfirmExit,
     DismissDialog,
     SelectServerTab(MenuServerTab),
