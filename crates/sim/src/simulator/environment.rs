@@ -33,7 +33,7 @@ impl SampledEnvironment {
     /// shared budget. Returns the identity of a fresh read for the caller to merge.
     pub(super) fn primary(
         &mut self,
-        world: &impl CollisionWorld,
+        world: &(impl CollisionWorld + ?Sized),
         block: [i32; 3],
     ) -> Result<(crate::BlockPhysicsFacts, Option<WorldCollisionIdentity>), WorldQueryError> {
         match self.primaries.binary_search_by(|(cell, _)| cell.cmp(&block)) {
@@ -49,7 +49,7 @@ impl SampledEnvironment {
 
 /// Reads one primary block without exceeding the tick's shared physics budget.
 pub(super) fn sample_primary(
-    world: &impl CollisionWorld,
+    world: &(impl CollisionWorld + ?Sized),
     block: [i32; 3],
     block_samples: &mut usize,
 ) -> Result<crate::CollisionQuery<crate::BlockPhysicsFacts>, WorldQueryError> {

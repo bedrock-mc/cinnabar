@@ -248,7 +248,7 @@ fn bed_restitution_is_uncapped() {
 }
 
 #[test]
-fn authoritative_soul_sand_factor_slows_horizontal_motion() {
+fn soul_sand_slows_horizontal_motion() {
     let ordinary = surface(SurfaceResponse::None);
     let mut ordinary_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
     ordinary_state.on_ground = true;
@@ -263,28 +263,28 @@ fn authoritative_soul_sand_factor_slows_horizontal_motion() {
         )
         .unwrap();
 
-    // Soul sand's factor comes from PREG; this only proves the force law consumes it.
-    for (response, factor) in [(SurfaceResponse::SoulSand, 0.543)] {
-        let mut slowed_world = surface(response);
-        slowed_world.facts.horizontal_speed_factor = factor;
-        let mut slowed_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
-        slowed_state.on_ground = true;
-        let slowed = Simulator::default()
-            .tick(
-                &mut slowed_state,
-                MovementInput {
-                    forward: 1.0,
-                    ..MovementInput::default()
-                },
-                &slowed_world,
-            )
-            .unwrap();
-        assert!(
-            slowed.movement.horizontal_length_squared()
-                < normal.movement.horizontal_length_squared()
-        );
-        assert_eq!(slowed.environment.surface_response, response);
-    }
+    // Soul sand slows through its acceleration friction, not its speed factor.
+    let mut sand = surface(SurfaceResponse::SoulSand);
+    sand.facts.horizontal_speed_factor = 0.543;
+    let mut sand_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
+    sand_state.on_ground = true;
+    let slowed = Simulator::default()
+        .tick(
+            &mut sand_state,
+            MovementInput {
+                forward: 1.0,
+                ..MovementInput::default()
+            },
+            &sand,
+        )
+        .unwrap();
+    assert!(
+        slowed.movement.horizontal_length_squared() < normal.movement.horizontal_length_squared()
+    );
+    assert_eq!(
+        slowed.environment.surface_response,
+        SurfaceResponse::SoulSand
+    );
 }
 
 #[test]

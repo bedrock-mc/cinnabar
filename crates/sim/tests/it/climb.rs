@@ -95,6 +95,8 @@ fn scaffolding_ascends_at_its_own_speed() {
 struct ScaffoldWorld {
     scaffolds: Vec<[i32; 3]>,
     solids: Vec<[i32; 3]>,
+    /// Cells whose runtime ID has no physics metadata.
+    unknown: Vec<[i32; 3]>,
 }
 
 impl ScaffoldWorld {
@@ -139,6 +141,12 @@ impl CollisionWorld for ScaffoldWorld {
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        if self.unknown.contains(&block) {
+            return Err(WorldQueryError::UnknownRuntimeId {
+                runtime_id: 7,
+                block,
+            });
+        }
         let flags = if self.scaffolds.contains(&block) {
             BlockPhysicsFlags::SCAFFOLDING
         } else if self.solids.contains(&block) {
@@ -173,6 +181,7 @@ fn sneaking_descends_a_supported_scaffold_column_at_a_fixed_speed() {
     let world = ScaffoldWorld {
         scaffolds: vec![[0, 0, 0], [0, 1, 0]],
         solids: vec![[0, -1, 0]],
+        unknown: Vec::new(),
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 2.0, 0.5));
     state.on_ground = true;
@@ -191,6 +200,7 @@ fn sneaking_on_a_scaffold_bridge_over_air_stays_on_top() {
     let world = ScaffoldWorld {
         scaffolds: vec![[0, 0, 0]],
         solids: Vec::new(),
+        unknown: Vec::new(),
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
     state.on_ground = true;
@@ -207,6 +217,7 @@ fn jumping_inside_scaffolding_climbs_without_a_ground_jump() {
     let world = ScaffoldWorld {
         scaffolds: vec![[0, 0, 0], [0, 1, 0]],
         solids: vec![[0, -1, 0]],
+        unknown: Vec::new(),
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
     state.on_ground = true;
@@ -224,4 +235,45 @@ fn jumping_inside_scaffolding_climbs_without_a_ground_jump() {
     assert!(!output.jump_initiated);
     assert_eq!(output.tick_result.movement.y as f32, 0.15_f32);
     assert_eq!(state.jump_delay, sim::JUMP_DELAY_TICKS - 1);
+}
+
+/// The environment query reports the same feet-layer scaffolding contact as the tick.
+#[test]
+fn the_environment_query_reports_scaffolding_contact() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 1, 0]],
+        solids: vec![[0, 0, 0]],
+        unknown: Vec::new(),
+    };
+    let environment = Simulator::default()
+        .movement_environment(
+            Vec3::new(0.5, 1.0, 0.5),
+            sim::MovementMode::Walking,
+            false,
+            &world,
+        )
+        .unwrap();
+    assert!(environment.value.in_scaffolding);
+}
+
+/// Climbing inside scaffolding never reads the unrelated block under the scaffold.
+#[test]
+fn climbing_inside_scaffolding_ignores_unknown_blocks_below_it() {
+    let world = ScaffoldWorld {
+        scaffolds: vec![[0, 1, 0]],
+        solids: Vec::new(),
+        unknown: vec![[0, 0, 0]],
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.75, 0.5));
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(tick.movement.y as f32, 0.15_f32);
 }
