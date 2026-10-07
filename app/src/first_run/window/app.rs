@@ -16,7 +16,7 @@ use winit::{
     event::{ElementState, KeyEvent, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{Key, NamedKey},
-    window::{Window, WindowId},
+    window::{Window, WindowAttributes, WindowId},
 };
 
 use super::{
@@ -196,16 +196,21 @@ impl SetupApp {
     }
 }
 
+fn setup_window_attributes(title: Option<&str>) -> WindowAttributes {
+    Window::default_attributes()
+        .with_title(launcher::window_title(title))
+        .with_window_icon(Some(crate::window_icon::icon()))
+        .with_inner_size(LogicalSize::new(1024.0, 640.0))
+        .with_min_inner_size(LogicalSize::new(560.0, 420.0))
+}
+
 impl ApplicationHandler for SetupApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
         }
-        let attributes = Window::default_attributes()
-            .with_title(launcher::PRODUCT_NAME)
-            .with_window_icon(Some(crate::window_icon::icon()))
-            .with_inner_size(LogicalSize::new(1024.0, 640.0))
-            .with_min_inner_size(LogicalSize::new(560.0, 420.0));
+        let attributes =
+            setup_window_attributes(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref());
         let Ok(window) = event_loop.create_window(attributes) else {
             self.finish(EXIT_UNAVAILABLE, event_loop);
             return;
@@ -319,6 +324,23 @@ impl ApplicationHandler for SetupApp {
         }
         if let Some(window) = &self.window {
             window.request_redraw();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn setup_window_uses_embedding_title_and_keeps_default_for_blank_values() {
+        assert_eq!(
+            super::setup_window_attributes(Some("Zeno Client")).title,
+            "Zeno Client"
+        );
+        for title in [None, Some(""), Some("  ")] {
+            assert_eq!(
+                super::setup_window_attributes(title).title,
+                launcher::PRODUCT_NAME
+            );
         }
     }
 }
