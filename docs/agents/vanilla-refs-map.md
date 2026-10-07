@@ -620,6 +620,10 @@ preview build is not an exact retail/platform capture for every supported client
 - Local-player shadow admission follows the drawn body perspective; the vanilla first-person capture for #221 has no local-player volume shadow. Frozen local body visibility takes precedence over a stale body submission while changing perspective.
 
 ## crates/gameplay/src/movement/control_modes.rs
+- Suspended input: `0x07108cc0` returns untouched while the game is paused; with a
+  menu open it masks processed flags and button state (`+0x00`, `+0x10`) with
+  `0xffe0001f`, also clearing SneakDown and the toggle-sneak latch (bit 0) unless
+  the persistent-controls bit `0x80` at `+0x60` is set. Toggle sprint always clears.
 - /// Native SprintTrigger cannot stop an existing sprint while the previous
 
 ## crates/gameplay/src/movement/correction_shape.rs
@@ -629,6 +633,10 @@ preview build is not an exact retail/platform capture for every supported client
 - /// Server StateVector motion; `None` keeps the retained velocity.
 
 ## crates/gameplay/src/movement/encoding.rs
+- PersistSneak: packet fill `0x070fcfd0` writes `MoveInputComponent +0x60` bit
+  `0x80` to wire bit 24 every tick. Its only writer, virtual
+  `ClientInstance::setupPersistentControls(InputMode)` `0x067a6390`, sets it for
+  Touch/GamePad; `ClientInputCallbacks::handleInputModeChanged` calls it with the new mode.
 - // Raw jump-button carriers track the physical button exactly. Native
 - // 0x07108cc0 also sets processed up; 0x070fcfd0 sends it as WantUp,
 - // which the server's 0x0998fe80 reads independently of JumpDown.
@@ -649,8 +657,22 @@ preview build is not an exact retail/platform capture for every supported client
 - // directly; raw JumpDown/Ascend alone do not populate these control lanes.
 - // CurrentSwimAmount precedes SwimTrigger. The first dry tick still advances
 
+## crates/gameplay/src/movement/frame.rs
+## crates/gameplay/src/movement/outbox.rs
+- Yaw: `UpdatePlayerFromCameraSystemUtil::_updatePlayer` `0x071b0fe0` computes
+  `atan2f * 57.29578f - 90` (`0x14ffd5070`/`0x14ffd5074`), writes it unwrapped to
+  head rotation (hash `0xbabe7211`) and wraps actor yaw with
+  `fmodf(x + 180, 360)`, `+360` if negative, `-180`. A
+  `CameraAimAssistRotationOverrideComponent` replaces rotation and skips the head
+  write. Packet builder `0x04f3b1a0` copies rotation via `0x050abce0`/`0x0435a250`
+  and reads head yaw directly.
+
 ## crates/gameplay/src/movement/physics.rs
 - /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
+- Frame clamp and tick cap: `Timer::advanceTime` `0x04efbe50` clamps each
+  frame's scaled elapsed seconds to `0.1f` (`0x14ffab644`), adds the excess to a
+  lost-time counter, then caps whole ticks at 10 while keeping the fraction.
+  `fixed_ticks.rs` and `dimension_wait.rs` share this through `fixed_ticks::frame`.
 
 ## crates/gameplay/src/movement/physics/correction.rs
 - // MovePlayer changes spatial state without resetting jump input or
@@ -1303,6 +1325,14 @@ preview build is not an exact retail/platform capture for every supported client
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
+
+## crates/sim/src/simulator/controls.rs
+## crates/gameplay/src/movement/physics.rs (`item_use_factor`)
+- Move vector: `0x00480a10` normalises the digital/analog axes and multiplies by
+  the sneak factor (`SneakingComponent`, default `0.3f`). Item slowdown
+  `ItemUseSlowdownSystemImpl::applyItemUseSlowdown` `0x0dc2b3c0` then multiplies
+  `MoveInputComponent +0x24/+0x28` by `m*m`; `doItemUseSlowdownSystem` `0x0dc28b60`
+  installs `m` (default `0.35f` at `0x150103070`) only when `|m - 1| > FLT_EPSILON`.
 
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.

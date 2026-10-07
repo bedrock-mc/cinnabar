@@ -10,6 +10,24 @@ use semantic_input::ActionPhase;
 use std::time::Duration;
 use tracing::debug;
 
+/// Vanilla actor yaw: degrees wrapped to `[-180, 180)` with f32 `fmod`.
+#[must_use]
+pub fn wire_yaw(degrees: f32) -> f32 {
+    let rem = (degrees + 180.0) % 360.0;
+    let wrapped = if rem < 0.0 { rem + 360.0 } else { rem };
+    wrapped - 180.0
+}
+
+/// Vanilla head yaw keeps the unwrapped camera angle, which lies in `(-270, 90]`.
+#[must_use]
+pub fn wire_head_yaw(yaw: f32) -> f32 {
+    if yaw > 90.0 { yaw - 360.0 } else { yaw }
+}
+
+/// Vanilla clamps each render frame's elapsed time to this and loses the rest,
+/// so a stall runs at most two ticks instead of catching up.
+const MAX_FRAME_ELAPSED: Duration = Duration::from_millis(100);
+
 /// Immutable input and modifier facts sampled at the existing physics phase.
 pub struct PhysicsFrameInput {
     pub delta: Duration,
@@ -45,6 +63,8 @@ pub struct PhysicsFrameHold {
 #[derive(Default)]
 pub struct LocomotionState {
     controls: ControlModes,
+    /// Last active device; suspended input keeps reporting it.
+    input_mode: protocol::PlayerInputMode,
     fly_tap: DoubleTap,
     previous_blocker: Option<String>,
 }
@@ -81,6 +101,12 @@ impl LocomotionState {
             facts,
             ..
         } = frame;
+        if active {
+            self.input_mode = input_mode;
+        }
+        let input_mode = self.input_mode;
+        let head_yaw = wire_head_yaw(yaw);
+        let delta = frame.delta.min(MAX_FRAME_ELAPSED);
         let withhold_input = frame.hold.is_some_and(|hold| hold.withhold_input);
         let requested_speed;
         let frame = if let Some(hold) = frame.hold {
@@ -88,11 +114,11 @@ impl LocomotionState {
             movement_speed.set_sprinting(false);
             requested_speed = movement_speed.prediction_speed();
             physics.advance_dimension_wait(
-                frame.delta,
+                delta,
                 yaw,
                 PhysicsSampleContext {
                     pitch: frame.pitch,
-                    head_yaw: yaw,
+                    head_yaw,
                     camera_orientation: frame.camera_orientation,
                     input_mode,
                     ..PhysicsSampleContext::default()
@@ -102,7 +128,7 @@ impl LocomotionState {
             )
         } else {
             if !active {
-                self.controls.reset();
+                self.controls.suspend(input_mode.persists_sneak());
             }
             let fly_toggle = jump.pressed && self.fly_tap.press(now);
             if let Some(server) = physics.take_server_control_flags() {
@@ -129,6 +155,7 @@ impl LocomotionState {
                 sprint_start_blocked: facts.sprint_start_blocked,
                 flying: physics.mode() == sim::MovementMode::Flying,
                 retain_sprint,
+                hold_sneak: !active && input_mode.persists_sneak(),
             });
             let mut input = physics_movement_input(
                 movement,
@@ -142,16 +169,19 @@ impl LocomotionState {
             if retain_sprint {
                 input.sprinting = controlled.sprint_request;
             }
+            if !active {
+                input.sneaking = controlled.sneaking;
+            }
             input.immobile = facts.immobile;
             movement_speed.set_sprinting(input.sprinting);
             input.movement_speed = movement_speed.prediction_speed();
             requested_speed = input.movement_speed;
             physics.advance_with_context_and_effects(
-                frame.delta,
+                delta,
                 input,
                 PhysicsSampleContext {
                     pitch: frame.pitch,
-                    head_yaw: yaw,
+                    head_yaw,
                     camera_orientation: frame.camera_orientation,
                     input_mode,
                     raw_move_vector: raw_movement,

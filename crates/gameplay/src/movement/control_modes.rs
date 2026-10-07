@@ -58,6 +58,8 @@ pub struct ControlObservation {
     /// Vanilla cannot stop an existing sprint while the previous
     /// swimming pose has current body-water contact.
     pub retain_sprint: bool,
+    /// Input is suspended under persistent controls, so sneak keeps its last state.
+    pub hold_sneak: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -74,6 +76,7 @@ pub struct ControlModes {
     sprint_toggled: bool,
     was_always_sprint: bool,
     sneak_toggled: bool,
+    sneaking: bool,
     stop_sprinting: bool,
     started_by_sprint_control: bool,
 }
@@ -81,6 +84,16 @@ pub struct ControlModes {
 impl ControlModes {
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    /// Clears latches while input is suspended; persistent controls keep sneak.
+    pub fn suspend(&mut self, persist_sneak: bool) {
+        let kept = *self;
+        self.reset();
+        if persist_sneak {
+            self.sneak_toggled = kept.sneak_toggled;
+            self.sneaking = kept.sneaking;
+        }
     }
 
     /// Adopts the completed fixed tick's actor flag without changing toggle intent.
@@ -102,7 +115,9 @@ impl ControlModes {
 
     pub fn update(&mut self, observed: ControlObservation) -> ControlOutput {
         let moving_forward = observed.forward >= SPRINT_THRESHOLD;
-        let sneaking = if observed.toggle_sneak && !observed.flying {
+        let sneaking = if observed.hold_sneak {
+            self.sneaking
+        } else if observed.toggle_sneak && !observed.flying {
             if observed.sneak_pressed {
                 self.sneak_toggled = !self.sneak_toggled;
             }
@@ -111,6 +126,7 @@ impl ControlModes {
             self.sneak_toggled = false;
             observed.sneak_held
         };
+        self.sneaking = sneaking;
 
         if self.was_always_sprint && !observed.always_sprint && !observed.retain_sprint {
             self.sprinting = false;
