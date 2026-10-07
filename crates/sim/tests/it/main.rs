@@ -12,6 +12,7 @@ mod doors;
 mod embedment_convergence;
 mod fixed_tick;
 mod flight_native;
+mod glide_native;
 mod historical_world;
 mod immobile;
 mod liquid;

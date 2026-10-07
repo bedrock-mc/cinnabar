@@ -285,7 +285,8 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         50,
     ),
     toggle("keyboard_mouse_invert_y_axis", "options.invertYAxis", false),
-    toggle("keyboard_mouse_autojump", "options.autojump", true),
+    // Vanilla 1.26.50 ships auto-jump off for every input mode.
+    toggle("keyboard_mouse_autojump", "options.autojump", false),
     toggle(
         "keyboard_show_full_keyboard_options",
         "options.fullKeyboardGameplay",
@@ -310,7 +311,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     ),
     // P:ui/settings_sections/controls_section.json:732; default is not yet recovered.
     toggle("controller_invert_y_axis", "options.invertYAxis", false),
-    // P:ui/settings_sections/controls_section.json:741; default is not yet recovered.
+    // P:ui/settings_sections/controls_section.json:741; vanilla 1.26.50 default is off.
     toggle("controller_autojump", "options.autojump", false),
     // P:ui/settings_sections/controls_section.json:750; default is not yet recovered.
     toggle("hide_tooltips", "options.hidetooltips", false),

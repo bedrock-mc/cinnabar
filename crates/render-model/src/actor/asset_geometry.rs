@@ -111,7 +111,7 @@ pub fn skin_geometry(
     id: EntityRigId,
 ) -> Result<ActorRigGeometry, ActorRigGeometryError> {
     let bones = &geometry.bones;
-    if bones.is_empty() || bones.len() > MAX_RENDER_BONES_PER_ACTOR {
+    if bones.is_empty() || bones.len() > assets::MAX_SKIN_GEOMETRY_BONES {
         return Err(ActorRigGeometryError::BoneCount);
     }
     let texture_size = (geometry.texture_width, geometry.texture_height);

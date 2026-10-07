@@ -6,8 +6,12 @@ use bytemuck::{Pod, Zeroable};
 use super::ActorRigSurface;
 use super::ids::DIAGNOSTIC_RIG_ID;
 
-pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_SKIN_GEOMETRY_BONES;
+pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_ENTITY_GEOMETRY_BONES;
 pub const MAX_ACTOR_RIG_VERTICES: usize = assets::MAX_SKIN_GEOMETRY_VERTICES;
+/// Aggregate geometry storage, independent of the vertex limit for one model.
+pub const MAX_ACTOR_CATALOG_VERTEX_BYTES: usize = 128 * 1024 * 1024;
+pub const MAX_ACTOR_CATALOG_VERTICES: usize =
+    MAX_ACTOR_CATALOG_VERTEX_BYTES / std::mem::size_of::<ActorRigVertex>();
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]

@@ -12,7 +12,7 @@ use super::{
 };
 
 const MAX_DECODED_BYTES: usize = 256 * 1024 * 1024;
-const MAX_PREPARED_BYTES: usize = render_model::MAX_UI_TEXTURE_BYTES;
+const MAX_PREPARED_BYTES: usize = render_model::MAX_UI_FIXED_TEXTURE_BYTES;
 
 pub struct SourceCatalog {
     files: HashMap<String, PathBuf>,

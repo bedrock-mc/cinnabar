@@ -131,7 +131,7 @@ impl WorldStream {
             poll_budget: commit_budget::WORLD_POLL_BUDGET,
             polling: false,
             publication_allowance: None,
-            mesh_changes: VecDeque::new(),
+            mesh_changes: MeshChangeQueue::default(),
             publisher: cohort::PublisherScope {
                 center: publisher_center,
                 ..Default::default()

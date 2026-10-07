@@ -18,8 +18,14 @@
   generator selection independently offers Normal (Vanilla) and Flat. Template navigation works.
 - Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
   seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
+  Normal supports saved overworld pre-generation and four chunk workers by default; see
+  [generation measurements](docs/evidence/local-world-generation.md). Bedrock generation parity
+  and join/streaming budgets remain incomplete.
 - Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
   and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
+- Cropped cape imports pad the 46×22 layout at supported texture scales with transparent pixels,
+  preserving texels and private source files. This custom import extension leaves native cape
+  gallery parity incomplete.
 - These layouts, appearance and custom motion are owner-authorized extensions. Matching-version
   native UI parity remains open for responsive controls, rich Inbox templates and unsupported world
   settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
@@ -4911,14 +4917,15 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   See `docs/reference/flight-control-corrections.md` and
   `docs/reference/liquid-movement.md`, `docs/reference/liquid-currents.md` and
   `docs/reference/swimming-trigger.md` for identified
-  bodies and boundaries. Touch and stalled-entry swim predicates, the seven-tick flight
-  trigger versus our wall-time approximation,
+  bodies and boundaries. Touch and stalled-entry swim predicates,
   unregistered flow materials and specialized directional/waterlogged flow faces,
   specialized jump paths, bubble columns, custom movement components and
   complete waterlogged/surface behavior remain open. Controlled live results are recorded
   separately; source-derived regressions alone close no acceptance gate. Wire edges for
   swim/glide/crawl/fly and `PersistSneak` still need complete native input comparisons.
-  Glide retains the public movement-physics notes' provisional BedSim equations.
+  Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
+  the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
+  lift gated by an unidentified movement ability and geyser boosts remain incomplete.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
@@ -6275,3 +6282,16 @@ and Java torso turning uses matching committed local ticks. Incomplete: native
 player body-turn timing remains on the provisional actor motion model. This work
 does not close the broader native body-motion or live visual parity gate. See
 `docs/reference/swing-duration.md` and `docs/reference/actor-animation-clocks.md`.
+
+## Server pack compatibility
+
+Galaxite's full-block geometry, large actor models, custom hotbar/held items and
+source-pixel form borders render in a 1920×1080, DPI 1 macOS/Metal hidden-client pass. Item registries retain
+numeric aliases and populated definitions accompanying empty declarations.
+Zeqa equipment sources and dynamic UI textures retain bounded native dimensions;
+rejected UI publications preserve the previous catalog and retry pending artwork.
+
+Incomplete: merging multiple different populated component definitions, unrestricted
+pack-size parity, exact native frame comparisons and release hardware budgets remain
+open. Two terrain texture keys absent from the served Galaxite stack still report
+diagnostic textures; this compatibility work does not close those parity gates.

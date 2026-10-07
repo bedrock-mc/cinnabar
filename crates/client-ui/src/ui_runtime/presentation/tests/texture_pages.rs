@@ -442,8 +442,8 @@ fn preview_changes_do_not_reread_menu_files_or_copy_cached_menu_pages() {
             menu_pixels
         );
         assert!(
-            presentation.menu_artwork.pages.is_empty(),
-            "no second raster cache owner"
+            presentation.menu_artwork_loader.pending().is_none(),
+            "admitted artwork retires the pending raster owner"
         );
     }
     let preview_pixels = presentation.textures.pages()[presentation.textures.dynamic_start()]

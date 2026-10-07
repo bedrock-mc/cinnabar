@@ -11,6 +11,8 @@ use pack_compiler::compile_entity_assets_with_report;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
+mod texture_resolution;
+
 const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 fn write(root: &Path, relative: &str, bytes: &[u8]) {
