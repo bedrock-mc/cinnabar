@@ -829,7 +829,7 @@ pub(crate) fn overlay_viewport(
 }
 
 /// Selects the ordinary HUD invert pipeline independently of world depth modes.
-fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
+pub(super) fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
     UiPipelineKey {
         msaa: Msaa::Off,
         hdr,

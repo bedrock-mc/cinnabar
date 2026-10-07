@@ -6,6 +6,9 @@ mod material_shader;
 mod shader_safety;
 #[path = "../src/ui_render.rs"]
 pub mod ui_render;
+#[path = "../src/pipeline_warmup.rs"]
+#[allow(dead_code, reason = "UI registers its pipelines with the shared warmup")]
+mod pipeline_warmup;
 
 // This standalone UI fixture installs no camera-effect scene. Production's
 // post-hand camera pass is exercised by the render library and live client.
