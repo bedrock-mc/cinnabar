@@ -97,13 +97,16 @@ impl Simulator {
         sneaking: bool,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
-        let sampled = sample(
+        let height = mode.hitbox_height(sneaking);
+        let mut sampled = sample(world, position, Vec3::ZERO, height, None)?;
+        // Only the feet layer feeds the published environment.
+        sampled.movement.in_scaffolding = scaffolding::sample_contact(
             world,
-            position,
-            Vec3::ZERO,
-            mode.hitbox_height(sneaking),
-            None,
-        )?;
+            Aabb::player_with_height_at(position, height),
+            false,
+            &mut sampled,
+        )?
+        .inside;
         Ok(crate::CollisionQuery {
             value: sampled.movement,
             identity: sampled.identity,
@@ -211,7 +214,7 @@ impl Simulator {
             && input.mode != MovementMode::Flying
             && !jump_suppressed
             && !sampled.descend_through
-            && (scaffold.inside || scaffold.ascending);
+            && scaffold.inside;
         if input.jumping && input.mode != MovementMode::Flying {
             if jump_suppressed {
                 if sampled.movement.in_water {

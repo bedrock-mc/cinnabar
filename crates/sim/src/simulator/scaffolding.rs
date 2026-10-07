@@ -17,16 +17,16 @@ pub(super) struct ScaffoldingContact {
     pub inside: bool,
     /// Scaffolding at the layer below the feet.
     pub over: bool,
-    /// Feet-layer scaffolding resting on a block other than air or water.
-    pub ascending: bool,
     /// Lower-layer scaffolding resting on a block other than air or water.
     pub over_descending: bool,
 }
 
 /// Scans every footprint column at the feet layer and, while sneaking (the only
-/// time it matters), the layer below. Fresh reads merge into the tick identity.
+/// time it matters), the layer below and its support. Fresh reads merge into the
+/// tick identity. Feet-layer support is never read: inside scaffolding already
+/// admits the ascent.
 pub(super) fn sample_contact(
-    world: &impl CollisionWorld,
+    world: &(impl CollisionWorld + ?Sized),
     player: Aabb,
     sneaking: bool,
     sampled: &mut SampledEnvironment,
@@ -47,13 +47,11 @@ pub(super) fn sample_contact(
                 {
                     continue;
                 }
-                let supported = rests_on_support(world, sampled, [x, y - 1, z])?;
                 if layer_over {
                     contact.over = true;
-                    contact.over_descending |= supported;
+                    contact.over_descending |= rests_on_support(world, sampled, [x, y - 1, z])?;
                 } else {
                     contact.inside = true;
-                    contact.ascending |= supported;
                 }
             }
         }
@@ -62,7 +60,7 @@ pub(super) fn sample_contact(
 }
 
 fn primary(
-    world: &impl CollisionWorld,
+    world: &(impl CollisionWorld + ?Sized),
     sampled: &mut SampledEnvironment,
     block: [i32; 3],
 ) -> Result<crate::BlockPhysicsFacts, WorldQueryError> {
@@ -75,7 +73,7 @@ fn primary(
 
 /// Whether the block under a scaffold is anything but air or (flowing) water.
 fn rests_on_support(
-    world: &impl CollisionWorld,
+    world: &(impl CollisionWorld + ?Sized),
     sampled: &mut SampledEnvironment,
     block: [i32; 3],
 ) -> Result<bool, WorldQueryError> {
