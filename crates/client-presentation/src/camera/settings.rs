@@ -21,6 +21,7 @@ pub struct CameraSettingsAuthority {
     pub(super) freelook: bool,
     feel: CameraFeelSettings,
     rig: Option<CameraRig>,
+    preserve_teleport_rotation: bool,
 }
 
 /// A local mod's third-person boom: camera-local blocks (x right, y up, z back), roll and FOV change.
@@ -93,6 +94,7 @@ impl Default for CameraSettingsAuthority {
             freelook: false,
             feel: CameraFeelSettings::from_settings(&settings),
             rig: None,
+            preserve_teleport_rotation: false,
         }
     }
 }
@@ -156,6 +158,16 @@ impl CameraSettingsAuthority {
         self.rig
     }
 
+    /// A granted extension's current-frame policy for actual teleport yaw/pitch only.
+    pub const fn preserves_teleport_rotation(&self) -> bool {
+        self.preserve_teleport_rotation
+    }
+
+    /// Position reconciliation and teleport acknowledgment remain server-owned.
+    pub fn set_preserve_teleport_rotation(&mut self, enabled: bool) {
+        self.preserve_teleport_rotation = enabled;
+    }
+
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.
     pub fn set_rig(&mut self, rig: Option<CameraRig>) {
         self.rig = rig.filter(|rig| {
@@ -180,6 +192,7 @@ impl CameraSettingsAuthority {
     pub fn reset_perspective(&mut self) {
         self.perspective = PerspectiveMode::FirstPerson;
         self.freelook = false;
+        self.preserve_teleport_rotation = false;
     }
 }
 

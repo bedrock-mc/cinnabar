@@ -341,6 +341,7 @@ fn drive_mod(
     }
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
+        camera.set_preserve_teleport_rotation(merged.preserve_teleport_rotation);
     }
     time_override.0 = merged.time_override;
     if let Err(error) = presentation.set_mod_label(extension.merged_label()) {
