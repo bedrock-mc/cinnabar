@@ -6,8 +6,13 @@ use semantic_input::{
 #[derive(Resource)]
 struct Routed(ActionSnapshot);
 
+#[derive(Resource)]
+struct WindowWidth(u32);
+
+#[allow(clippy::too_many_arguments)]
 fn drive(
     routed: Res<Routed>,
+    width: Option<Res<WindowWidth>>,
     auto: Res<AutoFly>,
     settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
@@ -17,6 +22,7 @@ fn drive(
 ) {
     update_look(
         (0.0, None),
+        width.map_or(1280, |width| width.0),
         crate::observations::InputObservation(Some(&routed.0)),
         auto,
         settings,
@@ -187,4 +193,52 @@ fn routed_look_uses_follow_orbit_angles_before_clamping_the_actor() {
     );
     let (_, pitch, _) = rotation.to_euler(EulerRot::YXZ);
     assert!(pitch < -45.0_f32.to_radians());
+}
+
+/// Mouse look turns vanilla's per-count degrees for the window's pixel width and sensitivity.
+#[test]
+fn mouse_look_turns_vanilla_degrees_for_window_width_and_sensitivity() {
+    let turned = |width: u32, sensitivity: Option<f32>| {
+        let mut router = SemanticInputRouter::default();
+        router
+            .route(DeviceFrame {
+                keyboard_mouse: Some(KeyboardMouseFrame {
+                    activity_sequence: 1,
+                    mouse_motion: [-30.0, 0.0],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+        let mut settings = CameraSettingsAuthority::default();
+        if let Some(sensitivity) = sensitivity {
+            let mut user = ui::UserSettings::default();
+            user.controls.mouse_sensitivity = sensitivity;
+            settings.replace(1, &user).unwrap();
+        }
+        let mut app = App::new();
+        app.insert_resource(settings)
+            .insert_resource(LocalViewPose::new(Vec3::ZERO, Quat::IDENTITY))
+            .insert_resource(AutoFly::new(false))
+            .insert_resource(Routed(router.finalize().unwrap()))
+            .insert_resource(WindowWidth(width))
+            .init_resource::<Time>()
+            .init_resource::<look::LookSmoother>()
+            .add_systems(Update, drive);
+        app.update();
+        let (yaw, _, _) = app
+            .world()
+            .resource::<LocalViewPose>()
+            .rotation()
+            .to_euler(EulerRot::YXZ);
+        yaw.to_degrees()
+    };
+    let expected = |width, game| look::mouse_turn_degrees(Vec2::new(30.0, 0.0), width, game).x;
+    assert!((turned(1920, None) - expected(1920, 0.628)).abs() < 1e-4);
+    assert!((turned(2560, None) - expected(2560, 0.628)).abs() < 1e-4);
+    assert!(turned(2560, None) < turned(1920, None));
+    let mut game = look::GameSensitivity::default();
+    game.set_sensitivity(0.8);
+    assert!((turned(1920, Some(0.8)) - expected(1920, game.value())).abs() < 1e-4);
+    assert_eq!(turned(1920, Some(0.5)), turned(1920, None));
 }
