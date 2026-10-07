@@ -1,6 +1,9 @@
 """Pattern kills are blocked wherever the shell would run them; quoted mentions are not."""
 import importlib.util
 import pathlib
+import json
+import subprocess
+import sys
 import unittest
 
 spec = importlib.util.spec_from_file_location(
@@ -10,6 +13,29 @@ spec.loader.exec_module(guard)
 
 
 class BlockPatternKill(unittest.TestCase):
+    def test_nested_shell_forms(self):
+        for cmd in [
+            'echo "$( (echo ok); pkill x)"', "cat <(pkill x)", "cat >(killall x)",
+            "command -- pkill x", "time -p pkill x", "exec -a label pkill x",
+            "bash -c -- 'pkill x'",
+        ]:
+            self.assertTrue(guard.blocked(cmd), cmd)
+        for cmd in ["echo ok &>/tmp/out pkill x", "echo ok &>>/tmp/out pkill x",
+                    "exec -a pkill echo ok", "command -v pkill"]:
+            self.assertFalse(guard.blocked(cmd), cmd)
+
+    def test_hook_exit_status_and_fail_open(self):
+        for payload, status in [
+            (json.dumps({"tool_input": {"command": "pkill x"}}), 2),
+            (json.dumps({"tool_input": {"command": "echo pkill"}}), 0),
+            (json.dumps({"tool_input": {"command": "echo 'unfinished"}}), 0),
+            (json.dumps({"tool_input": {"command": None}}), 0),
+            ("not JSON", 0),
+        ]:
+            result = subprocess.run([sys.executable, spec.origin], input=payload,
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, status, payload)
+
     def test_continuations_and_comments(self):
         for cmd in ["pki\\\nll x", "sudo \\\n pkill x", "echo ok # 'ignored\npkill x"]:
             self.assertTrue(guard.blocked(cmd), cmd)
@@ -57,12 +83,16 @@ class BlockPatternKill(unittest.TestCase):
             "cat <<EOF\npkill x\nEOF", "cat <<\\EOF\n$(pkill x)\nEOF",
             "cat <<EOF\n\\$(pkill x)\nEOF",
             "cat <<-EOF\n\tpkill x\n\tEOF",
+            "bash script.sh <<'EOF'\npkill x\nEOF",
+            "bash -c 'echo ok' <<'EOF'\npkill x\nEOF",
         ]:
             self.assertFalse(guard.blocked(cmd), cmd)
         for cmd in [
             "cat <<EOF\n$(pkill x)\nEOF", "cat <<EOF\n`pkill x`\nEOF",
             "cat <<EOF\n'$(pkill x)'\nEOF", "cat <<EOF\nEOF\npkill x",
             "cat <<'ONE' <<TWO\n$(pkill ignored)\nONE\n$(killall x)\nTWO",
+            "bash <<'EOF'\npkill x\nEOF", 'sh <<"EOF"\nkillall x\nEOF',
+            "sudo bash -s arg <<'EOF'\npkill x\nEOF", "bash -- <<'EOF'\npkill x\nEOF",
         ]:
             self.assertTrue(guard.blocked(cmd), cmd)
 

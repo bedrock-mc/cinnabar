@@ -6,9 +6,13 @@ import re
 import sys
 
 BLOCKED = {"pkill", "killall"}
-KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time", "exec", "command", "builtin"}
+KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{"}
 # Options whose values must be skipped before looking for the wrapped command.
 WRAPPERS = {
+    "exec": {"-a"},
+    "command": set(),
+    "builtin": set(),
+    "time": set(),
     "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "--user", "--group",
              "--host", "--prompt", "--close-from", "--chdir", "--role", "--type", "--other-user"},
     "env": {"-u", "-C", "--unset", "--chdir"},
@@ -22,13 +26,13 @@ WRAPPERS = {
     "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
 }
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-REDIRECT = re.compile(r"(?:<<<|<<-|<<|>>|<>|>&|<&|>\||[<>])")
+REDIRECT = re.compile(r"(?:&>>|&>|<<<|<<-|<<|>>|<>|>&|<&|>\||[<>])")
 
 
 def commands(script, data=False):
     """Reads simple commands and substitutions, treating heredoc bodies as data."""
     words, word, segments, heredocs, stack = [], [], [], [], []
-    i, quote, redirect = 0, None, None
+    i, quote, redirect, parens = 0, None, None, 0
     started = quoted = False
 
     def end_word():
@@ -37,7 +41,7 @@ def commands(script, data=False):
         if started:
             value = "".join(word)
             if redirect in {"<<", "<<-"}:
-                heredocs.append((value, quoted, redirect == "<<-"))
+                heredocs.append((value, quoted, redirect == "<<-", words))
             elif redirect is None:
                 words.append(value)
             word.clear()
@@ -46,14 +50,17 @@ def commands(script, data=False):
 
     def end_command():
         """Saves the current command without its redirections."""
+        nonlocal words
         end_word()
         if words:
-            segments.append(list(words))
-            words.clear()
+            segments.append((words, None))
+            words = []
 
     while i < len(script):
         c = script[i]
         body = data and not stack
+        substitution = (c == "$" and script[i + 1:i + 2] == "(" and script[i + 2:i + 3] != "(")
+        process_substitution = quote is None and not body and c in "<>" and script[i + 1:i + 2] == "("
         if quote == "'":
             if c == "'":
                 quote = None
@@ -76,14 +83,15 @@ def commands(script, data=False):
             newline = script.find("\n", i)
             i = len(script) if newline < 0 else newline
             continue
-        elif (c == "$" and script[i + 1:i + 2] == "(" and script[i + 2:i + 3] != "(") or c == "`":
+        elif substitution or process_substitution or c == "`":
             if c == "`" and stack and stack[-1][-1] == "`" and quote is None:
                 end_command()
-                words, word, quote, started, quoted, redirect, _ = stack.pop()
+                words, word, quote, started, quoted, redirect, parens, _ = stack.pop()
             else:
-                stack.append((words, word, quote, True, quoted, redirect, ")" if c == "$" else "`"))
+                stack.append((words, word, quote, True, quoted, redirect, parens, "`" if c == "`" else ")"))
                 words, word, quote, started, quoted, redirect = [], [], None, False, False, None
-                if c == "$":
+                parens = 0
+                if c != "`":
                     i += 1
         elif body:
             pass  # Only substitutions in an unquoted heredoc execute commands.
@@ -95,10 +103,10 @@ def commands(script, data=False):
         elif c in "'\"":
             quote = c
             started = quoted = True
-        elif c == ")" and stack and stack[-1][-1] == ")":
+        elif c == ")" and stack and stack[-1][-1] == ")" and parens == 0:
             end_command()
-            words, word, quote, started, quoted, redirect, _ = stack.pop()
-        elif c in "<>":
+            words, word, quote, started, quoted, redirect, parens, _ = stack.pop()
+        elif c in "<>" or (c == "&" and script[i + 1:i + 2] == ">"):
             if started and "".join(word).isdigit():
                 word.clear()  # An adjacent number is the redirection's file descriptor.
                 started = False
@@ -108,9 +116,11 @@ def commands(script, data=False):
             i = match.end() - 1
         elif c in ";&|\n()":
             end_command()
+            if stack and c in "()":
+                parens += 1 if c == "(" else -1
             if c == "\n" and heredocs:
                 i += 1
-                for delimiter, literal, strip_tabs in heredocs:
+                for delimiter, literal, strip_tabs, consumer in heredocs:
                     body_lines = []
                     while i < len(script):
                         end = script.find("\n", i)
@@ -120,8 +130,10 @@ def commands(script, data=False):
                         if (line.lstrip("\t") if strip_tabs else line).rstrip("\n") == delimiter:
                             break
                         body_lines.append(line)
+                    content = "".join(body_lines)
+                    segments.append((consumer, content))
                     if not literal:
-                        segments.extend(commands("".join(body_lines), data=True))
+                        segments.extend(commands(content, data=True))
                 heredocs.clear()
                 continue
         elif c.isspace():
@@ -137,7 +149,7 @@ def commands(script, data=False):
     return segments
 
 
-def command_blocked(words, depth):
+def command_blocked(words, depth, stdin_script=None):
     """Checks the executable and common launchers that interpret command strings."""
     i = 0
     while i < len(words):
@@ -151,19 +163,29 @@ def command_blocked(words, depth):
             return scan(" ".join(words[i + 1:]), depth + 1)
         elif name in {"bash", "sh", "zsh"}:
             i += 1
+            reads_stdin = False
             while i < len(words) and words[i].startswith("-") and words[i] != "--":
                 option = words[i]
                 i += 1
                 if not option.startswith("--") and "c" in option[1:]:
+                    if i < len(words) and words[i] == "--":
+                        i += 1
                     return i < len(words) and scan(words[i], depth + 1)
                 if option in {"-o", "-O"}:
                     i += 1
-            return False
+                elif not option.startswith("--") and "s" in option[1:]:
+                    reads_stdin = True
+            if i < len(words) and words[i] == "--":
+                i += 1
+            return (stdin_script is not None and (reads_stdin or i == len(words)) and
+                    scan(stdin_script, depth + 1))
         elif name in WRAPPERS:
             takes = WRAPPERS[name]
             i += 1
             while i < len(words):
                 option = words[i]
+                if name == "command" and option in {"-v", "-V"}:
+                    return False  # These options only report a command's name.
                 if option == "--":
                     i += 1
                     break
@@ -193,7 +215,7 @@ def scan(script, depth=0):
     """Bounds launcher recursion so malformed or deeply nested input fails open."""
     if depth > 20:
         raise ValueError("command strings nested too deeply")
-    return any(command_blocked(words, depth) for words in commands(script))
+    return any(command_blocked(words, depth, stdin) for words, stdin in commands(script))
 
 
 def blocked(script):
