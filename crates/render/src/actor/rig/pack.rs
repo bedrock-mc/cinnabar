@@ -30,7 +30,9 @@ impl ActorRigFrameBuilder {
                 is_pack_equipment_rig_id,
                 equipment.iter().cloned(),
             );
-            if let Ok(catalog) = GeometryCatalog::layout(combined) {
+            if let Ok(catalog) =
+                GeometryCatalog::layout_with_limit(combined, self.catalog.maximum_vertices)
+            {
                 self.catalog = catalog;
                 return (Ok(()), Ok(()));
             }

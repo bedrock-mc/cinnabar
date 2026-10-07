@@ -21,7 +21,8 @@ pub use chat::{
     MAX_CHAT_INPUT_BYTES, MAX_CHAT_MESSAGES, MAX_CHAT_RETAINED_BYTES, MAX_PENDING_CHAT_SENDS,
 };
 pub use geometry::{
-    DesktopGuiScale, DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale, gui_scale,
+    DesktopGuiScale, DesktopGuiScaleChoice, DpiScale, GeometryError, SafeArea, UiPoint, UiRect,
+    UiScale, gui_scale,
 };
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,

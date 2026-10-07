@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	cacheVersion   = 1
+	cacheVersion   = 2
 	listTTL        = 5 * time.Minute
 	homeTTL        = 15 * time.Minute
 	refreshTimeout = 2 * time.Minute

@@ -135,6 +135,12 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorMotionEvent,
     },
+    /// A server-predicted movement effect (firework glide boost and similar)
+    /// for the local player, stamped with the input tick it starts after.
+    LocalMovementBoost {
+        sequence: u64,
+        event: protocol::MovementEffectEvent,
+    },
     /// The local player took damage; `source_direction` is the world-space horizontal `(x, z)`
     /// vector toward the damage source when a recent knockback impulse implies one.
     LocalHurt {

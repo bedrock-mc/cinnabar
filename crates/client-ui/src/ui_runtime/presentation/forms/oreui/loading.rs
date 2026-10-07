@@ -23,7 +23,7 @@ impl Canvas<'_> {
             0.0
         };
         let mut end = 0;
-        for (key, millis) in &originals.loading_frames {
+        for (key, millis) in originals.loading_frames.iter() {
             end += u64::from(*millis);
             if elapsed < end as f64 {
                 return self.sprite(key, bounds, [255; 4]);

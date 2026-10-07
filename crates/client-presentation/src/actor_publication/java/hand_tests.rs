@@ -189,6 +189,7 @@ fn source_for_use(
             alpha: 0.5,
             artwork: &artwork,
             motion: Mat4::IDENTITY,
+            sampling_camera: None,
         },
         &mut equipment,
         &mut cache,

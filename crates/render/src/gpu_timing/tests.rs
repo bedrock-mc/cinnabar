@@ -1,7 +1,7 @@
 use super::*;
 use bevy::render::{render_graph::RenderGraph, renderer::WgpuWrapper};
 
-fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
+pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {

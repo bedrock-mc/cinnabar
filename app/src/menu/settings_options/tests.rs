@@ -34,13 +34,37 @@ fn camera_input_and_window_settings_read_the_saved_values() {
     assert!(!authority.feel().camera_shake);
     assert_eq!(authority.feel().damage_bob, 0.25);
     assert_eq!(authority.feel().fov_effects_scale, 0.0);
-    assert_eq!(user.controls.mouse_sensitivity, 1.5);
+    assert_eq!(user.controls.mouse_sensitivity, 0.75);
     assert!(user.controls.invert_mouse_y);
     assert_eq!(user.video.frame_cap, Some(120));
     assert_eq!(
         authority.perspective(),
         semantic_input::PerspectiveMode::ThirdPersonFront
     );
+}
+
+#[test]
+fn server_list_actions_save_preferences_without_changing_selection_or_gameplay() {
+    use crate::menu::{MenuAction, MenuRuntime};
+    use launcher::menu::server_list::{ServerGroup, ServerListAction};
+    let mut menu = MenuRuntime::new(true, 2, "Server list test".into());
+    menu.feeds.select_saved(2);
+    menu.settings_apply = false;
+    menu.activate(MenuAction::ServerList(ServerListAction::Toggle(
+        ServerGroup::Featured,
+    )));
+    menu.activate(MenuAction::ServerList(ServerListAction::MoveBefore(
+        ServerGroup::Saved,
+        Some(ServerGroup::Featured),
+    )));
+    assert!(menu.settings_dirty);
+    assert!(!menu.settings_apply);
+    assert_eq!(menu.feeds.selected_saved, Some(2));
+    menu.sync_user_settings(None);
+    assert!(!menu.settings_dirty);
+    let saved = SettingsOptions::load(&menu.config_path.with_file_name(SETTINGS_FILE));
+    assert!(saved.server_list().collapsed(ServerGroup::Featured));
+    assert_eq!(saved.server_list().order()[0], ServerGroup::Saved);
 }
 
 #[test]

@@ -134,6 +134,7 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
         },
     ];
     let pong = |players, max_players, ping_ms| PingInfo {
+        motd: String::new(),
         online: true,
         players,
         max_players,
@@ -154,6 +155,7 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
     view.feeds.details.insert(
         "geo.hivebedrock.network:19132".to_owned(),
         ServerDetails {
+            group: String::new(),
             player_count: None,
             description: "Minigames with friends, every day.".to_owned(),
             news_title: "Season 5".to_owned(),

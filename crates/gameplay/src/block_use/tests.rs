@@ -9,6 +9,7 @@ use super::{
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
+mod held_placement;
 mod respawn_anchor;
 
 fn network_item(network_id: i32, block_runtime_id: i32) -> NetworkItemStack {
@@ -56,11 +57,35 @@ fn press_fires_at_once_and_held_repeats_keep_a_bounded_schedule() {
     runtime.latched_press = true;
     let (trigger, due) = runtime.due(false, 1, clock(1_000, 0.0)).unwrap();
     assert_eq!(trigger, ItemUseTrigger::PlayerInput);
+    runtime.intention.record(
+        false,
+        [0, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [0.5, 64.0, 0.5],
+    );
     runtime.record(trigger, due, 1, LocalUse::Place, clock(1_000, 0.0));
     // A fresh placement repeats at the slow interval, then the line is established.
     assert_eq!(runtime.due(true, 2, clock(1_300, 0.0)), None);
     let (trigger, due) = runtime.due(true, 3, clock(1_301, 0.0)).unwrap();
     assert_eq!((trigger, due), (ItemUseTrigger::SimulationTick, 1_300));
+    runtime.intention.record(
+        false,
+        [0, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [0.5, 64.0, 0.5],
+    );
+    runtime.intention.record(
+        true,
+        [1, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [1.5, 64.0, 0.5],
+    );
     runtime.record(trigger, due, 3, LocalUse::Place, clock(1_301, 0.0));
     // Still: anchored to now. Moving: to the due time, lagging at most 180 ms.
     assert_eq!(runtime.due(true, 4, clock(1_501, 0.0)), None);
@@ -323,6 +348,8 @@ fn successful_uses_swing_before_their_always_sent_transaction() {
             [0.5, 65.62, 0.5],
             ItemUseTrigger::PlayerInput,
             local_use,
+            None,
+            None,
             42,
             |_| true,
             101,
@@ -345,6 +372,8 @@ fn successful_uses_swing_before_their_always_sent_transaction() {
         [0.5, 65.62, 0.5],
         ItemUseTrigger::SimulationTick,
         LocalUse::Place,
+        None,
+        None,
         42,
         |_| false,
         101,
@@ -357,28 +386,29 @@ fn successful_uses_swing_before_their_always_sent_transaction() {
 }
 
 #[test]
-fn a_position_authority_change_drops_the_press_and_schedule() {
+fn a_position_authority_change_revokes_the_press_but_preserves_repeat_timing() {
     let mut runtime = BlockUseRuntime::default();
     runtime.synchronize((7, 0));
     runtime.latched_press = true;
     runtime.last_use_millis = Some(900);
     runtime.synchronize((7, 1));
     assert_eq!(runtime.due(false, 1, clock(1_000, 0.0)), None);
-    assert_eq!(runtime.last_use_millis, None);
+    assert_eq!(runtime.last_use_millis, Some(900));
+    assert_eq!(runtime.due(true, 1, clock(1_000, 0.0)), None);
 }
 
 #[test]
 fn review_quick_use_press_survives_release_before_the_next_tick() {
     let mut runtime = BlockUseRuntime::default();
-    assert!(runtime.observe_use(true, true, false));
-    assert!(runtime.observe_use(false, false, false));
+    assert!(runtime.observe_use(true, true, false, true));
+    assert!(runtime.observe_use(false, false, false, true));
     assert!(runtime.due(false, 1, clock(1000, 0.0)).is_some());
 }
 
 #[test]
 fn review_refused_use_preserves_the_press_and_success_schedule() {
     let mut runtime = BlockUseRuntime::default();
-    runtime.observe_use(true, true, false);
+    runtime.observe_use(true, true, false, true);
     assert!(!runtime.admit(
         ItemUseTrigger::PlayerInput,
         1000,
@@ -390,4 +420,149 @@ fn review_refused_use_preserves_the_press_and_success_schedule() {
     assert!(runtime.due(false, 2, clock(1001, 0.0)).is_some());
     assert_eq!(runtime.last_use_millis, None);
     assert!(!runtime.interacted_at(1));
+}
+
+/// Successful repeats alone do not establish an adjacent placement line.
+#[test]
+fn unlined_repeats_keep_the_initial_delay() {
+    let mut runtime = BlockUseRuntime::default();
+    runtime.intention.record(
+        false,
+        [0, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [0.5, 64.0, 0.5],
+    );
+    runtime.record(
+        ItemUseTrigger::PlayerInput,
+        1000,
+        1,
+        LocalUse::Place,
+        clock(1000, 0.0),
+    );
+    runtime.intention.record(
+        true,
+        [5, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [5.5, 64.0, 0.5],
+    );
+    runtime.record(
+        ItemUseTrigger::SimulationTick,
+        1300,
+        8,
+        LocalUse::Place,
+        clock(1350, 0.0),
+    );
+    assert_eq!(runtime.due(true, 13, clock(1551, 0.0)), None);
+}
+
+/// A successful hold starts once, before its swing and click-block transaction.
+#[test]
+fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
+    let observed = crate::interaction_authority::FrozenBlockObservation::fixture(
+        [2, 63, 0],
+        3,
+        verified(network_item(2, 77)),
+    );
+    let kinds = |start, trigger| {
+        use_packets(
+            (&observed, 9),
+            [2.5, 65.62, 0.5],
+            trigger,
+            LocalUse::Place,
+            start,
+            None,
+            42,
+            |_| true,
+            1,
+        )
+        .iter()
+        .map(|packet| format!("{:?}", packet.header.id))
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        kinds(Some([2, 63, 1]), ItemUseTrigger::PlayerInput),
+        [
+            "PlayerActionPacket",
+            "AnimatePacket",
+            "InventoryTransactionPacket"
+        ]
+    );
+    assert_eq!(
+        kinds(None, ItemUseTrigger::SimulationTick),
+        ["AnimatePacket", "InventoryTransactionPacket"]
+    );
+    let failed = use_packets(
+        (&observed, 9),
+        [2.5, 65.62, 0.5],
+        ItemUseTrigger::SimulationTick,
+        LocalUse::Nothing,
+        Some([2, 63, 1]),
+        None,
+        42,
+        |_| true,
+        2,
+    );
+    assert_eq!(failed.len(), 1);
+    assert_eq!(
+        format!("{:?}", failed[0].header.id),
+        "InventoryTransactionPacket"
+    );
+}
+
+/// Orientation caching applies to placement-direction states, not pillar axes.
+#[test]
+fn orientation_sensitive_states_preserve_the_original_world_hit() {
+    assert!(super::orientation_sensitive(Some(
+        r#"{"minecraft:cardinal_direction":"north"}"#
+    )));
+    assert!(super::orientation_sensitive(Some(
+        r#"{"upside_down_bit":false}"#
+    )));
+    assert!(!super::orientation_sensitive(Some(
+        r#"{"pillar_axis":"y"}"#
+    )));
+    let mut intention = super::BuildIntention::default();
+    intention.record(
+        false,
+        [0, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [0.75, 64.0, 0.25],
+    );
+    intention.record(
+        true,
+        [1, 63, 0],
+        LocalUse::Place,
+        true,
+        false,
+        [1.5, 64.0, 0.5],
+    );
+    assert_eq!(intention.first_world_hit(), Some([0.75, 64.0, 0.25]));
+}
+
+#[test]
+fn adventure_held_repeats_keep_the_noncreative_floor() {
+    let mut runtime = BlockUseRuntime::default();
+    let mut clock = RepeatClock::for_game_mode(1_000, false, 20.0, Some(PlayerGameMode::Adventure));
+    runtime.record(
+        ItemUseTrigger::PlayerInput,
+        1_000,
+        1,
+        LocalUse::Place,
+        clock,
+    );
+    clock.now_millis = 1_050;
+    assert_eq!(runtime.due(true, 2, clock), None);
+    clock.now_millis = 1_100;
+    assert_eq!(runtime.due(true, 3, clock), None);
+    clock.now_millis = 1_150;
+    assert_eq!(
+        runtime.due(true, 4, clock),
+        Some((ItemUseTrigger::SimulationTick, 1_100))
+    );
 }

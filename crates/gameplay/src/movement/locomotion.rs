@@ -3,9 +3,15 @@
 //! The chosen mode feeds the simulator and the wire start/stop edges from one
 //! source, so a flag is never asserted for a mode the simulator did not run.
 
-use sim::{CollisionWorld, MovementMode, Vec3, WorldQueryError, pose_fits};
+use sim::{BlockPhysicsFlags, CollisionWorld, MovementMode, Vec3, WorldQueryError, pose_fits};
 
+mod sprint_trigger;
 mod swimming_trigger;
+
+/// A second jump press within this many ticks of the first toggles flight.
+const FLY_TRIGGER_TICKS: i32 = 7;
+/// Gliding ticks after which a fresh jump press ends the glide.
+const GLIDE_CANCEL_TICKS: u32 = 11;
 
 /// What the local player is mounted on; only the steering-relevant classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,20 +52,26 @@ pub struct ModeIntent {
     pub can_fly: bool,
     /// The server's ability layers currently say the player is flying.
     pub server_flying: bool,
-    /// The flight double-tap completed this frame.
-    pub fly_toggle: bool,
     /// Ability flight speed, when the server sent a usable one.
     pub fly_speed: Option<f64>,
     pub vertical_fly_speed: Option<f64>,
     /// Game mode is creative, which selects the stronger hover damping.
     pub creative_flight: bool,
-    /// An elytra is equipped in the chest slot.
+    /// An unbroken elytra is equipped in the chest slot.
     pub elytra_ready: bool,
+    /// Leather boots let the wearer stand on powder snow, which then also ends a glide.
+    pub can_stand_on_snow: bool,
     /// Boot enchantment levels the simulator reads.
     pub depth_strider: u8,
     pub soul_speed: u8,
+    /// Leggings enchantment that raises the sneak/crawl input multiplier.
+    pub swift_sneak: u8,
     /// Native sprint-stop request caused by unavailable/low hunger without flight permission.
     pub swim_hunger_blocked: bool,
+    pub sprint_blocked: bool,
+    pub sprint_start_blocked: bool,
+    /// A user setting explicitly ended the sprint latch.
+    pub stop_sprinting: bool,
 }
 
 /// Per-tick simulation facts read before the tick runs.
@@ -67,10 +79,13 @@ pub struct ModeIntent {
 pub(super) struct ModeObservation {
     pub feet: Vec3,
     pub on_ground: bool,
-    pub velocity_y: f64,
     pub in_water: bool,
-    pub in_lava: bool,
     pub sprinting: bool,
+    pub sprint_blinded: bool,
+    pub sprint_down: bool,
+    pub input_mode: protocol::PlayerInputMode,
+    /// Previous tick displacement requested before collision clipping.
+    pub requested_movement: Vec3,
     pub move_sideways: f32,
     pub move_forward: f32,
     pub sneaking: bool,
@@ -81,6 +96,20 @@ pub(super) struct ModeObservation {
     pub jumping: bool,
     /// A fresh jump press arrived this tick.
     pub jump_edge: bool,
+}
+
+impl ModeObservation {
+    /// Intent systems see item slowdown before the later sneak/crawl multiplier.
+    pub(super) fn input_vector(input: sim::MovementInput) -> [f32; 2] {
+        sim::MovementInput {
+            sneaking: false,
+            mode: MovementMode::Walking,
+            ..input
+        }
+        .processed_controls()
+        .move_vector
+        .map(|axis| axis as f32)
+    }
 }
 
 /// One tick's selected mode plus whether a low ceiling forces the sneak pose.
@@ -97,6 +126,12 @@ pub(super) struct ModeTracker {
     last_server_flying: bool,
     sprinting: bool,
     sneaking: bool,
+    previous_feet: Option<Vec3>,
+    sprint_trigger: sprint_trigger::SprintTrigger,
+    /// Ticks left for a second jump press to toggle flight; decremented every tick.
+    fly_countdown: i32,
+    /// Consecutive gliding ticks, including the one that started the glide.
+    fall_fly_ticks: u32,
 }
 
 impl ModeTracker {
@@ -106,6 +141,10 @@ impl ModeTracker {
 
     pub(super) const fn mode(&self) -> MovementMode {
         self.mode
+    }
+
+    pub(super) const fn fall_fly_ticks(&self) -> u32 {
+        self.fall_fly_ticks
     }
 
     pub(super) fn contact_height(&self) -> f64 {
@@ -125,8 +164,17 @@ impl ModeTracker {
         self.sneaking = sneaking;
     }
 
+    /// Captures the final primary controls for the next fixed tick's double-tap detector.
+    pub(super) fn record_controls(&mut self, input: sim::MovementInput, sneak_down: bool) {
+        self.sprint_trigger
+            .record_controls(input.processed_controls().move_vector[1] as f32, sneak_down);
+    }
+
     /// Restores a retained authoritative mode override during correction replay.
     pub(super) fn restore_mode(&mut self, mode: MovementMode) {
+        if mode != MovementMode::Gliding {
+            self.fall_fly_ticks = 0;
+        }
         self.mode = mode;
     }
 
@@ -134,22 +182,25 @@ impl ModeTracker {
     pub(super) fn end(&mut self, mode: MovementMode) {
         if self.mode == mode {
             self.mode = MovementMode::Walking;
+            self.fall_fly_ticks = 0;
         }
     }
 
-    /// Picks this tick's mode. `fly_toggle` must be true only on the first tick of its frame.
+    /// Picks this tick's mode.
     pub(super) fn select(
         &mut self,
         intent: ModeIntent,
-        fly_toggle: bool,
         observed: ModeObservation,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<ModeChoice, WorldQueryError> {
+        let fly_toggle = self.fly_trigger(intent, observed.jump_edge);
         if intent.ride.is_some() {
             self.last_server_flying = intent.server_flying;
             self.mode = MovementMode::Riding;
             self.sprinting = false;
             self.sneaking = observed.sneaking;
+            self.previous_feet = Some(observed.feet);
+            self.fall_fly_ticks = 0;
             return Ok(ModeChoice {
                 mode: MovementMode::Riding,
                 forced_sneak: false,
@@ -176,23 +227,35 @@ impl ModeTracker {
         )?;
         let observed = ModeObservation {
             in_water: sampled.value.in_water,
-            in_lava: sampled.value.in_lava,
             ..observed
         };
         // The sprint trigger runs before the swim trigger and keeps the previous actor
         // sprint flag while its previous swimming pose still contacts water.
+        let sprint_candidate =
+            self.sprint_trigger
+                .select(self.sprinting, self.previous_feet, intent, observed);
         let sprinting =
             (self.mode == MovementMode::Swimming && observed.in_water && self.sprinting)
-                || (observed.sprinting && observed.move_forward > 0.0 && !observed.sneaking);
-        let liquid = observed.in_water || observed.in_lava;
+                || sprint_candidate;
+        self.previous_feet = Some(observed.feet);
+        let observed = ModeObservation {
+            sprinting,
+            ..observed
+        };
+        // A fresh jump press deploys the elytra even while rising; once the glide
+        // has lasted long enough, another press ends it. Water, ground, flight and
+        // climbable feet end it too, including on the tick it would start.
         let gliding = !flying
             && intent.elytra_ready
             && !observed.on_ground
-            && !liquid
+            && !observed.in_water
             && match self.mode {
-                MovementMode::Gliding => true,
-                _ => observed.jump_edge && observed.velocity_y < 0.0,
-            };
+                MovementMode::Gliding => {
+                    !observed.jump_edge || self.fall_fly_ticks < GLIDE_CANCEL_TICKS
+                }
+                _ => observed.jump_edge,
+            }
+            && !feet_end_glide(world, observed.feet, intent.can_stand_on_snow)?;
         let swimming =
             !flying && !gliding && swimming_trigger::select(self.mode, intent, observed, world)?;
 
@@ -217,6 +280,12 @@ impl ModeTracker {
             (MovementMode::Walking, false)
         };
         self.last_server_flying = intent.server_flying;
+        // Every glide entry counts from its own first tick.
+        self.fall_fly_ticks = match (self.mode, mode) {
+            (MovementMode::Gliding, MovementMode::Gliding) => self.fall_fly_ticks.saturating_add(1),
+            (_, MovementMode::Gliding) => 1,
+            _ => 0,
+        };
         self.mode = mode;
         self.sneaking = observed.sneaking || forced_sneak;
         self.sprinting = sprinting
@@ -230,6 +299,45 @@ impl ModeTracker {
             sprinting: self.sprinting,
         })
     }
+
+    /// Vanilla's flight double-tap: every tick shortens the window, a fresh jump
+    /// press opens it, and a second press while it is open toggles and closes it.
+    fn fly_trigger(&mut self, intent: ModeIntent, jump_edge: bool) -> bool {
+        self.fly_countdown = (self.fly_countdown - 1).max(0);
+        let eligible =
+            self.mode == MovementMode::Flying || (intent.can_fly && intent.ride.is_none());
+        if !eligible || !jump_edge {
+            return false;
+        }
+        if self.fly_countdown < 1 {
+            self.fly_countdown = FLY_TRIGGER_TICKS;
+            return false;
+        }
+        self.fly_countdown = 0;
+        true
+    }
+}
+
+/// Whether the block at the feet ends a glide: anything climbable, or powder
+/// snow for a wearer who can stand on it.
+fn feet_end_glide(
+    world: &(impl CollisionWorld + ?Sized),
+    feet: Vec3,
+    can_stand_on_snow: bool,
+) -> Result<bool, WorldQueryError> {
+    let block = [feet.x, feet.y, feet.z].map(|axis| axis.floor());
+    if block
+        .iter()
+        .any(|axis| !axis.is_finite() || *axis < f64::from(i32::MIN) || *axis > f64::from(i32::MAX))
+    {
+        return Err(WorldQueryError::CoordinateOutOfRange);
+    }
+    let flags = world
+        .block_physics(block.map(|axis| axis as i32))?
+        .primary()
+        .flags;
+    Ok(flags.contains(BlockPhysicsFlags::CLIMBABLE)
+        || (can_stand_on_snow && flags.contains(BlockPhysicsFlags::POWDER_SNOW)))
 }
 
 #[cfg(test)]
@@ -300,14 +408,42 @@ mod tests {
         }
     }
 
+    /// Every block carries `flags` with no collision.
+    struct Filled(sim::BlockPhysicsFlags);
+
+    impl CollisionWorld for Filled {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(Vec::new()))
+        }
+
+        fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+            let mut sample = Ceiling(None).block_physics(block)?;
+            sample.layers = Box::new([BlockPhysicsFacts {
+                fluid_height_blocks: if self.0.contains(sim::BlockPhysicsFlags::LAVA) {
+                    1.0
+                } else {
+                    0.0
+                },
+                flags: self.0,
+                ..sample.layers[0]
+            }]);
+            Ok(sample)
+        }
+    }
+
     fn airborne() -> ModeObservation {
         ModeObservation {
             feet: Vec3::new(0.0, 10.0, 0.0),
             on_ground: false,
-            velocity_y: -0.5,
             in_water: false,
-            in_lava: false,
             sprinting: false,
+            sprint_blinded: false,
+            sprint_down: false,
+            input_mode: protocol::PlayerInputMode::Mouse,
+            requested_movement: Vec3::ZERO,
             move_sideways: 0.0,
             move_forward: 0.0,
             sneaking: false,
@@ -322,13 +458,29 @@ mod tests {
     fn pick(
         tracker: &mut ModeTracker,
         intent: ModeIntent,
-        toggle: bool,
         observed: ModeObservation,
     ) -> MovementMode {
         tracker
-            .select(intent, toggle, observed, &Ceiling(None))
+            .select(intent, observed, &Ceiling(None))
             .unwrap()
             .mode
+    }
+
+    fn pressed(observed: ModeObservation) -> ModeObservation {
+        ModeObservation {
+            jump_edge: true,
+            ..observed
+        }
+    }
+
+    /// Two jump presses on consecutive ticks: the flight double-tap.
+    fn double_tap(
+        tracker: &mut ModeTracker,
+        intent: ModeIntent,
+        observed: ModeObservation,
+    ) -> MovementMode {
+        pick(tracker, intent, pressed(observed));
+        pick(tracker, intent, pressed(observed))
     }
 
     /// Unavailable world queries make mode selection retryable.
@@ -357,13 +509,9 @@ mod tests {
             can_fly: true,
             ..Default::default()
         };
-        assert!(
-            tracker
-                .select(intent, false, airborne(), &Unavailable)
-                .is_err()
-        );
+        assert!(tracker.select(intent, airborne(), &Unavailable).is_err());
         assert_eq!(
-            pick(&mut tracker, intent, false, airborne()),
+            pick(&mut tracker, intent, airborne()),
             MovementMode::Walking
         );
     }
@@ -381,10 +529,7 @@ mod tests {
             ..airborne()
         };
         assert_eq!(
-            tracker
-                .select(intent, false, observed, &Unavailable)
-                .unwrap()
-                .mode,
+            tracker.select(intent, observed, &Unavailable).unwrap().mode,
             MovementMode::Riding
         );
     }
@@ -397,29 +542,23 @@ mod tests {
             ..ModeIntent::default()
         };
         assert_eq!(
-            pick(&mut tracker, intent, false, airborne()),
+            pick(&mut tracker, intent, airborne()),
             MovementMode::Walking
         );
         assert_eq!(
-            pick(&mut tracker, intent, true, airborne()),
+            double_tap(&mut tracker, intent, airborne()),
             MovementMode::Flying
         );
-        assert_eq!(
-            pick(&mut tracker, intent, false, airborne()),
-            MovementMode::Flying
-        );
+        assert_eq!(pick(&mut tracker, intent, airborne()), MovementMode::Flying);
         let landed = ModeObservation {
             on_ground: true,
             ..airborne()
         };
-        assert_eq!(
-            pick(&mut tracker, intent, false, landed),
-            MovementMode::Walking
-        );
+        assert_eq!(pick(&mut tracker, intent, landed), MovementMode::Walking);
 
-        pick(&mut tracker, intent, true, airborne());
+        double_tap(&mut tracker, intent, airborne());
         assert_eq!(
-            pick(&mut tracker, intent, true, airborne()),
+            double_tap(&mut tracker, intent, airborne()),
             MovementMode::Walking
         );
     }
@@ -436,22 +575,13 @@ mod tests {
             on_ground: true,
             ..airborne()
         };
+        assert_eq!(pick(&mut tracker, server, landed), MovementMode::Flying);
+        assert_eq!(pick(&mut tracker, server, landed), MovementMode::Flying);
         assert_eq!(
-            pick(&mut tracker, server, false, landed),
-            MovementMode::Flying
-        );
-        assert_eq!(
-            pick(&mut tracker, server, false, landed),
-            MovementMode::Flying
-        );
-        assert_eq!(
-            pick(&mut tracker, server, true, landed),
+            double_tap(&mut tracker, server, landed),
             MovementMode::Walking
         );
-        assert_eq!(
-            pick(&mut tracker, server, false, landed),
-            MovementMode::Walking
-        );
+        assert_eq!(pick(&mut tracker, server, landed), MovementMode::Walking);
     }
 
     #[test]
@@ -464,11 +594,11 @@ mod tests {
             ..ModeIntent::default()
         };
         assert_eq!(
-            pick(&mut tracker, mounted, true, airborne()),
+            pick(&mut tracker, mounted, airborne()),
             MovementMode::Riding
         );
         assert_eq!(
-            pick(&mut tracker, ModeIntent::default(), false, airborne()),
+            pick(&mut tracker, ModeIntent::default(), airborne()),
             MovementMode::Walking
         );
     }
@@ -498,34 +628,30 @@ mod tests {
             can_fly: true,
             ..ModeIntent::default()
         };
-        pick(&mut tracker, can, true, airborne());
+        double_tap(&mut tracker, can, airborne());
         assert_eq!(
-            pick(&mut tracker, ModeIntent::default(), false, airborne()),
+            pick(&mut tracker, ModeIntent::default(), airborne()),
             MovementMode::Walking
         );
     }
 
     #[test]
-    fn elytra_deploys_on_a_falling_jump_press_and_stops_on_landing_or_water() {
+    fn elytra_deploys_on_a_jump_press_and_stops_on_landing_or_water() {
         let mut tracker = ModeTracker::default();
         let intent = ModeIntent {
             elytra_ready: true,
             ..ModeIntent::default()
         };
         assert_eq!(
-            pick(&mut tracker, intent, false, airborne()),
+            pick(&mut tracker, intent, airborne()),
             MovementMode::Walking
         );
-        let press = ModeObservation {
-            jump_edge: true,
-            ..airborne()
-        };
         assert_eq!(
-            pick(&mut tracker, intent, false, press),
+            pick(&mut tracker, intent, pressed(airborne())),
             MovementMode::Gliding
         );
         assert_eq!(
-            pick(&mut tracker, intent, false, airborne()),
+            pick(&mut tracker, intent, airborne()),
             MovementMode::Gliding
         );
         let wet = ModeObservation {
@@ -533,48 +659,140 @@ mod tests {
             ..airborne()
         };
         assert_eq!(
-            tracker
-                .select(intent, false, wet, &Pool(20.0))
-                .unwrap()
-                .mode,
+            tracker.select(intent, wet, &Pool(20.0)).unwrap().mode,
             MovementMode::Walking
         );
 
-        pick(&mut tracker, intent, false, press);
+        pick(&mut tracker, intent, pressed(airborne()));
         let landed = ModeObservation {
             on_ground: true,
             ..airborne()
         };
+        assert_eq!(pick(&mut tracker, intent, landed), MovementMode::Walking);
+    }
+
+    /// Unlike water, lava neither prevents nor ends a glide.
+    #[test]
+    fn lava_does_not_end_a_glide() {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            elytra_ready: true,
+            ..ModeIntent::default()
+        };
+        let lava = Filled(sim::BlockPhysicsFlags::LAVA);
+        for observed in [pressed(airborne()), airborne()] {
+            assert_eq!(
+                tracker.select(intent, observed, &lava).unwrap().mode,
+                MovementMode::Gliding
+            );
+        }
+    }
+
+    #[test]
+    fn unequipped_jump_never_glides() {
+        let mut tracker = ModeTracker::default();
         assert_eq!(
-            pick(&mut tracker, intent, false, landed),
+            pick(&mut tracker, ModeIntent::default(), pressed(airborne())),
             MovementMode::Walking
         );
     }
 
+    /// A second press ends the glide only once it has lasted eleven ticks.
     #[test]
-    fn rising_or_unequipped_jump_never_glides() {
+    fn a_fresh_jump_press_cancels_a_glide_after_eleven_ticks() {
         let mut tracker = ModeTracker::default();
-        let ready = ModeIntent {
+        let intent = ModeIntent {
             elytra_ready: true,
             ..ModeIntent::default()
         };
-        let rising = ModeObservation {
-            jump_edge: true,
-            velocity_y: 0.3,
-            ..airborne()
-        };
         assert_eq!(
-            pick(&mut tracker, ready, false, rising),
+            pick(&mut tracker, intent, pressed(airborne())),
+            MovementMode::Gliding
+        );
+        for _ in 0..9 {
+            assert_eq!(
+                pick(&mut tracker, intent, airborne()),
+                MovementMode::Gliding
+            );
+        }
+        assert_eq!(
+            pick(&mut tracker, intent, pressed(airborne())),
+            MovementMode::Gliding
+        );
+        assert_eq!(
+            pick(&mut tracker, intent, pressed(airborne())),
             MovementMode::Walking
         );
-        let falling = ModeObservation {
-            jump_edge: true,
-            ..airborne()
+    }
+
+    /// A server-ended glide never carries its tick count into the next glide.
+    #[test]
+    fn an_ended_glide_restarts_the_cancel_window() {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            elytra_ready: true,
+            ..ModeIntent::default()
         };
+        pick(&mut tracker, intent, pressed(airborne()));
+        for _ in 0..12 {
+            pick(&mut tracker, intent, airborne());
+        }
+        tracker.end(MovementMode::Gliding);
         assert_eq!(
-            pick(&mut tracker, ModeIntent::default(), false, falling),
-            MovementMode::Walking
+            pick(&mut tracker, intent, pressed(airborne())),
+            MovementMode::Gliding
         );
+        assert_eq!(
+            pick(&mut tracker, intent, pressed(airborne())),
+            MovementMode::Gliding,
+            "a press one tick into the new glide cannot cancel it"
+        );
+    }
+
+    /// Climbable feet end a glide; powder snow does only for a wearer who can stand on it.
+    #[test]
+    fn climbable_feet_end_a_glide() {
+        let intent = ModeIntent {
+            elytra_ready: true,
+            ..ModeIntent::default()
+        };
+        let glide = |intent, world: &Filled| {
+            let mut tracker = ModeTracker::default();
+            tracker
+                .select(intent, pressed(airborne()), world)
+                .unwrap()
+                .mode
+        };
+        let ladder = Filled(sim::BlockPhysicsFlags::CLIMBABLE);
+        assert_eq!(glide(intent, &ladder), MovementMode::Walking);
+        let snow = Filled(sim::BlockPhysicsFlags::POWDER_SNOW);
+        assert_eq!(glide(intent, &snow), MovementMode::Gliding);
+        let booted = ModeIntent {
+            can_stand_on_snow: true,
+            ..intent
+        };
+        assert_eq!(glide(booted, &snow), MovementMode::Walking);
+    }
+
+    /// A second press within six ticks of the first toggles flight.
+    #[test]
+    fn flight_double_tap_window_lasts_seven_ticks() {
+        let intent = ModeIntent {
+            can_fly: true,
+            ..ModeIntent::default()
+        };
+        for (idle_ticks, toggles) in [(5, true), (6, false)] {
+            let mut tracker = ModeTracker::default();
+            assert_eq!(
+                pick(&mut tracker, intent, pressed(airborne())),
+                MovementMode::Walking
+            );
+            for _ in 0..idle_ticks {
+                pick(&mut tracker, intent, airborne());
+            }
+            let mode = pick(&mut tracker, intent, pressed(airborne()));
+            assert_eq!(mode == MovementMode::Flying, toggles, "{idle_ticks}");
+        }
     }
 
     #[test]
@@ -589,7 +807,7 @@ mod tests {
         let intent = ModeIntent::default();
         let deep = Pool(20.0);
         assert_eq!(
-            tracker.select(intent, false, swim, &deep).unwrap().mode,
+            tracker.select(intent, swim, &deep).unwrap().mode,
             MovementMode::Swimming
         );
         let stopped = ModeObservation {
@@ -597,7 +815,7 @@ mod tests {
             ..swim
         };
         assert_eq!(
-            tracker.select(intent, false, stopped, &deep).unwrap().mode,
+            tracker.select(intent, stopped, &deep).unwrap().mode,
             MovementMode::Swimming
         );
         let idle = ModeObservation {
@@ -605,7 +823,7 @@ mod tests {
             ..stopped
         };
         assert_eq!(
-            tracker.select(intent, false, idle, &deep).unwrap().mode,
+            tracker.select(intent, idle, &deep).unwrap().mode,
             MovementMode::Walking
         );
     }
@@ -622,11 +840,11 @@ mod tests {
             ..airborne()
         };
         let low = tracker
-            .select(ModeIntent::default(), false, observed, &Ceiling(Some(1.0)))
+            .select(ModeIntent::default(), observed, &Ceiling(Some(1.0)))
             .unwrap();
         assert_eq!(low.mode, MovementMode::Swimming);
         let open = tracker
-            .select(ModeIntent::default(), false, observed, &Ceiling(None))
+            .select(ModeIntent::default(), observed, &Ceiling(None))
             .unwrap();
         assert_eq!(open.mode, MovementMode::Walking);
         assert!(!open.forced_sneak);
@@ -641,7 +859,7 @@ mod tests {
             ..airborne()
         };
         let choice = tracker
-            .select(ModeIntent::default(), false, observed, &Ceiling(Some(1.0)))
+            .select(ModeIntent::default(), observed, &Ceiling(Some(1.0)))
             .unwrap();
         assert_eq!(choice.mode, MovementMode::Walking);
     }
@@ -655,7 +873,7 @@ mod tests {
             ..airborne()
         };
         let choice = tracker
-            .select(ModeIntent::default(), false, observed, &Ceiling(Some(1.6)))
+            .select(ModeIntent::default(), observed, &Ceiling(Some(1.6)))
             .unwrap();
         assert_eq!(choice.mode, MovementMode::Walking);
         assert!(choice.forced_sneak);
@@ -673,7 +891,7 @@ mod tests {
         let shallow = Pool(10.9);
         let mut walker = ModeTracker::default();
         let choice = walker
-            .select(ModeIntent::default(), false, sprinting, &shallow)
+            .select(ModeIntent::default(), sprinting, &shallow)
             .unwrap();
         assert_eq!(choice.mode, MovementMode::Walking);
 
@@ -682,7 +900,7 @@ mod tests {
             ..ModeTracker::default()
         };
         let choice = swimmer
-            .select(ModeIntent::default(), false, sprinting, &shallow)
+            .select(ModeIntent::default(), sprinting, &shallow)
             .unwrap();
         assert_eq!(choice.mode, MovementMode::Swimming);
     }

@@ -161,12 +161,23 @@ impl MenuRuntime {
             self.friends = friends;
         }
         if let Some(featured) = control.featured() {
+            let selected = self
+                .feeds
+                .selected_featured
+                .and_then(|index| self.featured.get(index))
+                .map(|card| card.address.clone());
             self.feeds.details.extend(
                 featured
                     .iter()
                     .map(|(card, details)| (card.address.clone(), details.clone())),
             );
             self.featured = featured.into_iter().map(|(card, _)| card).collect();
+            if let Some(address) = selected {
+                self.feeds.selected_featured = self
+                    .featured
+                    .iter()
+                    .position(|card| card.address == address);
+            }
             if self
                 .feeds
                 .selected_featured
@@ -297,6 +308,61 @@ fn ping_targets<'a>(addresses: impl IntoIterator<Item = &'a str>) -> Vec<String>
 mod tests {
     use super::*;
     use crate::menu::MenuAction;
+
+    struct Catalog(Option<Vec<(MenuServerCard, ServerDetails)>>);
+    impl AccountControl for Catalog {
+        fn account_status(&mut self) -> Option<AuthState> {
+            None
+        }
+        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
+            None
+        }
+        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
+            None
+        }
+        fn sign_out(&mut self) -> bool {
+            false
+        }
+        fn poll_event(&mut self) -> Option<AccountEvent> {
+            None
+        }
+        fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+            self.0.take()
+        }
+    }
+
+    #[test]
+    fn creator_catalog_refresh_keeps_the_picked_server_when_the_order_changes() {
+        let card = |address: &str| MenuServerCard {
+            name: address.into(),
+            address: address.into(),
+            caption: String::new(),
+            image_path: String::new(),
+            icon: None,
+        };
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        menu.featured = vec![card("first.test:19132"), card("picked.test:19132")];
+        menu.feeds.selected_featured = Some(1);
+        let mut control = Catalog(Some(vec![
+            (
+                card("picked.test:19132"),
+                ServerDetails {
+                    group: "creator".into(),
+                    ..Default::default()
+                },
+            ),
+            (card("first.test:19132"), ServerDetails::default()),
+        ]));
+        menu.sync_account_control(&mut control);
+        assert_eq!(menu.feeds.selected_featured, Some(0));
+        assert_eq!(
+            menu.featured[menu.feeds.selected_featured.unwrap()].address,
+            "picked.test:19132"
+        );
+        control.0 = Some(vec![(card("first.test:19132"), ServerDetails::default())]);
+        menu.sync_account_control(&mut control);
+        assert_eq!(menu.feeds.selected_featured, None);
+    }
 
     /// An experience has no server until it is joined, so a featured experience is never pinged.
     #[test]

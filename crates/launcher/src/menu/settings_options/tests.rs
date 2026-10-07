@@ -367,6 +367,32 @@ fn vsync_defaults_on_and_persists_into_runtime_settings() {
 }
 
 #[test]
+fn exact_server_ping_is_optional_and_persists_with_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.exact_server_ping());
+    settings.set(index(SHOW_EXACT_SERVER_PING), 1);
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.exact_server_ping());
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(!legacy.exact_server_ping());
+}
+
+#[test]
+fn dark_mode_defaults_off_persists_and_resets_with_video_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.oreui_dark_mode());
+    settings.set(index(OREUI_DARK_MODE), 1);
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.oreui_dark_mode());
+    loaded.reset_group(SettingsGroup::Audio);
+    assert!(loaded.oreui_dark_mode());
+    loaded.reset_group(SettingsGroup::Video);
+    assert!(!loaded.oreui_dark_mode());
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(!legacy.oreui_dark_mode());
+}
+
+#[test]
 fn animations_default_to_java_and_persist_both_choices() {
     let mut settings = SettingsOptions::default();
     let index = index("animations");
@@ -418,5 +444,14 @@ fn crosshair_preferences_persist_and_reset_without_changing_legacy_defaults() {
     loaded.reset_group(SettingsGroup::Video);
     for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
         assert_eq!(loaded.value(option.name), option.default);
+    }
+}
+
+/// Vanilla 1.26.50 ships auto-jump off for keyboard/mouse and controller alike.
+#[test]
+fn auto_jump_defaults_off_for_every_input_mode() {
+    let settings = SettingsOptions::default();
+    for name in ["keyboard_mouse_autojump", "controller_autojump"] {
+        assert_eq!(settings.get(index(name)), 0, "{name}");
     }
 }

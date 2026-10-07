@@ -314,7 +314,8 @@ fn emit_text(
                 uv,
                 page,
                 glyph_color,
-                u8::from(layout.linear_sampling()) * UI_STYLE_BILINEAR,
+                (u8::from(glyph.linear_sampling) * UI_STYLE_BILINEAR)
+                    | glyph.rendering.style_flags(),
                 shear,
                 bold_offset,
                 rotation,

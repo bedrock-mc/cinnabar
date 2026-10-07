@@ -27,6 +27,7 @@ use ui::UserSettings;
 use world::ChunkKey;
 
 mod cursor_changes;
+use cursor_changes::track_test_focus;
 mod front_input;
 mod projection;
 
@@ -387,7 +388,9 @@ fn capture_test_app(
 ) -> (App, Entity) {
     let mut app = App::new();
     app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
-    app.init_resource::<ButtonInput<KeyCode>>()
+    app.init_resource::<client_presentation::camera::CursorFocus>()
+        .add_systems(PreUpdate, track_test_focus)
+        .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(AutoFly::with_startup_capture(false, capture_on_start))

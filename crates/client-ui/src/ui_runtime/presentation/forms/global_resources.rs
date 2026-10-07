@@ -134,6 +134,7 @@ pub(super) fn overlay(snapshot: &Snapshot) -> Option<Box<MenuScreenData>> {
     let pack = snapshot.active.get(index)?;
     let mut data = DataSource::new();
     data.set_strict(true);
+    data.set_global("#close_button_visible", Scalar::Bool(true));
     let selected = snapshot.selection.get(index).map(|p| p.subpack.as_str());
     let tier = pack
         .subpacks

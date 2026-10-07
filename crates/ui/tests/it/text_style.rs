@@ -59,7 +59,19 @@ fn font() -> CompiledFontCatalog {
         &[page("font/page0.png", 1), page("font/page1.png", 2)],
     )
     .unwrap();
-    CompiledFontCatalog::decode(&bytes, identity).unwrap()
+    CompiledFontCatalog::decode(&bytes, identity)
+        .unwrap()
+        .with_glyphs(
+            &glyphs
+                .iter()
+                .filter(|glyph| matches!(glyph.codepoint, ' ' | '\u{301}'))
+                .map(|glyph| assets::SheetGlyph {
+                    metrics: *glyph,
+                    draw_size_64: [0; 2],
+                })
+                .collect::<Vec<_>>(),
+            |_| true,
+        )
 }
 
 fn layout(text: &str, style: TextStyle, font: &CompiledFontCatalog) -> Arc<TextLayout> {
@@ -102,6 +114,82 @@ fn draw_with(layout: Arc<TextLayout>, effects: TextEffects<'_>) -> UiDrawList {
     )
     .unwrap();
     tree.build_draw_list_with(effects).unwrap()
+}
+
+#[test]
+fn fallback_scales_to_primary_em_and_uses_its_own_sampling_per_glyph() {
+    use assets::{FontGlyphRequests, FontLineMetrics, FontRendering, SheetGlyph};
+    let primary = font()
+        .with_line_metrics(FontLineMetrics {
+            em_64: 32 * 64,
+            ascent_64: 24 * 64,
+            descent_64: 8 * 64,
+        })
+        .unwrap()
+        .with_rendering(FontRendering::NativeCoverage);
+    let fallback = font()
+        .with_glyphs(
+            &[SheetGlyph {
+                metrics: GlyphMetrics {
+                    codepoint: '日',
+                    page: 0,
+                    uv: [0, 0, 2, 8],
+                    bearing: [0, -6],
+                    advance_64: 4 * 64,
+                },
+                draw_size_64: [4 * 64, 16 * 64],
+            }],
+            |_| false,
+        )
+        .with_line_metrics(FontLineMetrics {
+            em_64: 64 * 64,
+            ascent_64: 48 * 64,
+            descent_64: 16 * 64,
+        })
+        .unwrap()
+        .with_rendering(FontRendering::NativeSdf);
+    let catalog = font()
+        .with_named_font("body", &primary)
+        .unwrap()
+        .with_shared_fallback(&fallback, Arc::new(FontGlyphRequests::default()))
+        .unwrap();
+    let native = catalog.font_named("body");
+    let latin = layout("A", TextStyle::default(), &primary);
+    let mixed = layout("A日A", TextStyle::default(), native);
+    assert_eq!(
+        mixed.glyphs()[0].bounds_64[0],
+        latin.glyphs()[0].bounds_64[0]
+    );
+    assert_eq!(
+        mixed.glyphs()[0].bounds_64[2],
+        latin.glyphs()[0].bounds_64[2]
+    );
+    assert_eq!(mixed.glyphs()[1].resolved_codepoint, '日');
+    assert_eq!(
+        mixed.glyphs()[1].bounds_64[2] - mixed.glyphs()[1].bounds_64[0],
+        2 * 64
+    );
+    assert!(!mixed.glyphs()[0].linear_sampling);
+    assert!(mixed.glyphs()[1].linear_sampling);
+    let drawing = draw_with(mixed.clone(), TextEffects::default());
+    assert_ne!(
+        drawing.vertices[0].style_flags,
+        drawing.vertices[4].style_flags
+    );
+    assert_eq!(
+        drawing.vertices[0].style_flags,
+        drawing.vertices[8].style_flags
+    );
+    assert_eq!(
+        catalog.glyph('A'),
+        font().glyph('A'),
+        "HUD metrics stay unchanged"
+    );
+    assert_ne!(
+        native.identity(),
+        primary.identity(),
+        "fallback invalidates the text cache"
+    );
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::world::DEFAULT_SURFACE_FRICTION;
 use crate::{
     Aabb, BlockPhysicsFlags, CollisionWorld, SurfaceResponse, Vec3, WorldCollisionIdentity,
     WorldQueryError,
@@ -15,6 +16,49 @@ pub(super) struct SampledEnvironment {
     pub friction: f64,
     pub identity: WorldCollisionIdentity,
     pub block_samples: usize,
+    /// This tick's sneak descent through scaffolding, which removes its support.
+    pub descend_through: bool,
+    /// Primary facts of every cell already read this tick, sorted by cell.
+    pub primaries: Vec<([i32; 3], crate::BlockPhysicsFacts)>,
+}
+
+impl SampledEnvironment {
+    /// Reads a primary block, reusing this tick's earlier reads before spending the
+    /// shared budget. Returns the identity of a fresh read for the caller to merge.
+    pub(super) fn primary(
+        &mut self,
+        world: &(impl CollisionWorld + ?Sized),
+        block: [i32; 3],
+    ) -> Result<(crate::BlockPhysicsFacts, Option<WorldCollisionIdentity>), WorldQueryError> {
+        match self
+            .primaries
+            .binary_search_by(|(cell, _)| cell.cmp(&block))
+        {
+            Ok(index) => Ok((self.primaries[index].1, None)),
+            Err(index) => {
+                let sample = sample_primary(world, block, &mut self.block_samples)?;
+                self.primaries.insert(index, (block, sample.value));
+                Ok((sample.value, Some(sample.identity)))
+            }
+        }
+    }
+}
+
+/// Reads one primary block without exceeding the tick's shared physics budget.
+pub(super) fn sample_primary(
+    world: &(impl CollisionWorld + ?Sized),
+    block: [i32; 3],
+    block_samples: &mut usize,
+) -> Result<crate::CollisionQuery<crate::BlockPhysicsFacts>, WorldQueryError> {
+    if *block_samples == MAX_BLOCK_SAMPLES_PER_TICK {
+        return Err(WorldQueryError::QueryExtentExceeded);
+    }
+    let sample = world.block_physics(block)?;
+    *block_samples += 1;
+    Ok(crate::CollisionQuery {
+        value: *sample.primary(),
+        identity: sample.identity,
+    })
 }
 
 /// Samples the movement pose's sweep and the preceding liquid-sensing pose.
@@ -37,7 +81,13 @@ pub(super) fn sample(
     let min = block_at(swept.min)?;
     let max = inclusive_max_block_at(swept.max)?;
     let support = block_below(position)?;
-    let mut blocks = BTreeSet::from([support]);
+    let feet = block_at(position)?;
+    let friction_block = block_at(Vec3::new(
+        f64::from(position.x as f32),
+        f64::from(position.y as f32 - 0.1_f32),
+        f64::from(position.z as f32),
+    ))?;
+    let mut blocks = BTreeSet::from([support, friction_block, feet]);
     for x in min[0]..=max[0] {
         for y in min[1]..=max[1] {
             for z in min[2]..=max[2] {
@@ -50,31 +100,52 @@ pub(super) fn sample(
     }
 
     let block_samples = blocks.len();
+    let mut primaries = Vec::with_capacity(block_samples);
     let mut identity: Option<WorldCollisionIdentity> = None;
     let mut movement = MovementEnvironment::default();
-    let mut friction = 0.6;
+    let mut friction = DEFAULT_SURFACE_FRICTION;
     for block in blocks {
         let sample = world.block_physics(block)?;
+        primaries.push((block, *sample.primary()));
         identity = Some(match identity {
             None => sample.identity.clone(),
             Some(previous) => previous.merge(&sample.identity)?,
         });
-        if block == support {
+        if block == friction_block && !probes_air(world, block, &mut identity)? {
             friction = sample.primary().friction;
+        }
+        // Climbing reads only the block at the feet cell, never body contact.
+        if block == feet {
+            movement.on_climbable = sample
+                .primary()
+                .flags
+                .contains(BlockPhysicsFlags::CLIMBABLE);
+        }
+        if block == support {
             let response = active_surface_response(sample.primary(), player, block);
             if response != SurfaceResponse::None {
                 movement.surface_response = response;
             }
         }
         for facts in &sample.layers {
-            let active_response = active_surface_response(facts, player, block);
+            let body_contact = fluid_intersects(player, block, 1.0);
+            let active_response = if body_contact
+                && matches!(
+                    facts.surface_response,
+                    SurfaceResponse::Honey
+                        | SurfaceResponse::BubbleUp
+                        | SurfaceResponse::BubbleDown
+                ) {
+                active_surface_response(facts, player, block)
+            } else {
+                SurfaceResponse::None
+            };
             if movement.surface_response == SurfaceResponse::None
                 && active_response != SurfaceResponse::None
             {
                 movement.surface_response = active_response;
             }
             // Web slowdown belongs to the displacement phase, not ground acceleration.
-            let body_contact = fluid_intersects(player, block, 1.0);
             if !facts.flags.contains(BlockPhysicsFlags::COBWEB)
                 && (body_contact || (block == support && facts.flags.bits() == 0))
             {
@@ -85,8 +156,6 @@ pub(super) fn sample(
                     .vertical_speed_factor
                     .min(facts.vertical_speed_factor);
             }
-            movement.on_climbable |=
-                body_contact && facts.flags.contains(BlockPhysicsFlags::CLIMBABLE);
             movement.in_water |= facts.flags.contains(BlockPhysicsFlags::WATER)
                 && liquid_contact(liquid_player, block, true);
             movement.in_lava |= facts.flags.contains(BlockPhysicsFlags::LAVA)
@@ -98,8 +167,6 @@ pub(super) fn sample(
             movement.in_powder_snow |= (body_contact
                 && facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW))
                 || is_inside_slowdown(facts, player, block);
-            movement.in_scaffolding |=
-                body_contact && facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
         }
     }
     let identity = identity.expect("the support block guarantees one bounded sample");
@@ -108,7 +175,25 @@ pub(super) fn sample(
         friction,
         identity,
         block_samples,
+        descend_through: false,
+        primaries,
     })
+}
+
+/// Vanilla keeps the default friction over air, such as with the feet probe past a block edge.
+fn probes_air(
+    world: &(impl CollisionWorld + ?Sized),
+    block: [i32; 3],
+    identity: &mut Option<WorldCollisionIdentity>,
+) -> Result<bool, WorldQueryError> {
+    let Some(air) = world.primary_is_air(block)? else {
+        return Ok(false);
+    };
+    *identity = Some(match identity.take() {
+        None => air.identity,
+        Some(previous) => previous.merge(&air.identity)?,
+    });
+    Ok(air.value)
 }
 
 /// Checks a bounded volume against the same block-physics authority used for

@@ -2,10 +2,15 @@
 //! solid buttons (elevated, dropping 0.4rem when pressed), panels, dividers,
 //! list rows, modal menu items, solid tabs, text fields and segmented controls.
 
+mod art;
+mod choice;
+pub(super) use choice::{choice, choice_focus, choice_height};
+
 use super::super::super::{IconRef, UiPresentationError};
 use super::super::menu_caret::{TextSpot, caret_byte};
 use super::icons::{self, Icon};
-use super::paint::{Bounds, Canvas, text_factor};
+use super::motion::{Kind, mix, opacity};
+use super::paint::{Bounds, Canvas};
 use super::theme::{
     BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, Bundle, CAPTION, DESTRUCTIVE, DISABLED, EDGE,
     FIELD_CARET, FIELD_PLACEHOLDER, HEADER_HEIGHT, HEADER_STRIP, HEADER5, MENU_DESTRUCTIVE,
@@ -18,6 +23,7 @@ use crate::menu::{MenuAction, MenuView};
 /// How a control is being interacted with this frame.
 #[derive(Clone, Copy, Default)]
 pub(super) struct Interaction {
+    pub(super) action: Option<MenuAction>,
     pub(super) hovered: bool,
     pub(super) pressed: bool,
     pub(super) focused: bool,
@@ -29,9 +35,10 @@ impl Interaction {
             return Self::default();
         };
         Self {
+            action: Some(action),
             hovered: view.hovered == Some(action),
             pressed: view.pressed == Some(action),
-            focused: view.focused_action == Some(action),
+            focused: view.navigation_focus_visible && view.focused_action == Some(action),
         }
     }
 }
@@ -73,7 +80,7 @@ pub(super) fn screen_overlay(
     canvas: &mut Canvas<'_>,
     size: [f32; 2],
 ) -> Result<(), UiPresentationError> {
-    canvas.fill([0.0, 0.0, size[0], size[1]], OVERLAY_SCREEN)
+    canvas.overlay(size, OVERLAY_SCREEN)
 }
 
 /// The light header bar with an optional back button; returns its bottom edge.
@@ -84,14 +91,11 @@ pub(super) fn header(
     width: f32,
     back: Option<MenuAction>,
 ) -> Result<f32, UiPresentationError> {
+    let role = canvas.role(NEUTRAL20);
     let row = canvas.r(4.4);
     let strip = canvas.r(0.4);
-    canvas.fill([0.0, 0.0, width, row], NEUTRAL20.fill)?;
-    canvas.bevel(
-        [0.0, 0.0, width, row],
-        NEUTRAL20.specular[0],
-        NEUTRAL20.specular[1],
-    )?;
+    canvas.fill([0.0, 0.0, width, row], role.fill)?;
+    canvas.bevel([0.0, 0.0, width, row], role.specular[0], role.specular[1])?;
     canvas.fill([0.0, row, width, row + strip], HEADER_STRIP)?;
     canvas.fill(
         [0.0, row + strip, width, row + strip + canvas.r(EDGE)],
@@ -102,23 +106,18 @@ pub(super) fn header(
         title,
         [pad, 0.0, width - pad, row],
         HEADER5,
-        NEUTRAL20.text,
+        role.text,
         false,
     )?;
     if let Some(action) = back {
         let inset = canvas.r(EDGE);
         let button = [inset, inset, inset + canvas.r(4.0), row - inset];
         let state = Interaction::of(view, Some(action));
-        let fill = if state.pressed {
-            NEUTRAL20.pressed
-        } else if state.hovered {
-            NEUTRAL20.hovered
-        } else {
-            NEUTRAL20.fill
-        };
+        let motion = canvas.feedback(state, true, false, Kind::Surface);
+        let fill = motion.color(role.fill, role.hovered, role.pressed);
         canvas.fill(button, fill)?;
         if state.focused {
-            canvas.frame(button, EDGE, [0, 0, 0, 255])?;
+            canvas.frame(button, EDGE, role.text)?;
         }
         let [texel_w, texel_h] = Icon::ArrowBack.texels();
         let texel = canvas.r(EDGE);
@@ -126,7 +125,7 @@ pub(super) fn header(
             (button[0] + button[2] - texel_w as f32 * texel) * 0.5,
             (button[1] + button[3] - texel_h as f32 * texel) * 0.5,
         ];
-        icons::draw(canvas, Icon::ArrowBack, at, NEUTRAL20.text)?;
+        icons::draw(canvas, Icon::ArrowBack, at, role.text)?;
         canvas.hit(action, button)?;
     }
     Ok(canvas.r(HEADER_HEIGHT) + canvas.r(EDGE))
@@ -141,14 +140,8 @@ pub(super) fn button(
     label: &str,
     action: Option<MenuAction>,
 ) -> Result<(), UiPresentationError> {
-    button_face(
-        canvas,
-        b,
-        variant,
-        label,
-        Interaction::of(view, action),
-        action.is_some(),
-    )?;
+    let interaction = canvas.interaction(view, action);
+    button_face(canvas, b, variant, label, interaction, action.is_some())?;
     if let Some(action) = action {
         canvas.hit(action, b)?;
     }
@@ -170,19 +163,30 @@ pub(super) fn button_face(
     } else {
         DISABLED
     };
-    let pressed = enabled && state.pressed;
-    let hovered = enabled && state.hovered && !pressed;
-    let focused = enabled && state.focused;
+    let role = canvas.role(role);
+    let motion = canvas.feedback(state, enabled, false, Kind::Button);
     // Menus art draws pressed and (unhovered) focused faces from their own nine-slices.
-    let active = canvas.bundle == Bundle::Menus && (pressed || (focused && !hovered));
-    let edge = canvas.r(EDGE);
-    let shadow = if pressed { 0.0 } else { canvas.r(0.4) };
-    let outer = if pressed {
-        [b[0], b[1] + canvas.r(0.4), b[2], b[3]]
+    let active = if canvas.bundle == Bundle::Menus {
+        motion.press + (1.0 - motion.press) * motion.focus * (1.0 - motion.hover)
     } else {
-        b
+        0.0
     };
-    canvas.fill(outer, if active { BORDER } else { role.border })?;
+    let edge = canvas.r(EDGE);
+    let shadow = canvas.r(0.4) * (1.0 - motion.press);
+    let outer = [b[0], b[1] + canvas.r(0.4) * motion.press, b[2], b[3]];
+    if art::elevated_motion(canvas, b, variant, state, enabled, motion)? {
+        return canvas.text_centred(
+            label,
+            [outer[0], outer[1], outer[2], outer[3] - shadow],
+            variant.label(),
+            role.text,
+            matches!(variant, Variant::Hero) && enabled,
+        );
+    }
+    canvas.fill(
+        outer,
+        mix(role.border, canvas.appearance.surface(BORDER), active),
+    )?;
     let inner = [
         outer[0] + edge,
         outer[1] + edge,
@@ -191,23 +195,21 @@ pub(super) fn button_face(
     ];
     let face = [inner[0], inner[1], inner[2], inner[3] - shadow];
     canvas.fill([face[0], face[3], face[2], inner[3]], role.shadow)?;
-    let fill = if pressed {
-        role.pressed
-    } else if hovered {
-        role.hovered
-    } else {
-        role.fill
-    };
+    let fill = motion.color(role.fill, role.hovered, role.pressed);
     canvas.fill(face, fill)?;
-    let [top, bottom] = if active {
-        MENU_SPECULAR_ACTIVE
-    } else if hovered {
-        role.specular_hovered
-    } else {
-        role.specular
-    };
+    let [top, bottom] = std::array::from_fn(|index| {
+        mix(
+            mix(
+                role.specular[index],
+                role.specular_hovered[index],
+                motion.hover,
+            ),
+            MENU_SPECULAR_ACTIVE[index],
+            active,
+        )
+    });
     canvas.specular(face, top, bottom)?;
-    if focused {
+    if motion.focus > 0.0 {
         canvas.frame(
             [
                 outer[0] - edge,
@@ -216,7 +218,7 @@ pub(super) fn button_face(
                 outer[3] + edge,
             ],
             EDGE,
-            OUTLINE,
+            opacity(OUTLINE, motion.focus),
         )?;
     }
     let shadowed = matches!(variant, Variant::Hero) && enabled;
@@ -258,27 +260,6 @@ const ROW_IDLE: Bevel = Bevel {
     fill: NEUTRAL.fill,
     edges: [BEVEL_LIGHT, BEVEL_DARK],
 };
-const ROW_HOVER: Bevel = Bevel {
-    fill: NEUTRAL.hovered,
-    ..ROW_IDLE
-};
-const ROW_PRESSED: Bevel = Bevel {
-    fill: NEUTRAL.pressed,
-    ..ROW_IDLE
-};
-const TAB_IDLE: Bevel = Bevel {
-    fill: NEUTRAL.fill,
-    edges: NEUTRAL.specular,
-};
-const TAB_HOVER: Bevel = Bevel {
-    fill: NEUTRAL.hovered,
-    ..TAB_IDLE
-};
-const TAB_SELECTED: Bevel = Bevel {
-    fill: NEUTRAL.pressed,
-    ..TAB_IDLE
-};
-
 /// A bevelled face inside a dark border; `front` adds the lower front face strip.
 fn bevelled(
     canvas: &mut Canvas<'_>,
@@ -311,21 +292,24 @@ pub(super) fn row(
     selected: bool,
     action: Option<MenuAction>,
 ) -> Result<(), UiPresentationError> {
-    let state = Interaction::of(view, action);
-    let bevel = if state.pressed {
-        &ROW_PRESSED
-    } else if state.hovered || selected {
-        &ROW_HOVER
-    } else {
-        &ROW_IDLE
+    let state = canvas.interaction(view, action);
+    let motion = canvas.feedback(state, action.is_some(), selected, Kind::Surface);
+    let role = canvas.role(NEUTRAL);
+    let bevel = Bevel {
+        fill: mix(
+            motion.color(role.fill, role.hovered, role.pressed),
+            role.hovered,
+            motion.selected * (1.0 - motion.press),
+        ),
+        ..ROW_IDLE
     };
-    bevelled(canvas, b, bevel, false)?;
-    if state.focused {
+    bevelled(canvas, b, &bevel, false)?;
+    if motion.focus > 0.0 {
         let ring = canvas.r(0.4);
         canvas.frame(
             [b[0] - ring, b[1] - ring, b[2] + ring, b[3] + ring],
             EDGE,
-            OUTLINE,
+            opacity(OUTLINE, motion.focus),
         )?;
     }
     if let Some(action) = action {
@@ -354,25 +338,21 @@ pub(super) fn menu_item(
     item: &MenuItem<'_>,
 ) -> Result<(), UiPresentationError> {
     let action = item.action.filter(|_| item.enabled);
-    let state = Interaction::of(view, action);
+    let state = canvas.interaction(view, action);
+    let motion = canvas.feedback(state, item.enabled, item.selected, Kind::Surface);
     let role = if item.enabled {
         MENU_ITEM
     } else {
         MENU_ITEM_DISABLED
     };
+    let role = canvas.role(role);
     let edge = canvas.r(EDGE);
     canvas.fill(b, role.border)?;
     let face = [b[0] + edge, b[1] + edge, b[2] - edge, b[3]];
-    let fill = if state.pressed {
-        role.pressed
-    } else if state.hovered {
-        role.hovered
-    } else {
-        role.fill
-    };
+    let fill = motion.color(role.fill, role.hovered, role.pressed);
     canvas.fill(face, fill)?;
-    if state.focused {
-        canvas.frame(face, EDGE, OUTLINE)?;
+    if motion.focus > 0.0 {
+        canvas.frame(face, EDGE, opacity(OUTLINE, motion.focus))?;
     }
     let pad = canvas.r(1.6);
     let middle = (face[1] + face[3]) * 0.5;
@@ -393,7 +373,7 @@ pub(super) fn menu_item(
     }
     let [check_w, check_h] = Icon::Check.texels().map(|texels| texels as f32 * edge);
     let check_left = face[2] - pad - check_w;
-    let top = middle - canvas.r(BODY.line) * 0.5 + canvas.r((BODY.line - BODY.size) * 0.5);
+    let top = middle - canvas.r(BODY.line) * 0.5;
     canvas.text_line(
         item.label,
         [left, top],
@@ -427,52 +407,74 @@ pub(super) fn tabs(
     if labels.is_empty() {
         return Ok(());
     }
+    let role = canvas.role(NEUTRAL);
     let overlap = canvas.r(EDGE);
     let width = (b[2] - b[0] + overlap * (labels.len() - 1) as f32) / labels.len() as f32;
+    let mut focus_rings = Vec::new();
     for (index, (label, action)) in labels.iter().enumerate() {
         let left = b[0] + (width - overlap) * index as f32;
         let cell = [left, b[1], left + width, b[3]];
-        if index == selected {
-            let face = [cell[0], cell[1] + canvas.r(0.4), cell[2], cell[3]];
-            bevelled(canvas, face, &TAB_SELECTED, false)?;
-            let indicator = canvas.r(4.8).min(face[2] - face[0]);
-            let centre = (face[0] + face[2]) * 0.5;
-            canvas.fill(
-                [
-                    centre - indicator * 0.5,
-                    face[3],
-                    centre + indicator * 0.5,
-                    face[3] + canvas.r(EDGE),
-                ],
-                OUTLINE,
-            )?;
-            canvas.text_centred(label, face, BODY, NEUTRAL.text, false)?;
-            continue;
-        }
-        let state = Interaction::of(view, *action);
-        bevelled(
-            canvas,
-            cell,
-            if state.hovered { &TAB_HOVER } else { &TAB_IDLE },
-            true,
+        let state = canvas.interaction(view, *action);
+        let motion = canvas.feedback(state, true, index == selected, Kind::Tab);
+        let down = motion.depression();
+        let face = [cell[0], cell[1] + canvas.r(0.4) * down, cell[2], cell[3]];
+        let strip = canvas.r(0.4) * (1.0 - down);
+        canvas.fill(face, BORDER)?;
+        let edge = canvas.r(EDGE);
+        let inner = [
+            face[0] + edge,
+            face[1] + edge,
+            face[2] - edge,
+            face[3] - edge,
+        ];
+        let front = [inner[0], inner[1], inner[2], inner[3] - strip];
+        canvas.fill([inner[0], front[3], inner[2], inner[3]], NEUTRAL80.fill)?;
+        canvas.fill(
+            front,
+            mix(
+                motion.color(role.fill, role.hovered, role.pressed),
+                role.pressed,
+                motion.selected,
+            ),
         )?;
-        if state.focused {
-            canvas.frame(
+        canvas.specular(front, role.specular[0], role.specular[1])?;
+        let indicator = canvas.r(4.8).min(face[2] - face[0]);
+        let centre = (face[0] + face[2]) * 0.5;
+        canvas.fill(
+            [
+                centre - indicator * 0.5,
+                face[3],
+                centre + indicator * 0.5,
+                face[3] + edge,
+            ],
+            opacity(OUTLINE, motion.selected),
+        )?;
+        if motion.focus > 0.0 && index != selected {
+            focus_rings.push((
                 [
                     cell[0] - overlap,
                     cell[1] - overlap,
                     cell[2] + overlap,
                     cell[3] + overlap,
                 ],
-                EDGE,
-                OUTLINE,
-            )?;
+                motion.focus,
+            ));
         }
-        let face = [cell[0], cell[1], cell[2], cell[3] - canvas.r(0.4)];
-        canvas.text_centred(label, face, BODY, NEUTRAL.text, false)?;
-        if let Some(action) = action {
+        canvas.text_centred(
+            label,
+            [face[0], face[1], face[2], face[3] - strip],
+            BODY,
+            NEUTRAL.text,
+            false,
+        )?;
+        if index != selected
+            && let Some(action) = action
+        {
             canvas.hit(*action, cell)?;
         }
+    }
+    for (bounds, alpha) in focus_rings {
+        canvas.frame(bounds, EDGE, opacity(OUTLINE, alpha))?;
     }
     Ok(())
 }
@@ -518,17 +520,10 @@ pub(super) fn row_text(
     caption: &str,
 ) -> Result<(), UiPresentationError> {
     let pad = (4.8 - BODY.line - CAPTION.line) * 0.5;
-    let glyph = |style: Type| (style.line - style.size) * 0.5;
-    canvas.text_line(
-        title,
-        [left, top + canvas.r(pad + glyph(BODY))],
-        width,
-        BODY,
-        TEXT,
-    )?;
+    canvas.text_line(title, [left, top + canvas.r(pad)], width, BODY, TEXT)?;
     canvas.text_line(
         caption,
-        [left, top + canvas.r(pad + BODY.line + glyph(CAPTION))],
+        [left, top + canvas.r(pad + BODY.line)],
         width,
         CAPTION,
         TEXT_DIMMER,
@@ -552,9 +547,7 @@ pub(super) fn tag(
     Ok(b[2])
 }
 
-/// A text field: a dark face inside the field border (0.6rem on top), the value or placeholder
-/// at the field's padding, and the caret at its position while focused. The border art is
-/// approximated.
+/// An even inset frames the centered value or placeholder and the focused caret.
 pub(super) fn text_field(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -562,50 +555,117 @@ pub(super) fn text_field(
     value: &str,
     placeholder: &str,
     focused: bool,
-    action: MenuAction,
+    action: Option<MenuAction>,
 ) -> Result<(), UiPresentationError> {
-    let state = Interaction::of(view, Some(action));
+    field(
+        canvas,
+        view,
+        b,
+        value,
+        placeholder,
+        focused,
+        action,
+        NEUTRAL100,
+    )
+}
+
+/// Fields inherit the darker input surface inside a neutral settings panel.
+pub(super) fn text_field_on_panel(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+    value: &str,
+    placeholder: &str,
+    focused: bool,
+    action: Option<MenuAction>,
+) -> Result<(), UiPresentationError> {
+    field(
+        canvas,
+        view,
+        b,
+        value,
+        placeholder,
+        focused,
+        action,
+        NEUTRAL80.fill,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn field(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+    value: &str,
+    placeholder: &str,
+    focused: bool,
+    action: Option<MenuAction>,
+    fill: Rgba,
+) -> Result<(), UiPresentationError> {
+    let mut state = canvas.interaction(view, action);
+    state.focused |= focused;
+    let motion = canvas.feedback(state, action.is_some(), false, Kind::Field);
     canvas.fill(b, BORDER)?;
     let edge = canvas.r(EDGE);
-    let face = [b[0] + edge, b[1] + canvas.r(0.6), b[2] - edge, b[3] - edge];
-    canvas.fill(
-        face,
-        if state.hovered {
-            NEUTRAL80.hovered
-        } else {
-            NEUTRAL100
-        },
-    )?;
+    let face = [b[0] + edge, b[1] + edge, b[2] - edge, b[3] - edge];
+    let fill = canvas.appearance.surface(fill);
+    let hovered = canvas.role(NEUTRAL80).hovered;
+    canvas.fill(face, mix(fill, hovered, motion.hover))?;
     let left = b[0] + canvas.r(1.4);
     let width = (b[2] - canvas.r(1.2) - left).max(1.0);
-    let top = face[1] + (face[3] - face[1] - canvas.r(BODY.line)) * 0.5;
+    let top = (b[1] + b[3] - canvas.r(BODY.line)) * 0.5;
     let shown = if value.is_empty() { placeholder } else { value };
     let color = if value.is_empty() {
         FIELD_PLACEHOLDER
     } else {
         TEXT
     };
-    canvas.text_line(shown, [left, top], width, BODY, color)?;
-    if focused {
-        let before = &value[..caret_byte(value, view.caret.byte)];
-        let caret_x = if before.is_empty() {
-            left
-        } else {
-            left + canvas.measure(before, BODY)?.min(width)
-        };
+    let before = &value[..caret_byte(value, view.caret.byte)];
+    let target = if before.is_empty() {
+        0.0
+    } else {
+        canvas.measure(before, BODY)?.min(width)
+    };
+    let (caret, insertion) = if focused
+        && let Some(action) = action
+        && let Some(transitions) = canvas.transitions.as_deref_mut()
+    {
+        transitions.text.sample(
+            canvas.surface,
+            action,
+            value,
+            target,
+            canvas.seconds,
+            transitions.motion.enabled(),
+        )
+    } else {
+        (target, None)
+    };
+    canvas.text_line_typing(
+        shown,
+        [left, b[1], left + width, b[3]],
+        BODY,
+        color,
+        insertion,
+    )?;
+    if focused && view.caret.shown && view.caret.selection.is_none() {
+        let caret_x = left + caret;
         canvas.fill(
             [caret_x, top, caret_x + edge, top + canvas.r(BODY.line)],
             FIELD_CARET,
         )?;
-        canvas.frame(b, EDGE, OUTLINE)?;
-    } else if state.focused {
-        let ring = canvas.r(0.4);
+    }
+    if motion.focus > 0.0 {
+        let ring = if focused { 0.0 } else { canvas.r(0.4) };
         canvas.frame(
             [b[0] - ring, b[1] - ring, b[2] + ring, b[3] + ring],
             EDGE,
-            OUTLINE,
+            opacity(OUTLINE, motion.focus),
         )?;
     }
+    let Some(action) = action else {
+        return Ok(());
+    };
     canvas.hit(action, b)?;
     // A press inside the field places its caret by character.
     if let Some(field) = action.text_field()
@@ -613,34 +673,55 @@ pub(super) fn text_field(
         && hit == action
     {
         let metrics = canvas.metrics;
+        let request = canvas.text_request(value, 65536 * 64, BODY)?;
+        let factor = request.scale.get() / metrics.scale.get();
+        let letter_spacing_64 = request.wrap.letter_spacing_64;
         canvas.spots.push(TextSpot {
             field,
             bounds,
             left,
-            factor: text_factor(BODY),
-            font: None,
+            factor,
+            font: Some(BODY.face.name().into()),
+            letter_spacing_64,
             metrics,
         });
     }
     Ok(())
 }
 
-/// A segmented control: one bevelled cell per option, the selected one sunk and dark.
+/// Native choices keep the selected cell green and lowered, with fixed input targets.
 pub(super) fn segmented(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
     options: &[(&str, MenuAction, bool)],
 ) -> Result<(), UiPresentationError> {
-    let labels: Vec<(&str, Option<MenuAction>)> = options
-        .iter()
-        .map(|(label, action, _)| (*label, Some(*action)))
-        .collect();
-    let selected = options
-        .iter()
-        .position(|(_, _, on)| *on)
-        .unwrap_or(usize::MAX);
-    tabs(canvas, view, b, &labels, selected)
+    if options.is_empty() {
+        return Ok(());
+    }
+    let width = (b[2] - b[0]) / options.len() as f32;
+    for (index, (label, action, selected)) in options.iter().enumerate() {
+        let left = b[0] + width * index as f32;
+        choice(
+            canvas,
+            view,
+            [left, b[1], left + width, b[3]],
+            label,
+            *selected,
+            *action,
+        )?;
+    }
+    for (index, (_, action, selected)) in options.iter().enumerate() {
+        let left = b[0] + width * index as f32;
+        choice_focus(
+            canvas,
+            view,
+            [left, b[1], left + width, b[3]],
+            *selected,
+            *action,
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

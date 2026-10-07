@@ -2,14 +2,9 @@ use protocol::PlayerInputFlags;
 
 use super::PhysicsMovementSample;
 
-/// Previous-tick input lanes used to derive per-family edges between ticks.
-///
-/// The raw jump and sneak carriers track physical buttons; the processed
-/// sneak and sprint lanes track what the simulator acted on.
+/// Previous actor state used only for start/stop actions between ticks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct HeldInput {
-    jumping: bool,
-    sneak_button: bool,
     sneaking: bool,
     sprinting: bool,
     mode: sim::MovementMode,
@@ -18,8 +13,6 @@ pub(super) struct HeldInput {
 impl From<&PhysicsMovementSample> for HeldInput {
     fn from(sample: &PhysicsMovementSample) -> Self {
         Self {
-            jumping: sample.jumping,
-            sneak_button: sample.sneak_button,
             sneaking: sample.processed.sneaking,
             sprinting: sample.processed.sprinting,
             mode: sample.processed.mode,
@@ -27,57 +20,18 @@ impl From<&PhysicsMovementSample> for HeldInput {
     }
 }
 
-/// Existing direction policy, independent of item/pose control magnitude.
-pub(super) fn direction_flags(vector: [f32; 2]) -> PlayerInputFlags {
-    let mut flags = PlayerInputFlags::NONE;
-    if vector[1] > 0.0 {
-        flags |= PlayerInputFlags::UP;
-    } else if vector[1] < 0.0 {
-        flags |= PlayerInputFlags::DOWN;
-    }
-    if vector[0] < 0.0 {
-        flags |= PlayerInputFlags::LEFT;
-    } else if vector[0] > 0.0 {
-        flags |= PlayerInputFlags::RIGHT;
-    }
-    let processed = normalize_move_vector(vector);
-    let diagonal = (processed[0].abs() - processed[1].abs()).abs() <= f32::EPSILON * 4.0
-        && (processed[0].mul_add(processed[0], processed[1] * processed[1]) - 1.0).abs()
-            <= f32::EPSILON * 4.0;
-    if diagonal {
-        if processed[0] < 0.0 && processed[1] > 0.0 {
-            flags |= PlayerInputFlags::UP_LEFT;
-        } else if processed[0] > 0.0 && processed[1] > 0.0 {
-            flags |= PlayerInputFlags::UP_RIGHT;
-        } else if processed[0] < 0.0 && processed[1] < 0.0 {
-            flags |= PlayerInputFlags::DOWN_LEFT;
-        } else if processed[0] > 0.0 && processed[1] < 0.0 {
-            flags |= PlayerInputFlags::DOWN_RIGHT;
-        }
-    }
-    flags
+/// Maps physical digital buttons without inferring them from the movement vector.
+pub(super) fn direction_flags(buttons: semantic_input::MovementButtons) -> PlayerInputFlags {
+    PlayerInputFlags::NONE
+        .with_mask(PlayerInputFlags::UP, buttons.forward)
+        .with_mask(PlayerInputFlags::DOWN, buttons.backward)
+        .with_mask(PlayerInputFlags::LEFT, buttons.left)
+        .with_mask(PlayerInputFlags::RIGHT, buttons.right)
 }
 
+/// Encodes independent input requests, raw button edges and resulting actor transitions.
 pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
-    let mut flags = sample.processed.direction_flags.map_or_else(
-        || direction_flags(sample.move_vector),
-        |captured| {
-            [
-                PlayerInputFlags::UP,
-                PlayerInputFlags::DOWN,
-                PlayerInputFlags::LEFT,
-                PlayerInputFlags::RIGHT,
-                PlayerInputFlags::UP_LEFT,
-                PlayerInputFlags::UP_RIGHT,
-                PlayerInputFlags::DOWN_LEFT,
-                PlayerInputFlags::DOWN_RIGHT,
-            ]
-            .into_iter()
-            .fold(PlayerInputFlags::NONE, |flags, bit| {
-                flags.with_mask(bit, captured.bits() & bit.bits() != 0)
-            })
-        },
-    );
+    let mut flags = direction_flags(sample.input.movement_buttons);
 
     if sample.horizontal_collision {
         flags |= PlayerInputFlags::HORIZONTAL_COLLISION;
@@ -86,54 +40,55 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         flags |= PlayerInputFlags::VERTICAL_COLLISION;
     }
 
-    // Raw jump-button carriers track the physical button exactly. Vanilla also
-    // sets processed up and sends it as WantUp, which the server reads
-    // independently of JumpDown.
-    if sample.jumping {
-        flags |= PlayerInputFlags::JUMP_DOWN
-            | PlayerInputFlags::JUMP_CURRENT_RAW
-            | PlayerInputFlags::JUMPING
-            | PlayerInputFlags::WANT_UP;
-        if !previous.jumping {
-            flags |= PlayerInputFlags::JUMP_PRESSED_RAW;
-        }
-    } else if previous.jumping {
-        flags |= PlayerInputFlags::JUMP_RELEASED_RAW;
-    }
+    flags = flags
+        .with_mask(PlayerInputFlags::JUMP_DOWN, sample.input.jump.held)
+        .with_mask(PlayerInputFlags::JUMP_CURRENT_RAW, sample.input.jump.held)
+        .with_mask(
+            PlayerInputFlags::JUMP_PRESSED_RAW,
+            sample.input.jump.pressed,
+        )
+        .with_mask(
+            PlayerInputFlags::JUMP_RELEASED_RAW,
+            sample.input.jump.released,
+        )
+        .with_mask(PlayerInputFlags::JUMPING, sample.jumping)
+        .with_mask(PlayerInputFlags::WANT_UP, sample.jumping);
     // Vanilla maps held jump to Jumping.
     // It maps actual takeoff to StartJumping.
     if sample.processed.jump_initiated {
         flags |= PlayerInputFlags::START_JUMPING;
     }
 
-    // The corresponding processed down lane accompanies held sneak.
-    if sample.processed.sneaking {
-        flags |=
-            PlayerInputFlags::SNEAKING | PlayerInputFlags::SNEAK_DOWN | PlayerInputFlags::WANT_DOWN;
-        if !previous.sneaking {
-            flags |= PlayerInputFlags::START_SNEAKING;
-        }
-    } else if previous.sneaking {
-        flags |= PlayerInputFlags::STOP_SNEAKING;
+    flags = flags
+        .with_mask(PlayerInputFlags::SNEAKING, sample.input.sneak_down)
+        .with_mask(PlayerInputFlags::SNEAK_DOWN, sample.input.sneak_down)
+        .with_mask(PlayerInputFlags::WANT_DOWN, sample.input.sneak_down)
+        .with_mask(PlayerInputFlags::SNEAK_CURRENT_RAW, sample.input.sneak.held)
+        .with_mask(
+            PlayerInputFlags::SNEAK_PRESSED_RAW,
+            sample.input.sneak.pressed,
+        )
+        .with_mask(
+            PlayerInputFlags::SNEAK_RELEASED_RAW,
+            sample.input.sneak.released,
+        )
+        .with_mask(PlayerInputFlags::SPRINT_DOWN, sample.input.sprint_down)
+        .with_mask(PlayerInputFlags::SPRINTING, sample.input.sprint_down);
+    if sample.processed.sneaking != previous.sneaking {
+        flags |= if sample.processed.sneaking {
+            PlayerInputFlags::START_SNEAKING
+        } else {
+            PlayerInputFlags::STOP_SNEAKING
+        };
     }
-    if sample.sneak_button {
-        flags |= PlayerInputFlags::SNEAK_CURRENT_RAW;
-        if !previous.sneak_button {
-            flags |= PlayerInputFlags::SNEAK_PRESSED_RAW;
-        }
-    } else if previous.sneak_button {
-        flags |= PlayerInputFlags::SNEAK_RELEASED_RAW;
+    if sample.processed.sprinting != previous.sprinting {
+        flags |= if sample.processed.sprinting {
+            PlayerInputFlags::START_SPRINTING
+        } else {
+            PlayerInputFlags::STOP_SPRINTING
+        };
     }
-
-    if sample.processed.sprinting {
-        flags |= PlayerInputFlags::SPRINT_DOWN | PlayerInputFlags::SPRINTING;
-        if !previous.sprinting {
-            flags |= PlayerInputFlags::START_SPRINTING;
-        }
-    } else if previous.sprinting {
-        flags |= PlayerInputFlags::STOP_SPRINTING;
-    }
-    if sample.processed.forced_sneak {
+    if sample.input_mode.persists_sneak() {
         flags |= PlayerInputFlags::PERSIST_SNEAK;
     }
     flags | mode_flags(sample, previous)

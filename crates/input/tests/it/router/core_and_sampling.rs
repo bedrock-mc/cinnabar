@@ -132,9 +132,6 @@ fn extreme_finite_stick_axes_clamp_without_collapsing_to_zero() {
 #[test]
 fn extreme_finite_mouse_motion_clamps_without_collapsing_to_zero() {
     let mut router = SemanticInputRouter::default();
-    let mut settings = ControlSettings::default();
-    settings.mouse_sensitivity = 10.0;
-    router.replace_bindings(settings).unwrap();
     router
         .route(DeviceFrame {
             keyboard_mouse: Some(KeyboardMouseFrame {
@@ -148,6 +145,38 @@ fn extreme_finite_mouse_motion_clamps_without_collapsing_to_zero() {
     let look = router.finalize().unwrap().look_delta;
     assert!(look.iter().all(|axis| axis.is_finite()));
     assert_eq!(look, [MAX_LOOK_DELTA_PER_FRAME, 0.0]);
+}
+
+/// Mouse look reaches the camera in device counts whatever the sensitivity option says.
+#[test]
+fn mouse_look_is_routed_in_counts_and_sensitivity_is_a_unit_option() {
+    for sensitivity in [0.0, 0.5, 1.0] {
+        let mut router = SemanticInputRouter::default();
+        let mut settings = ControlSettings::default();
+        settings.mouse_sensitivity = sensitivity;
+        router.replace_bindings(settings).unwrap();
+        router
+            .route(DeviceFrame {
+                keyboard_mouse: Some(KeyboardMouseFrame {
+                    activity_sequence: 1,
+                    mouse_motion: [7.0, -3.0],
+                    ..KeyboardMouseFrame::default()
+                }),
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+        assert_eq!(router.finalize().unwrap().look_delta, [7.0, -3.0]);
+    }
+    let mut settings = ControlSettings::default();
+    assert_eq!(
+        settings.mouse_sensitivity,
+        semantic_input::DEFAULT_MOUSE_SENSITIVITY
+    );
+    settings.mouse_sensitivity = 1.01;
+    assert_eq!(
+        SemanticInputRouter::default().replace_bindings(settings),
+        Err(BindingError::SensitivityOutOfRange)
+    );
 }
 
 #[test]
@@ -551,7 +580,10 @@ fn keyboard_carriers_keep_digital_buttons_separate_from_analogue_axes() {
         .unwrap();
     let snapshot = router.finalize().unwrap();
 
-    assert_eq!(snapshot.input_mode, semantic_input::InputMode::KeyboardMouse);
+    assert_eq!(
+        snapshot.input_mode,
+        semantic_input::InputMode::KeyboardMouse
+    );
     assert_eq!(snapshot.raw_movement, [1.0, 1.0]);
     assert_eq!(snapshot.analogue_movement, [0.0, 0.0]);
     assert!((snapshot.movement[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.000_001);
@@ -609,13 +641,13 @@ fn gamepad_digital_buttons_separate_the_raw_and_analogue_carriers() {
         context: InputContext::Gameplay,
         chord: empty_chord(PhysicalControl::GamepadButton(14)),
     });
-    let settings =
-        ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
+    let settings = ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
     let mut router = SemanticInputRouter::default();
     router.replace_bindings(settings).unwrap();
     router
         .route(DeviceFrame {
             controllers: vec![ControllerFrame {
+                button_edges: Default::default(),
                 device_id: 1,
                 activity_sequence: 1,
                 axes: [0.6, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -654,13 +686,13 @@ fn all_digital_gamepad_layout_reports_an_empty_analogue_axis_sample() {
             chord: empty_chord(PhysicalControl::GamepadButton(button)),
         });
     }
-    let settings =
-        ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
+    let settings = ControlSettings::new(bindings, 1.0, 1.0, 1.0, false, false, 0.15, 0.15).unwrap();
     let mut router = SemanticInputRouter::default();
     router.replace_bindings(settings).unwrap();
     router
         .route(DeviceFrame {
             controllers: vec![ControllerFrame {
+                button_edges: Default::default(),
                 device_id: 1,
                 activity_sequence: 1,
                 axes: [0.0; 8],

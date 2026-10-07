@@ -19,13 +19,20 @@ use protocol::{ActorKind, BedrockSession, WorldBootstrap, WorldEvent};
 use render::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
 
 use crate::runtime::network::{
-    HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
+    HandRigBuilder, advance_actor_frame, prepare_actor_render_frame, publish_actor_render_frame,
 };
 
 mod gpu_replay;
 mod join_setup;
+mod pipeline_tests;
 mod player_report;
 mod synthetic_players;
+
+/// Prepares one offline actor frame through the same systems as the client.
+fn prepare_offline_actor_frame(world: &mut World) {
+    world.run_system_cached(advance_actor_frame).unwrap();
+    world.run_system_cached(prepare_actor_render_frame).unwrap();
+}
 
 const FRAME: Duration = Duration::from_nanos(16_666_667);
 const COMPILED: &str = "../.local/assets/compiled";
@@ -544,7 +551,7 @@ fn lobby_frame_bench() {
             .update_with_instant(clock);
         let before = crate::tests::alloc_count::thread_allocations();
         let (timer, cpu_timer) = (Instant::now(), thread_cpu_time());
-        world.run_system_cached(prepare_actor_render_frame).unwrap();
+        prepare_offline_actor_frame(&mut world);
         world.run_system_cached(publish_actor_render_frame).unwrap();
         let elapsed = timer.elapsed();
         let cpu_elapsed = thread_cpu_time()

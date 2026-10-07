@@ -176,7 +176,7 @@ pub fn update_cursor_capture(
 
     // Focus loss has priority over every capture request, including auto-fly.
     // The trusted consent popup needs a pointer whatever settings the scene behind it declares.
-    if !window.focused || policy.consent {
+    if !window.focused || !policy.capture_allowed || policy.consent {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.capture_pending = false;
@@ -213,9 +213,12 @@ pub fn update_cursor_capture(
 }
 
 /// Routes device-scaled look input through freelook and the selected server rig.
+///
+/// `window_width` is the primary window's width in physical pixels, which scales mouse look.
 #[allow(clippy::too_many_arguments)]
 pub fn update_look(
     spyglass: (f32, Option<Res<fov::CameraFovInputs>>),
+    window_width: u32,
     input: crate::observations::InputObservation<'_>,
     auto_fly: Res<AutoFly>,
     mut settings: ResMut<CameraSettingsAuthority>,
@@ -251,19 +254,31 @@ pub fn update_look(
     }
 
     let (yaw, pitch, roll) = view.camera_rotation().to_euler(EulerRot::YXZ);
+    let feel = settings.feel();
+    let degrees = match mode {
+        semantic_input::InputMode::KeyboardMouse => {
+            look::mouse_turn_degrees(look_delta, window_width, settings.game_sensitivity())
+        }
+        semantic_input::InputMode::GamePad => {
+            look_delta * look::analog_degrees_per_routed_unit(feel.gamepad_look_sensitivity)
+        }
+        semantic_input::InputMode::Touch => {
+            look_delta * look::analog_degrees_per_routed_unit(feel.touch_look_sensitivity)
+        }
+    };
     let (damping, facts) = spyglass;
-    let look_delta = look::spyglass_turn_delta(
-        look_delta,
+    let degrees = look::spyglass_turn_delta(
+        degrees,
         facts.as_ref().is_some_and(|facts| facts.spyglass_scoping),
         damping,
     );
+    let turn = Vec2::new(degrees.x.to_radians(), degrees.y.to_radians());
     // Front-camera polar inversion and reversed forward cancel in actor space;
     // LocalViewPose retains actor yaw.
-    let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
     let server_rotation = server
         .as_deref_mut()
-        .and_then(|server| server.apply_look_delta(-look_delta * scale));
-    let (yaw, pitch) = look_angles(yaw, pitch, look_delta, Vec2::splat(scale));
+        .and_then(|server| server.apply_look_delta(-turn));
+    let (yaw, pitch) = look_angles(yaw, pitch, turn, Vec2::ONE);
     view.set_look_rotation(
         server_rotation.unwrap_or_else(|| Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll)),
     );

@@ -765,18 +765,25 @@ fn oreui_texts(view: &crate::menu::MenuView) -> Vec<String> {
     let metrics = super::super::TextMetrics::for_viewport([1600, 900], dpi, None);
     let (mut nodes, mut next) = (Vec::new(), 1);
     presentation
-        .append_oreui_screen(view, &mut nodes, &mut next, metrics, [1600.0, 900.0], None)
+        .append_oreui_screen(
+            view,
+            &mut nodes,
+            &mut next,
+            metrics,
+            [1600.0, 900.0],
+            None,
+            &|_| None,
+        )
         .unwrap()
         .expect("an OreUI screen");
     super::pack_harness::drawn_texts(&nodes)
 }
 
-// The owner's world type labels show on the create form, the edit screen, the worlds list
-// and the no-Docker dialog's built-in option.
+// Generator labels survive every world view; the Docker prompt offers the alternate backend.
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
     use crate::local_worlds::{
-        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, Tab, WorldsMenu,
+        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
     };
     use protocol::world_control::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
@@ -855,9 +862,11 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         },
     ));
     menu.update(Input::BeginCreate);
+    menu.update(Input::SetBackend(Backend::Bds));
+    menu.update(Input::SubmitCreate);
     let dialog = oreui_texts(&base(&menu));
     assert!(
-        has(&dialog, &format!("Create {FLAT_WORLD_LABEL} world")),
+        has(&dialog, &PromptButton::UseDragonfly.label()),
         "no-Docker dialog: {dialog:?}"
     );
 }
@@ -894,7 +903,7 @@ fn review_failed_menu_modal_does_not_expose_underlying_actions() {
         )
         .unwrap();
     assert!(!presentation.menu_hit_targets.is_empty());
-    view.dialog = Some(MenuDialog::Exit);
+    view.dialog = Some(MenuDialog::SettingsResetBindings(false));
     presentation.set_menu_view(Some(view));
     presentation
         .build(

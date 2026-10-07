@@ -250,6 +250,8 @@ fn drive_mod(
     player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     extension: Option<ResMut<ModRuntime>>,
     keys: Res<ButtonInput<KeyCode>>,
+    focus: Option<Res<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
     windows: Query<(&Window, Option<&CursorOptions>), With<PrimaryWindow>>,
     ui: Res<UiRuntime>,
     menu: Option<Res<MenuRuntime>>,
@@ -294,7 +296,9 @@ fn drive_mod(
     );
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
     let captured = windows.single().is_ok_and(|(window, cursor)| {
-        cursor.is_some_and(|cursor| crate::camera::input_is_active(window, cursor))
+        cursor.is_some_and(|cursor| {
+            crate::camera::mouse_input_active(window, cursor, focus.as_deref(), driven.is_some())
+        })
     });
     let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
     let (network, camera, cues) = outputs;

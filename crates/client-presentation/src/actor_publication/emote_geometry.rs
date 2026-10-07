@@ -5,9 +5,10 @@ pub(super) fn skin_layer_snapshot<'a>(
     rig: client_world::ActorRigSnapshot<'a>,
     emote: Option<&'a client_world::CustomEmotePose>,
     java_layers: Option<&'a [client_world::SkinRenderLayer]>,
+    native_layers: Option<&'a [client_world::SkinRenderLayer]>,
 ) -> client_world::ActorRigSnapshot<'a> {
     let rig = emote.map_or(rig, |pose| pose.snapshot(rig));
-    match java_layers {
+    match java_layers.or(native_layers) {
         Some(skin_layers) => client_world::ActorRigSnapshot { skin_layers, ..rig },
         None => rig,
     }

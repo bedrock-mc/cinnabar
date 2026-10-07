@@ -1,9 +1,8 @@
-use super::form::FLAT_WORLD_LABEL;
 use super::model::Input;
 
 pub const DOCKER_URL: &str = "https://www.docker.com/products/docker-desktop/";
 
-/// Why default worlds cannot run (macOS only; the core never reports a reason on Windows or Linux).
+/// Why BDS cannot run in Docker on macOS.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PromptKind {
     DockerMissing,
@@ -13,20 +12,17 @@ pub enum PromptKind {
 /// What the Docker modal is blocking.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PromptFor {
-    /// Opening the create screen: informational, can be dismissed for good.
-    BeginCreate,
-    /// Creating a default world, which needs the dedicated server.
-    CreateDefault,
+    /// Creating a world on the dedicated server.
+    CreateBds,
     /// Playing a saved world that runs on the dedicated server.
     Play,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PromptButton {
-    /// Continue with a Flat world on the built-in server.
-    CreateFlat,
+    /// Create using Dragonfly while preserving the terrain choice.
+    UseDragonfly,
     GetDocker,
-    DontShowAgain,
     Retry,
     Cancel,
 }
@@ -58,30 +54,18 @@ impl Prompt {
                  then choose Retry."
                     .to_owned()
             }
-            (PromptKind::DockerMissing, _) => format!(
-                "Default worlds run on the official Bedrock Dedicated Server, which needs Docker on \
-                 Mac (Docker Desktop, OrbStack or Colima). Without Docker you can still create a \
-                 {FLAT_WORLD_LABEL} world on the built-in server."
-            ),
-            (PromptKind::DockerNotRunning, _) => format!(
-                "Default worlds run on the official Bedrock Dedicated Server in Docker. Start Docker, \
-                 then choose Retry, or create a {FLAT_WORLD_LABEL} world on the built-in server."
-            ),
+            (PromptKind::DockerMissing, _) => "BDS needs Docker on Mac (Docker Desktop, OrbStack or Colima). Install Docker, or use Dragonfly with the same world generator.".to_owned(),
+            (PromptKind::DockerNotRunning, _) => "BDS needs Docker to be running. Start Docker and retry, or use Dragonfly with the same world generator.".to_owned(),
         }
     }
 
     pub fn buttons(self) -> &'static [PromptButton] {
         use PromptButton::*;
         match (self.kind, self.blocking) {
-            (PromptKind::DockerMissing, PromptFor::BeginCreate) => {
-                &[CreateFlat, GetDocker, DontShowAgain]
-            }
-            (PromptKind::DockerMissing, PromptFor::CreateDefault) => {
-                &[CreateFlat, GetDocker, Cancel]
-            }
+            (PromptKind::DockerMissing, PromptFor::CreateBds) => &[UseDragonfly, GetDocker, Cancel],
             (PromptKind::DockerMissing, PromptFor::Play) => &[GetDocker, Cancel],
             (PromptKind::DockerNotRunning, PromptFor::Play) => &[Retry, Cancel],
-            (PromptKind::DockerNotRunning, _) => &[Retry, CreateFlat, Cancel],
+            (PromptKind::DockerNotRunning, _) => &[Retry, UseDragonfly, Cancel],
         }
     }
 }
@@ -89,9 +73,8 @@ impl Prompt {
 impl PromptButton {
     pub fn label(self) -> String {
         match self {
-            Self::CreateFlat => format!("Create {FLAT_WORLD_LABEL} world"),
+            Self::UseDragonfly => "Use Dragonfly".to_owned(),
             Self::GetDocker => "Get Docker".to_owned(),
-            Self::DontShowAgain => "Don't show again".to_owned(),
             Self::Retry => "Retry".to_owned(),
             Self::Cancel => "Cancel".to_owned(),
         }

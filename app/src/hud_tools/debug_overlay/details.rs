@@ -198,7 +198,12 @@ impl DebugContext<'_, '_> {
                 } else {
                     "unfocused"
                 },
-                if crate::camera::input_is_active(window, cursor) {
+                if crate::camera::mouse_input_active(
+                    window,
+                    cursor,
+                    self.focus.as_deref(),
+                    self.driven.is_some(),
+                ) {
                     "captured"
                 } else {
                     "released"

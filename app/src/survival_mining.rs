@@ -76,6 +76,12 @@ pub(crate) fn produce_survival_mining(
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     // Wire sequencing only, defaulted to server-authoritative when the server
     // never negotiated it. This decides HOW a break travels, never WHETHER one
     // may happen; the capability gate below owns that.
@@ -130,7 +136,6 @@ pub(crate) fn produce_survival_mining(
     let input = target.as_ref().map_or(DestroyInput::Released, |target| {
         DestroyInput::Held(target.as_ref())
     });
-    let duration = swing_duration(context.effects.mining_effects());
     let local_runtime_id = context
         .client_world
         .stream
@@ -138,13 +143,17 @@ pub(crate) fn produce_survival_mining(
         .map(|stream| stream.local_player_runtime_id());
     let network = &context.network;
     let client_world = &mut context.client_world;
+    let completed_tick = movement.completed_tick();
     let unsent = runtime.step_ticks(
         &mut movement,
         input,
         authority.unwrap_or(BlockBreakingAuthority::Server),
         |tick| {
             if let Some(local_runtime_id) = local_runtime_id
-                && swings.try_swing(tick, duration)
+                && swings.try_swing(
+                    tick,
+                    swing_duration(context.effects.mining_tick(tick, completed_tick).0),
+                )
             {
                 let _ = network.send_inventory_packet(protocol::swing_arm_packet(
                     local_runtime_id,

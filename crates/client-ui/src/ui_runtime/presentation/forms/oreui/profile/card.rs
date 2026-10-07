@@ -83,11 +83,11 @@ pub(super) fn draw(
         let banner_index =
             crate::menu::profile_banner_index(&profile.xuid, banners.len()).unwrap_or_default();
         if let Some(originals) = canvas.originals
-            && let Some(&uv) = originals.sprites.get(banners[banner_index])
+            && let Some(sprite) = originals.sprites.get(banners[banner_index])
         {
             let icon = IconRef {
-                page: originals.page,
-                uv,
+                page: originals.page + sprite.page,
+                uv: sprite.bounds,
                 glint: false,
             };
             canvas.icon_ref(cover(icon, banner_bounds), banner_bounds)?;

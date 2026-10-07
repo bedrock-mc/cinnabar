@@ -24,7 +24,7 @@ pub struct SavedServer {
 pub struct LocalWorldCard {
     pub name: String,
     pub game_mode: String,
-    /// The owner's world type label (Normal (BDS) or Flat (Dragonfly)).
+    /// The saved world generator label.
     pub world_type: String,
     pub date: String,
     pub size: String,
@@ -78,6 +78,7 @@ pub fn pingable(address: &str) -> bool {
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {
+    pub group: String,
     /// Live experience count; only positive values are shown in its details panel.
     pub player_count: Option<i64>,
     pub description: String,
@@ -331,8 +332,9 @@ impl MenuFeeds {
 }
 
 /// One server's pong: `online` is false when it did not answer.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PingInfo {
+    pub motd: String,
     pub online: bool,
     pub players: u32,
     pub max_players: u32,
@@ -358,6 +360,9 @@ pub struct MenuView {
     pub focused_action: Option<MenuAction>,
     pub hovered: Option<MenuAction>,
     pub pressed: Option<MenuAction>,
+    /// Keyboard and gamepad focus draws an outline; pointer focus still navigates.
+    pub navigation_focus_visible: bool,
+    pub gamepad_input: bool,
     pub server_tab: MenuServerTab,
     pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
@@ -369,7 +374,7 @@ pub struct MenuView {
     pub port: String,
     pub message: Option<String>,
     pub gui_scale_offset: i8,
-    pub gui_scale_choices: Vec<i8>,
+    pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
     pub render_mode: ui::RenderMode,
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
@@ -389,6 +394,9 @@ pub struct MenuView {
     pub auth_state: AuthState,
     pub connecting: bool,
     pub settings_section: u8,
+    pub dressing_room: std::sync::Arc<crate::dressing_room::DressingRoomView>,
+    pub player_skin: Option<protocol::StandardSkin>,
+    pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
@@ -400,6 +408,14 @@ pub struct MenuView {
     pub settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
     pub storage: std::sync::Arc<super::settings_storage::StorageView>,
     pub settings_dropdown: Option<u16>,
+    pub settings_scale_picker: bool,
+    /// Last interactive settings activation and its monotonic input revision.
+    pub settings_control_activation: Option<(MenuAction, u64)>,
+    pub settings_control_activation_navigation: bool,
+    /// Continuous pointer position remains independent of the persisted slider step.
+    pub settings_slider_pointer: Option<SettingsSliderPointer>,
+    pub settings_slider_hovered: Option<u16>,
+    pub settings_slider_selected: Option<u16>,
     pub key_remap: Option<u16>,
     pub settings_advanced_graphics: bool,
     pub language_choices: std::sync::Arc<[(String, String)]>,
@@ -412,6 +428,42 @@ pub struct MenuView {
     pub invite: Option<std::sync::Arc<super::invite::InviteState>>,
     /// Who sent the oldest open Discord join request.
     pub join_request: Option<String>,
+}
+
+/// An active settings slider retains the unrounded pointer fraction.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsSliderPointer {
+    pub option: u16,
+    pub fraction: f32,
+    pub mouse_input: bool,
+}
+
+/// A control's complete layout bounds, retained even outside a scroll viewport.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsFocusTarget {
+    pub action: MenuAction,
+    pub bounds: ui::UiRect,
+    pub landmark: Option<u16>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SettingsFocusAxis {
+    Horizontal,
+    Vertical,
+}
+
+/// Directional navigation enters a landmark through its remembered or delegated control.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsFocusLandmark {
+    pub id: u16,
+    pub parent: Option<u16>,
+    pub bounds: ui::UiRect,
+    pub scroll_axis: Option<SettingsFocusAxis>,
+    pub delegate: Option<MenuAction>,
+    pub delegate_landmark: Option<u16>,
+    pub remember: bool,
+    pub trap: bool,
+    pub focus_control_disabled: bool,
 }
 
 /// The focused text field's caret.
@@ -480,7 +532,10 @@ impl MenuView {
 
     /// Whether a popup draws over the screen and takes its input.
     pub fn popup_open(&self) -> bool {
-        self.dialog.is_some() || self.server_trust_prompt().is_some() || self.join_request.is_some()
+        self.dialog.is_some()
+            || self.server_trust_prompt().is_some()
+            || self.join_request.is_some()
+            || self.dressing_room.editor.is_some()
     }
 
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
@@ -497,6 +552,8 @@ impl MenuView {
             focused_action: Some(MenuAction::Navigate(MenuScreen::Home)),
             hovered: None,
             pressed: None,
+            navigation_focus_visible: true,
+            gamepad_input: false,
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,
@@ -510,7 +567,7 @@ impl MenuView {
             port: String::new(),
             message: None,
             gui_scale_offset: 0,
-            gui_scale_choices: vec![0],
+            gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
             vsync_override: None,
@@ -529,6 +586,9 @@ impl MenuView {
             auth_state: AuthState::SignedOut,
             connecting: false,
             settings_section: 0,
+            dressing_room: Default::default(),
+            player_skin: None,
+            player_skin_model: Default::default(),
             global_resources: Default::default(),
             disconnect_message: None,
             editing: None,
@@ -537,6 +597,12 @@ impl MenuView {
             settings_options: Default::default(),
             storage: Default::default(),
             settings_dropdown: None,
+            settings_scale_picker: false,
+            settings_control_activation: None,
+            settings_control_activation_navigation: false,
+            settings_slider_pointer: None,
+            settings_slider_hovered: None,
+            settings_slider_selected: None,
             key_remap: None,
             settings_advanced_graphics: false,
             language_choices: Default::default(),

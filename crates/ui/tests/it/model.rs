@@ -405,6 +405,10 @@ fn text_layout() -> Arc<TextLayout> {
 }
 
 fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
+    text_layout_rendering(linear, assets::FontRendering::Coverage)
+}
+
+fn text_layout_rendering(linear: bool, rendering: assets::FontRendering) -> Arc<TextLayout> {
     let rgba8 = vec![255; 8].into_boxed_slice();
     let pages = [
         FontTexturePage {
@@ -456,7 +460,8 @@ fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
         font.with_linear_sampling()
     } else {
         font
-    };
+    }
+    .with_rendering(rendering);
     TextLayoutCache::new(1, 64 * 1024)
         .layout(TextLayoutRequest {
             text: "AB",
@@ -498,6 +503,30 @@ fn outline_text_selects_linear_sampler_without_changing_default_text_geometry() 
     for (nearest, linear) in nearest.vertices.iter().zip(&linear.vertices) {
         assert_eq!(nearest.position, linear.position);
         assert_eq!(nearest.uv, linear.uv);
+    }
+}
+
+#[test]
+fn native_text_modes_emit_gamma_and_distance_flags_with_their_sampler() {
+    use assets::{FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontRendering};
+    for (rendering, flags) in [
+        (FontRendering::NativeCoverage, FONT_STYLE_COVERAGE_GAMMA),
+        (
+            FontRendering::NativeSdf,
+            FONT_STYLE_COVERAGE_GAMMA | FONT_STYLE_SDF | ui::UI_STYLE_BILINEAR,
+        ),
+    ] {
+        let draw = draw_list(UiVisual::Text {
+            layout: text_layout_rendering(true, rendering),
+            color: [255; 4],
+            shadow: TextShadow::None,
+        });
+        assert!(
+            draw.vertices
+                .iter()
+                .all(|vertex| vertex.style_flags == flags)
+        );
+        assert_eq!(draw.vertices.len(), 8);
     }
 }
 

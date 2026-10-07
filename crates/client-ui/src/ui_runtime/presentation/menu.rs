@@ -741,6 +741,7 @@ const fn screen_title(screen: MenuScreen) -> &'static str {
         MenuScreen::Social => "Friends & Social",
         MenuScreen::Servers => "Servers",
         MenuScreen::Profile => "Profile & Character",
+        MenuScreen::DressingRoom => "Dressing Room",
         MenuScreen::Settings => "Settings",
         MenuScreen::AddServer => "Add server",
         MenuScreen::Pause => "Game menu",
