@@ -7,8 +7,8 @@ use std::{
 };
 
 use assets::{
-    AssetError, BlockVisualId, CompiledEntityAssets, IconBlockSheet, IconSprite, NetworkIdMode,
-    RuntimeAssets, compose_block_item_sheet,
+    AssetError, BlockVisualId, CompiledEntityAssets, IconBlockModel, IconBlockSheet, IconSprite,
+    NetworkIdMode, RuntimeAssets, compose_block_item_sheet,
 };
 use sha2::{Digest, Sha256};
 
@@ -19,6 +19,8 @@ pub(super) struct BakedBlocks {
     pub model_sprites: BTreeMap<(u32, u32), u32>,
     pub block_sprites: BTreeMap<u32, u32>,
     pub block_sheets: Vec<IconBlockSheet>,
+    /// Model thumbnails by sprite, with the world state whose quads they project.
+    pub block_models: Vec<IconBlockModel>,
 }
 
 pub(super) fn run(
@@ -61,6 +63,7 @@ pub(super) fn run(
         }
     }
     let mut model_sprites = BTreeMap::new();
+    let mut block_models = BTreeMap::new();
     if let Some(world) = world {
         let model_keys: BTreeSet<_> = block_plan
             .keys()
@@ -81,20 +84,25 @@ pub(super) fn run(
         for (visual, metadata) in model_keys {
             let plan = &block_plan[&visual];
             let raster = if let Some(tiles) = carried_tiles.get(&visual) {
-                Some(
+                Some((
                     model::Model::cube(
                         tiles.clone().map(|tile| tile.rgba8.to_vec().into()),
                         cube_blending(world, BlockVisualId(visual)),
                     )
                     .raster(),
-                )
+                    None,
+                ))
             } else if plan.is_ok() {
                 continue;
             } else {
                 model_raster(root, world, blocks, visual, metadata)?
             };
-            if let Some(raster) = raster {
-                model_sprites.insert((visual, metadata), insert_sprite(sprites, raster));
+            if let Some((raster, state)) = raster {
+                let sprite = insert_sprite(sprites, raster);
+                model_sprites.insert((visual, metadata), sprite);
+                if let Some(state) = state {
+                    block_models.entry(sprite).or_insert(state);
+                }
             }
         }
     }
@@ -166,6 +174,10 @@ pub(super) fn run(
         model_sprites,
         block_sprites,
         block_sheets,
+        block_models: block_models
+            .into_iter()
+            .map(|(sprite, visual)| IconBlockModel { sprite, visual })
+            .collect(),
     })
 }
 
@@ -224,19 +236,31 @@ fn preflight(
     Ok(())
 }
 
-/// A refused opaque thumbnail may still have model geometry or explicit carried faces.
+/// A refused opaque thumbnail may still have model geometry or explicit carried faces. The world
+/// state comes back when the thumbnail projects that state's GUI quads.
 fn model_raster(
     root: &Path,
     world: &RuntimeAssets,
     blocks: Option<&IconBlocks>,
     visual: u32,
     metadata: u32,
-) -> Result<Option<IconSprite>, AssetError> {
+) -> Result<Option<(IconSprite, Option<BlockVisualId>)>, AssetError> {
     let visual = BlockVisualId(visual);
     let state = blocks.map_or(visual, |blocks| blocks.icon_state(visual));
     if let Ok(model) = model::Model::read(world, state) {
-        return Ok(Some(model.raster()));
+        return Ok(Some((model.raster(), Some(state))));
     }
+    Ok(fallback_raster(root, world, blocks, visual, metadata)?.map(|raster| (raster, None)))
+}
+
+/// Explicit inventory or carried faces, or a block entity's model, for a block without geometry.
+fn fallback_raster(
+    root: &Path,
+    world: &RuntimeAssets,
+    blocks: Option<&IconBlocks>,
+    visual: BlockVisualId,
+    metadata: u32,
+) -> Result<Option<IconSprite>, AssetError> {
     let Some(blocks) = blocks else {
         return Ok(None);
     };
@@ -424,7 +448,9 @@ mod block_entity_tests {
                 .find(|record| record.name.as_ref() == name)
                 .unwrap()
                 .sequential_id;
-            model_raster(root.path(), &world, Some(&blocks), visual, 0).unwrap()
+            model_raster(root.path(), &world, Some(&blocks), visual, 0)
+                .unwrap()
+                .map(|(icon, _)| icon)
         };
         let mut output = Vec::new();
         for name in [
@@ -514,9 +540,11 @@ mod block_entity_tests {
                 .find(|record| record.name.as_ref() == name)
                 .unwrap()
                 .sequential_id;
-            let raster = model_raster(root.path(), &world, Some(&blocks), visual, 0)
+            let (raster, state) = model_raster(root.path(), &world, Some(&blocks), visual, 0)
                 .unwrap()
                 .expect("the inventory cube survives an entity-only placed visual");
+            // Only template geometry is redrawn at runtime; these faces stay a thumbnail.
+            assert_eq!(state, None);
             assert!(raster.rgba8.chunks_exact(4).any(|pixel| pixel[3] == 255));
             rasters.push(raster);
         }
