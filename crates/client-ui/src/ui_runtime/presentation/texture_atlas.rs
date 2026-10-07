@@ -4,7 +4,8 @@
 
 use assets::{HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use render_model::{
-    MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray, UiTextureFormat, UiTexturePage, UiTexturePlan,
+    MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray, UiTextureFormat,
+    UiTexturePage, UiTexturePlan,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -211,7 +212,11 @@ pub(super) fn font_texture_array_with_hud_and_icons(
         ([render_model::UI_ART_PAGE_SIDE; 2], UiTextureFormat::Rgba8),
         render_model::MAX_UI_ART_PAGES,
     ));
-    UiTexturePlan::with_formats(&planned).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    let plan = UiTexturePlan::with_formats(&planned)
+        .map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    if plan.bytes() > MAX_UI_FIXED_TEXTURE_BYTES {
+        return Err(UiPresentationError::InvalidFontTexture);
+    }
     let total_bytes = layer_bytes * (layers - font_layers) as usize;
     let mut rgba8 = vec![0; total_bytes];
     let solid_start = 0;

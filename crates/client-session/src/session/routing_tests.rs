@@ -89,11 +89,11 @@ fn semantically_rejected_start_game_registry_does_not_reject_bootstrap() {
         entity_identifiers: None,
         creative_content: None,
     };
-    for item_id in [5, 6] {
+    for identifier in ["minecraft:stick", "minecraft:stone"] {
         game_data.item_registry.item_data.push(Default::default());
         let entry = game_data.item_registry.item_data.last_mut().unwrap();
-        entry.item_name = "minecraft:duplicate".into();
-        entry.item_id = item_id;
+        entry.item_name = identifier.into();
+        entry.item_id = 5;
     }
 
     assert_eq!(start_game_item_registry(&game_data, 0).unwrap(), None);

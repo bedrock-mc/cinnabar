@@ -68,6 +68,41 @@ fn submission(runtime_id: u64, bones: usize) -> ActorRigSubmission {
 }
 
 #[test]
+fn actor_pose_accepts_models_above_the_player_skin_bone_limit() {
+    let count = assets::MAX_SKIN_GEOMETRY_BONES + 1;
+    let geometry = ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], count)
+        .expect("an actor model has a separate bone contract from a player skin");
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let frame = builder.build(0.5, None, [submission(1, count)]);
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.previous_bones.len(), count);
+    assert_eq!(frame.current_bones.len(), count);
+    assert_eq!(frame.rejects, ActorRigRejects::default());
+}
+
+#[test]
+fn large_actor_models_share_the_bounded_pose_arena() {
+    let bones = render_model::MAX_RENDER_BONES_PER_ACTOR;
+    let capacity = crate::actor::MAX_ACTOR_POSE_BONES / bones;
+    assert!(capacity < render_model::MAX_RENDERED_PLAYERS);
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], bones).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let frame = builder.build(
+        0.5,
+        None,
+        (1..=capacity + 1).map(|id| submission(id as u64, bones)),
+    );
+    assert_eq!(frame.instances.len(), capacity);
+    assert_eq!(frame.rejects.bone_capacity, 1);
+    assert_eq!(frame.rejects.actor_capacity, 0);
+    assert!(
+        (frame.previous_bones.len() + frame.current_bones.len()) * crate::ACTOR_BONE_MATRIX_BYTES
+            <= crate::MAX_ACTOR_BONE_ARENA_BYTES
+    );
+}
+
+#[test]
 fn append_preserves_existing_matrices_and_reuses_the_final_arena_allocation() {
     let mut arena = Vec::with_capacity(100);
     arena.push([[5.0; 4]; 3]);

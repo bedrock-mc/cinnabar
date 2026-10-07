@@ -26,8 +26,8 @@ pub use ids::{
 };
 pub use rig::{
     ACTOR_RIG_VERTEX_WORDS, ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, EntityRigId,
-    MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
-    diagnostic_geometry,
+    MAX_ACTOR_CATALOG_VERTEX_BYTES, MAX_ACTOR_CATALOG_VERTICES, MAX_ACTOR_RIG_VERTICES,
+    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE, diagnostic_geometry,
 };
 pub use skin::{
     ActorSkinPixels, DEFAULT_PLAYER_SKIN_PATH, DEFAULT_SKIN_PROVENANCE, MAX_RENDERED_PLAYERS,

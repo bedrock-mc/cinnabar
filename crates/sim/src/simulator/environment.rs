@@ -30,7 +30,10 @@ impl SampledEnvironment {
         world: &(impl CollisionWorld + ?Sized),
         block: [i32; 3],
     ) -> Result<(crate::BlockPhysicsFacts, Option<WorldCollisionIdentity>), WorldQueryError> {
-        match self.primaries.binary_search_by(|(cell, _)| cell.cmp(&block)) {
+        match self
+            .primaries
+            .binary_search_by(|(cell, _)| cell.cmp(&block))
+        {
             Ok(index) => Ok((self.primaries[index].1, None)),
             Err(index) => {
                 let sample = sample_primary(world, block, &mut self.block_samples)?;
