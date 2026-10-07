@@ -15,6 +15,14 @@ pub const FONT_NAME: &str = "mod_panel";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    Default,
+    Monochrome,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Style {
     #[default]
     Standard,
@@ -35,6 +43,8 @@ pub enum Icon {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Panel {
+    #[serde(default)]
+    pub theme: Theme,
     #[serde(default)]
     pub style: Style,
     pub title: String,

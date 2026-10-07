@@ -193,6 +193,7 @@ fn server_form_returns_to_the_servers_tab() {
         Platform::Linux,
         &InstallEnvironment {
             executable: root.join("target/debug/bedrock-client"),
+            user_root: None,
             home: Some(root.join("home")),
             local_app_data: None,
             xdg_config_home: None,

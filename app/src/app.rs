@@ -677,7 +677,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
     let primary_window = Window {
-        title: launcher::PRODUCT_NAME.to_owned(),
+        title: launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
         present_mode,
         ..default()
     };
