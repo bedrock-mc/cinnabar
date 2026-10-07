@@ -331,13 +331,8 @@ impl MenuRuntime {
             display_name: self.presented_display_name(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
-            // Placeholder accounts show no live social data, which carries real gamertags.
-            realms: (!self.presentation_accounts)
-                .then(|| self.realms.clone())
-                .unwrap_or_default(),
-            friends: (!self.presentation_accounts)
-                .then(|| self.friends.clone())
-                .unwrap_or_default(),
+            realms: self.realms.clone(),
+            friends: self.friends.clone(),
             featured_icon: None,
             realm_icon: None,
             friend_icon: None,

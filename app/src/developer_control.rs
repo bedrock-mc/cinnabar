@@ -124,7 +124,10 @@ fn dispatch(world: &mut World) {
                     if menu.set_presentation_accounts(enabled) {
                         Ok(json!({ "test_accounts": enabled }))
                     } else {
-                        Err("an account change is in progress; try again when it finishes".into())
+                        Err(
+                            "test_accounts needs a signed-out install with no sign-in under way"
+                                .into(),
+                        )
                     }
                 } else {
                     Err("the launcher menu is unavailable".into())

@@ -51,10 +51,15 @@ impl MenuRuntime {
     }
 
     /// Presents a signed-in launcher with placeholder accounts, or restores the saved ones.
-    /// Refuses while a live account change is pending, since its dialog would mix with the fixture.
+    /// Enabling needs a signed-out install with no sign-in under way, so no live account data
+    /// or action can exist behind the placeholders.
     #[cfg(any(test, feature = "developer-control"))]
     pub(crate) fn set_presentation_accounts(&mut self, enabled: bool) -> bool {
-        if self.account_change_pending() {
+        if enabled
+            && (self.account_change_pending()
+                || self.auth_process.is_some()
+                || self.layout.auth_cache().is_file())
+        {
             return false;
         }
         self.presentation_accounts = enabled;
@@ -63,12 +68,20 @@ impl MenuRuntime {
         true
     }
 
-    /// The feeds the UI sees; presentation mode hides the live profile behind the placeholders.
+    /// The feeds the UI sees; presentation mode shows the selected placeholder's loaded profile.
     pub(super) fn presented_feeds(&self) -> launcher::menu::view::MenuFeeds {
         let mut feeds = self.feeds.clone();
         if self.presentation_accounts {
-            feeds.profile = Default::default();
-            feeds.home = Default::default();
+            feeds.profile = launcher::menu::view::MenuProfile {
+                loaded: true,
+                xuid: feeds.account_active_id.clone().unwrap_or_default(),
+                gamertag: self.presented_display_name(),
+                statistics_loaded: true,
+                achievements_loaded: true,
+                avatar_error: true,
+                featured_screenshot_error: true,
+                ..Default::default()
+            };
         }
         feeds
     }
@@ -364,6 +377,14 @@ mod tests {
         menu.feeds.account_adding = true;
         assert!(!menu.set_presentation_accounts(true));
         menu.feeds.account_adding = false;
+        let cache = menu.layout.auth_cache();
+        std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        std::fs::write(&cache, b"{}").unwrap();
+        assert!(
+            !menu.set_presentation_accounts(true),
+            "a signed-in install is refused"
+        );
+        std::fs::remove_file(&cache).unwrap();
         assert!(menu.set_presentation_accounts(true));
         assert_eq!(menu.view().auth_state, AuthState::Authenticated);
         menu.activate(MenuAction::OpenAccounts);
@@ -383,20 +404,14 @@ mod tests {
             menu.feeds.account_active_id.as_deref(),
             Some(PRESENTATION_ACCOUNTS[2].0)
         );
-        menu.feeds.profile.gamertag = "RealGamertag".into();
-        menu.feeds.profile.picture_path = "/real/picture.png".into();
-        menu.friends = vec![launcher::menu::view::MenuFriendCard {
-            gamertag: "RealFriend".into(),
-            world_name: String::new(),
-            members: String::new(),
-            xuid: "7".into(),
-        }];
         let view = menu.view();
-        assert!(view.friends.is_empty());
         assert_eq!(view.display_name, PRESENTATION_ACCOUNTS[2].1);
-        assert!(view.feeds.profile.gamertag.is_empty());
-        assert!(view.feeds.profile.picture_path.is_empty());
-        assert_eq!(menu.feeds.profile.gamertag, "RealGamertag");
+        assert!(view.feeds.profile.loaded);
+        assert_eq!(view.feeds.profile.gamertag, PRESENTATION_ACCOUNTS[2].1);
+        assert!(
+            menu.feeds.profile.gamertag.is_empty(),
+            "the live profile is untouched"
+        );
         menu.set_presentation_accounts(false);
         assert_eq!(menu.view().display_name, "First");
         assert_ne!(menu.view().auth_state, AuthState::Authenticated);
