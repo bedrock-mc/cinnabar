@@ -40,6 +40,16 @@ pub(super) fn draw_tab(
     selected: usize,
 ) -> Result<(), UiPresentationError> {
     let [width, height] = size;
+    let focus_parent = if selected == 2 {
+        Some(canvas.begin_focus_region(
+            super::focus::SCREEN,
+            [0.0, 0.0, width, height],
+            None,
+            false,
+        )?)
+    } else {
+        None
+    };
     screen_overlay(canvas, size)?;
     let top = header(
         canvas,
@@ -65,7 +75,11 @@ pub(super) fn draw_tab(
         2 => play_servers::draw(canvas, view, &grid, body, images),
         _ => worlds_tab(canvas, view, body),
     }?;
-    canvas.end_entrance(entrance, size)
+    let result = canvas.end_entrance(entrance, size);
+    if let Some(parent) = focus_parent {
+        canvas.end_focus_region(parent);
+    }
+    result
 }
 
 fn worlds_tab(

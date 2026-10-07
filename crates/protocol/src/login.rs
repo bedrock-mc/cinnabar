@@ -822,6 +822,7 @@ fn decode_world_raw_with(
             | McpePacketName::MovePlayerPacket
             | McpePacketName::CorrectPlayerMovePredictionPacket
             | McpePacketName::SetActorMotionPacket
+            | McpePacketName::MovementEffectPacket
             | McpePacketName::NetworkStackLatencyPacket
             | McpePacketName::SetTimePacket
             | McpePacketName::SyncWorldClocksPacket

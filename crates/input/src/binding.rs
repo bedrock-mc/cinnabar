@@ -2,6 +2,9 @@ use crate::{Action, InputContext, TouchControlLayout, touch};
 
 pub const MAX_BINDINGS: usize = 128;
 
+/// Vanilla's mouse sensitivity option default; the option spans `0.0..=1.0`.
+pub const DEFAULT_MOUSE_SENSITIVITY: f32 = 0.5;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum MouseAxis {
     XPositive,
@@ -63,6 +66,7 @@ pub struct ActionBinding {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ControlSettings {
     bindings: Box<[ActionBinding]>,
+    /// Vanilla mouse sensitivity option value; the camera applies the look curve, not the router.
     pub mouse_sensitivity: f32,
     pub gamepad_look_sensitivity: f32,
     pub touch_look_sensitivity: f32,
@@ -153,17 +157,15 @@ impl ControlSettings {
                 maximum: MAX_BINDINGS,
             });
         }
-        let sensitivities = [
-            self.mouse_sensitivity,
-            self.gamepad_look_sensitivity,
-            self.touch_look_sensitivity,
-        ];
-        if sensitivities.iter().any(|value| !value.is_finite()) {
+        let multipliers = [self.gamepad_look_sensitivity, self.touch_look_sensitivity];
+        if !self.mouse_sensitivity.is_finite() || multipliers.iter().any(|value| !value.is_finite())
+        {
             return Err(BindingError::NonFiniteSensitivity);
         }
-        if sensitivities
-            .iter()
-            .any(|value| !(0.01..=10.0).contains(value))
+        if !(0.0..=1.0).contains(&self.mouse_sensitivity)
+            || multipliers
+                .iter()
+                .any(|value| !(0.01..=10.0).contains(value))
         {
             return Err(BindingError::SensitivityOutOfRange);
         }
@@ -193,8 +195,17 @@ impl ControlSettings {
 
 impl Default for ControlSettings {
     fn default() -> Self {
-        Self::new(default_bindings(), 1.0, 1.0, 1.0, false, false, 0.15, 0.15)
-            .expect("built-in controls are valid")
+        Self::new(
+            default_bindings(),
+            DEFAULT_MOUSE_SENSITIVITY,
+            1.0,
+            1.0,
+            false,
+            false,
+            0.15,
+            0.15,
+        )
+        .expect("built-in controls are valid")
     }
 }
 

@@ -18,7 +18,7 @@ pub(super) struct Pages {
 
 impl Default for Pages {
     fn default() -> Self {
-        Self::new(OREUI_PAGE_SIDE, render_model::MAX_UI_TEXTURE_BYTES)
+        Self::new(OREUI_PAGE_SIDE, render_model::MAX_UI_FIXED_TEXTURE_BYTES)
     }
 }
 

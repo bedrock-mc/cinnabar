@@ -243,6 +243,7 @@ fn compile_selected(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn file(path: &str, text: &str) -> (Box<str>, Vec<u8>) {
         (path.into(), text.as_bytes().to_vec())
@@ -264,6 +265,88 @@ mod tests {
     fn isolation_leaves_an_unusable_pack_empty() {
         let result = compile_entity_pack(vec![file("animations/a.json", "{oops")]).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn server_entity_empty_texture_path_keeps_other_dependencies() {
+        let entity = json!({"format_version":"1.18.0","minecraft:client_entity":{
+            "description":{"identifier":"fixture:particles",
+                "geometry":{"default":"geometry.marker"},
+                "textures":{"default":"","alternate":"textures/entity/fixture"},
+                "render_controllers":["controller.render.marker"]}
+        }});
+        let compiled =
+            compile_entity_pack(vec![file("entity/particles.json", &entity.to_string())])
+                .unwrap()
+                .expect("an absent texture cannot discard a controller-only entity");
+        assert_eq!(compiled.skipped.unparsable, 0);
+        let symbol = compiled
+            .assets
+            .symbols
+            .iter()
+            .find(|symbol| {
+                symbol.kind == EntityAssetKind::Entity
+                    && symbol.identifier.as_ref() == "fixture:particles"
+            })
+            .unwrap();
+        assert!(
+            symbol
+                .dependencies
+                .iter()
+                .all(|dependency| !dependency.identifier.is_empty())
+        );
+        assert!(symbol.dependencies.iter().any(|dependency| {
+            dependency.kind == EntityDependencyKind::RenderController
+                && dependency.identifier.as_ref() == "controller.render.marker"
+        }));
+        assert!(symbol.dependencies.iter().any(|dependency| {
+            dependency.kind == EntityDependencyKind::Texture
+                && dependency.identifier.as_ref() == "textures/entity/fixture"
+        }));
+    }
+
+    fn compile_synthetic_geometry(bones: Value) -> EntityPackCompilation {
+        let geometry = json!({"format_version":"1.12.0","minecraft:geometry":[{
+            "description":{"identifier":"geometry.fixture"}, "bones":bones
+        }]});
+        let entity = json!({"format_version":"1.10.0","minecraft:client_entity":{
+            "description":{"identifier":"fixture:model",
+                "geometry":{"default":"geometry.fixture"}}
+        }});
+        compile_entity_pack(vec![
+            file("entity/fixture.json", &entity.to_string()),
+            file("models/entity/fixture.geo.json", &geometry.to_string()),
+        ])
+        .unwrap()
+        .unwrap()
+    }
+
+    #[test]
+    fn server_entity_crowd_geometry_preserves_all_authored_bones() {
+        let bones: Vec<_> = (0..1_024)
+            .map(|index| {
+                json!({
+                    "name":format!("part_{index}"),"pivot":[0,0,0]
+                })
+            })
+            .collect();
+        let compiled = compile_synthetic_geometry(bones.into());
+        assert_eq!(compiled.skipped.unparsable, 0);
+        assert_eq!(compiled.assets.geometries[0].bones.len(), 1_024);
+        let bytes = assets::encode_entity_blob(&compiled.assets).unwrap();
+        let runtime = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
+        assert_eq!(runtime.geometries()[0].bones.len(), 1_024);
+    }
+
+    #[test]
+    fn server_entity_large_static_geometry_preserves_all_authored_cubes() {
+        let cubes = vec![json!({"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}); 16_384];
+        let compiled = compile_synthetic_geometry(json!([{"name":"root","cubes":cubes}]));
+        assert_eq!(compiled.skipped.unparsable, 0);
+        assert_eq!(compiled.assets.geometries[0].bones[0].cubes.len(), 16_384);
+        let bytes = assets::encode_entity_blob(&compiled.assets).unwrap();
+        let runtime = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
+        assert_eq!(runtime.geometries()[0].bones[0].cubes.len(), 16_384);
     }
 
     #[test]

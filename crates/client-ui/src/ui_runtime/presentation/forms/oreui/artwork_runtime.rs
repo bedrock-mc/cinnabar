@@ -102,12 +102,12 @@ impl UiPresentationRuntime {
             .oreui_originals
             .as_ref()
             .map_or(self.textures.dynamic_start(), |old| usize::from(old.page));
-        let resident = self.textures.pages()[..old_start]
+        let previous_artwork = self.textures.pages()[old_start..self.textures.dynamic_start()]
             .iter()
-            .chain(&self.textures.pages()[self.textures.dynamic_start()..])
             .map(|page| page.pixels().len())
             .sum::<usize>();
-        let available = render_model::MAX_UI_TEXTURE_BYTES
+        let resident = self.textures.fixed_budget_bytes() - previous_artwork;
+        let available = render_model::MAX_UI_FIXED_TEXTURE_BYTES
             .checked_sub(resident)
             .ok_or("Resident UI textures exceed the texture budget")?;
         self.enable_oreui_originals(images.with_artwork_budget(keys, available)?)

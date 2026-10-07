@@ -281,8 +281,7 @@ fn prepare_actor_resources(
     let structurally_valid = !rig.instances.is_empty()
         && rig.instances.len() <= crate::actor::MAX_ACTOR_RENDER_INSTANCES
         && rig.previous_bones.len() == rig.current_bones.len()
-        && rig.previous_bones.len()
-            <= crate::actor::MAX_ACTOR_RENDER_INSTANCES * render_model::MAX_RENDER_BONES_PER_ACTOR
+        && rig.previous_bones.len() <= crate::actor::MAX_ACTOR_POSE_BONES
         && rig.manifest.len() == rig.instances.len()
         && rig.maximum_vertex_count != 0
         && skins_resident

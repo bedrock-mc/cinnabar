@@ -36,8 +36,10 @@ fn assert_same_catalog(actual: &GeometryCatalog, expected: &GeometryCatalog) {
 fn combined_publication_matches_sequential_capacity_and_payloads() {
     let entity = render_model::pack_rig_id(0);
     let equipment = render_model::pack_equipment_rig_id(0);
-    let quarter = (MAX_ACTOR_RIG_VERTICES / 4) / 3 * 3;
-    let large = (MAX_ACTOR_RIG_VERTICES * 3 / 4) / 3 * 3;
+    let pack_vertices = 240;
+    let maximum_vertices = diagnostic_geometry().vertices.len() + pack_vertices;
+    let quarter = pack_vertices / 4;
+    let large = pack_vertices * 3 / 4;
     for case in 0..4 {
         let initial = [
             geometry(EntityRigId(1), 3),
@@ -46,6 +48,8 @@ fn combined_publication_matches_sequential_capacity_and_payloads() {
         ];
         let mut sequential = ActorRigFrameBuilder::new(initial.clone()).unwrap();
         let mut combined = ActorRigFrameBuilder::new(initial).unwrap();
+        sequential.catalog.maximum_vertices = maximum_vertices;
+        combined.catalog.maximum_vertices = maximum_vertices;
         let (entities, equipment_update, expected) = match case {
             0 => (
                 vec![geometry(entity, 6), geometry(EntityRigId(1), 9)],

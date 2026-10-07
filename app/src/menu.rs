@@ -21,6 +21,7 @@ pub(crate) mod inbox;
 mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
+pub(crate) use launcher_core::target_for;
 mod navigation;
 #[cfg(test)]
 mod server_input_tests;
@@ -584,6 +585,10 @@ impl MenuRuntime {
                 }
                 self.enter(screen);
             }
+            MenuAction::OpenServerFilter => {
+                self.dialog = Some(MenuDialog::ServerFilter);
+                self.focused = 0;
+            }
             MenuAction::OpenExitDialog => {
                 self.dialog = Some(MenuDialog::Exit);
                 self.focused = 0;
@@ -760,6 +765,17 @@ impl MenuRuntime {
             MenuAction::ServerList(action) => {
                 self.settings_dirty |=
                     std::sync::Arc::make_mut(&mut self.settings_options).apply_server_list(action);
+                if self.dialog == Some(MenuDialog::ServerFilter) {
+                    use launcher::menu::server_list::ServerListAction;
+                    let group = match action {
+                        ServerListAction::Toggle(group)
+                        | ServerListAction::ToggleVisibility(group)
+                        | ServerListAction::MoveBefore(group, _) => group,
+                    };
+                    self.focus_pointer(MenuAction::ServerList(ServerListAction::ToggleVisibility(
+                        group,
+                    )));
+                }
             }
             MenuAction::SelectRealm(index) => self.feeds.selected_realm = Some(index),
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
