@@ -57,7 +57,14 @@ impl MenuRuntime {
     pub(crate) fn set_presentation_accounts(&mut self, enabled: bool) -> bool {
         if enabled
             && (self.account_change_pending()
-                || self.auth_process.is_some()
+                || self.auth_process.as_ref().is_some_and(|process| {
+                    matches!(
+                        process.state(),
+                        AuthState::Checking
+                            | AuthState::AwaitingCode { .. }
+                            | AuthState::Authenticated
+                    )
+                })
                 || self.layout.auth_cache().is_file())
         {
             return false;
@@ -78,7 +85,9 @@ impl MenuRuntime {
                 gamertag: self.presented_display_name(),
                 statistics_loaded: true,
                 achievements_loaded: true,
+                avatar_loaded: true,
                 avatar_error: true,
+                featured_screenshot_loaded: true,
                 featured_screenshot_error: true,
                 ..Default::default()
             };
@@ -412,6 +421,10 @@ mod tests {
             menu.feeds.profile.gamertag.is_empty(),
             "the live profile is untouched"
         );
+        menu.activate(MenuAction::Navigate(launcher::menu::MenuScreen::Profile));
+        assert!(menu.focus_actions().contains(&MenuAction::SelectProfileTab(
+            launcher::menu::ProfileTab::Stats
+        )));
         menu.set_presentation_accounts(false);
         assert_eq!(menu.view().display_name, "First");
         assert_ne!(menu.view().auth_state, AuthState::Authenticated);
