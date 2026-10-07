@@ -20,9 +20,10 @@ import (
 // fact payloads of the protocol-1001 record each state was projected from,
 // including verbatim collision seeds. Legacy and connection-reduced states keep
 // their protocol-1001 name and its pinned PMMP friction row; reviewed twins
-// read the row of the twin whose facts they carry. Reserved identities keep the
-// exact protocol-1001 neutral treatment: treat-as-air passables with default
-// factors and no fluid.
+// read the row of the twin whose facts they carry. Reserved identities stay
+// collision-free passables with default factors and no fluid, but carry the
+// vanilla default block friction every reserved block uses, so a friction probe
+// that lands on one does not slide.
 
 const (
 	v2193PhysicsOutputPath    = "crates/assets/data/block-physics-v2193.bin"
@@ -145,7 +146,7 @@ func projectV2193PhysicsRecords(records []Record, sources PhysicsSourceCatalog) 
 			physics[index] = PhysicsRecord{
 				SequentialID:        record.SequentialID,
 				NetworkHash:         record.NetworkHash,
-				FrictionQ1E8:        defaultSpeedQ1E8,
+				FrictionQ1E8:        defaultFrictionQ1E8,
 				HorizontalSpeedQ1E8: defaultSpeedQ1E8,
 				VerticalSpeedQ1E8:   defaultSpeedQ1E8,
 				Flags:               physicsFlagPassable,
