@@ -338,6 +338,7 @@ impl ApplicationHandler for SetupApp {
                         repeat: false,
                         ..
                     },
+                is_synthetic,
                 ..
             } => {
                 let (action, changed) = self.input.keyboard(
@@ -345,6 +346,7 @@ impl ApplicationHandler for SetupApp {
                     &logical_key,
                     state,
                     self.modifiers.shift_key(),
+                    is_synthetic,
                 );
                 self.overlay_dirty |= changed;
                 if let Some(action) = action {

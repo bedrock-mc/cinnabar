@@ -139,7 +139,7 @@ fn unchanged_keyboard_input_does_not_dirty_overlay() {
     input.reset(&screen);
     for key in [Key::Character("a".into()), Key::Named(NamedKey::Shift)] {
         for state in [ElementState::Pressed, ElementState::Released] {
-            assert_eq!(input.keyboard(&screen, &key, state, false), (None, false));
+            assert_eq!(input.keyboard(&screen, &key, state, false, false), (None, false));
         }
     }
     assert_eq!(
@@ -147,6 +147,7 @@ fn unchanged_keyboard_input_does_not_dirty_overlay() {
             &screen,
             &Key::Named(NamedKey::Tab),
             ElementState::Released,
+            false,
             false
         ),
         (None, false)
@@ -156,6 +157,7 @@ fn unchanged_keyboard_input_does_not_dirty_overlay() {
             &screen,
             &Key::Named(NamedKey::Enter),
             ElementState::Released,
+            false,
             false
         ),
         (None, false)
@@ -165,6 +167,7 @@ fn unchanged_keyboard_input_does_not_dirty_overlay() {
             &screen,
             &Key::Named(NamedKey::Tab),
             ElementState::Pressed,
+            false,
             false
         ),
         (None, true)
@@ -174,6 +177,7 @@ fn unchanged_keyboard_input_does_not_dirty_overlay() {
             &screen,
             &Key::Named(NamedKey::Tab),
             ElementState::Pressed,
+            false,
             false
         ),
         (None, false)
@@ -183,6 +187,7 @@ fn unchanged_keyboard_input_does_not_dirty_overlay() {
             &screen,
             &Key::Named(NamedKey::Enter),
             ElementState::Pressed,
+            false,
             false
         ),
         (None, true)
@@ -192,6 +197,7 @@ fn unchanged_keyboard_input_does_not_dirty_overlay() {
             &screen,
             &Key::Named(NamedKey::Enter),
             ElementState::Released,
+            false,
             false
         ),
         (Some(Action::Quit), true)
@@ -217,4 +223,32 @@ fn unmatched_pointer_and_controller_events_do_not_dirty_overlay() {
         controller(gilrs::EventType::Disconnected, &SettingsOptions::default()),
         Some(Command::Blur)
     );
+}
+
+#[test]
+fn synthetic_keyboard_focus_events_do_not_activate_setup_actions() {
+    for key in [Key::Named(NamedKey::Enter), Key::Named(NamedKey::Space)] {
+        let screen = Screen::Starting;
+        let mut input = Input::default();
+        input.reset(&screen);
+        assert_eq!(
+            input.keyboard(&screen, &key, ElementState::Pressed, false, false),
+            (None, true)
+        );
+        assert_eq!(
+            input.keyboard(&screen, &key, ElementState::Released, false, true),
+            (None, false)
+        );
+        assert_eq!(input.pressed(None), Some(Action::Quit));
+        input.blur();
+        assert_eq!(input.pressed(None), None);
+        assert_eq!(
+            input.keyboard(&screen, &key, ElementState::Pressed, false, true),
+            (None, false)
+        );
+        assert_eq!(
+            input.keyboard(&screen, &key, ElementState::Released, false, false),
+            (None, false)
+        );
+    }
 }

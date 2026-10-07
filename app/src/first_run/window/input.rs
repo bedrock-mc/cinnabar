@@ -166,14 +166,18 @@ impl Input {
         (action, *self != before)
     }
 
-    /// Ignores unrelated keys and navigation releases without rebuilding the overlay.
+    /// Synthetic focus events and unrelated keys cannot activate actions or dirty the overlay.
     pub fn keyboard(
         &mut self,
         screen: &Screen,
         key: &Key,
         state: ElementState,
         shift: bool,
+        synthetic: bool,
     ) -> (Option<Action>, bool) {
+        if synthetic {
+            return (None, false);
+        }
         let pressed = state == ElementState::Pressed;
         let command = match key {
             Key::Named(NamedKey::Tab) if pressed => Some(Command::Navigate(shift)),
