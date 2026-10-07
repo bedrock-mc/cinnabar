@@ -172,6 +172,8 @@ mod gpu_models;
 mod gpu_publication;
 #[path = "gpu/queue_tests.rs"]
 mod gpu_queue;
+#[path = "gpu/queue_biome_tests.rs"]
+mod gpu_queue_biomes;
 #[path = "gpu/session_tests.rs"]
 mod gpu_session;
 #[path = "presentation/tests.rs"]

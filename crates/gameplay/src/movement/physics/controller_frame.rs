@@ -66,7 +66,6 @@ impl ControllerFrame {
                 feet: state.position,
                 on_ground: state.on_ground,
                 in_water: environment.in_water,
-                in_lava: environment.in_lava,
                 sprinting: input.sprinting,
                 sprint_blinded: input.effects.blindness,
                 sprint_down: self.sprint_down,
