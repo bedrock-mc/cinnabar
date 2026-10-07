@@ -1310,6 +1310,8 @@ preview build is not an exact retail/platform capture for every supported client
 ## crates/sim/src/simulator/environment.rs
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)
 - // reads getBlock's primary material, without secondary layers.
+- Shared horizontal movement (0x099cc8b0) defaults ground friction to 0.6 and samples the block at
+  floor(x), floor(feet y + -0.1f), floor(z); it takes that block's friction only when its type is not air.
 
 ## crates/sim/src/simulator/flight.rs
 - // HorizontalFlySpeedControl current RVA 0x03235360, PE VA 0x1501672a8.
