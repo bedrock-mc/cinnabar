@@ -9,4 +9,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-experience-sdk = { path = "../../../crates/experience-sdk" }
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["server"] }
+
+[build-dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["declarations"] }

@@ -42,14 +42,25 @@ Wayland or X11 automatically.
 
 ## Discord presence
 
-Discord presence is enabled by default using the built-in application. To use another application,
-set `CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launching.
-No bot token or client secret is needed. Set the override to `0` to disable presence.
+Discord presence is enabled by default using the built-in application; turn it off with
+**Discord Rich Presence** in Video settings. To use another application, set
+`CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launching. No bot token or
+client secret is needed. Setting the override to `0` disables presence entirely.
 
 With the Discord desktop app running and activity sharing enabled, presence shows menus, joining,
-or `Playing on host:port`, plus elapsed time and the original app icon served from GitHub.
-Updates run over local IPC, reconnect automatically and follow Discord's rate limit. The current
-server address is shown while playing; account details and join secrets are never included.
+`Playing on host:port`, `Singleplayer: <world>`, or a Realm, friend's world or experience without
+its identifier, plus the original app icon served from GitHub. On a featured server the server's
+own logo sits in the card's corner. The timer counts the current session in game and the launch
+otherwise. Updates run over local IPC, reconnect automatically and follow Discord's rate limit. The
+card never shows account details, Realm IDs or friend XUIDs.
+
+While you play on a server, an experience or a friend's world, Discord friends can join you from
+your profile or a chat invite. The destination travels only in Discord's join secret, and the
+joining client accepts only addresses it would itself publish. A friend's world still needs the
+joiner to see it through Xbox, as in vanilla. Realms and local worlds are not joinable.
+Cinnabar registers itself with Discord on each launch (`discord-<id>` in
+`HKCU\Software\Classes` on Windows, a `.desktop` handler on Linux, Discord's `games` folder on
+macOS) so an accepted invite starts the game when it is closed.
 
 ## Beyond vanilla
 

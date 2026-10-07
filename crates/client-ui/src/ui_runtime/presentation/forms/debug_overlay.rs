@@ -31,6 +31,7 @@ impl UiPresentationRuntime {
         let key = debug_overlay::paint::PaintKey {
             content,
             scale: [scale, metrics.dpi_scale.get()],
+            gui_scale: metrics.gui_scale,
             line: [metrics.line_height_64, metrics.baseline_64],
             solid_page: self.solid_texture_page,
             safe_area: self.safe_area,

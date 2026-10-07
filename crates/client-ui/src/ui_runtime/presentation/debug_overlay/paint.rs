@@ -9,6 +9,7 @@ use ui::{SafeArea, UiNode, UiNodeId};
 pub(in super::super) struct PaintKey {
     pub(in super::super) content: [f32; 2],
     pub(in super::super) scale: [f32; 2],
+    pub(in super::super) gui_scale: f32,
     pub(in super::super) line: [u32; 2],
     pub(in super::super) solid_page: u16,
     pub(in super::super) safe_area: SafeArea,

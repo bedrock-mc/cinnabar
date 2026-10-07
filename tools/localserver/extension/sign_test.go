@@ -27,6 +27,13 @@ func TestVerifyRejects(t *testing.T) {
 	decodeGolden(t, "offer_signed.json", &golden)
 	flipped := []byte(golden.Signature)
 	flipped[0] ^= 1
+	// The scope's permission set, as encoded and in reverse order.
+	canonicalSet := mustEncode(t, ImplementedPermissions)
+	var reversed []string
+	for _, p := range ImplementedPermissions.List() {
+		reversed = append([]string{`"` + p.String() + `"`}, reversed...)
+	}
+	reorderedSet := []byte("[" + strings.Join(reversed, ",") + "]")
 	for _, c := range []struct {
 		name     string
 		document SignedDocument
@@ -44,7 +51,7 @@ func TestVerifyRejects(t *testing.T) {
 		{"uppercase key", golden, strings.ToUpper(seeds.Server.PublicKey), OfferDomain, MaxMarkerBytes / 2, "hex"},
 		{"payload over the limit", golden, seeds.Server.PublicKey, OfferDomain, len(payload) - 1, "too large"},
 		{"whitespace", signRaw(OfferDomain, append([]byte(" "), payload...), server), seeds.Server.PublicKey, OfferDomain, MaxMarkerBytes / 2, "noncanonical"},
-		{"reordered set", signRaw(OfferDomain, bytes.Replace(payload, []byte(`["ui","messaging"]`), []byte(`["messaging","ui"]`), 1), server), seeds.Server.PublicKey, OfferDomain, MaxMarkerBytes / 2, "noncanonical"},
+		{"reordered set", signRaw(OfferDomain, bytes.Replace(payload, canonicalSet, reorderedSet, 1), server), seeds.Server.PublicKey, OfferDomain, MaxMarkerBytes / 2, "noncanonical"},
 		{"escaped slash", signRaw(OfferDomain, bytes.Replace(payload, []byte(`https://`), []byte(`https:\/\/`), 1), server), seeds.Server.PublicKey, OfferDomain, MaxMarkerBytes / 2, "noncanonical"},
 		{"another type", signRaw(OfferDomain, fixture(t, "hello_payload.json"), server), seeds.Server.PublicKey, OfferDomain, MaxMarkerBytes / 2, "field"},
 	} {

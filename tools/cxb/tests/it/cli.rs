@@ -13,25 +13,39 @@ use server_experience::{
     wire::Direction,
 };
 
-const MANIFEST_TOML: &str = r#"
+/// The M0 client part (spec § Sub-project 2) with a screen, in an Experience's `experience.toml`
+/// beside the server keys and index, which are the runtime's.
+const EXPERIENCE: &str = r#"
 id = "benergistics"
-package_version = "0.1.0"
-permissions = ["ui", "messaging"]
+version = "0.1.0"
+api = "0.3"
+data-schema = 1
 
-[[channels]]
+[client]
+permissions = ["ui", "messaging"]
+templates = ["ui/terminal.json"]
+
+[[client.channels]]
 id = "benergistics.controller"
 schema = 1
 direction = "to_client"
 fields = [{ type = "integer", min = 0, max = 4294967295 }]
 
-[[channels]]
+[[client.channels]]
 id = "benergistics.ack"
 schema = 1
 direction = "to_server"
 fields = [{ type = "integer", min = 0, max = 4294967295 }]
+
+[files]
+"server.wasm" = "0000000000000000000000000000000000000000000000000000000000000000"
 "#;
 
-const MANIFEST_JSON: &str = r#"{"id":"benergistics","package_version":"0.1.0","permissions":["ui","messaging"],"channels":[{"id":"benergistics.controller","schema":1,"direction":"to_client","fields":[{"type":"integer","min":0,"max":4294967295}]}]}"#;
+/// The screen `EXPERIENCE` lists, read beside it.
+const TEMPLATE: (&str, &str) = (
+    "ui/terminal.json",
+    r#"{"namespace":"benergistics","terminal":{"type":"panel"}}"#,
+);
 
 /// The smallest core module: the builder must componentize it like `mod-host pack`.
 const CORE_MODULE: &[u8] = b"\0asm\x01\0\0\0";
@@ -62,11 +76,21 @@ fn publisher_key(seed: &Path) -> String {
     crypto::hex(key.public_key().as_ref())
 }
 
-fn build(manifest: &Path, component: &Path, seed: &Path, out: &Path) -> Output {
+/// Writes `text` as `dir/experience.toml` with the template beside it, and returns its path.
+fn write_experience(dir: &Path, text: &str) -> std::path::PathBuf {
+    let (template, bytes) = TEMPLATE;
+    std::fs::create_dir_all(dir.join("ui")).unwrap();
+    std::fs::write(dir.join(template), bytes).unwrap();
+    let path = dir.join("experience.toml");
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+fn build(experience: &Path, component: &Path, seed: &Path, out: &Path) -> Output {
     cxb(&[
         "build",
-        "--manifest",
-        path(manifest),
+        "--experience",
+        path(experience),
         "--component",
         path(component),
         "--publisher-seed",
@@ -115,37 +139,44 @@ fn build_output_passes_the_client_bundle_verifier() {
     assert!(cxb(&["keygen", path(&seed)]).status.success());
     let core = dir.path().join("core.wasm");
     std::fs::write(&core, CORE_MODULE).unwrap();
-    let mut component = Vec::new();
-    for (name, text) in [
-        ("manifest.toml", MANIFEST_TOML),
-        ("manifest.json", MANIFEST_JSON),
-    ] {
-        let manifest = dir.path().join(name);
-        std::fs::write(&manifest, text).unwrap();
-        let out = dir.path().join(format!("{name}.cxb"));
-        let output = build(&manifest, &core, &seed, &out);
-        assert!(output.status.success(), "{output:?}");
-        let bytes = std::fs::read(&out).unwrap();
-        assert_eq!(printed(&output, "sha256"), crypto::digest(&bytes));
-        assert_eq!(printed(&output, "bytes"), bytes.len().to_string());
+    let experience = write_experience(dir.path(), EXPERIENCE);
+    let out = dir.path().join("benergistics.cxb");
+    let output = build(&experience, &core, &seed, &out);
+    assert!(output.status.success(), "{output:?}");
+    let bytes = std::fs::read(&out).unwrap();
+    assert_eq!(printed(&output, "sha256"), crypto::digest(&bytes));
+    assert_eq!(printed(&output, "bytes"), bytes.len().to_string());
 
-        let verified = verify(&bytes, &seed).unwrap();
-        assert_eq!(
-            verified.manifest.permissions,
-            BTreeSet::from([Permission::Ui, Permission::Messaging])
-        );
-        assert_eq!(verified.manifest.channels[0].id, "benergistics.controller");
-        assert_eq!(verified.manifest.channels[0].direction, Direction::ToClient);
-        component = verified.component().unwrap().to_vec();
-        // Component preamble: version 0x0d, layer 1. A core module would be layer 0.
-        assert_eq!(&component[..8], b"\0asm\x0d\0\x01\0");
-    }
+    let verified = verify(&bytes, &seed).unwrap();
+    assert_eq!(verified.manifest.package_version, "0.1.0");
+    assert_eq!(
+        verified.manifest.permissions,
+        BTreeSet::from([Permission::Ui, Permission::Messaging])
+    );
+    assert_eq!(verified.manifest.channels[0].id, "benergistics.controller");
+    assert_eq!(verified.manifest.channels[0].direction, Direction::ToClient);
+    let (template, template_bytes) = TEMPLATE;
+    assert_eq!(
+        verified.manifest.templates,
+        BTreeSet::from([template.to_owned()])
+    );
+    assert!(
+        verified
+            .manifest
+            .files
+            .iter()
+            .any(|file| file.path == template
+                && file.sha256 == crypto::digest(template_bytes.as_bytes()))
+    );
+    let component = verified.component().unwrap().to_vec();
+    // Component preamble: version 0x0d, layer 1. A core module would be layer 0.
+    assert_eq!(&component[..8], b"\0asm\x0d\0\x01\0");
 
     // An existing component is stored unchanged rather than encoded twice.
     let input = dir.path().join("component.wasm");
     std::fs::write(&input, &component).unwrap();
     let out = dir.path().join("again.cxb");
-    let output = build(&dir.path().join("manifest.toml"), &input, &seed, &out);
+    let output = build(&experience, &input, &seed, &out);
     assert!(output.status.success(), "{output:?}");
     let verified = verify(&std::fs::read(&out).unwrap(), &seed).unwrap();
     assert_eq!(verified.component().unwrap(), component);
@@ -158,17 +189,39 @@ fn build_rejects_a_manifest_the_client_would_refuse() {
     assert!(cxb(&["keygen", path(&seed)]).status.success());
     let core = dir.path().join("core.wasm");
     std::fs::write(&core, CORE_MODULE).unwrap();
-    let manifest = dir.path().join("manifest.toml");
     // Channels must live in the package's own namespace.
-    std::fs::write(
-        &manifest,
-        MANIFEST_TOML.replace("benergistics.controller", "other.controller"),
-    )
-    .unwrap();
+    let experience = write_experience(
+        dir.path(),
+        &EXPERIENCE.replace("benergistics.controller", "other.controller"),
+    );
     let out = dir.path().join("rejected.cxb");
-    let output = build(&manifest, &core, &seed, &out);
+    let output = build(&experience, &core, &seed, &out);
     assert!(!output.status.success(), "{output:?}");
     assert!(!out.exists());
+}
+
+/// A bundle needs `[client]`, and takes nothing from it that it does not sign.
+#[test]
+fn build_requires_a_client_table_of_known_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let seed = dir.path().join("publisher.seed");
+    assert!(cxb(&["keygen", path(&seed)]).status.success());
+    let core = dir.path().join("core.wasm");
+    std::fs::write(&core, CORE_MODULE).unwrap();
+    let (server_keys, _) = EXPERIENCE.split_once("[client]").unwrap();
+    let misspelled = EXPERIENCE.replace("permissions", "permission");
+    for (text, reason) in [
+        (server_keys, "[client]"),
+        (misspelled.as_str(), "`permission`"),
+    ] {
+        let experience = write_experience(dir.path(), text);
+        let out = dir.path().join("rejected.cxb");
+        let output = build(&experience, &core, &seed, &out);
+        assert!(!output.status.success(), "{output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(reason), "{stderr}");
+        assert!(!out.exists());
+    }
 }
 
 #[test]
@@ -200,8 +253,7 @@ fn build_assets_are_indexed_under_their_relative_paths() {
     assert!(cxb(&["keygen", path(&seed)]).status.success());
     let core = dir.path().join("core.wasm");
     std::fs::write(&core, CORE_MODULE).unwrap();
-    let manifest = dir.path().join("manifest.toml");
-    std::fs::write(&manifest, MANIFEST_TOML).unwrap();
+    let experience = write_experience(dir.path(), EXPERIENCE);
     let assets = dir.path().join("assets");
     std::fs::create_dir_all(assets.join("media")).unwrap();
     std::fs::write(assets.join("media/clip.json"), b"{}").unwrap();
@@ -209,8 +261,8 @@ fn build_assets_are_indexed_under_their_relative_paths() {
     let out = dir.path().join("assets.cxb");
     let mut args = vec![
         "build",
-        "--manifest",
-        path(&manifest),
+        "--experience",
+        path(&experience),
         "--component",
         path(&core),
         "--publisher-seed",

@@ -536,7 +536,7 @@ fn unchanged_overlay_frame_reuses_geometry_and_publication() {
 #[test]
 fn overlay_paint_refreshes_when_its_presentation_inputs_change() {
     for change in [
-        "font", "viewport", "scale", "dpi", "solid", "safe", "engine",
+        "font", "viewport", "scale", "grid", "dpi", "solid", "safe", "engine",
     ] {
         let mut presentation = mini_engine_presentation();
         presentation.set_debug_lines(Some(DebugLines {
@@ -563,6 +563,7 @@ fn overlay_paint_refreshes_when_its_presentation_inputs_change() {
                 content[0] += 100.0;
             }
             "scale" => preference = Some(1),
+            "grid" => {}
             "dpi" => dpi = 2.0,
             "solid" => presentation.solid_texture_page += 1,
             "safe" => presentation.set_safe_area(ui::SafeArea::new(4.0, 2.0, 0.0, 0.0).unwrap()),
@@ -573,12 +574,20 @@ fn overlay_paint_refreshes_when_its_presentation_inputs_change() {
         }
         presentation.debug_overlay.retain_font(&presentation.font);
         let paints = presentation.debug_overlay.paints;
-        let metrics = TextMetrics::for_viewport(viewport, DpiScale::new(dpi).unwrap(), preference);
+        let mut metrics =
+            TextMetrics::for_viewport(viewport, DpiScale::new(dpi).unwrap(), preference);
+        if change == "grid" {
+            metrics.gui_scale += 0.5;
+        }
+        let previous_nodes = nodes.clone();
         nodes.clear();
         presentation
             .append_debug_overlay(&mut nodes, &mut 1, metrics, content)
             .unwrap();
         assert_eq!(presentation.debug_overlay.paints, paints + 1, "{change}");
+        if change == "grid" {
+            assert_ne!(nodes, previous_nodes);
+        }
         nodes.clear();
         presentation
             .append_debug_overlay(&mut nodes, &mut 1, metrics, content)

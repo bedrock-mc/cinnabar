@@ -3,6 +3,7 @@ mod actor_fluids;
 mod allocation_count;
 mod bedsim_strata;
 mod block_effects;
+mod block_inside;
 mod block_interaction_ray;
 mod climb;
 mod cobweb_volume;

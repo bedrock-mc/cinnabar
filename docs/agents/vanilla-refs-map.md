@@ -191,6 +191,18 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   MobJumpSystem `0x0a5dc2e0`: (69 or 99) without 71 sets `vy = 0.15` and jump delay 10 before
   the ladder branch. Gravity setter `0x032252b0` returns when 71 and (69 or 70). Collision
   shape mac `0x10ab628c0` keeps the top only for feet at or above it, without flag 71.
+- `crates/sim/src/simulator/inside.rs`, `environment.rs`, `simulator.rs`, `travel.rs` (block
+  inside): entity-inside tick `0x06ddfb10` applies bubble entries per cell (surface
+  `min(1.8, vy+0.1)`/`max(-0.9, vy-0.03)`, inside `min(0.7, vy+0.06)`/`max(-0.3, vy-0.03)`,
+  skipped for ability flight) then honey per cell (`x,z *= 0.4`, `vy = max(vy, -0.12)`,
+  excluded in water). Inside cells use the box shrunk by 0.001 (mac `0x1064aad50`, x then y
+  then z); air above selects the surface entry (mac lambda in `0x105948a10`). Powder snow
+  `0x06dc5990` (0.9, 1.5, 0.9) and cobweb `0x06dc5b40` set the move multiplier when it is
+  near zero, else keep the per-axis minimum; slowdown application (mac `0x1058983b0`) scales
+  the move request and zeroes velocity. Jump from ground `0x0a5dacf0`: 0.6 (`0x14ffab698`)
+  when the feet cell, or the cell below integer feet, has property bit 30. Stand-on
+  `0x050937d0`/`0x0712e810`: not sneaking and `vy < 0.1` gives `x,z *= |vy|*0.2 + 0.4`;
+  filter `0x05074d50` selects slime and honey.
 
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;

@@ -52,7 +52,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
             return Ok(EXIT_LOAD_FAILED);
         }
     };
-    if !answer_loaded(&mut output, &loaded.manifest, &loaded.blocks)? {
+    if !answer_loaded(&mut output, &loaded.manifest, &loaded.blocks, loaded.focus)? {
         return Ok(EXIT_LOAD_FAILED);
     }
     loop {
@@ -81,18 +81,21 @@ fn start(dir: &Path) -> Result<(Engine, EpochTicker, Loaded)> {
     Ok((engine, ticker, loaded))
 }
 
-/// Answers a load with what loaded: the manifest's id and version, and the blocks. An answer too
-/// large for a frame fails the load instead. Returns whether the load stands.
+/// Answers a load with what loaded: the manifest's id and version, the blocks, and whether its
+/// world takes a `focus`. An answer too large for a frame fails the load instead. Returns whether
+/// the load stands.
 fn answer_loaded(
     output: &mut impl Write,
     manifest: &Manifest,
     blocks: &[BlockDef],
+    focus: bool,
 ) -> io::Result<bool> {
     let response = Response::Loaded {
         protocol: PROTOCOL_VERSION,
         id: manifest.id.clone(),
         version: manifest.version.clone(),
         blocks: blocks.to_vec(),
+        focus,
     };
     let failed = || Response::LoadFailed {
         reason: OVERSIZED_LOADED.to_owned(),
@@ -157,6 +160,7 @@ fn call_kind(call: &Call) -> &'static str {
         Call::Interact { .. } => "interact",
         Call::Neighbor { .. } => "neighbor",
         Call::ClientMessage { .. } => "client_message",
+        Call::Epoch { .. } => "epoch",
     }
 }
 
@@ -187,7 +191,7 @@ mod tests {
             mining: Mining::Unbreakable {},
         };
         let mut output = Vec::new();
-        assert!(!answer_loaded(&mut output, &manifest, &[block]).unwrap());
+        assert!(!answer_loaded(&mut output, &manifest, &[block], false).unwrap());
         let mut frames = output.as_slice();
         let failed = Response::LoadFailed {
             reason: OVERSIZED_LOADED.to_owned(),

@@ -9,7 +9,7 @@
     "block_registry": "8faf1f3b8cfea2954ddf01b68edde076abf4cc0b1e9f9b099360250d7d42bb88",
     "light_registry": "e05ef98925e897ae7db738214cfb805420d36b83ca9bb16e80f260829b6fc679",
     "biome_registry": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a",
-    "physics_registry": "d2f05a324fad9b5ce181ab52c1c1ec372ea9e34d140f90de64d98b86f05a2cfe",
+    "physics_registry": "080763f3eda3df2fff3aca56cc96fbf55ecbb4a09ab89359f2371997cf77337c",
     "fallback_inventory": "6f8af2cfe1b984c3c57b8ed7bb8d12032184ba02b469f168d86dbc18237f4a74",
     "block_item_routes": "3d0ac451a12ea1d57ef479b842a89192d4864bfa7aac1fb4cfdfedacc485f714"
   },

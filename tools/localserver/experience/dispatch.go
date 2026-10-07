@@ -16,6 +16,7 @@ import (
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/google/uuid"
 )
 
 // airID is the id of air, the one block that an Experience may set besides its own.
@@ -77,6 +78,10 @@ type dispatcher struct {
 	// world, whose goroutines all admit them.
 	neighborMu sync.Mutex
 	neighbors  map[*world.World]*neighborTick
+	// focusMu guards focuses, each player's focus by player UUID: the worker records and reads
+	// them, and PlayerLeft clears them.
+	focusMu sync.Mutex
+	focuses map[uuid.UUID]focus
 }
 
 // neighborTick holds the positions of the neighbor events that one Experience admitted in one
@@ -89,8 +94,8 @@ type neighborTick struct {
 	seen map[cube.Pos]struct{}
 }
 
-// event is one hook's callback, queued for its Experience's worker. A client message's event has
-// no world until its snapshot finds the actor's.
+// event is one hook's callback, queued for its Experience's worker. A client message's or an
+// epoch's event has no world until its snapshot finds the actor's.
 type event struct {
 	w   *world.World
 	dim dimension
@@ -99,6 +104,13 @@ type event struct {
 	// actor is the player who caused the event; nil for a neighbor event.
 	actor *world.EntityHandle
 	call  Call
+}
+
+// anchored reports whether the call is about a block, its event's anchor. A client message and
+// an epoch are about their player: they run in the world that player is in, and have an anchor
+// and a snapshot only with that player's focus.
+func (c Call) anchored() bool {
+	return (c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil
 }
 
 // dimension is a world's dimension as the store and the guest name it.
@@ -152,6 +164,7 @@ func NewHost(
 			sup:       sup,
 			events:    make(chan event, eventQueueCap),
 			neighbors: make(map[*world.World]*neighborTick),
+			focuses:   make(map[uuid.UUID]focus),
 		}
 	}
 	h.holder = &sinkHolder{h}
@@ -425,6 +438,9 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 		}
 		return
 	}
+	if ev.call.Interact != nil {
+		d.recordFocus(ev, snap)
+	}
 	outcome, err := d.sup.Call(snap.req)
 	switch {
 	case errors.Is(err, errQuarantined):
@@ -468,28 +484,30 @@ type cellState struct {
 }
 
 // snapshot reads the event's anchor and its loaded neighbors in a fresh task of the event's
-// world. A client message has no anchor, so its snapshot holds no cell; it runs in the world its
-// actor is in at the time, which becomes the event's world.
+// world. A client message or an epoch runs in the world its actor is in at the time, which
+// becomes the event's world; its anchor is its actor's focus if that is valid there, and without
+// one its snapshot holds no cell.
 func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot, error) {
 	var snap snapshot
-	if ev.call.ClientMessage == nil {
+	if ev.call.anchored() {
 		if err := await(ctx, ev.w.Do(func(tx *world.Tx) { snap = h.read(tx, d, *ev) })); err != nil {
 			return snapshot{}, err
 		}
 		return snap, nil
 	}
 	found := false
-	task := ev.actor.Do(func(tx *world.Tx, _ world.Entity) {
+	task := ev.actor.Do(func(tx *world.Tx, actor world.Entity) {
 		if ev.dim, found = dimensionOf(tx); found {
 			ev.w = tx.World()
+			h.focusOn(tx, d, ev, actor)
 			snap = h.read(tx, d, *ev)
 		}
 	})
 	if err := await(ctx, task); err != nil {
-		return snapshot{}, fmt.Errorf("finding the sender of a client message: %w", err)
+		return snapshot{}, fmt.Errorf("finding the actor of a player's callback: %w", err)
 	}
 	if !found {
-		return snapshot{}, errors.New("the sender of a client message is in a world without a dimension id")
+		return snapshot{}, errors.New("the actor of a player's callback is in a world without a dimension id")
 	}
 	return snap, nil
 }
@@ -506,7 +524,7 @@ func await(ctx context.Context, task *world.Task) error {
 }
 
 // read builds the event's snapshot in tx: the anchor and its six neighbors within the world's
-// height, loaded or not, with the data of the owned ones; nothing for a client message.
+// height, loaded or not, with the data of the owned ones; nothing for an unanchored call.
 func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	r := tx.Range()
 	snap := snapshot{
@@ -528,7 +546,7 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		snap.req.Actor = &id
 	}
 	var positions []cube.Pos
-	if ev.call.ClientMessage == nil {
+	if ev.call.anchored() {
 		positions = append(positions, ev.anchor)
 		for _, f := range cube.Faces() {
 			if side := ev.anchor.Side(f); !side.OutOfBounds(r) {
