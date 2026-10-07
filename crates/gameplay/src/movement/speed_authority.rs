@@ -1,10 +1,14 @@
 /// Largest effective speed that stays inside the collision query extent.
 const MAX_SIMULABLE_MOVEMENT_SPEED: f64 = sim::MAX_COLLISION_QUERY_EXTENT / 4.0;
-/// Largest underwater speed whose steady water velocity fits one collision sweep:
-/// sprint drag 0.9 retains nine accelerations and a dolphin boost doubles them,
-/// with a tenth of headroom for liquid currents.
-pub(crate) const MAX_SIMULABLE_UNDERWATER_SPEED: f64 =
-    (sim::MAX_COLLISION_QUERY_EXTENT - sim::PLAYER_HEIGHT) / 20.0;
+/// Largest per-tick liquid velocity whose diagonal sweep, with the standing
+/// liquid-sensing pose and up to unit vertical speed, fits the 64-cell block
+/// sampling budget beside the liquid-exit probe: 1.4 blocks per horizontal axis.
+const MAX_SAFE_LIQUID_VELOCITY: f64 = 1.4 * std::f64::consts::SQRT_2;
+/// Sprint drag 0.9 settles water velocity at nine accelerations and a dolphin
+/// boost doubles them, with a tenth of headroom for liquid currents.
+pub(crate) const MAX_SIMULABLE_UNDERWATER_SPEED: f64 = MAX_SAFE_LIQUID_VELOCITY / 20.0;
+/// Lava's 0.5 drag settles at one acceleration, again with headroom for currents.
+pub(crate) const MAX_SIMULABLE_LAVA_SPEED: f64 = MAX_SAFE_LIQUID_VELOCITY / 1.1;
 
 /// Attribute current and the native sprint modifier currently installed on it.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -164,8 +168,7 @@ impl LocalMovementSpeedAuthority {
                 underwater,
                 MAX_SIMULABLE_UNDERWATER_SPEED,
             ),
-            // Lava's 0.5 drag settles at one acceleration, inside the movement bound.
-            lava: admitted("lava_movement", lava, MAX_SIMULABLE_MOVEMENT_SPEED),
+            lava: admitted("lava_movement", lava, MAX_SIMULABLE_LAVA_SPEED),
         };
         self.liquid.underwater = update.underwater.or(self.liquid.underwater);
         self.liquid.lava = update.lava.or(self.liquid.lava);

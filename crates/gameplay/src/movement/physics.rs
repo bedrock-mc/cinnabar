@@ -530,7 +530,6 @@ impl LocalPhysicsController {
                     feet: state.position,
                     on_ground: state.on_ground,
                     in_water: self.last_environment.in_water,
-                    in_lava: self.last_environment.in_lava,
                     sprinting: sprint_request,
                     sprint_blinded: input.effects.blindness,
                     sprint_down: context.input.sprint_down,

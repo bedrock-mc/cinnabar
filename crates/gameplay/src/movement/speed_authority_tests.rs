@@ -143,21 +143,29 @@ fn liquid_speeds_order_independently_and_keep_omitted_values() {
     assert_eq!(authority.liquid().underwater, Some(0.05));
 }
 
-/// An underwater speed beyond the sweep-safe bound is skipped; the largest
-/// admitted speed keeps a boosted sprint-swimmer inside one collision sweep.
+/// Liquid speeds beyond the sweep-safe bounds are skipped; the largest admitted
+/// speeds keep worst-case liquid travel inside every simulator query budget.
 #[test]
-fn underwater_speed_admission_keeps_water_velocity_simulable() {
+fn liquid_speed_admission_keeps_liquid_travel_simulable() {
     let mut authority = LocalMovementSpeedAuthority::default();
     authority.begin_session(1, 0);
-    let skipped = authority.apply_liquid(1, 1, 0, Some(30.0), None).unwrap();
-    assert_eq!(skipped.underwater, None);
-    assert_eq!(authority.liquid().underwater, None);
-    let bound = super::MAX_SIMULABLE_UNDERWATER_SPEED;
-    let admitted = authority.apply_liquid(1, 2, 0, Some(bound), None).unwrap();
-    assert_eq!(admitted.underwater, Some(bound));
+    let skipped = authority
+        .apply_liquid(1, 1, 0, Some(30.0), Some(30.0))
+        .unwrap();
+    assert_eq!((skipped.underwater, skipped.lava), (None, None));
+    assert_eq!(authority.liquid(), super::LiquidMovementSpeeds::default());
+    let underwater = super::MAX_SIMULABLE_UNDERWATER_SPEED;
+    let lava = super::MAX_SIMULABLE_LAVA_SPEED;
+    let admitted = authority
+        .apply_liquid(1, 2, 0, Some(underwater), Some(lava))
+        .unwrap();
+    assert_eq!(
+        (admitted.underwater, admitted.lava),
+        (Some(underwater), Some(lava))
+    );
 
-    struct Water;
-    impl sim::CollisionWorld for Water {
+    struct Liquid(sim::BlockPhysicsFlags);
+    impl sim::CollisionWorld for Liquid {
         fn collision_boxes(
             &self,
             _: sim::Aabb,
@@ -174,31 +182,52 @@ fn underwater_speed_admission_keeps_water_velocity_simulable() {
                     horizontal_speed_factor: 1.0,
                     vertical_speed_factor: 1.0,
                     fluid_height_blocks: 1.0,
-                    flags: sim::BlockPhysicsFlags::WATER,
+                    flags: self.0,
                     surface_response: sim::SurfaceResponse::None,
                 }]),
                 identity: sim::CollisionQuery::synthetic(()).identity,
             })
         }
     }
-    let mut state = sim::PlayerState::new(sim::Vec3::new(0.5, 5.0, 0.5));
-    state.swim_amount = 1.0;
-    state.swim_pose_active = true;
-    let input = sim::MovementInput {
-        mode: sim::MovementMode::Swimming,
-        forward: 1.0,
-        sprinting: true,
-        underwater_movement_speed: Some(bound),
-        effects: sim::MovementEffects {
-            dolphin_boost: true,
-            ..sim::MovementEffects::default()
-        },
-        ..sim::MovementInput::default()
+    let boosted = sim::MovementEffects {
+        dolphin_boost: true,
+        ..sim::MovementEffects::default()
     };
-    for _ in 0..200 {
-        sim::Simulator::default()
-            .tick(&mut state, input, &Water)
-            .expect("bounded water speed stays simulable");
+    // Diagonal sprint-swimming and lava wading, diving, level and climbing.
+    for (flags, mode, effects) in [
+        (
+            sim::BlockPhysicsFlags::WATER,
+            sim::MovementMode::Swimming,
+            boosted,
+        ),
+        (
+            sim::BlockPhysicsFlags::LAVA,
+            sim::MovementMode::Walking,
+            sim::MovementEffects::default(),
+        ),
+    ] {
+        for pitch in [-90.0, 0.0, 90.0] {
+            let mut state = sim::PlayerState::new(sim::Vec3::new(0.5, 5.0, 0.5));
+            state.swim_amount = 1.0;
+            state.swim_pose_active = mode == sim::MovementMode::Swimming;
+            let input = sim::MovementInput {
+                mode,
+                forward: 1.0,
+                strafe: 1.0,
+                yaw_degrees: 45.0,
+                pitch_degrees: pitch,
+                sprinting: true,
+                liquid_contact_height: Some(f64::from(sim::PLAYER_HEIGHT as f32)),
+                underwater_movement_speed: Some(underwater),
+                lava_movement_speed: Some(lava),
+                effects,
+                ..sim::MovementInput::default()
+            };
+            for tick in 0..300 {
+                sim::Simulator::default()
+                    .tick(&mut state, input, &Liquid(flags))
+                    .unwrap_or_else(|error| panic!("{mode:?} pitch {pitch} tick {tick}: {error}"));
+            }
+        }
     }
-    assert!(state.velocity.z < sim::MAX_COLLISION_QUERY_EXTENT - sim::PLAYER_HEIGHT);
 }
