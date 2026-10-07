@@ -75,6 +75,13 @@ impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         self.inner.block_physics(block)
     }
+
+    fn primary_is_air(
+        &self,
+        block: [i32; 3],
+    ) -> Result<Option<CollisionQuery<bool>>, WorldQueryError> {
+        self.inner.primary_is_air(block)
+    }
 }
 
 #[cfg(test)]

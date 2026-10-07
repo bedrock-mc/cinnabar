@@ -124,6 +124,15 @@ pub enum PlayerInputMode {
     GamePad,
 }
 
+impl PlayerInputMode {
+    /// Touch and gamepad use vanilla's persistent controls: sneak survives
+    /// suspended input and every input carries PersistSneak.
+    #[must_use]
+    pub const fn persists_sneak(self) -> bool {
+        matches!(self, Self::Touch | Self::GamePad)
+    }
+}
+
 /// One deterministic movement-tick snapshot sent to a server-authoritative server.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerAuthInputSnapshot {
