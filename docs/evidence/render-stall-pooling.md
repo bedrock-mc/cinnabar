@@ -32,9 +32,9 @@ message. CI and review remain pending until the pull request runs.
 
 ## Measurement contract
 
-Baseline is `316a85eab` from `origin/dev`; the candidate changes the upload owners
-above. Both executables use the optimized play profile and developer-control plus
-Tracy. The machine is an Apple M3 Pro with 36 GiB RAM, macOS 26.5.1, on AC power.
+Baseline is `316a85eab` from `origin/dev`; the candidate implementation is
+`bf9823fd8`, changing the upload owners above. Both executables use the optimized
+play profile and developer-control plus Tracy. The machine is an Apple M3 Pro with 36 GiB RAM, macOS 26.5.1, on AC power.
 The system reported no recorded thermal or performance warning; that is not a
 continuous temperature measurement.
 
@@ -159,6 +159,34 @@ The longest lasted 23.867 ms, including 23.656–23.659 ms Blocked and five
 Blocked time of 27.878–27.887 ms and Runnable time of 13.781 ms. Its other >33 ms
 frame lasted 37.012 ms with 33.987 ms coordinator Blocked time. Exact task-pool
 wake dependencies remain unresolved. Neither short diagnostic captured >100 ms.
+
+### Long-frame samples: final Retina diagnostic
+
+Two 180-second attached captures used only Numeric Clock and Waiting Thread Samples. Selected clock and projected-stack exports passed environment guards before analysis. Bracketing Tracy anchors place all five >100 ms frames inside the observed sample timestamp spans; maximum anchor-window widths were 64.250 µs before and 79.875 µs after. Absolute clock calibration error was not independently measured. This establishes sampled-path membership, not continuous coverage. Scheduler states, wait durations, preemption and lock owners remain unknown.
+
+| Diagnostic | Frames | >12.5 ms | >33 ms | >100 ms | p99 ms | Maximum ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Before | 11,124 | 6,714 | 164 | 3 | 36.014 | 175.266 |
+| Candidate | 10,443 | 8,035 | 96 | 2 | 32.672 | 190.460 |
+
+Run-boundary snapshots recorded client counts of 0/1/1/2 and four to five compiler processes, with recorded compiler CPU reaching 251.8%. These are shared-load diagnostic results, not an isolated performance comparison.
+
+Every >100 ms frame contains render-coordinator samples in `TaskPool::scope_with_executor_inner` → `parking::Inner::park` → `_pthread_cond_wait`, and main-thread samples in `renderer_extract` parking. The table records additional observed paths. Milliseconds within its final column are Tracy zone overlap with the frame, never native wait duration.
+
+| Build / frame | Frame ms | Stage, worker and sampled path |
+| --- | ---: | --- |
+| Before / 6543 | 145.579 | Worker 24216889: one `Queue::write_buffer` → `StagingBuffer::new` → Metal `create_buffer` → `RawMutex::lock_slow` sample. Worker 24216890: `prepare_windows` overlaps 5.016 ms, with `CAImageQueueCollect_` / image release beneath `nextDrawable`; `async_executor::State::active` mutex samples also appear on the worker and render coordinator. |
+| Before / 6588 | 120.148 | Worker 24216891: `prepare_windows` overlaps 13.698 ms, with two `nextDrawable` → `usleep` / `__semwait_signal` samples. Coordinator samples also include deferred ECS command application. |
+| Before / 6692 | 175.266 | Render coordinator 24216908: task-pool parking, one `async_executor::State::active` pthread-mutex path, and one query-bookkeeping signature. No sampled selected worker stage explains the whole frame. |
+| Candidate / 8474 | 190.460 | Render coordinator 24281161: repeated task-pool parking and an executor mutex-unlock path. `submit_graph_commands` overlaps 5.419 ms, with one `AGXG15XFamilyBlitContext deferredEndEncoding` / `free` sample. The long task-pool dependency remains unresolved. |
+| Candidate / 11727 | 148.611 | Worker 24281101: `prepare_windows` overlaps 45.095 ms, with `nextDrawable` sleep and `semaphore_timedwait_trap` paths. Worker 24281099: `gpu.timestamps.device_poll` overlaps 8.063 ms, with `LifetimeTracker::triage_submissions` → Metal command-buffer and buffer deallocation samples. |
+
+The long captures confirm that >100 ms frames remain after pooled uploads. They locate drawable acquisition, retirement and executor synchronization paths within specific frames, but do not assign the entire stalls to those paths or establish why task-pool progress was delayed. No additional production change or complete-root-cause claim is supported by these samples alone.
+
+The candidate had zero upload fallbacks throughout this diagnostic. Maximum hand,
+UI, particle and upload-encoding spans remained below 1 ms. Time inside these selected
+upload and encoding zones cannot account for either long frame. GPU/present
+dependencies and other backend allocation and retirement paths remain open.
 
 ## Visual pass and limits
 
