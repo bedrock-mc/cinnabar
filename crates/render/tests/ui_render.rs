@@ -22,6 +22,17 @@ mod screen_overlay_render {
 }
 
 mod gpu_timing {
+    /// Diagnostics stay disabled in the standalone UI fixture.
+    pub(crate) fn ui_profiling_requested() -> bool {
+        false
+    }
+    /// The standalone UI fixture has no diagnostic query ring.
+    pub(crate) fn ui_pass_timestamps(
+        _: &bevy::prelude::World,
+        _: render::RuntimeStage,
+    ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        None
+    }
     /// The isolated UI fixture installs no GPU timing query ring.
     pub(crate) fn render_pass_timestamps(
         _: &bevy::prelude::World,

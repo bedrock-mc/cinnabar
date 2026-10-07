@@ -140,6 +140,7 @@ impl UiGpuTextures {
         catalog: &UiTextureCatalog,
         device: &RenderDevice,
         queue: &RenderQueue,
+        profile: Option<&super::profile::UiProfile>,
     ) -> Result<(), UiRenderRejectReason> {
         let limits = device.limits();
         catalog.plan().validate_device(
@@ -255,6 +256,12 @@ impl UiGpuTextures {
                 bytes = page.pixels().len(),
             )
             .entered();
+            if let Some(profile) = profile {
+                profile.record_upload(
+                    super::profile::UploadKind::Texture,
+                    page.pixels().len() as u64,
+                );
+            }
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &buckets[location.bucket].texture,
@@ -536,18 +543,21 @@ mod tests {
         ));
         let catalog = catalog(0);
         let mut gpu = UiGpuTextures::default();
-        gpu.prepare(&catalog, &device, &queue).unwrap();
+        gpu.prepare(&catalog, &device, &queue, None).unwrap();
         assert_eq!(gpu.buckets.len(), 2);
         assert!(gpu.state.dirty(&catalog).unwrap().is_empty());
         assert!(gpu.resident(&catalog));
         let changed_generation =
             UiTextureCatalog::with_source_identity(catalog.pages().to_vec(), 1, [7; 32]).unwrap();
-        assert!(gpu.prepare(&changed_generation, &device, &queue).is_err());
+        assert!(
+            gpu.prepare(&changed_generation, &device, &queue, None)
+                .is_err()
+        );
         assert_eq!(gpu.buckets.len(), 2);
         gpu.buckets.pop();
         assert!(!gpu.resident(&catalog));
         for _ in 0..10 {
-            assert!(gpu.prepare(&catalog, &device, &queue).is_err());
+            assert!(gpu.prepare(&catalog, &device, &queue, None).is_err());
             assert_eq!(gpu.buckets.len(), 1);
         }
     }

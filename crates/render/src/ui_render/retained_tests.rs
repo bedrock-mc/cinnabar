@@ -71,6 +71,37 @@ fn retained_publication_rejects_conflicting_identity_and_missing_buffers() {
     assert_eq!(world.resource::<UiGpu>().accepted_revision, None);
 }
 
+#[test]
+fn unchanged_prepared_ui_submits_no_uploads() {
+    let mut world = retained_world();
+    world.insert_resource(profile::UiProfile::with_baseline_replay(false));
+    for _ in 0..32 {
+        world.run_system_once(prepare_ui_resources).unwrap();
+    }
+    assert_eq!(
+        world.resource::<profile::UiProfile>().submitted_uploads(),
+        [[0; 3]; 2],
+        "an unchanged publication must not write geometry, textures or viewport bytes"
+    );
+}
+
+#[test]
+fn diagnostic_baseline_reproduces_unchanged_viewport_uploads() {
+    const FRAMES: u64 = 32;
+    let mut world = retained_world();
+    world.insert_resource(profile::UiProfile::with_baseline_replay(true));
+    for _ in 0..FRAMES {
+        world.run_system_once(prepare_ui_resources).unwrap();
+    }
+    assert_eq!(
+        world.resource::<profile::UiProfile>().submitted_uploads(),
+        [
+            [0, 0, FRAMES],
+            [0, 0, FRAMES * size_of::<UiViewportUniform>() as u64]
+        ]
+    );
+}
+
 /// Measures the actual preparation system with an unchanged publication.
 #[test]
 #[ignore = "release performance measurement"]

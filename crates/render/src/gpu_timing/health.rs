@@ -33,13 +33,25 @@ impl StageHealth {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct HealthInterval {
     frames: u64,
     ring_skips: u64,
     readbacks: u64,
     map_failures: u64,
     stages: [StageHealth; RuntimeStage::GPU.len()],
+}
+
+impl Default for HealthInterval {
+    fn default() -> Self {
+        Self {
+            frames: 0,
+            ring_skips: 0,
+            readbacks: 0,
+            map_failures: 0,
+            stages: [StageHealth::default(); RuntimeStage::GPU.len()],
+        }
+    }
 }
 
 impl HealthInterval {

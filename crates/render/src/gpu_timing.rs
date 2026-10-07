@@ -38,7 +38,7 @@ use std::{
     },
 };
 
-pub(crate) use pass::render_pass_timestamps;
+pub(crate) use pass::{render_pass_timestamps, ui_pass_timestamps, ui_profiling_requested};
 pub use readback::GpuFrameTimes;
 pub(crate) use readback::decode_spans;
 
@@ -177,7 +177,7 @@ impl Node for TimedNode {
     ) -> Result<(), NodeRunError> {
         let span = world
             .get_resource::<GpuTimestamps>()
-            .filter(|_| !cfg!(target_os = "macos"))
+            .filter(|timestamps| timestamps.graph_span_enabled(self.stage))
             .and_then(|timestamps| timestamps.open_pass(self.stage));
         if let Some(span) = &span {
             mark(render_context, span.queries, span.begin);
@@ -199,7 +199,7 @@ pub(crate) fn timed<'w, R>(
 ) -> R {
     let span = world
         .get_resource::<GpuTimestamps>()
-        .filter(|_| !cfg!(target_os = "macos"))
+        .filter(|timestamps| timestamps.graph_span_enabled(stage))
         .and_then(|timestamps| timestamps.open_pass(stage));
     if let Some(span) = &span {
         mark(context, span.queries, span.begin);
@@ -287,6 +287,7 @@ pub(crate) struct GpuTimestamps {
     ring: ReadbackRing,
     period_ns: f32,
     draw_spans: bool,
+    ui_categories: bool,
     frame: FrameSpans,
     health: Option<health::QueryHealth>,
 }
@@ -333,6 +334,7 @@ impl GpuTimestamps {
             period_ns: queue.get_timestamp_period(),
             draw_spans: profiling
                 && features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES),
+            ui_categories: ui_profiling_requested(),
             frame: FrameSpans {
                 slot: AtomicU32::new(NO_SLOT),
                 passes: AtomicU32::new(0),

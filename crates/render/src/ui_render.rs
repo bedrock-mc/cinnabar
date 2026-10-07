@@ -35,18 +35,26 @@ use textures::{UiGpuTextures, prepare_ui_bind_group};
 mod batches;
 #[path = "ui_render/composite.rs"]
 pub(crate) mod composite;
+#[path = "ui_render/damage.rs"]
+mod damage;
 #[path = "ui_render/glint.rs"]
 mod glint;
+#[path = "ui_render/layer.rs"]
+mod layer;
 #[path = "ui_render/model_depth.rs"]
 mod model_depth;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
 #[path = "ui_render/pipeline.rs"]
 mod pipeline;
+#[path = "ui_render/profile.rs"]
+pub(crate) mod profile;
 #[path = "ui_render/shader.rs"]
 pub(crate) mod shader;
 #[path = "ui_render/uploads.rs"]
 mod uploads;
+#[path = "ui_render/viewport.rs"]
+mod viewport;
 use batches::resolved_batches;
 pub use glint::UiGlintSettings;
 use overlay::queue_ui_overlay;
@@ -128,6 +136,7 @@ fn install_ui_render(app: &mut App) {
                 queue_ui_overlay.in_set(RenderSystems::Queue),
             ),
         );
+    profile::install(app.sub_app_mut(RenderApp));
     install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
 }
 
@@ -142,6 +151,7 @@ pub(crate) struct UiGpu {
     vertex_arena_id: u64,
     index_arena_id: u64,
     viewport_buffer: Buffer,
+    viewport_uniform: viewport::ViewportUniformCache,
     viewport_size: [u32; 2],
     started: std::time::Instant,
     textures: UiGpuTextures,
@@ -205,6 +215,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         vertex_arena_id: 0,
         index_arena_id: 0,
         viewport_buffer,
+        viewport_uniform: viewport::ViewportUniformCache::default(),
         viewport_size: [1, 1],
         started: std::time::Instant::now(),
         textures: UiGpuTextures::default(),
@@ -231,6 +242,7 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
+    profile: Option<Res<profile::UiProfile>>,
     (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
@@ -259,7 +271,14 @@ pub(crate) fn prepare_ui_resources(
         );
         return;
     }
-    // Written every frame: the glint animates without a new UI revision.
+    let animated = if gpu.accepted_revision == Some(input.revision) {
+        gpu.animated
+    } else {
+        input
+            .vertices
+            .iter()
+            .any(|vertex| vertex.style_flags & render_model::UI_STYLE_GLINT != 0)
+    };
     let viewport = UiViewportUniform {
         viewport_size: [input.viewport_size[0] as f32, input.viewport_size[1] as f32],
         time_seconds: glint
@@ -269,12 +288,26 @@ pub(crate) fn prepare_ui_resources(
             .animation_seconds(gpu.started.elapsed().as_secs_f32()),
         glint_strength: glint.as_deref().copied().unwrap_or_default().strength,
     };
+    let upload_viewport = if profile
+        .as_ref()
+        .is_some_and(|profile| profile.baseline_replay)
     {
+        Some(viewport)
+    } else {
+        gpu.viewport_uniform.update(viewport, animated)
+    };
+    if let Some(viewport) = upload_viewport {
         #[cfg(feature = "tracy")]
         let _span =
             bevy::log::info_span!("ui.viewport_write", bytes = size_of::<UiViewportUniform>())
                 .entered();
         render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
+        if let Some(profile) = &profile {
+            profile.record_upload(
+                profile::UploadKind::Viewport,
+                size_of::<UiViewportUniform>() as u64,
+            );
+        }
     }
     if let Some(previous) = gpu.last_admitted_revision {
         let reason = if input.revision < previous {
@@ -319,10 +352,12 @@ pub(crate) fn prepare_ui_resources(
         record_render_rejection(&stats, input.revision, reason);
         return;
     }
-    if let Err(reason) = gpu
-        .textures
-        .prepare(&input.textures, &render_device, &render_queue)
-    {
+    if let Err(reason) = gpu.textures.prepare(
+        &input.textures,
+        &render_device,
+        &render_queue,
+        profile.as_deref(),
+    ) {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
         record_render_rejection(&stats, input.revision, reason);
@@ -400,13 +435,24 @@ pub(crate) fn prepare_ui_resources(
             bytemuck::cast_slice(&input.indices[upload.indices.clone()]),
         );
     }
+    if let Some(profile) = &profile {
+        if !upload.vertices.is_empty() {
+            profile.record_upload(
+                profile::UploadKind::Geometry,
+                (upload.vertices.len() * size_of::<UiRenderVertex>()) as u64,
+            );
+        }
+        if !upload.indices.is_empty() {
+            profile.record_upload(
+                profile::UploadKind::Geometry,
+                (upload.indices.len() * size_of::<u32>()) as u64,
+            );
+        }
+    }
     gpu.viewport_size = input.viewport_size;
 
     gpu.batches = Arc::clone(&input.batches);
-    gpu.animated = input
-        .vertices
-        .iter()
-        .any(|vertex| vertex.style_flags & render_model::UI_STYLE_GLINT != 0);
+    gpu.animated = animated;
     gpu.index_count = input.indices.len();
     gpu.accepted_revision = Some(input.revision);
     gpu.last_admitted_revision = Some(input.revision);

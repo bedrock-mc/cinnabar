@@ -1,5 +1,9 @@
 //! Ordered world-projected UI and depth-free HUD overlay with exact hand coverage.
 use super::*;
+use super::{
+    damage::UiDamage,
+    layer::{LayerDrawn, UiLayerDraw, draw_batches, draw_ui_layer, model_depth_attachment},
+};
 #[path = "world.rs"]
 mod world;
 use bevy::{
@@ -501,6 +505,7 @@ impl ViewNode for UiOverlayNode {
             model_depth,
             viewport: viewport.as_ref(),
             skip: skip.as_ref(),
+            clear: composite.clear_pipeline(pipeline_cache),
         };
         let mut model_lifetime = super::model_depth::ModelDepthLifetime::default();
         let plan = plan_ui_passes(
@@ -519,20 +524,69 @@ impl ViewNode for UiOverlayNode {
                     .map(|viewport| (viewport.physical_position, viewport.physical_size)),
                 model_depth: model_depth.is_some(),
             });
+        let publication = gpu
+            .last_admitted_publication
+            .upgrade()
+            .filter(|input| Some(input.revision) == gpu.accepted_revision);
+        let profile = world.get_resource::<super::profile::UiProfile>();
         // Alpha batches blend in the gamma-space layer; an invert batch (the
         // crosshair) must see the scene, so the layer composites before it.
         for segment in plan.segments {
             let layered = &batches[segment.layered];
             let inverted = segment.inverted.map(|index| &batches[index]);
-            let encoded = match content.as_ref().and_then(|content| layer.holds(content)) {
+            let held = content.as_ref().and_then(|content| layer.holds(content));
+            let proposed = match (content.as_ref(), publication.as_ref()) {
+                _ if held.is_some() => UiDamage::Unchanged,
+                _ if profile.is_some_and(|profile| profile.baseline_replay) => UiDamage::Full,
+                (Some(content), Some(input)) => layer.damage(content, input),
+                _ => UiDamage::Full,
+            };
+            let damage = super::layer::damage_for_passes(
+                proposed,
+                layered.first().map(|(_, batch, _)| *batch),
+                layer_draw.clear.is_some(),
+                !matches!(proposed, UiDamage::Rect(_))
+                    || layered
+                        .iter()
+                        .all(|(_, batch, _)| layer_draw.pipeline(batch).is_some()),
+            );
+            if let Some(profile) = profile {
+                profile.record_layer(
+                    damage != UiDamage::Unchanged,
+                    [layer.texture.width(), layer.texture.height()],
+                    layer.texture.format(),
+                    layer.texture.sample_count(),
+                );
+                if let UiDamage::Rect(rect) = damage {
+                    profile.record_damage(rect);
+                }
+            }
+            let encoded = match held {
                 Some(encoded) => encoded,
                 None => {
-                    let drawn = draw_ui_layer(context, &layer_draw, layered, &mut model_lifetime);
-                    layer.hold(
+                    let drawn = match damage {
+                        UiDamage::Unchanged => LayerDrawn {
+                            encoded: true,
+                            complete: true,
+                        },
+                        redraw => draw_ui_layer(
+                            context,
+                            &layer_draw,
+                            layered,
+                            &mut model_lifetime,
+                            if let UiDamage::Rect(rect) = redraw {
+                                Some(rect)
+                            } else {
+                                None
+                            },
+                        ),
+                    };
+                    layer.hold_publication(
                         content
                             .clone()
                             .filter(|_| drawn.complete)
                             .map(|content| (content, drawn.encoded)),
+                        publication.clone(),
                     );
                     drawn.encoded
                 }
@@ -592,9 +646,9 @@ impl ViewNode for UiOverlayNode {
                     color_attachments: &attachments,
                     depth_stencil_attachment: (scoped && needs_depth)
                         .then(|| model_depth_attachment(model_depth.unwrap(), &model_lifetime)),
-                    timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    timestamp_writes: crate::gpu_timing::ui_pass_timestamps(
                         world,
-                        crate::RuntimeStage::GpuUi,
+                        crate::RuntimeStage::GpuUiInvert,
                     ),
                     occlusion_query_set: None,
                 });
@@ -610,139 +664,15 @@ impl ViewNode for UiOverlayNode {
                     viewport.as_ref(),
                     std::slice::from_ref(inverted),
                     skip.as_ref(),
+                    None,
+                    world
+                        .get_resource::<super::profile::UiProfile>()
+                        .map(|profile| (profile, crate::RuntimeStage::GpuUiInvert)),
                 );
             }
         }
         Ok(())
     }
-}
-
-struct UiLayerDraw<'a> {
-    world: &'a World,
-    gpu: &'a UiGpu,
-    pipeline_cache: &'a PipelineCache,
-    alpha: &'a RenderPipeline,
-    vertices: &'a Buffer,
-    indices: &'a Buffer,
-    owner: Entity,
-    layer: &'a super::composite::UiLayerTexture,
-    model_depth: Option<&'a super::model_depth::UiModelDepth>,
-    viewport: Option<&'a Viewport>,
-    skip: Option<&'a Range<u32>>,
-}
-
-fn model_depth_attachment<'a>(
-    depth: &'a super::model_depth::UiModelDepth,
-    lifetime: &super::model_depth::ModelDepthLifetime,
-) -> RenderPassDepthStencilAttachment<'a> {
-    RenderPassDepthStencilAttachment {
-        view: &depth.view,
-        depth_ops: Some(Operations {
-            load: if lifetime.cleared() {
-                LoadOp::Load
-            } else {
-                LoadOp::Clear(0.0)
-            },
-            store: StoreOp::Store,
-        }),
-        stencil_ops: None,
-    }
-}
-
-/// Material passes load the same gamma layer in authored order; each control owns
-/// a fresh model-depth clear, shared by its later translucent/read-only materials.
-fn draw_ui_layer(
-    context: &mut RenderContext,
-    draw: &UiLayerDraw<'_>,
-    batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
-    lifetime: &mut super::model_depth::ModelDepthLifetime,
-) -> LayerDrawn {
-    let mut encoded = false;
-    let mut complete = true;
-    let mut start = 0;
-    while let Some((_, first, _)) = batches.get(start) {
-        let mode = (
-            first.isolated_depth_scope,
-            first.depth_test,
-            first.depth_write,
-        );
-        let length = batches[start..]
-            .iter()
-            .take_while(|(_, batch, _)| {
-                (
-                    batch.isolated_depth_scope,
-                    batch.depth_test,
-                    batch.depth_write,
-                ) == mode
-            })
-            .count();
-        let group = &batches[start..start + length];
-        start += length;
-        lifetime.enter(mode.0);
-        let needs_depth = mode.1 != 0 || mode.2 != 0;
-        let pipeline = if needs_depth {
-            draw.model_depth
-                .and_then(|_| {
-                    draw.gpu
-                        .model_view_pipelines
-                        .get(&(draw.owner, mode.1 != 0, mode.2 != 0))
-                })
-                .and_then(|pair| draw.pipeline_cache.get_render_pipeline(pair.0))
-        } else {
-            Some(draw.alpha)
-        };
-        let Some(pipeline) = pipeline else {
-            complete = false;
-            continue;
-        };
-        let attachments = [Some(
-            bevy::render::render_resource::RenderPassColorAttachment {
-                view: &draw.layer.view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: if encoded {
-                        LoadOp::Load
-                    } else {
-                        LoadOp::Clear(Default::default())
-                    },
-                    store: StoreOp::Store,
-                },
-            },
-        )];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("ordered gamma-space UI/model material layer"),
-            color_attachments: &attachments,
-            depth_stencil_attachment: needs_depth
-                .then(|| model_depth_attachment(draw.model_depth.unwrap(), lifetime)),
-            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                draw.world,
-                crate::RuntimeStage::GpuUi,
-            ),
-            occlusion_query_set: None,
-        });
-        pass.set_render_pipeline(pipeline);
-        draw_batches(
-            &mut pass,
-            draw.gpu,
-            draw.vertices,
-            draw.indices,
-            draw.viewport,
-            group,
-            draw.skip,
-        );
-        if needs_depth {
-            lifetime.encoded();
-        }
-        encoded = true;
-    }
-    LayerDrawn { encoded, complete }
-}
-
-struct LayerDrawn {
-    encoded: bool,
-    /// False when a still-compiling pipeline left a group out, so the layer must not be retained.
-    complete: bool,
 }
 
 /// One gamma-layer draw: its layered batch range, then an optional invert batch.
@@ -789,36 +719,6 @@ pub(crate) fn plan_ui_passes<T: std::borrow::Borrow<UiRenderBatch>, L>(
         retainable: segments.len() == 1,
         segments,
     }
-}
-
-/// Draw `batches` into `pass`, each under its own scissor and page bind group.
-fn draw_batches<'w>(
-    pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
-    gpu: &'w UiGpu,
-    vertices: &'w Buffer,
-    indices: &'w Buffer,
-    viewport: Option<&Viewport>,
-    batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
-    skip: Option<&Range<u32>>,
-) {
-    if let Some(viewport) = viewport {
-        pass.set_camera_viewport(viewport);
-    }
-    pass.set_vertex_buffer(0, vertices.slice(..));
-    pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-    for (_, batch, location) in batches {
-        let binding = gpu.textures.buckets[location.bucket]
-            .bind_group
-            .as_ref()
-            .unwrap();
-        pass.set_bind_group(0, binding, &[]);
-        let scissor = batch.scissor;
-        pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
-        for range in retained_batch_ranges(batch, skip).into_iter().flatten() {
-            pass.draw_indexed(range, 0, location.layer..location.layer + 1);
-        }
-    }
-    pass.set_scissor_rect(0, 0, gpu.viewport_size[0], gpu.viewport_size[1]);
 }
 
 pub(crate) fn overlay_viewport(
