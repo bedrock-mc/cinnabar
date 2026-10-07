@@ -147,6 +147,11 @@ impl ModHost {
         Ok(())
     }
 
+    /// Whether the last successful gameplay callback opted in to preserving teleport aim.
+    pub fn preserves_teleport_rotation(&self) -> bool {
+        self.instance.preserves_teleport_rotation()
+    }
+
     /// The retained camera rig from the last successful callback.
     pub fn camera_rig(&self) -> Option<GameplayCameraRig> {
         self.instance.camera_rig()

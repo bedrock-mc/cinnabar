@@ -40,6 +40,10 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 pub const ANIMATIONS_OPTION: SettingDefinition =
     dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
 
+/// Publishes the client's state to Discord Rich Presence.
+pub const DISCORD_PRESENCE_OPTION: SettingDefinition =
+    toggle("discord_presence", "Discord Rich Presence", true);
+
 /// Optional crosshair visibility in both third-person camera views.
 pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
     toggle("third_person_crosshair", "Third Person Crosshair", false);
@@ -47,6 +51,15 @@ pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
 /// Keeps the crosshair's background inversion enabled unless the player opts out.
 pub const INVERT_CROSSHAIR_OPTION: SettingDefinition =
     toggle("invert_crosshair", "Invert Crosshair Colors", true);
+
+/// Percent slider over vanilla's `0.0..=1.0` mouse sensitivity option.
+pub const MOUSE_SENSITIVITY_OPTION: SettingDefinition = slider(
+    "keyboard_mouse_sensitivity",
+    "options.sensitivity",
+    0,
+    100,
+    (semantic_input::DEFAULT_MOUSE_SENSITIVITY * 100.0) as i32,
+);
 
 /// Defines one boolean binding with an integral persisted value.
 const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
@@ -270,13 +283,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle("field_of_view_toggle", "options.fov.toggle", true),
     dropdown("third_person", "options.thirdperson", PERSPECTIVES, 0),
     dropdown("graphics_mode", "options.graphicsMode", GRAPHICS, 1),
-    slider(
-        "keyboard_mouse_sensitivity",
-        "options.sensitivity",
-        0,
-        100,
-        50,
-    ),
+    MOUSE_SENSITIVITY_OPTION,
     slider(
         "spyglass_mouse_dampening",
         "options.spyglassdampen",
@@ -497,4 +504,5 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         false,
     ),
     toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
+    DISCORD_PRESENCE_OPTION,
 ];

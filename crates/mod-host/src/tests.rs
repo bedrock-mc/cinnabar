@@ -1,3 +1,5 @@
+#[path = "tests/camera.rs"]
+mod camera;
 use super::*;
 mod block_highlights;
 mod fullbright;

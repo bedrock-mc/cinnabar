@@ -138,7 +138,7 @@ pub(super) fn climb_out(
     previous_y: f64,
     position_y: f64,
     velocity: &mut Vec3,
-    previous_samples: usize,
+    samples: &mut usize,
 ) -> Result<CollisionQuery<()>, WorldQueryError> {
     let raise = (previous_y as f32 - position_y as f32) + LIQUID_EXIT_RAISE + velocity.y as f32;
     let delta = [velocity.x as f32, raise, velocity.z as f32];
@@ -151,7 +151,7 @@ pub(super) fn climb_out(
     };
     let probe = Aabb::new(translated(aabb.min), translated(aabb.max));
     let (liquid, mut identity) =
-        super::environment::contains_liquid(world, probe, previous_samples)?;
+        super::environment::contains_liquid(world, probe, samples)?;
     if !liquid {
         let occupied = super::collision::has_collision(world, probe)?;
         identity = identity.merge(&occupied.identity)?;

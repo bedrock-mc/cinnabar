@@ -183,6 +183,8 @@ pub(in super::super) fn painted_label_request<'a>(
         TextAlign::Center => TextLineAlign::Center,
         TextAlign::Right => TextLineAlign::Right,
     };
+    request.wrap.align_grid_65536 =
+        super::pixel_snap::align_grid_65536(scale, metrics.gui_scale, px);
     request
 }
 

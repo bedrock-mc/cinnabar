@@ -9,7 +9,6 @@ use ui::{UiMesh, UiNode, UiVisual};
 use super::{IconRef, UiPresentationError, UiPresentationRuntime, item_gui, player_preview};
 
 mod atlas;
-mod block_models;
 mod fire;
 mod held;
 mod live_player;
@@ -109,15 +108,6 @@ impl UiPresentationRuntime {
             models
                 .entry(icon_key(*icon))
                 .or_insert_with(|| Arc::clone(mesh));
-        }
-        if let Some(refs) = self.icon_refs.as_deref() {
-            for thumbnail in icons.block_models() {
-                if let Some(icon) = refs.get(thumbnail.sprite as usize)
-                    && let Some(mesh) = block_models::mesh(world, thumbnail.visual, &mut atlas)
-                {
-                    models.entry(icon_key(*icon)).or_insert(mesh);
-                }
-            }
         }
         if let Some(equipment) = self.equipment_catalog.as_deref() {
             for texture in equipment.textures() {

@@ -9,7 +9,7 @@ pub struct ModGrants {
     pub environment: bool,
     /// Allows current-frame remote player and camera pose reads.
     pub players: bool,
-    /// Allows bounded, transactional local camera rotation.
+    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
     pub camera: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
     pub controls: bool,
