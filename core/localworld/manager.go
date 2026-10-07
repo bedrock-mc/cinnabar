@@ -65,7 +65,6 @@ type Runner interface {
 // Manager owns the store and at most one running local world.
 type Manager struct {
 	setup       Setup            // nil when no dedicated-server backend is configured
-	autoBackend bool             // Prefs re-probes may change the default backend
 	unavailable map[string]error // backends that cannot host worlds here, with the operator-facing reason
 	store       *Store
 	runner      Runner
@@ -109,9 +108,6 @@ func (m *Manager) SetSetup(setup Setup) {
 	setup.OnDetected(m.runtimeDetected)
 }
 
-// SetAutoBackend lets a Docker re-probe change the default backend (false when the operator forced one).
-func (m *Manager) SetAutoBackend(auto bool) { m.autoBackend = auto }
-
 // SetUnavailable marks backend as unable to host worlds; Create refuses it, logging reason.
 func (m *Manager) SetUnavailable(backend string, reason error) {
 	if m.unavailable == nil {
@@ -129,27 +125,19 @@ func (m *Manager) AcceptEULA() error {
 }
 
 // Prefs applies update (re-probing Docker first when asked) and returns the saved preferences.
-// A re-probe only changes the default backend of worlds created afterwards; saved worlds keep theirs.
 func (m *Manager) Prefs(ctx context.Context, update PrefsUpdate) (Prefs, error) {
 	if update.Redetect && m.setup != nil {
 		m.setup.Redetect(ctx)
 	}
-	if update.DockerPromptDismissed == nil {
+	if update.DockerPromptDismissed == nil && update.CreationBackend == nil && update.CreationGenerator == nil {
 		return m.store.Prefs(), nil
 	}
 	return m.store.UpdatePrefs(update)
 }
 
-// runtimeDetected points the default backend at a fresh probe's result, unless the operator forced one.
+// runtimeDetected records availability without changing any server choice.
 func (m *Manager) runtimeDetected(info RuntimeInfo) {
 	m.log.Info("local world runtime detected", "bds_runtime", info.Kind, "reason", info.Reason)
-	if m.autoBackend {
-		backend := DefaultBackend(info)
-		m.store.SetDefaultBackend(backend)
-		if reason := m.unavailable[backend]; reason != nil {
-			m.log.Error("default local world backend is unavailable", "backend", backend, "error", reason)
-		}
-	}
 }
 
 // Runners routes a world to the runner of its backend.

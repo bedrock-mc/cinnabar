@@ -15,7 +15,10 @@
 - Create New World uses native panels, installed preview/category artwork and independent scrolling.
   General/Advanced changes animate their contents. Unsupported categories, Hardcore and Realm
   creation remain disabled. Backend defaults to Dragonfly or offers BDS with Docker detection;
-  generator selection independently offers Normal (Vanilla) and Flat. Template navigation works.
+  generator selection independently offers Infinite and Flat. The General page also exposes seed and
+  command permission, and persists the last server/terrain choice. Unavailable BDS stays disabled
+  with a reason; runtime detection never changes the chosen server. Void is not supported by both
+  local backends. Template navigation works.
 - Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
   seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
 - Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home

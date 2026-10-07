@@ -136,12 +136,10 @@ func TestDetectRuntimeOrderAndUnavailableReasons(t *testing.T) {
 	if info := detectRuntime(ctx, "darwin", "arm64", "definitely-not-docker", nil); info.Kind != RuntimeNone || info.Unavailable != "docker_missing" {
 		t.Fatalf("docker missing = %+v", info)
 	}
-	if DefaultBackend(RuntimeInfo{Kind: RuntimeContainer}) != BackendBDS || DefaultBackend(RuntimeInfo{Kind: RuntimeNone}) != BackendDragonfly {
-		t.Fatal("default backend mapping wrong")
-	}
+
 }
 
-func TestStatusExposesUnavailableReasonAndRedetectFlipsDefaultBackend(t *testing.T) {
+func TestStatusExposesUnavailableReasonWithoutChangingDefaultBackend(t *testing.T) {
 	store := newTestStore(t)
 	store.SetDefaultBackend(BackendDragonfly)
 	p := &Provisioner{Root: t.TempDir(), goos: "darwin", goarch: "arm64"}
@@ -149,7 +147,6 @@ func TestStatusExposesUnavailableReasonAndRedetectFlipsDefaultBackend(t *testing
 	p.SetDetector(func(context.Context) RuntimeInfo { return RuntimeInfo{Kind: RuntimeContainer, Reason: "docker up"} })
 	m := NewManager(store, Runners{}, nil)
 	m.SetSetup(p)
-	m.SetAutoBackend(true)
 	st := m.Status()
 	if st.BackendUnavailableReason != "docker_not_running" || st.Setup == nil || st.Setup.State != SetupUnsupported {
 		t.Fatalf("status = %+v", st)
@@ -161,7 +158,7 @@ func TestStatusExposesUnavailableReasonAndRedetectFlipsDefaultBackend(t *testing
 		t.Fatalf("after retry = %+v", st)
 	}
 	world, _ := m.Create(Spec{Name: "after"})
-	if world.Backend != BackendBDS {
+	if world.Backend != BackendDragonfly {
 		t.Fatalf("new world backend = %q", world.Backend)
 	}
 }
@@ -178,7 +175,6 @@ func TestForcedBackendSurvivesRedetectAndSavedWorldsKeepTheirs(t *testing.T) {
 	if w, _ := m.Create(Spec{Name: "n", Generator: GeneratorFlat}); w.Backend != BackendDragonfly {
 		t.Fatalf("forced default changed to %q", w.Backend)
 	}
-	m.SetAutoBackend(true)
 	_, _ = m.Prefs(context.Background(), PrefsUpdate{Redetect: true})
 	if got, _ := store.Get(old.ID); got.Backend != BackendDragonfly {
 		t.Fatalf("saved world switched backend silently: %q", got.Backend)
@@ -350,7 +346,6 @@ func pendingManager(t *testing.T) (*Manager, *Provisioner, *probeGate) {
 	p.SetDetector(gate.detect)
 	m := NewManager(store, Runners{}, nil)
 	m.SetSetup(p)
-	m.SetAutoBackend(true)
 	p.DetectInBackground(RuntimeInfo{Kind: RuntimeContainer, Reason: "checking"})
 	return m, p, gate
 }
@@ -381,34 +376,19 @@ func TestDetectInBackgroundReportsCheckingThenResult(t *testing.T) {
 	}
 }
 
-// A world created while the probe runs takes the backend the probe settles on, never the optimistic guess.
-func TestCreateDuringPendingDetectionWaitsForTheResult(t *testing.T) {
-	m, _, gate := pendingManager(t)
-	reply := gate.next(t)
-	created := make(chan World, 1)
-	go func() {
-		world, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat})
-		if err != nil {
-			t.Error(err)
-		}
-		created <- world
-	}()
-	select {
-	case <-created:
-		t.Fatal("Create returned before detection settled")
-	case <-time.After(50 * time.Millisecond):
+// A selected BDS backend is refused after detection rather than converted to Dragonfly.
+func TestCreateDuringPendingDetectionKeepsTheChosenBackend(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	gate.next(t) <- dockerDown
+	awaitSettled(t, p)
+	if _, err := m.Create(Spec{Name: "chosen", Generator: GeneratorFlat}); !errors.Is(err, ErrBackendUnavailable) {
+		t.Fatalf("selected BDS was not refused: %v", err)
 	}
-	reply <- dockerDown
-	select {
-	case world := <-created:
-		if world.Backend != BackendDragonfly {
-			t.Fatalf("flat world saved for %q", world.Backend)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Create never returned")
+	if worlds, _ := m.List(); len(worlds) != 0 {
+		t.Fatalf("saved a fallback world: %v", worlds)
 	}
-	if world, err := m.Create(Spec{Name: "normal"}); err != nil || world.Backend != BackendDragonfly {
-		t.Fatalf("normal Dragonfly world without Docker: %+v, %v", world, err)
+	if world, err := m.Create(Spec{Name: "normal", Backend: BackendDragonfly}); err != nil || world.Backend != BackendDragonfly {
+		t.Fatalf("explicit Dragonfly without Docker: %+v, %v", world, err)
 	}
 }
 

@@ -41,10 +41,10 @@ func startupRuntime(opts options) (info localworld.RuntimeInfo, pending bool) {
 	return localworld.RuntimeInfo{Kind: localworld.RuntimeContainer, Reason: "checking Docker"}, true
 }
 
-// defaultBackend resolves -local-backend; auto picks BDS when it can run natively or in a container.
-func defaultBackend(flag string, info localworld.RuntimeInfo) string {
+// defaultBackend resolves the operator default independently of BDS availability.
+func defaultBackend(flag string) string {
 	if flag == "auto" || flag == "" {
-		return localworld.DefaultBackend(info)
+		return localworld.BackendDragonfly
 	}
 	return flag
 }
@@ -54,7 +54,7 @@ func defaultBackend(flag string, info localworld.RuntimeInfo) string {
 // otherwise Dragonfly worlds are refused.
 func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, error) {
 	runtimeInfo, pending := startupRuntime(opts)
-	backend := defaultBackend(opts.localBackend, runtimeInfo)
+	backend := defaultBackend(opts.localBackend)
 	binary := opts.localServerBin
 	if binary == "" {
 		var err error
@@ -90,11 +90,10 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 	}
 	manager := localworld.NewManager(store, runners, logger)
 	if missingDragonfly != nil {
-		// Docker detection may still settle on Dragonfly; its worlds are then refused, not saved unopenable.
+		// Explicit Dragonfly requests are refused when its executable is missing.
 		manager.SetUnavailable(localworld.BackendDragonfly, missingDragonfly)
 	}
 	manager.SetSetup(provisioner)
-	manager.SetAutoBackend(opts.localBackend == "auto" || opts.localBackend == "")
 	logger.Info("local worlds enabled", "dir", opts.localWorldsDir, "default_backend", backend, "bds_runtime", runtimeInfo.Kind, "reason", runtimeInfo.Reason)
 	if pending {
 		provisioner.DetectInBackground(runtimeInfo)

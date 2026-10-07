@@ -14,6 +14,7 @@ fn world(id: &str, name: &str) -> World {
         game_mode: GameMode::Survival,
         generator: Generator::Flat,
         difficulty: Difficulty::Normal,
+        allow_cheats: false,
         backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 0,
@@ -52,6 +53,8 @@ fn setup(state: SetupState) -> Setup {
 
 fn loaded(names: &[&str]) -> WorldsMenu {
     let mut menu = WorldsMenu::default();
+    menu.setup = Some(setup(SetupState::Ready));
+    menu.creation_choices_loaded = true;
     assert_eq!(menu.update(Input::Refresh), vec![Effect::List]);
     menu.apply(Event::Listed(
         names
@@ -338,14 +341,14 @@ fn no_backend_reason_never_shows_the_docker_modal() {
 }
 
 #[test]
-fn missing_docker_blocks_only_bds_and_fallback_preserves_the_form() {
+fn unavailable_saved_bds_choice_requires_an_explicit_server_change() {
     for generator in [Generator::Normal, Generator::Flat] {
         let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
         menu.update(Input::BeginCreate);
         menu.update(Input::SetName("My saved form".into()));
         menu.update(Input::SetSeed("-7".into()));
         menu.update(Input::SetFlat(generator == Generator::Flat));
-        menu.update(Input::SetBackend(Backend::Bds));
+        menu.create.backend = Backend::Bds;
         assert!(menu.update(Input::SubmitCreate).is_empty());
         assert_eq!(
             menu.prompt(),
@@ -389,7 +392,7 @@ fn backend_selection_preserves_terrain_and_seed() {
 fn retry_redetects_and_continues_once_docker_is_up() {
     let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &[]);
     menu.update(Input::BeginCreate);
-    menu.update(Input::SetBackend(Backend::Bds));
+    menu.create.backend = Backend::Bds;
     menu.update(Input::SubmitCreate);
     assert_eq!(
         menu.prompt(),
@@ -620,4 +623,125 @@ fn new_world_backend_defaults_to_dragonfly_without_a_docker_gate() {
     };
     assert_eq!(spec.backend, Some(Backend::Dragonfly));
     assert_eq!(spec.generator, Generator::Normal);
+}
+
+#[test]
+fn unavailable_bds_is_disabled_without_changing_terrain() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetFlat(true));
+    assert!(menu.update(Input::SetBackend(Backend::Bds)).is_empty());
+    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+    assert_eq!(menu.create_form().generator, Generator::Flat);
+}
+
+#[test]
+fn last_creation_choices_survive_reopening_and_prefs_reloading() {
+    let mut menu = loaded(&[]);
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetFlat(true));
+    assert_eq!(
+        menu.update(Input::SetBackend(Backend::Bds)),
+        vec![Effect::SaveCreationChoices {
+            backend: Backend::Bds,
+            generator: Generator::Flat,
+        }]
+    );
+    menu.update(Input::SetCheats(true));
+    let spec = menu.create_form().build().unwrap();
+    assert!(spec.allow_cheats);
+    menu.update(Input::Back);
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.create_form().backend, Backend::Bds);
+    assert_eq!(menu.create_form().generator, Generator::Flat);
+    menu.update(Input::Back);
+    let saved = Prefs {
+        creation_backend: Some(Backend::Bds),
+        creation_generator: Some(Generator::Flat),
+        ..Prefs::default()
+    };
+    menu.apply(Event::Prefs(
+        saved,
+        with_reason(UnavailableReason::DockerMissing),
+    ));
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.create_form().backend, Backend::Bds);
+    assert_eq!(menu.create_form().generator, Generator::Flat);
+    assert!(!menu.bds_can_run());
+}
+
+#[test]
+fn creation_keeps_initial_prefs_that_arrive_after_the_list() {
+    let mut menu = loaded(&[]);
+    menu.creation_choices_loaded = false;
+    menu.update(Input::BeginCreate);
+    menu.apply(Event::Prefs(
+        Prefs {
+            creation_backend: Some(Backend::Bds),
+            creation_generator: Some(Generator::Flat),
+            ..Prefs::default()
+        },
+        status(WorldState::Idle, ""),
+    ));
+    assert_eq!(menu.create_form().backend, Backend::Bds);
+    assert_eq!(menu.create_form().generator, Generator::Flat);
+    menu.update(Input::SetFlat(false));
+    menu.apply(Event::Prefs(
+        Prefs {
+            creation_generator: Some(Generator::Flat),
+            ..Prefs::default()
+        },
+        status(WorldState::Idle, ""),
+    ));
+    assert_eq!(menu.create_form().generator, Generator::Normal);
+    menu.update(Input::Back);
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.create_form().generator, Generator::Normal);
+}
+
+#[test]
+fn creation_can_recheck_an_unavailable_server_without_selecting_it() {
+    let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &[]);
+    menu.update(Input::BeginCreate);
+    assert_eq!(
+        menu.update(Input::RedetectBds),
+        vec![Effect::SetPrefs {
+            dismiss_docker_prompt: false,
+            redetect: true
+        }]
+    );
+    let mut ready = status(WorldState::Idle, "");
+    ready.setup = Some(setup(SetupState::Ready));
+    menu.apply(Event::Prefs(Prefs::default(), ready));
+    assert!(menu.bds_can_run());
+    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+    assert_eq!(menu.screen(), Screen::Create);
+}
+
+#[test]
+fn an_early_server_change_keeps_the_saved_terrain_before_persisting() {
+    let mut menu = loaded(&[]);
+    menu.creation_choices_loaded = false;
+    menu.update(Input::BeginCreate);
+    assert!(
+        menu.update(Input::SetBackend(Backend::Dragonfly))
+            .is_empty()
+    );
+    let effects = menu.apply(Event::Prefs(
+        Prefs {
+            creation_backend: Some(Backend::Bds),
+            creation_generator: Some(Generator::Flat),
+            ..Prefs::default()
+        },
+        status(WorldState::Idle, ""),
+    ));
+    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+    assert_eq!(menu.create_form().generator, Generator::Flat);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveCreationChoices {
+            backend: Backend::Dragonfly,
+            generator: Generator::Flat
+        }]
+    );
 }

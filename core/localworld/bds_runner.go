@@ -155,7 +155,8 @@ func serverProperties(spec StartSpec, port, maxPlayers int, lanVisible bool) []b
 		{"gamemode", w.GameMode},
 		{"force-gamemode", "false"},
 		{"difficulty", w.Difficulty},
-		{"allow-cheats", "false"},
+		{"allow-cheats", strconv.FormatBool(w.AllowCheats)},
+		{"default-player-permission-level", commandPermission(w.AllowCheats)},
 		{"max-players", strconv.Itoa(maxPlayers)},
 		{"online-mode", "false"},
 		{"allow-list", "false"},
@@ -204,4 +205,17 @@ func unlinkWorld(link string) {
 	if info, err := os.Lstat(link); err == nil && (info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 || info.IsDir()) {
 		_ = os.Remove(link)
 	}
+}
+
+const (
+	permissionMember   = "member"
+	permissionOperator = "operator"
+)
+
+// commandPermission gives a local world host command access only when cheats are enabled.
+func commandPermission(allowCheats bool) string {
+	if allowCheats {
+		return permissionOperator
+	}
+	return permissionMember
 }

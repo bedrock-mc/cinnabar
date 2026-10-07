@@ -19,6 +19,7 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 // settings are the per-world options the core passes on the command line.
 type settings struct {
 	primitiveShapes, cameraTest            bool
+	allowCheats                            bool
 	terrainFixture, terrainFixtureGenerate bool
 	terrainFixtureRadius                   int
 	opaqueOverdraw                         bool
@@ -51,6 +52,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
 	flags.StringVar(&s.generator, "generator", "flat", "normal or flat terrain")
 	flags.Int64Var(&s.seed, "seed", 0, "world seed")
+	flags.BoolVar(&s.allowCheats, "allow-cheats", true, "allow commands; managed worlds pass their saved choice")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")

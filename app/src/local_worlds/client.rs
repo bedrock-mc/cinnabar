@@ -31,7 +31,10 @@ impl WorldsClient {
                     }
                     let preferences = matches!(
                         effect,
-                        Effect::LoadPrefs | Effect::PollPrefs | Effect::SetPrefs { .. }
+                        Effect::LoadPrefs
+                            | Effect::PollPrefs
+                            | Effect::SetPrefs { .. }
+                            | Effect::SaveCreationChoices { .. }
                     );
                     let event =
                         runtime
@@ -117,9 +120,21 @@ async fn execute(dir: &std::path::Path, effect: Effect) -> Option<Event> {
             let update = control::PrefsUpdate {
                 docker_prompt_dismissed: dismiss_docker_prompt.then_some(true),
                 redetect,
+                ..Default::default()
             };
             Some(prefs_event(update, dir).await)
         }
+        Effect::SaveCreationChoices { backend, generator } => Some(
+            prefs_event(
+                control::PrefsUpdate {
+                    creation_backend: Some(backend),
+                    creation_generator: Some(generator),
+                    ..Default::default()
+                },
+                dir,
+            )
+            .await,
+        ),
         Effect::AcceptEula => Some(
             control::accept_bds_eula(dir)
                 .await

@@ -1,4 +1,4 @@
-//! Local single-player worlds served by the core (BDS, or dragonfly for Flat worlds).
+//! Local worlds choose their server and terrain independently through the core.
 //!
 //! [`WorldsMenu`] is a pure screen model; [`LocalWorlds`] wires it to the core's control
 //! channel. The menu module embeds it by calling `attach`, `input`, `menu` and `take_ready`.
