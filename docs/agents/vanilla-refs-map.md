@@ -1330,6 +1330,8 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/sim/src/simulator/environment.rs
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)
 - // reads getBlock's primary material, without secondary layers.
+- Shared horizontal movement (0x099cc8b0) defaults ground friction to 0.6 and samples the block at
+  floor(x), floor(feet y + -0.1f), floor(z); it takes that block's friction only when its type is not air.
 
 ## crates/sim/src/simulator/flight.rs
 - // HorizontalFlySpeedControl current RVA 0x03235360, PE VA 0x1501672a8.
@@ -2503,6 +2505,14 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - Current 1.26.50.26 `BannerModel` constructor `0x1e6da00` authors a 20×40×1 cloth at `(-10,0,-2)` with model-part Y pivot −32, a 2×42×2 pole at `(-1,-30,-1)`, and a 20×2×2 crossbar at `(-10,-32,-1)`; UV origins are `(0,0)`, `(44,0)` and `(0,42)` on the 64×64 banner base texture.
 - Current banner GUI renderer `0x6c581a0` uses `T(8.5,11,-10) * S(5.5) * Rx(20°) * Ry(-30°)`, model units 1/16 and static cloth tilt zero. The frame is uncolored; only the cloth uses the base dye.
 - Current banner constant setup `0x6c57b00` reads `ItemColor` RGB entries from the table at `0x10128cd4`, black aux 0 through white aux 15 (`#f0f0f0`). `BannerItem::buildDescriptionId` `0x29b4620` corroborates identity aux-to-color mapping for values 0 through 15. The old sign atlas route does not represent the GUI banner model.
+
+## tools/registrygen/physics_v2193.go
+- Reserved v2193 states (element and chemistry blocks, hard glass and panes, coloured and
+  underwater torches, chalkboard, camera, underwater TNT, poplar signs, shelf mushroom,
+  straw bed) all keep the default block friction 0.6: every one with a pinned PMMP
+  `block_properties_table.json` row (166 of 170 names) reads 0.6000000238. Their collision
+  shapes still differ per block (Prismarine: cubes, panes, none), so they stay passable
+  until reviewed per-block facts exist.
 
 ## tools/registrygen/education_v2193.go
 ## crates/pack-compiler/src/compiler/visuals/literal.rs
