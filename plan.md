@@ -4926,6 +4926,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
   the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
   lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Water and lava travel read the underwater and lava movement attributes, and a swimmer's
+  dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
   Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat

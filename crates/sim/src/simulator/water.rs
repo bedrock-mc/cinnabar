@@ -165,16 +165,20 @@ pub(super) fn climb_out(
 }
 
 /// Water drag modifies each retained velocity after movement. Depth Strider
-/// adjusts the horizontal axes; vertical retention remains the water default.
+/// adjusts the horizontal axes unless a dolphin boost speeds the swimmer;
+/// vertical retention remains the water default.
 pub(super) fn apply_drag(velocity: &mut Vec3, input: &MovementInput, depth_strider: f64) {
     let base = if input.sprinting {
         SPRINT_WATER_DRAG
     } else {
         WATER_DRAG as f32
     };
-    let horizontal = base
-        + (DEPTH_STRIDER_TARGET_DRAG as f32 - base)
-            * (depth_strider as f32 / f32::from(DEPTH_STRIDER_MAX_LEVEL));
+    let horizontal = if super::swim_speed_multiplier(input) > 1.0 {
+        base
+    } else {
+        base + (DEPTH_STRIDER_TARGET_DRAG as f32 - base)
+            * (depth_strider as f32 / f32::from(DEPTH_STRIDER_MAX_LEVEL))
+    };
     velocity.x = f64::from(velocity.x as f32 * horizontal);
     velocity.y = f64::from(velocity.y as f32 * WATER_DRAG as f32);
     velocity.z = f64::from(velocity.z as f32 * horizontal);
