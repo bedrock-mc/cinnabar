@@ -151,6 +151,37 @@ fn alignment_places_each_line() {
     assert_eq!(second.bounds_64[0], 2 * 64);
 }
 
+// Alignment offsets truncate onto the pixel grid, each line on its own: `ab` and `abc` centred
+// in 9 sit at 2.5 and 1.5, which a 1-pixel grid truncates to 2 and 1 and a 2-pixel grid to 2
+// and 0. A 0.8-pixel grid (DPI 1.25) takes 2.5 to three steps, 2.4 (153.6/64, rounded).
+#[test]
+fn alignment_offsets_truncate_onto_the_pixel_grid() {
+    let starts = |grid: u32| {
+        let wrap = TextWrap {
+            align: TextLineAlign::Center,
+            align_grid_65536: grid,
+            ..TextWrap::default()
+        };
+        let centred = layout(
+            "ab
+abc", 9, wrap,
+        )
+        .unwrap();
+        [0, 1].map(|line| {
+            centred
+                .glyphs()
+                .iter()
+                .find(|g| g.line == line)
+                .unwrap()
+                .bounds_64[0]
+        })
+    };
+    assert_eq!(starts(0), [160, 96]);
+    assert_eq!(starts(65_536), [128, 64]);
+    assert_eq!(starts(2 * 65_536), [128, 0]);
+    assert_eq!(starts(52_429)[0], 154);
+}
+
 // `line_padding` adds to the pitch between lines, not after the last.
 #[test]
 fn line_padding_spaces_lines() {

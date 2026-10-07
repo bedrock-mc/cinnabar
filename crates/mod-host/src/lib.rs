@@ -79,7 +79,7 @@ pub struct ModGrants {
     pub environment: bool,
     /// Allows current-frame remote player and camera pose reads.
     pub players: bool,
-    /// Allows bounded, transactional local camera rotation.
+    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
     pub camera: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
     pub controls: bool,
@@ -170,6 +170,11 @@ impl ModHost {
         self.instance.frame(pressed, snapshot, mobs, controls)?;
         self.queue_settings();
         Ok(())
+    }
+
+    /// Whether the last successful gameplay callback opted in to preserving teleport aim.
+    pub fn preserves_teleport_rotation(&self) -> bool {
+        self.instance.preserves_teleport_rotation()
     }
 
     /// The retained camera rig from the last successful callback.

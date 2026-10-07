@@ -608,3 +608,17 @@ fn fullbright_grant_is_opt_in_and_survives_registration_decode() {
     let selected: ModGrants = serde_json::from_str(r#"{"fullbright":true}"#).unwrap();
     assert!(selected.fullbright);
 }
+
+#[test]
+fn removing_extension_revokes_teleport_camera_policy() {
+    let (mut world, _, _) = world();
+    let mut camera = crate::camera::CameraSettingsAuthority::default();
+    camera.set_preserve_teleport_rotation(true);
+    world.insert_resource(camera);
+    clear_owned_state(&mut world);
+    assert!(
+        !world
+            .resource::<crate::camera::CameraSettingsAuthority>()
+            .preserves_teleport_rotation()
+    );
+}

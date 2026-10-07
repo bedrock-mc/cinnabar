@@ -53,6 +53,8 @@ fn local_skin_selection_updates_authoritative_roster_without_replacing_identity(
         velocity: [0.0; 3],
         on_ground: true,
         flying: false,
+        gliding: false,
+        fall_fly_ticks: 0,
         yaw: 0.0,
         head_yaw: 0.0,
         pitch: 0.0,

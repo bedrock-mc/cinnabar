@@ -29,6 +29,8 @@ wasmtime::component::bindgen!({
 const MAX_IMPORT_WRITES: u32 = 8;
 #[path = "block_highlights.rs"]
 mod block_highlights;
+#[path = "camera.rs"]
+mod camera;
 #[path = "controls.rs"]
 mod controls;
 mod exports;
@@ -70,6 +72,7 @@ struct State {
     pending_show_real_position: Option<bool>,
     controls: controls::ControlState,
     world: gameplay::WorldState,
+    camera_policy: camera::CameraPolicy,
     render: render::RenderState,
     declared: Declared,
     layout: Option<HostLayout>,
@@ -116,6 +119,7 @@ impl State {
             pending_show_real_position: None,
             controls: controls::ControlState::new(settings),
             world: gameplay::WorldState::default(),
+            camera_policy: camera::CameraPolicy::default(),
             render: render::RenderState::new(),
             declared,
             layout: None,
@@ -255,6 +259,7 @@ impl Instance {
         state.render.begin_frame();
         state.block_highlights.begin_frame();
         state.world.begin_frame();
+        state.camera_policy = camera::CameraPolicy::default();
         if !self.active {
             return Ok(());
         }
@@ -336,12 +341,17 @@ impl Instance {
         state.render.revoke();
         state.block_highlights.revoke();
         state.world = gameplay::WorldState::default();
+        state.camera_policy = camera::CameraPolicy::default();
         state.packet_delay_ms = 0;
         state.pending_packet_delay = None;
         state.show_real_position = false;
         state.pending_show_real_position = None;
         state.pending_screens = None;
         state.screens = ModScreens::default();
+    }
+
+    pub(super) fn preserves_teleport_rotation(&self) -> bool {
+        self.store.data().camera_policy.committed
     }
 
     pub(super) fn camera_rig(&self) -> Option<GameplayCameraRig> {
@@ -470,6 +480,7 @@ fn commit(store: &mut Store<State>) {
     state.render.commit();
     state.block_highlights.commit();
     state.world.commit();
+    state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
     state.camera_delta = state.pending_camera.take();
     if let Some(delay) = state.pending_packet_delay.take() {
         state.packet_delay_ms = delay;
