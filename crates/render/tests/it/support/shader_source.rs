@@ -76,6 +76,59 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
                 ("biome", biome.as_str())
             } else if module.starts_with("cinnabar::enhanced_common") {
                 ("common", include_str!("../../../src/enhanced/common.wgsl"))
+            } else if module.starts_with("cinnabar::enhanced_environment") {
+                (
+                    "environment",
+                    include_str!("../../../src/enhanced/environment.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_temporal") {
+                (
+                    "temporal",
+                    include_str!("../../../src/enhanced/temporal.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_local_lights") {
+                (
+                    "local_lights",
+                    include_str!("../../../src/enhanced/local_lights.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_actor_motion") {
+                (
+                    "actor_motion",
+                    include_str!("../../../src/enhanced/actor_motion.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_shadow") {
+                ("shadows", include_str!("../../../src/enhanced/shadow.wgsl"))
+            } else if module.starts_with("cinnabar::enhanced_radiance") {
+                (
+                    "radiance",
+                    include_str!("../../../src/enhanced/radiance.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_water") {
+                ("water", include_str!("../../../src/enhanced/water.wgsl"))
+            } else if module.starts_with("cinnabar::enhanced_atmosphere") {
+                (
+                    "physical_atmosphere",
+                    include_str!("../../../src/enhanced/atmosphere.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_clouds") {
+                (
+                    "volume_clouds",
+                    include_str!("../../../src/enhanced/clouds.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_ao") {
+                ("horizon_ao", include_str!("../../../src/enhanced/ao.wgsl"))
+            } else if module.starts_with("cinnabar::enhanced_indirect_trace") {
+                (
+                    "indirect_trace",
+                    include_str!("../../../src/enhanced/indirect_trace.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_indirect") {
+                (
+                    "indirect",
+                    include_str!("../../../src/enhanced/indirect.wgsl"),
+                )
+            } else if module.starts_with("cinnabar::enhanced_pbr") {
+                ("pbr", include_str!("../../../src/enhanced/pbr.wgsl"))
             } else if module.starts_with("cinnabar::enhanced_view") {
                 (
                     "enhanced_view",
@@ -99,13 +152,64 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
 
 /// Compose with the same imported-symbol pruning and preprocessor Bevy uses.
 pub fn composed(source: &str, definitions: &[&str]) -> String {
+    let module = composed_module(source, definitions);
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("composed module validates");
+    naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
+        .expect("write composed WGSL")
+}
+
+/// Retains the composed IR used by Bevy's native shader compilation path.
+pub fn composed_module(source: &str, definitions: &[&str]) -> naga::Module {
     use naga_oil::compose::{
         ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue,
     };
     let resolved = material_shader::source(source);
     let source = resolved.as_str();
     let mut composer = Composer::default();
-    for (name, body) in [
+    for (name, body) in composable_sources() {
+        composer
+            .add_composable_module(ComposableModuleDescriptor {
+                source: &body,
+                file_path: name,
+                as_name: Some(name.to_owned()),
+                ..Default::default()
+            })
+            .map(|_| ())
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
+    }
+    let fullscreen_source;
+    let source = if source.contains("#import bevy_core_pipeline::fullscreen_vertex_shader") {
+        fullscreen_source = format!("{source}\n{FULLSCREEN_VERTEX}");
+        fullscreen_source.as_str()
+    } else {
+        source
+    };
+    composer
+        .make_naga_module(NagaModuleDescriptor {
+            source,
+            file_path: "enhanced_validation.wgsl",
+            shader_defs: definitions
+                .iter()
+                .map(|name| ((*name).to_owned(), ShaderDefValue::Bool(true)))
+                .collect(),
+            ..Default::default()
+        })
+        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)))
+}
+
+pub fn fullscreen_vertex_source() -> String {
+    format!(
+        "#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput\n{FULLSCREEN_VERTEX}"
+    )
+}
+
+pub fn composable_sources() -> Vec<(&'static str, String)> {
+    vec![
         ("bevy_render::view", VIEW.to_owned()),
         (
             "bevy_core_pipeline::fullscreen_vertex_shader",
@@ -128,6 +232,58 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
             include_str!("../../../src/enhanced/common.wgsl").to_owned(),
         ),
         (
+            "cinnabar::enhanced_environment",
+            include_str!("../../../src/enhanced/environment.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_temporal",
+            include_str!("../../../src/enhanced/temporal.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_local_lights",
+            include_str!("../../../src/enhanced/local_lights.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_actor_motion",
+            include_str!("../../../src/enhanced/actor_motion.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_atmosphere",
+            include_str!("../../../src/enhanced/atmosphere.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_clouds",
+            include_str!("../../../src/enhanced/clouds.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_ao",
+            include_str!("../../../src/enhanced/ao.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_shadow",
+            include_str!("../../../src/enhanced/shadow.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_radiance",
+            include_str!("../../../src/enhanced/radiance.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_water",
+            include_str!("../../../src/enhanced/water.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_indirect_trace",
+            include_str!("../../../src/enhanced/indirect_trace.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_indirect",
+            include_str!("../../../src/enhanced/indirect.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_pbr",
+            material_shader::source(include_str!("../../../src/enhanced/pbr.wgsl")),
+        ),
+        (
             "cinnabar::enhanced_view",
             include_str!("../../../src/enhanced/view.wgsl").to_owned(),
         ),
@@ -135,41 +291,5 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
             "cinnabar::enhanced_caster",
             include_str!("../../../src/enhanced/caster.wgsl").to_owned(),
         ),
-    ] {
-        composer
-            .add_composable_module(ComposableModuleDescriptor {
-                source: &body,
-                file_path: name,
-                as_name: Some(name.to_owned()),
-                ..Default::default()
-            })
-            .map(|_| ())
-            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
-    }
-    let fullscreen_source;
-    let source = if source.contains("#import bevy_core_pipeline::fullscreen_vertex_shader") {
-        fullscreen_source = format!("{source}\n{FULLSCREEN_VERTEX}");
-        fullscreen_source.as_str()
-    } else {
-        source
-    };
-    let module = composer
-        .make_naga_module(NagaModuleDescriptor {
-            source,
-            file_path: "enhanced_validation.wgsl",
-            shader_defs: definitions
-                .iter()
-                .map(|name| ((*name).to_owned(), ShaderDefValue::Bool(true)))
-                .collect(),
-            ..Default::default()
-        })
-        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
-    let info = naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::all(),
-    )
-    .validate(&module)
-    .expect("composed module validates");
-    naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
-        .expect("write composed WGSL")
+    ]
 }

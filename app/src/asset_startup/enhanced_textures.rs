@@ -1,227 +1,299 @@
-//! Optional authored PBR texture loading for Enhanced terrain.
-//!
-//! The compiled Bedrock carrier remains the source of truth for block
-//! identity. This module only maps its texture references to an external
-//! Java-style color/normal/specular pack when the developer opts in through
-//! `CINNABAR_ENHANCED_PBR_DIR`.
+//! Optional 512-pixel authored terrain materials; the compiled carrier owns identity and timing.
 
 use std::{
-    collections::BTreeMap,
-    env, fs,
-    path::{Path, PathBuf},
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
 use assets::{MaterialKeys, NO_ANIMATION, RuntimeAssets, TextureArray, TextureMip, TextureRef};
-use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage, imageops::FilterType};
+use image::{ImageBuffer, Rgba};
+use pack_compiler::pbr::{PbrMipLayer, PbrPack, PbrSurface, build_pbr_mips, load_pbr_texture};
 
-const TARGET_SIDE: u32 = 512;
+mod cache;
+mod config;
+
 const REF_FALLBACK: u32 = u32::MAX;
+
+#[derive(Clone, Copy)]
+struct Source {
+    texture: u32,
+    frame: usize,
+    count: usize,
+    cutout: bool,
+}
+
+fn sources(runtime: &RuntimeAssets, keys: &MaterialKeys) -> BTreeMap<String, Vec<Source>> {
+    let mut references = BTreeMap::<u32, (String, Source)>::new();
+    for (key, alias) in keys.aliases() {
+        for &id in keys.materials(key) {
+            let Some(material) = runtime.materials().get(id as usize) else {
+                continue;
+            };
+            let cutout = material.flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT != 0;
+            let animation = (material.animation != NO_ANIMATION)
+                .then(|| runtime.animations().get(material.animation as usize))
+                .flatten();
+            let count = animation.map_or(1, |animation| animation.frame_count as usize);
+            references
+                .entry(material.texture.raw())
+                .and_modify(|(_, source)| source.cutout |= cutout)
+                .or_insert_with(|| {
+                    (
+                        alias.to_owned(),
+                        Source {
+                            texture: material.texture.raw(),
+                            frame: 0,
+                            count,
+                            cutout,
+                        },
+                    )
+                });
+            if let Some(animation) = animation {
+                let start = animation.frame_start as usize;
+                let end = start.saturating_add(count);
+                for (index, frame) in runtime
+                    .animation_frames()
+                    .get(start..end)
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    references
+                        .entry(frame.raw())
+                        .and_modify(|(_, source)| {
+                            source.cutout |= cutout;
+                            if source.count == 1 {
+                                source.frame = index;
+                                source.count = count;
+                            }
+                        })
+                        .or_insert_with(|| {
+                            (
+                                alias.to_owned(),
+                                Source {
+                                    texture: frame.raw(),
+                                    frame: index,
+                                    count,
+                                    cutout,
+                                },
+                            )
+                        });
+                }
+            }
+        }
+    }
+    let mut groups = BTreeMap::<String, Vec<Source>>::new();
+    for (_, (alias, source)) in references {
+        groups.entry(alias).or_default().push(source);
+    }
+    groups
+}
+
+struct Page {
+    layers: u32,
+    data: Vec<Vec<u8>>,
+}
+
+impl Page {
+    fn new() -> Self {
+        Self {
+            layers: 0,
+            data: (0..=assets::PBR_TILE_SIZE.ilog2())
+                .map(|_| Vec::new())
+                .collect(),
+        }
+    }
+    fn append(&mut self, mips: &[TextureMip]) {
+        for (data, mip) in self.data.iter_mut().zip(mips) {
+            data.extend_from_slice(&mip.rgba8);
+        }
+        self.layers += 1;
+    }
+    fn finish(self) -> TextureArray {
+        TextureArray {
+            layers: self.layers,
+            mips: self
+                .data
+                .into_iter()
+                .enumerate()
+                .map(|(level, data)| TextureMip {
+                    size: assets::PBR_TILE_SIZE >> level,
+                    rgba8: data.into_boxed_slice(),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        }
+    }
+}
+
+fn fallback() -> PbrMipLayer {
+    let image = |pixel| ImageBuffer::from_pixel(1, 1, Rgba(pixel));
+    build_pbr_mips(
+        &PbrSurface {
+            color: image([128, 128, 128, 255]),
+            normal: image([128, 128, 255, 128]),
+            material: image([0, 0, 255, 0]),
+            flags: 0,
+        },
+        assets::PBR_TILE_SIZE,
+        false,
+    )
+    .expect("constant authored fallback is valid")
+}
+
+fn one_page(mips: Box<[TextureMip]>) -> TextureArray {
+    TextureArray { layers: 1, mips }
+}
+
+fn load(groups: BTreeMap<String, Vec<Source>>, packs: &[PbrPack]) -> Option<cache::Payload> {
+    let catalog_aliases = groups.len();
+    let mut colors = Page::new();
+    let mut normals = Page::new();
+    let mut materials = Page::new();
+    let mut references = vec![REF_FALLBACK; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS];
+    let mut authored_normals = BTreeSet::new();
+    let mut authored_materials = BTreeSet::new();
+    let mut authored_heights = BTreeSet::new();
+    let mut loaded_aliases = 0_usize;
+    let mut missing_color_aliases = 0;
+    let mut aliases_with_normals = 0;
+    let mut aliases_with_materials = 0;
+    let mut aliases_with_heights = 0;
+    let mut errors = 0;
+    for (alias, sources) in groups {
+        let texture = match load_pbr_texture(packs, &alias) {
+            Ok(Some(texture)) => {
+                loaded_aliases += 1;
+                if texture.flags() & assets::PBR_REF_NORMAL != 0 {
+                    aliases_with_normals += 1;
+                }
+                if texture.flags() & assets::PBR_REF_MATERIAL != 0 {
+                    aliases_with_materials += 1;
+                }
+                if texture.has_height_map() {
+                    aliases_with_heights += 1;
+                }
+                texture
+            }
+            Ok(None) => {
+                missing_color_aliases += 1;
+                continue;
+            }
+            Err(error) => {
+                errors += 1;
+                eprintln!("Enhanced PBR {alias}: {error}; retained carrier fallback");
+                continue;
+            }
+        };
+        let mut completed = BTreeMap::new();
+        for source in sources {
+            let key = (source.frame, source.count, source.cutout);
+            let encoded = if let Some(&reference) = completed.get(&key) {
+                reference
+            } else {
+                if colors.layers >= assets::MAX_TEXTURE_LAYERS as u32 {
+                    break;
+                }
+                let mip = texture
+                    .frame(source.frame, source.count)
+                    .and_then(|frame| build_pbr_mips(&frame, assets::PBR_TILE_SIZE, source.cutout));
+                let mip = match mip {
+                    Ok(mip) => mip,
+                    Err(error) => {
+                        errors += 1;
+                        eprintln!("Enhanced PBR {alias} frame {}: {error}", source.frame);
+                        continue;
+                    }
+                };
+                let layer = colors.layers;
+                let reference = TextureRef::new(0, layer).ok()?.raw() | mip.flags;
+                colors.append(&mip.color);
+                normals.append(&mip.normal);
+                materials.append(&mip.material);
+                if mip.flags & assets::PBR_REF_NORMAL != 0 {
+                    authored_normals.insert(layer);
+                }
+                if mip.flags & assets::PBR_REF_MATERIAL != 0 {
+                    authored_materials.insert(layer);
+                }
+                if mip.flags & assets::PBR_REF_HEIGHT != 0 {
+                    authored_heights.insert(layer);
+                }
+                completed.insert(key, reference);
+                reference
+            };
+            let page = (source.texture >> 31) as usize;
+            let layer = (source.texture & 0x7ff) as usize;
+            if page < assets::MAX_TEXTURE_PAGES {
+                references[page * assets::MAX_TEXTURE_LAYERS + layer] = encoded;
+            }
+        }
+    }
+    if colors.layers == 0 {
+        eprintln!(
+            "Enhanced authored terrain: no color maps matched ({missing_color_aliases} of {catalog_aliases} catalog aliases; {errors} invalid sources)"
+        );
+        return None;
+    }
+    let mapped_texture_refs = references
+        .iter()
+        .filter(|&&value| value != REF_FALLBACK)
+        .count();
+    eprintln!(
+        "Enhanced authored terrain: {loaded_aliases}/{catalog_aliases} color aliases, {mapped_texture_refs} mapped texture refs, {} albedo layers at {}x{}; {aliases_with_normals} normal, {aliases_with_materials} material, {aliases_with_heights} height aliases; {} normal, {} material, {} height layers; {} without normal, {} without material, {} without height; {missing_color_aliases} missing colors, {errors} skipped invalid sources",
+        colors.layers,
+        assets::PBR_TILE_SIZE,
+        assets::PBR_TILE_SIZE,
+        authored_normals.len(),
+        authored_materials.len(),
+        authored_heights.len(),
+        loaded_aliases.saturating_sub(aliases_with_normals),
+        loaded_aliases.saturating_sub(aliases_with_materials),
+        loaded_aliases.saturating_sub(aliases_with_heights),
+    );
+    let fallback = fallback();
+    Some(cache::Payload {
+        color: [colors.finish(), one_page(fallback.color)],
+        normal: [normals.finish(), one_page(fallback.normal)],
+        material: [materials.finish(), one_page(fallback.material)],
+        references: references.into_boxed_slice(),
+    })
+}
 
 pub(crate) fn load_optional_enhanced_textures(
     runtime: &RuntimeAssets,
     keys: &MaterialKeys,
 ) -> Option<Arc<render::EnhancedTextureAssets>> {
-    let roots = env::var_os(crate::asset_startup::ENHANCED_PBR_DIR_ENVIRONMENT)?
-        .to_string_lossy()
-        .split(';')
-        .filter(|root| !root.trim().is_empty())
-        .map(PathBuf::from)
-        .filter(|root| root.is_dir())
-        .collect::<Vec<_>>();
-    if roots.is_empty() {
-        eprintln!(
-            "{} was set, but no listed directory exists; Enhanced PBR textures are disabled",
-            crate::asset_startup::ENHANCED_PBR_DIR_ENVIRONMENT
-        );
-        return None;
-    }
-
-    let mut source_refs = BTreeMap::<u32, String>::new();
-    for (key, alias) in keys.aliases() {
-        for &material_id in keys.materials(key) {
-            let Some(material) = runtime.materials().get(material_id as usize) else {
-                continue;
-            };
-            source_refs
-                .entry(material.texture.raw())
-                .or_insert_with(|| alias.to_owned());
-            if material.animation != NO_ANIMATION
-                && let Some(animation) = runtime.animations().get(material.animation as usize)
-            {
-                let start = animation.frame_start as usize;
-                let end = start.saturating_add(animation.frame_count as usize);
-                for frame in runtime
-                    .animation_frames()
-                    .get(start..end)
-                    .into_iter()
-                    .flatten()
-                {
-                    source_refs
-                        .entry(frame.raw())
-                        .or_insert_with(|| alias.to_owned());
-                }
-            }
+    let packs = config::selected_packs()?;
+    let groups = sources(runtime, keys);
+    let fingerprint = cache::fingerprint(&packs, &groups);
+    if let Some(key) = fingerprint.as_ref() {
+        if let Some(cached) = cache::load(key).and_then(cache::Payload::into_assets) {
+            return Some(Arc::new(cached));
         }
     }
-
-    let mut colors = Vec::new();
-    let mut normals = Vec::new();
-    let mut mers = Vec::new();
-    let mut refs = vec![REF_FALLBACK; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS];
-    for (texture_ref, alias) in source_refs {
-        let Some(color_path) = find_image(&roots, &alias, "") else {
-            continue;
-        };
-        let Some(color) = decode_rgba(&color_path) else {
-            continue;
-        };
-        let normal = find_image(&roots, &alias, "_normal")
-            .and_then(|path| decode_rgba(&path))
-            .or_else(|| find_image(&roots, &alias, "_n").and_then(|path| decode_rgba(&path)))
-            .unwrap_or_else(|| flat_normal(color.width(), color.height()));
-        let mer = find_image(&roots, &alias, "_mer")
-            .and_then(|path| decode_rgba(&path))
-            .or_else(|| {
-                find_image(&roots, &alias, "_s")
-                    .and_then(|path| decode_rgba(&path))
-                    .map(convert_old_pbr_specular)
-            })
-            .unwrap_or_else(|| default_mer(color.width(), color.height()));
-        let layer = u32::try_from(colors.len()).ok()?;
-        if layer >= assets::MAX_TEXTURE_LAYERS as u32 {
-            break;
-        }
-        colors.push(to_target_size(color, FilterType::Lanczos3));
-        normals.push(to_target_size(normal, FilterType::Lanczos3));
-        mers.push(to_target_size(mer, FilterType::Nearest));
-        let page = (texture_ref >> 31) as usize;
-        let source_layer = (texture_ref & 0x7ff) as usize;
-        if page < assets::MAX_TEXTURE_PAGES {
-            refs[page * assets::MAX_TEXTURE_LAYERS + source_layer] =
-                TextureRef::new(0, layer).ok()?.raw();
-        }
+    let payload = load(groups, &packs)?;
+    if let Some(key) = fingerprint.as_ref() {
+        cache::save(key, &payload);
     }
-    if colors.is_empty() {
-        eprintln!("no authored block textures matched the compiled terrain catalog");
-        return None;
+    payload.into_assets().map(Arc::new)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_references_are_sparse_and_keep_server_texture_slots_on_fallback() {
+        let runtime = RuntimeAssets::diagnostic();
+        let keys = MaterialKeys::from_entries([(0, "stone")])
+            .with_aliases([("stone", "textures/blocks/stone")]);
+        let groups = sources(&runtime, &keys);
+        assert_eq!(groups.len(), 1);
+        let matched = &groups["textures/blocks/stone"];
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].texture, runtime.materials()[0].texture.raw());
+        assert_eq!(matched[0].frame, 0);
+        assert_eq!(matched[0].count, 1);
     }
-
-    let color_page = texture_array(colors)?;
-    let normal_page = texture_array(normals)?;
-    let mer_page = texture_array(mers)?;
-    let diagnostic_color = solid_page([128, 128, 128, 255]);
-    let diagnostic_normal = solid_page([128, 128, 255, 255]);
-    let diagnostic_mer = solid_page([0, 0, 255, 255]);
-    let enhanced = render::EnhancedTextureAssets::new(
-        [color_page, diagnostic_color.clone()],
-        [normal_page, diagnostic_normal.clone()],
-        [mer_page, diagnostic_mer.clone()],
-        refs.into_boxed_slice(),
-    )?;
-    eprintln!(
-        "matched {} authored Enhanced terrain textures (normalized to {}x{})",
-        enhanced_layer_count(&enhanced),
-        TARGET_SIDE,
-        TARGET_SIDE
-    );
-    Some(Arc::new(enhanced))
-}
-
-fn enhanced_layer_count(enhanced: &render::EnhancedTextureAssets) -> usize {
-    enhanced.authored_layer_count()
-}
-
-fn texture_array(layers: Vec<RgbaImage>) -> Option<TextureArray> {
-    let mut current = layers;
-    let mut size = TARGET_SIDE;
-    let mut all_mips = Vec::new();
-    loop {
-        let mut rgba8 = Vec::new();
-        for layer in &current {
-            rgba8.extend_from_slice(layer.as_raw());
-        }
-        all_mips.push(TextureMip {
-            size,
-            rgba8: rgba8.into_boxed_slice(),
-        });
-        if size == 1 {
-            break;
-        }
-        let next_size = size / 2;
-        current = current
-            .iter()
-            .map(|layer| image::imageops::resize(layer, next_size, next_size, FilterType::Triangle))
-            .collect();
-        size = next_size;
-    }
-    Some(TextureArray {
-        layers: u32::try_from(current.len()).ok()?,
-        mips: all_mips.into_boxed_slice(),
-    })
-}
-
-fn solid_page(pixel: [u8; 4]) -> TextureArray {
-    texture_array(vec![ImageBuffer::from_pixel(
-        TARGET_SIDE,
-        TARGET_SIDE,
-        Rgba(pixel),
-    )])
-    .expect("diagnostic texture is valid")
-}
-
-fn decode_rgba(path: &Path) -> Option<RgbaImage> {
-    let bytes = fs::read(path).ok()?;
-    image::load_from_memory(&bytes)
-        .ok()
-        .map(DynamicImage::into_rgba8)
-}
-
-fn to_target_size(image: RgbaImage, filter: FilterType) -> RgbaImage {
-    if image.width() == TARGET_SIDE && image.height() == TARGET_SIDE {
-        return image;
-    }
-    image::imageops::resize(&image, TARGET_SIDE, TARGET_SIDE, filter)
-}
-
-fn flat_normal(width: u32, height: u32) -> RgbaImage {
-    ImageBuffer::from_pixel(width.max(1), height.max(1), Rgba([128, 128, 255, 255]))
-}
-
-fn default_mer(width: u32, height: u32) -> RgbaImage {
-    ImageBuffer::from_pixel(width.max(1), height.max(1), Rgba([0, 0, 255, 255]))
-}
-
-fn convert_old_pbr_specular(mut image: RgbaImage) -> RgbaImage {
-    for pixel in image.pixels_mut() {
-        let [smoothness, metalness, emissive, _] = pixel.0;
-        *pixel = Rgba([metalness, emissive, 255_u8.saturating_sub(smoothness), 255]);
-    }
-    image
-}
-
-fn find_image(roots: &[PathBuf], alias: &str, suffix: &str) -> Option<PathBuf> {
-    let mut relative = alias.replace('\\', "/");
-    if relative.ends_with(".png") {
-        relative.truncate(relative.len().saturating_sub(4));
-    }
-    relative.push_str(suffix);
-    relative.push_str(".png");
-    let variants = [
-        relative.clone(),
-        relative.replace("textures/blocks/", "textures/block/"),
-        relative.replace("textures/block/", "textures/blocks/"),
-    ];
-    for root in roots {
-        for variant in &variants {
-            let candidates = [
-                root.join("assets/minecraft").join(variant),
-                root.join(variant),
-            ];
-            if let Some(path) = candidates.into_iter().find(|path| path.is_file()) {
-                return Some(path);
-            }
-        }
-    }
-    None
 }

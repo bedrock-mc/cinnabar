@@ -216,6 +216,7 @@ pub(crate) fn update_atmosphere_frame(
     display.set_precipitation_count(context.precipitation_sample_count);
     let shown = display.advance_in_dimension(*weather, elapsed, context.dimension);
     *view_inputs = render::AtmosphereViewInputs {
+        dimension: context.dimension,
         forward: cameras
             .single()
             .map_or([0.0; 3], |transform| transform.forward().to_array()),

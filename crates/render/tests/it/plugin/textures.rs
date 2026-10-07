@@ -240,43 +240,26 @@ fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
     }
     assert_eq!(immutable_uploads, 1);
     assert_eq!(clock_bytes, 120 * 16);
-
-    let plugin = CHUNK_RENDERER_SOURCE;
-    assert_eq!(plugin.matches("render_queue.write_texture(").count(), 1);
-    assert_eq!(
-        plugin.matches("render_queue.write_buffer(").count(),
-        8,
-        "shared writers cover immutable geometry plus bounded liquid and model transparent sorts"
-    );
-    assert!(plugin.contains("render_queue.write_buffer(&gpu_clock.buffer"));
 }
 
 #[test]
-fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on_failure() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    let start = plugin
-        .find("fn prepare_chunk_texture_assets(")
-        .expect("texture preparation system");
-    let end = plugin[start..]
-        .find("\npub(in crate::chunk) fn storage_table_fits(")
-        .map(|offset| start + offset)
-        .expect("end of texture preparation system");
-    let prepare = &plugin[start..end];
-
-    assert!(
-        !prepare.contains("gpu_assets.prepared = None"),
-        "a rejected new revision must retain the previous complete GPU asset set"
+fn authored_texture_replacement_retains_carrier_identity_and_detaches_without_new_revision() {
+    let runtime = Arc::new(RuntimeAssets::diagnostic());
+    let textures = ChunkTextureAssets::with_revision(runtime.clone(), 7);
+    let page = runtime.texture_array().clone();
+    let authored = Arc::new(
+        render::EnhancedTextureAssets::new(
+            [page.clone(), page.clone()],
+            [page.clone(), page.clone()],
+            [page.clone(), page],
+            vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS]
+                .into_boxed_slice(),
+        )
+        .unwrap(),
     );
-    let second_page = prepare
-        .find("let (texture_1, view_1, padded_1) = upload_texture_page(")
-        .expect("second page is prepared before publication");
-    let publish = prepare
-        .find("_textures: [texture_0, texture_1]")
-        .expect("complete revision publication");
-    assert!(second_page < publish);
-    assert!(prepare.contains("material.texture.raw()"));
-    assert!(prepare.contains(".animations()"));
-    assert!(prepare.contains(".animation_frames()"));
-    assert!(prepare.contains("_textures: [texture_0, texture_1]"));
-    assert!(prepare.contains("views: [view_0, view_1]"));
+    let replacement = textures.with_updated_enhanced(Some(authored));
+    assert!(Arc::ptr_eq(replacement.assets(), &runtime));
+    assert_ne!(replacement.identity(), textures.identity());
+    let restored = replacement.with_updated_enhanced(None);
+    assert_eq!(restored.identity(), textures.identity());
 }

@@ -1,12 +1,16 @@
 #import cinnabar::material::{MaterialGpu, materials, positional_material}
 #ifdef ENHANCED_SHADOW
-#import cinnabar::enhanced_caster::caster_clip
+#import cinnabar::enhanced_caster::{caster_clip, caster_previous_clip, caster_history_valid, caster_excludes_emitter}
+#endif
+#ifdef ENHANCED_MOTION
+#import cinnabar::enhanced_actor_motion::submitted_surface_motion
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
 #import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
-#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_material, waved_position, enhanced_physical_atmosphere, enhanced_light_direction, enhanced_materials_enabled}
+#import cinnabar::enhanced_radiance::{block_illumination, untextured_material_mer}
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
@@ -31,12 +35,14 @@ struct AtmosphereUniform {
 @group(0) @binding(12) var<storage, read> model_templates: array<u32>;
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
-#ifdef ENHANCED
 @group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_0) var enhanced_color_page_0: texture_2d_array<f32>;
 @group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_1) var enhanced_color_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_NORMAL_TEXTURE_BINDING_0) var enhanced_normal_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_NORMAL_TEXTURE_BINDING_1) var enhanced_normal_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_MER_TEXTURE_BINDING_0) var enhanced_mer_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_MER_TEXTURE_BINDING_1) var enhanced_mer_page_1: texture_2d_array<f32>;
 @group(0) @binding(ENHANCED_SAMPLER_BINDING) var enhanced_sampler: sampler;
 @group(0) @binding(ENHANCED_TEXTURE_REF_BINDING) var<storage, read> enhanced_texture_refs: array<u32>;
-#endif
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -60,6 +66,9 @@ struct VertexOutput {
     @location(10) @interpolate(flat) world_origin: vec3<f32>,
     @location(12) @interpolate(flat) two_sided: u32,
     @location(13) world_position: vec3<f32>,
+#ifdef ENHANCED_MOTION
+    @location(14) previous_clip: vec4<f32>,
+#endif
 #ifdef ENHANCED
     @location(14) @interpolate(flat) surface_class: u32,
 #endif
@@ -91,6 +100,9 @@ fn invisible_vertex() -> VertexOutput {
     invisible.two_sided = 0u;
     invisible.world_origin = vec3(0.0);
     invisible.world_position = vec3(0.0);
+#ifdef ENHANCED_MOTION
+    invisible.previous_clip = vec4(0.0);
+#endif
     return invisible;
 }
 
@@ -234,6 +246,9 @@ fn vertex(
 #ifdef ENHANCED_SHADOW
     out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
 #endif
+#ifdef ENHANCED_MOTION
+    out.previous_clip = caster_previous_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
+#endif
     out.uv = vec2<f32>(
         f32(packed_u16(template_quad_base + 6u, uv_component)),
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
@@ -253,6 +268,7 @@ fn vertex(
     let terrain_shade = select(light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u), pad_shade, is_lily_pad);
     out.lighting = light_colour(light_sample) * terrain_shade;
 #ifdef ENHANCED
+    out.lighting = block_illumination(light_sample);
     out.sky_light = sky_illumination(light_sample);
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #else
@@ -304,6 +320,17 @@ fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>, worl
 
 fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
 #ifdef ENHANCED
+    return sample_enhanced_colour(texture_ref, uv, dx, dy);
+#else
+#ifdef ENHANCED_SHADOW
+    return sample_enhanced_colour(texture_ref, uv, dx, dy);
+#else
+    return tint_to_gamma(sample_enhanced_fallback(texture_ref, uv, dx, dy));
+#endif
+#endif
+}
+
+fn sample_enhanced_colour(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let lookup_index = (texture_ref >> 31u) * 2048u + (texture_ref & 0x7ffu);
     let authored_ref = enhanced_texture_refs[lookup_index];
     if (authored_ref != 0xffffffffu) {
@@ -314,7 +341,10 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
         }
         return textureSampleGrad(enhanced_color_page_1, enhanced_sampler, uv, authored_layer, dx, dy);
     }
-#endif
+    return sample_enhanced_fallback(texture_ref, uv, dx, dy);
+}
+
+fn sample_enhanced_fallback(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let layer = i32(texture_ref & 0x7ffu);
     var sampled: vec4<f32>;
     if ((texture_ref >> 31u) == 0u) {
@@ -322,14 +352,10 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
     } else {
         sampled = textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
     }
-#ifdef ENHANCED
     return sampled;
-#else
-    // Ordinary RenderChunk samples a UNORM atlas. Undo our retained sRGB
-    // view before animation-frame interpolation as well as terrain lighting.
-    return tint_to_gamma(sampled);
-#endif
 }
+
+// ENHANCED_PBR_SAMPLING
 
 fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
     let distance_to_camera = distance(world_position, view.world_position);
@@ -343,6 +369,7 @@ fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
 #ifdef ENHANCED
+    if (enhanced_physical_atmosphere()) { return colour; }
     let delta = world_position - view.world_position;
     let direction = delta / max(length(delta), 1.0e-4);
     let horizon = smoothstep(-0.3, 0.75, direction.y);
@@ -391,28 +418,43 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
-    if (in.visible == 0u) { discard; }
-    if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    var material_uv=in.uv;
+#ifdef ENHANCED
+    let basis=material_basis(in.normal,dpdx(in.world_position),dpdy(in.world_position),dx,dy);
+    material_uv=parallax_material_uv(in.current_texture,in.uv,dx,dy,normalize(view.world_position-in.world_position),basis,
+        distance(view.world_position,in.world_position),enhanced_materials_enabled() && (in.material_flags&(1u<<8u))==0u && in.two_sided==0u && (in.surface_class&48u)==0u && in.frame_blend==0.0);
+#endif
+    if (in.visible == 0u) { discard; }
+    if (!front_facing && in.two_sided == 0u) { discard; }
+    var sampled = sample_ref(in.current_texture, material_uv, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_ref(in.next_texture, material_uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
 #ifdef ENHANCED
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
-    let shaded = shade_surface(
+    var material_normal_sample=sample_pbr_texture(true,in.current_texture,material_uv,dx,dy);
+    var material_mer_sample=sample_pbr_texture(false,in.current_texture,material_uv,dx,dy);
+    if (in.frame_blend>0.0) {
+        material_normal_sample=mix(material_normal_sample,sample_pbr_texture(true,in.next_texture,material_uv,dx,dy),in.frame_blend);
+        material_mer_sample=mix(material_mer_sample,sample_pbr_texture(false,in.next_texture,material_uv,dx,dy),in.frame_blend);
+    }
+    let shaded = shade_material(
         colour.rgb,
         in.normal,
         in.world_position,
         in.clip_position.xy,
         in.lighting,
         in.sky_light,
-        in.ambient_occlusion,
+        in.ambient_occlusion * material_normal_sample.b,
         in.surface_class,
-        vec3(0.0, 0.0, 1.0),
-        vec3(0.0, 0.8, 0.8),
+        material_normal(material_normal_sample,basis),
+        material_mer_sample,
+        select(0u,authored_material_ref(in.current_texture),authored_material_ref(in.current_texture)!=0xffffffffu),
+        parallax_direct_visibility(in.current_texture,material_uv,dx,dy,enhanced_light_direction(),basis,distance(view.world_position,in.world_position),
+            enhanced_materials_enabled() && (in.material_flags&(1u<<8u))==0u && (in.surface_class&48u)==0u && in.frame_blend==0.0),
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
@@ -437,17 +479,26 @@ fn fragment_blend(
     // alpha composes to one fog application instead of double-counting it.
 #ifdef ENHANCED
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
-    let shaded = shade_surface(
+    let basis=material_basis(in.normal,dpdx(in.world_position),dpdy(in.world_position),dx,dy);
+    var material_normal_sample=sample_pbr_texture(true,in.current_texture,in.uv,dx,dy);
+    var material_mer_sample=sample_pbr_texture(false,in.current_texture,in.uv,dx,dy);
+    if (in.frame_blend>0.0) {
+        material_normal_sample=mix(material_normal_sample,sample_pbr_texture(true,in.next_texture,in.uv,dx,dy),in.frame_blend);
+        material_mer_sample=mix(material_mer_sample,sample_pbr_texture(false,in.next_texture,in.uv,dx,dy),in.frame_blend);
+    }
+    let shaded = shade_material(
         colour.rgb,
         in.normal,
         in.world_position,
         in.clip_position.xy,
         in.lighting,
         in.sky_light,
-        in.ambient_occlusion,
+        in.ambient_occlusion * material_normal_sample.b,
         in.surface_class,
-        vec3(0.0, 0.0, 1.0),
-        vec3(0.0, 0.8, 0.8),
+        material_normal(material_normal_sample,basis),
+        material_mer_sample,
+        select(0u,authored_material_ref(in.current_texture),authored_material_ref(in.current_texture)!=0xffffffffu),
+        1.0,
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
@@ -461,8 +512,8 @@ fn fragment_blend(
 #ifdef ENHANCED_SHADOW
 
 // Alpha-tested terrain depth; opaque texels cast independently of baked light.
-@fragment
-fn fragment_shadow(in: VertexOutput) {
+fn shadow_coverage(in: VertexOutput, front: bool) {
+    if (!front && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
@@ -471,4 +522,18 @@ fn fragment_shadow(in: VertexOutput) {
     }
     if (sampled.a < 0.5 || in.visible == 0u) { discard; }
 }
+@fragment
+fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
+    shadow_coverage(in, front);
+    if (caster_excludes_emitter(in.world_position)) { discard; }
+}
+#ifdef ENHANCED_MOTION
+@fragment
+fn fragment_motion(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    shadow_coverage(in, front);
+    let current_uv = (in.clip_position.xy - view.viewport.xy) / view.viewport.zw;
+    let clip = vec4(current_uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);
+    return submitted_surface_motion(clip, in.previous_clip, caster_history_valid());
+}
+#endif
 #endif

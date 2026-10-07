@@ -39,15 +39,19 @@ impl ViewNode for EnhancedSnapshotNode {
         let Some(state) = views.0.get(&entity) else {
             return Ok(());
         };
-        let (Some(colour), Some(scene_depth)) = (&state.scene_colour, &state.scene_depth) else {
+        let Some(scene) = &state.scene else {
             return Ok(());
         };
         let diagnostics = context.diagnostic_recorder();
         let span = diagnostics.time_span(context.command_encoder(), "enhanced opaque snapshot");
         context.command_encoder().copy_texture_to_texture(
             target.main_texture().as_image_copy(),
-            colour.texture.as_image_copy(),
-            colour.texture.size(),
+            scene.colour.as_image_copy(),
+            wgpu::Extent3d {
+                width: scene.colour.width(),
+                height: scene.colour.height(),
+                depth_or_array_layers: 1,
+            },
         );
         context.command_encoder().copy_texture_to_texture(
             TexelCopyTextureInfo {
@@ -56,11 +60,12 @@ impl ViewNode for EnhancedSnapshotNode {
             },
             TexelCopyTextureInfo {
                 aspect: TextureAspect::DepthOnly,
-                ..scene_depth.texture.as_image_copy()
+                ..scene.depth.as_image_copy()
             },
-            scene_depth.texture.size(),
+            scene.depth.size(),
         );
         span.end(context.command_encoder());
+        super::probes::filter_mips(context, world, &state.frame, &scene.mips, &scene.depth_view);
         Ok(())
     }
 }

@@ -541,32 +541,38 @@ mod enhanced_tests {
     }
 
     #[test]
-    fn disabled_enhanced_keeps_vanilla_descriptor_and_shader_defs_identical() {
+    fn camera_opt_in_alone_selects_enhanced_without_changing_vanilla_targets() {
+        let enabled = render_model::ENHANCED_RENDERING_ENABLED;
         for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
             for hdr in [false, true] {
-                let mut before = vanilla_descriptor(Msaa::Off, false);
-                ChunkPipelineSpecializer
-                    .specialize(
-                        ChunkPipelineKey {
-                            msaa,
-                            hdr,
-                            enhanced: false,
-                        },
-                        &mut before,
-                    )
-                    .unwrap();
-                let mut after = vanilla_descriptor(Msaa::Off, false);
-                ChunkPipelineSpecializer
-                    .specialize(
-                        ChunkPipelineKey {
-                            msaa,
-                            hdr,
-                            enhanced: true,
-                        },
-                        &mut after,
-                    )
-                    .unwrap();
-                assert_eq!(format!("{before:?}"), format!("{after:?}"));
+                for opted_in in [false, true] {
+                    let mut descriptor = vanilla_descriptor(Msaa::Off, false);
+                    let initial_layouts = descriptor.layout.len();
+                    ChunkPipelineSpecializer
+                        .specialize(
+                            ChunkPipelineKey {
+                                msaa,
+                                hdr,
+                                enhanced: opted_in,
+                            },
+                            &mut descriptor,
+                        )
+                        .unwrap();
+                    let enhanced = enabled && opted_in;
+                    assert_eq!(descriptor.multisample.count, msaa.samples());
+                    assert_eq!(
+                        descriptor.layout.len(),
+                        initial_layouts + usize::from(enhanced)
+                    );
+                    assert_eq!(
+                        descriptor.vertex.shader_defs.contains(&"ENHANCED".into()),
+                        enhanced
+                    );
+                    let fragment = descriptor.fragment.as_ref().unwrap();
+                    assert_eq!(fragment.shader_defs.contains(&"ENHANCED".into()), enhanced);
+                    let expected = vanilla_descriptor(msaa, hdr);
+                    assert_eq!(fragment.targets, expected.fragment.unwrap().targets);
+                }
             }
         }
     }

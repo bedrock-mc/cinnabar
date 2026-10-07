@@ -1,12 +1,16 @@
 #import cinnabar::material::{MaterialGpu, materials, positional_material, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_leaf_uv_flags, material_leaf_shade}
 #ifdef ENHANCED_SHADOW
-#import cinnabar::enhanced_caster::caster_clip
+#import cinnabar::enhanced_caster::{caster_clip, caster_previous_clip, caster_history_valid, caster_excludes_emitter}
+#endif
+#ifdef ENHANCED_MOTION
+#import cinnabar::enhanced_actor_motion::submitted_surface_motion
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
-#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_material, waved_position, enhanced_physical_atmosphere, enhanced_light_direction, enhanced_materials_enabled}
+#import cinnabar::enhanced_radiance::block_illumination
 #endif
 
 struct PackedQuad {
@@ -105,6 +109,9 @@ struct VertexOutput {
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) world_position: vec3<f32>,
     @location(9) lighting: vec3<f32>,
+#ifdef ENHANCED_MOTION
+    @location(13) previous_clip: vec4<f32>,
+#endif
 #ifdef ENHANCED
     @location(10) sky_light: f32,
     @location(11) ambient_occlusion: f32,
@@ -272,6 +279,9 @@ fn vertex(
 #ifdef ENHANCED_SHADOW
     out.clip_position = caster_clip(world_position, quad.material_id, 1.0);
 #endif
+#ifdef ENHANCED_MOTION
+    out.previous_clip = caster_previous_clip(world_position, quad.material_id, 1.0);
+#endif
     let uv_flags = material_leaf_uv_flags(material.flags, chunk_origin.value.xyz + vec3<i32>(local_origin));
     out.uv = greedy_uv(face, corner, width, height, uv_flags);
     out.current_texture = animation_sample.current_texture;
@@ -284,6 +294,7 @@ fn vertex(
     out.world_position = world_position;
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
 #ifdef ENHANCED
+    out.lighting = block_illumination(light_sample);
     out.sky_light = sky_illumination(light_sample);
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #else
@@ -350,6 +361,25 @@ fn sample_material_texture_ref(
     material_flags: u32,
 ) -> vec4<f32> {
 #ifdef ENHANCED
+    return sample_enhanced_colour(texture_ref, uv, uv_dx, uv_dy);
+#else
+#ifdef ENHANCED_SHADOW
+    return sample_enhanced_colour(texture_ref, uv, uv_dx, uv_dy);
+#else
+    if (material_uses_native_leaf_colour(material_flags)) {
+        let layer = i32(texture_ref & 0x7ffu);
+        if ((texture_ref >> 31u) == 0u) {
+            return textureSampleGrad(native_leaf_textures_page_0, native_leaf_sampler, uv, layer, uv_dx, uv_dy);
+        }
+        return textureSampleGrad(native_leaf_textures_page_1, native_leaf_sampler, uv, layer, uv_dx, uv_dy);
+    }
+    return sample_texture_ref(texture_ref, uv, uv_dx, uv_dy);
+#endif
+#endif
+}
+
+// Camera and sunlight depth use the color pass's authored alpha coverage.
+fn sample_enhanced_colour(texture_ref: u32, uv: vec2<f32>, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
     let lookup_index = (texture_ref >> 31u) * 2048u + (texture_ref & 0x7ffu);
     let authored_ref = enhanced_texture_refs[lookup_index];
     if (authored_ref != 0xffffffffu) {
@@ -360,56 +390,10 @@ fn sample_material_texture_ref(
         }
         return textureSampleGrad(enhanced_color_page_1, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
     }
-#else
-    if (material_uses_native_leaf_colour(material_flags)) {
-        let layer = i32(texture_ref & 0x7ffu);
-        if ((texture_ref >> 31u) == 0u) {
-            return textureSampleGrad(native_leaf_textures_page_0, native_leaf_sampler, uv, layer, uv_dx, uv_dy);
-        }
-        return textureSampleGrad(native_leaf_textures_page_1, native_leaf_sampler, uv, layer, uv_dx, uv_dy);
-    }
-#endif
     return sample_texture_ref(texture_ref, uv, uv_dx, uv_dy);
 }
 
-#ifdef ENHANCED
-fn sample_pbr_texture(
-    normal_map: bool,
-    texture_ref: u32,
-    uv: vec2<f32>,
-    uv_dx: vec2<f32>,
-    uv_dy: vec2<f32>,
-) -> vec4<f32> {
-    let lookup_index = (texture_ref >> 31u) * 2048u + (texture_ref & 0x7ffu);
-    let authored_ref = enhanced_texture_refs[lookup_index];
-    if (authored_ref != 0xffffffffu) {
-        let authored_page = authored_ref >> 31u;
-        let authored_layer = i32(authored_ref & 0x7ffu);
-        if (normal_map) {
-            if (authored_page == 0u) {
-                return textureSampleGrad(enhanced_normal_page_0, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
-            }
-            return textureSampleGrad(enhanced_normal_page_1, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
-        }
-        if (authored_page == 0u) {
-            return textureSampleGrad(enhanced_mer_page_0, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
-        }
-        return textureSampleGrad(enhanced_mer_page_1, enhanced_sampler, uv, authored_layer, uv_dx, uv_dy);
-    }
-    let page = texture_ref >> 31u;
-    let layer = i32(texture_ref & 0x7ffu);
-    if (normal_map) {
-        if (page == 0u) {
-            return textureSampleGrad(pbr_normal_page_0, pbr_sampler, uv, layer, uv_dx, uv_dy);
-        }
-        return textureSampleGrad(pbr_normal_page_1, pbr_sampler, uv, layer, uv_dx, uv_dy);
-    }
-    if (page == 0u) {
-        return textureSampleGrad(pbr_mer_page_0, pbr_sampler, uv, layer, uv_dx, uv_dy);
-    }
-    return textureSampleGrad(pbr_mer_page_1, pbr_sampler, uv, layer, uv_dx, uv_dy);
-}
-#endif
+// ENHANCED_PBR_SAMPLING
 
 fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
     let distance_to_camera = distance(world_position, view.world_position);
@@ -423,6 +407,7 @@ fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
 #ifdef ENHANCED
+    if (enhanced_physical_atmosphere()) { return colour; }
     let delta = world_position - view.world_position;
     let direction = delta / max(length(delta), 1.0e-4);
     let horizon = smoothstep(-0.3, 0.75, direction.y);
@@ -490,34 +475,32 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
-    let current_sample = sample_material_texture_ref(in.current_texture, in.uv, uv_dx, uv_dy, in.material_flags);
+    var material_uv=in.uv;
+#ifdef ENHANCED
+    let basis=material_basis(in.normal,dpdx(in.world_position),dpdy(in.world_position),uv_dx,uv_dy);
+    let view_direction=normalize(view.world_position-in.world_position);
+    material_uv=parallax_material_uv(in.current_texture,in.uv,uv_dx,uv_dy,view_direction,basis,distance(view.world_position,in.world_position),
+        enhanced_materials_enabled() && (in.material_flags&(1u<<8u))==0u && (in.surface_class&48u)==0u && in.frame_blend==0.0);
+#endif
+    let current_sample = sample_material_texture_ref(in.current_texture, material_uv, uv_dx, uv_dy, in.material_flags);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
-        let next_sample = sample_material_texture_ref(in.next_texture, in.uv, uv_dx, uv_dy, in.material_flags);
+        let next_sample = sample_material_texture_ref(in.next_texture, material_uv, uv_dx, uv_dy, in.material_flags);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
         discard;
     }
 #ifdef ENHANCED
-    var pbr_normal_sample = sample_pbr_texture(true, in.current_texture, in.uv, uv_dx, uv_dy);
-    var pbr_mer_sample = sample_pbr_texture(false, in.current_texture, in.uv, uv_dx, uv_dy);
+    var pbr_normal_sample = sample_pbr_texture(true, in.current_texture, material_uv, uv_dx, uv_dy);
+    var pbr_mer_sample = sample_pbr_texture(false, in.current_texture, material_uv, uv_dx, uv_dy);
     if (in.frame_blend > 0.0) {
         pbr_normal_sample = mix(pbr_normal_sample,
-            sample_pbr_texture(true, in.next_texture, in.uv, uv_dx, uv_dy), in.frame_blend);
+            sample_pbr_texture(true, in.next_texture, material_uv, uv_dx, uv_dy), in.frame_blend);
         pbr_mer_sample = mix(pbr_mer_sample,
-            sample_pbr_texture(false, in.next_texture, in.uv, uv_dx, uv_dy), in.frame_blend);
+            sample_pbr_texture(false, in.next_texture, material_uv, uv_dx, uv_dy), in.frame_blend);
     }
-    var tangent = vec3(1.0, 0.0, 0.0);
-    if (abs(in.normal.y) > 0.9) { tangent = vec3(0.0, 0.0, 1.0); }
-    let bitangent = normalize(cross(in.normal, tangent));
-    tangent = normalize(cross(bitangent, in.normal));
-    let tangent_normal = normalize(vec3(
-        pbr_normal_sample.xy * 2.0 - vec2(1.0),
-        max(pbr_normal_sample.z * 2.0 - 1.0, 0.05),
-    ));
-    let shading_normal = normalize(tangent * tangent_normal.x
-        + bitangent * tangent_normal.y + in.normal * tangent_normal.z);
+    let shading_normal=material_normal(pbr_normal_sample,basis);
     let colour = apply_material_tint(
         sampled,
         in.material_flags,
@@ -526,17 +509,20 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
         in.normal,
         in.world_position - in.local_position,
     );
-    let shaded = shade_surface(
+    let shaded = shade_material(
         colour.rgb,
-        shading_normal,
+        in.normal,
         in.world_position,
         in.clip_position.xy,
         in.lighting,
         in.sky_light,
-        in.ambient_occlusion,
+        in.ambient_occlusion * pbr_normal_sample.b,
         in.surface_class,
         shading_normal,
-        pbr_mer_sample.rgb,
+        pbr_mer_sample,
+        select(0u,authored_material_ref(in.current_texture),authored_material_ref(in.current_texture)!=0xffffffffu),
+        parallax_direct_visibility(in.current_texture,material_uv,uv_dx,uv_dy,enhanced_light_direction(),basis,distance(view.world_position,in.world_position),
+            enhanced_materials_enabled() && (in.material_flags&(1u<<8u))==0u && (in.surface_class&48u)==0u && in.frame_blend==0.0),
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
@@ -566,8 +552,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
 #ifdef ENHANCED_SHADOW
 
 // Alpha-tested terrain depth; opaque texels cast independently of baked light.
-@fragment
-fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
+fn shadow_coverage(in: VertexOutput, front: bool) {
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
@@ -577,4 +562,18 @@ fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
     }
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) { discard; }
 }
+@fragment
+fn fragment_shadow(in: VertexOutput, @builtin(front_facing) front: bool) {
+    shadow_coverage(in, front);
+    if (caster_excludes_emitter(in.world_position)) { discard; }
+}
+#ifdef ENHANCED_MOTION
+@fragment
+fn fragment_motion(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    shadow_coverage(in, front);
+    let current_uv = (in.clip_position.xy - view.viewport.xy) / view.viewport.zw;
+    let clip = vec4(current_uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);
+    return submitted_surface_motion(clip, in.previous_clip, caster_history_valid());
+}
+#endif
 #endif

@@ -94,7 +94,11 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+#[cfg(feature = "enhanced")]
+mod resident_coverage;
 mod resource_geometry;
+#[cfg(feature = "enhanced")]
+pub(crate) use resident_coverage::ChunkResidentCoverage;
 mod texture_reload;
 mod textures;
 pub use texture_reload::ChunkTextureReload;
@@ -150,10 +154,9 @@ use gpu::bind_groups::{
     ChunkGpuTextureAssets, MaterialGpu, PreparedChunkBiomeTints, PreparedChunkTextureAssets,
     bind_group_needs_rebuild, biome_tint_bind_group_needs_rebuild,
     biome_tint_gpu_buffer_needs_rebuild, chunk_sampler_descriptor, encode_model_template_words,
-    init_chunk_gpu_animation_clock, pack_linear_rgb10, padded_mip_bytes,
-    prepare_biome_tint_entries, prepare_chunk_animation_clock, prepare_chunk_bind_group,
-    prepare_chunk_biome_tints, prepare_chunk_texture_assets, storage_table_fits,
-    upload_texture_page,
+    init_chunk_gpu_animation_clock, pack_linear_rgb10, prepare_biome_tint_entries,
+    prepare_chunk_animation_clock, prepare_chunk_bind_group, prepare_chunk_biome_tints,
+    prepare_chunk_texture_assets, storage_table_fits,
 };
 #[cfg(test)]
 use gpu::layout::transparent_geometry_update_requires_cow;
@@ -166,6 +169,8 @@ use gpu::layout::{
     checked_align_up, first_arena_growth, plan_arena_growth, write_geometry_stream_words,
     write_stream_records,
 };
+#[allow(unused_imports)]
+use gpu::texture_upload::{padded_mip_bytes, upload_texture_page};
 #[allow(unused_imports)]
 use gpu::types::{
     ArenaAllocation, ChunkDepthLiquidIndirectBatches, ChunkDrawMode, ChunkIndirectBatch,

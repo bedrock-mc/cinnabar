@@ -58,6 +58,11 @@ pub(crate) fn pbr_sampler_descriptor() -> wgpu::SamplerDescriptor<'static> {
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("// ENHANCED_PBR_SAMPLING", include_str!("enhanced/pbr_sampling.wgsl"))
+        .replace("// ENHANCED_PBR_CONSTANTS", &format!(
+            "const PBR_REF_COLOR:u32={}u;\nconst PBR_REF_NORMAL:u32={}u;\nconst PBR_REF_HEIGHT:u32={}u;\nconst PBR_REF_MATERIAL:u32={}u;\nconst PBR_REF_LABPBR:u32={}u;\nconst PBR_REF_OCCLUSION:u32={}u;\nconst PBR_REF_SUBSURFACE:u32={}u;\nconst PBR_HEIGHT_SCALE:f32={:?};",
+            assets::PBR_REF_COLOR, assets::PBR_REF_NORMAL, assets::PBR_REF_HEIGHT, assets::PBR_REF_MATERIAL,
+            assets::PBR_REF_LABPBR, assets::PBR_REF_OCCLUSION, assets::PBR_REF_SUBSURFACE, assets::PBR_HEIGHT_SCALE))
         .replace("MODEL_LILY_PAD_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_LILY_PAD))
         .replace("// ANIMATION_GPU_LAYOUT", "struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32, uv_scale: f32 }")
         .replace("// LIQUID_GEOMETRY_CONSTANTS", &format!(
@@ -162,4 +167,9 @@ pub(crate) fn source(source: &str) -> String {
             "ENHANCED_TEXTURE_REF_BINDING",
             &ENHANCED_TEXTURE_REF_BINDING.to_string(),
         )
+}
+
+/// Loads generated material contracts with the shader source.
+pub(crate) fn shader(source: impl Into<String>, path: impl Into<String>) -> bevy::shader::Shader {
+    crate::shader_safety::from_wgsl(self::source(&source.into()), path)
 }

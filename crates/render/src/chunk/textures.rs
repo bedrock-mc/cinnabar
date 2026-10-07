@@ -120,6 +120,16 @@ impl ChunkTextureAssets {
         self.enhanced.as_ref()
     }
 
+    /// Replace optional authored maps without changing server asset ownership.
+    #[must_use]
+    pub fn with_updated_enhanced(&self, enhanced: Option<Arc<EnhancedTextureAssets>>) -> Self {
+        Self {
+            assets: Arc::clone(&self.assets),
+            enhanced,
+            revision: self.revision,
+        }
+    }
+
     #[must_use]
     pub fn identity(&self) -> ChunkTextureAssetIdentity {
         ChunkTextureAssetIdentity {

@@ -7,8 +7,11 @@ PROFILE ?= play
 PROFILE_DIR = $(if $(filter dev,$(PROFILE)),debug,$(PROFILE))
 EXE = $(if $(filter Windows_NT,$(OS)),.exe)
 # Reuse compiled dependencies across worktrees when sccache is installed.
+# Respect an explicit wrapper, including the Windows user environment.
+ifeq ($(strip $(RUSTC_WRAPPER)),)
 ifneq ($(shell command -v sccache 2>/dev/null),)
-export RUSTC_WRAPPER ?= sccache
+export RUSTC_WRAPPER := sccache
+endif
 endif
 GO ?= go
 POWERSHELL ?= powershell

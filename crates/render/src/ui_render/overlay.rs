@@ -117,7 +117,7 @@ pub(crate) fn retained_batch_ranges(
 pub(crate) struct GradeStage<N, const POST: bool>(pub(crate) N);
 
 impl<N: ViewNode, const POST: bool> ViewNode for GradeStage<N, POST> {
-    type ViewQuery = (Has<crate::EnhancedRendering>, N::ViewQuery);
+    type ViewQuery = (Option<&'static crate::EnhancedRendering>, N::ViewQuery);
 
     fn update(&mut self, world: &mut World) {
         self.0.update(world);
@@ -127,10 +127,13 @@ impl<N: ViewNode, const POST: bool> ViewNode for GradeStage<N, POST> {
         &self,
         graph: &mut RenderGraphContext,
         render_context: &mut RenderContext<'w>,
-        (after_grade, view): QueryItem<'w, '_, Self::ViewQuery>,
+        (enhanced, view): QueryItem<'w, '_, Self::ViewQuery>,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
-        if (render_model::ENHANCED_RENDERING_ENABLED && after_grade) != POST {
+        if enhanced.is_some_and(|settings| settings.reflection_capture) {
+            return Ok(());
+        }
+        if (render_model::ENHANCED_RENDERING_ENABLED && enhanced.is_some()) != POST {
             return Ok(());
         }
         self.0.run(graph, render_context, view, world)

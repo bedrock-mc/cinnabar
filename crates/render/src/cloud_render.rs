@@ -123,7 +123,7 @@ pub(crate) fn prepare_cloud_records(
     requested: Res<AtmosphereTextureAssets>,
     atmosphere: Res<AtmosphereFrame>,
     render_device: Res<RenderDevice>,
-    views: Query<(Entity, &ExtractedView), With<Camera3d>>,
+    views: Query<(Entity, &ExtractedView, Option<&crate::EnhancedRendering>), With<Camera3d>>,
     mut gpu: ResMut<CloudGpu>,
 ) {
     let Some(runtime) = requested.runtime() else {
@@ -136,7 +136,13 @@ pub(crate) fn prepare_cloud_records(
         .expect("validated MCBEATM2 always contains the cloud texture");
     gpu.views.retain(|entity, _| views.contains(*entity));
     let config = CloudRenderConfig::legacy_fancy();
-    for (entity, view) in &views {
+    for (entity, view, enhanced) in &views {
+        if render_model::ENHANCED_RENDERING_ENABLED
+            && enhanced.is_some_and(|s| s.volumetric_clouds || s.reflection_capture)
+        {
+            gpu.views.remove(&entity);
+            continue;
+        }
         let camera = view.world_from_view.translation();
         let Some(viewport) = CloudViewport::try_new(
             [
@@ -420,13 +426,25 @@ fn queue_clouds(
     (atmosphere, visibility): (Res<AtmosphereFrame>, Res<CloudVisibility>),
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &Msaa,
+        Option<&crate::EnhancedRendering>,
+    )>,
 ) {
     if !visibility.0 {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawCloudCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, msaa, enhanced) in &views {
+        if render_model::ENHANCED_RENDERING_ENABLED
+            && enhanced
+                .is_some_and(|settings| settings.volumetric_clouds || settings.reflection_capture)
+        {
+            continue;
+        }
         let Some(prepared) = gpu.views.get(&view_entity) else {
             continue;
         };

@@ -103,6 +103,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     let connectivity = cave_connectivity(&facts);
     if facts.is_air() {
         return ChunkMesh {
+            light_emitters: Box::new([]),
             cube_streams: Box::default(),
             model_refs: Box::new([]),
             model_lighting: Box::new([]),
@@ -386,6 +387,11 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         (Vec::new(), Vec::new())
     };
     ChunkMesh {
+        light_emitters: crate::light_emitters::collect_emitters(
+            sub_chunk,
+            visuals,
+            network_id_mode,
+        ),
         cube_streams: Box::new(CubeStreams {
             cube_quads: quads.into_boxed_slice(),
             cube_lighting: cube_lighting.into_boxed_slice(),

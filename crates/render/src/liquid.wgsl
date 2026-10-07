@@ -4,7 +4,8 @@
 #import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_common::CLASS_WATER
-#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position}
+#import cinnabar::enhanced_radiance::block_illumination
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position, enhanced_physical_atmosphere}
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
@@ -258,6 +259,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     out.native_light_levels = terrain_light_levels(light_sample);
     out.native_face_shade = face_shade(face_normal(face), (light_sample & 2048u) != 0u);
 #ifdef ENHANCED
+    out.lighting = block_illumination(light_sample);
     out.sky_light = sky_illumination(light_sample);
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #endif
@@ -305,6 +307,7 @@ fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
 #ifdef ENHANCED
+    if (enhanced_physical_atmosphere()) { return colour; }
     let distance_to_camera = distance(world_position, view.world_position);
     let fog = clamp(
         (distance_to_camera - atmosphere.fog_color_start.w)
@@ -371,10 +374,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @loc
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
 #ifdef ENHANCED
+    let water_footprint = max(length(dpdx(in.world_position.xz)), length(dpdy(in.world_position.xz)));
     if ((in.surface_class & CLASS_WATER) != 0u) {
         let water = shade_water(sampled.rgb * in.water_tint.rgb, sampled.a * in.water_tint.a, in.normal,
             in.world_position, in.clip_position, in.lighting, in.sky_light,
-            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb);
+            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb, water_footprint);
         return vec4(apply_distance_fog(water.rgb, in.world_position), water.a);
     }
     let colour = shade_surface(
@@ -386,7 +390,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @loc
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
-        vec3(0.0, 0.0, 1.0),
+        in.normal,
         vec3(0.0, 0.8, 0.8),
     );
     // The background is fogged by the same transfer, so preserving source
@@ -423,7 +427,7 @@ fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
-        vec3(0.0, 0.0, 1.0),
+        in.normal,
         vec3(0.0, 0.8, 0.8),
     );
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);

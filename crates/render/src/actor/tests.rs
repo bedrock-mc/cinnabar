@@ -1,5 +1,9 @@
 use std::sync::Arc;
 
+#[cfg(feature = "enhanced")]
+#[path = "tests/enhanced_shadows.rs"]
+mod enhanced_shadows;
+
 use bevy::math::{Mat4, Vec3};
 
 use super::{

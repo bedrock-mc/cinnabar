@@ -128,6 +128,7 @@ pub(super) fn resolve_binding(
         previous: current.clone(),
         ui_pose: None,
         ui_animation: None,
+        world_body: None,
         view_context: None,
         rest: current.clone(),
         rest_completed_tick: 0,
@@ -429,6 +430,7 @@ pub(super) fn reselect_geometry(
     state.controllers = controllers;
     state.ui_pose = None;
     state.ui_animation = None;
+    state.world_body = None;
     state.previous = pose.clone();
     state.rest = pose.clone();
     state.current = pose;

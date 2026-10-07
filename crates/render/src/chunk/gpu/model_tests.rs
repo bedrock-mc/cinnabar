@@ -314,6 +314,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
     let key = SubChunkKey::new(0, 1, 2, 3);
     let tint = ChunkBiomeTintIdentity::new(4, 5);
     let instance = ChunkRenderInstance {
+        light_emitters: Arc::from([]),
         key,
         cube_quads: Arc::from([]),
         cube_lighting: Arc::from([]),
@@ -397,6 +398,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
 fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
     let key = SubChunkKey::new(0, 1, 2, 3);
     let instance = ChunkRenderInstance {
+        light_emitters: Arc::from([]),
         key,
         cube_quads: Arc::from([]),
         cube_lighting: Arc::from([]),

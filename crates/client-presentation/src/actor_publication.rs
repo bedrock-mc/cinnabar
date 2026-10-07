@@ -1,4 +1,5 @@
 mod commit;
+mod culling;
 mod emote_geometry;
 mod hand;
 pub use commit::{PreparedActorPublication, publish_actor_render_frame};
@@ -18,8 +19,8 @@ use bevy::{
 use chunk_pipeline::WorldStream;
 use client_world::LocalPlayerFeed;
 use render::{
-    ActorCullView, ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission,
-    HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
+    ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission, HandItemAtlas,
+    HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
     RuntimeStageProfiler,
 };
 
@@ -30,7 +31,7 @@ use crate::{
     dropped_items::DroppedItemPublisher,
     presentation::actors::{
         ActorRigPresentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
+        local_diagnostic_presentation, rig_world_from_actor,
     },
     presentation::equipment::{
         EquipmentRuntime, FirstPersonArms, FirstPersonHand, FirstPersonItem, StagedSessionIcons,
@@ -68,7 +69,16 @@ pub struct ActorPresentationState<'w, 's> {
     local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
     settings: Res<'w, CameraSettingsAuthority>,
     view: Res<'w, LocalViewPose>,
-    camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
+    camera: Query<
+        'w,
+        's,
+        (
+            &'static Transform,
+            &'static Projection,
+            Option<&'static render::EnhancedRendering>,
+        ),
+        With<FlyCamera>,
+    >,
 }
 
 /// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.
@@ -191,6 +201,7 @@ pub struct ActorFramePublication<'w, 's> {
     skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
     skin_layers: Local<'s, crate::presentation::skin_layers::SkinLayerCache>,
     poses: Local<'s, crate::presentation::actors::PoseConversions>,
+    shadow_poses: Local<'s, crate::presentation::actors::PoseConversions>,
     layer_poses: Local<'s, crate::presentation::entity_layers::LayerPoseCache>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
@@ -233,6 +244,7 @@ pub fn prepare_actor_render_frame(
         mut skin_rigs,
         mut skin_layers,
         mut poses,
+        mut shadow_poses,
         mut layer_poses,
         mut hand_builder,
         mut hand_scene,
@@ -250,6 +262,18 @@ pub fn prepare_actor_render_frame(
         view,
         camera,
     } = presentation;
+    let actor_views = camera
+        .single()
+        .ok()
+        .map(|(transform, projection, enhanced)| {
+            culling::ActorPublicationViews::new(
+                transform,
+                projection,
+                render_model::ENHANCED_RENDERING_ENABLED
+                    && enhanced
+                        .is_some_and(|settings| settings.shadows && !settings.reflection_capture),
+            )
+        });
     let session_id = client_world
         .stream
         .as_ref()
@@ -324,6 +348,10 @@ pub fn prepare_actor_render_frame(
     }
     layer_poses.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let local_shadows = first_person && actor_views.is_some_and(|views| views.casts_shadows);
+    if local_shadows {
+        shadow_poses.begin_frame();
+    }
     let mut local_feed = input.local_feed;
     if let Some(feed) = local_feed.as_mut() {
         feed.first_person = first_person;
@@ -339,6 +367,7 @@ pub fn prepare_actor_render_frame(
             .map(|item| item.identifier.clone());
     }
     if let Some(stream) = client_world.stream.as_mut() {
+        stream.set_actor_world_body_enabled(local_shadows);
         if let Some(equipment) = equipment.as_deref() {
             stream.set_item_use_durations(equipment.item_use_durations());
         }
@@ -356,15 +385,14 @@ pub fn prepare_actor_render_frame(
             -pitch.to_degrees(),
             (180.0 - yaw.to_degrees()).rem_euclid(360.0),
         ]);
-        if let Ok((transform, _)) = camera.single() {
+        if let Ok((transform, _, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
-        stream.set_actor_animation_view(
-            camera
-                .single()
-                .ok()
-                .and_then(|(transform, projection)| animation_view(transform, projection)),
-        );
+        stream.set_actor_animation_view(camera.single().ok().and_then(
+            |(transform, projection, _)| {
+                culling::animation_view(transform, projection, actor_views)
+            },
+        ));
         let _animation = profiler
             .as_deref()
             .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
@@ -404,19 +432,12 @@ pub fn prepare_actor_render_frame(
     let hand_camera_fov = camera
         .single()
         .ok()
-        .filter(|(_, projection)| matches!(projection, Projection::Perspective(_)))
+        .filter(|(_, projection, _)| matches!(projection, Projection::Perspective(_)))
         .map(|_| HAND_FOV_DEGREES.to_radians());
     let preparation = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
-    let cull_view = camera
-        .single()
-        .ok()
-        .map(|(transform, projection)| ActorCullView {
-            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
-            camera_position: transform.translation,
-            max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-        });
+    let cull_view = actor_views.map(|views| views.publication);
     // Registered together below: each registration rebuilds and re-uploads the whole catalog.
     let mut new_geometries = Vec::new();
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
@@ -435,11 +456,11 @@ pub fn prepare_actor_render_frame(
                     };
                     // Culled before any per-actor work; the local rig also drives the hand.
                     if rig.actor.runtime_id != local_runtime_id
-                        && !crate::presentation::actors::rig_may_be_visible(
+                        && !culling::rig_may_be_published(
                             &rig,
                             actor,
                             step.partial_tick,
-                            cull_view,
+                            actor_views,
                             |low, high| hides_box(stream, low, high),
                         )
                     {
@@ -665,15 +686,25 @@ pub fn prepare_actor_render_frame(
         );
         local
     });
+    let local = if local_shadows {
+        local.and_then(|local| {
+            culling::local_shadow_body(local, client_world.stream.as_deref(), &mut shadow_poses)
+        })
+    } else {
+        local
+    };
     let camera_position = cull_view
         .as_ref()
         .map(|view| view.camera_position.to_array());
-    let mut batch = select_actor_presentations_for_view(
+    let mut batch = crate::presentation::actors::select_actor_presentations_for_shadow_view(
         local_runtime_id,
         local_visible,
         local,
         remotes,
-        cull_view,
+        actor_views.map(|views| views.main),
+        actor_views
+            .filter(|views| views.casts_shadows)
+            .map(|views| views.publication),
     );
     if let Some(stream) = client_world.stream.as_ref() {
         crate::presentation::actors::light_bodies(&mut batch, stream);
@@ -689,7 +720,7 @@ pub fn prepare_actor_render_frame(
             &mut batch,
             cape,
             |runtime_id| {
-                stream.authority().actor_rig(runtime_id).map(|rig| {
+                culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows).map(|rig| {
                     if runtime_id == local_runtime_id
                         && let Some(pose) = &local_emote_pose
                     {
@@ -728,7 +759,7 @@ pub fn prepare_actor_render_frame(
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
             |runtime_id| {
-                stream.authority().actor_rig(runtime_id).map(|rig| {
+                culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows).map(|rig| {
                     if runtime_id == local_runtime_id
                         && let Some(pose) = &local_emote_pose
                     {
@@ -746,7 +777,7 @@ pub fn prepare_actor_render_frame(
         && let Some(pages) = skin_layers.apply(
             &mut batch,
             artwork,
-            |runtime_id| stream.authority().actor_rig(runtime_id),
+            |runtime_id| culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows),
             &mut skin_rigs,
             |geometry| new_geometries.push(geometry),
         )
@@ -772,6 +803,9 @@ pub fn prepare_actor_render_frame(
     }
     if let Some(equipment) = equipment.as_deref_mut() {
         new_geometries.extend(equipment.take_pending_geometries());
+    }
+    if local_shadows {
+        culling::shadow_only_local_layers(&mut batch, local_runtime_id);
     }
     drop(preparation);
     {

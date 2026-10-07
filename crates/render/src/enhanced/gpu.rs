@@ -6,7 +6,7 @@ use std::{collections::HashMap, num::NonZeroU64};
 use bevy::{
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::SRes},
+        system::{SystemParam, SystemParamItem, lifetimeless::SRes},
     },
     math::{Mat4, UVec4, Vec4},
     prelude::*,
@@ -19,7 +19,7 @@ use bevy::{
             FilterMode, Origin3d, PipelineCache, Sampler, SamplerBindingType, SamplerDescriptor,
             ShaderStages, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
-            TextureViewDescriptor, TextureViewDimension,
+            TextureViewDescriptor, TextureViewDimension, TextureViewId,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{CachedTexture, TextureCache},
@@ -35,7 +35,7 @@ use super::{
 use crate::{AtmosphereFrame, ChunkTextureAssetIdentity, ChunkTextureAssets};
 
 pub(crate) const CASTER_SLOT_BYTES: u64 = 256;
-const CASTER_UNIFORM_BYTES: u64 = 96;
+const CASTER_UNIFORM_BYTES: u64 = 192;
 pub(crate) const SHADOW_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 pub(crate) const POST_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
@@ -46,7 +46,10 @@ struct CasterUniformGpu {
     clip_from_world: Mat4,
     params: Vec4,
     flags: UVec4,
-    padding: [Vec4; 10],
+    previous_clip_from_world: Mat4,
+    previous_params: Vec4,
+    local_light: Vec4,
+    padding: [Vec4; 4],
 }
 
 const _: () = assert!(std::mem::size_of::<CasterUniformGpu>() as u64 == CASTER_SLOT_BYTES);
@@ -116,6 +119,38 @@ pub(crate) fn enhanced_view_layout() -> BindGroupLayoutDescriptor {
                 fragment,
                 BindingType::Sampler(SamplerBindingType::Filtering),
             ),
+            entry(7, fragment, texture(FLOAT, TextureViewDimension::D2Array)),
+            entry(8, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(9, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(16, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(17, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(
+                10,
+                fragment,
+                BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+            ),
+            entry(
+                11,
+                fragment,
+                BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+            ),
+            entry(
+                12,
+                fragment,
+                BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: NonZeroU64::new(super::indirect::INDIRECT_MIN_BYTES),
+                },
+            ),
         ],
     )
 }
@@ -125,7 +160,11 @@ pub(crate) fn enhanced_caster_layout() -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
         "enhanced shadow caster bind group layout",
         &[
-            entry(0, ShaderStages::VERTEX, uniform(CASTER_UNIFORM_BYTES, true)),
+            entry(
+                0,
+                ShaderStages::VERTEX_FRAGMENT,
+                uniform(CASTER_UNIFORM_BYTES, true),
+            ),
             entry(
                 1,
                 ShaderStages::VERTEX,
@@ -164,6 +203,29 @@ pub(crate) fn enhanced_post_layout() -> BindGroupLayoutDescriptor {
                 7,
                 fragment,
                 BindingType::Sampler(SamplerBindingType::Comparison),
+            ),
+            entry(8, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(9, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(10, fragment, texture(FLOAT, TextureViewDimension::D2)),
+            entry(
+                12,
+                ShaderStages::FRAGMENT,
+                texture(FLOAT, TextureViewDimension::D2),
+            ),
+            entry(
+                11,
+                fragment,
+                BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: NonZeroU64::new(16),
+                },
+            ),
+            entry(13, fragment, texture(FLOAT, TextureViewDimension::D3)),
+            entry(
+                14,
+                fragment,
+                BindingType::Sampler(SamplerBindingType::Filtering),
             ),
         ],
     )
@@ -376,16 +438,29 @@ impl ShadowTargets {
 
 /// Per-view Enhanced state, rebuilt from the frame each render update.
 pub(crate) struct EnhancedViewGpu {
+    pub(crate) local_lights: super::local_lights::LocalLightView,
+    pub(crate) indirect: super::indirect::IndirectGridGpu,
+    pub(crate) indirect_bind_group: Option<BindGroup>,
+    actor_shadow_signature: u64,
+    point_shadow_seconds: f32,
     pub(crate) frame: Buffer,
     pub(crate) casters: Buffer,
+    pub(crate) depth_caster: Buffer,
+    pub(crate) camera_clip: Mat4,
     pub(crate) settings: EnhancedRendering,
     pub(crate) cascades: Vec<CascadeBounds>,
     pub(crate) shadow: Option<ShadowTargets>,
-    pub(crate) scene_colour: Option<CachedTexture>,
-    pub(crate) scene_depth: Option<CachedTexture>,
+    pub(crate) scene: Option<super::targets::SceneTargets>,
     pub(crate) shafts: Option<CachedTexture>,
     pub(crate) view_bind_group: Option<BindGroup>,
+    view_binding_key: Option<[TextureViewId; 9]>,
+    caster_material_key: Option<TextureViewId>,
     pub(crate) caster_bind_group: Option<BindGroup>,
+    pub(crate) depth_bind_group: Option<BindGroup>,
+    pub(crate) post: Option<super::targets::PostTargets>,
+    pub(crate) history: super::temporal::HistoryState,
+    pub(crate) local_shadow: Option<super::local_shadow_history::LocalShadowHistory>,
+    pub(crate) exposure: super::exposure::ExposureBuffers,
 }
 
 impl EnhancedViewGpu {
@@ -400,19 +475,36 @@ impl EnhancedViewGpu {
             })
         };
         Self {
+            local_lights: super::local_lights::LocalLightView::new(device),
+            indirect: super::indirect::IndirectGridGpu::new(device),
+            indirect_bind_group: None,
+            actor_shadow_signature: 0,
+            point_shadow_seconds: f32::NEG_INFINITY,
             frame: buffer("enhanced frame uniform", FRAME_BYTES),
             casters: buffer(
                 "enhanced caster uniforms",
-                CASTER_SLOT_BYTES * u64::from(super::MAX_SHADOW_CASCADES),
+                CASTER_SLOT_BYTES
+                    * (u64::from(super::MAX_SHADOW_CASCADES)
+                        + (super::local_lights::MAX_SHADOWED_LIGHTS
+                            * super::local_lights::POINT_SHADOW_FACES)
+                            as u64),
             ),
+            depth_caster: buffer("enhanced camera depth uniform", CASTER_SLOT_BYTES),
+            camera_clip: Mat4::IDENTITY,
             settings,
             cascades: Vec::new(),
             shadow: None,
-            scene_colour: None,
-            scene_depth: None,
+            scene: None,
             shafts: None,
             view_bind_group: None,
+            view_binding_key: None,
+            caster_material_key: None,
             caster_bind_group: None,
+            depth_bind_group: None,
+            post: None,
+            history: default(),
+            local_shadow: None,
+            exposure: super::exposure::ExposureBuffers::new(device),
         }
     }
 }
@@ -420,212 +512,9 @@ impl EnhancedViewGpu {
 #[derive(Resource, Default)]
 pub(crate) struct EnhancedViews(pub(crate) HashMap<Entity, EnhancedViewGpu>);
 
-/// Collects the camera matrices and frustum slopes.
-fn view_inputs(view: &ExtractedView, seconds: f32) -> ViewInputs {
-    let world_from_view = view.world_from_view.to_matrix();
-    let clip_from_world = view
-        .clip_from_world
-        .unwrap_or(view.clip_from_view * world_from_view.inverse());
-    let projection = view.clip_from_view;
-    let slope = (1.0 / projection.x_axis.x).hypot(1.0 / projection.y_axis.y);
-    ViewInputs {
-        clip_from_world,
-        world_from_clip: clip_from_world.inverse(),
-        camera: view.world_from_view.translation(),
-        forward: view.world_from_view.forward().as_vec3(),
-        slope: if slope.is_finite() { slope } else { 1.0 },
-        near: projection.w_axis.z,
-        viewport: [view.viewport.z, view.viewport.w],
-        seconds,
-    }
-}
-
-/// Allocates a correctly sized effect target from the texture cache.
-fn cached(
-    cache: &mut TextureCache,
-    device: &RenderDevice,
-    label: &'static str,
-    size: [u32; 2],
-    mips: u32,
-    format: TextureFormat,
-    usage: TextureUsages,
-) -> CachedTexture {
-    cache.get(
-        device,
-        TextureDescriptor {
-            label: Some(label),
-            size: Extent3d {
-                width: size[0].max(1),
-                height: size[1].max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: mips,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format,
-            usage,
-            view_formats: &[],
-        },
-    )
-}
-
-/// Prepares uniforms and targets only for opted-in cameras.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_enhanced_views(
-    mut state: ResMut<EnhancedViews>,
-    gpu: Res<EnhancedGpu>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-    pipeline_cache: Res<PipelineCache>,
-    mut texture_cache: ResMut<TextureCache>,
-    atmosphere: Option<Res<AtmosphereFrame>>,
-    time: Res<Time>,
-    views: Query<(Entity, &ExtractedView, &ViewTarget, &EnhancedRendering)>,
-) {
-    state.0.retain(|entity, _| views.contains(*entity));
-    let atmosphere = atmosphere.map(|frame| *frame).unwrap_or_default();
-    let seconds = time.elapsed_secs_wrapped();
-    let view_layout = pipeline_cache.get_bind_group_layout(&enhanced_view_layout());
-    let caster_layout = pipeline_cache.get_bind_group_layout(&enhanced_caster_layout());
-    for (entity, view, target, settings) in &views {
-        let inputs = view_inputs(view, seconds);
-        let (frame, fits) = build_frame(&inputs, settings, &atmosphere);
-        let state = state
-            .0
-            .entry(entity)
-            .or_insert_with(|| EnhancedViewGpu::new(&device, *settings));
-        state.settings = *settings;
-        state.cascades = fits.iter().map(|fit| fit.bounds).collect();
-        queue.write_buffer(&state.frame, 0, bytemuck::bytes_of(&frame));
-        let casters = fits
-            .iter()
-            .map(|fit| CasterUniformGpu {
-                clip_from_world: fit.clip_from_world,
-                params: Vec4::new(seconds, frame.ambient_colour.w, 0.0, 0.0),
-                flags: UVec4::new(frame.flags.x, 0, 0, 0),
-                padding: [Vec4::ZERO; 10],
-            })
-            .collect::<Vec<_>>();
-        queue.write_buffer(&state.casters, 0, bytemuck::cast_slice(&casters));
-
-        let resolution = frame.flags.z;
-        let cascades = frame.flags.y;
-        if frame.flags.x & super::frame::FEATURE_SHADOWS == 0 {
-            state.shadow = None;
-        } else if state.shadow.as_ref().is_none_or(|shadow| {
-            shadow.resolution != resolution || shadow.layers.len() as u32 != cascades
-        }) {
-            state.shadow = Some(ShadowTargets::new(&device, resolution, cascades));
-        }
-
-        let size = inputs.viewport;
-        let half = size.map(|value| value.div_ceil(2).max(1));
-        let sampled = TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING;
-        state.shafts = (frame.flags.x & super::frame::FEATURE_SHAFTS != 0).then(|| {
-            cached(
-                &mut texture_cache,
-                &device,
-                "enhanced light shafts",
-                half,
-                1,
-                POST_FORMAT,
-                sampled,
-            )
-        });
-        let scene_size = [
-            target.main_texture().width(),
-            target.main_texture().height(),
-        ];
-        let snapshot = TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
-        state.scene_colour = settings.water_reflections.then(|| {
-            cached(
-                &mut texture_cache,
-                &device,
-                "enhanced opaque colour snapshot",
-                scene_size,
-                1,
-                target.main_texture_format(),
-                snapshot,
-            )
-        });
-        state.scene_depth = settings.water_reflections.then(|| {
-            cached(
-                &mut texture_cache,
-                &device,
-                "enhanced opaque depth snapshot",
-                scene_size,
-                1,
-                SHADOW_FORMAT,
-                snapshot,
-            )
-        });
-
-        let shadow_view = state
-            .shadow
-            .as_ref()
-            .map_or(&gpu.fallback_shadow, |shadow| &shadow.array);
-        let scene_colour = state
-            .scene_colour
-            .as_ref()
-            .map_or(&gpu.fallback_colour, |texture| &texture.default_view);
-        let scene_depth = state
-            .scene_depth
-            .as_ref()
-            .map_or(&gpu.fallback_depth, |texture| &texture.default_view);
-        state.view_bind_group = Some(device.create_bind_group(
-            "enhanced view bind group",
-            &view_layout,
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: state.frame.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(shadow_view),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Sampler(&gpu.shadow_sampler),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: BindingResource::TextureView(&gpu.materials),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: BindingResource::TextureView(scene_colour),
-                },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: BindingResource::TextureView(scene_depth),
-                },
-                BindGroupEntry {
-                    binding: 6,
-                    resource: BindingResource::Sampler(&gpu.linear_sampler),
-                },
-            ],
-        ));
-        state.caster_bind_group = Some(device.create_bind_group(
-            "enhanced caster bind group",
-            &caster_layout,
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: &state.casters,
-                        offset: 0,
-                        size: NonZeroU64::new(CASTER_UNIFORM_BYTES),
-                    }),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(&gpu.materials),
-                },
-            ],
-        ));
-    }
-}
+#[path = "view_prepare.rs"]
+mod view_prepare;
+pub(crate) use view_prepare::prepare_enhanced_views;
 
 /// Binds group `I` on Enhanced views; vanilla views are left untouched.
 pub(crate) struct SetEnhancedViewBindGroup<const I: usize>;

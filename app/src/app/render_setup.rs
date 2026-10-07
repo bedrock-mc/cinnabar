@@ -16,6 +16,8 @@ pub(super) fn render_plugin() -> RenderPlugin {
     {
         settings.backends = Some(backends);
     }
+    #[cfg(all(feature = "enhanced", target_os = "windows"))]
+    render::configure_enhanced_shader_compiler(&mut settings);
     RenderPlugin {
         render_creation: RenderCreation::Automatic(settings),
         ..Default::default()

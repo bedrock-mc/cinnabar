@@ -8,56 +8,78 @@ Vanilla is the default. Enhanced is a deliberate non-parity look and never close
 a vanilla parity gate. No shader-pack source is used. The earlier Cinnabar WIP
 provided the starting point for the independent WGSL implementation.
 
-Terrain, models and liquids share vanilla RGB lightmap, corner AO, face shade,
-biome tint/fog and positional texture selection. Enhanced adds HDR illumination,
-shadows, emission and water optics to that shared base; it has no separate scalar
-light curve or dark floor. Disabling it preserves the vanilla shader bytes.
+Enhanced uses raw block/skylight samples with separate HDR directional light,
+occluded spatial sky/bounce light and bounded local block lights. Biome tint,
+corner AO, geometry and positional textures still come from the shared world data.
+Vanilla retains its RGB lightmap and face shading. Server-authored unlit actors
+intentionally retain their unlit appearance.
 
 Enhanced applies a bounded Cook-Torrance response for direct sun/moon light and
-keeps the vanilla lightmap as the indirect diffuse term. Every albedo atlas
-revision also builds linear normal and MER (metalness, emissive, roughness)
-layers from the Bedrock tiles. Those layers are uploaded once and sampled by
-the enhanced block shader. An optional authored pack can replace those
-derived layers per texture without changing the shader interface. Water, lava and
-foliage retain class-specific material defaults.
+uses visibility-aware resident-grid sky and one diffuse bounce. Solar, lunar
+and local sources share calibrated internal irradiance units; these are not lux.
+Authored block layers use linear albedo, tangent normals, roughness, Fresnel reflectance,
+metal identity, emissive strength, AO, height, subsurface and porosity data when present.
+Water and foliage retain their separate transport. Missing maps have neutral defaults.
 
 ## Authored 512x PBR packs
 
-Set `CINNABAR_ENHANCED_PBR_DIR` to one extracted pack directory, or to two
-directories separated by `;` on Windows (`base;PBR`) when color and PBR files
-are separate. The loader searches `assets/minecraft/textures/block` and
-`textures/blocks`, accepts PNG files whose bytes are actually JPEG, and
-normalizes every matched layer to 512x512. Enhanced reads `<name>.png`,
-`<name>_n.png`/`<name>_normal.png`, and `<name>_s.png`/`<name>_mer.png`.
-The `_s` map is converted from old PBR smoothness/metalness/emissiveness to
-Bedrock MER metalness/emissiveness/roughness; `_mer` is already Bedrock order.
-Missing maps use flat defaults; unmatched blocks retain generated
-PBR data. Standard mode never loads or binds these pages.
+The optional ignored `.local/enhanced-pbr.json` selects extracted packs relative to its
+own directory. Color/material companions share an explicit group; maps never cross
+unrelated pack ownership. `CINNABAR_ENHANCED_PBR_DIR` overrides this configuration.
+Bedrock `.texture_set.json` resolves normal or height and MER/MERS textures/constants.
+Java LabPBR packs declare `lab-pbr/1.3` through their format metadata or local configuration;
+unknown `_s` formats are not guessed. DirectX normals follow increasing image V, with
+explicit conversion for OpenGL inputs. Java filenames map to matching Bedrock materials. The local XsRealism companion
+has no verified channel declaration; its ambiguous specular/normal maps are skipped,
+while its color and standalone height maps remain usable. Faithful declares LabPBR.
 
-```powershell
-$env:CINNABAR_ENHANCED_PBR_DIR = 'C:\packs\XsRealism-512x-main;C:\packs\XsRealism-pbr-main'
-make play CLIENT_FEATURES=enhanced RENDER_MODE=enhanced
 ```
+{"packs":[
+  {"path":"packs/base","group":"material-set"},
+  {"path":"packs/materials","group":"material-set","format":"lab-pbr/1.3"}
+]}
+```
+
+Layers normalize to the shared 512 target. Authored frame order applies equally to color and
+companion maps; independent authored frame counts and durations are sampled into the
+carrier animation slots, so exact custom animation timing remains incomplete. Albedo is filtered in linear light with alpha coverage preservation;
+normal variance increases filtered roughness. AO and height share the packed normal layer,
+so materials need no additional sampled height texture. A content-addressed local cache
+avoids re-decoding unchanged inputs. Optional maps decode on a background worker only
+after Enhanced is selected; Vanilla-only sessions never load them. Server overlays
+retain their own remapped references. Authored-only GPU replacements reuse carrier buffers
+and upload at most 8 MiB per render frame, publishing all maps together after completion.
+Texture allocation latency and full server-generation reuploads remain separate limits.
+
+Close opaque surfaces use twelve bounded parallax steps and five directional relief
+visibility samples only for authored varying height. Relief fades for subpixel footprints,
+grazing angles and distance; cutouts, translucent surfaces and animations keep original
+coverage. UV derivatives give rotated/mirrored cube and model normals the proper basis.
 
 Technique references:
 
 - [Microsoft: cascaded shadow maps](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps): cascades, texel snapping and filtering.
+- [NVIDIA: PCSS](https://developer.download.nvidia.com/shaderlibrary/docs/shadow_PCSS.pdf): blocker search and contact-hardening shadows; local emitter kernels select cube faces per ray.
 - [NVIDIA GPU Gems 3, chapter 13](https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-13-volumetric-light-scattering-post-process): shadowed light scattering.
-- [Narkowicz's ACES fit](https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/): public CC0/MIT rational tone curve. The implementation evaluates the published polynomial coefficients in linear RGB.
+- [Filament lighting and exposure](https://google.github.io/filament/main/filament.html): consistent radiance, irradiance and exposure conventions. Enhanced uses its own hue-preserving luminance shoulder, with a near-linear dark response and smooth highlight gamut compression.
 - [Microsoft: Bedrock PBR texture sets](https://learn.microsoft.com/en-us/minecraft/creator/documents/vibrantvisuals/pbroverview?view=minecraft-bedrock-stable): MER, normal and height map semantics.
 - [J. Britain: PBR in Minecraft](https://jbritain.net/blog/pbr-in-minecraft): direct sun BRDF plus lightmap diffuse and reflection terms.
 - [McGuire and Mara, screen-space ray tracing](https://jcgt.org/published/0003/04/04/): depth-buffer ray intersection. This extension uses a bounded geometric march and binary refinement, not that paper's DDA implementation.
 - Bevy 0.18.1 bloom supplies the bloom pyramid. Wind uses analytic sine displacement;
-  water uses Schlick Fresnel and Beer-Lambert absorption.
+  water uses dielectric Fresnel and Beer-Lambert absorption.
+- [shaderLABS LabPBR standard](https://shaderlabs.org/wiki/LabPBR_Material_Standard): exact channel and conductor semantics.
+- [Nubis](https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine): tileable cloud density and weather shapes.
+- [Irradiance fields](https://research.nvidia.com/publication/2019-05_dynamic-diffuse-global-illumination-ray-traced-irradiance-fields): visibility-aware distance moments; our bounded voxel implementation is an independent one-bounce adaptation.
 
 The material-class table is derived from the loaded palette and material IDs.
 It does not change mesh generation, geometry arenas or upload budgets. Unknown
 materials remain ordinary surfaces. Shared material IDs conservatively combine
 classes, so resource packs need native inspection.
 
-Default target: two 1024-square cascades over 96 blocks, half-resolution shafts,
-20 SSR steps with five refinement steps, and one bounded BRDF evaluation per
-surface. These are quality choices, not measured performance claims. GPU/CPU diagnostic spans use Bevy's recorder when installed;
+Default target: three camera-centered 1024-square cascades over 96 blocks, half-resolution shafts,
+40 projected SSR steps with six refinement steps, one directional BRDF evaluation and
+at most eight local-light evaluations per surface. These are quality choices, not
+measured performance claims. GPU/CPU diagnostic spans use Bevy's recorder when installed;
 Bevy 0.18 GPU diagnostics require Vulkan/DX12 timestamp support; its Metal
 recorder reports CPU times only. Use Xcode GPU capture for Metal GPU cost.
 Native Metal, DX12 and Vulkan
@@ -65,8 +87,126 @@ visual/performance checks remain required.
 
 Camera scope currently assumes the gameplay camera fills its render target.
 Custom split-screen viewports need snapshot UV transforms and post-pass bounds.
-Actors and world nametags are HDR-compatible, but actors retain vanilla lighting
-and do not cast into the terrain cascades. Enhanced cameras use Bevy's temporal
-history/TAA after the world post pass; motion-vector coverage for custom
-transparent effects remains limited. GTAO is not implemented. SSR cannot reflect
-offscreen objects or transparent geometry.
+Nested radial shadow coverage is independent of yaw, pitch and FOV; receiver overlap
+blends visibility before each handoff. Contact shadows add a bounded local correction.
+Actors use the same posed geometry and alpha coverage for sun casting and
+receiving. Receiver-plane depth correction follows angled surfaces across shadow
+filter samples, keeping the contact displacement bounded. Enhanced uses its own jittered world
+history with depth-aware cubic reconstruction, neighbourhood variance clipping
+and reactive lighting rejection, before hands/HUD. Submitted actor poses and wind
+displacement supply previous-frame motion. There is no general material motion
+layer; transparent effects still rely on camera reprojection and radiance reactivity,
+so fast transparency or changing reflections may blur or lose history.
+
+GPU exposure trims the lowest/highest 10% of a 64-bin luminance histogram and
+adapts asymmetrically without CPU readback. A half-resolution GTAO/contact-shadow
+and 24-step cloud pass uses depth-aware upsampling and world temporal history.
+An alpha-tested camera depth pass writes a private target before AO, preserving
+the main pass's independent clear and alpha coverage. Depth casters sample the
+same Enhanced albedo cutouts as visible terrain. Forward shading applies AO to
+indirect light and contact visibility to direct light, leaving emission unchanged.
+Untextured models have zero default emission; authored emitting classes retain
+their calibrated radiance. Day exposure also meters highlights; night exposure
+has a lower midpoint and bounded gain. Tone mapping preserves low radiance and
+compresses highlights through luminance to retain material hue and white detail.
+Bloom uses a soft HDR threshold and restrained additive scattering, rather than
+the default wide low-frequency boost.
+
+Local lighting admits at most 32 nearby emissive block sources and eight sources
+per 32-pixel tile. Direct response uses distance attenuation and surface orientation;
+two sources can cast point shadows through six 256-square faces each. Residual
+propagated block light supplies a fallback. Source metadata, tile admission and
+point-shadow coverage are cached; unchanged input avoids rebuilds and buffer uploads.
+Finite emitter filtering crosses cube-face seams and widens with blocker separation.
+Half-resolution receiver visibility has a 45ms exponential response, with depth-aware
+reprojection/upsampling. Camera jitter is removed from receiver motion; depth changes,
+moving receivers, source changes and camera cuts reject history even when TAA is disabled.
+Forward shading checks full-resolution receiver motion before accepting half-resolution
+visibility, keeping moving players from borrowing a neighbouring surface's retained light.
+
+An Overworld sky-view LUT integrates Rayleigh/Mie/ozone scattering. Full-resolution
+sun, phased moon and stars preserve thin features; height fog gives aerial
+perspective. Enhanced enlarges the visible sun/moon discs by 50%, normalizing their
+area so source irradiance and lunar phase remain unchanged. Clouds integrate
+self-shadowing and approximate higher scattering;
+a 128-square map caches their terrain shadows. Sky and cloud-shadow maps refresh
+only when their accumulated lighting, camera or wind changes exceed bounded tolerances.
+Source irradiance and sky-fill changes also invalidate sky radiance. Restrained
+night airglow and phased moonlight preserve sky detail without daytime exposure.
+Far terrain fades to the same sky radiance, and cloud history follows layer motion.
+Native cloud geometry is omitted
+only on these opted-in views.
+
+Six 128-square geometry reflection captures warm one face per frame, then refresh
+at most one dirty face per 100 ms, with roughness mips and local box projection.
+Replacement captures retain displayed radiance and blend toward their filtered targets
+with a 60ms response. Interrupted updates continue from the displayed result; settled
+faces stop blend work. Initial captures and relocation resets publish immediately.
+Unchanged probes enqueue no capture views. Captures reuse the main sky LUT,
+exclude post effects and UI, omit duplicate sun-shadow passes, never recursively
+sample themselves, and reset after movement or lighting discontinuities. Specular
+filtering uses GGX convolution and a split-sum BRDF response. Diffuse scene lighting
+uses the separate spatial irradiance grid. Captures omit shadow passes, so their
+reflected illumination remains an unshadowed approximation and may leak light. Forward reflection
+fallbacks read the sky LUT from a separate layer of the same environment array;
+complete local captures skip fallback evaluation. Water uses
+current-frame SSR/refraction, RGB absorption, dielectric Fresnel/TIR, shallow foam
+and analytic caustics. Depth-aware refraction rejects sky and foreground texels;
+water scattering requires incident light. Pixel footprints filter small wave slopes
+using the same coarse wave as geometry. Missing screen geometry falls back to the probes.
+
+Camera-depth and cascade submissions cache validated resident geometry and indirect
+commands. Unchanged command bytes are not uploaded again; view bind groups remain
+valid until their bound textures change. These reductions need release measurements
+before claiming an FPS improvement.
+
+Additional technique references: [GTAO](https://www.iryoku.com/downloads/Practical-Realtime-Strategies-for-Accurate-Indirect-Occlusion.pdf),
+[Hillaire atmosphere](https://github.com/sebh/UnrealEngineSkyAtmosphere),
+[Bruneton scattering](https://ebruneton.github.io/precomputed_atmospheric_scattering/),
+[Guerrilla Nubis](https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine),
+[Filament exposure](https://google.github.io/filament/main/filament.html).
+The current revision passed 42 focused render regressions, 11 material importer regressions,
+13 client loading/mode regressions and the carrier-identity publication regression.
+Targeted checks compile the render, assets, importer and client tests. Native asynchronous
+compilation and bounded authored uploads passed the broader render run. Current native
+visual acceptance remains pending.
+Approximate higher-order scattering, transparent reactivity,
+unshadowed probe lighting and full viewport support remain incomplete. Release
+frame-time and streaming acceptance remain open; see `plan.md`.
+
+In focused Enhanced gameplay, `[` cycles normal lighting, cascade coverage,
+shadow visibility and the three raw shadow-depth maps. Magenta means uncovered
+geometry or a missing cascade. Diagnostics bypass bloom, exposure and TAA;
+returning to normal resets temporal history. `]` cycles local time presets.
+
+Windows defaults to Vulkan; explicit `WGPU_BACKEND` selections are respected.
+Enhanced-enabled Windows builds using DX12 discover DXC beside the executable or in the
+installed Windows SDK. Without DXC they select Vulkan, because FXC overflows its
+stack when optimizing the combined cloud/AO shader. Cloud view-step counts come
+from the frame uniform; the sampling budget is unchanged. Native regression
+coverage compiles optimized pipelines on the default worker stack in a child process.
+
+## Spatial indirect light and cloud cache
+
+A 48×32×48m field voxelizes retained resident cube/model geometry and applied empty-chunk
+coverage, then traces integer-grid rays for sky visibility and authored-color diffuse bounce.
+Six irradiance lobes and distance moments interpolate connected air volumes; short segment
+checks reject wall leaks. Sky-only lobes are bounded by voxel skylight. Unknown far geometry
+contributes gated sky fallback and trusted-skylight visibility for known bounce surfaces. Probes
+warm nearest the camera first, with 32 probes × 32 rays per batch; static warm inputs stop
+updates. Material, geometry, biome-tint, dimension and lighting changes invalidate/update
+only the affected local state. Model occupancy is conservative 1m and secondary actor
+transport is incomplete. Toroidal storage preserves overlapping probes while the field scrolls;
+exposed cells update first and position/epoch guards reject departed aliases. Lighting refreshes
+interpolate radiance over 120ms, retaining current visibility moments. Geometry changes clear
+history immediately; teleports and newly exposed cells still require warmup.
+
+Cloud noise is a persistent 64³ tileable Perlin/Worley volume, generated once on the GPU and
+box-filtered through 3D mips before any view samples it. Weather-dependent shapes, vertical
+profiles and erosion modulate cached density. View, self-light and terrain shadows share that
+density and selected source irradiance; cached shadow coordinates project receiver height onto
+a plane below the cloud layer. Thin cloud history follows wind and opacity-weighted depth.
+Internal shadows and multiple-scattering
+approximations give lit tops and darker cores. Height fog remains physical while streaming
+fade stays at the final 14% horizontal range. Renderer regressions cannot replace current
+moving-camera native acceptance or user-owned GPU cost measurements.

@@ -429,42 +429,85 @@ pub fn select_actor_presentations_for_view(
     remotes: impl IntoIterator<Item = ActorRigPresentation>,
     view: Option<ActorCullView>,
 ) -> ActorPresentationBatch {
+    select_actor_presentations_for_shadow_view(
+        local_runtime_id,
+        local_visible,
+        local,
+        remotes,
+        view,
+        None,
+    )
+}
+
+/// Visible actors retain their capacity priority over additional off-screen shadow casters.
+pub fn select_actor_presentations_for_shadow_view(
+    local_runtime_id: u64,
+    local_visible: bool,
+    local: Option<ActorRigPresentation>,
+    remotes: impl IntoIterator<Item = ActorRigPresentation>,
+    view: Option<ActorCullView>,
+    shadow_view: Option<ActorCullView>,
+) -> ActorPresentationBatch {
     // The newest identity of each remote actor wins; equal identities keep the first.
-    let mut latest: Vec<ActorRigPresentation> = remotes
+    let mut latest: Vec<(ActorRigPresentation, bool)> = remotes
         .into_iter()
         .filter(|remote| {
             let runtime_id = remote.submission.input.identity.runtime_id;
             runtime_id != 0 && runtime_id != local_runtime_id
         })
+        .map(|remote| {
+            let visible =
+                shadow_view.is_none() || actor_rig_submission_is_visible(&remote.submission, view);
+            (remote, visible)
+        })
         .collect();
     latest.sort_by(|a, b| {
-        let (a, b) = (a.submission.input.identity, b.submission.input.identity);
+        let (a, b) = (a.0.submission.input.identity, b.0.submission.input.identity);
         a.runtime_id.cmp(&b.runtime_id).then(b.cmp(&a))
     });
-    latest.dedup_by_key(|remote| remote.submission.input.identity.runtime_id);
+    latest.dedup_by_key(|remote| remote.0.submission.input.identity.runtime_id);
+    if shadow_view.is_some() {
+        latest.sort_unstable_by_key(|(remote, visible)| {
+            (!visible, remote.submission.input.identity.runtime_id)
+        });
+    }
 
-    let local = local_visible
-        .then_some(local)
-        .flatten()
-        .filter(|local| local.submission.input.identity.runtime_id == local_runtime_id);
+    let local =
+        local.filter(|local| local.submission.input.identity.runtime_id == local_runtime_id);
+    let (local, mut shadow_local) = match local {
+        Some(local) if local.submission.route == ActorRigRoute::ShadowOnly => (None, Some(local)),
+        local => (local_visible.then_some(local).flatten(), None),
+    };
     let mut selected = Vec::with_capacity(MAX_RENDERED_PLAYERS);
     let mut drawable_count = 0usize;
     if let Some(local) = local {
         drawable_count = 1;
         selected.push(local);
     }
-    for remote in latest {
+    for (remote, visible) in latest {
+        if !visible
+            && drawable_count < MAX_RENDERED_PLAYERS
+            && let Some(local) = shadow_local.take()
+        {
+            drawable_count += 1;
+            selected.push(local);
+        }
         if remote.submission.route == ActorRigRoute::NoDraw {
             selected.push(remote);
             continue;
         }
         if drawable_count == MAX_RENDERED_PLAYERS
-            || !actor_rig_submission_is_visible(&remote.submission, view)
+            || !actor_rig_submission_is_visible(&remote.submission, shadow_view.or(view))
         {
             continue;
         }
         drawable_count += 1;
         selected.push(remote);
+    }
+    if drawable_count < MAX_RENDERED_PLAYERS
+        && let Some(local) = shadow_local
+    {
+        selected.push(local);
     }
 
     let mut artwork = HashMap::with_capacity(selected.len());
@@ -542,6 +585,24 @@ impl PoseConversions {
         let frame = self.frame;
         self.entries
             .retain(|_, entry| entry.used + POSE_RETENTION_FRAMES >= frame);
+    }
+
+    pub fn apply_pose(
+        &mut self,
+        presentation: &mut ActorRigPresentation,
+        rig: &ActorRigSnapshot<'_>,
+    ) -> bool {
+        let Some((previous, current)) = self.convert(rig) else {
+            return false;
+        };
+        if current.len() != presentation.submission.input.current_bones.len() {
+            return false;
+        }
+        presentation.submission.input.previous_bones = previous;
+        presentation.submission.input.current_bones = current;
+        presentation.submission.input.completed_tick = rig.completed_tick;
+        presentation.submission.input.reset_generation = rig.reset_generation;
+        true
     }
 
     fn convert(&mut self, rig: &ActorRigSnapshot<'_>) -> Option<(RenderPose, RenderPose)> {

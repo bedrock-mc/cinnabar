@@ -31,6 +31,7 @@ fn enhanced_views_bloom_and_grade_the_world_before_hand_and_ui() {
     use crate::{hand_rig_render::HandRigLabel, ui_render::*, viewmodel_render::HandLabel};
     let mut core = RenderGraph::default();
     for label in [
+        Node3d::StartMainPass,
         Node3d::MainOpaquePass,
         Node3d::MainTransparentPass,
         Node3d::EndMainPass,
@@ -42,6 +43,7 @@ fn enhanced_views_bloom_and_grade_the_world_before_hand_and_ui() {
         core.add_node(label, EmptyNode);
     }
     core.add_node_edges((
+        Node3d::StartMainPass,
         Node3d::MainOpaquePass,
         Node3d::MainTransparentPass,
         Node3d::EndMainPass,
@@ -78,6 +80,25 @@ fn enhanced_views_bloom_and_grade_the_world_before_hand_and_ui() {
         .resource::<RenderGraph>()
         .get_sub_graph(Core3d)
         .unwrap();
+    assert!(reaches(graph, Node3d::MainOpaquePass, EnhancedSkyLabel));
+    assert!(reaches(graph, EnhancedShadowLabel, EnhancedDepthLabel));
+    assert!(reaches(graph, EnhancedDepthLabel, EnhancedLightingLabel));
+    assert!(reaches(
+        graph,
+        EnhancedLightingLabel,
+        Node3d::MainOpaquePass
+    ));
+    assert!(!reaches(
+        graph,
+        Node3d::MainOpaquePass,
+        EnhancedLightingLabel
+    ));
+    assert!(reaches(graph, EnhancedSkyLabel, EnhancedSnapshotLabel));
+    assert!(reaches(
+        graph,
+        EnhancedSnapshotLabel,
+        Node3d::MainTransparentPass
+    ));
     assert!(reaches(graph, Node3d::Bloom, EnhancedPostLabel));
     assert!(!reaches(graph, EnhancedPostLabel, Node3d::Bloom));
     assert!(!reaches(graph, EnhancedPostLabel, Node3d::EndMainPass));
@@ -112,18 +133,16 @@ fn grade_stage_follows_camera_opt_in_without_a_separate_marker() {
     assert!(!query.get(&world, camera).unwrap());
 }
 
-/// Registering the disabled plugin never installs GPU resources or camera extraction.
+/// Enhanced's required components never propagate to an ordinary camera.
 #[test]
-fn disabled_enhanced_plugin_leaves_the_render_app_untouched() {
-    let mut app = App::new();
-    app.insert_sub_app(RenderApp, bevy::app::SubApp::new());
-    app.add_plugins(EnhancedRenderPlugin);
-    app.finish();
-    assert!(!app.is_plugin_added::<ExtractComponentPlugin<EnhancedRendering>>());
-    assert!(!app.world().contains_resource::<Assets<Shader>>());
-    let world = app.sub_app(RenderApp).world();
-    assert!(!world.contains_resource::<EnhancedViews>());
-    assert!(!world.contains_resource::<EnhancedGpu>());
-    assert!(!world.contains_resource::<EnhancedPostPipelines>());
-    assert!(!world.contains_resource::<EnhancedShadowPipelines>());
+fn temporal_jitter_is_required_only_for_opted_in_cameras() {
+    use bevy::render::camera::TemporalJitter;
+    let mut world = World::new();
+    let vanilla = world.spawn(Camera3d::default()).id();
+    let enhanced = world
+        .spawn((Camera3d::default(), EnhancedRendering::default()))
+        .id();
+    assert!(world.get::<TemporalJitter>(vanilla).is_none());
+    assert!(world.get::<TemporalJitter>(enhanced).is_some());
+    assert_eq!(world.get::<Msaa>(enhanced), Some(&Msaa::Off));
 }

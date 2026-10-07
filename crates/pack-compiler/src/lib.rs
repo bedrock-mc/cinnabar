@@ -22,6 +22,7 @@ mod image;
 mod lang;
 mod pack;
 mod particle;
+pub mod pbr;
 mod ui;
 mod weather_textures;
 pub use pack::{apply_atlas_tint, parse_atlas_tint};

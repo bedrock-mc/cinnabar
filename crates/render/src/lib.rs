@@ -19,7 +19,9 @@ mod cloud_render;
 pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
-pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
+#[cfg(all(feature = "enhanced", target_os = "windows"))]
+pub use enhanced::configure_enhanced_shader_compiler;
+pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, EnhancedShadowDebug, MAX_SHADOW_CASCADES};
 
 mod dropped_item_render;
 mod hand_rig_render;

@@ -6,6 +6,8 @@ use super::*;
 use crate::{RuntimeStage, RuntimeStageProfiler};
 
 pub(in crate::chunk) fn install_chunk_extraction(app: &mut App) {
+    #[cfg(feature = "enhanced")]
+    app.add_plugins(ExtractResourcePlugin::<ChunkResidentCoverage>::default());
     app.add_plugins(SyncComponentPlugin::<ChunkRenderInstance>::default())
         .add_plugins((
             ExtractResourcePlugin::<ChunkTextureAssets>::default(),

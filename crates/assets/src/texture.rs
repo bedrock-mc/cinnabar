@@ -7,6 +7,18 @@ pub use legacy_terrain::build_legacy_terrain_mip_chain;
 
 pub const TILE_SIZE: u32 = 16;
 pub const MIP_COUNT: u32 = 5;
+/// Optional authored material metadata in otherwise unused packed texture-reference bits.
+pub const PBR_REF_COLOR: u32 = 1 << 11;
+pub const PBR_REF_NORMAL: u32 = 1 << 12;
+/// Only spatially varying authored height enables displacement sampling.
+pub const PBR_REF_HEIGHT: u32 = 1 << 13;
+pub const PBR_REF_MATERIAL: u32 = 1 << 14;
+pub const PBR_REF_LABPBR: u32 = 1 << 15;
+pub const PBR_REF_OCCLUSION: u32 = 1 << 16;
+pub const PBR_REF_SUBSURFACE: u32 = 1 << 17;
+/// Authored height spans this many block units in both derived normals and parallax tracing.
+pub const PBR_HEIGHT_SCALE: f32 = 0.035;
+pub const PBR_TILE_SIZE: u32 = 512;
 /// Largest square layer a runtime overlay page may use.
 pub const MAX_TILE_SIZE: u32 = 256;
 const ALPHA_TEST_THRESHOLD: u8 = 128;

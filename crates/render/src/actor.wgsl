@@ -1,5 +1,14 @@
 #import bevy_render::view::View
 #import cinnabar::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear}
+#ifdef ENHANCED
+#import cinnabar::enhanced_view::{shade_actor_surface}
+#endif
+#ifdef ENHANCED_SHADOW
+#import cinnabar::enhanced_caster::{caster}
+#endif
+#ifdef ENHANCED_MOTION
+#import cinnabar::enhanced_actor_motion::{submitted_actor_position, submitted_surface_motion}
+#endif
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -38,6 +47,11 @@ struct VertexOutput {
     @location(9) world_position: vec3<f32>,
     @location(10) @interpolate(flat) multitexture_layers: vec2<u32>,
     @location(11) native_lighting: vec3<f32>,
+#ifdef ENHANCED_MOTION
+    @location(12) current_clip: vec4<f32>,
+    @location(13) previous_clip: vec4<f32>,
+    @location(14) @interpolate(flat) motion_valid: u32,
+#endif
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -91,6 +105,11 @@ fn actor_vertex(
     out.overlay = unpack4x8unorm(overlay_rgba8);
     out.light = instance_words[instance_base + 24u];
     out.native_lighting = vec3(1.0);
+#ifdef ENHANCED_MOTION
+    out.current_clip = vec4(0.0);
+    out.previous_clip = vec4(0.0);
+    out.motion_valid = 0u;
+#endif
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
     let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
@@ -146,20 +165,33 @@ fn actor_vertex(
         dot(instance_row(instance_base, 2u), vec4(posed, 1.0)),
         1.0,
     );
+#ifdef ENHANCED_SHADOW
+    out.position = caster.clip_from_world * world;
+#else
     out.position = view.clip_from_world * world;
+#endif
+#ifdef ENHANCED_MOTION
+    let submitted_world = submitted_actor_position(instance_index, bone_index, local);
+    out.current_clip = out.position;
+    out.previous_clip = caster.previous_clip_from_world * vec4(submitted_world.xyz, 1.0);
+    out.motion_valid = select(0u, 1u, submitted_world.w > 0.5 && caster.previous_params.w > 0.5);
+#endif
     out.world_position = world.xyz;
     out.world_normal = normalize(vec3(
         dot(instance_row(instance_base, 0u).xyz, posed_normal),
         dot(instance_row(instance_base, 1u).xyz, posed_normal),
         dot(instance_row(instance_base, 2u).xyz, posed_normal),
     ));
+#ifndef ENHANCED_SHADOW
+#ifndef ENHANCED
     out.native_lighting = actor_lighting(out.light, out.world_normal, out.overlay.a);
+#endif
+#endif
     out.valid = 1u;
     return out;
 }
 
-@fragment
-fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn actor_surface_color(input: VertexOutput, front: bool) -> vec4<f32> {
     if (input.valid == 0u) {
         discard;
     }
@@ -179,6 +211,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (!color_mask_material && !multitexture_material && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
         discard;
     }
+#ifndef ENHANCED_SHADOW
     if (input.tint != 0u) {
         let change_color = unpack4x8unorm(input.tint);
         let dye = change_color.rgb;
@@ -197,8 +230,39 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         let tex2 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.y)));
         color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
     }
+#endif
+    return color;
+}
+
+#ifdef ENHANCED_SHADOW
+#ifdef ENHANCED_MOTION
+@fragment
+fn actor_fragment_motion(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let color = actor_surface_color(input, front);
+    return submitted_surface_motion(input.current_clip, input.previous_clip, input.motion_valid != 0u);
+}
+#endif
+@fragment
+fn actor_fragment_shadow(input: VertexOutput, @builtin(front_facing) front: bool) {
+    let color = actor_surface_color(input, front);
+}
+#else
+@fragment
+fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let color = actor_surface_color(input, front);
+#ifdef ENHANCED
+    let albedo = tint_to_linear(vec4(mix(color.rgb, input.overlay.rgb, input.overlay.a), color.a));
+    var lit = albedo.rgb;
+    if ((input.light & 0x80000000u) != 0u) {
+        let normal = select(-input.world_normal, input.world_normal, front);
+        lit = shade_actor_surface(albedo.rgb, normalize(normal), input.world_position, input.position.xy, input.light);
+    }
+    return vec4(lit, albedo.a);
+#else
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
     let lit_gamma = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.native_lighting;
     return tint_to_linear(vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a));
+#endif
 }
+#endif

@@ -94,6 +94,10 @@ impl WorldAuthority {
     pub fn set_actor_animation_view(&mut self, view: Option<crate::ActorAnimationView>) {
         self.actors.set_animation_view(view);
     }
+    /// Requests an independent world-context full body while first-person hands are active.
+    pub fn set_actor_world_body_enabled(&mut self, enabled: bool) {
+        self.actors.set_local_body_enabled(enabled);
+    }
     /// Sets the view's world position that camera-relative queries sample per tick.
     pub fn set_actor_camera_position(&mut self, position: [f32; 3]) {
         self.actors.set_camera_position(position);
@@ -160,6 +164,10 @@ impl WorldAuthority {
     /// Full-body pose for HUD rendering, independent of the local first-person hand pose.
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
+    }
+    /// Tick endpoints of the optional first-person body's third-person world animation.
+    pub fn actor_world_body_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
+        self.actors.actor_world_body(runtime_id)
     }
     /// Iterates the retained actor rigs for presentation.
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {

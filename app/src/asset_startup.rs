@@ -18,7 +18,7 @@ use diagnostics::metrics::AssetMetrics;
 mod font_fallback;
 use font_fallback::diagnostic_font_assets;
 mod enhanced_textures;
-use enhanced_textures::load_optional_enhanced_textures;
+pub(crate) use enhanced_textures::load_optional_enhanced_textures;
 mod optional_carriers;
 pub(crate) use optional_carriers::shell_quote_path;
 use optional_carriers::{
@@ -75,7 +75,7 @@ pub enum LoadedAssetKind {
 
 pub struct LoadedAssets {
     pub runtime: Arc<RuntimeAssets>,
-    pub enhanced_textures: Option<Arc<render::EnhancedTextureAssets>>,
+    pub material_keys: Option<assets::MaterialKeys>,
     pub atmosphere: LoadedAtmosphereAssets,
     pub entities: LoadedEntityAssets,
     pub fonts: LoadedFontAssets,
@@ -715,16 +715,6 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
         crate::runtime::network::set_base_terrain_catalog(keys.aliases());
         crate::runtime::network::set_base_material_keys(keys.clone());
     }
-    let enhanced_textures = material_keys.as_ref().and_then(|keys| {
-        let enhanced = load_optional_enhanced_textures(&runtime, keys);
-        if enhanced.is_some() {
-            eprintln!(
-                "loaded optional authored Enhanced PBR textures from {}",
-                ENHANCED_PBR_DIR_ENVIRONMENT
-            );
-        }
-        enhanced
-    });
     if let Some(refs) = load_vanilla_entity_refs(&selection.path) {
         crate::runtime::network::entity_pack::set_vanilla_refs(refs);
     }
@@ -735,7 +725,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     let fonts = load_font_assets(&selection.path)?;
     Ok(LoadedAssets {
         runtime,
-        enhanced_textures,
+        material_keys,
         atmosphere,
         entities,
         fonts,
@@ -771,7 +761,7 @@ fn diagnostic_assets(
     );
     LoadedAssets {
         runtime,
-        enhanced_textures: None,
+        material_keys: None,
         atmosphere,
         entities,
         fonts,

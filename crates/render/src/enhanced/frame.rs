@@ -6,9 +6,22 @@ use bevy::math::{Mat4, UVec4, Vec3, Vec4};
 use super::{EnhancedRendering, MAX_SHADOW_CASCADES};
 use crate::AtmosphereFrame;
 
+const CLOUD_VIEW_STEPS: u32 = 24;
+/// Calibrated irradiance units shared by surface, sky and cloud lighting.
+pub(crate) const SOLAR_IRRADIANCE: f32 = 3.2;
+pub(crate) const LUNAR_IRRADIANCE: f32 = 0.03;
+const DAY_SKY_FILL: f32 = 0.14;
+const NIGHT_SKY_FILL: f32 = 0.012;
+const MOON_SKY_FILL: f32 = 0.014;
+const WEATHER_LIGHT_LOSS: f32 = 0.72;
+const DAY_INITIAL_EXPOSURE: f32 = 0.65;
+const NIGHT_INITIAL_EXPOSURE: f32 = 1.4;
+
 /// Blocks kept toward the light beyond a cascade so off-screen terrain above
 /// the view (cave ceilings, mountains) still casts.
 pub(crate) const SHADOW_CASTER_REACH: f32 = 384.0;
+/// PCSS search/filter border shared with shaders through cascade_depth_scale.w.
+pub(crate) const SHADOW_FILTER_MARGIN_TEXELS: f32 = 10.0;
 /// Log/linear blend of the practical split scheme.
 const SPLIT_LAMBDA: f32 = 0.75;
 const FIRST_SPLIT_NEAR: f32 = 0.1;
@@ -19,6 +32,8 @@ pub(crate) const FEATURE_SHAFTS: u32 = 1 << 2;
 pub(crate) const FEATURE_WAVING: u32 = 1 << 3;
 pub(crate) const FEATURE_WATER: u32 = 1 << 4;
 pub(crate) const FEATURE_PBR: u32 = 1 << 5;
+pub(crate) const FEATURE_SSAO: u32 = 1 << 6;
+pub(crate) const FEATURE_VOLUMETRIC_CLOUDS: u32 = 1 << 7;
 
 /// Mirrors `EnhancedFrame` in `enhanced/common.wgsl`.
 #[repr(C)]
@@ -29,7 +44,7 @@ pub(crate) struct EnhancedFrameGpu {
     pub(crate) cascade_clip_from_world: [Mat4; MAX_SHADOW_CASCADES as usize],
     /// World units per shadow texel for each cascade; w = shadow fade distance.
     pub(crate) cascade_texel: Vec4,
-    /// Shadow-map depth units per world block for each cascade.
+    /// xyz depth units per block; w shared filter border in shadow texels.
     pub(crate) cascade_depth_scale: Vec4,
     /// xyz camera world position, w wrapped seconds.
     pub(crate) camera_time: Vec4,
@@ -48,8 +63,22 @@ pub(crate) struct EnhancedFrameGpu {
     pub(crate) grade: Vec4,
     /// x feature bits, y cascade count, z shadow resolution.
     pub(crate) flags: UVec4,
-    /// x reverse-Z near plane (view distance = near / depth).
+    /// x reverse-Z near; yz solar/lunar irradiance; w visibility textures ready.
     pub(crate) projection: Vec4,
+    /// x cloud coverage, y base height, z layer thickness, w wind offset in blocks.
+    pub(crate) clouds: Vec4,
+    /// Previous submitted jittered projection for depth reprojection.
+    pub(crate) previous_clip_from_world: Mat4,
+    /// xyz sun direction, w vanilla moon phase.
+    pub(crate) celestial: Vec4,
+    /// x Overworld sky, y delta seconds, z fog end, w underwater.
+    pub(crate) atmosphere: Vec4,
+    /// x sample index, y usable history, z delta seconds, w diagnostic mode.
+    pub(crate) temporal: Vec4,
+    /// xyz reflection probe origin, w capture radius (negative during capture).
+    pub(crate) probe: Vec4,
+    /// xy cloud-shadow centre, z world span, w usable map.
+    pub(crate) cloud_shadow: Vec4,
 }
 
 /// Light-space box used to cull shadow casters for one cascade.
@@ -107,19 +136,6 @@ pub(crate) fn cascade_splits(distance: f32, count: u32) -> [f32; MAX_SHADOW_CASC
     splits
 }
 
-/// Distance along the view axis and radius of the smallest axis-centred
-/// sphere holding the frustum slice `near..far`, where `slope` is the
-/// half-diagonal tangent of the view frustum.
-#[must_use]
-pub(crate) fn slice_bounding_sphere(near: f32, far: f32, slope: f32) -> (f32, f32) {
-    let slope_sq = slope * slope;
-    // Equidistant from the near and far corner rings, clamped to the far plane.
-    let center = ((far + near) * 0.5 * (1.0 + slope_sq)).min(far);
-    let far_ring = (far - center).powi(2) + far * far * slope_sq;
-    let near_ring = (center - near).powi(2) + near * near * slope_sq;
-    (center, far_ring.max(near_ring).sqrt())
-}
-
 /// Rotates world coordinates into the light basis.
 fn light_view(light_direction: Vec3) -> Mat4 {
     let up = if light_direction.z.abs() < 0.99 {
@@ -130,25 +146,23 @@ fn light_view(light_direction: Vec3) -> Mat4 {
     Mat4::look_to_rh(Vec3::ZERO, -light_direction, up)
 }
 
-/// Rotation-invariant cascade whose light-space origin snaps to whole texels,
-/// preserving the shadow grid while the camera moves.
+/// Nested receiver spheres share a camera-centred, texel-snapped light basis.
+/// Radial coverage matches the receiver fade and cannot move when the view turns.
 #[must_use]
 pub(crate) fn fit_cascade(
     camera: Vec3,
-    forward: Vec3,
-    near: f32,
-    far: f32,
-    slope: f32,
+    receiver_radius: f32,
     light_direction: Vec3,
     resolution: u32,
 ) -> CascadeFit {
-    let (center_distance, radius) = slice_bounding_sphere(near, far, slope);
-    // Reserve half a texel for center snapping, retaining all frustum corners.
-    let radius = (radius * 16.0).ceil() / 16.0;
-    let radius = radius * resolution.max(2) as f32 / (resolution.max(2) - 1) as f32;
+    let resolution = resolution.max((2.0 * SHADOW_FILTER_MARGIN_TEXELS + 2.0) as u32);
+    // Keep every receiver inside the filter border, including centre snapping.
+    let radius = (receiver_radius.max(FIRST_SPLIT_NEAR) * 16.0).ceil() / 16.0;
+    let radius =
+        radius * resolution as f32 / (resolution as f32 - 2.0 * SHADOW_FILTER_MARGIN_TEXELS - 1.0);
     let light_from_world = light_view(light_direction);
     let texel = 2.0 * radius / resolution.max(1) as f32;
-    let mut center = light_from_world.transform_point3(camera + forward * center_distance);
+    let mut center = light_from_world.transform_point3(camera);
     center.x = (center.x / texel).round() * texel;
     center.y = (center.y / texel).round() * texel;
     let min = Vec3::new(center.x - radius, center.y - radius, center.z - radius);
@@ -180,6 +194,9 @@ pub(crate) struct LightState {
     pub(crate) ambient_colour: Vec3,
     pub(crate) warmth: f32,
     pub(crate) rain: f32,
+    pub(crate) exposure: f32,
+    pub(crate) solar_source: f32,
+    pub(crate) lunar_source: f32,
 }
 
 /// Smoothly fades between two thresholds.
@@ -198,17 +215,20 @@ pub(crate) fn light_state(atmosphere: &AtmosphereFrame) -> LightState {
     let rain = atmosphere.rain_level().clamp(0.0, 1.0);
     let storm = (rain * 0.75 + atmosphere.thunder_level().clamp(0.0, 1.0) * 0.25).clamp(0.0, 1.0);
     let day = smoothstep(-0.12, 0.3, sun.y);
+    let phase = (0.5
+        + 0.5 * (f32::from(atmosphere.moon_phase()) * std::f32::consts::FRAC_PI_4).cos())
+    .clamp(0.0, 1.0);
+    let weather = 1.0 - WEATHER_LIGHT_LOSS * storm;
+    let moon_access = smoothstep(-0.02, 0.25, moon.y) * phase;
     let (direction, mut strength, colour) = if sun.y > -0.02 {
-        let colour = Vec3::new(1.0, 0.52, 0.3)
-            .lerp(Vec3::new(1.0, 0.95, 0.88), smoothstep(0.0, 0.45, sun.y));
         (
             sun,
-            smoothstep(-0.02, 0.12, sun.y) * 1.25 * (1.0 - 0.8 * storm),
-            colour,
+            smoothstep(-0.02, 0.12, sun.y) * SOLAR_IRRADIANCE * weather,
+            Vec3::ONE,
         )
     } else {
-        let strength = smoothstep(-0.02, 0.12, moon.y) * 0.14 * (1.0 - 0.85 * storm);
-        (moon, strength, Vec3::new(0.55, 0.66, 1.0))
+        let strength = moon_access * LUNAR_IRRADIANCE * weather;
+        (moon, strength, Vec3::ONE)
     };
     if atmosphere.sky_kind() != crate::SkyKind::Overworld {
         strength = 0.0;
@@ -220,10 +240,15 @@ pub(crate) fn light_state(atmosphere: &AtmosphereFrame) -> LightState {
         direction,
         strength,
         colour,
-        ambient: 0.07 + 0.41 * day,
+        ambient: ((NIGHT_SKY_FILL + MOON_SKY_FILL * moon_access) * (1.0 - day)
+            + DAY_SKY_FILL * day)
+            * weather,
         ambient_colour: Vec3::ONE.lerp(sky_tint, 0.45),
         warmth: golden * day.max(0.35) - (1.0 - day) * 0.6,
-        rain,
+        rain: storm,
+        exposure: NIGHT_INITIAL_EXPOSURE + (DAY_INITIAL_EXPOSURE - NIGHT_INITIAL_EXPOSURE) * day,
+        solar_source: SOLAR_IRRADIANCE * weather,
+        lunar_source: LUNAR_IRRADIANCE * weather,
     }
 }
 
@@ -232,9 +257,6 @@ pub(crate) struct ViewInputs {
     pub(crate) clip_from_world: Mat4,
     pub(crate) world_from_clip: Mat4,
     pub(crate) camera: Vec3,
-    pub(crate) forward: Vec3,
-    /// Half-diagonal tangent of the view frustum.
-    pub(crate) slope: f32,
     pub(crate) near: f32,
     pub(crate) viewport: [u32; 2],
     pub(crate) seconds: f32,
@@ -258,18 +280,8 @@ pub(crate) fn build_frame(
     };
     let splits = cascade_splits(distance, cascades);
     let mut fits = Vec::with_capacity(cascades as usize);
-    let mut near = FIRST_SPLIT_NEAR;
     for &far in splits.iter().take(cascades as usize) {
-        fits.push(fit_cascade(
-            view.camera,
-            view.forward,
-            near,
-            far,
-            view.slope,
-            light.direction,
-            resolution,
-        ));
-        near = far;
+        fits.push(fit_cascade(view.camera, far, light.direction, resolution));
     }
     let mut cascade_clip_from_world = [Mat4::IDENTITY; MAX_SHADOW_CASCADES as usize];
     let mut texel = [0.0; MAX_SHADOW_CASCADES as usize];
@@ -287,6 +299,8 @@ pub(crate) fn build_frame(
         (settings.waving, FEATURE_WAVING),
         (settings.water_reflections, FEATURE_WATER),
         (settings.physically_based, FEATURE_PBR),
+        (settings.ssao, FEATURE_SSAO),
+        (settings.volumetric_clouds, FEATURE_VOLUMETRIC_CLOUDS),
     ] {
         if enabled {
             features |= bit;
@@ -298,7 +312,12 @@ pub(crate) fn build_frame(
         world_from_clip: view.world_from_clip,
         cascade_clip_from_world,
         cascade_texel: Vec4::new(texel[0], texel[1], texel[2], splits[cascades as usize - 1]),
-        cascade_depth_scale: Vec4::new(depth_scale[0], depth_scale[1], depth_scale[2], 0.0),
+        cascade_depth_scale: Vec4::new(
+            depth_scale[0],
+            depth_scale[1],
+            depth_scale[2],
+            SHADOW_FILTER_MARGIN_TEXELS,
+        ),
         camera_time: view.camera.extend(view.seconds),
         light_direction: light.direction.extend(light.strength),
         light_colour: light.colour.extend(light.ambient),
@@ -306,9 +325,31 @@ pub(crate) fn build_frame(
         sky_zenith: Vec3::from_array(atmosphere.sky_zenith()).extend(1.0),
         sky_horizon: Vec3::from_array(atmosphere.sky_horizon()).extend(1.0),
         viewport: Vec4::new(width, height, 1.0 / width, 1.0 / height),
-        grade: Vec4::new(light.warmth, 1.0, 0.08, 0.35),
-        flags: UVec4::new(features, cascades, resolution, 0),
-        projection: Vec4::new(view.near, 0.0, 0.0, 0.0),
+        grade: Vec4::new(light.warmth, light.exposure, 0.08, 0.35),
+        flags: UVec4::new(features, cascades, resolution, CLOUD_VIEW_STEPS),
+        projection: Vec4::new(view.near, light.solar_source, light.lunar_source, 0.0),
+        clouds: Vec4::new(
+            (0.18 + 0.52 * light.rain).clamp(0.12, 0.85),
+            meshing::CLOUD_UNDERSIDE_Y,
+            // The native mesh is four blocks thick; the Enhanced layer uses a
+            // deeper participating medium so the post pass has real volume.
+            meshing::CLOUD_THICKNESS_BLOCKS.max(96.0),
+            view.seconds * 0.72,
+        ),
+        previous_clip_from_world: view.clip_from_world,
+        celestial: Vec3::from_array(atmosphere.sun_direction())
+            .extend(f32::from(atmosphere.moon_phase())),
+        atmosphere: Vec4::new(
+            f32::from(u8::from(atmosphere.sky_kind() == crate::SkyKind::Overworld)),
+            0.0,
+            atmosphere.fog_end(),
+            f32::from(u8::from(
+                atmosphere.camera_medium() == meshing::CameraMedium::Water,
+            )),
+        ),
+        temporal: Vec4::ZERO,
+        probe: view.camera.extend(32.0),
+        cloud_shadow: Vec4::ZERO,
     };
     (frame, fits)
 }
@@ -317,8 +358,6 @@ pub(crate) fn build_frame(
 mod tests {
     use super::*;
 
-    const SLOPE: f32 = 1.147;
-
     /// Measures the grid phase of a fixed world point.
     fn texel_phase(fit: &CascadeFit, point: Vec3, resolution: u32) -> Vec3 {
         let ndc = fit.clip_from_world.project_point3(point);
@@ -326,31 +365,17 @@ mod tests {
         Vec3::new(texels.x.rem_euclid(1.0), texels.y.rem_euclid(1.0), 0.0)
     }
 
-    // A fixed world point keeps its sub-texel phase however the camera moves.
     #[test]
-    fn cascades_snap_to_whole_texels_under_camera_translation_and_rotation() {
+    fn cascades_snap_to_whole_texels_under_camera_translation() {
         let light = Vec3::new(0.6, 0.8, 0.0).normalize();
         let point = Vec3::new(3.3, 64.7, -9.1);
-        let base = fit_cascade(
-            Vec3::new(0.0, 64.0, 0.0),
-            Vec3::X,
-            0.1,
-            24.0,
-            SLOPE,
-            light,
-            2048,
-        );
+        let base = fit_cascade(Vec3::new(0.0, 64.0, 0.0), 24.0, light, 2048);
         let expected = texel_phase(&base, point, 2048);
         for step in 1..40 {
             let offset = step as f32 * 0.137;
-            let yaw = step as f32 * 0.31;
-            let forward = Vec3::new(yaw.cos(), -0.2, yaw.sin()).normalize();
             let fit = fit_cascade(
                 Vec3::new(offset, 64.0 + offset * 0.25, -offset),
-                forward,
-                0.1,
                 24.0,
-                SLOPE,
                 light,
                 2048,
             );
@@ -364,13 +389,113 @@ mod tests {
     }
 
     #[test]
-    fn slice_sphere_contains_every_corner_of_its_frustum_slice() {
-        for (near, far) in [(0.1, 12.0), (12.0, 32.0), (32.0, 96.0)] {
-            let (center, radius) = slice_bounding_sphere(near, far, SLOPE);
-            for distance in [near, far] {
-                let corner = (center - distance).hypot(distance * SLOPE);
-                assert!(corner <= radius + 1.0e-3, "{near}..{far}");
+    fn receiver_coverage_and_caster_bounds_stay_fixed_through_yaw_pitch_and_fov() {
+        let camera = Vec3::new(4.23, 64.91, -7.13);
+        let settings = EnhancedRendering::default();
+        let atmosphere = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+        let make_inputs = |yaw: f32, pitch: f32, fov: f32| {
+            let forward = Vec3::new(
+                yaw.sin() * pitch.cos(),
+                pitch.sin(),
+                -yaw.cos() * pitch.cos(),
+            );
+            let clip = Mat4::perspective_infinite_reverse_rh(fov.to_radians(), 16.0 / 9.0, 0.1)
+                * Mat4::look_to_rh(camera, forward, Vec3::Y);
+            ViewInputs {
+                clip_from_world: clip,
+                world_from_clip: clip.inverse(),
+                camera,
+                near: 0.1,
+                viewport: [1280, 720],
+                seconds: 0.0,
             }
+        };
+        let (_, expected) = build_frame(&make_inputs(0.0, 0.0, 70.0), &settings, &atmosphere);
+        for yaw in [0.0, 0.7, 1.5, 3.1, 5.7] {
+            for pitch in [-1.2, 0.0, 1.2] {
+                for fov in [45.0, 70.0, 110.0] {
+                    let (_, fits) =
+                        build_frame(&make_inputs(yaw, pitch, fov), &settings, &atmosphere);
+                    assert_eq!(fits, expected, "rotation cannot replace caster coverage");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn receiver_spheres_stay_inside_the_shadow_filter_border_in_every_direction() {
+        let camera = Vec3::new(4.23, 64.91, -7.13);
+        for resolution in [256, 1024, 4096] {
+            let margin = SHADOW_FILTER_MARGIN_TEXELS / resolution as f32;
+            for radius in [8.0, 32.0, 96.0] {
+                for light in [
+                    Vec3::X,
+                    Vec3::Y,
+                    Vec3::Z,
+                    Vec3::new(0.7, 0.6, 0.2).normalize(),
+                ] {
+                    let fit = fit_cascade(camera, radius, light, resolution);
+                    for x in -3..=3 {
+                        for y in -3..=3 {
+                            for z in -3..=3 {
+                                let direction =
+                                    Vec3::new(x as f32, y as f32, z as f32).normalize_or(Vec3::X);
+                                let point = camera + direction * radius;
+                                let clip = fit.clip_from_world.project_point3(point);
+                                let uv = clip.truncate() * 0.5 + bevy::math::Vec2::splat(0.5);
+                                assert!(uv.cmpgt(bevy::math::Vec2::splat(margin)).all());
+                                assert!(uv.cmplt(bevy::math::Vec2::splat(1.0 - margin)).all());
+                                assert!((0.0..=1.0).contains(&clip.z));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn subtexel_translation_keeps_the_shadow_projection_and_caster_grid() {
+        let light = Vec3::new(-0.45, 0.7, 0.55).normalize();
+        let fit = fit_cascade(Vec3::ZERO, 32.0, light, 1024);
+        let translation = fit
+            .bounds
+            .light_from_world
+            .inverse()
+            .transform_vector3(Vec3::new(
+                0.24 * fit.texel_world,
+                0.24 * fit.texel_world,
+                0.0,
+            ));
+        let moved = fit_cascade(translation, 32.0, light, 1024);
+        for (a, b) in fit
+            .clip_from_world
+            .to_cols_array()
+            .iter()
+            .zip(moved.clip_from_world.to_cols_array())
+        {
+            assert!((a - b).abs() < 1.0e-6);
+        }
+        let receiver = Vec3::new(8.0, 0.0, -4.0);
+        for caster in [receiver + light * 300.0, receiver + light * 350.0] {
+            assert!(fit.bounds.intersects_aabb(caster, Vec3::splat(0.5)));
+            assert!(moved.bounds.intersects_aabb(caster, Vec3::splat(0.5)));
+        }
+    }
+
+    #[test]
+    fn shadow_projection_orders_toward_light_casters_before_receivers() {
+        for light in [Vec3::Y, Vec3::new(-0.45, 0.7, 0.55).normalize()] {
+            let fit = fit_cascade(Vec3::new(0.0, 70.0, 0.0), 32.0, light, 1024);
+            let receiver = Vec3::new(0.0, 70.0, -16.0);
+            let caster = receiver + light * 100.0;
+            let front = fit.clip_from_world.project_point3(caster);
+            let back = fit.clip_from_world.project_point3(receiver);
+            assert!((0.0..=1.0).contains(&front.z));
+            assert!((0.0..=1.0).contains(&back.z));
+            assert!(front.z < back.z, "LessEqual must accept the nearer caster");
+            assert!((front.truncate() - back.truncate()).length() < 1.0e-4);
+            assert!(fit.bounds.intersects_aabb(caster, Vec3::splat(0.5)));
         }
     }
 
@@ -385,7 +510,7 @@ mod tests {
     #[test]
     fn cascade_bounds_keep_casters_toward_the_light_and_cull_behind() {
         let light = Vec3::Y;
-        let fit = fit_cascade(Vec3::ZERO, Vec3::X, 0.1, 16.0, SLOPE, light, 1024);
+        let fit = fit_cascade(Vec3::ZERO, 16.0, light, 1024);
         let half = Vec3::splat(8.0);
         assert!(fit.bounds.intersects_aabb(Vec3::new(8.0, 200.0, 0.0), half));
         assert!(
@@ -401,8 +526,6 @@ mod tests {
             clip_from_world: Mat4::IDENTITY,
             world_from_clip: Mat4::IDENTITY,
             camera: Vec3::ZERO,
-            forward: Vec3::NEG_Z,
-            slope: SLOPE,
             near: 0.1,
             viewport: [1280, 720],
             seconds: 0.0,
@@ -413,6 +536,9 @@ mod tests {
         };
         let (frame, _) = build_frame(&inputs, &settings, &AtmosphereFrame::default());
         assert_eq!(frame.flags.x & (FEATURE_SHADOWS | FEATURE_SHAFTS), 0);
+        assert_eq!(frame.flags.w, CLOUD_VIEW_STEPS);
+        assert_eq!(frame.projection.y, SOLAR_IRRADIANCE);
+        assert_eq!(frame.projection.z, LUNAR_IRRADIANCE);
     }
 
     #[test]
@@ -423,5 +549,28 @@ mod tests {
         assert!(midnight.direction.y > 0.99);
         assert!(midnight.strength < 0.2 && midnight.ambient < noon.ambient);
         assert!(midnight.warmth < 0.0);
+    }
+
+    #[test]
+    fn celestial_sources_share_weather_units_and_moon_phase_preserves_a_night_floor() {
+        let day = crate::atmosphere::BEDROCK_DAY_TICKS;
+        let noon = light_state(&AtmosphereFrame::from_bedrock_time(day * 0.25, 0.0, 0.0));
+        let midnight = light_state(&AtmosphereFrame::from_bedrock_time(day * 0.75, 0.0, 0.0));
+        let new_moon = light_state(&AtmosphereFrame::from_bedrock_time(day * 4.75, 0.0, 0.0));
+        let storm = light_state(&AtmosphereFrame::from_bedrock_time(day * 0.25, 1.0, 1.0));
+        assert_eq!(noon.solar_source, SOLAR_IRRADIANCE);
+        assert_eq!(midnight.lunar_source, LUNAR_IRRADIANCE);
+        assert!(noon.strength <= noon.solar_source);
+        assert!(midnight.strength <= midnight.lunar_source);
+        assert!(new_moon.strength < midnight.strength * 0.01);
+        assert!(new_moon.ambient > 0.0 && new_moon.ambient < midnight.ambient);
+        assert!(midnight.ambient < noon.ambient * 0.25);
+        assert!(storm.solar_source < noon.solar_source * 0.5);
+        assert!(
+            (storm.solar_source / storm.lunar_source - noon.solar_source / noon.lunar_source).abs()
+                < 0.001
+        );
+        assert_eq!(noon.colour, Vec3::ONE);
+        assert_eq!(midnight.colour, Vec3::ONE);
     }
 }

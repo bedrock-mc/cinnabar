@@ -1,4 +1,7 @@
 use super::resource_geometry::PreparedResourceGeometry;
+use super::{
+    authored_upload, authored_upload::AuthoredUpload, texture_upload::build_chunk_texture_assets,
+};
 use crate::chunk::*;
 
 #[cfg(test)]
@@ -165,6 +168,8 @@ pub(in crate::chunk) struct PreparedChunkTextureAssets {
     pub(in crate::chunk) _enhanced_textures: [Texture; 6],
     pub(in crate::chunk) enhanced_views: [TextureView; 6],
     pub(in crate::chunk) enhanced_texture_refs: Buffer,
+    pub(in crate::chunk) authored_bytes: u64,
+    pub(in crate::chunk) authored_upload_bytes: u64,
     pub(in crate::chunk) native_leaf_views: [TextureView; assets::MAX_TEXTURE_PAGES],
     pub(in crate::chunk) sampler: Sampler,
     pub(in crate::chunk) pbr_sampler: Sampler,
@@ -205,91 +210,6 @@ type PreparedReplacement = (
 
 type PendingTextures = std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>;
 
-/// Builds deterministic linear normal and MER layers from the Bedrock albedo
-/// atlas. Packs that do not ship texture-set maps still receive stable PBR
-/// detail, while the source sRGB carrier and vanilla rendering remain intact.
-fn generated_pbr_layers(base: &TextureArray) -> (TextureArray, TextureArray) {
-    let mut normal_mips = Vec::with_capacity(base.mips.len());
-    let mut mer_mips = Vec::with_capacity(base.mips.len());
-    for mip in &base.mips {
-        let side = mip.size as usize;
-        let layer_bytes = side.saturating_mul(side).saturating_mul(4);
-        let mut normal = vec![0_u8; mip.rgba8.len()];
-        let mut mer = vec![0_u8; mip.rgba8.len()];
-        for layer in 0..base.layers as usize {
-            let start = layer.saturating_mul(layer_bytes);
-            let end = start.saturating_add(layer_bytes).min(mip.rgba8.len());
-            if end.saturating_sub(start) != layer_bytes || side == 0 {
-                continue;
-            }
-            let pixel = |x: usize, y: usize| -> [u8; 4] {
-                let x = x % side;
-                let y = y % side;
-                let offset = start + (y * side + x) * 4;
-                mip.rgba8[offset..offset + 4]
-                    .try_into()
-                    .expect("bounded RGBA8 atlas pixel")
-            };
-            let luminance = |x: usize, y: usize| {
-                let [r, g, b, _] = pixel(x, y);
-                (0.2126 * f32::from(r) + 0.7152 * f32::from(g) + 0.0722 * f32::from(b)) / 255.0
-            };
-            for y in 0..side {
-                for x in 0..side {
-                    let source = pixel(x, y);
-                    let dx = luminance(x + 1, y) - luminance(x + side - 1, y);
-                    let dy = luminance(x, y + 1) - luminance(x, y + side - 1);
-                    let inv = 1.0 / (1.0 + (dx * dx + dy * dy).sqrt() * 2.6);
-                    let nx = (-dx * 1.8 * inv * 0.5 + 0.5).clamp(0.0, 1.0);
-                    let ny = (-dy * 1.8 * inv * 0.5 + 0.5).clamp(0.0, 1.0);
-                    let normal_offset = start + (y * side + x) * 4;
-                    normal[normal_offset..normal_offset + 4].copy_from_slice(&[
-                        (nx * 255.0).round() as u8,
-                        (ny * 255.0).round() as u8,
-                        255,
-                        source[3],
-                    ]);
-                    let max_channel = source[0].max(source[1]).max(source[2]);
-                    let min_channel = source[0].min(source[1]).min(source[2]);
-                    let saturation = f32::from(max_channel.saturating_sub(min_channel)) / 255.0;
-                    let roughness =
-                        (0.92 - saturation * 0.28 - (dx.abs() + dy.abs()) * 0.16).clamp(0.28, 0.96);
-                    let emissive = if source[3] < 128 {
-                        0.0
-                    } else {
-                        (f32::from(max_channel) / 255.0 - 0.88).max(0.0) * 0.08
-                    };
-                    let mer_offset = start + (y * side + x) * 4;
-                    mer[mer_offset..mer_offset + 4].copy_from_slice(&[
-                        0,
-                        (emissive * 255.0).round() as u8,
-                        (roughness * 255.0).round() as u8,
-                        255,
-                    ]);
-                }
-            }
-        }
-        normal_mips.push(TextureMip {
-            size: mip.size,
-            rgba8: normal.into_boxed_slice(),
-        });
-        mer_mips.push(TextureMip {
-            size: mip.size,
-            rgba8: mer.into_boxed_slice(),
-        });
-    }
-    (
-        TextureArray {
-            layers: base.layers,
-            mips: normal_mips.into_boxed_slice(),
-        },
-        TextureArray {
-            layers: base.layers,
-            mips: mer_mips.into_boxed_slice(),
-        },
-    )
-}
-
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) attempted_identity: Option<ChunkTextureAssetIdentity>,
@@ -298,6 +218,7 @@ pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pending: Option<PendingTextures>,
     pending_identity: Option<ChunkTextureAssetIdentity>,
     staged: Option<PreparedReplacement>,
+    authored_pending: Option<AuthoredUpload>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -373,14 +294,66 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         *stats = uploaded;
     }
     // Bootstrap may publish without an optional reload transaction.
+    if gpu_assets
+        .authored_pending
+        .as_ref()
+        .is_some_and(|pending| !pending.matches(identity))
+    {
+        gpu_assets.authored_pending = None;
+    }
     if texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity) {
         gpu_assets.attempted_identity = Some(identity);
         gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
-        if let Some((prepared, uploaded)) =
-            build_chunk_texture_assets(&assets, &render_device, &render_queue)
+        if gpu_assets
+            .prepared
+            .as_ref()
+            .is_some_and(|prepared| authored_upload::same_carrier(prepared.identity, identity))
         {
-            gpu_assets.prepared = Some(prepared);
-            *stats = uploaded;
+            if let Some(authored) = assets.enhanced() {
+                gpu_assets.authored_pending =
+                    AuthoredUpload::new(identity, authored.clone(), &render_device);
+                if gpu_assets.authored_pending.is_none() {
+                    bevy::log::warn!("invalid authored terrain upload; retained previous bindings");
+                }
+            } else {
+                authored_upload::detach(
+                    gpu_assets
+                        .prepared
+                        .as_mut()
+                        .expect("existing carrier atlas"),
+                    identity,
+                    &render_device,
+                    &mut stats,
+                );
+            }
+        } else {
+            gpu_assets.authored_pending = None;
+            if let Some((prepared, uploaded)) =
+                build_chunk_texture_assets(&assets, &render_device, &render_queue)
+            {
+                gpu_assets.prepared = Some(prepared);
+                *stats = uploaded;
+            }
+        }
+    }
+    if let Some(pending) = gpu_assets.authored_pending.as_mut() {
+        pending.step(
+            &render_device,
+            &render_queue,
+            authored_upload::FRAME_UPLOAD_BYTES,
+        );
+        if pending.complete() {
+            let completed = gpu_assets
+                .authored_pending
+                .take()
+                .expect("complete authored upload");
+            completed.publish(
+                gpu_assets
+                    .prepared
+                    .as_mut()
+                    .expect("retained carrier atlas"),
+                &mut stats,
+            );
         }
     }
     let Some(candidate) = requested else {
@@ -418,426 +391,6 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             });
         let _ = sender.send(result);
     });
-}
-
-/// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.
-fn build_chunk_texture_assets(
-    assets: &ChunkTextureAssets,
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-) -> Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)> {
-    let identity = assets.identity();
-    let pages = assets.assets().texture_pages();
-    let Some(page_bindings) = plan_texture_page_bindings(pages.len()) else {
-        bevy::log::error!(
-            page_count = pages.len(),
-            "chunk assets require one or two texture pages"
-        );
-        return None;
-    };
-    let diagnostic_fallback = if page_bindings.contains(&TexturePageBinding::DiagnosticFallback) {
-        match diagnostic_texture_page(&pages[0].texture) {
-            Ok(texture) => Some(texture),
-            Err(error) => {
-                bevy::log::error!(?error, "invalid diagnostic texture-page fallback");
-                return None;
-            }
-        }
-    } else {
-        None
-    };
-    let bound_pages = page_bindings.map(|binding| match binding {
-        TexturePageBinding::Asset(index) => &pages[index].texture,
-        TexturePageBinding::DiagnosticFallback => diagnostic_fallback
-            .as_ref()
-            .expect("binding plan includes a diagnostic fallback"),
-    });
-    let device_limits = render_device.limits();
-    if !crate::material_shader::chunk_atlas_views_fit(&device_limits) {
-        bevy::log::error!(
-            supported = device_limits.max_sampled_textures_per_shader_stage,
-            supported_group_entries = device_limits.max_bindings_per_bind_group,
-            required = crate::material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS,
-            "chunk renderer requires sRGB and native leaf views of each texture page"
-        );
-        return None;
-    }
-    let limits = TextureArrayLimits {
-        max_layers: device_limits.max_texture_array_layers,
-        max_dimension_2d: device_limits.max_texture_dimension_2d,
-    };
-    let pbr_pages = [
-        generated_pbr_layers(bound_pages[0]),
-        generated_pbr_layers(bound_pages[1]),
-    ];
-    let mut upload_plans = Vec::with_capacity(2);
-    for texture in bound_pages {
-        let tile_size = texture.mips.first().map_or(0, |mip| mip.size);
-        if let Err(error) = limits.validate(texture.layers, tile_size) {
-            bevy::log::error!(?error, "chunk texture page exceeds adapter limits");
-            return None;
-        }
-        let plans =
-            match plan_texture_mip_uploads(texture, RenderDevice::align_copy_bytes_per_row(1)) {
-                Ok(plans) => plans,
-                Err(error) => {
-                    bevy::log::error!(?error, "invalid chunk texture-page upload layout");
-                    return None;
-                }
-            };
-        upload_plans.push(plans);
-    }
-    let pbr_upload_plans = pbr_pages.iter().map(|(normal, mer)| {
-        let normal_plans =
-            plan_texture_mip_uploads(&normal, RenderDevice::align_copy_bytes_per_row(1)).ok()?;
-        let mer_plans =
-            plan_texture_mip_uploads(&mer, RenderDevice::align_copy_bytes_per_row(1)).ok()?;
-        Some((normal_plans, mer_plans))
-    });
-    let pbr_upload_plans = pbr_upload_plans.into_iter().collect::<Option<Vec<_>>>()?;
-
-    // Authored Enhanced pages are optional. Keep valid one-layer diagnostic
-    // bindings when no source pack is configured; the shader's ref table then
-    // selects the generated low-resolution material path for every block.
-    let fallback_color_pages = [
-        diagnostic_texture_page(bound_pages[0]).ok()?,
-        diagnostic_texture_page(bound_pages[1]).ok()?,
-    ];
-    let fallback_normal_pages = [
-        diagnostic_texture_page(&pbr_pages[0].0).ok()?,
-        diagnostic_texture_page(&pbr_pages[1].0).ok()?,
-    ];
-    let fallback_mer_pages = [
-        diagnostic_texture_page(&pbr_pages[0].1).ok()?,
-        diagnostic_texture_page(&pbr_pages[1].1).ok()?,
-    ];
-    let fallback_texture_refs =
-        vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS];
-    let enhanced = assets.enhanced();
-    let enhanced_color_pages = enhanced.map_or(&fallback_color_pages, |assets| &assets.color_pages);
-    let enhanced_normal_pages =
-        enhanced.map_or(&fallback_normal_pages, |assets| &assets.normal_pages);
-    let enhanced_mer_pages = enhanced.map_or(&fallback_mer_pages, |assets| &assets.mer_pages);
-    let enhanced_texture_refs: &[u32] =
-        enhanced.map_or(&fallback_texture_refs, |assets| &assets.texture_refs);
-    let enhanced_pages = [
-        &enhanced_color_pages[0],
-        &enhanced_color_pages[1],
-        &enhanced_normal_pages[0],
-        &enhanced_normal_pages[1],
-        &enhanced_mer_pages[0],
-        &enhanced_mer_pages[1],
-    ];
-    for texture in enhanced_pages {
-        let tile_size = texture.mips.first().map_or(0, |mip| mip.size);
-        if let Err(error) = limits.validate(texture.layers, tile_size) {
-            bevy::log::error!(
-                ?error,
-                "authored Enhanced texture page exceeds adapter limits"
-            );
-            return None;
-        }
-    }
-    let enhanced_upload_plans = enhanced_pages
-        .iter()
-        .map(|texture| {
-            plan_texture_mip_uploads(texture, RenderDevice::align_copy_bytes_per_row(1)).ok()
-        })
-        .collect::<Option<Vec<_>>>()?;
-    let enhanced_ref_bytes = enhanced_texture_refs.len() * std::mem::size_of::<u32>();
-    if !storage_table_fits(
-        enhanced_ref_bytes,
-        device_limits.max_buffer_size,
-        device_limits.max_storage_buffer_binding_size,
-    ) {
-        bevy::log::error!("authored Enhanced texture reference table exceeds adapter limits");
-        return None;
-    }
-
-    let material_words = assets
-        .assets()
-        .materials()
-        .iter()
-        .map(|material| MaterialGpu {
-            texture: material.texture.raw(),
-            flags: material.flags,
-            animation: material.animation,
-            variation_start: material.variation_start,
-            variation_count: material.variation_count,
-            variation_weight: material.variation_weight,
-        })
-        .collect::<Vec<_>>();
-    let animation_words = assets
-        .assets()
-        .animations()
-        .iter()
-        .map(|animation| AnimationGpu {
-            frame_start: animation.frame_start,
-            frame_count: animation.frame_count,
-            ticks_per_frame: animation.ticks_per_frame,
-            flags: animation.flags,
-            uv_scale: 1.0 / animation.replicate as f32,
-        })
-        .collect::<Vec<_>>();
-    let animation_frame_words = assets
-        .assets()
-        .animation_frames()
-        .iter()
-        .map(|frame| frame.raw())
-        .collect::<Vec<_>>();
-    let model_template_words = encode_model_template_words(assets.assets());
-    let material_bytes = material_words
-        .len()
-        .saturating_mul(std::mem::size_of::<MaterialGpu>());
-    let animation_bytes = animation_words
-        .len()
-        .saturating_mul(std::mem::size_of::<AnimationGpu>());
-    let animation_frame_bytes = animation_frame_words
-        .len()
-        .saturating_mul(std::mem::size_of::<u32>());
-    let model_template_bytes = model_template_words
-        .len()
-        .saturating_mul(std::mem::size_of::<u32>());
-    for (label, bytes) in [
-        ("material", material_bytes),
-        ("animation", animation_bytes),
-        ("animation frame", animation_frame_bytes),
-        ("model template", model_template_bytes),
-    ] {
-        if !storage_table_fits(
-            bytes,
-            device_limits.max_buffer_size,
-            device_limits.max_storage_buffer_binding_size,
-        ) {
-            bevy::log::error!(label, bytes, "chunk asset table exceeds adapter limits");
-            return None;
-        }
-    }
-    let material_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("global chunk materials"),
-        contents: bytemuck::cast_slice(&material_words),
-        usage: BufferUsages::STORAGE,
-    });
-    let animation_sentinel = [AnimationGpu {
-        frame_start: 0,
-        frame_count: 1,
-        ticks_per_frame: 1,
-        flags: 0,
-        uv_scale: 1.0,
-    }];
-    let animation_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("global chunk animations"),
-        contents: if animation_words.is_empty() {
-            bytemuck::cast_slice(&animation_sentinel)
-        } else {
-            bytemuck::cast_slice(&animation_words)
-        },
-        usage: BufferUsages::STORAGE,
-    });
-    let animation_frame_sentinel = [TextureRef::DIAGNOSTIC.raw()];
-    let animation_frame_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("global chunk animation frames"),
-        contents: bytemuck::cast_slice(if animation_frame_words.is_empty() {
-            &animation_frame_sentinel
-        } else {
-            &animation_frame_words
-        }),
-        usage: BufferUsages::STORAGE,
-    });
-    let model_template_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("global chunk model templates"),
-        contents: bytemuck::cast_slice(&model_template_words),
-        usage: BufferUsages::STORAGE,
-    });
-    let (texture_0, view_0, padded_0) = upload_texture_page(
-        render_device,
-        render_queue,
-        bound_pages[0],
-        &upload_plans[0],
-        "global chunk texture page 0",
-    );
-    let (texture_1, view_1, padded_1) = upload_texture_page(
-        render_device,
-        render_queue,
-        bound_pages[1],
-        &upload_plans[1],
-        "global chunk texture page 1",
-    );
-    let (normal_texture_0, normal_view_0, normal_padded_0) = upload_linear_texture_page(
-        render_device,
-        render_queue,
-        &pbr_pages[0].0,
-        &pbr_upload_plans[0].0,
-        "enhanced normal page 0",
-    );
-    let (normal_texture_1, normal_view_1, normal_padded_1) = upload_linear_texture_page(
-        render_device,
-        render_queue,
-        &pbr_pages[1].0,
-        &pbr_upload_plans[1].0,
-        "enhanced normal page 1",
-    );
-    let (mer_texture_0, mer_view_0, mer_padded_0) = upload_linear_texture_page(
-        render_device,
-        render_queue,
-        &pbr_pages[0].1,
-        &pbr_upload_plans[0].1,
-        "enhanced MER page 0",
-    );
-    let (mer_texture_1, mer_view_1, mer_padded_1) = upload_linear_texture_page(
-        render_device,
-        render_queue,
-        &pbr_pages[1].1,
-        &pbr_upload_plans[1].1,
-        "enhanced MER page 1",
-    );
-    let (enhanced_color_texture_0, enhanced_color_view_0, enhanced_color_padded_0) =
-        upload_texture_page(
-            render_device,
-            render_queue,
-            enhanced_pages[0],
-            &enhanced_upload_plans[0],
-            "authored Enhanced color page 0",
-        );
-    let (enhanced_color_texture_1, enhanced_color_view_1, enhanced_color_padded_1) =
-        upload_texture_page(
-            render_device,
-            render_queue,
-            enhanced_pages[1],
-            &enhanced_upload_plans[1],
-            "authored Enhanced color page 1",
-        );
-    let (enhanced_normal_texture_0, enhanced_normal_view_0, enhanced_normal_padded_0) =
-        upload_linear_texture_page(
-            render_device,
-            render_queue,
-            enhanced_pages[2],
-            &enhanced_upload_plans[2],
-            "authored Enhanced normal page 0",
-        );
-    let (enhanced_normal_texture_1, enhanced_normal_view_1, enhanced_normal_padded_1) =
-        upload_linear_texture_page(
-            render_device,
-            render_queue,
-            enhanced_pages[3],
-            &enhanced_upload_plans[3],
-            "authored Enhanced normal page 1",
-        );
-    let (enhanced_mer_texture_0, enhanced_mer_view_0, enhanced_mer_padded_0) =
-        upload_linear_texture_page(
-            render_device,
-            render_queue,
-            enhanced_pages[4],
-            &enhanced_upload_plans[4],
-            "authored Enhanced MER page 0",
-        );
-    let (enhanced_mer_texture_1, enhanced_mer_view_1, enhanced_mer_padded_1) =
-        upload_linear_texture_page(
-            render_device,
-            render_queue,
-            enhanced_pages[5],
-            &enhanced_upload_plans[5],
-            "authored Enhanced MER page 1",
-        );
-    let enhanced_texture_refs = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("authored Enhanced texture references"),
-        contents: bytemuck::cast_slice(enhanced_texture_refs),
-        usage: BufferUsages::STORAGE,
-    });
-    // Current atlas upload retains RGBA8_UNORM.
-    // A view of each existing allocation preserves gamma-space filtering for
-    // world leaves without duplicating texture memory or changing other art.
-    let native_leaf_views = [&texture_0, &texture_1].map(|texture| {
-        texture.create_view(&TextureViewDescriptor {
-            label: Some("native world leaf atlas view"),
-            format: Some(TextureFormat::Rgba8Unorm),
-            dimension: Some(TextureViewDimension::D2Array),
-            ..Default::default()
-        })
-    });
-    let sampler = render_device.create_sampler(&chunk_sampler_descriptor());
-    let native_leaf_sampler =
-        render_device.create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
-
-    let mut stats = ChunkTextureUploadStats {
-        upload_count: 1,
-        ..Default::default()
-    };
-    stats.material_bytes = material_bytes as u64;
-    stats.animation_bytes = animation_bytes as u64;
-    stats.animation_frame_bytes = animation_frame_bytes as u64;
-    stats.texture_bytes_including_mips = bound_pages
-        .iter()
-        .flat_map(|texture| texture.mips.iter())
-        .map(|mip| mip.rgba8.len() as u64)
-        .sum();
-    stats.padded_upload_bytes = padded_0
-        .saturating_add(padded_1)
-        .saturating_add(normal_padded_0)
-        .saturating_add(normal_padded_1)
-        .saturating_add(mer_padded_0)
-        .saturating_add(mer_padded_1)
-        .saturating_add(enhanced_color_padded_0)
-        .saturating_add(enhanced_color_padded_1)
-        .saturating_add(enhanced_normal_padded_0)
-        .saturating_add(enhanced_normal_padded_1)
-        .saturating_add(enhanced_mer_padded_0)
-        .saturating_add(enhanced_mer_padded_1);
-    stats.texture_bytes_including_mips = stats.texture_bytes_including_mips.saturating_add(
-        pbr_pages
-            .iter()
-            .flat_map(|(normal, mer)| normal.mips.iter().chain(mer.mips.iter()))
-            .map(|mip| mip.rgba8.len() as u64)
-            .sum::<u64>(),
-    );
-    stats.texture_bytes_including_mips = stats.texture_bytes_including_mips.saturating_add(
-        enhanced_pages
-            .iter()
-            .flat_map(|texture| texture.mips.iter())
-            .map(|mip| mip.rgba8.len() as u64)
-            .sum::<u64>(),
-    );
-    let prepared = PreparedChunkTextureAssets {
-        identity,
-        material_buffer,
-        animation_buffer,
-        animation_frame_buffer,
-        model_template_buffer,
-        _textures: [texture_0, texture_1],
-        views: [view_0, view_1],
-        _pbr_textures: [
-            normal_texture_0,
-            normal_texture_1,
-            mer_texture_0,
-            mer_texture_1,
-        ],
-        pbr_views: [normal_view_0, normal_view_1, mer_view_0, mer_view_1],
-        _enhanced_textures: [
-            enhanced_color_texture_0,
-            enhanced_color_texture_1,
-            enhanced_normal_texture_0,
-            enhanced_normal_texture_1,
-            enhanced_mer_texture_0,
-            enhanced_mer_texture_1,
-        ],
-        enhanced_views: [
-            enhanced_color_view_0,
-            enhanced_color_view_1,
-            enhanced_normal_view_0,
-            enhanced_normal_view_1,
-            enhanced_mer_view_0,
-            enhanced_mer_view_1,
-        ],
-        enhanced_texture_refs,
-        native_leaf_views,
-        native_leaf_sampler,
-        sampler,
-        pbr_sampler: render_device
-            .create_sampler(&crate::material_shader::pbr_sampler_descriptor()),
-        enhanced_sampler: render_device
-            .create_sampler(&crate::material_shader::pbr_sampler_descriptor()),
-    };
-    Some((prepared, stats))
 }
 
 pub(in crate::chunk) fn chunk_sampler_descriptor() -> SamplerDescriptor<'static> {
@@ -892,123 +445,6 @@ pub(in crate::chunk) fn storage_table_fits(
 ) -> bool {
     u64::try_from(bytes)
         .is_ok_and(|bytes| bytes <= max_buffer_size && bytes <= u64::from(max_binding_size))
-}
-
-pub(in crate::chunk) fn upload_texture_page(
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-    texture_array: &TextureArray,
-    upload_plans: &[TextureMipUploadPlan],
-    label: &'static str,
-) -> (Texture, TextureView, u64) {
-    upload_texture_page_format(
-        render_device,
-        render_queue,
-        texture_array,
-        upload_plans,
-        label,
-        TextureFormat::Rgba8UnormSrgb,
-        &[TextureFormat::Rgba8Unorm],
-    )
-}
-
-fn upload_linear_texture_page(
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-    texture_array: &TextureArray,
-    upload_plans: &[TextureMipUploadPlan],
-    label: &'static str,
-) -> (Texture, TextureView, u64) {
-    upload_texture_page_format(
-        render_device,
-        render_queue,
-        texture_array,
-        upload_plans,
-        label,
-        TextureFormat::Rgba8Unorm,
-        &[],
-    )
-}
-
-fn upload_texture_page_format(
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-    texture_array: &TextureArray,
-    upload_plans: &[TextureMipUploadPlan],
-    label: &'static str,
-    format: TextureFormat,
-    view_formats: &[TextureFormat],
-) -> (Texture, TextureView, u64) {
-    let mip_level_count = u32::try_from(texture_array.mips.len())
-        .expect("validated texture pages have a bounded mip count");
-    let texture = render_device.create_texture(&TextureDescriptor {
-        label: Some(label),
-        // Pages may differ in layer size; server overlay pages keep source resolution.
-        size: Extent3d {
-            width: texture_array.mips.first().map_or(1, |mip| mip.size),
-            height: texture_array.mips.first().map_or(1, |mip| mip.size),
-            depth_or_array_layers: texture_array.layers,
-        },
-        mip_level_count,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format,
-        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        view_formats,
-    });
-    let mut padded_upload_bytes = 0_u64;
-    for (mip, plan) in texture_array.mips.iter().zip(upload_plans) {
-        let staging = padded_mip_bytes(mip.rgba8.as_ref(), texture_array.layers, plan);
-        padded_upload_bytes = padded_upload_bytes.saturating_add(staging.len() as u64);
-        render_queue.write_texture(
-            TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: plan.mip_level,
-                origin: Origin3d::default(),
-                aspect: Default::default(),
-            },
-            &staging,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(plan.bytes_per_row),
-                rows_per_image: Some(plan.rows_per_image),
-            },
-            Extent3d {
-                width: plan.size,
-                height: plan.size,
-                depth_or_array_layers: texture_array.layers,
-            },
-        );
-    }
-    let view = texture.create_view(&TextureViewDescriptor {
-        label: Some(label),
-        dimension: Some(TextureViewDimension::D2Array),
-        mip_level_count: Some(mip_level_count),
-        array_layer_count: Some(texture_array.layers),
-        ..Default::default()
-    });
-    (texture, view, padded_upload_bytes)
-}
-
-pub(in crate::chunk) fn padded_mip_bytes(
-    rgba8: &[u8],
-    layers: u32,
-    plan: &TextureMipUploadPlan,
-) -> Vec<u8> {
-    let mut staging = vec![0; plan.staging_bytes];
-    let row_bytes = plan.size as usize * 4;
-    let padded_row_bytes = plan.bytes_per_row as usize;
-    for layer in 0..layers as usize {
-        let source_layer = plan.layer_source_offsets[layer];
-        let staging_layer = plan.layer_staging_offsets[layer];
-        for row in 0..plan.size as usize {
-            let source = source_layer + row * row_bytes;
-            let destination = staging_layer + row * padded_row_bytes;
-            staging[destination..destination + row_bytes]
-                .copy_from_slice(&rgba8[source..source + row_bytes]);
-        }
-    }
-    staging
 }
 
 pub(in crate::chunk) fn bind_group_needs_rebuild<K: PartialEq>(

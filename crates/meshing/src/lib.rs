@@ -11,10 +11,12 @@ pub mod cloud_viewport;
 pub mod color;
 mod connectivity;
 mod contributors;
+mod light_emitters;
 pub mod lighting;
 pub mod liquid;
 mod publication;
 mod types;
+pub use light_emitters::BlockLightEmitter;
 
 const SIDE: usize = world::SUB_CHUNK_SIDE;
 

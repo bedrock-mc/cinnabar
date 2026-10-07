@@ -1,3 +1,53 @@
+## Enhanced photographic lighting extension
+
+- Beacon/player transitions: finite emitter point-shadow filtering crosses cube seams;
+  reprojected receiver visibility blends over 45ms independently of TAA. Replacement
+  reflection captures blend displayed radiance over 60ms and stop work after settling.
+  Native regressions cover repeated crossings, camera jitter, moving receiver ownership,
+  depth edges and cube atlas padding. Live multi-player beacon crossings and GPU cost acceptance remain open.
+- User-requested non-parity extension: calibrated HDR exposure, horizon/contact visibility,
+  physical sky, volumetric clouds, geometry reflections, local lamps and authored materials.
+  Server-authored unlit actors retain their intended appearance. Vanilla gates stay open.
+- Clear-weather streaming fade is restricted to the outer 14% horizontal range; physical
+  height fog/weather scattering remain. Enlarged sun/moon discs keep area-normalized energy.
+- Clouds use persistent 64x64x64 tileable Perlin/Worley noise with filtered 3D mips, weather types,
+  erosion and internal light. Generation is cached and omitted for Vanilla-only views;
+  effects wait for queue-ordered generation. The cloud view march remains 24 steps.
+- Directional shadow kernels follow world receivers, with contact hardening, cascade
+  padding and receiver-plane correction. Camera-centered radial coverage stays fixed through
+  yaw/pitch/FOV changes and overlaps before cascade handoff. Screen contacts are a bounded
+  supplement. Cloud-shadow sampling no longer resets with camera history, and cached cloud
+  coordinates follow receiver height. AO dims incident light independently of emission.
+- A resident 48x32x48m irradiance grid traces occluded sky and one colored diffuse bounce.
+  Applied empty subchunks are known air; missing geometry is unknown. Visibility/distance
+  moments reject interpolation across walls; voxel sky access bounds distant sky escape.
+  Initial center probes update first, with 32 probes x 32 rays per batch; unchanged warm input stops.
+  Scrolling reuses overlapping world probes, prioritizes exposed cells and rejects departed aliases.
+  Refreshed radiance blends over 120ms; geometry/dimension cuts reject history immediately.
+  Trusted skylight bounds sky fallback across missing distant residency for known bounce surfaces.
+- Authored 512x512 block layers decode Bedrock texture sets, MER/MERS and explicit LabPBR 1.3.
+  Packed normals retain AO/height; material data includes dielectric F0, metal identity,
+  emission, subsurface and porosity. Joint linear/coverage-preserving material mips filter
+  normals and roughness. Optional local packs use content-addressed decode caches.
+  Vanilla sessions skip optional pack loading; runtime Enhanced selection starts background decoding.
+  Authored-only GPU updates retain carrier resources, upload at most 8 MiB/frame and publish
+  complete maps together. Unknown XsRealism specular/normal formats are skipped; explicit
+  color/height and verified Faithful LabPBR remain active. Driver allocation cost is unmeasured.
+- Nearby opaque authored height maps use bounded 12-step parallax and five-tap directional
+  relief visibility; cutouts, translucency, animation and subpixel/distant relief retain
+  geometry. Normal bases follow UV rotation/mirroring and transformed model surfaces.
+- Submitted actor/wind motion, cubic temporal reconstruction, GGX reflection filtering and
+  restrained bloom remain. Local lamps admit 32 sources/eight per tile, two shadowed sources
+  with six 256x256 faces each. Current native visual/streaming/performance acceptance is pending;
+  GPU cost measurement is user-owned. Earlier hardware reviews do not close this revision.
+- Incomplete approximations: finite voxel volume, conservative 1m model occupancy, one bounce,
+  unknown-boundary sky fallback, newly exposed probe warmup, no animated actors in secondary transport,
+  RGB higher atmospheric/cloud scattering, screen refraction/analytic caustics and transparent
+  radiance reactivity. Pack coverage is partial and resource-pack mappings require inspection.
+  Custom animation order/maps are sampled into the carrier clock; independent authored timing
+  remains incomplete. Full split-screen viewport support and cross-backend acceptance remain open.
+- Details and primary references: [Enhanced renderer](crates/render/src/enhanced/README.md).
+
 ## Held cube item consistency
 
 - Cube admission now ignores unrelated gameplay flags and terrain occlusion.

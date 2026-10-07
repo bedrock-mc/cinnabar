@@ -165,6 +165,7 @@ pub(crate) struct ActorAnimationStore {
     next_reset_generation: u64,
     next_rest_reset_generation: u64,
     stats: ActorAnimationStats,
+    local_body_enabled: bool,
 }
 
 #[derive(Debug)]
@@ -205,6 +206,7 @@ struct ActorRigState {
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     ui_pose: Option<Vec<BoneTransform>>,
     ui_animation: Option<hud::UiAnimationState>,
+    world_body: Option<body::WorldBodyState>,
     view_context: Option<bool>,
     rest: Vec<BoneTransform>,
     rest_completed_tick: u64,
@@ -370,6 +372,7 @@ impl ActorAnimationStore {
             next_reset_generation: 1,
             next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
+            local_body_enabled: false,
         }
     }
 
@@ -672,6 +675,35 @@ impl ActorAnimationStore {
                 state.ui_pose = None;
                 state.ui_animation = None;
             }
+            if self.local_body_enabled
+                && exempt == Some(actor.runtime_id)
+                && context.is_local_first_person
+            {
+                if let Err(error) = body::evaluate(
+                    state_assets,
+                    state_layout,
+                    state,
+                    actor,
+                    &context,
+                    self.completed_tick,
+                    &mut budget,
+                ) {
+                    self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
+                    match error {
+                        EvalError::ActorBudget => {
+                            self.stats.actor_budget_exhaustions =
+                                self.stats.actor_budget_exhaustions.saturating_add(1)
+                        }
+                        EvalError::WorldBudget => {
+                            self.stats.world_budget_exhaustions =
+                                self.stats.world_budget_exhaustions.saturating_add(1)
+                        }
+                        EvalError::Invalid => {}
+                    }
+                }
+            } else {
+                state.world_body = None;
+            }
             self.stats.evaluated_molang_ops = self
                 .stats
                 .evaluated_molang_ops
@@ -885,6 +917,7 @@ fn resolve_rig(
 }
 
 mod attachable;
+mod body;
 mod clock;
 pub(crate) mod custom_emotes;
 mod evaluation;

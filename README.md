@@ -41,9 +41,10 @@ $env:CINNABAR_ENHANCED_PBR_DIR = 'C:\packs\XsRealism-512x-main;C:\packs\XsRealis
 make play CLIENT_FEATURES=enhanced RENDER_MODE=enhanced
 ```
 
-The loader accepts Java-style `_n` and `_s` maps, converts `_s` to Bedrock MER channels, and
-normalizes authored layers to 512x512. Blocks without a matching authored texture keep the
-renderer’s generated PBR fallback.
+The loader reads Bedrock texture sets and explicitly declared LabPBR 1.3 companions,
+normalizing authored layers to 512x512. Unknown Java channel formats are skipped.
+Blocks without matching colors retain carrier textures; missing authored maps use neutral defaults.
+See [pack configuration and material coverage](crates/render/src/enhanced/README.md#authored-512x-pbr-packs).
 
 To join one server directly without the menu, run the core and client in two terminals:
 

@@ -97,6 +97,7 @@ impl ActorRigState {
             self.rest = rest;
             self.reset_pending = true;
             self.rest_reset_pending = true;
+            self.world_body = None;
         }
     }
 }

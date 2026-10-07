@@ -373,7 +373,7 @@ pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Back
     }
     #[cfg(target_os = "windows")]
     {
-        Some(Backends::DX12)
+        Some(Backends::VULKAN)
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -618,7 +618,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let weather_textures =
         environment::load_optional_weather_textures(&loaded_assets.selected_path);
-    let enhanced_textures = loaded_assets.enhanced_textures.clone();
+    let authored_texture_loading = crate::render_mode::AuthoredTextureLoading::new(
+        Arc::clone(&loaded_assets.runtime),
+        loaded_assets.material_keys.clone(),
+    );
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
@@ -855,10 +858,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         atmosphere_identity,
     ))
     .insert_resource(startup_biome_tints(&runtime_assets))
-    .insert_resource(match enhanced_textures {
-        Some(enhanced) => ChunkTextureAssets::with_enhanced(runtime_assets, enhanced, 0),
-        None => ChunkTextureAssets::new(runtime_assets),
-    })
+    .insert_resource(ChunkTextureAssets::new(runtime_assets))
+    .insert_resource(authored_texture_loading)
     .insert_resource(CaveVisibilityCache::default())
     .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
     .insert_resource(runtime_config)

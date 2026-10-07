@@ -10,14 +10,13 @@ use std::{
 
 use anyhow::{Context, Result};
 use bevy::{
-    anti_alias::taa::TemporalAntiAliasing,
     camera::Camera3dDepthTextureUsage,
     ecs::system::lifetimeless::{Read, Write},
-    post_process::bloom::Bloom,
+    post_process::bloom::{Bloom, BloomCompositeMode, BloomPrefilter},
     prelude::*,
     render::{render_resource::TextureUsages, view::Hdr},
 };
-use render::{EnhancedRenderPlugin, EnhancedRendering};
+use render::{EnhancedRenderPlugin, EnhancedRendering, EnhancedShadowDebug};
 use render_model::ENHANCED_RENDERING_ENABLED;
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
@@ -27,11 +26,15 @@ use crate::{
     settings_runtime::RuntimeSettings,
 };
 
+mod authored_textures;
+pub(crate) use authored_textures::AuthoredTextureLoading;
+
 pub(crate) const RENDER_MODE_ENV: &str = "CINNABAR_RENDER_MODE";
 const MAX_GRAPHICS_FILE_BYTES: u64 = 4096;
 // The right bracket is currently unclaimed by the built-in debug, modding, and
 // experience controls, so the probe does not change existing shortcuts.
 const ENHANCED_TIME_KEY: KeyCode = KeyCode::BracketRight;
+const ENHANCED_SHADOW_KEY: KeyCode = KeyCode::BracketLeft;
 
 const ENHANCED_TIME_PRESETS: [(Option<u32>, &str); 8] = [
     (Some(1_000), "Morning"),
@@ -140,7 +143,9 @@ impl Plugin for RenderModePlugin {
                 Update,
                 (
                     apply_menu_render_mode,
+                    authored_textures::update_authored_textures,
                     apply_render_mode_to_cameras,
+                    cycle_enhanced_shadow_debug,
                     sync_enhanced_bloom,
                     cycle_enhanced_time,
                 )
@@ -232,7 +237,6 @@ fn apply_render_mode_to_cameras(
                     .into();
                 commands.entity(entity).insert((
                     EnhancedRendering::default(),
-                    TemporalAntiAliasing::default(),
                     Hdr,
                     VanillaDepthUsage(original),
                 ));
@@ -242,7 +246,7 @@ fn apply_render_mode_to_cameras(
                 }
                 commands.entity(entity).remove::<(
                     EnhancedRendering,
-                    TemporalAntiAliasing,
+                    bevy::render::camera::TemporalJitter,
                     Hdr,
                     Bloom,
                     VanillaDepthUsage,
@@ -258,13 +262,21 @@ fn sync_enhanced_bloom(
     cameras: Query<(Entity, &EnhancedRendering, Has<Bloom>), With<FlyCamera>>,
 ) {
     for (entity, enhanced, has_bloom) in &cameras {
-        let bloom = ENHANCED_RENDERING_ENABLED && enhanced.bloom;
+        let bloom = ENHANCED_RENDERING_ENABLED
+            && enhanced.bloom
+            && enhanced.shadow_debug == EnhancedShadowDebug::Off;
         if bloom == has_bloom {
             continue;
         }
         if bloom {
             commands.entity(entity).insert(Bloom {
-                intensity: 0.12,
+                intensity: 0.045,
+                low_frequency_boost: 0.0,
+                prefilter: BloomPrefilter {
+                    threshold: 1.5,
+                    threshold_softness: 0.25,
+                },
+                composite_mode: BloomCompositeMode::Additive,
                 ..default()
             });
         } else {
@@ -302,9 +314,143 @@ fn cycle_enhanced_time(
     debug!(target: "cinnabar::enhanced", ?ticks, preset = label, "changed debug time preset");
 }
 
+fn shadow_debug_input_allowed(mode: RenderMode, focused: bool, menu_visible: bool) -> bool {
+    ENHANCED_RENDERING_ENABLED && mode == RenderMode::Enhanced && focused && !menu_visible
+}
+
+fn next_shadow_debug(mode: EnhancedShadowDebug) -> (EnhancedShadowDebug, &'static str) {
+    use EnhancedShadowDebug::{Cascades, DepthFar, DepthMiddle, DepthNear, Off, Visibility};
+    match mode {
+        Off => (Cascades, "Cascade coverage"),
+        Cascades => (Visibility, "Shadow visibility"),
+        Visibility => (DepthNear, "Near shadow depth"),
+        DepthNear => (DepthMiddle, "Middle shadow depth"),
+        DepthMiddle => (DepthFar, "Far shadow depth"),
+        DepthFar => (Off, "Off"),
+    }
+}
+
+fn cycle_enhanced_shadow_debug(
+    settings: Res<RuntimeSettings>,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    menu: Option<Res<MenuRuntime>>,
+    mut cameras: Query<&mut EnhancedRendering, With<FlyCamera>>,
+) {
+    let focused = windows.iter().next().is_none_or(|window| window.focused);
+    let menu_visible = menu.as_ref().is_some_and(|menu| menu.is_visible());
+    if !shadow_debug_input_allowed(
+        settings.user_settings_update().1.video.render_mode,
+        focused,
+        menu_visible,
+    ) || !keys.just_pressed(ENHANCED_SHADOW_KEY)
+    {
+        return;
+    }
+    for mut enhanced in &mut cameras {
+        let (next, label) = next_shadow_debug(enhanced.shadow_debug);
+        enhanced.shadow_debug = next;
+        info!(target: "cinnabar::enhanced", mode = label, "changed shadow debug view");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shadow_debug_cycles_all_views_and_returns_to_normal_lighting() {
+        let mut mode = EnhancedShadowDebug::Off;
+        let mut observed = Vec::new();
+        for _ in 0..6 {
+            mode = next_shadow_debug(mode).0;
+            observed.push(mode);
+        }
+        assert_eq!(
+            observed,
+            [
+                EnhancedShadowDebug::Cascades,
+                EnhancedShadowDebug::Visibility,
+                EnhancedShadowDebug::DepthNear,
+                EnhancedShadowDebug::DepthMiddle,
+                EnhancedShadowDebug::DepthFar,
+                EnhancedShadowDebug::Off,
+            ]
+        );
+    }
+
+    #[test]
+    fn shadow_debug_input_respects_render_mode_focus_and_menu() {
+        assert!(!shadow_debug_input_allowed(
+            RenderMode::Vanilla,
+            true,
+            false
+        ));
+        assert!(!shadow_debug_input_allowed(
+            RenderMode::Enhanced,
+            false,
+            false
+        ));
+        assert!(!shadow_debug_input_allowed(
+            RenderMode::Enhanced,
+            true,
+            true
+        ));
+        assert_eq!(
+            shadow_debug_input_allowed(RenderMode::Enhanced, true, false),
+            ENHANCED_RENDERING_ENABLED,
+        );
+    }
+
+    #[cfg(feature = "enhanced")]
+    #[test]
+    fn shadow_key_changes_only_focused_enhanced_gameplay_cameras() {
+        let mut app = App::new();
+        app.init_resource::<RuntimeSettings>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update, cycle_enhanced_shadow_debug);
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), EnhancedRendering::default()))
+            .id();
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), bevy::window::PrimaryWindow))
+            .id();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(ENHANCED_SHADOW_KEY);
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<EnhancedRendering>(camera)
+                .unwrap()
+                .shadow_debug,
+            EnhancedShadowDebug::Off,
+        );
+        set_render_mode(
+            &mut app.world_mut().resource_mut::<RuntimeSettings>(),
+            RenderMode::Enhanced,
+        );
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<EnhancedRendering>(camera)
+                .unwrap()
+                .shadow_debug,
+            EnhancedShadowDebug::Off,
+        );
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<EnhancedRendering>(camera)
+                .unwrap()
+                .shadow_debug,
+            EnhancedShadowDebug::Cascades,
+        );
+    }
 
     #[test]
     fn enhanced_time_presets_cycle_through_daylight_and_server_clock() {

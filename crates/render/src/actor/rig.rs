@@ -72,6 +72,8 @@ pub enum ActorRigRoute {
     Compiled,
     StaticFallback,
     Diagnostic,
+    /// Participates only in Enhanced directional-light shadow passes.
+    ShadowOnly,
     NoDraw,
 }
 
@@ -442,7 +444,12 @@ impl ActorRigFrameBuilder {
         // ascending order so a coplanar overlay draws after the layers beneath it.
         ordered.sort_by_key(|submission| {
             let identity = submission.input.identity;
-            (identity.layer, page_of(&identity), submission.input.rig)
+            (
+                submission.route == ActorRigRoute::ShadowOnly,
+                identity.layer,
+                page_of(&identity),
+                submission.input.rig,
+            )
         });
         let mut body_count = 0usize;
         for submission in ordered.drain(..) {
@@ -450,7 +457,9 @@ impl ActorRigFrameBuilder {
                 rejects.no_draw = rejects.no_draw.saturating_add(1);
                 continue;
             }
-            let diagnostic = submission.route == ActorRigRoute::Diagnostic;
+            let diagnostic = submission.route == ActorRigRoute::Diagnostic
+                || (submission.route == ActorRigRoute::ShadowOnly
+                    && submission.input.rig == DIAGNOSTIC_RIG_ID);
             if (!submission.input.identity.is_exact() || submission.input.completed_tick == 0)
                 && !diagnostic
                 || submission.input.reset_generation == 0
@@ -496,7 +505,9 @@ impl ActorRigFrameBuilder {
                 continue;
             }
             let geometry_id = match submission.route {
-                ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => submission.input.rig,
+                ActorRigRoute::Compiled
+                | ActorRigRoute::StaticFallback
+                | ActorRigRoute::ShadowOnly => submission.input.rig,
                 ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
                 ActorRigRoute::NoDraw => unreachable!(),
             };
