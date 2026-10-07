@@ -49,22 +49,23 @@ pub(super) fn draw(
             if unread > 99 { "+" } else { "" }
         )
     };
-    for (i, (label, action)) in [
-        (friends.as_str(), MenuAction::Navigate(MenuScreen::Friends)),
-        (inbox.as_str(), MenuAction::Navigate(MenuScreen::Inbox)),
-        ("Quit", MenuAction::OpenExitDialog),
+    for (i, (label, variant, action)) in [
+        (
+            friends.as_str(),
+            Variant::Neutral,
+            MenuAction::Navigate(MenuScreen::Friends),
+        ),
+        (
+            inbox.as_str(),
+            Variant::Neutral,
+            MenuAction::Navigate(MenuScreen::Inbox),
+        ),
+        ("Quit", Variant::Destructive, MenuAction::OpenExitDialog),
     ]
     .into_iter()
     .enumerate()
     {
-        widgets::button(
-            canvas,
-            view,
-            bounds[i + 1],
-            Variant::Neutral,
-            label,
-            Some(action),
-        )?;
+        widgets::button(canvas, view, bounds[i + 1], variant, label, Some(action))?;
     }
     canvas.end_focus_region(region);
     Ok(())
