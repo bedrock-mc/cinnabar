@@ -857,6 +857,13 @@ pub(in crate::chunk) fn release_completed_transparent_retirements(
     arena: &mut ChunkGpuArena,
     completed_epoch: u64,
 ) {
+    #[cfg(feature = "tracy")]
+    let _zone = bevy::log::info_span!(
+        "chunk.resource_retirement",
+        pending = arena.retired_allocations.len(),
+        completed_epoch,
+    )
+    .entered();
     let mut retained = Vec::with_capacity(arena.retired_allocations.len());
     for retirement in std::mem::take(&mut arena.retired_allocations) {
         if !retirement.can_release(completed_epoch) {

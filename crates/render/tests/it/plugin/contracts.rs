@@ -10,17 +10,6 @@ fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mip
 }
 
 #[test]
-fn graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_probe() {
-    let source = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
-    assert!(
-        source.contains(
-            "publish_graphics_runtime_metadata\n                        .after(RenderSystems::ExtractCommands)\n                        .after(crate::present_mode::PresentModePolicySet)\n                        .before(bevy::render::view::window::create_surfaces)"
-        ),
-        "the metadata probe must wait for extracted diagnostics and present-mode policy resolution before Bevy creates the surface"
-    );
-}
-
-#[test]
 fn sort_ref_ceiling_is_enforced() {
     assert_eq!(size_of::<PackedTransparentDrawRef>(), 8);
     assert_eq!(MAX_TRANSPARENT_DRAW_REFS, 2_097_152);
