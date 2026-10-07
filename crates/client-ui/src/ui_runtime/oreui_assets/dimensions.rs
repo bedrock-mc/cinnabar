@@ -51,7 +51,7 @@ fn append(images: &mut OreUiImages, directory: &Path) {
             continue;
         }
         let decoded = decode(&path).and_then(|(width, height, pixels)| {
-            if bytes + pixels.len() > render_model::MAX_UI_TEXTURE_BYTES / 2 {
+            if bytes + pixels.len() > render_model::MAX_UI_FIXED_TEXTURE_BYTES / 2 {
                 return Err("dimension artwork exceeds its texture budget".into());
             }
             Ok((width, height, pixels))

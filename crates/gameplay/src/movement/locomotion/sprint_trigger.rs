@@ -108,7 +108,6 @@ mod tests {
             requested_movement: request,
             on_ground: true,
             in_water: false,
-            in_lava: false,
             sprinting: true,
             sprint_blinded: false,
             sprint_down: false,

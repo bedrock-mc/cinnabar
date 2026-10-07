@@ -80,7 +80,6 @@ pub(super) struct ModeObservation {
     pub feet: Vec3,
     pub on_ground: bool,
     pub in_water: bool,
-    pub in_lava: bool,
     pub sprinting: bool,
     pub sprint_blinded: bool,
     pub sprint_down: bool,
@@ -228,7 +227,6 @@ impl ModeTracker {
         )?;
         let observed = ModeObservation {
             in_water: sampled.value.in_water,
-            in_lava: sampled.value.in_lava,
             ..observed
         };
         // The sprint trigger runs before the swim trigger and keeps the previous actor
@@ -441,7 +439,6 @@ mod tests {
             feet: Vec3::new(0.0, 10.0, 0.0),
             on_ground: false,
             in_water: false,
-            in_lava: false,
             sprinting: false,
             sprint_blinded: false,
             sprint_down: false,

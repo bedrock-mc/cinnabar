@@ -16,6 +16,10 @@
 
 # Vanilla reference map
 
+## app/src/runtime/network/block_overlay.rs; app/src/runtime/network/block_overlay/tests/builtins.rs
+
+- The current [geometry component documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/blockreference/examples/blockcomponents/minecraftblock_geometry?view=minecraft-bedrock-stable) and [1.26.0 Creator update](https://github.com/MicrosoftDocs/minecraft-creator/blob/main/creator/Documents/Update1.26.0.md) establish `minecraft:geometry.full_block_v1` as the intrinsic that preserves the original full-cube DOWN orientation. For block format 1.26.0 and later, `minecraft:geometry.full_block` rotates that face by 180 degrees to match ordinary full blocks. The intrinsic uses the native cube path; the versioned DOWN material reverses its existing UVs without changing other faces or duplicating source pixels.
+
 ## crates/client-ui/src/ui_runtime/presentation/forms/oreui/inbox/; crates/client-ui/src/ui_runtime/presentation/forms/oreui/sidebar.rs
 - Installed near-version `1.26.51.01` hbui `W3` uses a 102rem narrow breakpoint, a 0.8rem top spacer, desktop 1/3/7/1 grid columns and narrow 0/2/6 columns. `c3`/`i3` select `RK.ListItem` and `V_`: neutral80 sidebar, 1.6rem top/bottom spacing, 4.8rem rows, native category icons and selected icon highlight. CSS `d3b4fa33c4466e32479a` owns the sidebar's 0.2rem border; its ListItem states are indexed in the Settings sidebar entry below.
 - `R3`/`A3`/`L3` select category-specific empty cards. `RO` is neutral80 with a 0.2rem border and 1.6rem padding; `AO` uses centered secondaryButton type, `NO` adds 1.6rem above and below the illustration, and `LO` uses centered dimmest captionShort. CSS `c4efde010b75d43947fa` displays the five 128×48 Inbox_No* PNGs at 256×96 times base1Scale. English strings are `data/resource_packs/oreui/texts/en_US.lang` under `hbui.InboxRoute`.
@@ -945,6 +949,12 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// `ClientInstance::isShowingMenu`.
 - /// history alone when it holds none (`popScreensBackToFirstInstanceOf`).
 
+## crates/json-ui/src/sidecar.rs; crates/pack-compiler/src/ui.rs; crates/json-ui/src/sprite.rs
+
+- Current `1.26.50.26` `UITextureInfo::_loadNineslice` (`0x0043be10`, `src/__recovered/UITextureInfo.cpp:245` and `:565`) initializes base UV dimensions to zero, parses a numeric or four-element `nineslice_size` independently, and assigns explicit base dimensions only from `base_size` arrays with at least two elements. Numeric, absent and malformed base sizes leave the default dimensions without discarding a valid slice.
+- The slice conversion at `0x00445f00` (`src/__unmapped/00.cpp:842392`) expands a numeric inset to all four edges; the four-element form preserves its edge values. Insets and explicit base dimensions have nonnegative assertions.
+- The Sprite draw path at `0x04d1a3d0` (`src/__unmapped/04.cpp:2215585` and `:2215721`) obtains the source UV extent from the explicit region or raster dimensions. It uses sidecar base dimensions only when both are nonzero; otherwise the source extent divides by itself, preserving source-pixel border widths. A numeric `base_size` therefore cannot rescale a border even when its number differs from the raster size.
+
 ## crates/json-ui/src/sprite.rs
 - //! The `image` control's sprite, following vanilla's `SpriteComponent` draw
 - //! dispatch: nine-slice first, then a clipped, tiled, filled (cover), kept-ratio
@@ -998,6 +1008,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/launcher/src/menu/settings_options/definitions.rs
 - // current OptionRegistry values are recovered; see plan.md.
+- Auto-jump: `OptionRegistry::_registerOptions` (`0x0239ba00`, bytes at VA `0x1423acef1`)
+  registers InputModeBoolOption id `0x186` "ctrl_autojump" / "options.autojump" with default
+  argument 0; constructor `0x009b7840` writes that one default for input modes 1-3, so
+  keyboard/mouse, touch and gamepad all default off in 1.26.50 (mac 26.30 registered true).
 
 ## crates/launcher/src/menu/settings_options/emotes.rs
 - /// R: native EmoteWheelScreenController equipped top/right/bottom/left slots.
@@ -2978,3 +2992,23 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
 - `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
   `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
   `#show_survival_ui` to `#visible`; absorption is native renderer state.
+
+## crates/protocol/src/item.rs; crates/protocol/tests/it/items_actions.rs
+
+- Current `1.26.50.26` `src/__recovered/ItemRegistry.cpp:1665–2368`,
+  `ItemRegistry::matchServerItemIds` (RVA `0x03984630`), registers definitions
+  before assigning their advertised numeric IDs. Its component pass at
+  `2160–2219` walks the original `ItemData` vector in order, skips a missing
+  `components` compound, resolves the item by identifier and initializes it
+  from each present compound. An empty root declaration therefore does not
+  suppress a populated declaration for the same item, in either order.
+- Near-version `reference/26.30/src/by-owner/i/ItemRegistry.cpp:11263–11308`
+  corroborates the compound-type check and virtual initialization call;
+  `by-owner/i/Item.cpp:6640` and `by-owner/c/ComponentItem.cpp:8050` identify
+  `initializeFromNetwork(CompoundTag const&)`. Component initialization can
+  update fields and accumulate tags, so arbitrary replacement of two different
+  populated definitions is not established by this witness.
+- The normalized registry retains unique numeric bindings, collapses identical
+  records and lets a populated definition refine a canonical empty declaration
+  only when name, ID, version and component-based status agree. Conflicting
+  identities and two differing populated definitions remain unsupported.
