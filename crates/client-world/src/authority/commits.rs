@@ -121,19 +121,34 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
-                    if let Some((current, sprint_modifier)) = update
+                    let movement = update
                         .attributes
                         .iter()
                         .rev()
                         .filter(|attribute| attribute.name.as_ref() == "minecraft:movement")
-                        .find_map(movement_attribute::effective_speed)
-                    {
+                        .find_map(movement_attribute::effective_speed);
+                    let liquid = |name: &str| {
+                        update
+                            .attributes
+                            .iter()
+                            .rev()
+                            .find(|attribute| attribute.name.as_ref() == name)
+                            .map(|attribute| f64::from(attribute.current))
+                    };
+                    let underwater = liquid("minecraft:underwater_movement");
+                    let lava = liquid("minecraft:lava_movement");
+                    if let Some((current, _)) = movement {
                         self.local_movement_speed = Some(current);
+                    }
+                    // One control per update keeps admission's one-slot reservation exact.
+                    if movement.is_some() || underwater.is_some() || lava.is_some() {
                         self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
                             sequence,
                             dimension: update.dimension,
-                            current,
-                            sprint_modifier,
+                            current: movement.map(|(current, _)| current),
+                            sprint_modifier: movement.and_then(|(_, modifier)| modifier),
+                            underwater,
+                            lava,
                             tick: update.tick,
                         });
                     }

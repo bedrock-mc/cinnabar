@@ -42,6 +42,13 @@ const STEP_HEIGHT: f64 = 0.5625;
 /// Player movement-speed attribute before any modifier.
 pub const DEFAULT_MOVEMENT_SPEED: f64 = 0.1;
 const DEFAULT_AIR_SPEED: f64 = 0.02;
+/// Default `minecraft:underwater_movement` and `minecraft:lava_movement` value.
+const DEFAULT_LIQUID_MOVEMENT_SPEED: f64 = 0.02;
+/// Swimming with a dolphin boost doubles water travel speed.
+const DOLPHIN_SWIM_SPEED_MULTIPLIER: f32 = 2.0;
+// A boosted swimmer's speed scales by `level / 3 * 0.3 + 0.7` instead of Depth Strider's blend.
+const BOOSTED_DEPTH_STRIDER_SCALE: f32 = 0.3;
+const BOOSTED_SWIM_BASE_SCALE: f32 = 0.7;
 const SPRINT_AIR_SPEED: f64 = 0.026;
 /// Native total/current sprint attribute modifier, applied once on sprint entry.
 pub const SPRINT_SPEED_MULTIPLIER: f64 = 1.3;
@@ -261,9 +268,11 @@ impl Simulator {
         // Liquid and ground speeds come from attributes and friction only; block
         // speed factors never scale the acceleration.
         let relative_speed = if sampled.movement.in_water {
-            water_travel_speed(&input, depth_strider)
+            water_travel_speed(&input, grounded_at_start)
         } else if sampled.movement.in_lava {
-            DEFAULT_AIR_SPEED
+            input
+                .lava_movement_speed
+                .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED)
         } else if grounded_at_start {
             ground_relative_speed(input, &sampled)
         } else if input.sprinting {
@@ -562,12 +571,34 @@ impl Simulator {
     }
 }
 
-/// Vanilla water travel speed: the water base blended toward the ground
-/// movement speed, multiplying the effective enchantment level before division.
-fn water_travel_speed(input: &MovementInput, depth_strider: f64) -> f64 {
-    let base = DEFAULT_AIR_SPEED as f32;
+/// Vanilla water travel speed from the underwater movement attribute. Depth
+/// Strider blends it toward the ground speed, multiplying the effective level
+/// before division; a dolphin-boosted swimmer scales it instead.
+fn water_travel_speed(input: &MovementInput, grounded: bool) -> f64 {
+    let base = input
+        .underwater_movement_speed
+        .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED) as f32;
+    let multiplier = swim_speed_multiplier(input);
+    let max_level = f32::from(DEPTH_STRIDER_MAX_LEVEL);
+    if multiplier > 1.0 {
+        let level = f32::from(input.depth_strider.min(DEPTH_STRIDER_MAX_LEVEL));
+        return f64::from(
+            base * multiplier
+                * ((level / max_level) * BOOSTED_DEPTH_STRIDER_SCALE + BOOSTED_SWIM_BASE_SCALE),
+        );
+    }
+    let depth_strider = depth_strider_level(input.depth_strider, grounded) as f32;
     let ground = effective_movement_speed(input);
-    f64::from(base + ((ground - base) * depth_strider as f32) / f32::from(DEPTH_STRIDER_MAX_LEVEL))
+    f64::from(base + ((ground - base) * depth_strider) / max_level)
+}
+
+/// Swimming with a dolphin boost doubles water speed and disables Depth Strider's drag blend.
+fn swim_speed_multiplier(input: &MovementInput) -> f32 {
+    if input.mode == MovementMode::Swimming && input.effects.dolphin_boost {
+        DOLPHIN_SWIM_SPEED_MULTIPLIER
+    } else {
+        1.0
+    }
 }
 
 /// Caps Depth Strider's level and halves it while airborne, before interpolation.
