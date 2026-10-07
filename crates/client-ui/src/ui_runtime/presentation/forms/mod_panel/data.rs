@@ -1,6 +1,6 @@
 use json_ui::{DataSource, Scalar};
 use serde_json::json;
-use ui::mod_panel::{Control, Panel};
+use ui::mod_panel::{Control, Panel, Theme};
 
 use super::widgets::Palette;
 
@@ -43,6 +43,18 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                         palette.accent
                     } else {
                         palette.raised
+                    })),
+                );
+                data.set_global(
+                    format!("#row_{index}_knob_color"),
+                    Scalar::Json(json!(if panel.theme == Theme::Monochrome {
+                        if *value {
+                            palette.background
+                        } else {
+                            palette.text
+                        }
+                    } else {
+                        [1.; 4]
                     })),
                 );
                 data.set_global(

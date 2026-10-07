@@ -50,6 +50,7 @@ fn missing_core_layout(root: &Path) -> InstallLayout {
         Platform::Linux,
         &InstallEnvironment {
             executable: root.join("target/debug/bedrock-client"),
+            user_root: None,
             home: Some(root.join("home")),
             local_app_data: None,
             xdg_config_home: None,
