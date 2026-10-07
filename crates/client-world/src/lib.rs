@@ -44,7 +44,7 @@ pub use block_entity_visuals::{
 pub use item::{
     ActorArmorPiece, ActorArmorSnapshot, ActorEquipmentSnapshot, CanonicalItemRegistryRecord,
     CanonicalItemStack, EquipmentNotice, EquipmentOutcome, MAX_EQUIPMENT_NOTICES,
-    MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS,
+    MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS, vanilla_max_durability,
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 

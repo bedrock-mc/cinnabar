@@ -44,6 +44,7 @@ impl SettingsGroup {
                     | "ingame_player_names"
                     | "view_bobbing"
                     | "animations"
+                    | "discord_presence"
                     | "camera_shake"
                     | "transparent_leaves"
                     | "bubble_particles"

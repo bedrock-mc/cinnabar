@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use render_model::{
-    MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_SIDE,
-    UI_DYNAMIC_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_OFFSET, UI_FALLBACK_FONT_PAGE_SIDE,
-    UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
-    UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET,
-    UiRenderRejectReason, UiTextureCatalog, UiTexturePage, UiTexturePlan,
+    MAX_UI_DYNAMIC_PAGES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_MODEL_ATLAS_PAGES,
+    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_OFFSET,
+    UI_FALLBACK_FONT_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
+    UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET,
+    UI_SESSION_ICON_PAGE_OFFSET, UiRenderRejectReason, UiTextureCatalog, UiTexturePage,
+    UiTexturePlan,
 };
 
 #[test]
@@ -169,7 +170,7 @@ fn nearly_full_catalog() -> UiTextureCatalog {
         .iter()
         .map(|page| page.pixels().len())
         .sum::<usize>();
-    let dimensions = rgba_dimensions_for_bytes(MAX_UI_TEXTURE_BYTES - dynamic_bytes - 4);
+    let dimensions = rgba_dimensions_for_bytes(MAX_UI_FIXED_TEXTURE_BYTES - dynamic_bytes - 4);
     let mut pages = dimensions
         .into_iter()
         .map(|size| rgba_page(size, 0))
@@ -177,7 +178,7 @@ fn nearly_full_catalog() -> UiTextureCatalog {
     let dynamic_start = pages.len();
     pages.extend(dynamic);
     let catalog = UiTextureCatalog::new(pages, dynamic_start).unwrap();
-    assert_eq!(catalog.plan().bytes(), MAX_UI_TEXTURE_BYTES - 4);
+    assert_eq!(catalog.plan().bytes(), MAX_UI_FIXED_TEXTURE_BYTES - 4);
     catalog
 }
 
@@ -320,7 +321,7 @@ fn native_model_slots_cannot_expand_other_reservations_or_admit_malformed_extent
 }
 
 #[test]
-fn model_resize_rechecks_full_catalog_byte_budget_before_acceptance() {
+fn model_resize_uses_reserved_capacity_beside_a_full_fixed_catalog() {
     let base = nearly_full_catalog();
     let dynamic_start = base.dynamic_start();
     let before = base.clone();
@@ -330,11 +331,13 @@ fn model_resize_rechecks_full_catalog_byte_budget_before_acceptance() {
     {
         *page = rgba_page([UI_MODEL_ATLAS_SIDE; 2], 0);
     }
-    assert!(matches!(
-        base.replace_dynamic(replacement),
-        Err(UiRenderRejectReason::TextureByteLimitExceeded { actual, limit })
-            if limit == MAX_UI_TEXTURE_BYTES && actual > limit
-    ));
+    let resized = base.replace_dynamic(replacement).unwrap();
+    assert_eq!(resized.fixed_budget_bytes(), base.fixed_budget_bytes());
+    assert!(resized.plan().bytes() <= MAX_UI_TEXTURE_BYTES);
+    assert_eq!(
+        resized.pages()[dynamic_start + UI_MODEL_ATLAS_PAGE_OFFSET].dimensions(),
+        [UI_MODEL_ATLAS_SIDE; 2]
+    );
     assert_eq!(base, before);
     assert_eq!(
         base.pages()[dynamic_start + UI_MODEL_ATLAS_PAGE_OFFSET].dimensions(),
@@ -343,17 +346,19 @@ fn model_resize_rechecks_full_catalog_byte_budget_before_acceptance() {
 }
 
 #[test]
-fn session_icon_resize_rejects_over_budget_catalog_without_mutating_it() {
+fn session_icon_resize_uses_reserved_capacity_without_mutating_its_source() {
     let base = nearly_full_catalog();
     let dynamic_start = base.dynamic_start();
     let before = base.clone();
     let mut replacement = base.pages()[dynamic_start..].to_vec();
     replacement[UI_SESSION_ICON_PAGE_OFFSET] = rgba_page([UI_DYNAMIC_PAGE_SIDE * 2; 2], 7);
-    assert!(matches!(
-        base.replace_dynamic(replacement),
-        Err(UiRenderRejectReason::TextureByteLimitExceeded { actual, limit })
-            if limit == MAX_UI_TEXTURE_BYTES && actual > limit
-    ));
+    let resized = base.replace_dynamic(replacement).unwrap();
+    assert_eq!(resized.fixed_budget_bytes(), base.fixed_budget_bytes());
+    assert!(resized.plan().bytes() <= MAX_UI_TEXTURE_BYTES);
+    assert_eq!(
+        resized.pages()[dynamic_start + UI_SESSION_ICON_PAGE_OFFSET].dimensions(),
+        [UI_DYNAMIC_PAGE_SIDE * 2; 2]
+    );
     assert_eq!(base, before);
     assert_eq!(
         base.pages()[dynamic_start + UI_SESSION_ICON_PAGE_OFFSET].dimensions(),

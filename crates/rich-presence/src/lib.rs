@@ -1,10 +1,13 @@
 //! Optional Discord desktop activity, with all IPC owned by the RPC worker.
 
-use discord_presence::{Client, event_handler::EventCallbackHandle, models::Activity};
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
+mod join;
+mod launch;
+mod presence;
+
+pub use join::join_address;
+pub use presence::Presence;
+
+use discord_presence::models::Activity;
 
 pub const APPLICATION_ID_ENV: &str = "CINNABAR_DISCORD_APPLICATION_ID";
 
@@ -38,36 +41,97 @@ pub enum State {
     Playing,
 }
 
-/// A public server endpoint with an explicit port, including brackets for IPv6.
-pub fn normalize_endpoint(address: &str) -> String {
-    let (host, port) = launcher::menu::split_address(address.trim());
-    if host.contains(':') {
-        format!("[{host}]:{port}")
-    } else {
-        format!("{host}:{port}")
-    }
+/// Where a session plays. Realm, friend and experience identifiers are never shown.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Destination {
+    /// A server endpoint with an explicit port, IPv6 bracketed.
+    Server(String),
+    Realm,
+    FriendWorld,
+    Experience,
+    /// A local world, by name.
+    LocalWorld(String),
 }
 
+/// A session's place on the card and, when others can follow, the menu address they join.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Target {
+    pub destination: Destination,
+    /// Sent only inside Discord's join secret, never in the visible card.
+    pub join: Option<String>,
+    /// A featured server's own art, shown in the card's corner.
+    pub badge: Option<Badge>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Badge {
+    /// Remote HTTPS image Discord proxies.
+    pub image_url: String,
+    /// Hover text naming the server.
+    pub name: String,
+}
+
+/// Discord rejects longer image keys and URLs.
+const MAX_IMAGE_BYTES: usize = 256;
+
 impl State {
-    pub fn activity(self, started_at: u64, address: Option<&str>) -> Activity {
-        let mut state = match self {
-            Self::Menus => "In the menus".to_owned(),
-            Self::Joining => "Joining a world".to_owned(),
-            Self::Playing => match address {
-                Some(address) => format!("Playing on {address}"),
-                None => "In a world".to_owned(),
-            },
+    pub fn activity(self, started_at: u64, target: Option<&Target>) -> Activity {
+        let destination = target.map(|target| &target.destination);
+        let mut state = match (self, destination) {
+            (Self::Menus, _) => "In the menus".to_owned(),
+            (Self::Joining, _) => "Joining a world".to_owned(),
+            (Self::Playing, None) => "In a world".to_owned(),
+            (Self::Playing, Some(Destination::Server(endpoint))) => {
+                format!("Playing on {endpoint}")
+            }
+            (Self::Playing, Some(Destination::Realm)) => "Playing on a Realm".to_owned(),
+            (Self::Playing, Some(Destination::FriendWorld)) => {
+                "Playing in a friend's world".to_owned()
+            }
+            (Self::Playing, Some(Destination::Experience)) => "Playing an experience".to_owned(),
+            (Self::Playing, Some(Destination::LocalWorld(name))) => {
+                format!("Singleplayer: {}", name.trim())
+            }
         };
         state.truncate(state.floor_char_boundary(MAX_STATE_BYTES));
-        Activity::new()
-            .details(launcher::PRODUCT_NAME)
+        let badge = (self == Self::Playing)
+            .then(|| target?.badge.as_ref())
+            .flatten()
+            .filter(|badge| {
+                badge.image_url.starts_with("https://") && badge.image_url.len() <= MAX_IMAGE_BYTES
+            });
+        let activity = Activity::new()
             .state(state)
             .assets(|assets| {
-                assets
+                let assets = assets
                     .large_image(LARGE_IMAGE_URL)
-                    .large_text(launcher::PRODUCT_NAME)
+                    .large_text(launcher::PRODUCT_NAME);
+                match badge {
+                    Some(badge) => {
+                        let mut name = badge.name.trim().to_owned();
+                        name.truncate(name.floor_char_boundary(MAX_STATE_BYTES));
+                        let assets = assets.small_image(badge.image_url.as_str());
+                        // Discord rejects hover text under two characters.
+                        if name.chars().count() >= 2 {
+                            assets.small_text(name)
+                        } else {
+                            assets
+                        }
+                    }
+                    None => assets,
+                }
             })
-            .timestamps(|timestamps| timestamps.start(started_at))
+            .timestamps(|timestamps| timestamps.start(started_at));
+        let invite = (self == Self::Playing)
+            .then(|| target?.join.as_deref())
+            .flatten()
+            .and_then(|address| Some((join::party_id(address), join::secret(address)?)));
+        match invite {
+            Some((party, secret)) => activity
+                .party(|joined| joined.id(party))
+                .secrets(|secrets| secrets.join(secret)),
+            None => activity,
+        }
     }
 }
 
@@ -75,83 +139,46 @@ const MAX_STATE_BYTES: usize = 128;
 
 #[derive(Default)]
 struct Publication {
-    last: Option<(State, u64, Option<String>)>,
+    last: Option<(State, u64, Option<Target>)>,
+    /// When the current target went live, so the in-game timer counts the session.
+    playing_since: Option<u64>,
 }
 
 impl Publication {
-    fn changed(&mut self, state: State, connection: u64, address: Option<&str>) -> bool {
-        let address = if state == State::Playing {
-            address
-        } else {
-            None
-        };
-        if let Some((last_state, last_connection, last_address)) = &self.last
+    fn changed(
+        &mut self,
+        state: State,
+        connection: u64,
+        target: Option<&Target>,
+        now: u64,
+    ) -> bool {
+        let target = target.filter(|_| state == State::Playing);
+        if let Some((last_state, last_connection, last_target)) = &self.last
             && *last_state == state
             && *last_connection == connection
-            && last_address.as_deref() == address
+            && last_target.as_ref() == target
         {
             return false;
         }
-        self.last = Some((state, connection, address.map(str::to_owned)));
+        let same_session = matches!(
+            &self.last,
+            Some((State::Playing, _, last)) if last.as_ref() == target
+        );
+        if state != State::Playing {
+            self.playing_since = None;
+        } else if !same_session {
+            self.playing_since = Some(now);
+        }
+        self.last = Some((state, connection, target.cloned()));
         true
     }
 }
 
-/// Queues only changes; the library worker coalesces updates and applies Discord's rate limit.
-pub struct Presence {
-    client: Option<Client>,
-    connected: Option<EventCallbackHandle>,
-    connection: Arc<AtomicU64>,
-    publication: Publication,
-    started_at: u64,
-}
-
-impl Presence {
-    pub fn start(application_id: u64) -> Self {
-        let connection = Arc::new(AtomicU64::new(0));
-        let mut client = Client::new(application_id);
-        let epoch = Arc::clone(&connection);
-        let connected = client.on_connected(move |_| {
-            epoch.fetch_add(1, Ordering::Relaxed);
-        });
-        let started_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        client.start();
-        Self {
-            client: Some(client),
-            connected: Some(connected),
-            connection,
-            publication: Publication::default(),
-            started_at,
-        }
-    }
-
-    pub fn update(&mut self, state: State, address: Option<&str>) {
-        if self
-            .publication
-            .changed(state, self.connection.load(Ordering::Relaxed), address)
-            && let Some(client) = self.client.as_mut()
-        {
-            let started_at = self.started_at;
-            client.queue_activity(|_| state.activity(started_at, address));
-        }
-    }
-}
-
-impl Drop for Presence {
-    fn drop(&mut self) {
-        drop(self.connected.take());
-        if let Some(client) = self.client.take() {
-            // Discord retries can sleep past the app's shutdown deadline.
-            let _ = std::thread::Builder::new()
-                .name("discord-shutdown".into())
-                .spawn(move || {
-                    let _ = client.shutdown();
-                });
-        }
-    }
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 #[cfg(test)]

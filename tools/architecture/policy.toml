@@ -291,6 +291,12 @@ allowed_dependencies = ["experience-sdk"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "experience-terminal-client"
+path = "examples/experiences/terminal-client"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "ui"
 path = "crates/ui"
 allowed_dependencies = ["assets", "semantic-input"]

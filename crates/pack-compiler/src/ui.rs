@@ -396,12 +396,18 @@ fn read_sidecars(pack: &Path, sidecar_paths: &[String]) -> Result<SidecarSet, As
     Ok((map.into_iter().collect(), skipped))
 }
 
-/// Parse a sidecar value into `base_size` plus an optional nine-slice; `None`
-/// when `base_size` is absent or malformed, matching the resolver's own rule.
+/// Parse base dimensions and border insets independently; zero dimensions
+/// leave the border units in source pixels.
 fn parse_sidecar(value: &Value) -> Option<UiSidecar> {
     let object = value.as_object()?;
-    let base_size = read_pair(object.get("base_size")?)?;
+    let base_size = object
+        .get("base_size")
+        .and_then(read_size)
+        .unwrap_or([0.0, 0.0]);
     let nineslice = object.get("nineslice_size").and_then(parse_nineslice);
+    if base_size == [0.0, 0.0] && nineslice.is_none() {
+        return None;
+    }
     Some(UiSidecar {
         base_size,
         nineslice,
@@ -429,9 +435,9 @@ fn parse_nineslice(value: &Value) -> Option<UiNineSlice> {
     }
 }
 
-fn read_pair(value: &Value) -> Option<[f32; 2]> {
+fn read_size(value: &Value) -> Option<[f32; 2]> {
     let items = value.as_array()?;
-    if items.len() != 2 {
+    if items.len() < 2 {
         return None;
     }
     Some([items[0].as_f64()? as f32, items[1].as_f64()? as f32])
@@ -635,6 +641,64 @@ mod tests {
             assert_eq!(carrier.ui_file(path), Some(bytes));
         }
         assert!(carrier.ui_file("ui/hud_screen.json").is_some());
+    }
+
+    #[test]
+    fn scalar_sidecar_size_survives_ui_carrier_compilation() {
+        let pack = synthetic_pack();
+        write(
+            pack.path(),
+            "textures/ui/button.json",
+            br#"{"base_size":16,"nineslice_size":4}"#,
+        );
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        let carrier = decode_ui_carrier(&compiled.bytes).unwrap();
+        let sidecar = carrier
+            .sidecar("textures/ui/button")
+            .expect("a square sprite retains its border metadata");
+        assert_eq!(sidecar.base_size, [0.0, 0.0]);
+        let insets = sidecar.nineslice.unwrap();
+        assert_eq!(
+            [insets.left, insets.top, insets.right, insets.bottom],
+            [4.0; 4]
+        );
+    }
+
+    #[test]
+    fn numeric_sidecar_size_keeps_source_pixel_fallback() {
+        let pack = synthetic_pack();
+        write(
+            pack.path(),
+            "textures/ui/button.json",
+            br#"{"base_size":64,"nineslice_size":4}"#,
+        );
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        let carrier = decode_ui_carrier(&compiled.bytes).unwrap();
+        let sidecar = carrier.sidecar("textures/ui/button").unwrap();
+        assert_eq!(sidecar.base_size, [0.0, 0.0]);
+        assert_eq!(sidecar.nineslice.unwrap().left, 4.0);
+    }
+
+    #[test]
+    fn missing_or_unusable_sidecar_size_keeps_independent_border_metadata() {
+        for value in [
+            serde_json::json!({"nineslice_size": 1}),
+            serde_json::json!({"base_size": null, "nineslice_size": 1}),
+            serde_json::json!({"base_size": {}, "nineslice_size": 1}),
+            serde_json::json!({"base_size": [], "nineslice_size": 1}),
+            serde_json::json!({"base_size": [8], "nineslice_size": 1}),
+        ] {
+            let sidecar = parse_sidecar(&value).unwrap();
+            assert_eq!(sidecar.base_size, [0.0, 0.0]);
+            assert_eq!(sidecar.nineslice.unwrap().left, 1.0);
+        }
+        assert!(parse_sidecar(&serde_json::json!({"frames": []})).is_none());
+    }
+
+    #[test]
+    fn sidecar_size_uses_the_first_two_array_elements() {
+        let sidecar = parse_sidecar(&serde_json::json!({"base_size": [9, 13, 99]})).unwrap();
+        assert_eq!(sidecar.base_size, [9.0, 13.0]);
     }
 
     #[test]

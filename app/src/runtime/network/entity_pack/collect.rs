@@ -24,7 +24,7 @@ const DEFINITION_FAMILIES: [(&str, &str, &str); 3] = [
     ),
 ];
 
-/// Names an entity description refers to, by family.
+/// Names an actor description refers to, by family.
 #[derive(Default)]
 struct References {
     render_controllers: BTreeSet<String>,
@@ -34,8 +34,13 @@ struct References {
 }
 
 impl References {
-    fn read(&mut self, entity: &Value) {
-        let description = &entity["minecraft:client_entity"]["description"];
+    fn read(&mut self, actor: &Value) {
+        for kind in ["minecraft:client_entity", "minecraft:attachable"] {
+            self.read_description(&actor[kind]["description"]);
+        }
+    }
+
+    fn read_description(&mut self, description: &Value) {
         for entry in description["render_controllers"]
             .as_array()
             .into_iter()
@@ -84,7 +89,7 @@ impl References {
 
 /// Every entity source of the stack as `(pack-relative path, bytes)`. Named definitions are
 /// merged into one file per family with the highest layer winning each identifier (a vanilla
-/// client keeps the last definition it loads); definitions the entities reference but the
+/// client keeps the last definition it loads); definitions the actors reference but the
 /// stack lacks come from `vanilla`. Only rasters the sources name are read.
 pub(super) fn collect_files(
     view: &LayeredPackView,
@@ -93,10 +98,19 @@ pub(super) fn collect_files(
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     let entities = unique_entities(view);
+    let attachables = view
+        .list("attachables/")
+        .into_iter()
+        .filter(|path| path.ends_with(".json"))
+        .filter_map(|path| {
+            let bytes = view.read(path)?;
+            Some((Box::<str>::from(path), canonical_json(&bytes)?))
+        })
+        .collect::<Vec<_>>();
     let mut references = References::default();
-    for (_, bytes) in &entities {
-        if let Ok(entity) = serde_json::from_slice::<Value>(bytes) {
-            references.read(&entity);
+    for (_, bytes) in entities.iter().chain(&attachables) {
+        if let Ok(actor) = serde_json::from_slice::<Value>(bytes) {
+            references.read(&actor);
         }
     }
     let mut geometry = unshadowed_geometry(view);
@@ -135,7 +149,7 @@ pub(super) fn collect_files(
         ));
     }
     if let Some(vanilla) = vanilla {
-        // Geometry the entities reference (and its parents) that the stack does not define.
+        // Geometry the actors reference (and its parents) that the stack does not define.
         let mut wanted = references.geometry.iter().cloned().collect::<Vec<_>>();
         let mut added = BTreeSet::new();
         while let Some(identifier) = wanted.pop() {
@@ -160,14 +174,7 @@ pub(super) fn collect_files(
     if let Some(materials) = material_definitions(view) {
         files.push(("materials/_pack.material".into(), materials));
     }
-    for path in view.list("attachables/") {
-        if path.ends_with(".json")
-            && let Some(bytes) = view.read(path)
-            && let Some(canonical) = canonical_json(&bytes)
-        {
-            files.push((path.into(), canonical));
-        }
-    }
+    files.extend(attachables);
     files.extend(geometry);
     for stem in referenced_textures(&files) {
         if let Some(texture) = texture_file(view, vanilla_pack_dir, &stem) {

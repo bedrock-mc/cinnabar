@@ -108,13 +108,17 @@ pub enum CommittedControlEvent {
         tick: u64,
         flags: crate::MovementFlagUpdate,
     },
-    /// Effective `minecraft:movement` current and the packet's sprint modifier.
+    /// Movement, underwater and lava speed attribute currents from one local
+    /// attribute update, as one control; an absent attribute is `None`.
     LocalMovementSpeed {
         sequence: u64,
         dimension: i32,
-        current: f64,
+        /// Effective `minecraft:movement` current.
+        current: Option<f64>,
         /// Total/current factor for the vanilla sprint modifier.
         sprint_modifier: Option<f32>,
+        underwater: Option<f64>,
+        lava: Option<f64>,
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
     },
@@ -141,6 +145,12 @@ pub enum CommittedControlEvent {
     LocalActorMotion {
         sequence: u64,
         event: protocol::ActorMotionEvent,
+    },
+    /// A server-predicted movement effect (firework glide boost and similar)
+    /// for the local player, stamped with the input tick it starts after.
+    LocalMovementBoost {
+        sequence: u64,
+        event: protocol::MovementEffectEvent,
     },
     /// The local player took damage; `source_direction` is the world-space horizontal `(x, z)`
     /// vector toward the damage source when a recent knockback impulse implies one.

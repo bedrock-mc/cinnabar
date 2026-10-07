@@ -20,7 +20,9 @@ pub struct CameraSettingsAuthority {
     configured_perspective: PerspectiveMode,
     pub(super) freelook: bool,
     feel: CameraFeelSettings,
+    game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
+    preserve_teleport_rotation: bool,
 }
 
 /// A local mod's third-person boom: camera-local blocks (x right, y up, z back), roll and FOV change.
@@ -42,7 +44,6 @@ pub struct CameraFeelSettings {
     pub damage_bob: f32,
     /// Java Edition 1.7 player animations, hand motion and view bob.
     pub java_animations: bool,
-    pub mouse_sensitivity: f32,
     pub gamepad_look_sensitivity: f32,
     pub touch_look_sensitivity: f32,
 }
@@ -65,19 +66,8 @@ impl CameraFeelSettings {
             camera_shake: settings.video.camera_shake,
             damage_bob: unit(settings.video.damage_bob),
             java_animations: settings.video.java_animations,
-            mouse_sensitivity: settings.controls.mouse_sensitivity,
             gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
             touch_look_sensitivity: settings.controls.touch_look_sensitivity,
-        }
-    }
-
-    /// The router's linear look multiplier for the controlling device.
-    #[must_use]
-    pub fn look_multiplier(&self, mode: semantic_input::InputMode) -> f32 {
-        match mode {
-            semantic_input::InputMode::KeyboardMouse => self.mouse_sensitivity,
-            semantic_input::InputMode::GamePad => self.gamepad_look_sensitivity,
-            semantic_input::InputMode::Touch => self.touch_look_sensitivity,
         }
     }
 }
@@ -92,7 +82,9 @@ impl Default for CameraSettingsAuthority {
             configured_perspective: settings.gameplay.default_perspective,
             freelook: false,
             feel: CameraFeelSettings::from_settings(&settings),
+            game_sensitivity: Default::default(),
             rig: None,
+            preserve_teleport_rotation: false,
         }
     }
 }
@@ -124,6 +116,8 @@ impl CameraSettingsAuthority {
             self.perspective = self.configured_perspective;
         }
         self.feel = CameraFeelSettings::from_settings(settings);
+        self.game_sensitivity
+            .set_sensitivity(settings.controls.mouse_sensitivity);
         Ok(())
     }
 
@@ -156,6 +150,16 @@ impl CameraSettingsAuthority {
         self.rig
     }
 
+    /// A granted extension's current-frame policy for actual teleport yaw/pitch only.
+    pub const fn preserves_teleport_rotation(&self) -> bool {
+        self.preserve_teleport_rotation
+    }
+
+    /// Position reconciliation and teleport acknowledgment remain server-owned.
+    pub fn set_preserve_teleport_rotation(&mut self, enabled: bool) {
+        self.preserve_teleport_rotation = enabled;
+    }
+
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.
     pub fn set_rig(&mut self, rig: Option<CameraRig>) {
         self.rig = rig.filter(|rig| {
@@ -171,6 +175,12 @@ impl CameraSettingsAuthority {
         &self.feel
     }
 
+    #[must_use]
+    /// Vanilla's game sensitivity as left by every accepted sensitivity change.
+    pub const fn game_sensitivity(&self) -> f32 {
+        self.game_sensitivity.value()
+    }
+
     /// Advances the configured first-person and third-person camera cycle.
     pub fn cycle_perspective(&mut self) {
         self.perspective = next_perspective(self.perspective);
@@ -180,6 +190,7 @@ impl CameraSettingsAuthority {
     pub fn reset_perspective(&mut self) {
         self.perspective = PerspectiveMode::FirstPerson;
         self.freelook = false;
+        self.preserve_teleport_rotation = false;
     }
 }
 

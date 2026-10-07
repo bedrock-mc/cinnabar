@@ -50,8 +50,13 @@ pub const MAX_TELL_BYTES: usize = 256;
 /// Client messages one callback may stage with `send-client`.
 pub const MAX_CLIENT_SENDS: usize = 8;
 /// Bytes of the client messages one callback may stage: their channels and their payloads as
-/// JSON, summed. The adapter applies the client channel's own limits as it sends each one.
+/// JSON, summed. The adapter applies the client channel's own limits as it sends each one; this
+/// leaves room for one message of the largest size that the client wire protocol carries, which
+/// the Go adapter's tests check against the wire's constants.
 pub const MAX_CLIENT_SEND_BYTES: usize = 65_536;
+/// Lists and records nest at most this deep in a client message's payload, a top-level one being
+/// level 1: the client wire protocol's `MAX_FIELD_DEPTH`, which the Go adapter's tests check.
+pub const MAX_VALUE_DEPTH: usize = 4;
 /// Bytes of data per block.
 pub const MAX_BLOCK_DATA_BYTES: usize = 65_536;
 /// UTF-8 bytes of a reason that reaches the adapter, a guest's error or why a load failed; the
