@@ -298,18 +298,22 @@ fn video_toggles_admit_pointer_and_keyboard_focus() {
     }
 }
 
-/// The JSON-UI selector and both radio rows accept pointer and keyboard/controller focus.
+/// Both responsive selector forms accept pointer and keyboard/controller focus.
 #[test]
 fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
+    use crate::menu::{
+        MenuAction,
+        settings_options::{ANIMATIONS_OPTION, SETTINGS_OPTIONS},
+    };
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
         eprintln!(
             "skipping animations_selector_and_choices_admit_pointer_and_navigation_focus: missing installed UI carrier; make assets"
         );
         return;
     };
-    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+    let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "animations")
+        .position(|option| option.name == ANIMATIONS_OPTION.name)
         .expect("animations selector") as u16;
     let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
     view.screen = MenuScreen::Settings;
@@ -318,30 +322,65 @@ fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
     let player = player_state::PlayerState::new(1);
-    let dropdown = crate::menu::MenuAction::SettingsDropdown(index);
-    for action in [
-        dropdown,
-        crate::menu::MenuAction::SettingsOption(index, 0),
-        crate::menu::MenuAction::SettingsOption(index, 1),
-    ] {
-        view.settings_dropdown = (action != dropdown).then_some(index);
-        super::test_support::draw_menu_actions(&player, &mut presentation, &view);
-        assert!(
+    let runtime = crate::ui_runtime::UiRuntime::new(1);
+    let draw = |presentation: &mut super::super::UiPresentationRuntime,
+                view: &crate::menu::MenuView,
+                size| {
+        for _ in 0..2 {
+            presentation.set_menu_view(Some(view.clone()));
             presentation
-                .menu_focus_actions()
-                .any(|candidate| candidate == action),
-            "selector action {action:?} must be reachable by keyboard/controller navigation"
-        );
-        view.focused_action = Some(action);
-        super::test_support::draw_menu_actions(&player, &mut presentation, &view);
-        let bounds = presentation
-            .menu_hit_targets
-            .iter()
-            .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
-            .expect("focused selector scrolls into view");
-        let (min, max) = (bounds.min(), bounds.max());
-        let center =
-            ui::UiPoint::new((min.x() + max.x()) / 2.0, (min.y() + max.y()) / 2.0).unwrap();
-        assert_eq!(presentation.hit_test_menu(center), Some(action));
+                .build(&player, &runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+                .unwrap();
+        }
+    };
+    let dropdown = MenuAction::SettingsDropdown(index);
+    for (size, picker) in [([1280, 720], false), ([200, 720], true)] {
+        view.settings_dropdown = None;
+        view.focused_action = None;
+        draw(&mut presentation, &view, size);
+        if picker {
+            assert!(
+                presentation
+                    .menu_focus_actions()
+                    .any(|action| action == dropdown)
+            );
+            view.focused_action = Some(dropdown);
+            draw(&mut presentation, &view, size);
+            let bounds = presentation
+                .menu_hit_targets
+                .iter()
+                .find_map(|(action, bounds)| (*action == dropdown).then_some(*bounds))
+                .expect("focused compact selector scrolls into view");
+            let center = ui::UiPoint::new(
+                (bounds.min().x() + bounds.max().x()) * 0.5,
+                (bounds.min().y() + bounds.max().y()) * 0.5,
+            )
+            .unwrap();
+            assert_eq!(presentation.hit_test_menu(center), Some(dropdown));
+            view.settings_dropdown = Some(index);
+        }
+        for choice in ANIMATIONS_OPTION.min..=ANIMATIONS_OPTION.max {
+            let action = MenuAction::SettingsOption(index, choice);
+            draw(&mut presentation, &view, size);
+            assert!(
+                presentation
+                    .menu_focus_actions()
+                    .any(|candidate| candidate == action),
+                "selector choice {choice} must be reachable by keyboard/controller navigation",
+            );
+            view.focused_action = Some(action);
+            draw(&mut presentation, &view, size);
+            let bounds = presentation
+                .menu_hit_targets
+                .iter()
+                .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
+                .expect("focused animation choice scrolls into view");
+            let center = ui::UiPoint::new(
+                (bounds.min().x() + bounds.max().x()) * 0.5,
+                (bounds.min().y() + bounds.max().y()) * 0.5,
+            )
+            .unwrap();
+            assert_eq!(presentation.hit_test_menu(center), Some(action));
+        }
     }
 }

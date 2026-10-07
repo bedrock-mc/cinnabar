@@ -66,6 +66,8 @@ impl WorldStream {
     }
 
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.poll").entered();
         if camera_position.iter().all(|value| value.is_finite()) {
             self.requests.last_player_chunk = Some(ChunkKey::new(
                 self.authority.current_dimension(),

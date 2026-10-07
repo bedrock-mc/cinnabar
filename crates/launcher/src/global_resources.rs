@@ -30,6 +30,8 @@ pub struct Snapshot {
     pub available: Vec<InstalledPack>,
     pub active: Vec<InstalledPack>,
     pub selection: Vec<ActivePack>,
+    /// Exact last runtime acknowledgement; absent until initial pack preparation completes.
+    pub applied_selection: Option<Vec<ActivePack>>,
     pub selected: Option<(bool, usize)>,
     pub details_expanded: Option<(bool, usize)>,
     pub settings: Option<usize>,
@@ -37,6 +39,15 @@ pub struct Snapshot {
     pub active_expanded: bool,
     pub busy: bool,
     pub message: String,
+}
+
+impl Snapshot {
+    /// Reports edits relative to the last acknowledged runtime stack.
+    pub fn has_pending_changes(&self) -> bool {
+        self.applied_selection
+            .as_ref()
+            .is_some_and(|applied| *applied != self.selection)
+    }
 }
 
 impl Default for Snapshot {
@@ -48,6 +59,7 @@ impl Default for Snapshot {
             available: Vec::new(),
             active: Vec::new(),
             selection: Vec::new(),
+            applied_selection: None,
             selected: None,
             details_expanded: None,
             settings: None,

@@ -10,6 +10,45 @@ use render_model::{UI_BLEND_INVERT, UiRenderInput, UiRenderVertex};
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
 
+/// Composes a known pack texel with the loading frame's published backdrop tint.
+pub fn loading_backdrop_texel(
+    presentation: &super::super::UiPresentationRuntime,
+    source: [u8; 4],
+    at: [u32; 2],
+) -> [u8; 4] {
+    let node = presentation
+        .last_frame
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .rev()
+        .find(|node| {
+            matches!(node.visual(), ui::UiVisual::Gradient { colors, .. }
+            if colors.iter().all(|color| color[3] >= 200))
+        })
+        .expect("world loading publishes its backdrop tint");
+    let ui::UiVisual::Gradient { colors, .. } = node.visual() else {
+        unreachable!()
+    };
+    let bounds = node.bounds();
+    let t = ((at[1] as f32 + 0.5 - bounds.min().y()) / (bounds.max().y() - bounds.min().y()))
+        .clamp(0.0, 1.0);
+    let tint: [u8; 4] = std::array::from_fn(|channel| {
+        (f32::from(colors[0][channel]) * (1.0 - t) + f32::from(colors[1][channel]) * t).round()
+            as u8
+    });
+    let alpha = f32::from(tint[3]) / 255.0;
+    std::array::from_fn(|channel| {
+        if channel == 3 {
+            255
+        } else {
+            (f32::from(tint[channel]) * alpha + f32::from(source[channel]) * (1.0 - alpha)).round()
+                as u8
+        }
+    })
+}
+
 /// The frame composited over a mid-grey backdrop.
 pub fn rasterize(input: &UiRenderInput) -> RgbaImage {
     let [width, height] = input.viewport_size;

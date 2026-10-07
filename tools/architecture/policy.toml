@@ -92,7 +92,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", 
 [[crates]]
 name = "pack-compiler"
 path = "crates/pack-compiler"
-allowed_dependencies = ["assets"]
+allowed_dependencies = ["assets", "freetype-sys", "ttf-parser"]
 forbidden_dependencies = ["asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -210,7 +210,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protoco
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world"]
+allowed_dependencies = ["assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -218,7 +218,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "rich-presence", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "render", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "rich-presence", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 

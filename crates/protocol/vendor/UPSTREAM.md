@@ -30,6 +30,9 @@ shared-codec and Jolyne transport hardening.
 
 ## Local source patches
 
+Jolyne's classic-skin login resource patch selects the slim geometry when the supplied
+upload has slim arms, keeping reconnects consistent with the selected local model.
+
 `DisconnectPacket` is hand-patched after generation to read
 `hide_disconnection_screen` and skip both message strings when it is set, as
 gophertunnel's `Disconnect.Marshal` does; the manifest still lacks that

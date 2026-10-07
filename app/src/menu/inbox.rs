@@ -12,6 +12,22 @@ impl super::MenuRuntime {
 mod tests {
     use super::*;
     use crate::menu::{MenuHome, MenuRuntime};
+
+    #[test]
+    fn inbox_settings_focus_excludes_the_hidden_category_list() {
+        use super::super::{MenuAction, MenuScreen};
+        let mut menu = MenuRuntime::new(true, 2, "Test".into());
+        menu.screen = MenuScreen::Inbox;
+        menu.feeds.inbox_state.filters = true;
+        let actions = menu.focus_actions();
+        assert!(!actions.iter().any(|action| matches!(
+            action,
+            MenuAction::Inbox(Action::Category(_)) | MenuAction::Navigate(MenuScreen::Home)
+        )));
+        for action in [Action::Filters, Action::MarkAllRead, Action::DeleteAllRead] {
+            assert!(actions.contains(&MenuAction::Inbox(action)));
+        }
+    }
     /// Builds a partial inbox page with a service total larger than its loaded rows.
     fn partial_feed() -> MenuHome {
         MenuHome {

@@ -271,9 +271,13 @@ fn local_effects_metadata_armor_and_mount_fan_into_gameplay_hud_state() {
             .map(|air| (air.current(), air.maximum())),
         Some((150, 300))
     );
-    // Full freezing wins over the (expired) poison recolor.
+    // Poison wins until it expires, then full freezing supplies the recolor.
     assert_eq!(
         runtime.gameplay_hud().heart_variant(Some(500)),
+        HeartVariant::Poisoned
+    );
+    assert_eq!(
+        runtime.gameplay_hud().heart_variant(Some(701)),
         HeartVariant::Frozen
     );
 
@@ -314,7 +318,7 @@ fn stale_local_gameplay_events_fail_without_mutation() {
 }
 
 #[test]
-fn wither_outranks_poison_and_unknown_effect_actions_are_counted() {
+fn absorption_poison_outranks_wither_and_unknown_effect_actions_are_counted() {
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply_local_effect(1, 1, effect(ActorEffectAction::Add, 19, -1, 0), 0)
@@ -324,7 +328,7 @@ fn wither_outranks_poison_and_unknown_effect_actions_are_counted() {
         .unwrap();
     assert_eq!(
         runtime.gameplay_hud().heart_variant(None),
-        HeartVariant::Withered
+        HeartVariant::Poisoned
     );
     runtime
         .apply_local_effect(1, 3, effect(ActorEffectAction::Unknown(9), 21, -1, 0), 0)
@@ -1139,10 +1143,7 @@ fn malformed_absorption_preserves_the_last_authoritative_stat() {
             )
             .unwrap();
     }
-    assert_eq!(
-        runtime.hud().absorption(),
-        ui::BoundedStat::new_scaled(400, 2000, 100)
-    );
+    assert_eq!(runtime.hud().absorption(), ui::BoundedStat::new(4, 4));
 }
 
 #[test]

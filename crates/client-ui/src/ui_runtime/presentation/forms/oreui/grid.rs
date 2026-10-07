@@ -14,6 +14,10 @@ pub(super) struct Grid {
 impl Grid {
     /// The grid across `width`: narrow below 70rem, tablet below 128rem.
     pub(super) fn new(rem: f32, width: f32) -> Self {
+        Self::with_breakpoint(rem, width, 70.0)
+    }
+
+    pub(super) fn with_breakpoint(rem: f32, width: f32, narrow: f32) -> Self {
         let (padding, gutter) = if width < 70.0 * rem {
             (0.8, 0.4)
         } else if width < 128.0 * rem {
@@ -22,12 +26,12 @@ impl Grid {
             (2.4, 1.6)
         };
         let usable = width.min(128.0 * rem) - padding * 2.0 * rem;
-        let columns = if width < 70.0 * rem { 8.0 } else { 12.0 };
+        let columns = if width < narrow * rem { 8.0 } else { 12.0 };
         Self {
             left: (width - width.min(128.0 * rem)) * 0.5 + padding * rem,
             column: usable / columns,
             gutter: gutter * rem,
-            narrow: width < 70.0 * rem,
+            narrow: width < narrow * rem,
         }
     }
 

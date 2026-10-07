@@ -12,13 +12,16 @@ pub(super) fn body_yaw(
         return None;
     }
     let rig = world.actor_rig(mount.runtime_id)?;
-    let body = if matches!(mount.kind, protocol::ActorKind::Player { .. })
+    let (body, alpha) = if matches!(mount.kind, protocol::ActorKind::Player { .. })
         && !rig.java.vanilla_posture
         && !render_model::is_pack_rig_id(render_model::EntityRigId(rig.rig.0))
     {
-        rig.java.body_yaw
+        (
+            rig.java.body_yaw,
+            rig.java.body_frame_alpha.unwrap_or(alpha),
+        )
     } else {
-        [rig.previous_body_yaw, rig.body_yaw]
+        ([rig.previous_body_yaw, rig.body_yaw], alpha)
     };
     Some(frame_body_yaw(body, head_yaw, alpha))
 }

@@ -713,3 +713,102 @@ fn bounded_translation_still_resolves_unused_nested_arguments_and_counters() {
     assert_eq!(result.skipped_selectors, 1);
     assert!(!result.truncated);
 }
+
+#[test]
+fn death_translation_resolves_marked_entity_parameters_once() {
+    let translate = |key: &str| match key {
+        "death.attack.mob" => Some(Arc::from("%1$s was slain by %2$s")),
+        "entity.zombie.name" => Some(Arc::from("§aZombie§r")),
+        "alias" => Some(Arc::from("%entity.zombie.name")),
+        "wrap" => Some(Arc::from("[%1$s]")),
+        _ => None,
+    };
+    for (argument, expected) in [
+        ("%entity.zombie.name", "§aZombie§r"),
+        ("%ENTITY.ZOMBIE.NAME", "§aZombie§r"),
+        ("entity.zombie.name", "entity.zombie.name"),
+        (
+            "100% literal %entity.zombie.name",
+            "100% literal %entity.zombie.name",
+        ),
+        ("%unknown.entity.name", "%unknown.entity.name"),
+        ("%entity.zombie.name!", "%entity.zombie.name!"),
+        ("%alias", "%entity.zombie.name"),
+    ] {
+        let document = parse_raw_text(
+            &serde_json::json!({"rawtext": [{
+                "translate": "death.attack.mob", "with": ["notchyves", argument]
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+        let resolved = document.resolve(&protocol::RawTextResolver {
+            reader_name: "notchyves",
+            translate: &translate,
+            score: &|_, _| None,
+            selector: &|_| None,
+        });
+        assert_eq!(resolved.text, format!("notchyves was slain by {expected}"));
+    }
+    let document = parse_raw_text(r#"{"rawtext":[{"translate":"wrap","with":[{"translate":"death.attack.mob","with":["notchyves","%entity.zombie.name"]}]}]}"#).unwrap();
+    assert_eq!(
+        document
+            .resolve(&protocol::RawTextResolver {
+                reader_name: "notchyves",
+                translate: &translate,
+                score: &|_, _| None,
+                selector: &|_| None,
+            })
+            .text,
+        "[notchyves was slain by §aZombie§r]"
+    );
+}
+
+#[test]
+fn localized_argument_expansion_bounds_catalog_work_and_output() {
+    let document = parse_raw_text(r#"{"rawtext":[{"translate":"wrap","with":["%x"]}]}"#).unwrap();
+    let expanded: Arc<str> = "x".repeat(MAX_RAW_TEXT_OUTPUT_BYTES + 1).into();
+    let lookups = std::cell::Cell::new(0);
+    let translate = |key: &str| match key {
+        "wrap" => Some(Arc::from("%s")),
+        "x" => {
+            lookups.set(lookups.get() + 1);
+            Some(Arc::clone(&expanded))
+        }
+        _ => None,
+    };
+    let resolved = document.resolve(&protocol::RawTextResolver {
+        reader_name: "",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    });
+    assert_eq!(lookups.get(), 1);
+    assert_eq!(resolved.text.len(), MAX_RAW_TEXT_OUTPUT_BYTES);
+    assert!(resolved.truncated);
+    assert!(resolved.text.bytes().all(|byte| byte == b'x'));
+}
+
+#[test]
+fn localized_arguments_preserve_omitted_scalar_truncation() {
+    let document = parse_raw_text(r#"{"rawtext":[{"translate":"wrap","with":["%x"]}]}"#).unwrap();
+    for scalar in ["é", "世", "🌍"] {
+        for remaining in 0..scalar.len() {
+            let initial = "a".repeat(MAX_RAW_TEXT_OUTPUT_BYTES - remaining);
+            let translated: Arc<str> = format!("{initial}{scalar}Z").into();
+            let translate = |key: &str| match key {
+                "wrap" => Some(Arc::from("%s")),
+                "x" => Some(Arc::clone(&translated)),
+                _ => None,
+            };
+            let resolved = document.resolve(&protocol::RawTextResolver {
+                reader_name: "",
+                translate: &translate,
+                score: &|_, _| None,
+                selector: &|_| None,
+            });
+            assert_eq!(resolved.text, initial);
+            assert!(resolved.truncated);
+        }
+    }
+}

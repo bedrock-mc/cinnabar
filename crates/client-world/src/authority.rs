@@ -29,6 +29,8 @@ mod dimension_ranges;
 mod dimension_transfer;
 #[cfg(test)]
 mod local_movement_flags_tests;
+#[cfg(test)]
+mod local_skin_selection_tests;
 mod map_data;
 mod movement_attribute;
 mod particles;

@@ -1,13 +1,15 @@
 mod commit;
+mod preparation;
+pub use preparation::{ActorFrameState, advance_actor_frame};
 mod emote_geometry;
 mod equipment_layers;
 use equipment_layers::local_equipment;
 mod hand;
 mod java;
 pub use commit::{PreparedActorPublication, publish_actor_render_frame};
+use hand::{HandSource, hand_motion_matrix, publish_hand_rig};
 #[cfg(test)]
-use hand::hand_camera_from_rig;
-use hand::{HandSource, hand_motion_matrix, hand_progress, publish_hand_rig};
+use hand::{hand_camera_from_rig, hand_progress};
 
 use std::sync::Arc;
 
@@ -15,7 +17,7 @@ use bevy::prelude::DetectChanges;
 use bevy::{
     ecs::system::SystemParam,
     math::Mat4,
-    prelude::{Local, Projection, Res, ResMut, Resource, Time, Vec3},
+    prelude::{Projection, Res, ResMut, Resource, Time, Vec3},
     time::Real,
 };
 use chunk_pipeline::WorldStream;
@@ -59,7 +61,7 @@ pub struct ActorFrameInput {
     pub predicted_eye: Option<[f32; 3]>,
     pub predicted_feet: Option<[f32; 3]>,
     pub local_equipment: crate::presentation::equipment::ActorEquipmentInput,
-    pub swing_started: Option<i32>,
+    pub swing_progress: Option<client_world::LocalSwingProgress>,
     pub renders_game: bool,
     pub hide_hand: bool,
     pub custom_emote: Option<(client_world::CustomEmote, f64)>,
@@ -184,29 +186,14 @@ fn apply_session_geometry(
 #[derive(SystemParam)]
 pub struct ActorFramePublication<'w, 's> {
     time: Res<'w, Time<Real>>,
+    state: ResMut<'w, ActorFrameState>,
     scene: ResMut<'w, ActorRenderScene>,
     prepared: ResMut<'w, PreparedActorPublication>,
-    published_session: Local<'s, Option<u64>>,
-    published_pack: Local<'s, Option<Arc<crate::session_assets::SessionEntityPack>>>,
-    /// Partial rejection must still be retried on the next resource refresh.
-    pack_geometry_ready: Local<'s, SessionGeometryReady>,
-    published_items: Local<'s, Option<Arc<crate::session_assets::SessionItems>>>,
-    actor_clock: Local<'s, ActorFrameClock>,
     presentation: ActorPresentationState<'w, 's>,
     artwork: Res<'w, render::ActorArtworkPages>,
-    /// The startup artwork plus the session's server-pack pages; `None` in a vanilla session.
-    session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
-    cape_state: Local<'s, crate::presentation::cape::CapeState>,
-    skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
-    skin_layers: Local<'s, crate::presentation::skin_layers::SkinLayerCache>,
-    poses: Local<'s, crate::presentation::actors::PoseConversions>,
-    layer_poses: Local<'s, crate::presentation::entity_layers::LayerPoseCache>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
-    hand_revision: Local<'s, u64>,
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
-    /// Java's first-person hand state across frames.
-    java_hand: Local<'s, java::HandCache>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     glint_settings: Option<Res<'w, render::UiGlintSettings>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
@@ -214,187 +201,69 @@ pub struct ActorFramePublication<'w, 's> {
     partial_tick: ResMut<'w, ActorFramePartialTick>,
 }
 
-/// Captures this frame's actor inputs before outbound interactions can change them.
+/// Builds final actor and hand poses after admission, without advancing remote actor ticks.
 pub fn prepare_actor_render_frame(
     mut client_world: ActorWorld<'_>,
-    input: ActorFrameInput,
-    sample_world: impl FnOnce(&mut WorldStream),
-    hand_use: impl Fn(
-        &WorldStream,
-        f32,
-    ) -> (
-        Option<u32>,
-        Option<client_world::AttachableAnimationInput<'static>>,
-    ),
+    swing_progress: Option<client_world::LocalSwingProgress>,
     hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3]) -> bool,
     params: ActorFramePublication,
 ) {
     let ActorFramePublication {
-        time,
+        time: _,
+        mut state,
         mut scene,
         mut prepared,
-        mut published_session,
-        mut published_pack,
-        mut pack_geometry_ready,
-        mut published_items,
-        mut actor_clock,
         presentation,
         artwork,
-        mut session_artwork,
-        mut cape_state,
-        mut skin_rigs,
-        mut skin_layers,
-        mut poses,
-        mut layer_poses,
         mut hand_builder,
         mut hand_scene,
-        mut hand_revision,
         hand_motion,
-        mut java_hand,
         mut equipment,
         glint_settings,
         mut dropped_items,
         profiler,
-        mut partial_tick,
+        partial_tick: _,
     } = params;
-    let ActorPresentationState {
-        avatar,
-        mut local_visibility,
-        settings,
-        server_camera,
-        view,
-        camera,
-    } = presentation;
-    let session_id = client_world
-        .stream
-        .as_ref()
-        .map(|stream| stream.authority().actor_session_id());
-    let new_session = *published_session != session_id;
-    if new_session {
-        if session_id.is_none() {
-            *client_world.prepared_actor_artwork = None;
-        }
-        scene.reset();
-        actor_clock.reset();
-        *skin_layers = Default::default();
-        *published_session = session_id;
-        if let Some(stream) = client_world.stream.as_mut() {
-            stream.set_actor_seat_defaults(crate::seat_defaults::seat_defaults());
-        }
-    }
-    let pack = session_id.and_then(|_| client_world.pack_entities.clone());
-    let items = session_id.and_then(|_| client_world.session_items.clone());
-    let same = |left: Option<*const ()>, right: Option<*const ()>| left == right;
-    let pack_changed = !same(
-        published_pack.as_ref().map(|pack| Arc::as_ptr(pack).cast()),
-        pack.as_ref().map(|pack| Arc::as_ptr(pack).cast()),
-    );
-    let items_changed = !same(
-        published_items
-            .as_ref()
-            .map(|items| Arc::as_ptr(items).cast()),
-        items.as_ref().map(|items| Arc::as_ptr(items).cast()),
-    );
-    if new_session || pack_changed || items_changed || artwork.is_changed() {
-        let _setup = profiler
-            .as_deref()
-            .map(|profiler| profiler.time(render::RuntimeStage::ActorSessionSetup));
-        *published_pack = pack.clone();
-        *published_items = items.clone();
-        let staged = StagedSessionIcons::stage(items.as_deref());
-        if new_session || pack_changed {
-            *pack_geometry_ready = SessionGeometryReady::default();
-        }
-        let artwork_timer = profiler
-            .as_deref()
-            .map(|profiler| profiler.time(RuntimeStage::ActorArtworkSetup));
-        let pages = crate::prepared_actor_artwork::session_pages(
-            &artwork,
-            pack.as_ref(),
-            client_world.prepared_actor_artwork.as_deref(),
-        );
-        drop(artwork_timer);
-        // Always republished: presentation selects from these pages, the scene validates them.
-        let (effective, staged, locations) = apply_session_pack(
-            &mut scene,
-            pages,
-            pack.as_deref(),
-            staged,
-            &mut pack_geometry_ready,
-            equipment.as_deref_mut(),
-            profiler.as_deref(),
-        );
-        *session_artwork = effective;
-        if let Some(equipment) = equipment.as_deref_mut() {
-            equipment.set_session_items(items.as_deref(), staged, locations);
-        }
-    }
+    let preparation::ActorFrameState {
+        session_artwork,
+        cape_state,
+        skin_rigs,
+        skin_layers,
+        poses,
+        layer_poses,
+        hand_revision,
+        java_hand,
+        input,
+        step,
+        hand_source: ready_hand_source,
+        hand_key: ready_hand_key,
+        captured_view,
+        captured_sampling_camera,
+        first_person,
+        java_mode,
+        hand_use,
+        ..
+    } = &mut *state;
+    let Some(input) = input.take() else {
+        return;
+    };
+    let step = step.expect("actor preparation precedes final rendering");
     let artwork = session_artwork.as_ref().unwrap_or(&artwork);
-    let step = actor_clock.advance(time.delta());
-    partial_tick.0 = step.partial_tick;
-    skin_rigs.begin_frame();
-    poses.begin_frame();
-    if let Some(equipment) = equipment.as_deref_mut() {
-        equipment.begin_frame();
-    }
-    layer_poses.begin_frame();
-    let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let first_person = server_camera.as_deref().map_or(first_person, |camera| {
-        camera.renders_first_person(first_person)
-    });
-    let java_mode = settings.feel().java_animations;
-    // Players Java poses this frame, which its grips then hold items for.
+    let ActorPresentationState {
+        local_visibility,
+        camera,
+        ..
+    } = presentation;
+    let first_person = *first_person;
+    let java_mode = *java_mode;
+    let view = *captured_view;
     let mut java_posed = Vec::new();
-    let mut local_feed = input.local_feed;
-    if let Some(feed) = local_feed.as_mut() {
-        feed.first_person = first_person;
-        feed.main_hand = input
-            .local_equipment
-            .main
-            .as_ref()
-            .map(|item| item.identifier.clone());
-        feed.off_hand = input
-            .local_equipment
-            .off
-            .as_ref()
-            .map(|item| item.identifier.clone());
-        feed.main_hand_metadata = input
-            .local_equipment
-            .main
-            .as_ref()
-            .map_or(0, |item| item.damage.unwrap_or(item.metadata));
-    }
     if let Some(stream) = client_world.stream.as_mut() {
-        if let Some(equipment) = equipment.as_deref() {
-            stream.set_item_use_durations(equipment.item_use_durations());
-        }
-        // Feed the client-authored local pose before the tick advance and rig read so the
-        // local body/hand are driven by the shared rig, not the static fallback.
-        if let Some(feed) = &local_feed {
-            stream.sync_local_player_pose(feed);
-        }
-        // Attacks, mining and use swing the local arm at once; the server echoes no swing.
-        if let Some(ticks) = input.swing_started {
-            stream.start_local_player_swing(ticks);
+        if let Some(progress) = swing_progress {
+            stream.sync_local_swing(progress);
         }
         stream.set_actor_camera_rotation(actor_camera_rotation(view.camera_rotation()));
-        if let Ok((transform, _)) = camera.single() {
-            stream.set_actor_camera_position(transform.translation.to_array());
-        }
-        stream.set_actor_animation_view(
-            camera
-                .single()
-                .ok()
-                .and_then(|(transform, projection)| animation_view(transform, projection)),
-        );
-        let _animation = profiler
-            .as_deref()
-            .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
-        // Fluid and bed state is tick state; a frame without a tick would resample the same.
-        if step.ticks > 0 {
-            sample_world(stream);
-        }
-        stream.advance_actor_interpolation_frame(step.ticks);
+        stream.advance_actor_interpolation_frame(0);
     }
     let authoritative_subject_eye = authoritative_local_actor_eye(
         input.predicted_eye,
@@ -402,26 +271,6 @@ pub fn prepare_actor_render_frame(
             .stream
             .as_ref()
             .map(|stream| stream.resolved_server_position().position),
-    );
-    let authoritative_subject_feet = input
-        .predicted_feet
-        .map(bevy::prelude::Vec3::from_array)
-        .or_else(|| {
-            client_world.stream.as_ref().map(|stream| {
-                let mut feet =
-                    bevy::prelude::Vec3::from_array(stream.resolved_server_position().position);
-                feet.y -= protocol::PLAYER_NETWORK_OFFSET;
-                feet
-            })
-        });
-    publish_local_actor_visibility(
-        &avatar,
-        settings.perspective(),
-        server_camera.as_deref(),
-        authoritative_subject_eye,
-        authoritative_subject_feet,
-        view.rotation(),
-        &mut local_visibility,
     );
     // The hand's independent perspective survives the world's portal projection.
     let hand_camera_fov = camera
@@ -441,6 +290,17 @@ pub fn prepare_actor_render_frame(
         });
     // Registered together below: each registration rebuilds and re-uploads the whole catalog.
     let mut new_geometries = Vec::new();
+    let local_emote_pose = (!first_person)
+        .then(|| {
+            let stream = client_world.stream.as_ref()?;
+            let rig = stream
+                .authority()
+                .actor_rig(stream.local_player_runtime_id())?;
+            let (emote, elapsed) = input.custom_emote?;
+            client_world::sample_custom_emote(&rig, emote, elapsed, elapsed)
+        })
+        .flatten();
+    let mut native_body_sampled = false;
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
         client_world
             .stream
@@ -484,9 +344,10 @@ pub fn prepare_actor_render_frame(
                             actor,
                             profile,
                             step.partial_tick,
-                            &mut poses,
+                            poses,
                         )
                         .map(|mut presentation| {
+                            let java_applied = java_pose.is_some();
                             if let Some(java_pose) = java_pose {
                                 java::apply_pose(
                                     &mut presentation,
@@ -497,28 +358,23 @@ pub fn prepare_actor_render_frame(
                                 );
                                 java_posed.push(java_pose.posed);
                             }
-                            if let Some(geometry) = rig.skin_geometry {
-                                // The pose drives the skin's own bones, so only its model fits.
-                                match skin_rigs.rig(geometry, |built| {
-                                    if let Some(equipment) = equipment.as_deref_mut() {
-                                        equipment.register_skin_rig(
-                                            built.id,
-                                            geometry
-                                                .bones
-                                                .iter()
-                                                .map(|bone| bone.name.clone())
-                                                .collect(),
-                                        );
-                                    }
-                                    new_geometries.push(built);
-                                }) {
-                                    Some(id) => presentation.submission.input.rig = id,
-                                    None => {
-                                        presentation.submission.route =
-                                            render::ActorRigRoute::NoDraw;
-                                    }
-                                }
+                            if local && !first_person && !java_applied && local_emote_pose.is_none()
+                            {
+                                java_hand.native_pose.apply_body(
+                                    stream,
+                                    &mut presentation,
+                                    step.partial_tick,
+                                    *captured_sampling_camera,
+                                );
+                                native_body_sampled = true;
                             }
+                            preparation::register_player_skin(
+                                &mut presentation,
+                                &rig,
+                                skin_rigs,
+                                equipment.as_deref_mut(),
+                                &mut new_geometries,
+                            );
                             presentation
                         })
                     } else {
@@ -527,7 +383,7 @@ pub fn prepare_actor_render_frame(
                             actor,
                             artwork,
                             step.partial_tick,
-                            Some(&mut poses),
+                            Some(poses),
                         )
                     };
                     let Some(presentation) = presentation else {
@@ -560,40 +416,22 @@ pub fn prepare_actor_render_frame(
     {
         java_hand.remember(&rig, input.local_equipment.main.as_ref());
     }
+    let mut reused_hand = false;
     let hand_source: Option<HandSource> = if first_person && input.renders_game {
         canonical_local.clone().and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;
             let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
-            let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
+            let (consume_ticks, item_animation) = *hand_use;
             let motion = hand_motion
                 .as_deref()
                 .map_or(Mat4::IDENTITY, hand_motion_matrix);
-            if java_mode {
-                let inputs = hand::HandInputs {
-                    stream,
-                    presentation: presentation.clone(),
-                    equipment_input: &equipment_input,
-                    owner_equipment: &equipment_input,
-                    consume_ticks,
-                    item_animation,
-                    alpha: step.partial_tick,
-                    artwork,
-                    motion,
-                };
-                if let Some(source) = java::hand_source(inputs, equipment, &mut java_hand) {
-                    return Some(source);
-                }
+            let key = hand::source_key(stream, consume_ticks, item_animation, step.partial_tick);
+            if key == *ready_hand_key {
+                reused_hand = true;
+                return ready_hand_source.take();
             }
-            let hand = stream.authority().actor_rig(local_runtime_id).map_or(
-                FirstPersonHand {
-                    swing: 0.0,
-                    equip: 1.0,
-                    consume: None,
-                },
-                |rig| hand_progress(rig.hand, consume_ticks, step.partial_tick),
-            );
-            hand::vanilla_hand_source(
+            hand::source(
                 hand::HandInputs {
                     stream,
                     presentation,
@@ -604,22 +442,19 @@ pub fn prepare_actor_render_frame(
                     alpha: step.partial_tick,
                     artwork,
                     motion,
+                    sampling_camera: *captured_sampling_camera,
                 },
+                java_mode,
                 equipment,
-                hand,
+                java_hand,
             )
         })
     } else {
         None
     };
-    let local_emote_pose = (!first_person)
-        .then(|| {
-            let stream = client_world.stream.as_ref()?;
-            let rig = stream.authority().actor_rig(local_runtime_id)?;
-            let (emote, elapsed) = input.custom_emote?;
-            client_world::sample_custom_emote(&rig, emote, elapsed, elapsed)
-        })
-        .flatten();
+    if let Some(equipment) = equipment.as_deref_mut() {
+        equipment.finish_hand_readiness(reused_hand);
+    }
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -684,7 +519,7 @@ pub fn prepare_actor_render_frame(
         {
             emote_geometry::apply(
                 &pose.snapshot(rig),
-                &mut skin_rigs,
+                skin_rigs,
                 equipment.as_deref_mut(),
                 &mut new_geometries,
                 &mut local.submission,
@@ -787,7 +622,7 @@ pub fn prepare_actor_render_frame(
                 }
             },
             artwork,
-            &mut layer_poses,
+            layer_poses,
         );
     }
     if let Some(stream) = client_world.stream.as_ref()
@@ -801,9 +636,17 @@ pub fn prepare_actor_render_frame(
                     .flatten();
                 let java_layers =
                     java::posed(&java_posed, runtime_id).map(|posed| posed.skin_layers.as_slice());
-                Some(emote_geometry::skin_layer_snapshot(rig, emote, java_layers))
+                let native_layers = (runtime_id == local_runtime_id && native_body_sampled)
+                    .then(|| java_hand.native_pose.skin_layers())
+                    .flatten();
+                Some(emote_geometry::skin_layer_snapshot(
+                    rig,
+                    emote,
+                    java_layers,
+                    native_layers,
+                ))
             },
-            &mut skin_rigs,
+            skin_rigs,
             |geometry| new_geometries.push(geometry),
         )
     {
@@ -894,7 +737,7 @@ pub fn prepare_actor_render_frame(
     publish_hand_rig(
         &mut hand_builder.0,
         &mut hand_scene,
-        &mut hand_revision,
+        hand_revision,
         hand_source.filter(|_| !input.hide_hand),
         hand_camera_fov,
         hand_light,

@@ -143,6 +143,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
     world.insert_resource(crate::player_skin::LocalPlayerSkin::generated_default(
         "emote fixture",
     ));
+    world.init_resource::<client_presentation::actor_publication::ActorFrameState>();
     world.init_resource::<ActorFramePartialTick>();
     world.insert_resource(UiRuntime::new(1));
     let camera =
@@ -172,6 +173,9 @@ fn prepare(world: &mut World, millis: u64) {
     world
         .resource_mut::<Time<Real>>()
         .advance_by(Duration::from_millis(millis));
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
 }
 
@@ -358,3 +362,161 @@ fn emotes_keep_vanilla_bones_with_java_enabled() {
         }
     }
 }
+
+/// Models the committed-tick admission used by the four production interaction owners.
+fn admit_frame_swing(
+    movement: Res<crate::movement::MovementTicker>,
+    effects: Res<crate::movement::LocalMovementEffectTimeline>,
+    mut swings: ResMut<crate::melee::SwingTracker>,
+    mut accepted: ResMut<SwingAdmission>,
+) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &effects,
+    );
+    accepted.0 = swings.try_swing(
+        movement.completed_tick(),
+        gameplay::melee::swing_duration(effects.mining_effects()),
+    );
+}
+
+#[derive(Resource, Default)]
+struct SwingAdmission(bool);
+
+#[test]
+fn production_actor_preparation_preserves_same_frame_swing_admission() {
+    let mut app = App::new();
+    crate::app::configure_client_frame_schedule(&mut app);
+    crate::app::configure_actor_render_systems(&mut app);
+    app.add_systems(
+        Update,
+        admit_frame_swing.in_set(crate::app::ClientFrameSet::NetworkSend),
+    );
+    let mut schedule = app
+        .world_mut()
+        .resource_mut::<bevy::ecs::schedule::Schedules>()
+        .remove(Update)
+        .unwrap();
+    let mut world = fixture();
+    let mut movement = crate::movement::MovementTicker::default();
+    *movement = gameplay::test_support::survival_mining::ticker_with_ticks(1);
+    world.insert_resource(movement);
+    world.init_resource::<crate::movement::LocalMovementEffectTimeline>();
+    world.init_resource::<crate::melee::SwingTracker>();
+    world.init_resource::<SwingAdmission>();
+    world.init_resource::<render::ActorRenderFrame>();
+    world.init_resource::<render::ActorRuntimeWitness>();
+    let states = [
+        (true, [0.0, 0.0]),
+        (false, [0.0, 1.0 / client_world::ACTOR_SWING_TICKS as f32]),
+        (
+            false,
+            [
+                1.0 / client_world::ACTOR_SWING_TICKS as f32,
+                2.0 / client_world::ACTOR_SWING_TICKS as f32,
+            ],
+        ),
+        (
+            false,
+            [
+                2.0 / client_world::ACTOR_SWING_TICKS as f32,
+                3.0 / client_world::ACTOR_SWING_TICKS as f32,
+            ],
+        ),
+        (true, [3.0 / client_world::ACTOR_SWING_TICKS as f32, 0.0]),
+        (false, [0.0, 1.0 / client_world::ACTOR_SWING_TICKS as f32]),
+    ];
+    for (index, (admitted, expected)) in states.into_iter().enumerate() {
+        *world.resource_mut::<crate::movement::MovementTicker>() = {
+            let mut movement = crate::movement::MovementTicker::default();
+            *movement =
+                gameplay::test_support::survival_mining::ticker_with_ticks(index as u64 + 1);
+            movement
+        };
+        let before = world
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .authority()
+            .actor_rig(2)
+            .unwrap()
+            .completed_tick;
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(50));
+        schedule.run(&mut world);
+        assert_eq!(
+            world.resource::<SwingAdmission>().0,
+            admitted,
+            "the current committed tick must admit before publication at frame {index}"
+        );
+        let stream = world.resource::<ClientWorld>().stream.as_ref().unwrap();
+        let local = stream.authority().actor_rig(1).unwrap();
+        assert_eq!(
+            local.java.swing, expected,
+            "same-frame Java samples at frame {index}"
+        );
+        assert_eq!(
+            local.hand.map(|hand| hand.attack_time),
+            expected,
+            "same-frame Bedrock samples at frame {index}"
+        );
+        assert_eq!(
+            stream.authority().actor_rig(2).unwrap().completed_tick,
+            before + 1,
+            "final pose refresh must not advance remote ticks"
+        );
+    }
+}
+
+/// Observes the exact current-frame hand readiness consumed by the UI owner.
+fn observe_hand_readiness(
+    actor: Res<client_presentation::actor_publication::ActorFrameState>,
+    mut readiness: ResMut<HandReadiness>,
+) {
+    readiness.0 = actor.hand_is_active();
+}
+
+#[derive(Resource, Default)]
+struct HandReadiness(bool);
+
+#[test]
+fn production_early_ui_readiness_matches_the_current_hand_source() {
+    let mut app = App::new();
+    crate::app::configure_client_frame_schedule(&mut app);
+    crate::app::configure_actor_render_systems(&mut app);
+    app.add_systems(
+        Update,
+        observe_hand_readiness.in_set(crate::app::ClientFrameSet::UiPreparation),
+    );
+    let mut schedule = app
+        .world_mut()
+        .resource_mut::<bevy::ecs::schedule::Schedules>()
+        .remove(Update)
+        .unwrap();
+    let mut world = fixture_with_skin(true);
+    world.init_resource::<HandReadiness>();
+    world.init_resource::<render::ActorRenderFrame>();
+    world.init_resource::<render::ActorRuntimeWitness>();
+    for (index, (mode, active)) in [
+        (PerspectiveMode::FirstPerson, true),
+        (PerspectiveMode::ThirdPersonBack, false),
+        (PerspectiveMode::FirstPerson, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        perspective(&mut world, mode, index as u64 + 1);
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(50));
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<HandReadiness>().0, active);
+        assert_eq!(world.resource::<render::HandRigScene>().is_active(), active);
+    }
+}
+
+#[path = "custom_emotes/local_torso.rs"]
+mod local_torso;

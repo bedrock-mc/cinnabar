@@ -65,7 +65,7 @@ pub(crate) fn advance_local_physics(
     let raw_movement = input.raw_movement();
     let analogue_movement = input.analogue_movement();
     let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
-    let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
+    let yaw = gameplay::movement::wire_yaw(180.0 - bevy_yaw.to_degrees());
     let facts = local_facts::read(
         player.as_deref().map(|player| &**player),
         &super::GameplayWorldView(stream),
@@ -90,6 +90,8 @@ pub(crate) fn advance_local_physics(
             movement,
             raw_movement,
             analogue_movement,
+            movement_buttons: semantic
+                .map_or_else(Default::default, |snapshot| snapshot.movement_buttons),
             yaw,
             pitch: -bevy_pitch.to_degrees(),
             camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),

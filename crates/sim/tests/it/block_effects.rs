@@ -170,3 +170,31 @@ fn a_passable_slowing_block_slows_an_overlapping_body_like_powder_snow() {
     };
     assert!(drift(&bush) < drift(&free) * 0.75);
 }
+
+/// Liquid travel speed comes from attributes, so an overlapped block's speed factor never scales it.
+#[test]
+fn block_speed_factors_do_not_scale_liquid_travel() {
+    for flags in [BlockPhysicsFlags::WATER, BlockPhysicsFlags::LAVA] {
+        let travel = |horizontal_factor| {
+            let liquid = Blocks {
+                floor: false,
+                flags,
+                fluid_height: 1.0,
+                horizontal_factor,
+                ..Blocks::plain()
+            };
+            run(
+                &liquid,
+                PlayerState::new(Vec3::new(0.5, 10.0, 0.5)),
+                MovementInput {
+                    forward: 1.0,
+                    ..MovementInput::default()
+                },
+                1,
+            )
+            .movement
+            .z
+        };
+        assert_eq!(travel(0.543), travel(1.0), "{flags:?}");
+    }
+}

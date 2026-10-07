@@ -68,6 +68,15 @@ fn write_transparent_refs(
     first_ref: usize,
     refs: &[PackedTransparentDrawRef],
 ) -> u64 {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "terrain.transparent_refs_write",
+        buffer_slot,
+        first_ref,
+        refs = refs.len(),
+        bytes = std::mem::size_of_val(refs),
+    )
+    .entered();
     render_queue.write_buffer(
         &arena.transparent_ref_buffer,
         transparent_ref_offset(buffer_slot, arena.transparent_slot_refs, first_ref),
@@ -502,6 +511,13 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
         ))
     }) && runtime.last_indirect_identity != Some(identity)
     {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "terrain.transparent_indirect_write",
+            buffer_slot = identity.0,
+            refs = identity.1
+        )
+        .entered();
         render_queue.write_buffer(
             &arena.transparent_indirect_buffer,
             0,

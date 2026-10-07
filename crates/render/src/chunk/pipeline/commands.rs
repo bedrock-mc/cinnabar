@@ -201,7 +201,16 @@ pub(in crate::chunk) fn upload_indirect_commands_if_changed(
     if arena.uploaded_indirect_bytes == bytes {
         return 0;
     }
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "terrain.indirect_write",
+        commands = commands.len(),
+        bytes = bytes.len()
+    )
+    .entered();
     render_queue.write_buffer(&arena.indirect_buffer, 0, bytes);
+    #[cfg(feature = "tracy")]
+    drop(_span);
     arena.uploaded_indirect_bytes.clear();
     arena.uploaded_indirect_bytes.extend_from_slice(bytes);
     bytes.len() as u64
@@ -242,7 +251,7 @@ pub(in crate::chunk) fn front_to_back_cube_entities(
 mod order_tests;
 
 pub(in crate::chunk) type DrawChunkCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    { crate::RuntimeStage::GpuTerrainCutout as usize },
     (
         crate::chunk::gpu_cull::SkipOccludedTerrain,
         SetItemPipeline,
@@ -252,7 +261,7 @@ pub(in crate::chunk) type DrawChunkCommands = crate::gpu_timing::GpuDrawSpan<
     ),
 >;
 pub(in crate::chunk) type DrawChunkIndirectCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    { crate::RuntimeStage::GpuTerrainCutout as usize },
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
@@ -261,7 +270,7 @@ pub(in crate::chunk) type DrawChunkIndirectCommands = crate::gpu_timing::GpuDraw
     ),
 >;
 pub(in crate::chunk) type DrawModelCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    { crate::RuntimeStage::GpuTerrainModel as usize },
     (
         crate::chunk::gpu_cull::SkipOccludedTerrain,
         SetItemPipeline,
@@ -271,7 +280,7 @@ pub(in crate::chunk) type DrawModelCommands = crate::gpu_timing::GpuDrawSpan<
     ),
 >;
 pub(in crate::chunk) type DrawModelIndirectCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    { crate::RuntimeStage::GpuTerrainModel as usize },
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
@@ -289,7 +298,7 @@ pub(in crate::chunk) type DrawTransparentModelCommands = crate::gpu_timing::GpuD
     ),
 >;
 pub(in crate::chunk) type DrawDepthLiquidCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    { crate::RuntimeStage::GpuTerrainDepthLiquid as usize },
     (
         crate::chunk::gpu_cull::SkipOccludedTerrain,
         SetItemPipeline,
@@ -299,7 +308,7 @@ pub(in crate::chunk) type DrawDepthLiquidCommands = crate::gpu_timing::GpuDrawSp
     ),
 >;
 pub(in crate::chunk) type DrawDepthLiquidIndirectCommands = crate::gpu_timing::GpuDrawSpan<
-    { crate::RuntimeStage::GpuTerrainOpaque as usize },
+    { crate::RuntimeStage::GpuTerrainDepthLiquid as usize },
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,

@@ -283,8 +283,8 @@ impl UiRuntime {
                 "minecraft:player.saturation" => {
                     self.gameplay_hud.set_saturation(attribute.current);
                 }
-                // Absorption is an ordinary bounded attribute; zero is common
-                // and simply hides the golden hearts.
+                // The native heart renderer reads current absorption, independently
+                // of the attribute range; zero clears the golden hearts.
                 "minecraft:absorption" => match hud_adapter::attribute_stat(attribute) {
                     Some(stat) => absorption = Some(stat),
                     None => self.gameplay_hud.note_odd_attribute(),
@@ -467,7 +467,7 @@ impl UiRuntime {
         let identifier = identifier?;
         self.item_components(identifier)
             .and_then(|components| components.max_durability)
-            .or_else(|| super::item_facts::max_durability(identifier))
+            .or_else(|| client_world::vanilla_max_durability(identifier))
     }
 
     pub fn set_server_ui(&mut self, pack: Option<Arc<super::presentation::ServerUiPack>>) {

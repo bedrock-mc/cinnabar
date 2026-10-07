@@ -349,6 +349,26 @@ pub struct ActorMotionEvent {
     pub tick: u64,
 }
 
+/// Server-predicted movement effect kind (`MovementEffect` packet type).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovementEffectKind {
+    GlideBoost,
+    DolphinBoost,
+    GeyserBoost,
+    Unknown(i32),
+}
+
+/// One `MovementEffect`: an effect the client predicts for `duration_ticks`
+/// starting after the stamped input `tick`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MovementEffectEvent {
+    pub actor_runtime_id: u64,
+    pub kind: MovementEffectKind,
+    /// Signed wire duration; vanilla reads -1 as unbounded and anything lower as zero.
+    pub duration_ticks: i32,
+    pub tick: u64,
+}
+
 /// The rewind-subject discriminant carried by `CorrectPlayerMovePrediction`.
 ///
 /// Protocol 2168 has no correction-shape mode field (no Normal/Teleport/Rotation
@@ -469,6 +489,7 @@ pub enum WorldEvent {
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
     ActorMotion(ActorMotionEvent),
+    MovementEffect(MovementEffectEvent),
     /// A server probe echoed only after preceding world controls are applied.
     NetworkStackLatency(u64),
     SetTime(SetTimeEvent),

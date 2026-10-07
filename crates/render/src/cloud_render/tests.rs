@@ -88,6 +88,34 @@ fn buffer_id(world: &World, entity: Entity) -> BufferId {
 }
 
 #[test]
+fn steady_uploads_cloud_colour_ignores_clock_only_changes() {
+    use bevy::render::renderer::WgpuWrapper;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.init_resource::<crate::AtmosphereViewInputs>();
+    let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+    world.insert_resource(frame);
+    world.run_system_once(init_cloud_gpu).unwrap();
+    let buffer = world.resource::<CloudGpu>().colour_buffer.id();
+    let mut system = IntoSystem::into_system(prepare_cloud_colour);
+    system.initialize(&mut world);
+    system.run((), &mut world).unwrap();
+    assert_eq!(world.resource::<CloudGpu>().colour_uploads, 1);
+    world.insert_resource(frame.with_cloud_renderer_ticks(123.0));
+    let allocated = crate::alloc_count::thread_allocations();
+    system.run((), &mut world).unwrap();
+    assert_eq!(world.resource::<CloudGpu>().colour_uploads, 1);
+    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+
+    world.insert_resource(AtmosphereFrame::from_bedrock_time(6_000.0, 1.0, 1.0));
+    system.run((), &mut world).unwrap();
+    assert_eq!(world.resource::<CloudGpu>().colour_uploads, 2);
+    assert_eq!(world.resource::<CloudGpu>().colour_buffer.id(), buffer);
+}
+
+#[test]
 fn viewport_records_are_identity_cached_with_exact_diagnostic_layout() {
     let mut world = world();
     let view = spawn_view(&mut world, Vec3::ZERO);

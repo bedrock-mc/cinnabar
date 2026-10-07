@@ -81,7 +81,23 @@ pub struct UnsentSampleView {
     /// Network (eye-offset) position.
     pub position: [f32; 3],
     pub delta: [f32; 3],
+    /// Resolved motion controls held-use cadence independently of outbound velocity.
+    pub displacement: [f32; 3],
     pub sneaking: bool,
+}
+
+impl UnsentSampleView {
+    /// Reads the interaction pose without copying queued transport state.
+    fn from_queued(sample: &super::QueuedPhysicsSample) -> Self {
+        Self {
+            tick: sample.snapshot.tick,
+            position: sample.snapshot.position,
+            delta: sample.snapshot.delta,
+            displacement: sample.displacement,
+            sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
+                != 0,
+        }
+    }
 }
 
 /// Capacity of every movement retry queue: queued samples, staged sends,
@@ -231,13 +247,29 @@ impl MovementTicker {
 
     /// The newest unsent tick, which standalone interaction packets precede.
     pub fn newest_unsent_sample(&self) -> Option<UnsentSampleView> {
-        self.outbox.back().map(|sample| UnsentSampleView {
-            tick: sample.snapshot.tick,
-            position: sample.snapshot.position,
-            delta: sample.snapshot.delta,
-            sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
-                != 0,
-        })
+        self.outbox.back().map(UnsentSampleView::from_queued)
+    }
+
+    /// Looks up only the exact tick still owned by the unsent movement queue.
+    pub fn unsent_sample_at(&self, tick: u64) -> Option<UnsentSampleView> {
+        self.outbox
+            .iter()
+            .find(|sample| sample.snapshot.tick == tick)
+            .map(UnsentSampleView::from_queued)
+    }
+
+    /// The first eligible unsent tick committed in this render frame.
+    pub fn first_unsent_sample_in_frame(&self, recent_ticks: usize) -> Option<UnsentSampleView> {
+        if recent_ticks == 0 {
+            return None;
+        }
+        let first = self
+            .completed_tick()
+            .saturating_sub(recent_ticks as u64 - 1);
+        self.outbox
+            .iter()
+            .find(|sample| sample.snapshot.tick >= first)
+            .map(UnsentSampleView::from_queued)
     }
 
     /// Holds an aim-assisted release until `tick`'s input, which carries the facing it launches
@@ -287,8 +319,8 @@ impl MovementTicker {
             return false;
         };
         sample.snapshot.pitch = pitch;
+        // Vanilla's aim-assist override leaves head rotation untouched.
         sample.snapshot.yaw = yaw;
-        sample.snapshot.head_yaw = yaw;
         true
     }
 

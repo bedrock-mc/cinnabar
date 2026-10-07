@@ -213,8 +213,8 @@ pub fn creative_with(player_runtime: &mut player_state::PlayerState, count: u32)
 }
 
 pub use crate::ui_runtime::presentation::forms::test_support::{
-    draw_menu_actions, settings_view, snapshot_menu, snapshot_menu_after, snapshot_menu_at,
-    snapshot_menu_vanilla,
+    draw_menu_actions, settings_section_index, settings_view, snapshot_menu, snapshot_menu_after,
+    snapshot_menu_at, snapshot_menu_vanilla,
 };
 
 pub use crate::ui_runtime::presentation::{

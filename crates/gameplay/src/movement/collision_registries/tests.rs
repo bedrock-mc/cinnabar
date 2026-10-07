@@ -486,3 +486,47 @@ fn mutating_the_authority_flips_the_binding_decision() {
 
     assert!(accepted && rejected);
 }
+
+#[test]
+fn held_placement_intention_uses_the_held_block_family_in_both_id_spaces() {
+    let protocol = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+    let preg = synthetic_preg(protocol, BREG_V2193, &records);
+    let registry = bind(BREG_V2193, &preg, protocol).unwrap();
+    for (name, expected) in [
+        ("minecraft:stone", true),
+        ("minecraft:oak_leaves", true),
+        ("minecraft:oak_stairs", true),
+        ("minecraft:oak_slab", true),
+        ("minecraft:glass_pane", true),
+        ("minecraft:oak_fence", true),
+        ("minecraft:cobblestone_wall", true),
+        ("minecraft:white_carpet", true),
+        ("minecraft:soul_sand", true),
+        ("minecraft:mud", true),
+        ("minecraft:barrier", true),
+        ("minecraft:chiseled_bookshelf", true),
+        ("minecraft:fence_gate", false),
+        ("minecraft:wooden_door", false),
+        ("minecraft:trapdoor", false),
+        ("minecraft:chest", false),
+        ("minecraft:air", false),
+    ] {
+        let record = records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap_or_else(|| panic!("missing registered held block {name}"));
+        assert_eq!(
+            registry
+                .block_has_build_intention(assets::NetworkIdMode::Sequential, record.sequential_id),
+            expected,
+            "{name}"
+        );
+        assert_eq!(
+            registry.block_has_build_intention(assets::NetworkIdMode::Hashed, record.network_hash),
+            expected,
+            "{name}"
+        );
+    }
+    assert!(!registry.block_has_build_intention(assets::NetworkIdMode::Sequential, u32::MAX));
+}

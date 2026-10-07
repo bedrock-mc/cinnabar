@@ -1072,7 +1072,8 @@ fn world_ingress_drain_stops_at_transfer_barrier_without_consuming_replacement_e
         }))
         .unwrap();
 
-    let drained = drain_world_ingress_until_barrier(&mut receiver, 4);
+    let mut drain = WorldIngressDrain::new(4);
+    let drained: Vec<_> = std::iter::from_fn(|| drain.next(&mut receiver, 4)).collect();
 
     assert!(matches!(
         drained.as_slice(),

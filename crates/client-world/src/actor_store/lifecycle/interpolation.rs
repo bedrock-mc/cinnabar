@@ -3,6 +3,37 @@
 use super::*;
 
 impl ActorStore {
+    /// Java torso ticks follow this local simulation identity rather than the remote actor clock.
+    pub(crate) fn set_local_motion_authority(
+        &mut self,
+        runtime_id: u64,
+        authority: Option<(u64, u64)>,
+    ) {
+        self.animation
+            .set_local_motion_authority(runtime_id, authority);
+    }
+
+    /// Corrects only local torso motion after this frame's interaction admissions.
+    pub(crate) fn sync_local_swing_motion(
+        &mut self,
+        runtime_id: u64,
+        authority: (u64, u64),
+        samples: impl IntoIterator<Item = crate::LocalSwingMotionSample>,
+    ) {
+        self.local_view_dirty |= self
+            .animation
+            .sync_local_swing_motion(runtime_id, authority, samples);
+    }
+
+    /// Changed committed local swing samples refresh the local rig even between actor ticks.
+    pub(crate) fn sync_local_swing(
+        &mut self,
+        runtime_id: u64,
+        progress: crate::LocalSwingProgress,
+    ) {
+        self.local_view_dirty |= self.animation.sync_local_swing(runtime_id, progress);
+    }
+
     /// Advances explicit simulation ticks, retaining the legacy per-tick evaluation contract.
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
         self.advance_interpolation(ticks, false);
@@ -89,6 +120,7 @@ impl ActorStore {
             let local_main_metadata = self.local_main_metadata;
             let local_main_slot = self.local_main_slot;
             let local_main_stack_id = self.local_main_stack_id;
+            let local_bedrock_swing_ticks = self.local_bedrock_swing_ticks;
             let local_java_swing_ticks = self.local_java_swing_ticks;
             let view = self.animation_view.as_ref();
             let context = |actor: &ActorSnapshot| {
@@ -160,6 +192,11 @@ impl ActorStore {
                             .get_in_hand(lifetime, protocol::ActorHandedness::Right)
                             .map(|equipment| equipment.item.identity.stack_network_id)
                             .filter(|id| *id > 0)
+                    },
+                    bedrock_swing_ticks: if is_local {
+                        local_bedrock_swing_ticks
+                    } else {
+                        0
                     },
                     java_swing_ticks: if is_local {
                         local_java_swing_ticks

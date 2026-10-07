@@ -26,7 +26,7 @@ mod recipe_book;
 mod sleep;
 mod status_motion;
 mod status_rows;
-pub(super) use status_rows::capture as capture_hud_paint;
+pub(super) use status_rows::{HeartPaint, capture as capture_hud_paint};
 mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};

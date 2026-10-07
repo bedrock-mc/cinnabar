@@ -157,11 +157,12 @@ fn empty_pose() -> Arc<[BoneTransform]> {
 }
 
 /// Gives each layer the pose it drew last tick as its previous pose, so layers interpolate, and
-/// keeps last tick's hidden-bone list when unchanged so its derived poses stay cached.
+/// retains prior endpoints on a view refresh and keeps unchanged hidden-bone lists cached.
 pub(super) fn carry_layer_poses(
     old: &[RenderTextureLayer],
     new: &mut [RenderTextureLayer],
     reset: bool,
+    advance_history: bool,
 ) {
     for (index, layer) in new.iter_mut().enumerate() {
         if let Some(previous) = old.get(index)
@@ -175,7 +176,11 @@ pub(super) fn carry_layer_poses(
                     && previous.geometry == layer.geometry
                     && previous.pose.len() == layer.pose.len() =>
             {
-                Arc::clone(&previous.pose)
+                Arc::clone(if advance_history {
+                    &previous.pose
+                } else {
+                    &previous.previous_pose
+                })
             }
             _ => Arc::clone(&layer.pose),
         };

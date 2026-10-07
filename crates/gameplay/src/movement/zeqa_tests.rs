@@ -124,7 +124,19 @@ fn teleport_does_not_fabricate_a_second_raw_jump_press() {
         jumping: true,
         ..MovementInput::default()
     };
-    let frame = physics.advance(Duration::from_millis(300), input, &world);
+    let mut context = super::PhysicsSampleContext {
+        input: super::TickInput {
+            jump: semantic_input::ActionPhase {
+                held: true,
+                pressed: true,
+                released: false,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let frame = physics.advance_with_context(Duration::from_millis(300), input, context, &world);
+    context.input.jump.pressed = false;
     assert_eq!(frame.samples.len(), 6);
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
@@ -132,8 +144,8 @@ fn teleport_does_not_fabricate_a_second_raw_jump_press() {
     super::reconcile_move_player_teleport(&mut ticker, &mut physics, anchor, 0, false, &world)
         .unwrap();
     // Discard the elapsed frame that predates the teleport.
-    physics.advance(Duration::from_millis(50), input, &world);
-    let frame = physics.advance(Duration::from_millis(50), input, &world);
+    physics.advance_with_context(Duration::from_millis(50), input, context, &world);
+    let frame = physics.advance_with_context(Duration::from_millis(50), input, context, &world);
     ticker
         .enqueue_completed_physics(frame.samples[0].clone())
         .unwrap();

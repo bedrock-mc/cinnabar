@@ -40,7 +40,7 @@ pub(super) fn append(
         MenuScreen::Servers => servers::append(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
-        MenuScreen::Profile => secondary::profile(
+        MenuScreen::Profile | MenuScreen::DressingRoom => secondary::profile(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
         MenuScreen::Settings => secondary::settings(

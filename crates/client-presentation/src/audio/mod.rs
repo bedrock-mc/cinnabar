@@ -15,6 +15,7 @@ mod server;
 pub mod settings;
 pub mod systems;
 mod voice;
+mod water;
 
 pub use bank::{SoundBank, sound_bank_path};
 pub use engine::AudioEngine;
@@ -25,7 +26,7 @@ pub use server::{ServerSoundPack, publish_server_sounds};
 #[allow(unused_imports)]
 pub use settings::{AudioCategory, AudioSettings};
 #[allow(unused_imports)]
-pub use systems::{UiSoundCue, ui_click, ui_control_sound, ui_sound};
+pub use systems::{UiSoundCue, ui_control_sound, ui_sound};
 pub use voice::OUTPUT_RATE;
 
 pub use echo::{EchoLedger, EchoOrigin, EchoSubject};

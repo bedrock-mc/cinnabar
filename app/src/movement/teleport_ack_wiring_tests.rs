@@ -64,7 +64,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> super::PhysicsMovementSamp
         camera_orientation: [0.0, 0.0, 1.0],
         jumping: false,
         sneaking: false,
-        sneak_button: false,
+        input: Default::default(),
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,

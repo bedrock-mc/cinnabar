@@ -49,8 +49,7 @@ pub const TELEPORT_ACK_ADMITTED_TICK_BUDGET: u64 = 40;
 /// MovePlayer is verified; correction-snap and respawn remain opt-in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerTeleportKind {
-    /// A committed correction classified beyond the teleport displacement
-    /// bound (`CorrectionShape::TeleportSnap`).
+    /// A committed correction that needed a snap because replay was unavailable.
     CorrectionSnap,
     /// A local-player `MovePlayer` whose event carried `teleported == true`.
     MovePlayer,
@@ -89,8 +88,8 @@ impl MovementTicker {
     }
 
     /// Classifies one committed correction outcome for the acknowledgement
-    /// state machine: only a teleport-shaped snap is a server teleport; an
-    /// ordinary replay stays counter-only. Confirmed outcomes never reach a
+    /// state machine: fallback snaps use the opt-in route; an ordinary replay
+    /// stays counter-only. Confirmed outcomes never reach a
     /// call site (they mutate nothing upstream).
     pub fn note_committed_correction_outcome(&mut self, outcome: PhysicsCorrectionOutcome) {
         match outcome {
