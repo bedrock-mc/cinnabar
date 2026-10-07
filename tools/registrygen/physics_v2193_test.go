@@ -275,7 +275,8 @@ func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *
 	if len(powderSnow) != 1 {
 		t.Fatalf("powder_snow states = %d, want 1", len(powderSnow))
 	}
-	if entry := entries[powderSnow[0]]; entry.Flags&(physicsFlagPowderSnow|physicsFlagPassable) != physicsFlagPowderSnow|physicsFlagPassable || len(entry.Boxes) != 0 {
+	if entry := entries[powderSnow[0]]; entry.Flags&(physicsFlagPowderSnow|physicsFlagPassable) != physicsFlagPowderSnow|physicsFlagPassable || len(entry.Boxes) != 0 ||
+		entry.HorizontalSpeed != powderSnowSlowdownHorizontalQ1E8 || entry.VerticalSpeed != powderSnowSlowdownVerticalQ1E8 {
 		t.Fatalf("powder_snow runtime ID %d facts changed: %+v", powderSnow[0], entry)
 	}
 
@@ -292,7 +293,7 @@ func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *
 	if len(honey) != 1 {
 		t.Fatalf("honey_block states = %d, want 1", len(honey))
 	}
-	if entry := entries[honey[0]]; entry.Surface != SurfaceHoney || entry.HorizontalSpeed != unprovenHoneySpeedQ1E8 ||
+	if entry := entries[honey[0]]; entry.Surface != SurfaceHoney || entry.HorizontalSpeed != defaultSpeedQ1E8 ||
 		entry.Friction != 80_000_000 || len(entry.Boxes) != 1 {
 		t.Fatalf("honey_block runtime ID %d facts changed: %+v", honey[0], entry)
 	}
@@ -401,7 +402,7 @@ func TestProjectV2193PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing
 		t.Fatalf("soul_sand facts changed: %+v", soulSand)
 	}
 	honey := physics[v2193RecordsNamed(records, "minecraft:honey_block")[0]]
-	if honey.SurfaceResponse != SurfaceHoney || honey.HorizontalSpeedQ1E8 != unprovenHoneySpeedQ1E8 {
+	if honey.SurfaceResponse != SurfaceHoney || honey.HorizontalSpeedQ1E8 != defaultSpeedQ1E8 {
 		t.Fatalf("honey_block facts changed: %+v", honey)
 	}
 

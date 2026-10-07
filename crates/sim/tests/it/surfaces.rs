@@ -248,7 +248,7 @@ fn bed_restitution_is_uncapped() {
 }
 
 #[test]
-fn authoritative_soul_sand_and_honey_factors_slow_horizontal_motion() {
+fn authoritative_soul_sand_factor_slows_horizontal_motion() {
     let ordinary = surface(SurfaceResponse::None);
     let mut ordinary_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
     ordinary_state.on_ground = true;
@@ -263,13 +263,8 @@ fn authoritative_soul_sand_and_honey_factors_slow_horizontal_motion() {
         )
         .unwrap();
 
-    // Soul sand carries the pinned bedsim Bedrock factor; honey carries the
-    // explicitly unproven Java-derived one that no bedsim oracle can correct.
-    // Both come from PREG, so this only proves the force law consumes them.
-    for (response, factor) in [
-        (SurfaceResponse::SoulSand, 0.543),
-        (SurfaceResponse::Honey, 0.4),
-    ] {
+    // Soul sand's factor comes from PREG; this only proves the force law consumes it.
+    for (response, factor) in [(SurfaceResponse::SoulSand, 0.543)] {
         let mut slowed_world = surface(response);
         slowed_world.facts.horizontal_speed_factor = factor;
         let mut slowed_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
