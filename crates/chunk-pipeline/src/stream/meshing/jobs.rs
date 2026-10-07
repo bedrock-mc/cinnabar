@@ -356,16 +356,7 @@ impl WorldStream {
                 urgent: pending.urgent,
                 permit,
             };
-            if pending.urgent {
-                self.mesh_changes.push_front(change);
-            } else {
-                self.mesh_changes.push_back(change);
-            }
-            self.stats.phase2_stages.mesh_changes_queued = self
-                .stats
-                .phase2_stages
-                .mesh_changes_queued
-                .saturating_add(1);
+            self.queue_mesh_change(change);
         }
         dispatched
     }
@@ -665,16 +656,7 @@ impl WorldStream {
             urgent,
             permit,
         };
-        if urgent {
-            self.mesh_changes.push_front(change);
-        } else {
-            self.mesh_changes.push_back(change);
-        }
-        self.stats.phase2_stages.mesh_changes_queued = self
-            .stats
-            .phase2_stages
-            .mesh_changes_queued
-            .saturating_add(1);
+        self.queue_mesh_change(change);
         None
     }
 }

@@ -455,9 +455,9 @@ fn delayed_glide_boost_rewinds_to_its_tick_and_matches_on_time_delivery() {
     assert_eq!(delayed.mode(), sim::MovementMode::Gliding);
     assert_ne!(delayed.state(), on_time.state());
 
-    let (rewind, remaining) = delayed.retime_movement_boost(super::MovementBoost::Glide, 103, span);
-    assert_eq!(rewind, Some(103));
-    assert_eq!(remaining, Some(super::BoostSpan::Ticks(2)));
+    let retime = delayed.retime_movement_boost(super::MovementBoost::Glide, 103, span);
+    assert_eq!(retime.rewind, Some(103));
+    assert_eq!(retime.remaining, Some(super::BoostSpan::Ticks(2)));
     reconcile_timeline_rewind(&mut ticker, &mut delayed, 103, &VersionedFloor(1)).unwrap();
     assert_eq!(delayed.state(), on_time.state());
     for _ in 0..2 {
@@ -466,8 +466,9 @@ fn delayed_glide_boost_rewinds_to_its_tick_and_matches_on_time_delivery() {
     }
     assert!(!on_time_effects.snapshot().glide_boost);
 
+    let live = delayed.retime_movement_boost(super::MovementBoost::Glide, 106, span);
     assert_eq!(
-        delayed.retime_movement_boost(super::MovementBoost::Glide, 106, span),
+        (live.rewind, live.remaining),
         (None, Some(span)),
         "a current stamp boosts from the next tick"
     );
@@ -488,4 +489,25 @@ fn delayed_liquid_movement_speeds_rewrite_retained_inputs_once() {
         None,
         "a current stamp applies live"
     );
+}
+
+/// Reverting a retime whose replay failed restores the retained inputs, so the
+/// boost is written (and later replayed) exactly once.
+#[test]
+fn a_reverted_glide_boost_leaves_retained_inputs_unboosted() {
+    let span = super::BoostSpan::Ticks(2);
+    let (mut physics, _, _) = glide_with_boost(6, None);
+    let before = physics.state().cloned();
+    let retime = physics.retime_movement_boost(super::MovementBoost::Glide, 103, span);
+    assert_eq!(retime.rewind, Some(103));
+    physics.revert_movement_boost(retime);
+    assert_eq!(physics.state().cloned(), before);
+    let again = physics.retime_movement_boost(super::MovementBoost::Glide, 103, span);
+    assert_eq!(
+        again.rewind,
+        Some(103),
+        "the reverted history no longer holds the boost"
+    );
+    let repeat = physics.retime_movement_boost(super::MovementBoost::Glide, 103, span);
+    assert_eq!(repeat.rewind, None, "an applied boost is not written twice");
 }

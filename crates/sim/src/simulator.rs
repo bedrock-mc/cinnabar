@@ -247,17 +247,14 @@ impl Simulator {
             DEFAULT_AIR_FRICTION
         };
         let depth_strider = depth_strider_level(input.depth_strider, grounded_at_start);
+        // Liquid and ground speeds come from attributes and friction only; block
+        // speed factors never scale the acceleration.
         let relative_speed = if sampled.movement.in_water {
-            water_travel_speed(
-                &input,
-                sampled.movement.horizontal_speed_factor,
-                grounded_at_start,
-            )
+            water_travel_speed(&input, grounded_at_start)
         } else if sampled.movement.in_lava {
-            let base = input
+            input
                 .lava_movement_speed
-                .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED);
-            f64::from(base as f32 * sampled.movement.horizontal_speed_factor as f32)
+                .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED)
         } else if grounded_at_start {
             ground_relative_speed(input, &sampled)
         } else if input.sprinting {
@@ -274,7 +271,11 @@ impl Simulator {
             relative_speed,
         );
 
+        // A held jump on a climbable feet cell climbs instead: no ground jump,
+        // sprint impulse, jump delay or start-jump report.
+        let climb_jump = input.jumping && sampled.movement.on_climbable;
         let jump_initiated = input.jump_pressed
+            && !climb_jump
             && !jump_suppressed
             && next.on_ground
             && next.jump_delay == 0
@@ -358,12 +359,23 @@ impl Simulator {
             next.velocity.y = HONEY_SLIDE_SPEED;
         }
         let mut identity = sampled.identity;
-        if input.sneaking
-            && input.mode != MovementMode::Crawling
-            && grounded_at_start
-            && next.velocity.y <= 0.0
-        {
-            let (clipped, edge_identity) = clip_sneak_edge(world, next.position, next.velocity)?;
+        // Edge avoidance shortens only the move request; velocity keeps each
+        // unclipped axis and loses an axis only once its clip reaches zero.
+        let mut edge_velocity = None;
+        if input.sneaking && input.mode != MovementMode::Crawling && grounded_at_start {
+            let (clipped, edge_identity) = clip_sneak_edge(
+                world,
+                next.position,
+                next.velocity,
+                input.mode.hitbox_height(input.sneaking),
+            )?;
+            let mut retained = next.velocity;
+            for axis in [0, 2] {
+                if (clipped[axis] as f32).abs() <= COLLISION_EPSILON as f32 {
+                    retained[axis] = 0.0;
+                }
+            }
+            edge_velocity = Some(retained);
             next.velocity = clipped;
             if let Some(edge_identity) = edge_identity {
                 identity = identity.merge(&edge_identity)?;
@@ -388,11 +400,14 @@ impl Simulator {
         )?;
         identity = identity.merge(&motion.identity)?;
         next.position = motion.position;
-        next.on_ground = motion.stepped
-            || (motion.collisions.y && next.velocity.y < 0.0)
-            || (grounded_at_start
-                && !motion.collisions.y
-                && next.velocity.y.abs() <= COLLISION_EPSILON);
+        // Ground comes only from a vertical collision under a downward request,
+        // so a step taken while rising leaves the ground; a free move keeps it
+        // only for an exactly zero vertical request.
+        next.on_ground = if motion.collisions.y {
+            pre_collision_velocity.y < 0.0
+        } else {
+            grounded_at_start && pre_collision_velocity.y == 0.0
+        };
 
         let landing_surface = if motion.collisions.y && pre_collision_velocity.y < 0.0 {
             let surface = if let Some(block) = motion.support {
@@ -427,6 +442,10 @@ impl Simulator {
         }
         next.movement = resolved;
         next.velocity = resolved;
+        if let Some(retained) = edge_velocity {
+            next.velocity.x = retained.x;
+            next.velocity.z = retained.z;
+        }
         if motion.stepped {
             next.velocity.y = 0.0;
         }
@@ -561,11 +580,10 @@ impl Simulator {
 /// Vanilla water travel speed from the underwater movement attribute. Depth
 /// Strider blends it toward the ground speed, multiplying the effective level
 /// before division; a dolphin-boosted swimmer scales it instead.
-fn water_travel_speed(input: &MovementInput, horizontal_speed_factor: f64, grounded: bool) -> f64 {
+fn water_travel_speed(input: &MovementInput, grounded: bool) -> f64 {
     let base = input
         .underwater_movement_speed
-        .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED) as f32
-        * horizontal_speed_factor as f32;
+        .unwrap_or(DEFAULT_LIQUID_MOVEMENT_SPEED) as f32;
     let multiplier = swim_speed_multiplier(input);
     let max_level = f32::from(DEPTH_STRIDER_MAX_LEVEL);
     if multiplier > 1.0 {
@@ -641,12 +659,8 @@ fn ground_relative_speed(input: MovementInput, sampled: &environment::SampledEnv
     } else {
         GROUND_BASE_FRICTION / drag
     };
-    let mut speed = effective_movement_speed(&input);
-    speed = speed * ratio * ratio * ratio;
-    if !soul_sand {
-        speed *= sampled.movement.horizontal_speed_factor as f32;
-    }
-    f64::from(speed)
+    let speed = effective_movement_speed(&input);
+    f64::from(speed * ratio * ratio * ratio)
 }
 
 /// Rounds the control impulse before the relative-movement calculation.

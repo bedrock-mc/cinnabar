@@ -20,8 +20,8 @@ pub struct ControlledTickResult {
 pub(super) fn process(input: MovementInput) -> ProcessedControls {
     let slowed = input.sneaking || input.mode == MovementMode::Crawling;
     if input.move_vector_is_raw {
-        // Primary controls are a wire-f32 contract: round operands and each
-        // item/pose multiplication before widening into existing f64 travel.
+        // Primary controls are a wire-f32 contract: vanilla scales the axes by
+        // pose, then by the item factor, rounding each product.
         let item = input.item_use_movement_modifier.map_or(
             if input.using_consumable {
                 super::CONSUMABLE_INPUT_MULTIPLIER as f32
@@ -30,16 +30,15 @@ pub(super) fn process(input: MovementInput) -> ProcessedControls {
             },
             |value| value as f32,
         );
-        let factor = item
-            * if slowed {
-                sneak_factor(input.swift_sneak)
-            } else {
-                1.0
-            };
+        let pose = if slowed {
+            sneak_factor(input.swift_sneak)
+        } else {
+            1.0
+        };
         return ProcessedControls {
             move_vector: [
-                f64::from((input.strafe as f32).clamp(-1.0, 1.0) * factor),
-                f64::from((input.forward as f32).clamp(-1.0, 1.0) * factor),
+                f64::from((input.strafe as f32).clamp(-1.0, 1.0) * pose * item),
+                f64::from((input.forward as f32).clamp(-1.0, 1.0) * pose * item),
             ],
         };
     }

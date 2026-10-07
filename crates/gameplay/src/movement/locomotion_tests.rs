@@ -395,7 +395,7 @@ fn swim_and_glide_edges_pair_start_with_stop() {
 }
 
 #[test]
-fn a_ceiling_that_only_fits_a_sneak_forces_the_pose_and_persist_flag() {
+fn a_ceiling_that_only_fits_a_sneak_forces_the_pose_without_request_lanes() {
     let mut physics = settled_controller();
     let world = LowCeiling(2.6);
     let first = step(
@@ -406,7 +406,7 @@ fn a_ceiling_that_only_fits_a_sneak_forces_the_pose_and_persist_flag() {
     );
     assert!(first.processed.forced_sneak && first.sneaking);
     let flags = input_flags(&first, HeldInput::default());
-    assert!(has(flags, PlayerInputFlags::PERSIST_SNEAK));
+    assert!(!has(flags, PlayerInputFlags::PERSIST_SNEAK));
     assert!(!has(flags, PlayerInputFlags::SNEAKING));
     assert!(!has(flags, PlayerInputFlags::SNEAK_DOWN));
     assert!(!has(flags, PlayerInputFlags::WANT_DOWN));

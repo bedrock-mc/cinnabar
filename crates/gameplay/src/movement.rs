@@ -931,7 +931,7 @@ mod zeqa_tests;
 pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
-pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput};
+pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput, wire_head_yaw, wire_yaw};
 
 #[cfg(test)]
 mod input_state_tests;
