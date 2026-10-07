@@ -28,6 +28,8 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
         bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
         java_swing_ticks: client_world::ACTOR_SWING_TICKS,
         flying: false,
+        gliding: false,
+        fall_fly_ticks: 0,
         teleported: false,
         first_person: true,
         view_bobbing: true,
