@@ -335,12 +335,23 @@ impl Simulator {
             next.velocity.y = HONEY_SLIDE_SPEED;
         }
         let mut identity = sampled.identity;
-        if input.sneaking
-            && input.mode != MovementMode::Crawling
-            && grounded_at_start
-            && next.velocity.y <= 0.0
-        {
-            let (clipped, edge_identity) = clip_sneak_edge(world, next.position, next.velocity)?;
+        // Edge avoidance shortens only the move request; velocity keeps each
+        // unclipped axis and loses an axis only once its clip reaches zero.
+        let mut edge_velocity = None;
+        if input.sneaking && input.mode != MovementMode::Crawling && grounded_at_start {
+            let (clipped, edge_identity) = clip_sneak_edge(
+                world,
+                next.position,
+                next.velocity,
+                input.mode.hitbox_height(input.sneaking),
+            )?;
+            let mut retained = next.velocity;
+            for axis in [0, 2] {
+                if (clipped[axis] as f32).abs() <= COLLISION_EPSILON as f32 {
+                    retained[axis] = 0.0;
+                }
+            }
+            edge_velocity = Some(retained);
             next.velocity = clipped;
             if let Some(edge_identity) = edge_identity {
                 identity = identity.merge(&edge_identity)?;
@@ -365,11 +376,14 @@ impl Simulator {
         )?;
         identity = identity.merge(&motion.identity)?;
         next.position = motion.position;
-        next.on_ground = motion.stepped
-            || (motion.collisions.y && next.velocity.y < 0.0)
-            || (grounded_at_start
-                && !motion.collisions.y
-                && next.velocity.y.abs() <= COLLISION_EPSILON);
+        // Ground comes only from a vertical collision under a downward request,
+        // so a step taken while rising leaves the ground; a free move keeps it
+        // only for an exactly zero vertical request.
+        next.on_ground = if motion.collisions.y {
+            pre_collision_velocity.y < 0.0
+        } else {
+            grounded_at_start && pre_collision_velocity.y == 0.0
+        };
 
         let landing_surface = if motion.collisions.y && pre_collision_velocity.y < 0.0 {
             let surface = if let Some(block) = motion.support {
@@ -404,6 +418,10 @@ impl Simulator {
         }
         next.movement = resolved;
         next.velocity = resolved;
+        if let Some(retained) = edge_velocity {
+            next.velocity.x = retained.x;
+            next.velocity.z = retained.z;
+        }
         if motion.stepped {
             next.velocity.y = 0.0;
         }

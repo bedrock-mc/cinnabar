@@ -332,7 +332,7 @@ fn compound_slab_step_and_head_collision_use_exact_shapes() {
         Aabb::new(Vec3::new(-0.2, 1.5, 1.1), Vec3::new(0.2, 2.0, 1.5)),
     ]);
     let mut state = grounded(Vec3::new(0.0, 1.0, 0.4));
-    state.velocity.z = 0.5;
+    state.velocity = Vec3::new(0.0, -0.0784, 0.5);
     let stepped = Simulator::default()
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
@@ -499,4 +499,116 @@ fn a_step_cannot_tunnel_through_an_obstruction_on_its_raised_path() {
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
     assert_eq!(result.movement.y, 0.0, "{:?}", result.movement);
+}
+
+fn sneaking() -> MovementInput {
+    MovementInput {
+        sneaking: true,
+        ..MovementInput::default()
+    }
+}
+
+/// A step taken on the jump tick rises onto the slab but leaves the ground, so
+/// the next tick uses air acceleration and drag.
+#[test]
+fn jumping_into_a_slab_steps_up_without_staying_grounded() {
+    let mut world = TerrainWorld::floor(Vec3::new(-4.0, 0.0, -4.0), Vec3::new(4.0, 1.0, 4.0));
+    world.boxes.push(Aabb::new(
+        Vec3::new(-1.0, 1.0, 0.7),
+        Vec3::new(1.0, 1.5, 3.0),
+    ));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.4));
+    state.velocity = Vec3::new(0.0, -0.0784, 0.5);
+    let jump = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                jump_pressed: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(jump.movement.y, 0.5, "{jump:?}");
+    assert!(!jump.on_ground, "{jump:?}");
+    assert!((jump.velocity.y + 0.0784).abs() <= 1.0e-7, "{jump:?}");
+
+    let carried = state.velocity.z;
+    let next = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    assert_eq!(next.velocity.z, f64::from(carried as f32 * 0.91_f32));
+}
+
+/// Edge avoidance needs only sneak and ground contact, so the jump tick is clipped too.
+#[test]
+fn sneak_jumping_at_an_edge_is_clipped_on_the_jump_tick() {
+    let world = TerrainWorld::floor(Vec3::new(-0.5, 0.0, -0.5), Vec3::new(0.5, 1.0, 0.5));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity.x = 0.8;
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                jump_pressed: true,
+                ..sneaking()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(tick.movement.y > 0.4, "{tick:?}");
+    assert!((tick.movement.x - 0.75).abs() <= 1.0e-6, "{tick:?}");
+}
+
+/// A partial edge clip shortens the move but leaves the velocity unclipped.
+#[test]
+fn a_partial_edge_clip_keeps_the_unclipped_velocity() {
+    let world = TerrainWorld::floor(Vec3::new(-0.5, 0.0, -0.5), Vec3::new(0.5, 1.0, 0.5));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity.x = 0.8;
+    let tick = Simulator::default()
+        .tick(&mut state, sneaking(), &world)
+        .unwrap();
+    assert!((tick.movement.x - 0.75).abs() <= 1.0e-6, "{tick:?}");
+    assert!(!tick.collisions.x);
+    assert_eq!(tick.velocity.x, f64::from(0.8_f32 * (0.91_f32 * 0.6_f32)));
+}
+
+/// Once one axis clips to zero, the combined probe keeps shortening the other.
+#[test]
+fn the_combined_edge_probe_continues_after_one_axis_reaches_zero() {
+    let world = TerrainWorld {
+        boxes: vec![
+            Aabb::new(Vec3::new(-0.3, 0.0, -0.3), Vec3::new(0.3, 1.0, 0.3)),
+            Aabb::new(Vec3::new(-0.3, 0.0, 1.23), Vec3::new(-0.25, 1.0, 1.26)),
+        ],
+        ..TerrainWorld::default()
+    };
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity = Vec3::new(0.05, 0.0, 1.0);
+    let tick = Simulator::default()
+        .tick(&mut state, sneaking(), &world)
+        .unwrap();
+    assert_eq!(tick.movement.x, 0.0, "{tick:?}");
+    assert!(tick.movement.z < 0.6, "{tick:?}");
+    assert_eq!(tick.velocity.x, 0.0);
+}
+
+/// Edge support is probed with the sneaking box, not the standing one.
+#[test]
+fn the_edge_probe_ignores_shapes_only_the_standing_box_reaches() {
+    let mut world = TerrainWorld::floor(Vec3::new(-0.5, 0.0, -0.5), Vec3::new(0.5, 1.0, 0.5));
+    world.boxes.push(Aabb::new(
+        Vec3::new(1.06, 1.95, -1.0),
+        Vec3::new(2.0, 2.2, 1.0),
+    ));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity.x = 0.8;
+    let tick = Simulator::default()
+        .tick(&mut state, sneaking(), &world)
+        .unwrap();
+    assert!((tick.movement.x - 0.75).abs() <= 1.0e-6, "{tick:?}");
+    assert!(!tick.collisions.x, "{tick:?}");
 }
