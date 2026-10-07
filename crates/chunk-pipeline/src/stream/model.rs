@@ -200,13 +200,116 @@ pub enum ForcedRemeshManifestState {
     Invalid,
 }
 
-#[cfg(test)]
 impl WorldMeshChange {
     #[must_use]
     pub const fn key(&self) -> SubChunkKey {
         match self {
             Self::Upsert { key, .. } | Self::Remove { key, .. } => *key,
         }
+    }
+
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        match self {
+            Self::Upsert { generation, .. } | Self::Remove { generation, .. } => *generation,
+        }
+    }
+
+    const fn is_urgent(&self) -> bool {
+        match self {
+            Self::Upsert { urgent, .. } | Self::Remove { urgent, .. } => *urgent,
+        }
+    }
+}
+
+/// Publication FIFO holding at most one change per key, so the renderer's last-write-wins
+/// queue can never apply an older change after a newer one that jumped ahead.
+#[derive(Debug)]
+pub(super) struct MeshChangeQueue {
+    changes: VecDeque<WorldMeshChange>,
+    keys: HashSet<SubChunkKey>,
+}
+
+impl Default for MeshChangeQueue {
+    fn default() -> Self {
+        Self {
+            changes: VecDeque::with_capacity(MAX_PENDING_MESH_CHANGES),
+            keys: HashSet::with_capacity(MAX_PENDING_MESH_CHANGES),
+        }
+    }
+}
+
+impl MeshChangeQueue {
+    /// Queues urgent changes first and non-urgent ones last; true when a change for the same
+    /// key was superseded and dropped undelivered.
+    pub(super) fn push(&mut self, change: WorldMeshChange) -> bool {
+        let front = change.is_urgent();
+        self.insert(change, front)
+    }
+
+    /// Re-queues a change the renderer rejected at the head of the FIFO.
+    pub(super) fn push_front(&mut self, change: WorldMeshChange) -> bool {
+        self.insert(change, true)
+    }
+
+    /// Dropping the older change for a key releases its permits; a newer queued change wins.
+    fn insert(&mut self, change: WorldMeshChange, front: bool) -> bool {
+        let key = change.key();
+        let superseded = !self.keys.insert(key);
+        if superseded {
+            let index = self
+                .changes
+                .iter()
+                .position(|queued| queued.key() == key)
+                .expect("every tracked key has one queued change");
+            if self.changes[index].generation() > change.generation() {
+                return true;
+            }
+            self.changes.remove(index);
+        }
+        if front {
+            self.changes.push_front(change);
+        } else {
+            self.changes.push_back(change);
+        }
+        superseded
+    }
+
+    pub(super) fn pop_front(&mut self) -> Option<WorldMeshChange> {
+        let change = self.changes.pop_front()?;
+        self.keys.remove(&change.key());
+        Some(change)
+    }
+
+    pub(super) fn drain(&mut self) -> std::collections::vec_deque::Drain<'_, WorldMeshChange> {
+        self.keys.clear();
+        self.changes.drain(..)
+    }
+
+    /// Returns how many changes were dropped undelivered.
+    pub(super) fn retain(&mut self, mut keep: impl FnMut(&WorldMeshChange) -> bool) -> usize {
+        let before = self.changes.len();
+        let keys = &mut self.keys;
+        self.changes.retain(|change| {
+            let kept = keep(change);
+            if !kept {
+                keys.remove(&change.key());
+            }
+            kept
+        });
+        before - self.changes.len()
+    }
+
+    pub(super) fn iter(&self) -> std::collections::vec_deque::Iter<'_, WorldMeshChange> {
+        self.changes.iter()
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.changes.len()
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.changes.is_empty()
     }
 }
 
@@ -481,4 +584,68 @@ pub(super) struct MeshCompletion {
     pub(super) dispatch_wait: Duration,
     pub(super) duration: Duration,
     pub(super) urgent: bool,
+}
+
+#[cfg(test)]
+mod mesh_change_queue_tests {
+    use super::*;
+
+    fn upsert(key: SubChunkKey, generation: u64, urgent: bool) -> WorldMeshChange {
+        WorldMeshChange::Upsert {
+            output_permit: None,
+            key,
+            mesh: ChunkMesh::default(),
+            biome: PackedBiomeRecord::fallback(),
+            tint_identity: ChunkBiomeTintIdentity::default(),
+            generation,
+            dirty_since: Instant::now(),
+            urgent,
+            permit: None,
+        }
+    }
+
+    fn remove(key: SubChunkKey, generation: u64, urgent: bool) -> WorldMeshChange {
+        WorldMeshChange::Remove {
+            key,
+            generation,
+            dirty_since: Instant::now(),
+            urgent,
+            permit: None,
+        }
+    }
+
+    fn order(queue: &mut MeshChangeQueue) -> Vec<(SubChunkKey, u64)> {
+        std::iter::from_fn(|| queue.pop_front())
+            .map(|change| (change.key(), change.generation()))
+            .collect()
+    }
+
+    /// Each key keeps only its newest change, wherever urgency or a retry would place it.
+    #[test]
+    fn a_key_never_holds_an_older_change_behind_a_newer_one() {
+        let [a, b] = [SubChunkKey::new(0, 0, 0, 0), SubChunkKey::new(0, 1, 0, 0)];
+        let mut queue = MeshChangeQueue::default();
+        assert!(!queue.push(upsert(a, 1, false)));
+        assert!(!queue.push(upsert(b, 2, false)));
+        assert!(
+            queue.push(remove(a, 3, true)),
+            "the older upsert is superseded"
+        );
+        assert!(
+            queue.push_front(upsert(b, 1, true)),
+            "the stale retry is dropped"
+        );
+        assert_eq!(queue.len(), 2);
+        assert_eq!(order(&mut queue), [(a, 3), (b, 2)]);
+
+        queue.push(remove(a, 4, false));
+        queue.push(upsert(a, 5, true));
+        assert_eq!(
+            queue.retain(|change| matches!(change, WorldMeshChange::Remove { .. })),
+            1
+        );
+        assert!(queue.is_empty());
+        assert!(!queue.push(remove(a, 6, false)), "retain released the key");
+        assert_eq!(order(&mut queue), [(a, 6)]);
+    }
 }

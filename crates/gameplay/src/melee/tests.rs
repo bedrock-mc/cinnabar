@@ -759,16 +759,17 @@ fn only_the_current_unadmitted_tick_can_replay() {
 /// Catch-up publication retains the progress each body-motion tick must consume.
 #[test]
 fn committed_swing_samples_preserve_each_catchup_tick_for_both_modes() {
+    let last = crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64;
     for duration in [6, 4, 8] {
         let mut batched = SwingTracker::default();
         let mut sequential = SwingTracker::default();
         let mut expected = Vec::new();
-        for tick in 1..=8 {
+        for tick in 1..=last {
             batched.try_swing(tick, duration);
             sequential.try_swing(tick, duration);
             expected.push((tick, sequential.published_progress(tick)));
         }
-        batched.published_progress(8);
+        batched.published_progress(last);
         assert_eq!(batched.committed_samples().collect::<Vec<_>>(), expected);
     }
 }

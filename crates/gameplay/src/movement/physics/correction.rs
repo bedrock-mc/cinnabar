@@ -39,7 +39,6 @@ impl LocalPhysicsController {
             let previous_jump_held = self.previous_jump_held;
             let jump_edge_pending = self.jump_edge_pending;
             let input_edges = self.input_edges;
-            let fly_toggle_pending = self.fly_toggle_pending;
             let modes = self.modes;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             // As in vanilla, MovePlayer changes spatial state without resetting
@@ -47,7 +46,6 @@ impl LocalPhysicsController {
             self.previous_jump_held = previous_jump_held;
             self.jump_edge_pending = jump_edge_pending;
             self.input_edges = input_edges;
-            self.fly_toggle_pending = fly_toggle_pending;
             self.modes = modes;
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;

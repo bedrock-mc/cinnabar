@@ -20,6 +20,10 @@
 
 # Vanilla reference map
 
+## app/src/runtime/network/block_overlay.rs; app/src/runtime/network/block_overlay/tests/builtins.rs
+
+- The current [geometry component documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/blockreference/examples/blockcomponents/minecraftblock_geometry?view=minecraft-bedrock-stable) and [1.26.0 Creator update](https://github.com/MicrosoftDocs/minecraft-creator/blob/main/creator/Documents/Update1.26.0.md) establish `minecraft:geometry.full_block_v1` as the intrinsic that preserves the original full-cube DOWN orientation. For block format 1.26.0 and later, `minecraft:geometry.full_block` rotates that face by 180 degrees to match ordinary full blocks. The intrinsic uses the native cube path; the versioned DOWN material reverses its existing UVs without changing other faces or duplicating source pixels.
+
 ## crates/client-ui/src/ui_runtime/presentation/forms/oreui/inbox/; crates/client-ui/src/ui_runtime/presentation/forms/oreui/sidebar.rs
 - Installed near-version `1.26.51.01` hbui `W3` uses a 102rem narrow breakpoint, a 0.8rem top spacer, desktop 1/3/7/1 grid columns and narrow 0/2/6 columns. `c3`/`i3` select `RK.ListItem` and `V_`: neutral80 sidebar, 1.6rem top/bottom spacing, 4.8rem rows, native category icons and selected icon highlight. CSS `d3b4fa33c4466e32479a` owns the sidebar's 0.2rem border; its ListItem states are indexed in the Settings sidebar entry below.
 - `R3`/`A3`/`L3` select category-specific empty cards. `RO` is neutral80 with a 0.2rem border and 1.6rem padding; `AO` uses centered secondaryButton type, `NO` adds 1.6rem above and below the illustration, and `LO` uses centered dimmest captionShort. CSS `c4efde010b75d43947fa` displays the five 128×48 Inbox_No* PNGs at 256×96 times base1Scale. English strings are `data/resource_packs/oreui/texts/en_US.lang` under `hbui.InboxRoute`.
@@ -171,6 +175,26 @@ preview build is not an exact retail/platform capture for every supported client
   `0x150056088`, `0x14ffab6c8`, and `0x14fea4060`.
   Blindness registration `0x0347a4d0` identifies effect 15; sprint intent
   `0x0c5b6310` applies it only when starting sprint.
+
+## Block-interaction movement (2026-10-07)
+
+RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS build.
+
+- `crates/sim/src/simulator/environment.rs`, `simulator.rs` (climbing): walking travel
+  `0x099ccb00` and MobJumpSystem `0x0a5dc2e0` read one block at (floor x, floor AABB min y,
+  floor z); climbable is property bit 33 of `+0x130`, the sneak hold additionally needs byte
+  `+0x134` bit 2 at the same cell (which blocks carry it is untraced, so every climbable
+  holds). Clamp `vy < -0.2 → -0.2`; the ladder jump branch sets `0.2` and returns before the
+  JumpFromGround request without a jump delay. Scaffolding constructor `0x08efe770` assigns
+  property word `0x2020000` (no climbable bit).
+- `crates/sim/src/simulator/scaffolding.rs`, `simulator.rs` (scaffolding): BlockClimber
+  (mac `0x1058b3690`, helpers mac `0x1058b3d10`/`0x1058b3f80`) scans footprint columns
+  floor(min)..floor(max) at floor(min y) and floor(min y - 1) for flags 69/70, and for
+  99/100 when the block under the scaffold is not air, water or flowing water. Scaffolding
+  action `0x089909b0`: flag 100 plus sneak sets flag 71, `vy = -0.15` and zero fall distance.
+  MobJumpSystem `0x0a5dc2e0`: (69 or 99) without 71 sets `vy = 0.15` and jump delay 10 before
+  the ladder branch. Gravity setter `0x032252b0` returns when 71 and (69 or 70). Collision
+  shape mac `0x10ab628c0` keeps the top only for feet at or above it, without flag 71.
 
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
@@ -624,6 +648,10 @@ preview build is not an exact retail/platform capture for every supported client
 - Local-player shadow admission follows the drawn body perspective; the vanilla first-person capture for #221 has no local-player volume shadow. Frozen local body visibility takes precedence over a stale body submission while changing perspective.
 
 ## crates/gameplay/src/movement/control_modes.rs
+- Suspended input: `0x07108cc0` returns untouched while the game is paused; with a
+  menu open it masks processed flags and button state (`+0x00`, `+0x10`) with
+  `0xffe0001f`, also clearing SneakDown and the toggle-sneak latch (bit 0) unless
+  the persistent-controls bit `0x80` at `+0x60` is set. Toggle sprint always clears.
 - /// Native SprintTrigger cannot stop an existing sprint while the previous
 
 ## crates/gameplay/src/movement/correction_shape.rs
@@ -633,6 +661,10 @@ preview build is not an exact retail/platform capture for every supported client
 - /// Server StateVector motion; `None` keeps the retained velocity.
 
 ## crates/gameplay/src/movement/encoding.rs
+- PersistSneak: packet fill `0x070fcfd0` writes `MoveInputComponent +0x60` bit
+  `0x80` to wire bit 24 every tick. Its only writer, virtual
+  `ClientInstance::setupPersistentControls(InputMode)` `0x067a6390`, sets it for
+  Touch/GamePad; `ClientInputCallbacks::handleInputModeChanged` calls it with the new mode.
 - // Raw jump-button carriers track the physical button exactly. Native
 - // 0x07108cc0 also sets processed up; 0x070fcfd0 sends it as WantUp,
 - // which the server's 0x0998fe80 reads independently of JumpDown.
@@ -642,6 +674,8 @@ preview build is not an exact retail/platform capture for every supported client
 
 ## crates/gameplay/src/movement/locomotion.rs
 - // SprintTrigger runs before SwimTrigger and keeps the previous actor
+- Glide start/stop: StartGlidingIntent `0x0c5889b0` area (filter ArmorFlyEnabled, excludes Passenger/OnGround) needs a fresh jump edge (MoveInput+0x60 bit 4 and previous-tick copy VanillaClientGameplay+0x15 clear) and no fly/glide request; no velocity check. StopGlidingIntent `0x0c5886c0`: OnGround, missing ArmorFlyEnabled, WasInWater (not lava), fly request, Passenger, fresh jump with FallFlyTicks >= 11, WALLCLIMBING (0x40000), or CANCLIMB (0x80000) with the feet block's climbable bit (+0x130 bit 33) / powder snow when CanStandOnSnow. Pipeline `0x072b6020` order: SprintTimer, SwimTrigger, FlyTriggerIntent, Start/StopGlidingIntent, FlyTriggerAction, Start/StopGlidingAction (`0x0c5882c0`/`0x0c5884c0`), GlideInputSystem `0x070be110` (FallFlyTicks++ while gliding, else 0).
+- Flight double-tap: FlyTrigger::doIntentTick (26.30 `0x1059aaf10`) sets VanillaClientGameplay+8 = 7 on a fresh press when below 1, else toggles; SprintTimer (26.30 `0x1053d8080`) decrements +8 every tick before it. A second press within six ticks toggles.
 
 ## crates/gameplay/src/movement/locomotion/swimming_trigger.rs
 - //! Current SwimTriggerSystem (0x09fd25a0), for unmounted desktop input.
@@ -653,8 +687,22 @@ preview build is not an exact retail/platform capture for every supported client
 - // directly; raw JumpDown/Ascend alone do not populate these control lanes.
 - // CurrentSwimAmount precedes SwimTrigger. The first dry tick still advances
 
+## crates/gameplay/src/movement/frame.rs
+## crates/gameplay/src/movement/outbox.rs
+- Yaw: `UpdatePlayerFromCameraSystemUtil::_updatePlayer` `0x071b0fe0` computes
+  `atan2f * 57.29578f - 90` (`0x14ffd5070`/`0x14ffd5074`), writes it unwrapped to
+  head rotation (hash `0xbabe7211`) and wraps actor yaw with
+  `fmodf(x + 180, 360)`, `+360` if negative, `-180`. A
+  `CameraAimAssistRotationOverrideComponent` replaces rotation and skips the head
+  write. Packet builder `0x04f3b1a0` copies rotation via `0x050abce0`/`0x0435a250`
+  and reads head yaw directly.
+
 ## crates/gameplay/src/movement/physics.rs
 - /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
+- Frame clamp and tick cap: `Timer::advanceTime` `0x04efbe50` clamps each
+  frame's scaled elapsed seconds to `0.1f` (`0x14ffab644`), adds the excess to a
+  lost-time counter, then caps whole ticks at 10 while keeping the fraction.
+  `fixed_ticks.rs` and `dimension_wait.rs` share this through `fixed_ticks::frame`.
 
 ## crates/gameplay/src/movement/physics/correction.rs
 - // MovePlayer changes spatial state without resetting jump input or
@@ -900,6 +948,12 @@ preview build is not an exact retail/platform capture for every supported client
 - /// `ClientInstance::isShowingMenu`.
 - /// history alone when it holds none (`popScreensBackToFirstInstanceOf`).
 
+## crates/json-ui/src/sidecar.rs; crates/pack-compiler/src/ui.rs; crates/json-ui/src/sprite.rs
+
+- Current `1.26.50.26` `UITextureInfo::_loadNineslice` (`0x0043be10`, `src/__recovered/UITextureInfo.cpp:245` and `:565`) initializes base UV dimensions to zero, parses a numeric or four-element `nineslice_size` independently, and assigns explicit base dimensions only from `base_size` arrays with at least two elements. Numeric, absent and malformed base sizes leave the default dimensions without discarding a valid slice.
+- The slice conversion at `0x00445f00` (`src/__unmapped/00.cpp:842392`) expands a numeric inset to all four edges; the four-element form preserves its edge values. Insets and explicit base dimensions have nonnegative assertions.
+- The Sprite draw path at `0x04d1a3d0` (`src/__unmapped/04.cpp:2215585` and `:2215721`) obtains the source UV extent from the explicit region or raster dimensions. It uses sidecar base dimensions only when both are nonzero; otherwise the source extent divides by itself, preserving source-pixel border widths. A numeric `base_size` therefore cannot rescale a border even when its number differs from the raster size.
+
 ## crates/json-ui/src/sprite.rs
 - //! The `image` control's sprite, following vanilla's `SpriteComponent` draw
 - //! dispatch: nine-slice first, then a clipped, tiled, filled (cover), kept-ratio
@@ -953,6 +1007,10 @@ preview build is not an exact retail/platform capture for every supported client
 
 ## crates/launcher/src/menu/settings_options/definitions.rs
 - // current OptionRegistry values are recovered; see plan.md.
+- Auto-jump: `OptionRegistry::_registerOptions` (`0x0239ba00`, bytes at VA `0x1423acef1`)
+  registers InputModeBoolOption id `0x186` "ctrl_autojump" / "options.autojump" with default
+  argument 0; constructor `0x009b7840` writes that one default for input modes 1-3, so
+  keyboard/mouse, touch and gamepad all default off in 1.26.50 (mac 26.30 registered true).
 
 ## crates/launcher/src/menu/settings_options/emotes.rs
 - /// R: native EmoteWheelScreenController equipped top/right/bottom/left slots.
@@ -1003,6 +1061,16 @@ preview build is not an exact retail/platform capture for every supported client
 ## crates/pack-compiler/src/animation.rs
 - /// Overlay-mask sources (grass sides) use the TextureAtlas::updateTextureAtUVs /
 - /// _buildAtlasMips byte-space box mips, as every vanilla atlas tile does.
+
+## crates/pack-compiler/src/compiler/classification.rs (`is_clear_glass_cube`); crates/meshing/tests/it/mesh/stained_glass.rs
+- Neighbour face culling: BlockOccluder::_updateRenderFace (RVA 0x06a043a0) calls the per-face
+  predicate at RVA 0x06a05760. For a legacy neighbour with full-block shape (0 or 0x1f) it culls
+  only when RVA 0x06a04050 holds (neighbour render layer in mask 0x20220 = layers 5/9/17 and full
+  visual bounds); otherwise it draws unless the neighbour shares this block's BlockType
+  (Block+0x108), returning BlockGraphics+0x19 (allow-same; false for glass, so glass culls glass).
+- registerBlock<GlassBlock> (RVA 0x0dfbada0) sets BlockType+0x162 render layer 3 (default is 5);
+  1.26.30 macOS `Block::_isSolid` reads BlockType+0x134 bit 1, which GlassBlock clears, so glass is
+  also not solid for AO.
 
 ## crates/pack-compiler/src/compiler/lily_pad_textures.rs
 - // TextureAtlas::updateTextureAtUVs multiplies RGB only.
@@ -1302,14 +1370,39 @@ preview build is not an exact retail/platform capture for every supported client
 - /// Native look vector used by the swimming trigger (current RVA 0x09fd25a0).
 
 ## crates/sim/src/simulator.rs
+- Ground acceleration `0x070d9630` stores speed * (0.546 / (friction * 0.91))^3 with the
+  friction block at AABB min y - 0.1 (soul sand friction * 1.225 unless Soul Speed, air
+  0.546); no block speed factor. Water acceleration `0x0dc3eeb0` reads only the water
+  movement attribute blended toward ground speed by Depth Strider; 26.30
+  `LavaTravelSystem::tickLavaTravelSystem` reads only MovementAttributesComponent, with no
+  block source. Block speed factors never reach these relative speeds.
 - // FinalizeMove uses the native float epsilon.
 - /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
+- // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
+- Ground contact: FinalizeMove `0x06dcbfc0` compares the move request (+0x30) with the
+  result (+0x3c). A vertical difference above float epsilon adds OnGround only when
+  request y < 0, otherwise removes it; with no vertical difference OnGround survives only
+  if it was already set and request y is exactly 0. AutoStep filter `0x09f5a7f0` admits a
+  step on last tick's OnGround, so a jump-tick step rises without grounding.
+- Sneak edge avoidance `0x0c597a70`: gated on sneak plus OnGround (no vertical-velocity
+  check); probes the actor's current AABB inset 0.025 on x/z and lowered by step height
+  times 1.01; clips request x, then z, then both while either is nonzero; zeroes a
+  velocity axis (+0x18/+0x20) only when its clipped request is at or below float epsilon.
+
+## crates/sim/src/simulator/controls.rs
+## crates/gameplay/src/movement/physics.rs (`item_use_factor`)
+- Move vector: `0x00480a10` normalises the digital/analog axes and multiplies by
+  the sneak factor (`SneakingComponent`, default `0.3f`). Item slowdown
+  `ItemUseSlowdownSystemImpl::applyItemUseSlowdown` `0x0dc2b3c0` then multiplies
+  `MoveInputComponent +0x24/+0x28` by `m*m`; `doItemUseSlowdownSystem` `0x0dc28b60`
+  installs `m` (default `0.35f` at `0x150103070`) only when `|m - 1| > FLT_EPSILON`.
 
 ## crates/sim/src/simulator/collision.rs
 - // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
+- `clip_sneak_edge`: see the sneak edge avoidance entry under simulator.rs (`0x0c597a70`).
 
 ## crates/sim/src/simulator/environment.rs
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)
@@ -1338,6 +1431,13 @@ preview build is not an exact retail/platform capture for every supported client
 
 ## crates/sim/src/simulator/travel.rs
 - //! Flight controls and liquid movement follow the current mcsrc client systems.
+- Glide travel `0x070d31b0`: look from ActorRotation prev + wrap(cur - prev) (fmodf, -180), lift = min(len/0.4f,1)*cos(pitch)^2 from current pitch, gravity table `0x1502a31c0` (-0.01 slow falling / -0.08) independent of vy, PE constants 0x14ffab6c0/0x14fee6588/0x14ffab670/0x150106adc/0x1502a31c8/0x14ffab644; MovementEffects slot 0 (glide boost) applies `v + (look*1.5 - v)*0.5 + look*0.1` (0x14ffab674, 0x14fec3380) before drag 0.99/0.98 (0x1500eb858/0x1500eb864).
+
+## crates/gameplay/src/movement/local_facts.rs
+- Item::isFlyEnabled (26.30 `0x10a667e10`) / Item::isElytraBroken (`0x10a65e420`): elytra flies while user-data Damage < max damage - 1; LegacyActorArmorChangedListener adds ArmorFlyEnabledFlagComponent and CanStandOnSnowFlagComponent (leather boots).
+
+## crates/gameplay/src/movement/effects.rs; crates/gameplay/src/movement/physics/timeline.rs; crates/gameplay/src/committed_control.rs
+- MovementEffectPacket client handler (26.30 `LegacyClientNetworkHandler::handle` `0x1035699e0`): duration < -1 reads 0; with ReplayStateComponent it creates `History::createMovementEffectsCorrection` (`0x1064a4550`) and applies the frame correction at the packet tick, replaying with the full duration (`MovementEffectsReplay::advanceFrame` `0x1064b5690`). TickMovementEffectsSystem (`0x105a09240`, registered after normal travel) expires an effect after its duration (0 lasts one tick, -1 never). Effect slots: 0 glide boost, 1 dolphin boost, 2 geyser boost.
 
 ## crates/sim/src/simulator/water.rs
 - //! Current-client liquid drag, jump ascent and swimming pitch steering.
@@ -2891,3 +2991,23 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
 - `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
   `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
   `#show_survival_ui` to `#visible`; absorption is native renderer state.
+
+## crates/protocol/src/item.rs; crates/protocol/tests/it/items_actions.rs
+
+- Current `1.26.50.26` `src/__recovered/ItemRegistry.cpp:1665–2368`,
+  `ItemRegistry::matchServerItemIds` (RVA `0x03984630`), registers definitions
+  before assigning their advertised numeric IDs. Its component pass at
+  `2160–2219` walks the original `ItemData` vector in order, skips a missing
+  `components` compound, resolves the item by identifier and initializes it
+  from each present compound. An empty root declaration therefore does not
+  suppress a populated declaration for the same item, in either order.
+- Near-version `reference/26.30/src/by-owner/i/ItemRegistry.cpp:11263–11308`
+  corroborates the compound-type check and virtual initialization call;
+  `by-owner/i/Item.cpp:6640` and `by-owner/c/ComponentItem.cpp:8050` identify
+  `initializeFromNetwork(CompoundTag const&)`. Component initialization can
+  update fields and accumulate tags, so arbitrary replacement of two different
+  populated definitions is not established by this witness.
+- The normalized registry retains unique numeric bindings, collapses identical
+  records and lets a populated definition refine a canonical empty declaration
+  only when name, ID, version and component-based status agree. Conflicting
+  identities and two differing populated definitions remain unsupported.

@@ -696,6 +696,9 @@ fn collect_named_dependencies(
     let mut values = Vec::new();
     collect_string_leaves(value, &mut values, 0)?;
     for identifier in values {
+        if kind == EntityDependencyKind::Texture && identifier.is_empty() {
+            continue;
+        }
         dependencies.insert(EntityDependency {
             kind,
             identifier: identifier.into(),

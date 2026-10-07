@@ -101,6 +101,7 @@ fn evidence_enabled_from_env() -> bool {
 fn probe_anchor(
     world: &impl CollisionWorld,
     feet: Vec3,
+    height: f64,
 ) -> Result<AnchorResolution, sim::WorldQueryError> {
     // The query grows by the full displacement budget so every collider the
     // probe could ever reach is visible in one bounded query through the
@@ -109,7 +110,8 @@ fn probe_anchor(
     // sequence fed to depenetration — and therefore every probe decision —
     // is identical to the established box-only path (pinned by the sim
     // crate's dual-surface regression).
-    let query = Aabb::player_at(feet).grown(ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS);
+    let query =
+        Aabb::player_with_height_at(feet, height).grown(ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS);
     let instances = world.collision_boxes_with_provenance(query)?;
     let boxes = instances
         .value
@@ -119,6 +121,7 @@ fn probe_anchor(
     Ok(
         match sim::depenetrate_player(
             feet,
+            height,
             &boxes,
             ANCHOR_PROBE_MAX_ITERATIONS,
             ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
@@ -169,11 +172,18 @@ impl AnchorProbeState {
     /// query error. An unresolvable embedment proceeds — the simulator reports
     /// no inputless horizontal motion from an embedded start — after optionally
     /// rendering one diagnostic marker.
-    pub(super) fn before_tick(&mut self, world: &impl CollisionWorld, feet: Vec3) -> BeforeTick {
+    /// `height` is the retained pose's collision height, so a crouched anchor
+    /// under a low ceiling is not pushed as if standing.
+    pub(super) fn before_tick(
+        &mut self,
+        world: &impl CollisionWorld,
+        feet: Vec3,
+        height: f64,
+    ) -> BeforeTick {
         if !self.pending {
             return BeforeTick::Proceed;
         }
-        match probe_anchor(world, feet) {
+        match probe_anchor(world, feet, height) {
             Err(_) => {
                 // Unloaded chunks and unknown runtime IDs keep today's
                 // existing transient-blocked behavior; retry the probe once

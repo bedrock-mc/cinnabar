@@ -31,6 +31,7 @@ use self::{
 };
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
+const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
 const MIN_TILE: u32 = 16;
 const MAX_TILE: u32 = 128;
 const MAX_OVERLAY_LAYERS: usize = 2048;
@@ -209,7 +210,7 @@ impl Builder<'_> {
             return *visual;
         }
         let visual = match components.geometry.as_deref() {
-            None | Some(FULL_BLOCK) => self.cube(components),
+            None | Some(FULL_BLOCK | FULL_BLOCK_V1) => self.cube(components),
             Some(identifier) => match self.geometries.get(identifier).cloned() {
                 Some(geometry) => self.model(components, &geometry, &state.hidden_bones),
                 None => {
@@ -231,8 +232,15 @@ impl Builder<'_> {
         for (face, slot) in faces.iter_mut().enumerate() {
             // The face showing on world side `face` was model face `source`.
             let source = rotate_face_inverse(face, rotation);
+            let uv_flags = if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
+                && source == assets::BlockFace::Down as usize
+            {
+                render::MATERIAL_UV_ROTATE_180
+            } else {
+                0
+            };
             let (material, flags, _) =
-                self.face_material(components, FACE_NAMES[source], None, true);
+                self.face_material(components, FACE_NAMES[source], None, true, uv_flags);
             opaque &= flags == 0;
             *slot = material;
         }
@@ -288,7 +296,7 @@ impl Builder<'_> {
         for cube in shown {
             for (face_quad, instance) in cube.quads() {
                 let (material, _, two_sided) =
-                    self.face_material(components, FACE_NAMES[face_quad.face], instance, false);
+                    self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
                 if material == DIAGNOSTIC_MATERIAL {
                     self.gaps.missing_textures += 1;
                     return diagnostic_visual();
@@ -339,6 +347,7 @@ impl Builder<'_> {
         face: &str,
         instance: Option<&str>,
         full_block: bool,
+        uv_flags: u32,
     ) -> (u32, u32, bool) {
         let Some(materials) = components.materials.as_deref() else {
             return (DIAGNOSTIC_MATERIAL, 0, false);
@@ -379,7 +388,7 @@ impl Builder<'_> {
             flags = MATERIAL_FLAG_ALPHA_CUTOUT;
         }
         let alpha_flags = flags;
-        flags |= tint_flags(chosen.tint_method.as_deref());
+        flags |= uv_flags | tint_flags(chosen.tint_method.as_deref());
         if chosen.ambient_occlusion == Some(0.0) {
             flags |= MATERIAL_FLAG_DISABLE_AO;
         } else if chosen.ambient_occlusion.is_some_and(|value| value != 1.0) {
