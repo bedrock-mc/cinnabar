@@ -74,7 +74,7 @@ pub(super) struct HeldRelease {
     facing_sent: bool,
 }
 
-/// The reported pose of one unsent tick.
+/// The reported pose at the end of one completed tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UnsentSampleView {
     pub tick: u64,
@@ -88,14 +88,43 @@ pub struct UnsentSampleView {
 
 impl UnsentSampleView {
     /// Reads the interaction pose without copying queued transport state.
-    fn from_queued(sample: &super::QueuedPhysicsSample) -> Self {
+    pub(super) fn from_queued(sample: &super::QueuedPhysicsSample) -> Self {
+        Self::from_parts(
+            sample.snapshot.tick,
+            sample.snapshot.position,
+            sample.snapshot.delta,
+            sample.displacement,
+            sample.snapshot.flags,
+        )
+    }
+
+    /// Reads a replayed tick with the flags its packet now reports.
+    pub(super) fn from_replayed(
+        sample: &super::PhysicsMovementSample,
+        flags: protocol::PlayerInputFlags,
+    ) -> Self {
+        Self::from_parts(
+            sample.tick,
+            sample.position,
+            sample.velocity,
+            sample.movement,
+            flags,
+        )
+    }
+
+    fn from_parts(
+        tick: u64,
+        position: [f32; 3],
+        delta: [f32; 3],
+        displacement: [f32; 3],
+        flags: protocol::PlayerInputFlags,
+    ) -> Self {
         Self {
-            tick: sample.snapshot.tick,
-            position: sample.snapshot.position,
-            delta: sample.snapshot.delta,
-            displacement: sample.displacement,
-            sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
-                != 0,
+            tick,
+            position,
+            delta,
+            displacement,
+            sneaking: flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits() != 0,
         }
     }
 }
@@ -248,6 +277,31 @@ impl MovementTicker {
     /// The newest unsent tick, which standalone interaction packets precede.
     pub fn newest_unsent_sample(&self) -> Option<UnsentSampleView> {
         self.outbox.back().map(UnsentSampleView::from_queued)
+    }
+
+    /// The end state of the tick before the newest unsent tick. Vanilla runs build
+    /// actions before each simulation tick, so they observe this state, not the newest.
+    pub fn pre_tick_sample(&self) -> Option<UnsentSampleView> {
+        let newest = self.outbox.back()?.snapshot.tick;
+        let previous = self
+            .outbox
+            .iter()
+            .rev()
+            .nth(1)
+            .map(UnsentSampleView::from_queued)
+            .or(self.prior_tick_end)?;
+        (previous.tick.checked_add(1) == Some(newest)).then_some(previous)
+    }
+
+    /// An anchor places the player with cleared motion at the last completed tick.
+    pub(super) fn anchor_prior_tick_end(&mut self, position: [f32; 3]) {
+        self.prior_tick_end = Some(UnsentSampleView {
+            tick: self.completed_tick(),
+            position,
+            delta: [0.0; 3],
+            displacement: [0.0; 3],
+            sneaking: false,
+        });
     }
 
     /// Looks up only the exact tick still owned by the unsent movement queue.
@@ -412,6 +466,7 @@ impl MovementTicker {
             pending.retry_after_cancellation = false;
         }
         self.sent_history.clear();
+        self.prior_tick_end = None;
         self.refresh_outbox_reconciliation();
     }
 }

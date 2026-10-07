@@ -125,22 +125,19 @@ pub(crate) fn produce_block_use(
         return;
     }
     // Frames between physics ticks have no unsent tick; a press waits for one.
-    let Some(sample) = movement.newest_unsent_sample() else {
+    let Some(tick) = movement.newest_unsent_sample().map(|sample| sample.tick) else {
         return;
     };
-    let clock = RepeatClock::for_game_mode(
+    // Vanilla builds before each simulation tick, from the previous tick's end state.
+    let Some(state) = movement.pre_tick_sample() else {
+        return;
+    };
+    let clock = RepeatClock::for_state(
         u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
-        sample.sneaking,
-        sample
-            .displacement
-            .map(|axis| axis * sim::TICKS_PER_SECOND as f32)
-            .into_iter()
-            .map(|axis| axis * axis)
-            .sum::<f32>()
-            .sqrt(),
+        &state,
         game_mode,
     );
-    let Some((trigger, due)) = runtime.due(use_phase.held, sample.tick, clock) else {
+    let Some((trigger, due)) = runtime.due(use_phase.held, tick, clock) else {
         return;
     };
     if context.melee.blocks_use_at(clock.now_millis) {
@@ -157,12 +154,12 @@ pub(crate) fn produce_block_use(
             (input.authority_generation, input.frame_sequence),
             movement.interaction_authority_identity().1,
             &runtime,
-            sample.delta,
-            sample.sneaking,
+            state.delta,
+            state.sneaking,
         ),
         context.client_world.stream.as_ref(),
     ) else {
-        runtime.record(trigger, due, sample.tick, LocalUse::Nothing, clock);
+        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     };
     let server_selection = observed.selection.clone();
@@ -174,7 +171,7 @@ pub(crate) fn produce_block_use(
     observed.selection = runtime
         .inventory
         .selection(&server_selection, inventory_revision);
-    let surroundings = use_surroundings(&context, &observed, sample.position, sample.sneaking);
+    let surroundings = use_surroundings(&context, &observed, state.position, state.sneaking);
     let local_use = LocalUse::resolve(
         &observed.selection.item,
         observed.target.position,
@@ -182,7 +179,7 @@ pub(crate) fn produce_block_use(
         &surroundings,
         &caps,
     );
-    if !runtime.may_attempt(sample.tick, local_use, &swings) {
+    if !runtime.may_attempt(tick, local_use, &swings) {
         return;
     }
     let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
@@ -206,13 +203,13 @@ pub(crate) fn produce_block_use(
     // Only block items keep using while held.
     if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
     {
-        runtime.record(trigger, due, sample.tick, local_use, clock);
+        runtime.record(trigger, due, tick, local_use, clock);
         return;
     }
     let duration = swing_duration(
         context
             .effects
-            .mining_tick(sample.tick, movement.completed_tick())
+            .mining_tick(tick, movement.completed_tick())
             .0,
     );
     let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
@@ -233,14 +230,14 @@ pub(crate) fn produce_block_use(
     let mut before_swing = swings.clone();
     let packets = use_packets(
         (&observed, block_network_id),
-        sample.position,
+        state.position,
         trigger,
         local_use,
         start_destination,
         change.clone(),
         local_runtime_id,
         |tick| swings.try_swing(tick, duration),
-        sample.tick,
+        tick,
     );
     let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
     let sent = matches!(result, Some(Ok(())));
@@ -256,15 +253,15 @@ pub(crate) fn produce_block_use(
                             .collisions
                             .block_has_build_intention(stream.network_id_mode(), block)
                     }),
-            sample.sneaking,
+            state.sneaking,
             std::array::from_fn(|axis| {
                 observed.target.position[axis] as f32 + observed.target.relative_hit[axis]
             }),
         );
     }
-    if !runtime.admit(trigger, due, sample.tick, local_use, clock, sent) {
+    if !runtime.admit(trigger, due, tick, local_use, clock, sent) {
         runtime.refuse_transport(
-            sample.tick,
+            tick,
             local_use,
             matches!(result, Some(Err(client_session::BatchSendError::Full))),
         );

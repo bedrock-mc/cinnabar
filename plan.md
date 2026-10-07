@@ -100,6 +100,8 @@
   placement line, and use fresh ray segments to continue beyond ledges or upward.
 - Repeats use resolved movement and stance; transactions carry their trigger,
   start/stop actions, local outcome, click position and survival inventory delta.
+- Presses and repeats resolve before the newest tick's movement, from the previous
+  tick's end state, as vanilla runs build actions before each simulation tick.
 - Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
   backward sneak bridging, failed attempts and refused transport.
 - Incomplete: complete runtime block-property and custom block-placer admission,

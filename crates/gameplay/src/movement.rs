@@ -154,6 +154,8 @@ pub struct MovementTicker {
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
+    /// End state of the newest tick no longer queued, or of the latest anchor.
+    prior_tick_end: Option<UnsentSampleView>,
 }
 
 #[cfg(test)]
@@ -196,6 +198,7 @@ impl MovementTicker {
             epoch_publisher,
             mining_epoch_publisher,
             held_release: None,
+            prior_tick_end: None,
         }
     }
 
@@ -227,6 +230,7 @@ impl MovementTicker {
         self.terminal_drain = false;
         self.pending_control_fence = false;
         self.pending_teleport_ack = None;
+        self.anchor_prior_tick_end(initial_position);
     }
 
     pub fn deactivate(&mut self) {
@@ -296,6 +300,7 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
+        self.anchor_prior_tick_end(position);
     }
 
     pub fn enqueue_completed_physics(
@@ -433,7 +438,9 @@ impl MovementTicker {
 
     #[must_use]
     fn pop_pending(&mut self) -> Option<QueuedPhysicsSample> {
-        self.outbox.pop_front()
+        let sample = self.outbox.pop_front()?;
+        self.prior_tick_end = Some(UnsentSampleView::from_queued(&sample));
+        Some(sample)
     }
 
     fn sent_confirmation(&self, tick: u64) -> Option<PhysicsCorrectionConfirmation> {
@@ -597,6 +604,7 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
+        self.anchor_prior_tick_end(position);
         self.refresh_outbox_reconciliation();
     }
 
@@ -786,6 +794,7 @@ impl MovementTicker {
                 self.previous_position = plan.final_position;
                 self.outbox.clear();
                 self.sent_history.clear();
+                self.anchor_prior_tick_end(plan.final_position);
                 Ok(())
             }
             PhysicsCorrectionOutcome::Replayed { .. } => {
@@ -875,6 +884,14 @@ impl MovementTicker {
                 }
                 self.previous_position = plan.final_position;
                 self.previous_input = previous_input;
+                let boundary = self
+                    .outbox
+                    .front()
+                    .map_or(self.next_tick, |queued| queued.snapshot.tick);
+                self.prior_tick_end = rebuilt
+                    .iter()
+                    .find(|(sample, _)| sample.tick.saturating_add(1) == boundary)
+                    .map(|(sample, flags)| UnsentSampleView::from_replayed(sample, *flags));
                 Ok(())
             }
         }

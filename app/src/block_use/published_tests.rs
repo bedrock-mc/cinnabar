@@ -260,3 +260,38 @@ fn a_deferred_fresh_block_press_sends_on_the_next_unpublished_tick() {
     assert!(swing < transaction);
     assert!(world.resource::<BlockUseRuntime>().interacted_at(102));
 }
+
+/// A press resolves before the newest tick's movement, so it reports the previous tick's position.
+#[test]
+fn a_block_press_reports_the_position_before_the_newest_tick() {
+    use protocol::wire::valentine::bedrock::version::v1_26_51::{
+        InventoryTransactionPacketTransaction, McpePacketData,
+    };
+    let (mut world, mut captured) = fixture();
+    let before = world
+        .resource::<MovementTicker>()
+        .newest_unsent_sample()
+        .unwrap()
+        .position;
+    let mut sample = gameplay::test_support::survival_mining::completed(102);
+    sample.position = [before[0] + 0.25, before[1], before[2]];
+    world
+        .resource_mut::<MovementTicker>()
+        .enqueue_completed_physics(sample)
+        .unwrap();
+    world.run_system_cached(produce_block_use).unwrap();
+    let positions: Vec<_> = captured
+        .drain()
+        .into_iter()
+        .filter_map(|packet| match packet.data {
+            McpePacketData::InventoryTransactionPacket(tx) => match tx.transaction {
+                InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(tx) => {
+                    Some([tx.from_position.x, tx.from_position.y, tx.from_position.z])
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(positions, [before]);
+}

@@ -295,6 +295,22 @@ impl RepeatClock {
             survival: game_mode != Some(protocol::PlayerGameMode::Creative),
         }
     }
+
+    /// Times a build action from the tick-end state it observes.
+    pub fn for_state(
+        now_millis: u64,
+        state: &crate::movement::UnsentSampleView,
+        game_mode: Option<protocol::PlayerGameMode>,
+    ) -> Self {
+        let speed = state
+            .displacement
+            .map(|axis| axis * sim::TICKS_PER_SECOND as f32)
+            .into_iter()
+            .map(|axis| axis * axis)
+            .sum::<f32>()
+            .sqrt();
+        Self::for_game_mode(now_millis, state.sneaking, speed, game_mode)
+    }
 }
 
 impl BlockUseRuntime {

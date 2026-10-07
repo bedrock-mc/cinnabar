@@ -680,3 +680,36 @@ fn held_placement_motion_is_distinct_from_auth_input_velocity() {
     assert_eq!(observed.displacement, [0.0; 3]);
     assert_eq!(observed.delta, [0.1, -0.0784, 0.0]);
 }
+
+/// Build actions precede each simulation tick, so they read the previous tick's end state.
+#[test]
+fn build_actions_observe_the_end_state_of_the_previous_tick() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
+    let mut ground = completed_sample(1_001, [1.2, 64.0, 2.0]);
+    ground.velocity = [0.12, -0.0784, 0.0];
+    ticker.enqueue_completed_physics(ground).unwrap();
+    let anchored = ticker.pre_tick_sample().unwrap();
+    assert_eq!(
+        (anchored.tick, anchored.position, anchored.delta),
+        (1_000, [1.0, 64.0, 2.0], [0.0; 3])
+    );
+    let mut jump = completed_sample(1_002, [1.4, 64.42, 2.0]);
+    jump.velocity = [0.12, 0.3332, 0.0];
+    ticker.enqueue_completed_physics(jump).unwrap();
+    let queued = ticker.pre_tick_sample().unwrap();
+    assert_eq!(
+        (queued.tick, queued.position, queued.delta),
+        (1_001, [1.2, 64.0, 2.0], [0.12, -0.0784, 0.0])
+    );
+    ticker.pop_pending().unwrap();
+    assert_eq!(ticker.pre_tick_sample(), Some(queued));
+    ticker.pop_pending().unwrap();
+    assert_eq!(ticker.pre_tick_sample(), None);
+    ticker
+        .enqueue_completed_physics(completed_sample(1_003, [1.6, 64.2, 2.0]))
+        .unwrap();
+    let sent = ticker.pre_tick_sample().unwrap();
+    assert_eq!((sent.tick, sent.delta), (1_002, [0.12, 0.3332, 0.0]));
+}
