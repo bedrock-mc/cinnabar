@@ -13,6 +13,7 @@ mod death;
 mod dressing_room;
 mod exit;
 mod focus;
+mod server_filter;
 mod friends;
 mod grid;
 mod home;

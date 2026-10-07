@@ -19,10 +19,12 @@ mod list_tests;
 use super::super::super::{IconRef, UiPresentationError};
 use super::super::play_screen::play_featured;
 use super::grid::{Grid, space};
+use super::icons::{self, Icon};
 use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, TEXT, TEXT_DIMMER};
 use super::widgets::{Variant, button, divider, side_menu};
 use crate::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
+use launcher::menu::server_list::ServerGroup;
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -48,13 +50,25 @@ pub(super) fn draw(
     let top = body[1] - list.offset;
     let mut y = top + space(canvas, 2);
     let add_height = canvas.r(4.4);
+    let filter_width = add_height;
+    let filter_left = row_right - pad - filter_width;
     add_server(
         canvas,
         view,
-        [menu_left + pad, y, row_right - pad, y + add_height],
+        [
+            menu_left + pad,
+            y,
+            filter_left - canvas.r(0.8),
+            y + add_height,
+        ],
+    )?;
+    filter_button(
+        canvas,
+        view,
+        [filter_left, y, row_right - pad, y + add_height],
     )?;
     y += add_height;
-    let selected = selection(view, view.featured.len());
+    let selected = selection(view);
     if let Some(transitions) = canvas.transitions.as_deref_mut() {
         transitions.begin_servers(match selected {
             Some(Selection::Featured(index)) => Some(index),
@@ -90,6 +104,27 @@ pub(super) fn draw(
         canvas.end_entrance(entrance, [body[2], body[3]])?;
     }
     Ok(())
+}
+
+/// The section picker uses the existing filter icon on the same elevated button face.
+fn filter_button(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    bounds: Bounds,
+) -> Result<(), UiPresentationError> {
+    let action = Some(MenuAction::OpenServerFilter);
+    button(canvas, view, bounds, Variant::Secondary, "", action)?;
+    let state = canvas.interaction(view, action);
+    let motion = canvas.feedback(state, true, false, super::motion::Kind::Button);
+    let [width, height] = Icon::Filter.texels();
+    let texel = canvas.r(super::theme::EDGE);
+    let at = [
+        (bounds[0] + bounds[2] - width as f32 * texel) * 0.5,
+        (bounds[1] + bounds[3] - canvas.r(0.4) - height as f32 * texel) * 0.5
+            + canvas.r(0.4) * motion.press,
+    ];
+    let text = canvas.role(super::theme::SECONDARY).text;
+    icons::draw(canvas, Icon::Filter, at, text)
 }
 
 fn add_server(
@@ -129,18 +164,30 @@ fn add_server(
     )
 }
 
+/// Experience grouping is shared by visible rows and the selected details.
+fn experience_group(view: &MenuView, server: &MenuServerCard) -> ServerGroup {
+    if view
+        .feeds
+        .details
+        .get(&server.address)
+        .is_some_and(|d| d.group == "creator")
+    {
+        ServerGroup::Creator
+    } else {
+        ServerGroup::Featured
+    }
+}
+
 fn group_entries(view: &MenuView, group: &str) -> Vec<usize> {
+    let group = if group == "creator" {
+        ServerGroup::Creator
+    } else {
+        ServerGroup::Featured
+    };
     view.featured
         .iter()
         .enumerate()
-        .filter_map(|(index, server)| {
-            let creator = view
-                .feeds
-                .details
-                .get(&server.address)
-                .is_some_and(|d| d.group == "creator");
-            (creator == (group == "creator")).then_some(index)
-        })
+        .filter_map(|(index, server)| (experience_group(view, server) == group).then_some(index))
         .collect()
 }
 
@@ -219,16 +266,39 @@ enum Selection {
     Saved(usize),
 }
 
-/// The picked server, else the first experience, else the first saved server.
-fn selection(view: &MenuView, featured: usize) -> Option<Selection> {
-    let saved = view.servers.len();
-    match (view.feeds.selected_saved, view.feeds.selected_featured) {
-        (Some(index), _) if index < saved => Some(Selection::Saved(index)),
-        (_, Some(index)) if index < featured => Some(Selection::Featured(index)),
-        _ if featured > 0 => Some(Selection::Featured(0)),
-        _ if saved > 0 => Some(Selection::Saved(0)),
-        _ => None,
+/// Hidden sections cannot supply details; an unavailable pick falls back in visible order.
+fn selection(view: &MenuView) -> Option<Selection> {
+    let prefs = view.settings_options.server_list();
+    if let Some(index) = view
+        .feeds
+        .selected_saved
+        .filter(|i| *i < view.servers.len())
+        && prefs.visible(ServerGroup::Saved)
+    {
+        return Some(Selection::Saved(index));
     }
+    if let Some(index) = view
+        .feeds
+        .selected_featured
+        .filter(|i| *i < view.featured.len())
+        && prefs.visible(experience_group(view, &view.featured[index]))
+    {
+        return Some(Selection::Featured(index));
+    }
+    prefs
+        .order()
+        .into_iter()
+        .filter(|group| prefs.visible(*group))
+        .find_map(|group| {
+            if group == ServerGroup::Saved {
+                (!view.servers.is_empty()).then_some(Selection::Saved(0))
+            } else {
+                view.featured
+                    .iter()
+                    .position(|server| experience_group(view, server) == group)
+                    .map(Selection::Featured)
+            }
+        })
 }
 
 /// Vanilla's ping tiers: under 80 ms good, under 160 medium, else high; no
@@ -260,12 +330,22 @@ mod tests {
             favorite: false,
             last_joined_unix: 0,
         }];
-        assert_eq!(selection(&view, 0), Some(Selection::Saved(0)));
-        assert_eq!(selection(&view, 2), Some(Selection::Featured(0)));
+        assert_eq!(selection(&view), Some(Selection::Saved(0)));
+        view.featured = ["First", "Second"]
+            .into_iter()
+            .map(|name| MenuServerCard {
+                name: name.into(),
+                address: name.into(),
+                caption: String::new(),
+                image_path: String::new(),
+                icon: None,
+            })
+            .collect();
+        assert_eq!(selection(&view), Some(Selection::Featured(0)));
         view.feeds.select_saved(0);
-        assert_eq!(selection(&view, 2), Some(Selection::Saved(0)));
+        assert_eq!(selection(&view), Some(Selection::Saved(0)));
         view.feeds.select(1);
-        assert_eq!(selection(&view, 2), Some(Selection::Featured(1)));
+        assert_eq!(selection(&view), Some(Selection::Featured(1)));
     }
 
     #[test]

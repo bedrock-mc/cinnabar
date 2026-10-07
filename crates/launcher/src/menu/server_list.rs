@@ -33,28 +33,31 @@ impl ServerGroup {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServerListAction {
     Toggle(ServerGroup),
+    ToggleVisibility(ServerGroup),
     MoveBefore(ServerGroup, Option<ServerGroup>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerListPreferences {
-    order: [ServerGroup; 3],
-    collapsed: [bool; 3],
+    order: [ServerGroup; ServerGroup::ALL.len()],
+    collapsed: [bool; ServerGroup::ALL.len()],
+    hidden: [bool; ServerGroup::ALL.len()],
 }
 
 impl Default for ServerListPreferences {
     fn default() -> Self {
         Self {
             order: ServerGroup::ALL,
-            collapsed: [false; 3],
+            collapsed: [false; ServerGroup::ALL.len()],
+            hidden: [false; ServerGroup::ALL.len()],
         }
     }
 }
 
 impl ServerListPreferences {
     /// A malformed saved permutation falls back without hiding a section.
-    pub fn order(&self) -> [ServerGroup; 3] {
+    pub fn order(&self) -> [ServerGroup; ServerGroup::ALL.len()] {
         if ServerGroup::ALL
             .iter()
             .all(|group| self.order.contains(group))
@@ -69,8 +72,29 @@ impl ServerListPreferences {
         self.collapsed[group.index()]
     }
 
+    /// Hidden sections contribute neither headers nor rows to the list.
+    pub fn visible(&self, group: ServerGroup) -> bool {
+        !self.hidden[group.index()]
+    }
+
+    /// The filter panel exposes adjacent moves without changing server identities.
+    pub fn move_action(&self, group: ServerGroup, down: bool) -> Option<ServerListAction> {
+        let order = self.order();
+        let from = order.iter().position(|value| *value == group)?;
+        if down {
+            (from + 1 < order.len())
+                .then(|| ServerListAction::MoveBefore(group, order.get(from + 2).copied()))
+        } else {
+            from.checked_sub(1)
+                .map(|to| ServerListAction::MoveBefore(group, Some(order[to])))
+        }
+    }
+
     pub(super) fn apply(&mut self, action: ServerListAction) -> bool {
         match action {
+            ServerListAction::ToggleVisibility(group) => {
+                self.hidden[group.index()] = !self.hidden[group.index()];
+            }
             ServerListAction::Toggle(group) => {
                 self.collapsed[group.index()] = !self.collapsed(group);
             }
@@ -101,6 +125,38 @@ impl ServerListPreferences {
 mod tests {
     use super::*;
     use crate::menu::settings_options::SettingsOptions;
+
+    #[test]
+    fn hidden_sections_and_adjacent_moves_survive_reload_independently_of_collapse() {
+        let mut settings = SettingsOptions::default();
+        for group in ServerGroup::ALL {
+            assert!(settings.server_list().visible(group));
+            settings.apply_server_list(ServerListAction::ToggleVisibility(group));
+        }
+        let prefs = settings.server_list();
+        assert_eq!(prefs.move_action(ServerGroup::Featured, false), None);
+        assert_eq!(prefs.move_action(ServerGroup::Saved, true), None);
+        let action = prefs.move_action(ServerGroup::Saved, false).unwrap();
+        settings.apply_server_list(action);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(
+            loaded.server_list().order(),
+            [
+                ServerGroup::Featured,
+                ServerGroup::Saved,
+                ServerGroup::Creator
+            ]
+        );
+        for group in ServerGroup::ALL {
+            assert!(!loaded.server_list().visible(group));
+            assert!(!loaded.server_list().collapsed(group));
+        }
+        let legacy =
+            SettingsOptions::decode(br#"{"server_list":{"collapsed":[true,false,false]}}"#)
+                .unwrap();
+        assert!(legacy.server_list().visible(ServerGroup::Featured));
+        assert!(legacy.server_list().collapsed(ServerGroup::Featured));
+    }
 
     #[test]
     fn moving_sections_retains_other_sections_and_does_not_save_a_noop() {

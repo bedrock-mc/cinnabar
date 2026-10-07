@@ -630,6 +630,7 @@ fn append_dialog(
         PANEL,
     );
     let (title, description, confirm) = match dialog {
+        MenuDialog::ServerFilter => ("Server sections", "", MenuAction::DismissDialog),
         MenuDialog::Accounts => ("Accounts", "", MenuAction::DismissDialog),
         MenuDialog::SettingsResetGroup(group) => (
             "Reset to Default",
