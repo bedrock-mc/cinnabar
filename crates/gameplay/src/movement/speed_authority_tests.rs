@@ -136,7 +136,9 @@ fn liquid_speeds_order_independently_and_keep_omitted_values() {
         }
     );
     assert!(authority.apply_liquid(1, 6, 0, Some(0.2), None).is_none());
-    let invalid = authority.apply_liquid(1, 7, 0, Some(f64::NAN), None).unwrap();
+    let invalid = authority
+        .apply_liquid(1, 7, 0, Some(f64::NAN), None)
+        .unwrap();
     assert_eq!(invalid.underwater, None);
     assert_eq!(authority.liquid().underwater, Some(0.05));
 }

@@ -153,20 +153,23 @@ impl CommittedGameplayState<'_> {
             // enters retained inputs and replays from there.
             if let Some(boost) = movement::MovementBoost::from_kind(event.kind) {
                 let span = movement::BoostSpan::from_wire(event.duration_ticks);
-                let (rewind, remaining) = if self.movement.physics_is_authorized() {
+                let (rewind, mut remaining) = if self.movement.physics_is_authorized() {
                     self.physics.retime_movement_boost(boost, event.tick, span)
                 } else {
                     (None, Some(span))
                 };
+                // A failed replay boosted no past tick, so the whole span applies live.
+                if let Some(rewind) = rewind
+                    && !replay_timeline_edit(self.movement, self.physics, rewind, world)
+                {
+                    remaining = Some(span);
+                }
                 self.effects.set_movement_boost(
                     self.session_generation,
                     sequence,
                     boost,
                     remaining,
                 );
-                if let Some(rewind) = rewind {
-                    replay_timeline_edit(self.movement, self.physics, rewind, world);
-                }
             }
             return ControlDisposition::Handled;
         }
