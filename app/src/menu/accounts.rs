@@ -67,6 +67,15 @@ impl MenuRuntime {
         feeds
     }
 
+    /// The selected placeholder's name in presentation mode, otherwise the live display name.
+    pub(super) fn presented_display_name(&self) -> String {
+        self.presentation_accounts
+            .then(|| self.feeds.account_active_id.as_deref())
+            .flatten()
+            .and_then(|active| PRESENTATION_ACCOUNTS.iter().find(|(id, _)| *id == active))
+            .map_or_else(|| self.display_name.clone(), |(_, name)| (*name).to_owned())
+    }
+
     /// Account actions only change the in-memory presentation while it is shown.
     pub(super) fn presentation_blocks(&mut self, action: MenuAction) -> bool {
         if !self.presentation_accounts {
@@ -80,7 +89,10 @@ impl MenuRuntime {
                 self.dialog = None;
                 true
             }
-            MenuAction::StartSignIn | MenuAction::AddAccount | MenuAction::SignOut => true,
+            MenuAction::StartSignIn
+            | MenuAction::CancelSignIn
+            | MenuAction::AddAccount
+            | MenuAction::SignOut => true,
             _ => false,
         }
     }
@@ -351,7 +363,9 @@ mod tests {
         menu.activate(MenuAction::AddAccount);
         menu.activate(MenuAction::StartSignIn);
         menu.activate(MenuAction::SignOut);
+        menu.activate(MenuAction::CancelSignIn);
         assert!(menu.auth_process.is_none());
+        assert!(menu.accounts.operation.is_none());
         assert!(!menu.feeds.account_adding && !menu.sign_out_requested);
         menu.activate(MenuAction::SwitchAccount(2));
         assert!(menu.accounts.operation.is_none());
@@ -363,10 +377,12 @@ mod tests {
         menu.feeds.profile.gamertag = "RealGamertag".into();
         menu.feeds.profile.picture_path = "/real/picture.png".into();
         let view = menu.view();
+        assert_eq!(view.display_name, PRESENTATION_ACCOUNTS[2].1);
         assert!(view.feeds.profile.gamertag.is_empty());
         assert!(view.feeds.profile.picture_path.is_empty());
         assert_eq!(menu.feeds.profile.gamertag, "RealGamertag");
         menu.set_presentation_accounts(false);
+        assert_eq!(menu.view().display_name, "First");
         assert_ne!(menu.view().auth_state, AuthState::Authenticated);
         assert!(menu.feeds.accounts.iter().all(|account| {
             PRESENTATION_ACCOUNTS

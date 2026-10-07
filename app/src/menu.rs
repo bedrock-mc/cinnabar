@@ -328,7 +328,7 @@ impl MenuRuntime {
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
             vsync_override: self.vsync_override,
-            display_name: self.display_name.clone(),
+            display_name: self.presented_display_name(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
             realms: self.realms.clone(),
