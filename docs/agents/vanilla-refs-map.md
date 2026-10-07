@@ -993,6 +993,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/launcher/src/menu/settings_options/definitions.rs
 - // current OptionRegistry values are recovered; see plan.md.
+- Auto-jump: `OptionRegistry::_registerOptions` (`0x0239ba00`, bytes at VA `0x1423acef1`)
+  registers InputModeBoolOption id `0x186` "ctrl_autojump" / "options.autojump" with default
+  argument 0; constructor `0x009b7840` writes that one default for input modes 1-3, so
+  keyboard/mouse, touch and gamepad all default off in 1.26.50 (mac 26.30 registered true).
 
 ## crates/launcher/src/menu/settings_options/emotes.rs
 - /// R: native EmoteWheelScreenController equipped top/right/bottom/left slots.
