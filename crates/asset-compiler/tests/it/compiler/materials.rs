@@ -550,7 +550,13 @@ fn compiler_supports_vanilla_glass_and_fails_closed_for_arbitrary_tinted_full_cu
     }
     let records = [
         record(0, 300, "minecraft:stone", "{}", BlockFlags::CUBE_GEOMETRY),
-        record(1, 301, "minecraft:glass", "{}", BlockFlags::CUBE_GEOMETRY),
+        record(
+            1,
+            301,
+            "minecraft:glass",
+            "{}",
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+        ),
         record(
             2,
             302,
@@ -575,7 +581,17 @@ fn compiler_supports_vanilla_glass_and_fails_closed_for_arbitrary_tinted_full_cu
             .into_iter()
             .all(|material| material != 0)
     );
-    assert_eq!(compiled.visuals[1].kind, VisualKind::Cube);
+    // Glass hides only glass, so it leaves the occluding cube path.
+    assert_eq!(compiled.visuals[1].kind, VisualKind::Model);
+    assert!(
+        !compiled.visuals[1]
+            .flags
+            .intersects(BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
+    );
+    assert_eq!(
+        compiled.model_templates[compiled.visuals[1].model_template as usize].flags,
+        MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+    );
     assert!(
         compiled.visuals[1]
             .faces
@@ -590,8 +606,12 @@ fn compiler_supports_vanilla_glass_and_fails_closed_for_arbitrary_tinted_full_cu
     }
     let artifact = RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
     let artifact_glass = artifact.resolve(NetworkIdMode::Sequential, 1);
-    assert_eq!(artifact_glass.kind(), VisualKind::Cube);
-    assert!(artifact_glass.flags().contains(BlockFlags::CUBE_GEOMETRY));
+    assert_eq!(artifact_glass.kind(), VisualKind::Model);
+    assert!(
+        !artifact_glass
+            .flags()
+            .contains(BlockFlags::OCCLUDES_FULL_FACE)
+    );
     for face in BlockFace::ALL {
         assert_eq!(
             artifact

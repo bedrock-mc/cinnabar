@@ -1000,6 +1000,16 @@ preview build is not an exact retail/platform capture for every supported client
 - /// Overlay-mask sources (grass sides) use the TextureAtlas::updateTextureAtUVs /
 - /// _buildAtlasMips byte-space box mips, as every vanilla atlas tile does.
 
+## crates/pack-compiler/src/compiler/classification.rs (`is_clear_glass_cube`); crates/meshing/tests/it/mesh/stained_glass.rs
+- Neighbour face culling: BlockOccluder::_updateRenderFace (RVA 0x06a043a0) calls the per-face
+  predicate at RVA 0x06a05760. For a legacy neighbour with full-block shape (0 or 0x1f) it culls
+  only when RVA 0x06a04050 holds (neighbour render layer in mask 0x20220 = layers 5/9/17 and full
+  visual bounds); otherwise it draws unless the neighbour shares this block's BlockType
+  (Block+0x108), returning BlockGraphics+0x19 (allow-same; false for glass, so glass culls glass).
+- registerBlock<GlassBlock> (RVA 0x0dfbada0) sets BlockType+0x162 render layer 3 (default is 5);
+  1.26.30 macOS `Block::_isSolid` reads BlockType+0x134 bit 1, which GlassBlock clears, so glass is
+  also not solid for AO.
+
 ## crates/pack-compiler/src/compiler/lily_pad_textures.rs
 - // TextureAtlas::updateTextureAtUVs multiplies RGB only.
 
