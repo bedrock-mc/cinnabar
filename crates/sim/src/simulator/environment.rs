@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::world::DEFAULT_SURFACE_FRICTION;
 use crate::{
     Aabb, BlockPhysicsFlags, CollisionWorld, SurfaceResponse, Vec3, WorldCollisionIdentity,
     WorldQueryError,
@@ -107,7 +108,7 @@ pub(super) fn sample(
     let mut primaries = Vec::with_capacity(block_samples);
     let mut identity: Option<WorldCollisionIdentity> = None;
     let mut movement = MovementEnvironment::default();
-    let mut friction = 0.6;
+    let mut friction = DEFAULT_SURFACE_FRICTION;
     let mut stuck = None;
     let mut friction_surface = SurfaceResponse::None;
     let (mut feet_honey, mut support_honey) = (false, false);
@@ -118,7 +119,7 @@ pub(super) fn sample(
             None => sample.identity.clone(),
             Some(previous) => previous.merge(&sample.identity)?,
         });
-        if block == friction_block {
+        if block == friction_block && !probes_air(world, block, &mut identity)? {
             friction = sample.primary().friction;
             friction_surface = sample.primary().surface_response;
         }
@@ -207,6 +208,22 @@ pub(super) fn sample(
         // Integer-aligned feet also read the block below the feet cell.
         honey_jump: feet_honey || (feet_aligned && support_honey),
     })
+}
+
+/// Vanilla keeps the default friction over air, such as with the feet probe past a block edge.
+fn probes_air(
+    world: &(impl CollisionWorld + ?Sized),
+    block: [i32; 3],
+    identity: &mut Option<WorldCollisionIdentity>,
+) -> Result<bool, WorldQueryError> {
+    let Some(air) = world.primary_is_air(block)? else {
+        return Ok(false);
+    };
+    *identity = Some(match identity.take() {
+        None => air.identity,
+        Some(previous) => previous.merge(&air.identity)?,
+    });
+    Ok(air.value)
 }
 
 /// Checks a bounded volume against the same block-physics authority used for
