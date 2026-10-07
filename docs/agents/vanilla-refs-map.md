@@ -363,6 +363,13 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/client-presentation/src/camera.rs
 - /// Native `getNormalizedViewportSize` measures viewport fractions of the full
 
+## crates/client-presentation/src/camera/look.rs; crates/client-presentation/src/camera/controls.rs; crates/input/src/binding.rs; crates/launcher/src/menu/settings_options/definitions.rs
+- Mouse look chain, 1.26.50.26 Windows client. `GameControllerHandler_GameCore::refresh` (RVA 0x0008ba40) feeds GameInput mouse position differences as short counts to `MouseDevice::feed` (RVA 0x0038f130) with no scaling. `MouseMapper::tick` (RVA 0x0038faf0) enqueues a direction event `(float)dx / (float)mScreenWidth`, `(float)(dy * mYAxisInversionFactor) / (float)mScreenWidth`; `mScreenWidth` is `InputDeviceMapper` +8, set from `Config::mWidth` by `MinecraftInputHandler::onConfigChanged`. `InGamePlayScreen::handleDirection` sums the events at +0x34/+0x38.
+- `InGamePlayScreen::applyInput` (RVA 0x004f5aa0): `c = getGameSensitivity(mode) * 0.6f + 0.15f; c = c*c*c*9600.0f`; yaw `(sumX * c) * 0.3f * modeScale` (1.0 mouse, 0.7 gamepad), pitch `(c * sumY) * 0.3f`; then `LocalPlayer::localPlayerTurn` (RVA 0x04f324b0, spyglass ratio from vtable +0x1a0) and the camera look handler (RVA 0x07162b00, degrees x 0.017453292). Constants at 0x14ffab698, 0x14ffab6c8, 0x15005ea00, 0x150056088, 0x15005ea04.
+- Options (`OptionRegistry::_registerOptions`, RVA 0x0239ba00): 0x183 `options.sensitivity`/`ctrl_sensitivity2` InputModeFloat default 0.5, range 0..1 (call at 0x1423a1ee2); 0x18d `gameSensitivity`, unsaved, default 0.628, range 0..1 (0x1423c911d). OptionRegistry vtable 0x150106e40: +0x190 getSensitivity (RVA 0x010efe80), +0x1a0 getSpyglassDamping, +0x1b8 getGameSensitivity (RVA 0x010f01c0, read by applyInput).
+- `_setOptionCallbacks` lambda (RVA 0x0245d7c0), an InputMode observer on 0x183 registered in RVA 0x0239a340: `gameSensitivity.set(mode, powf(sens * 1.1f, 0.6125f) * 0.81f)` (constants 0x1500b53d0, 0x1500cde9c, 0x1500cdea0). `InputModeFloatOption::set` (RVA 0x009b3ee0) stores and notifies only when `|old - new| > 0.001` (ctor RVA 0x009b6570), clamping to the range; load of an unchanged value notifies nothing, so 0.628 persists until the slider really changes.
+- macOS 1.26.30 primary matches: `InGamePlayScreen::applyInput` 0x102779ad0 (same constants, `getGameSensitivity` vtable +0x1d0), `MouseMapper::tick` 0x10c3a6db0, option 0x188/0x192. Mac Config width units and the macOS mouse source were not traced.
+
 ## crates/client-presentation/src/camera/bob.rs
 - //! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
 - //! 26.30 reference's bobView and hand spring.
