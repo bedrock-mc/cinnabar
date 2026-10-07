@@ -329,14 +329,9 @@ impl ItemStateStore {
             return false;
         }
         let mut next = built_in_registry();
-        let mut identifiers = HashMap::with_capacity(registry.entries.len());
         let mut network_ids = HashMap::with_capacity(registry.entries.len());
         for entry in registry.entries.iter() {
-            if network_ids.insert(entry.network_id, ()).is_some()
-                || identifiers
-                    .insert(Arc::clone(&entry.identifier), ())
-                    .is_some()
-            {
+            if network_ids.insert(entry.network_id, ()).is_some() {
                 return false;
             }
             next.insert(entry.network_id, registry_record(entry));
@@ -710,6 +705,28 @@ mod armor_tests {
                 item.enchanted,
                 "registry resolution must retain the stack's enchantments"
             );
+        }
+    }
+
+    #[test]
+    fn registry_retains_every_numeric_alias_for_a_shared_item_identifier() {
+        let entries = [101, 102, 103].map(|network_id| protocol::ItemRegistryEntry {
+            identifier: Arc::from("example:menu_icon"),
+            network_id,
+            component_based: true,
+            version: protocol::ItemRegistryVersion::DataDriven,
+            component_digest: [0; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: true,
+            item_tags: Arc::from([]),
+        });
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(ItemRegistryEvent {
+            entries: Arc::from(entries)
+        }));
+        for network_id in [101, 102, 103] {
+            let item = store.canonicalize(&stack(network_id, &[])).unwrap();
+            assert_eq!(item.identifier.as_deref(), Some("example:menu_icon"));
         }
     }
 

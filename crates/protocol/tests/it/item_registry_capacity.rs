@@ -116,6 +116,32 @@ fn negotiated_capacity_retains_exact_positive_int_values_and_original_digest() {
 }
 
 #[test]
+fn repeated_registry_declaration_retains_its_populated_definition() {
+    let populated = capacity_component(16);
+    let digest: [u8; 32] = Sha256::digest(&populated.0).into();
+    for (first, last) in [
+        (Nbt::default(), populated.clone()),
+        (populated, Nbt::default()),
+    ] {
+        let packet = ItemRegistryPacket {
+            item_data: vec![
+                registry_entry(first, true, ItemVersion::Datadriven),
+                registry_entry(last, true, ItemVersion::Datadriven),
+            ],
+        };
+        let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
+            into_world_event(packet.into(), 0).unwrap().unwrap()
+        else {
+            panic!("expected item registry")
+        };
+        assert_eq!(registry.entries.len(), 1);
+        assert_eq!(registry.entries[0].negotiated_max_stack_size, Some(16));
+        assert_eq!(registry.entries[0].component_digest, digest);
+        assert!(!registry.entries[0].canonical_empty_component_data);
+    }
+}
+
+#[test]
 fn canonical_empty_component_data_is_exact_not_semantic() {
     let canonical = normalize(registry_entry(Nbt::default(), false, ItemVersion::Legacy)).unwrap();
     assert!(canonical.canonical_empty_component_data);

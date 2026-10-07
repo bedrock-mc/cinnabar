@@ -6275,3 +6275,16 @@ and Java torso turning uses matching committed local ticks. Incomplete: native
 player body-turn timing remains on the provisional actor motion model. This work
 does not close the broader native body-motion or live visual parity gate. See
 `docs/reference/swing-duration.md` and `docs/reference/actor-animation-clocks.md`.
+
+## Server pack compatibility
+
+Galaxite's full-block geometry, large actor models and source-pixel form borders
+render in a 1920×1080, DPI 1 macOS/Metal hidden-client pass. Item registries retain
+numeric aliases and populated definitions accompanying empty declarations.
+Zeqa equipment sources and dynamic UI textures retain bounded native dimensions;
+rejected UI publications preserve the previous catalog and retry pending artwork.
+
+Incomplete: merging multiple different populated component definitions, unrestricted
+pack-size parity, exact native frame comparisons and release hardware budgets remain
+open. Two terrain texture keys absent from the served Galaxite stack still report
+diagnostic textures; this compatibility work does not close those parity gates.
