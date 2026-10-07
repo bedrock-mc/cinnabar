@@ -179,6 +179,14 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   holds). Clamp `vy < -0.2 → -0.2`; the ladder jump branch sets `0.2` and returns before the
   JumpFromGround request without a jump delay. Scaffolding constructor `0x08efe770` assigns
   property word `0x2020000` (no climbable bit).
+- `crates/sim/src/simulator/scaffolding.rs`, `simulator.rs` (scaffolding): BlockClimber
+  (mac `0x1058b3690`, helpers mac `0x1058b3d10`/`0x1058b3f80`) scans footprint columns
+  floor(min)..floor(max) at floor(min y) and floor(min y - 1) for flags 69/70, and for
+  99/100 when the block under the scaffold is not air, water or flowing water. Scaffolding
+  action `0x089909b0`: flag 100 plus sneak sets flag 71, `vy = -0.15` and zero fall distance.
+  MobJumpSystem `0x0a5dc2e0`: (69 or 99) without 71 sets `vy = 0.15` and jump delay 10 before
+  the ladder branch. Gravity setter `0x032252b0` returns when 71 and (69 or 70). Collision
+  shape mac `0x10ab628c0` keeps the top only for feet at or above it, without flag 71.
 
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
@@ -985,6 +993,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 
 ## crates/launcher/src/menu/settings_options/definitions.rs
 - // current OptionRegistry values are recovered; see plan.md.
+- Auto-jump: `OptionRegistry::_registerOptions` (`0x0239ba00`, bytes at VA `0x1423acef1`)
+  registers InputModeBoolOption id `0x186` "ctrl_autojump" / "options.autojump" with default
+  argument 0; constructor `0x009b7840` writes that one default for input modes 1-3, so
+  keyboard/mouse, touch and gamepad all default off in 1.26.50 (mac 26.30 registered true).
 
 ## crates/launcher/src/menu/settings_options/emotes.rs
 - /// R: native EmoteWheelScreenController equipped top/right/bottom/left slots.
@@ -1035,6 +1047,16 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/pack-compiler/src/animation.rs
 - /// Overlay-mask sources (grass sides) use the TextureAtlas::updateTextureAtUVs /
 - /// _buildAtlasMips byte-space box mips, as every vanilla atlas tile does.
+
+## crates/pack-compiler/src/compiler/classification.rs (`is_clear_glass_cube`); crates/meshing/tests/it/mesh/stained_glass.rs
+- Neighbour face culling: BlockOccluder::_updateRenderFace (RVA 0x06a043a0) calls the per-face
+  predicate at RVA 0x06a05760. For a legacy neighbour with full-block shape (0 or 0x1f) it culls
+  only when RVA 0x06a04050 holds (neighbour render layer in mask 0x20220 = layers 5/9/17 and full
+  visual bounds); otherwise it draws unless the neighbour shares this block's BlockType
+  (Block+0x108), returning BlockGraphics+0x19 (allow-same; false for glass, so glass culls glass).
+- registerBlock<GlassBlock> (RVA 0x0dfbada0) sets BlockType+0x162 render layer 3 (default is 5);
+  1.26.30 macOS `Block::_isSolid` reads BlockType+0x134 bit 1, which GlassBlock clears, so glass is
+  also not solid for AO.
 
 ## crates/pack-compiler/src/compiler/lily_pad_textures.rs
 - // TextureAtlas::updateTextureAtUVs multiplies RGB only.

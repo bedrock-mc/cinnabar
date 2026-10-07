@@ -1,6 +1,7 @@
 use super::super::*;
 use super::context::push_model_template;
 use super::fallback::FallbackInventory;
+use super::geometry::vanilla_cuboid_quads;
 
 pub(in crate::compiler) struct SurfaceRuleContext<'a> {
     pub(in crate::compiler) pack: &'a PackSources,
@@ -35,7 +36,10 @@ pub(in crate::compiler) fn compile_surface_rule(
         || (is_copper_grate_name(&record.name) && !is_copper_grate(record))
     {
         // Exact names fail closed when any admission fact disagrees.
-    } else if is_stained_glass_cube(record) || is_copper_grate(record) {
+    } else if is_stained_glass_cube(record)
+        || is_clear_glass_cube(record)
+        || is_copper_grate(record)
+    {
         let materials = BlockFace::ALL.map(|face| {
             descriptor_for(fallback, pack, record, face)
                 .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
@@ -55,7 +59,7 @@ pub(in crate::compiler) fn compile_surface_rule(
                     template
                 } else {
                     let template = push_model_template(
-                        cuboid_quads(materials, [0, 0, 0], [256, 256, 256]).to_vec(),
+                        vanilla_cuboid_quads(materials, [0, 0, 0], [256, 256, 256]).to_vec(),
                         MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
                         model_templates,
                         model_quads,
