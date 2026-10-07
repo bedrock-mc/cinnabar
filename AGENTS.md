@@ -58,7 +58,7 @@ Cinnabar's Gophertunnel work lives on `HashimTheArab/gophertunnel:resource-pack-
 
 ## Git and payloads
 
-Mojang assets, screenshots, recordings, `.local/` carriers, credentials and BDS binaries never enter git. Use `git worktree`, with one Cargo `target` per active worktree, and delete a worktree's `target` once its work is integrated.
+Mojang asset files, recordings, `.local/` carriers, credentials and BDS binaries never enter git. Every PR that changes anything visible shows before/after screenshots: capture them with the offline UI snapshot harness or headless through the client MCP (`docs/agents/client-mcp.md`), never a visible window, keep real gamertags, emails and server addresses out of frame, and post them with `tools/pr-screenshots.sh <pr> <png>...`. Delete raw captures and traces once the PR is open. Use `git worktree`, with one Cargo `target` per active worktree, and delete a worktree's `target` once its work is integrated.
 
 ## Report state precisely
 
