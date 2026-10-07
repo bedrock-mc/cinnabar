@@ -201,6 +201,7 @@ pub(super) fn run_frame(
 #[derive(Default)]
 pub(super) struct Merged {
     pub rig: Option<GameplayCameraRig>,
+    pub preserve_teleport_rotation: bool,
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
     pub attack_reach: Option<f32>,
@@ -218,6 +219,7 @@ impl Merged {
         let delta = host.take_camera_delta();
         self.delta = self.delta.or(delta);
         self.rig = self.rig.or(host.camera_rig());
+        self.preserve_teleport_rotation |= host.preserves_teleport_rotation();
         self.time_override = self.time_override.or(host.time_override());
         self.commands.extend(host.take_commands());
         self.cues.extend(host.take_cues());
