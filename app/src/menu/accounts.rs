@@ -109,7 +109,7 @@ impl MenuRuntime {
     /// The selected placeholder's name in presentation mode, otherwise the live display name.
     pub(super) fn presented_display_name(&self) -> String {
         self.presentation_accounts
-            .then(|| self.feeds.account_active_id.as_deref())
+            .then_some(self.feeds.account_active_id.as_deref())
             .flatten()
             .and_then(|active| PRESENTATION_ACCOUNTS.iter().find(|(id, _)| *id == active))
             .map_or_else(|| self.display_name.clone(), |(_, name)| (*name).to_owned())
