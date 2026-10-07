@@ -128,6 +128,23 @@ impl WorldAuthority {
                             tick: update.tick,
                         });
                     }
+                    if let Some(current) = update
+                        .attributes
+                        .iter()
+                        .rev()
+                        .find(|attribute| {
+                            attribute.name.as_ref()
+                                == movement_attribute::AIR_DRAG_MODIFIER_ATTRIBUTE
+                        })
+                        .map(|attribute| attribute.current)
+                        .filter(|current| current.is_finite())
+                    {
+                        self.push_committed_control(CommittedControlEvent::LocalAirDragModifier {
+                            sequence,
+                            current,
+                            tick: update.tick,
+                        });
+                    }
                 }
                 if let ActorEvent::Metadata(update) = &event
                     && update.runtime_id == self.local_player_runtime_id

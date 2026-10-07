@@ -1311,6 +1311,26 @@ preview build is not an exact retail/platform capture for every supported client
 - // Current BlockSource::containsAnyLiquid (0x031a7a20)
 - // reads getBlock's primary material, without secondary layers.
 
+## crates/sim/src/simulator/effects.rs; flight.rs; crates/client-world/src/actor_store.rs; local_player_facts.rs; crates/gameplay/src/movement/prediction_sync.rs
+- Ground/air vertical drag `0x032150c0` (26.30 `MobMovementDrag::tickApplyGroundVerticalDrag`
+  / `tickApplyAirVerticalDrag`): retention `0.91f` (`0x15006b0f8`) with flag 128
+  `UsesUniformAirDrag`, else `0.98f` (`0x1500eb864`) with flag 49 `HasGravity`, else no drag.
+  Drag fraction `(1 - r) * air_drag_modifier` (MovementAttributes `+0x40`, absent reads `1.0f`
+  at `0x14fea4060`); above one retains zero, below zero retains one. Levitation (`0x03233fc0`)
+  is followed by the same drag; auto-climb/DiscardFriction exclude it.
+- FlyDrag `0x03217940`: fraction `0x15016729c * air_drag_modifier` with the same clamp.
+- Ground/air gravity setter `0x032252b0` returns without `HasGravity` (bit 49), so the
+  per-tick ApplyGravity component is absent (26.30 `MobMovementGravity::forSystems`). Player
+  water gravity `0x0322d5d0` ignores `HasGravity`; lava gravity `0x03204c50` keeps -0.02 with
+  it and otherwise probes two blocks (predicate not identified; Cinnabar keeps lava gravity).
+- Vanilla player: 26.30 `PhysicsDefinition::initialize` writes `has_gravity` (default true) into
+  flag 49; the 1.26.30 behaviour pack's `player.json` has `minecraft:physics` and no
+  `minecraft:uses_uniform_air_drag`. Flag words are actor-data ids 0, 92 and 139
+  (`ActorDataFlagComponent::getUnderlyingIndex`, `0x0320c090`, `0x02e064c0`).
+- MovementAttributes order (26.30 `MovementAttributesComponentExt::getAttributeMap`) and the
+  prediction-sync serializer `0x02089600`: friction modifier and air drag modifier send `1.0f`
+  and bounciness `0.0f` only while the attribute is undefined.
+
 ## crates/sim/src/simulator/flight.rs
 - // HorizontalFlySpeedControl current RVA 0x03235360, PE VA 0x1501672a8.
 - // VerticalFlySpeedControl current RVA 0x02c452b0, matching PE float lanes.

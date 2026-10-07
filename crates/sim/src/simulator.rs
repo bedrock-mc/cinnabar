@@ -21,7 +21,7 @@ use collision::{clip_sneak_edge, resolve_motion};
 use environment::sample;
 
 pub use controls::{ControlledTickResult, ProcessedControls};
-pub use effects::MovementEffects;
+pub use effects::{MovementEffects, VerticalPhysics};
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use mode::{MovementMode, pose_fits};
@@ -446,13 +446,14 @@ impl Simulator {
         if auto_climb {
             next.velocity.y = CLIMB_SPEED;
         }
+        let vertical = input.vertical_physics;
         if sampled.movement.in_cobweb {
             next.velocity = Vec3::ZERO;
             effects::apply_vertical(
                 &mut next.velocity.y,
                 input.effects,
-                NORMAL_GRAVITY,
-                NORMAL_GRAVITY_MULTIPLIER,
+                vertical.gravity(NORMAL_GRAVITY),
+                f64::from(vertical.vertical_drag_retention()),
             );
         } else if sampled.movement.in_water || sampled.movement.in_lava {
             // When both liquid facts overlap, the pinned v0.1.5 slice follows
@@ -481,11 +482,15 @@ impl Simulator {
             effects::apply_vertical(
                 &mut next.velocity.y,
                 input.effects,
-                if auto_climb { 0.0 } else { gravity },
+                if auto_climb {
+                    0.0
+                } else {
+                    vertical.gravity(gravity)
+                },
                 if auto_climb {
                     1.0
                 } else {
-                    NORMAL_GRAVITY_MULTIPLIER
+                    f64::from(vertical.vertical_drag_retention())
                 },
             );
             next.velocity.x = effects::damp_horizontal(next.velocity.x, friction as f32);

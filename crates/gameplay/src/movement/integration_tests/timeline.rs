@@ -395,3 +395,57 @@ fn an_unsimulable_server_motion_is_skipped_and_prediction_keeps_running() {
     );
     assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
 }
+
+fn vertical_input(vertical_physics: sim::VerticalPhysics) -> MovementInput {
+    MovementInput {
+        vertical_physics,
+        ..forward_physics_input()
+    }
+}
+
+/// A delayed `HasGravity` clear stops gravity from its tick through replay.
+#[test]
+fn delayed_gravity_clear_rewinds_to_its_tick_and_matches_on_time_delivery() {
+    let weightless = sim::VerticalPhysics {
+        has_gravity: false,
+        ..sim::VerticalPhysics::default()
+    };
+    let (mut on_time, _) = walked_physics(2);
+    run_tick_with(&mut on_time, vertical_input(weightless));
+    run_tick_with(&mut on_time, vertical_input(weightless));
+
+    let (mut delayed, mut ticker) = walked_physics(4);
+    assert_ne!(delayed.state(), on_time.state());
+    let clear = flags(|flags| flags.has_gravity = Some(false));
+    assert_eq!(delayed.apply_server_movement_flags(102, clear), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut delayed, 102, &VersionedFloor(1)).unwrap();
+    assert_eq!(delayed.state(), on_time.state());
+    assert_eq!(delayed.state().unwrap().velocity.y, 0.0);
+    let echo = flags(|flags| flags.has_gravity = Some(false));
+    assert_eq!(delayed.apply_server_movement_flags(102, echo), None);
+}
+
+/// A delayed air-drag modifier applies from its tick through replay, not from arrival.
+#[test]
+fn delayed_air_drag_modifier_rewinds_to_its_tick_and_matches_on_time_delivery() {
+    let doubled = sim::VerticalPhysics {
+        air_drag_modifier: Some(2.0),
+        ..sim::VerticalPhysics::default()
+    };
+    let (mut on_time, _) = walked_physics(2);
+    run_tick_with(&mut on_time, vertical_input(doubled));
+    run_tick_with(&mut on_time, vertical_input(doubled));
+
+    let (mut delayed, mut ticker) = walked_physics(4);
+    assert_ne!(delayed.state(), on_time.state());
+    assert_eq!(delayed.retime_air_drag_modifier(102, 2.0), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut delayed, 102, &VersionedFloor(1)).unwrap();
+    assert_eq!(delayed.state(), on_time.state());
+    assert_eq!(
+        delayed.retime_air_drag_modifier(102, 2.0),
+        None,
+        "a repeated value changes nothing and needs no replay"
+    );
+    assert_eq!(delayed.retime_air_drag_modifier(0, 3.0), None);
+    assert_eq!(delayed.retime_air_drag_modifier(150, 3.0), None);
+}

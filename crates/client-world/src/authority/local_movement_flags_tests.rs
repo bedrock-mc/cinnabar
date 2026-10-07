@@ -71,3 +71,63 @@ fn immobile_control_is_local_and_dimension_scoped_before_the_actor_exists() {
         }],
     ));
 }
+
+fn air_drag(current: f32, tick: u64) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+        dimension: 2,
+        runtime_id: 41,
+        attributes: Arc::from([ActorAttribute {
+            name: Arc::from(crate::AIR_DRAG_MODIFIER_ATTRIBUTE),
+            min: 0.0,
+            max: f32::MAX,
+            current,
+            default: None,
+            modifiers: Arc::from([]),
+        }]),
+        tick,
+    }))
+}
+
+#[test]
+fn local_air_drag_modifier_commits_finite_values_with_their_tick() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 2,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    authority
+        .apply_ordered_event(air_drag(f32::NAN, 7), Some(1))
+        .unwrap();
+    assert!(
+        !authority
+            .take_committed_controls()
+            .iter()
+            .any(|control| matches!(control, CommittedControlEvent::LocalAirDragModifier { .. }))
+    );
+    authority
+        .apply_ordered_event(air_drag(2.5, 8), Some(2))
+        .unwrap();
+    assert!(
+        authority
+            .take_committed_controls()
+            .iter()
+            .any(|control| matches!(
+                control,
+                CommittedControlEvent::LocalAirDragModifier {
+                    sequence: 2,
+                    current,
+                    tick: 8,
+                } if *current == 2.5
+            ))
+    );
+}

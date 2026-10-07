@@ -25,10 +25,12 @@ const ATTRIBUTE_NAMES: [&str; 6] = [
     "minecraft:health",
     "minecraft:player.hunger",
 ];
-/// Provisional values for the three movement modifiers no attribute update carries.
-const DEFAULT_FRICTION_MODIFIER: f32 = 1.0;
-const DEFAULT_BOUNCINESS: f32 = 0.0;
-const DEFAULT_AIR_DRAG_MODIFIER: f32 = 1.0;
+/// Optional modifier attributes in wire order, with the value sent while one is undefined.
+const MODIFIER_ATTRIBUTES: [(&str, f32); 3] = [
+    ("minecraft:friction_modifier", 1.0),
+    ("minecraft:bounciness", 0.0),
+    (client_world::AIR_DRAG_MODIFIER_ATTRIBUTE, 1.0),
+];
 
 #[derive(Default)]
 pub struct PredictionSyncState {
@@ -85,7 +87,11 @@ fn flag_words(metadata: &HashMap<u32, ActorMetadataValue>) -> [u64; 3] {
         Some(ActorMetadataValue::Flags(bits) | ActorMetadataValue::FlagsExtended(bits)) => *bits,
         _ => 0,
     };
-    [word(FLAGS_KEY), word(EXTENDED_FLAGS_KEY), 0]
+    [
+        word(FLAGS_KEY),
+        word(EXTENDED_FLAGS_KEY),
+        word(protocol::ACTOR_DATA_ID_FLAGS_THIRD),
+    ]
 }
 
 fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
@@ -102,6 +108,10 @@ fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
 
 fn attributes(current: impl Fn(&str) -> Option<f32>) -> Option<[f32; 9]> {
     let value = |index: usize| current(ATTRIBUTE_NAMES[index]);
+    let modifier = |index: usize| {
+        let (name, undefined) = MODIFIER_ATTRIBUTES[index];
+        current(name).unwrap_or(undefined)
+    };
     Some([
         value(0)?,
         value(1)?,
@@ -109,9 +119,9 @@ fn attributes(current: impl Fn(&str) -> Option<f32>) -> Option<[f32; 9]> {
         value(3)?,
         value(4)?,
         value(5)?,
-        DEFAULT_FRICTION_MODIFIER,
-        DEFAULT_BOUNCINESS,
-        DEFAULT_AIR_DRAG_MODIFIER,
+        modifier(0),
+        modifier(1),
+        modifier(2),
     ])
 }
 
@@ -120,12 +130,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flags_read_both_words_and_missing_ones_are_zero() {
+    fn flags_read_all_three_words_and_missing_ones_are_zero() {
         let mut metadata = HashMap::new();
         assert_eq!(flag_words(&metadata), [0; 3]);
         metadata.insert(FLAGS_KEY, ActorMetadataValue::Flags(0b1010));
         metadata.insert(EXTENDED_FLAGS_KEY, ActorMetadataValue::FlagsExtended(1));
         assert_eq!(flag_words(&metadata), [0b1010, 1, 0]);
+        metadata.insert(
+            protocol::ACTOR_DATA_ID_FLAGS_THIRD,
+            ActorMetadataValue::FlagsExtended(1),
+        );
+        assert_eq!(flag_words(&metadata), [0b1010, 1, 1]);
     }
 
     #[test]
@@ -138,14 +153,21 @@ mod tests {
     }
 
     #[test]
-    fn any_unset_attribute_withholds_the_sync_and_modifiers_use_their_defaults() {
+    fn any_unset_attribute_withholds_the_sync_and_undefined_modifiers_use_their_defaults() {
         assert_eq!(attributes(|_| None), None);
         assert_eq!(
             attributes(|name| (name != "minecraft:player.hunger").then_some(0.1)),
             None
         );
-        let block = attributes(|_| Some(0.1)).unwrap();
+        let required = |name: &str| ATTRIBUTE_NAMES.contains(&name).then_some(0.1);
+        let block = attributes(required).unwrap();
         assert_eq!(&block[..6], &[0.1; 6]);
         assert_eq!(&block[6..], &[1.0, 0.0, 1.0]);
+        let block = attributes(|_| Some(0.1)).unwrap();
+        assert_eq!(
+            &block[6..],
+            &[0.1; 3],
+            "defined modifiers send their current"
+        );
     }
 }

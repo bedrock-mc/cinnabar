@@ -143,6 +143,7 @@ impl LocomotionState {
                 input.sprinting = controlled.sprint_request;
             }
             input.immobile = facts.immobile;
+            input.vertical_physics = facts.vertical_physics;
             movement_speed.set_sprinting(input.sprinting);
             input.movement_speed = movement_speed.prediction_speed();
             requested_speed = input.movement_speed;

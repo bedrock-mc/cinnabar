@@ -117,6 +117,14 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
+        if let CommittedControlEvent::LocalAirDragModifier { current, tick, .. } = control {
+            if self.movement.physics_is_authorized()
+                && let Some(rewind) = self.physics.retime_air_drag_modifier(tick, current)
+            {
+                replay_timeline_edit(self.movement, self.physics, rewind, world);
+            }
+            return ControlDisposition::Handled;
+        }
         if matches!(
             control,
             CommittedControlEvent::SetTime { .. }
@@ -347,6 +355,7 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
             | CommittedControlEvent::LocalMovementFlags { .. }
+            | CommittedControlEvent::LocalAirDragModifier { .. }
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
             | CommittedControlEvent::LocalHurt { .. }

@@ -132,6 +132,31 @@ impl LocalPhysicsController {
         Some((changed.then_some(tick), speed))
     }
 
+    /// Rewrites the air-drag modifier of retained ticks after an `UpdateAttributes`
+    /// stamped `tick`; returns the tick to replay from when an input changed.
+    pub(crate) fn retime_air_drag_modifier(&mut self, tick: u64, current: f32) -> Option<u64> {
+        let tick = match self.timeline_slot(tick) {
+            TimelineSlot::Live => return None,
+            TimelineSlot::Rewind(tick) => tick,
+            TimelineSlot::Stale => self.history.oldest_tick()?,
+        };
+        let anchor = self
+            .history
+            .input_at(tick)?
+            .vertical_physics
+            .air_drag_modifier;
+        let current = Some(f64::from(current));
+        if anchor == current {
+            return None;
+        }
+        let (edited, _) = rewrite_run(
+            self.history.retained_inputs_after_mut(tick),
+            |input| input.vertical_physics.air_drag_modifier == anchor,
+            |input| input.vertical_physics.air_drag_modifier = current,
+        );
+        edited.then_some(tick)
+    }
+
     /// Replaces the live velocity, for timeline edits whose replay failed.
     pub fn replace_live_velocity(&mut self, motion: [f32; 3]) {
         if let Some(state) = self.state.as_mut()
@@ -184,6 +209,31 @@ impl LocalPhysicsController {
                 self.history.retained_inputs_after_mut(tick),
                 |input| input.immobile == anchor.immobile,
                 |input| input.immobile = immobile,
+            );
+            changed |= edited;
+        }
+        if let Some(has_gravity) = flags
+            .has_gravity
+            .filter(|value| *value != anchor.vertical_physics.has_gravity)
+        {
+            let (edited, _) = rewrite_run(
+                self.history.retained_inputs_after_mut(tick),
+                |input| input.vertical_physics.has_gravity == anchor.vertical_physics.has_gravity,
+                |input| input.vertical_physics.has_gravity = has_gravity,
+            );
+            changed |= edited;
+        }
+        if let Some(uniform) = flags
+            .uniform_air_drag
+            .filter(|value| *value != anchor.vertical_physics.uniform_air_drag)
+        {
+            let (edited, _) = rewrite_run(
+                self.history.retained_inputs_after_mut(tick),
+                |input| {
+                    input.vertical_physics.uniform_air_drag
+                        == anchor.vertical_physics.uniform_air_drag
+                },
+                |input| input.vertical_physics.uniform_air_drag = uniform,
             );
             changed |= edited;
         }
