@@ -103,14 +103,56 @@ func TestNormalPregenerationCompletesBeforeReadyAndReusesSavedColumns(t *testing
 	args := []string{"-dir", t.TempDir(), "-addr", "127.0.0.1:0", "-generator", "normal", "-seed", "-7", "-pregen-radius", "1"}
 	for _, counts := range []string{"chunks=9 generated=9 existing=0", "chunks=9 generated=0 existing=9"} {
 		var out bytes.Buffer
-		if err := run(args, strings.NewReader("stop\n"), &out, io.Discard); err != nil {
+		input, shutdown := io.Pipe()
+		output := readyStopWriter{out: &out, shutdown: shutdown}
+		if err := run(args, input, output, io.Discard); err != nil {
 			t.Fatal(err)
 		}
+		input.Close()
+		shutdown.Close()
 		text := out.String()
 		complete, ready := strings.Index(text, "pregen complete"), strings.Index(text, "ready\n")
 		if complete < 0 || ready < complete || !strings.Contains(text, counts) {
 			t.Fatalf("startup did not save chunks before readiness: %s", text)
 		}
+	}
+}
+
+// readyStopWriter keeps stdin open during generation and stops once the server accepts players.
+type readyStopWriter struct {
+	out      *bytes.Buffer
+	shutdown *io.PipeWriter
+}
+
+// Write records progress and sends shutdown only after readiness is announced.
+func (w readyStopWriter) Write(p []byte) (int, error) {
+	n, err := w.out.Write(p)
+	if strings.Contains(string(p), "ready\n") {
+		_, _ = io.WriteString(w.shutdown, "stop\n")
+	}
+	return n, err
+}
+
+func TestPregenerationHonorsStdinShutdownBeforeReadiness(t *testing.T) {
+	for _, input := range []string{"stop\n", ""} {
+		var out bytes.Buffer
+		args := []string{"-dir", t.TempDir(), "-addr", "127.0.0.1:0", "-generator", "normal", "-seed", "1", "-pregen-radius", "1"}
+		err := run(args, strings.NewReader(input), &out, io.Discard)
+		if !errors.Is(err, context.Canceled) || strings.Contains(out.String(), "ready\n") {
+			t.Fatalf("shutdown %q: error=%v output=%s", input, err, &out)
+		}
+	}
+}
+
+func TestStartupCommandsRemainOrderedUntilDispatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	lines, stopped := readCommands(ctx, strings.NewReader("pause\nresume\nstop\n"))
+	<-stopped
+	var paused []bool
+	serveCommandLines(ctx, lines, commands{pause: func(value bool) { paused = append(paused, value) }})
+	if len(paused) != 2 || !paused[0] || paused[1] {
+		t.Fatalf("queued commands = %v", paused)
 	}
 }
 

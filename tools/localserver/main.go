@@ -117,8 +117,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	conf.ChunkLoadWorkers = cfg.chunkWorkers
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	lines, stopped := readCommands(ctx, stdin)
 	if cfg.pregenRadius > 0 {
-		if err := preparePregeneration(ctx, conf.WorldProvider, conf.Generator(world.Overworld), firstWorld, cfg.pregenRadius, cfg.chunkWorkers, stdout); err != nil {
+		startup, cancelStartup := startupContext(ctx, stopped)
+		defer cancelStartup()
+		if err := preparePregeneration(startup, conf.WorldProvider, conf.Generator(world.Overworld), firstWorld, cfg.pregenRadius, cfg.chunkWorkers, stdout); err != nil {
 			if exps != nil {
 				err = errors.Join(err, exps.closeSupervisors())
 			}
@@ -170,7 +173,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}()
 	fmt.Fprintln(stdout, "ready")
 
-	serveCommands(ctx, stdin, cmds)
+	serveCommandLines(ctx, lines, cmds)
 	closeErr := srv.Close()
 	<-accepting
 	if host != nil {

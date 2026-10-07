@@ -17,14 +17,86 @@ type commands struct {
 
 // serveCommands runs the stdin protocol until "stop", EOF or ctx ends.
 func serveCommands(ctx context.Context, stdin io.Reader, cmds commands) {
+	lines, _ := readCommands(ctx, stdin)
+	serveCommandLines(ctx, lines, cmds)
+}
+
+// readCommands reports shutdown immediately while retaining earlier commands for startup.
+func readCommands(ctx context.Context, stdin io.Reader) (<-chan string, <-chan struct{}) {
+	raw := make(chan string)
 	lines := make(chan string)
+	stopped := make(chan struct{})
 	go func() {
-		defer close(lines)
+		defer close(raw)
 		scanner := bufio.NewScanner(stdin)
 		for scanner.Scan() {
-			lines <- strings.TrimSpace(scanner.Text())
+			line := strings.TrimSpace(scanner.Text())
+			select {
+			case raw <- line:
+			case <-ctx.Done():
+				return
+			}
+			if line == "stop" {
+				return
+			}
 		}
 	}()
+	go func() {
+		defer close(lines)
+		stoppedOpen := true
+		defer func() {
+			if stoppedOpen {
+				close(stopped)
+			}
+		}()
+		var pending []string
+		for raw != nil || len(pending) > 0 {
+			var output chan string
+			var next string
+			if len(pending) > 0 {
+				output, next = lines, pending[0]
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case line, ok := <-raw:
+				if !ok {
+					if stoppedOpen {
+						close(stopped)
+						stoppedOpen = false
+					}
+					raw = nil
+				} else {
+					pending = append(pending, line)
+					if line == "stop" && stoppedOpen {
+						close(stopped)
+						stoppedOpen = false
+					}
+				}
+			case output <- next:
+				pending[0] = ""
+				pending = pending[1:]
+			}
+		}
+	}()
+	return lines, stopped
+}
+
+// startupContext cancels unfinished generation when its controller requests shutdown.
+func startupContext(ctx context.Context, stopped <-chan struct{}) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-stopped:
+			cancel()
+		}
+	}()
+	return ctx, cancel
+}
+
+// serveCommandLines applies queued commands until shutdown or cancellation.
+func serveCommandLines(ctx context.Context, lines <-chan string, cmds commands) {
 	for {
 		select {
 		case <-ctx.Done():

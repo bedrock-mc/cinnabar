@@ -11,6 +11,7 @@ Use `bedrock-local-server -dir <world> -addr 127.0.0.1:<port> -generator normal 
 -pregen-radius <chunks>`. The inclusive square surrounds the saved overworld spawn, or the
 new generator spawn. Missing columns are saved before `ready`; existing columns are preserved.
 Re-running resumes work. Zero disables the option; Flat and synthetic fixtures reject it.
+Keep stdin open until ready; `stop`, stdin EOF or an interrupt cancels unfinished generation.
 `-chunk-workers` controls generation parallelism (default four, range 1–16). Progress includes
 saved/existing counts and generation-plus-storage throughput. `-generation-stats` reports total
 generation work by dimension at shutdown; its rate includes idle time and is not peak capacity.
