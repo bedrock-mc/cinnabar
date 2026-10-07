@@ -251,7 +251,11 @@ impl Simulator {
             relative_speed,
         );
 
+        // A held jump on a climbable feet cell climbs instead: no ground jump,
+        // sprint impulse, jump delay or start-jump report.
+        let climb_jump = input.jumping && sampled.movement.on_climbable;
         let jump_initiated = input.jump_pressed
+            && !climb_jump
             && !jump_suppressed
             && next.on_ground
             && next.jump_delay == 0
