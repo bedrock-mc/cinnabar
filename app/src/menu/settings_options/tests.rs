@@ -415,3 +415,35 @@ fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
         );
     }
 }
+
+#[test]
+fn server_filter_keeps_navigation_on_the_edited_section_and_escape_restores_list() {
+    use crate::menu::{MenuAction, MenuDialog, MenuRuntime, MenuScreen};
+    use launcher::menu::server_list::{ServerGroup, ServerListAction};
+    let mut menu = MenuRuntime::new(true, 2, "Filter".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+    assert!(menu.focus_actions().contains(&MenuAction::OpenServerFilter));
+    menu.feeds.select_saved(2);
+    menu.activate(MenuAction::OpenServerFilter);
+    assert_eq!(menu.view().dialog, Some(MenuDialog::ServerFilter));
+    let action = menu
+        .settings_options
+        .server_list()
+        .move_action(ServerGroup::Saved, false)
+        .unwrap();
+    menu.activate(MenuAction::ServerList(action));
+    let toggle = MenuAction::ServerList(ServerListAction::ToggleVisibility(ServerGroup::Saved));
+    assert_eq!(menu.view().focused_action, Some(toggle));
+    menu.activate_focused();
+    assert!(
+        !menu
+            .settings_options
+            .server_list()
+            .visible(ServerGroup::Saved)
+    );
+    assert_eq!(menu.feeds.selected_saved, Some(2));
+    assert!(menu.settings_dirty);
+    menu.go_back();
+    assert_eq!(menu.view().dialog, None);
+    assert_eq!(menu.view().screen, MenuScreen::Servers);
+}

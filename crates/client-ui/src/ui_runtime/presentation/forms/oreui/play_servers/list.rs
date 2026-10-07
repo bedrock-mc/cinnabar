@@ -19,6 +19,7 @@ pub(super) fn draw(
         .server_list()
         .order()
         .into_iter()
+        .filter(|group| view.settings_options.server_list().visible(*group))
         .map(|group| (group, entries(view, group)))
         .filter(|(_, entries)| !entries.is_empty())
         .collect();
@@ -45,35 +46,34 @@ pub(super) fn draw(
         let bottom = y + total * progress;
         let clip_top = y.max(viewport[0]);
         let clip_bottom = bottom.min(viewport[1]);
-        if progress > 0.0 && clip_bottom > clip_top {
-            let clip = canvas.begin_clip([span[0], clip_top, span[1], clip_bottom])?;
-            let alpha = canvas.alpha;
-            canvas.alpha *= progress;
-            let first_hit = canvas.hits.len();
-            let first_focus = canvas.focus_targets.len();
-            let first_focus_hit = canvas.focus_hits.len();
-            let mut row_top = y;
-            for &index in entries {
-                let height = row_height(canvas, view, *group, index, images);
-                if row_top + height > clip_top && row_top < clip_bottom {
-                    entry(
-                        canvas,
-                        view,
-                        *group,
-                        index,
-                        [span[0], row_top, span[1], row_top + height],
-                        selected,
-                        images,
-                    )?;
-                }
-                row_top += height;
+        let clip = if progress > 0.0 && clip_bottom > clip_top {
+            Some(canvas.begin_clip([span[0], clip_top, span[1], clip_bottom])?)
+        } else {
+            None
+        };
+        let alpha = canvas.alpha;
+        canvas.alpha *= progress;
+        let first_hit = canvas.hits.len();
+        let first_focus = canvas.focus_targets.len();
+        let first_focus_hit = canvas.focus_hits.len();
+        let mut row_top = y;
+        for &index in entries {
+            let height = row_height(canvas, view, *group, index, images);
+            let bounds = [span[0], row_top, span[1], row_top + height];
+            if clip.is_some() && row_top + height > clip_top && row_top < clip_bottom {
+                entry(canvas, view, *group, index, bounds, selected, images)?;
+            } else if !collapsed {
+                canvas.focus_target(row_action(*group, index), bounds)?;
             }
-            if collapsed {
-                canvas.hits.truncate(first_hit);
-                canvas.focus_targets.truncate(first_focus);
-                canvas.focus_hits.truncate(first_focus_hit);
-            }
-            canvas.alpha = alpha;
+            row_top += height;
+        }
+        if collapsed {
+            canvas.hits.truncate(first_hit);
+            canvas.focus_targets.truncate(first_focus);
+            canvas.focus_hits.truncate(first_focus_hit);
+        }
+        canvas.alpha = alpha;
+        if let Some(clip) = clip {
             canvas.end_clip(clip);
         }
         if let Some(transitions) = canvas.transitions.as_deref_mut() {
@@ -144,6 +144,15 @@ fn row_height(
     canvas.r(if tall { 6.0 } else { 4.0 })
 }
 
+/// Offscreen focus and painted rows use the same selection action.
+fn row_action(group: ServerGroup, index: usize) -> MenuAction {
+    if group == ServerGroup::Saved {
+        MenuAction::SelectSaved(index)
+    } else {
+        MenuAction::SelectFeatured(index)
+    }
+}
+
 fn entry(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -161,7 +170,7 @@ fn entry(
             view,
             b,
             selected == Some(Selection::Saved(index)),
-            MenuAction::SelectSaved(index),
+            row_action(group, index),
         )?;
         let caption = view
             .feeds
@@ -182,7 +191,7 @@ fn entry(
         view,
         b,
         selected == Some(Selection::Featured(index)),
-        MenuAction::SelectFeatured(index),
+        row_action(group, index),
     )?;
     let mut text_left = b[0] + pad;
     if let Some(icon) = images.get(&server.image_path) {
