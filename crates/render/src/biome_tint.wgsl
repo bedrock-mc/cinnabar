@@ -121,6 +121,19 @@ fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
     }
 }
 
+// Alpha marks gamma tints that remain constant across every block of a uniform record.
+fn uniform_biome_tint_gamma(tint_kind: u32, material_flags: u32, record: u32) -> vec4<f32> {
+    if (tint_kind == 0u) { return vec4(1.0); }
+    if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS)) { return vec4(0.0); }
+    if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) { return vec4(0.0); }
+    let index = biome_records[record + 1u];
+    if (index == 0xffffffffu) { return vec4(0.0); }
+    let tint = safe_biome_tint(index);
+    // Swamp grass varies with world-position noise even in a uniform biome.
+    if (tint_kind == 0x10u && (tint.flags & BIOME_SWAMP_GRASS) != 0u) { return vec4(0.0); }
+    return vec4(tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, vec3(0))).rgb, 1.0);
+}
+
 fn lattice_point_index(position: vec3<i32>) -> u32 {
     let axis = vec3<u32>((position + vec3(BIOME_LATTICE_STEP)) / BIOME_LATTICE_STEP);
     return (axis.x * BIOME_LATTICE_SIDE + axis.y) * BIOME_LATTICE_SIDE + axis.z;

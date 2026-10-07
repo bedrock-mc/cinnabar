@@ -42,8 +42,8 @@ pub use rig::{
     ActorGpuInstance, ActorMaterial, ActorRenderIdentity, ActorRigFrameBuilder,
     ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
     ActorRigSubmission, ActorRigVertexSegments, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES,
-    MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible, actor_rig_submission_is_visible,
-    pack_actor_light, pack_overlay_rgba8,
+    MAX_ACTOR_POSE_BONES, MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible,
+    actor_rig_submission_is_visible, pack_actor_light, pack_overlay_rgba8,
 };
 pub(crate) use skin_slots::PLAYER_SKIN_BUDGET_BYTES;
 pub use skin_slots::{ActorSkinResidency, ResidentSkin, SKIN_CLASS_SIDES, pack_skin_slot};

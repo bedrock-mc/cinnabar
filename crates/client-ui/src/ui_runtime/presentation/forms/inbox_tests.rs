@@ -10,13 +10,14 @@ use crate::ui_runtime::UiRuntime;
 fn draw_inbox(
     presentation: &mut super::super::UiPresentationRuntime,
     view: &crate::menu::MenuView,
+    now_millis: u64,
 ) {
     presentation.set_menu_view(Some(view.clone()));
     presentation
         .build(
             &player_state::PlayerState::new(1),
             &UiRuntime::new(1),
-            0,
+            now_millis,
             [1280, 720],
             DpiScale::new(1.0).unwrap(),
         )
@@ -46,14 +47,29 @@ fn inbox_categories_keep_independent_scroll_positions() {
         category: "Realms".into(),
         ..Default::default()
     });
-    draw_inbox(&mut presentation, &view);
+    draw_inbox(&mut presentation, &view, 0);
     assert!(presentation.scroll_menu(ui::UiPoint::new(800.0, 360.0).unwrap(), -20.0, false));
-    draw_inbox(&mut presentation, &view);
+    draw_inbox(&mut presentation, &view, 0);
+    assert!(
+        presentation
+            .menu_scrolls
+            .offsets()
+            .values()
+            .all(|offset| *offset == 0.0)
+    );
+    draw_inbox(&mut presentation, &view, 40);
+    let moving_offsets = presentation.menu_scrolls.offsets().clone();
+    assert!(moving_offsets.values().any(|offset| *offset > 0.0));
+    draw_inbox(&mut presentation, &view, 200);
     let saved_offsets = presentation.menu_scrolls.offsets().clone();
-    assert!(saved_offsets.values().any(|offset| *offset > 0.0));
+    assert!(saved_offsets.iter().any(|(key, offset)| {
+        moving_offsets
+            .get(key)
+            .is_some_and(|moving| *offset > *moving)
+    }));
     view.feeds.inbox_state.category = 1;
-    for _ in 0..3 {
-        draw_inbox(&mut presentation, &view);
+    for now_millis in [300, 340, 500] {
+        draw_inbox(&mut presentation, &view, now_millis);
         assert!(
             presentation
                 .menu_hit_targets
@@ -63,7 +79,7 @@ fn inbox_categories_keep_independent_scroll_positions() {
         );
     }
     view.feeds.inbox_state.category = 0;
-    draw_inbox(&mut presentation, &view);
+    draw_inbox(&mut presentation, &view, 600);
     for (key, offset) in saved_offsets {
         assert_eq!(presentation.menu_scrolls.offsets().get(&key), Some(&offset));
     }

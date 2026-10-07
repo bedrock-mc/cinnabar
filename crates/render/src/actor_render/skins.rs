@@ -141,6 +141,15 @@ impl GpuSkinArrays {
                 if gpu.admissions[layer] == resident.admission {
                     continue;
                 }
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!(
+                    "actor.skin_write",
+                    class,
+                    layer,
+                    admission = resident.admission,
+                    bytes = resident.texels.len(),
+                )
+                .entered();
                 queue.write_texture(
                     TexelCopyTextureInfo {
                         texture,
@@ -170,7 +179,10 @@ impl GpuSkinArrays {
         }
         if let Some(copies) = copies {
             // Staged layer writes target only layers this copy leaves untouched.
-            queue.submit([copies.finish()]);
+            let command = copies.finish();
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!("actor.skin_copy_submit").entered();
+            queue.submit([command]);
         }
         self.synced = Some(Arc::clone(residency));
         views_changed

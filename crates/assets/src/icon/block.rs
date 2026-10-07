@@ -18,6 +18,35 @@ pub struct IconBlockSheet {
     pub sprite: u32,
 }
 
+/// A thumbnail rasterised from a world block state's GUI quads
+/// (`gui_item::block_item_quads`), so the runtime can draw those quads at the control's physical
+/// size instead.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct IconBlockModel {
+    pub sprite: u32,
+    pub visual: BlockVisualId,
+}
+
+pub(super) fn validate_models(
+    models: &[IconBlockModel],
+    sprites: &[IconSprite],
+) -> Result<(), AssetError> {
+    if models.len() > super::MAX_ICON_SPRITES {
+        return Err(invalid("block model thumbnail count exceeds bound"));
+    }
+    let mut previous = None;
+    for model in models {
+        if previous.is_some_and(|sprite| sprite >= model.sprite) {
+            return Err(invalid("block model thumbnails are not strictly sorted"));
+        }
+        if model.sprite as usize >= sprites.len() {
+            return Err(invalid("block model thumbnail references a missing sprite"));
+        }
+        previous = Some(model.sprite);
+    }
+    Ok(())
+}
+
 pub(super) fn validate(
     sheets: &[IconBlockSheet],
     sprites: &[IconSprite],

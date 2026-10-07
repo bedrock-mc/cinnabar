@@ -1,6 +1,10 @@
 //! Animated item models use the same compiled scripts, controllers and pose VM as actors.
 use super::*;
 
+mod preview;
+use preview::Preview;
+type AttachableKey = (ActorLifetimeId, bool, bool, bool);
+
 const MAX_ATTACHABLE_STATES: usize = 256;
 
 /// Native item-render inputs; duration values are ticks, not the actor VM's seconds.
@@ -69,6 +73,7 @@ struct AttachableState {
     identifier: Arc<str>,
     rig: ActorRigState,
     last_used: u64,
+    preview: Option<Preview>,
 }
 
 /// Retained script/controller state per owner, hand and render perspective.
@@ -76,8 +81,12 @@ struct AttachableState {
 pub struct AttachablesRuntime {
     assets: Arc<RuntimeEntityAssets>,
     layout: VariableLayout,
-    states: BTreeMap<(ActorLifetimeId, bool, bool, bool), AttachableState>,
+    states: BTreeMap<AttachableKey, AttachableState>,
     evaluations: u64,
+    previewing: bool,
+    previewed: Vec<AttachableKey>,
+    #[cfg(test)]
+    commits: u64,
 }
 
 impl AttachablesRuntime {
@@ -87,12 +96,49 @@ impl AttachablesRuntime {
             assets,
             states: BTreeMap::new(),
             evaluations: 0,
+            previewing: false,
+            previewed: Vec::new(),
+            #[cfg(test)]
+            commits: 0,
         }
     }
 
     /// Discards owner lifetimes when a session ends or its active asset catalog changes.
     pub fn clear(&mut self) {
         self.states.clear();
+        self.previewed.clear();
+        self.previewing = false;
+    }
+
+    /// Starts exact readiness draws while keeping their authored VM results uncommitted.
+    pub fn begin_preview(&mut self) {
+        self.finish_preview(false);
+        self.previewing = true;
+    }
+
+    /// Leaves preview evaluation mode while retaining the bounded hand results for selection.
+    pub fn end_preview(&mut self) {
+        self.previewing = false;
+    }
+
+    /// Commits reused readiness results once, or restores discarded geometry before final drawing.
+    pub fn finish_preview(&mut self, commit: bool) {
+        self.previewing = false;
+        for key in self.previewed.drain(..) {
+            if let Some(state) = self.states.get_mut(&key) {
+                if commit {
+                    let committed = state.commit_preview();
+                    #[cfg(test)]
+                    {
+                        self.commits += u64::from(committed);
+                    }
+                    #[cfg(not(test))]
+                    let _ = committed;
+                } else {
+                    state.discard_preview();
+                }
+            }
+        }
     }
 
     /// Runs authored item scripts with owner queries and native render-time item inputs.
@@ -146,12 +192,14 @@ impl AttachablesRuntime {
                     identifier: Arc::from(identifier),
                     rig,
                     last_used: 0,
+                    preview: None,
                 },
             );
         }
-        let state = self.states.get_mut(&key)?;
-        state.last_used = self.evaluations;
-        let state = &mut state.rig;
+        let entry = self.states.get_mut(&key)?;
+        entry.discard_preview();
+        entry.last_used = self.evaluations;
+        let state = &mut entry.rig;
         let frame_alpha = if input.frame_alpha.is_finite() {
             input.frame_alpha.clamp(0.0, 1.0)
         } else {
@@ -186,8 +234,14 @@ impl AttachablesRuntime {
                 .main_hand
                 .get_or_insert_with(|| Arc::from(identifier));
         }
-        let item =
+        let mut item =
             owner_rig.item_animation[0].interpolate(owner_rig.item_animation[1], frame_alpha);
+        item.attack_time = owner_rig.item_animation[0]
+            .interpolate(
+                owner_rig.item_animation[1],
+                owner_rig.java.local_swing_alpha.unwrap_or(frame_alpha),
+            )
+            .attack_time;
         let offhand = owner_rig.off_hand_animation[0]
             .interpolate(owner_rig.off_hand_animation[1], frame_alpha);
         state.history.clear();
@@ -214,16 +268,28 @@ impl AttachablesRuntime {
             stack: Vec::new(),
         };
         render::cache_layer_skeletons(&self.assets, state);
-        geometry::reselect_geometry(
-            &self.assets,
-            &self.layout,
-            state,
-            owner,
-            &context,
-            &mut budget,
-        );
+        let geometry = if self.previewing {
+            geometry::reselect_geometry_preview(
+                &self.assets,
+                &self.layout,
+                state,
+                owner,
+                &context,
+                &mut budget,
+            )
+        } else {
+            geometry::reselect_geometry(
+                &self.assets,
+                &self.layout,
+                state,
+                owner,
+                &context,
+                &mut budget,
+            );
+            None
+        };
         render::bind_attachable_roots(state, owner_rig.bone_names);
-        let evaluated = evaluate_state(
+        let evaluated = match evaluate_state(
             &self.assets,
             &self.layout,
             state,
@@ -231,36 +297,40 @@ impl AttachablesRuntime {
             &context,
             owner_rig.completed_tick,
             &mut budget,
+            true,
             Some(tick::EvaluationInheritance {
                 variables: owner_rig.animation_variables,
                 overrides: input.owner_variables,
             }),
-        )
-        .ok()?;
-        state.variables = evaluated.variables;
-        state.controllers = evaluated.controllers;
-        state.clip_clocks = evaluated.clip_clocks;
-        state.current = evaluated.pose;
-        state.scale = evaluated.scale;
-        state.render = evaluated.render?;
-        state.initialized = true;
-        state.reset_pending = false;
-        state.completed_tick = owner_rig.completed_tick;
-        let geometry = self
-            .assets
-            .rig_geometries()
-            .get(state.geometry_binding)?
-            .geometry;
-        Some(AttachableRigSnapshot {
-            geometry,
-            pose: &state.current,
-            bone_names: &state.bone_names,
-            render: &state.render,
-            scale: state
-                .scale
-                .map_or(self.assets.rig_bindings()[binding].scale.get(), |s| s[0]),
-            axis_scale: state.scale.map_or([1.0; 3], |s| [s[1], s[2], s[3]]),
-        })
+        ) {
+            Ok(evaluated) => evaluated,
+            Err(_) => {
+                if let Some(geometry) = geometry {
+                    geometry.restore(state);
+                }
+                return None;
+            }
+        };
+        if self.previewing {
+            entry.preview = Some(Preview {
+                evaluated,
+                tick: owner_rig.completed_tick,
+                geometry,
+            });
+            if !self.previewed.contains(&key) {
+                self.previewed.push(key);
+            }
+        } else {
+            let drawable = entry.commit(evaluated, owner_rig.completed_tick);
+            #[cfg(test)]
+            {
+                self.commits += 1;
+            }
+            if !drawable {
+                return None;
+            }
+        }
+        entry.snapshot(&self.assets, binding)
     }
 }
 
@@ -286,3 +356,7 @@ pub(super) fn bind_roots(bones: &mut [RuntimeBone], names: &[Box<str>], owner_na
 
 #[cfg(test)]
 pub(in crate::actor_animation) mod tests;
+
+#[cfg(test)]
+#[path = "attachable/preview_tests.rs"]
+mod preview_tests;

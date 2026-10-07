@@ -70,10 +70,10 @@ fn signed_levitation_matrix_reverses_and_extremes_remain_finite() {
             )
             .unwrap();
 
-        let target = 0.05_f32 * (amplifier as f32 + 1.0);
+        let lift = amplifier.wrapping_add(1) as f32 * 0.01_f32;
         assert_eq!(
             state.velocity.y,
-            f64::from(-0.4_f32 + (target - -0.4_f32) * 0.2_f32)
+            f64::from((-0.4_f32 * 0.8_f32 + lift) * 0.98_f32)
         );
         assert!(state.velocity.is_finite());
     }
@@ -110,7 +110,7 @@ fn extreme_positive_jump_boost_fails_transactionally_at_the_sweep_bound() {
 
 #[test]
 fn levitation_replaces_gravity_and_scales_from_amplifier_zero() {
-    for (amplifier, target) in [(0, 0.05), (3, 0.20)] {
+    for (amplifier, lift) in [(0, 0.01), (3, 0.04)] {
         let mut state = PlayerState::new(Vec3::new(0.0, 4.0, 0.0));
         state.velocity.y = -0.4;
         Simulator::default()
@@ -128,7 +128,7 @@ fn levitation_replaces_gravity_and_scales_from_amplifier_zero() {
             )
             .unwrap();
 
-        assert_close(state.velocity.y, -0.4 + (target - -0.4) * 0.2);
+        assert_close(state.velocity.y, (-0.4 * 0.8 + lift) * 0.98);
     }
 }
 

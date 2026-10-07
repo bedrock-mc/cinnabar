@@ -13,14 +13,17 @@ pub enum LocalCue {
     Step,
     Jump,
     Land { speed: f32 },
-    Swim,
-    Splash,
+    Swim { volume: f32 },
+    Splash { volume: f32 },
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct MotionSample {
     pub position: [f64; 3],
     pub velocity_y: f64,
+    /// Tick-start velocity before liquid travel changes the impact speed.
+    pub entry_velocity: [f32; 3],
+    pub movement: [f32; 3],
     pub on_ground: bool,
     pub sneaking: bool,
     pub in_water: bool,
@@ -50,14 +53,21 @@ impl LocalMotion {
             self.walked = 0.0;
             return cues;
         }
-        if sample.in_water && !previous.in_water && previous.velocity_y < -0.1 {
-            cues.push(LocalCue::Splash);
+        if sample.in_water && !previous.in_water {
+            cues.push(LocalCue::Splash {
+                volume: super::water::motion_volume(
+                    sample.entry_velocity,
+                    super::water::SPLASH_SCALE,
+                ),
+            });
         }
         if sample.in_water {
             self.walked += horizontal + (sample.position[1] - previous.position[1]).abs();
             if self.walked >= SWIM_STRIDE {
                 self.walked = 0.0;
-                cues.push(LocalCue::Swim);
+                cues.push(LocalCue::Swim {
+                    volume: super::water::motion_volume(sample.movement, super::water::SWIM_SCALE),
+                });
             }
             return cues;
         }
@@ -84,57 +94,5 @@ impl LocalMotion {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn at(x: f64, y: f64, vy: f64, on_ground: bool) -> MotionSample {
-        MotionSample {
-            position: [x, y, 0.0],
-            velocity_y: vy,
-            on_ground,
-            sneaking: false,
-            in_water: false,
-        }
-    }
-
-    #[test]
-    fn walking_steps_once_per_stride_and_sneaking_is_silent() {
-        let mut motion = LocalMotion::default();
-        let mut steps = 0;
-        for tick in 0..=40 {
-            steps += motion
-                .advance(at(f64::from(tick) * 0.5, 0.0, 0.0, true))
-                .iter()
-                .filter(|cue| **cue == LocalCue::Step)
-                .count();
-        }
-        assert_eq!(steps, 10);
-        motion.reset();
-        for tick in 0..=40 {
-            let mut sample = at(f64::from(tick) * 0.5, 0.0, 0.0, true);
-            sample.sneaking = true;
-            assert!(motion.advance(sample).is_empty());
-        }
-    }
-
-    #[test]
-    fn jump_and_land_are_edge_triggered() {
-        let mut motion = LocalMotion::default();
-        motion.advance(at(0.0, 0.0, 0.0, true));
-        assert_eq!(motion.advance(at(0.0, 0.4, 0.42, false)), [LocalCue::Jump]);
-        assert!(motion.advance(at(0.0, 0.7, 0.2, false)).is_empty());
-        motion.advance(at(0.0, 0.3, -0.5, false));
-        let landed = motion.advance(at(0.0, 0.0, 0.0, true));
-        assert_eq!(landed, [LocalCue::Land { speed: 0.5 }]);
-    }
-
-    #[test]
-    fn entering_water_splashes_and_teleports_are_ignored() {
-        let mut motion = LocalMotion::default();
-        motion.advance(at(0.0, 5.0, -0.4, false));
-        let mut wet = at(0.0, 4.5, -0.4, false);
-        wet.in_water = true;
-        assert!(motion.advance(wet).contains(&LocalCue::Splash));
-        assert!(motion.advance(at(100.0, 5.0, 0.0, true)).is_empty());
-    }
-}
+#[path = "local/tests.rs"]
+mod tests;

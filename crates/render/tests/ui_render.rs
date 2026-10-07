@@ -21,7 +21,17 @@ mod screen_overlay_render {
     }
 }
 
-use render::EnhancedRendering;
+mod gpu_timing {
+    /// The isolated UI fixture installs no GPU timing query ring.
+    pub(crate) fn render_pass_timestamps(
+        _: &bevy::prelude::World,
+        _: render::RuntimeStage,
+    ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        None
+    }
+}
+
+use render::{EnhancedRendering, RuntimeStage};
 use std::sync::Arc;
 
 use bevy::{

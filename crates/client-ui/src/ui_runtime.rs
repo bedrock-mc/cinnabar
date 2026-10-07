@@ -26,6 +26,7 @@ pub use inventory::inventory_router;
 pub mod item_facts;
 pub mod json_ui_assets;
 pub mod oreui_assets;
+pub mod oreui_fonts;
 pub mod platform_clipboard;
 pub mod presentation;
 pub mod raw_text_resolution;

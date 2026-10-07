@@ -129,7 +129,10 @@ impl ViewNode for EnhancedShadowNode {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    world,
+                    crate::RuntimeStage::GpuShadows,
+                ),
                 occlusion_query_set: None,
             });
             if let (Some(cube), Some(model)) = (cube, model) {

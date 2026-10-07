@@ -177,6 +177,9 @@ struct BlockEntityGpu {
     portal: VertexList,
     additive: VertexList,
     portal_uniform: Buffer,
+    portal_parameters: Option<[[f32; 4]; 4]>,
+    #[cfg(test)]
+    portal_uploads: u64,
     texture: Option<Texture>,
     view: Option<TextureView>,
     atlas_identity: [u8; 32],
@@ -202,6 +205,9 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
+        portal_parameters: None,
+        #[cfg(test)]
+        portal_uploads: 0,
         texture: None,
         view: None,
         atlas_identity: [0; 32],
@@ -239,11 +245,18 @@ fn prepare_resources(
         [red, green, blue, atmosphere.fog_start()],
         [atmosphere.fog_end(), 0.0, 0.0, 0.0],
     ];
-    render_queue.write_buffer(
-        &gpu.portal_uniform,
-        0,
-        bytemuck::cast_slice(&portal_parameters),
-    );
+    if !frame.portal.is_empty() && gpu.portal_parameters != Some(portal_parameters) {
+        render_queue.write_buffer(
+            &gpu.portal_uniform,
+            0,
+            bytemuck::cast_slice(&portal_parameters),
+        );
+        gpu.portal_parameters = Some(portal_parameters);
+        #[cfg(test)]
+        {
+            gpu.portal_uploads += 1;
+        }
+    }
     let atlas = frame
         .atlas
         .as_ref()
@@ -936,6 +949,10 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
         RenderCommandResult::Success
     }
 }
+
+#[cfg(test)]
+#[path = "gpu/upload_tests.rs"]
+mod upload_tests;
 
 #[cfg(test)]
 mod tests {

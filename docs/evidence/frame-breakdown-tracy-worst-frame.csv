@@ -1,0 +1,11 @@
+stage,thread_id,start_ns,end_ns,elapsed_ms,recorded_cpu_inside_delta_ms,recorded_cpu_enclosing_delta_ms,interior_samples,point_states,inside_query_window_min_ms,outside_extra_query_window_ms,missing_reason
+"system{name=""render::chunk::gpu_cull::direct::prepare_direct_occlusion""}",19310068,159954557625,159985549041,30.991416,0.003,0.136,3,"{""running_or_runnable"": 3}",10.922,3.574917,
+"system{name=""bevy_render::renderer::render_system""}",19310075,160053356041,160066840500,13.484459,0.222,3.184,2,"{""running_or_runnable"": 2}",4.833,0.209874,
+"run_graph{name=""main_graph""}",19310075,160053379416,160057470250,4.090834,,0.745,0,{},0.0,0.483499,
+"node{name=""bevy_render::render_graph::node::ViewNodeRunner<bevy_core_pipeline::core_3d::main_opaque_pass_3d_node::MainOpaquePass3dNode>""}",19310075,160053508750,160057252625,3.743875,,0.745,0,{},0.0,0.830458,
+command_buffer_generation_tasks,19310075,160065032000,160066481166,1.449166,,2.217,0,{},0.0,2.845167,
+main_opaque_pass_3d,19310075,160065056791,160066458916,1.402125,,2.217,0,{},0.0,2.892208,
+"system{name=""bedrock_client::ui_runtime::presentation::publish::commit::publish_ui_runtime""}",19310068,159884221166,159884526333,0.305167,,1.209,0,{},0.0,3.909166,
+submit_graph_commands,19310075,160066489916,160066784375,0.294459,,2.217,0,{},0.0,3.999874,
+gpu.timestamps.device_poll,19310071,159923016375,159923166458,0.150083,,0.357,0,{},0.0,4.83825,
+"system{name=""bevy_render::view::window::prepare_windows""}",19310070,159891490208,159891591583,0.101375,,0.112,0,{},0.0,4.815958,

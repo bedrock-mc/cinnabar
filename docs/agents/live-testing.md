@@ -94,6 +94,47 @@ hardware gets lower resolution or view distance, never permission to stutter.
   from the window's current monitor, or a slower frame cap. Text is rate-limited; every event is
   counted, marked in the frame trace and totalled as `slow_frames` in `RUST_MCBE_STAGE_PROFILE`.
 
+## Tracy frame attribution
+
+Tracy is the standard interactive frame/stall trace. `make play TRACY=1` enables
+it; agents instead build with `--features developer-control,tracy` through `cslot`
+and launch through the MCP with `headless: true`, connecting with `local_server`.
+Keep INFO spans enabled. The feature is off by default; its subscriber, zones and
+GPU plots are absent from ordinary builds. Domain crates remain Bevy-free.
+Zone names stay fixed; changing counters and job IDs appear as zone text to avoid
+exhausting the collector’s source-location table.
+
+Install the capture tools with `brew install tracy` if missing. Match their Tracy
+protocol to `tracy-client-sys` in `Cargo.lock` (the recorded tool release is in the
+[evidence](../evidence/frame-breakdown-tracy.md)). With the hidden local scene settled:
+
+```sh
+tracy-capture -a 127.0.0.1 -o /private/tmp/cinnabar-frames.tracy -s 120
+tracy-csvexport -u /private/tmp/cinnabar-frames.tracy > /private/tmp/cinnabar-zones.csv
+```
+
+Keep captures and exports outside git. The client accepts only loopback capture
+connections and records on demand; source transfer, broadcast, sampling and
+system tracing are disabled.
+Never collect or export process environments. Export zones/plots, not metadata.
+
+The frame bar marks post-present intervals; completion submissions and cleanup may
+follow each marker. Select a long interval, then expand the main/render threads and
+nested schedules, systems and graph nodes (their identities are in zone text).
+Inspect `stream.*`, `light.*`, `mesh.*`,
+`*.upload*`, `*.device_poll`, readback and completion zones, plus Bevy's
+`prepare_windows`, `submit_graph_commands` and `present_frames`. Worker-wait and
+queue-lock zones identify explicit waits; a long upload/poll is elapsed API time,
+not proof of active CPU work. macOS Tracy has no scheduler trace; use separately
+correlated native scheduler evidence before assigning preemption or lock owners.
+
+The pinned Bevy `trace_tracy` bundles a GPU recorder whose calibration uses encoder
+timestamps and waits for completion. Metal does not support that path. Our feature
+uses Bevy `trace`/`debug` and the same Tracy layer without that recorder. Existing
+Metal pass queries appear as delayed `elapsed ms (readback)` plots, not GPU timeline
+zones; they overlap and cannot be added or matched to the receipt frame. Clock
+anchor zones bound the sampled wall/game-clock relationship for trace comparison.
+
 ## Native and performance evidence
 
 Use native Bedrock/BDS comparison when it decides a contract or closes an explicit
@@ -132,13 +173,30 @@ changing gameplay. `render_frame` is render-world time excluding drawable acquis
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the
-window they appear in. `gpu_frame` spans the first to last timestamp; node stages
+window they appear in. `gpu_frame` spans the first to last timestamp only when the sampled graph covers the frame.
+On Metal, queries attach to existing owned render passes and the stock opaque pass:
+other stock Bevy passes and shared draw categories remain unmeasured, and `gpu_frame` stays absent. Empty
+compute marker passes do not produce usable timestamps on Apple GPUs. Pass categories
+sum elapsed latencies, including gaps and overlapping GPU work; they are not GPU
+active time and must not be added. Invalid timestamp pairs are skipped, so a
+category may cover only some of its passes. Check coverage against native traces;
+`RUST_MCBE_GPU_QUERY_HEALTH=1` logs per-stage invalid-pair and readback counters once a second.
+Node stages
 are `gpu_shadows`, `gpu_opaque`, `gpu_transparent`, `gpu_ui`, `gpu_hand`,
 `gpu_post`, `gpu_tonemapping`, `gpu_fxaa` and `gpu_blit`. With
 `RUST_MCBE_STAGE_PROFILE=1` on adapters with in-pass timestamps (not Apple GPUs),
-draws add `gpu_terrain_opaque`, `gpu_terrain_transparent`, `gpu_actors`,
+draws add `gpu_terrain_solid`, `gpu_terrain_cutout`, `gpu_terrain_model`,
+`gpu_terrain_depth_liquid` (direct and CPU-planned indirect draws; GPU-cull terrain
+commands expose no in-pass spans), `gpu_terrain_transparent`, `gpu_actors`,
 `gpu_particles`, `gpu_sky`, `gpu_panorama` and `gpu_mod_primitives`. Personal-mod post passes
-add `gpu_mod_pass_0`–`gpu_mod_pass_7` by execution slot. F3 shows the latest GPU frame. Fast frames use fixed-size counters without formatting or
+add `gpu_mod_pass_0`–`gpu_mod_pass_7` by execution slot. F3 shows the latest GPU frame.
+
+`RUST_MCBE_GPU_CATEGORIES=1` splits the main opaque phase into category passes
+and disables in-pass spans to avoid double counting; separate late GPU-cull draws
+are not category-timed. `RUST_MCBE_OPAQUE_LAYERS=1` measures submitted alpha-surviving
+terrain coverage in a separate raster target. Both are diagnostic workloads;
+keep them out of ordinary performance captures. See the
+[opaque foliage fixture](../../tools/localserver/opaque-overdraw.md). Fast frames use fixed-size counters without formatting or
 file I/O; aggregate snapshots and full traces remain opt-in.
 
 After the startup visibility probe stops, ordinary world-publication logs keep
@@ -157,3 +215,20 @@ preparation. No trace file is written during normal updates. A full recording
 drops subsequent events and sets `truncated`; inspect this flag before choosing
 a measurement window. Surface preparation includes schedule overhead and is an
 upper bound on drawable acquisition, not proof that macOS caused a stall.
+
+Build with the `bedrock-client/frame-trace` feature for named Bevy schedules,
+systems, graph nodes, command generation, queue submission and presentation spans.
+Chrome tracing writes through Bevy's trace writer and changes the workload; use a
+short diagnostic run, separate from the matched long captures.
+
+`RUST_MCBE_STAGE_PROFILE_EVENTS` sets the bounded event budget (default 131,072;
+maximum 2,097,152). Invalid values retain the default. Exported traces include the
+capacity, exact dropped-event count, a wall-clock anchor and game-clock frame
+anchors. GPU counter events carry a readback sequence and duration in nanoseconds;
+their timestamp is receipt time, not GPU execution time or a CPU-frame identity.
+
+Keep native profiler bundles outside git. Export only explicitly selected timing
+and stack tables; never export the trace table of contents or process metadata,
+which can include environment variables. Use scheduler states and sampled stacks
+to separate blocked time from runnable delay and active work. Profiling overhead
+and unavailable GPU categories must be reported separately.

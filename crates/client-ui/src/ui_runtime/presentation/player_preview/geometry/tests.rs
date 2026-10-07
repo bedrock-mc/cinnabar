@@ -45,6 +45,87 @@ fn destination_geometry_preserves_original_hd_skin_texel_edges() {
 }
 
 #[test]
+fn cape_uses_a_separate_rectangular_texture_and_the_shared_depth_interval() {
+    let source = super::super::cape::rest_vertices();
+    let cape = IconRef {
+        page: 47,
+        uv: [11, 17, 139, 81],
+        glint: false,
+    };
+    let model = mesh_with_cape(
+        None,
+        Default::default(),
+        PreviewView::Doll {
+            yaw: 180.0,
+            tilt: -10.0,
+        },
+        0.0,
+        skin(64),
+        &Default::default(),
+        [None; 4],
+        [None; 2],
+        false,
+        None,
+        [0.0; 4],
+        Some((source, cape)),
+    )
+    .expect("valid attached cape");
+    assert_eq!(model.batches().len(), 2);
+    let cape_batch = &model.batches()[1];
+    assert_eq!(cape_batch.texture_page, cape.page);
+    assert_eq!(cape_batch.alpha_cutoff, Some(0.5));
+    assert!(cape_batch.depth_test && cape_batch.depth_write);
+    for (vertex, original) in model.vertices()[cape_batch.index_range.start as usize..]
+        .iter()
+        .zip(source)
+    {
+        assert_eq!(
+            vertex.uv,
+            [11.0 + original.uv[0] * 128.0, 17.0 + original.uv[1] * 64.0]
+        );
+        assert!((0.25..=0.75).contains(&vertex.clip_z));
+    }
+}
+
+#[test]
+fn cape_follows_the_already_posed_torso_in_the_live_preview() {
+    let source = super::super::cape::rest_vertices();
+    let body = standard_biped_vertices();
+    let make = |parts: &[Option<bevy::math::Affine3A>; 6]| {
+        mesh_with_cape(
+            Some((&body, parts)),
+            Default::default(),
+            PreviewView::Hud,
+            0.0,
+            skin(64),
+            &Default::default(),
+            [None; 4],
+            [None; 2],
+            false,
+            None,
+            [0.0; 4],
+            Some((source, skin(64))),
+        )
+        .unwrap()
+    };
+    let rest = make(&[None; 6]);
+    let mut parts = [None; 6];
+    parts[1] = Some(bevy::math::Affine3A::from_translation(
+        bevy::math::Vec3::new(0.0, 0.3, 0.0),
+    ));
+    let raised = make(&parts);
+    let start = rest.batches()[1].index_range.start as usize;
+    for (rest, raised) in rest.vertices()[start..]
+        .iter()
+        .zip(&raised.vertices()[start..])
+    {
+        assert_eq!(rest.position[0], raised.position[0]);
+        assert!(raised.position[1] < rest.position[1]);
+        assert_eq!(rest.uv, raised.uv);
+    }
+}
+
+#[test]
 fn mesh_uses_continuous_geometry_not_cpu_preview_pixel_centres() {
     let model = bare(
         PreviewView::Live {

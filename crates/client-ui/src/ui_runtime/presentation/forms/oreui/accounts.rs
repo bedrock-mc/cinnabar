@@ -119,6 +119,10 @@ impl UiPresentationRuntime {
                 self.solid_texture_page,
                 originals.as_deref(),
             );
+            canvas.appearance =
+                super::theme::Appearance::from_dark(view.settings_options.oreui_dark_mode());
+            canvas.seconds = self.menu_seconds;
+            canvas.transitions = Some(&mut self.form_presentation.oreui_transitions);
             canvas.offsets = offsets.clone();
             let focused = super::modal::draw(&mut canvas, view, size, &picker)?;
             let (hits, scrolls) = (canvas.hits, canvas.scrolls);

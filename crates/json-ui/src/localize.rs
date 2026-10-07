@@ -49,21 +49,6 @@ pub fn localize_text_prefix<'a>(
     Cow::Owned(out.text)
 }
 
-/// Localizes a marked parameter as one key; ordinary and unknown parameters stay literal.
-pub fn localize_parameter_prefix<'a>(
-    text: &'a str,
-    lookup: &dyn Fn(&str) -> Option<Arc<str>>,
-    max_bytes: usize,
-) -> Cow<'a, str> {
-    match text
-        .strip_prefix('%')
-        .and_then(|marked| key(marked, lookup))
-    {
-        Some(value) => Cow::Owned(prefix(&value, max_bytes).to_owned()),
-        None => Cow::Borrowed(prefix(text, max_bytes)),
-    }
-}
-
 /// Expands one label token into the bounded output.
 fn substitute(token: &str, lookup: &dyn Fn(&str) -> Option<Arc<str>>, out: &mut TextPrefix) {
     match key(token, lookup) {
@@ -163,25 +148,6 @@ mod tests {
         let long = format!("k{}", "a".repeat(256));
         let found = |key: &str| (key == long).then(|| Arc::from("long"));
         assert_eq!(localize_text(&long, &found), "long");
-    }
-
-    #[test]
-    fn parameters_only_translate_a_marked_whole_key() {
-        for (text, expected) in [
-            ("%menu.play", "Play"),
-            ("menu.play", "menu.play"),
-            ("100% literal %menu.play", "100% literal %menu.play"),
-            ("%menu.play!", "%menu.play!"),
-            ("%missing.key", "%missing.key"),
-            ("%", "%"),
-        ] {
-            for limit in 0..=expected.len() + 1 {
-                assert_eq!(
-                    localize_parameter_prefix(text, &table, limit),
-                    prefix(expected, limit)
-                );
-            }
-        }
     }
 
     #[test]

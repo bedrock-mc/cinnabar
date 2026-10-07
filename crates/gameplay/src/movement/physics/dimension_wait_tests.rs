@@ -33,7 +33,6 @@ fn loading_keeps_destination_stationary_and_input_ticks_contiguous() {
         analogue_move_vector: [1.0, 1.0],
         mode_intent: ModeIntent {
             can_fly: true,
-            fly_toggle: true,
             ..ModeIntent::default()
         },
         ..PhysicsSampleContext::default()
@@ -133,4 +132,34 @@ fn loading_discards_pre_anchor_time_once_and_preserves_fractional_ticks_on_relea
     assert!(resumed.blocked.is_none());
     assert_eq!(resumed.samples.len(), 1);
     assert_eq!(resumed.samples[0].tick, 201);
+}
+
+/// Loading drops movement requests and corrections from the discarded prediction history.
+#[test]
+fn loading_discards_previous_movement_and_deferred_corrections() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 72.0 + PLAYER_NETWORK_OFFSET, 0.5], 100, false);
+    let moved = physics.advance(
+        Duration::from_millis(50),
+        physics_movement_input([0.0, 1.0], 0.0, true, false, false, false, None),
+        &EmptyWorld,
+    );
+    assert_eq!(moved.samples.len(), 1);
+    assert_ne!(physics.state().unwrap().requested_movement, Vec3::ZERO);
+    physics.defer_prediction_correction(crate::movement::PhysicsAnchor {
+        network_position: [20.0, 80.0, 30.0],
+        tick: 500,
+        on_ground: true,
+        velocity: Some([0.0; 3]),
+    });
+    assert!(physics.has_pending_prediction_corrections());
+    physics.advance_dimension_wait(
+        Duration::from_millis(50),
+        0.0,
+        PhysicsSampleContext::default(),
+        registry(),
+        &mut NoMovementEffects,
+    );
+    assert_eq!(physics.state().unwrap().requested_movement, Vec3::ZERO);
+    assert!(!physics.has_pending_prediction_corrections());
 }

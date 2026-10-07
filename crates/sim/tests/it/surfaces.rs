@@ -10,6 +10,26 @@ struct SurfaceWorld {
 }
 
 impl CollisionWorld for SurfaceWorld {
+    /// Returns the homogeneous fixture floor with its explicit source material.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<sim::ProvenancedCollider>>, WorldQueryError> {
+        let boxes = self.collision_boxes(query)?;
+        Ok(CollisionQuery {
+            value: boxes
+                .value
+                .into_iter()
+                .map(|aabb| sim::ProvenancedCollider {
+                    aabb,
+                    block: Some([0, 0, 0]),
+                    runtime_id: None,
+                })
+                .collect(),
+            identity: boxes.identity,
+        })
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-8.0, 0.0, -8.0), Vec3::new(8.0, 1.0, 8.0));
         Ok(CollisionQuery::synthetic(
@@ -127,7 +147,7 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
                 levitation: Some(0),
                 ..MovementEffects::default()
             },
-            0.01,
+            0.0098,
         ),
         (
             MovementEffects {
@@ -135,7 +155,7 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
                 slow_falling: true,
                 ..MovementEffects::default()
             },
-            0.01,
+            0.0098,
         ),
         (
             MovementEffects {
@@ -143,7 +163,7 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
                 slow_falling: true,
                 ..MovementEffects::default()
             },
-            -0.01,
+            -0.0098,
         ),
     ] {
         let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
@@ -205,7 +225,10 @@ fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
             &surface(SurfaceResponse::Slime),
         )
         .unwrap();
-    assert!(grounded.velocity.y <= 0.0);
+    assert_eq!(
+        grounded.velocity.y,
+        f64::from((0.2_f32 - 0.08_f32) * 0.98_f32)
+    );
 }
 
 /// Vanilla bed restitution is 0.75, without a one-block velocity cap.
@@ -225,7 +248,7 @@ fn bed_restitution_is_uncapped() {
 }
 
 #[test]
-fn authoritative_soul_sand_and_honey_factors_slow_horizontal_motion() {
+fn soul_sand_slows_horizontal_motion() {
     let ordinary = surface(SurfaceResponse::None);
     let mut ordinary_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
     ordinary_state.on_ground = true;
@@ -240,33 +263,28 @@ fn authoritative_soul_sand_and_honey_factors_slow_horizontal_motion() {
         )
         .unwrap();
 
-    // Soul sand carries the pinned bedsim Bedrock factor; honey carries the
-    // explicitly unproven Java-derived one that no bedsim oracle can correct.
-    // Both come from PREG, so this only proves the force law consumes them.
-    for (response, factor) in [
-        (SurfaceResponse::SoulSand, 0.543),
-        (SurfaceResponse::Honey, 0.4),
-    ] {
-        let mut slowed_world = surface(response);
-        slowed_world.facts.horizontal_speed_factor = factor;
-        let mut slowed_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
-        slowed_state.on_ground = true;
-        let slowed = Simulator::default()
-            .tick(
-                &mut slowed_state,
-                MovementInput {
-                    forward: 1.0,
-                    ..MovementInput::default()
-                },
-                &slowed_world,
-            )
-            .unwrap();
-        assert!(
-            slowed.movement.horizontal_length_squared()
-                < normal.movement.horizontal_length_squared()
-        );
-        assert_eq!(slowed.environment.surface_response, response);
-    }
+    // Soul sand slows through its acceleration friction, not its speed factor.
+    let mut sand = surface(SurfaceResponse::SoulSand);
+    sand.facts.horizontal_speed_factor = 0.543;
+    let mut sand_state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
+    sand_state.on_ground = true;
+    let slowed = Simulator::default()
+        .tick(
+            &mut sand_state,
+            MovementInput {
+                forward: 1.0,
+                ..MovementInput::default()
+            },
+            &sand,
+        )
+        .unwrap();
+    assert!(
+        slowed.movement.horizontal_length_squared() < normal.movement.horizontal_length_squared()
+    );
+    assert_eq!(
+        slowed.environment.surface_response,
+        SurfaceResponse::SoulSand
+    );
 }
 
 #[test]

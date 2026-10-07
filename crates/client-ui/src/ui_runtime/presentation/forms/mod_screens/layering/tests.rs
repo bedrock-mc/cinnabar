@@ -74,7 +74,7 @@ fn overlay_tooltips_survive_the_clip_and_draw_above_the_overlay() {
         &mut nodes,
         1,
         &[[100.0, 0.0, 200.0, 300.0]],
-        &[1..3],
+        std::slice::from_ref(&(1..3)),
         &mut next,
     );
     assert_eq!(ids(&nodes), [1, 4, 10, 11]);

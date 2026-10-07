@@ -74,24 +74,6 @@ impl TextureSet {
         self.full_res = full_res;
     }
 
-    /// The carrier, icon and vanilla lookups without the server atlas's pack or
-    /// residency, for laying out a no-pack screen on another thread.
-    pub(super) fn detached(&self) -> Self {
-        let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
-        let atlas = ServerAtlas::new(&[], None, pages)
-            .with_fallbacks(self.vanilla.clone(), None)
-            .with_carrier(self.carrier.clone());
-        Self {
-            atlas: Mutex::new(atlas),
-            icons: self.icons.clone(),
-            vanilla: self.vanilla.clone(),
-            carrier: self.carrier.clone(),
-            remote: RemoteImages::default(),
-            full_res: HashMap::new(),
-            ..*self
-        }
-    }
-
     /// A package screen's sources: its `files` over the carrier, the icon atlas and the local
     /// vanilla pack, packed into the `pages` dynamic pages from `page`. The server pack, remote
     /// URLs and paths that leave `textures/` are out of reach.
@@ -111,7 +93,6 @@ impl TextureSet {
             confined: true,
         }
     }
-
     /// Drawn textures too big for a server page, with their source bytes.
     pub(super) fn oversized(&self) -> Vec<(String, std::sync::Arc<[u8]>)> {
         self.lock().oversized()

@@ -5,6 +5,7 @@ pub mod disconnect;
 pub mod inbox;
 pub mod profile;
 pub mod profile_achievements;
+pub mod server_list;
 pub mod settings_options;
 pub mod settings_storage;
 pub mod settings_support;
@@ -29,6 +30,7 @@ pub enum MenuScreen {
     Social,
     Servers,
     Profile,
+    DressingRoom,
     Settings,
     AddServer,
     Pause,
@@ -68,6 +70,7 @@ pub enum MenuField {
     /// The local-world create or edit screen's name field.
     WorldName,
     WorldSeed,
+    SkinName,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,6 +84,7 @@ pub enum MenuAction {
     ConfirmExit,
     DismissDialog,
     SelectServerTab(MenuServerTab),
+    ServerList(server_list::ServerListAction),
     SelectProfileTab(ProfileTab),
     RefreshProfile,
     RefreshCatalog,
@@ -97,10 +101,12 @@ pub enum MenuAction {
     AddName,
     AddAddress,
     AddPort,
+    EditSkinName,
     AddSave,
     AddSaveConnect,
     AddBack,
     SettingsScale(i8),
+    SettingsScalePicker,
     SettingsFullscreen(bool),
     SettingsStorage(settings_storage::StorageAction),
     SettingsSupport(settings_support::SupportAction),
@@ -141,6 +147,7 @@ pub enum MenuAction {
     /// A press on a Marketplace screen.
     Store(crate::store::StoreAction),
     GlobalResources(crate::global_resources::Action),
+    DressingRoom(crate::dressing_room::Action),
     /// Answers the join's server trust prompt: "Trust and Join" (true) or "Don't Trust".
     ServerTrust(bool),
 }
@@ -152,6 +159,7 @@ impl MenuAction {
             Self::AddName => Some(MenuField::Name),
             Self::AddAddress => Some(MenuField::Address),
             Self::AddPort => Some(MenuField::Port),
+            Self::EditSkinName => Some(MenuField::SkinName),
             Self::LocalWorld(action) => action.field(),
             _ => None,
         }
@@ -168,7 +176,10 @@ pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
         MenuScreen::AddServer => "add_external_server.add_external_server_screen_new",
         MenuScreen::Settings => SETTINGS_SCREEN,
         MenuScreen::Store => crate::store::SDL_SCREEN,
-        MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
+        MenuScreen::Profile
+        | MenuScreen::DressingRoom
+        | MenuScreen::Inbox
+        | MenuScreen::Friends => return None,
     })
 }
 

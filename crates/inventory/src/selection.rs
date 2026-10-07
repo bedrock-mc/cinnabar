@@ -207,6 +207,18 @@ impl InventorySession {
         }
         self.selected_stack(game_mode)
     }
+    /// Accepted-response damage for each armor cell, which overrides the stack's own Damage tag.
+    pub fn local_armor_damage_corrections(&self) -> [Option<u32>; 4] {
+        std::array::from_fn(|slot| {
+            self.inventory_ledger
+                .presented_target_overlay(crate::inventory_ledger::InventoryTarget::Armor(
+                    slot as u8,
+                ))?
+                .durability_correction
+                .and_then(|damage| u32::try_from(damage).ok())
+        })
+    }
+
     /// Return helmet, chestplate, leggings and boots from the ledger's displayed armor cells.
     pub fn local_armor(&self) -> [protocol::NetworkItemStack; 4] {
         std::array::from_fn(|slot| {

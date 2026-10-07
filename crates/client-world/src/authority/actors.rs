@@ -138,10 +138,41 @@ impl WorldAuthority {
             feed,
         );
     }
+
+    /// Replaces the local appearance while preserving the server's roster identity.
+    pub fn update_local_player_skin(&mut self, skin: protocol::PlayerSkin) -> bool {
+        let Some(actor) = self.actors.get(self.local_player_runtime_id) else {
+            return false;
+        };
+        let protocol::ActorKind::Player { uuid, .. } = &actor.kind else {
+            return false;
+        };
+        let uuid = *uuid;
+        self.actors.apply_skin_update(uuid, skin) == crate::actor_store::ActorApplyResult::Updated
+    }
     /// Starts the local player's arm swing, which the server never echoes back to its owner.
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.actors.start_swing(self.local_player_runtime_id, ticks);
+    }
+    /// Binds the local Java torso to the current simulation; `None` restores actor-clock motion.
+    pub fn set_local_motion_authority(&mut self, authority: Option<(u64, u64)>) {
+        self.actors
+            .set_local_motion_authority(self.local_player_runtime_id, authority);
+    }
+    /// Applies completed local torso samples without advancing other actor motion or clocks.
+    pub fn sync_local_swing_motion(
+        &mut self,
+        authority: (u64, u64),
+        samples: impl IntoIterator<Item = crate::LocalSwingMotionSample>,
+    ) {
+        self.actors
+            .sync_local_swing_motion(self.local_player_runtime_id, authority, samples);
+    }
+    /// Uses committed local swing samples without re-admitting them on the remote actor clock.
+    pub fn sync_local_swing(&mut self, progress: crate::LocalSwingProgress) {
+        self.actors
+            .sync_local_swing(self.local_player_runtime_id, progress);
     }
     /// Drops the local player's Java equip progress to zero at its next tick.
     pub fn reset_local_java_equip(&mut self) {

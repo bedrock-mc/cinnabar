@@ -9,6 +9,7 @@ use ui::{UiMesh, UiNode, UiVisual};
 use super::{IconRef, UiPresentationError, UiPresentationRuntime, item_gui, player_preview};
 
 mod atlas;
+mod block_models;
 mod fire;
 mod held;
 mod live_player;
@@ -108,6 +109,15 @@ impl UiPresentationRuntime {
             models
                 .entry(icon_key(*icon))
                 .or_insert_with(|| Arc::clone(mesh));
+        }
+        if let Some(refs) = self.icon_refs.as_deref() {
+            for thumbnail in icons.block_models() {
+                if let Some(icon) = refs.get(thumbnail.sprite as usize)
+                    && let Some(mesh) = block_models::mesh(world, thumbnail.visual, &mut atlas)
+                {
+                    models.entry(icon_key(*icon)).or_insert(mesh);
+                }
+            }
         }
         if let Some(equipment) = self.equipment_catalog.as_deref() {
             for texture in equipment.textures() {
@@ -262,13 +272,26 @@ impl UiPresentationRuntime {
                     })
                 })
         });
-        player_preview::geometry::mesh_with_body(
+        let unposed = [None; 6];
+        let body = if self.player_preview_view == player_preview::PreviewView::Hud {
             (self.player_preview_view == player_preview::PreviewView::Hud)
                 .then_some((
                     self.gui_models.live_player.vertices.as_slice(),
                     &self.gui_models.live_player.parts,
                 ))
-                .filter(|(vertices, _)| !vertices.is_empty()),
+                .filter(|(vertices, _)| !vertices.is_empty())
+        } else {
+            self.menu_preview_model
+                .vertices
+                .as_deref()
+                .map(|vertices| (vertices, &unposed))
+        };
+        let cape = self.menu_preview_model.cape_key.as_deref().and_then(|key| {
+            self.menu_artwork_icon(key)
+                .map(|icon| (player_preview::cape::rest_vertices(), icon))
+        });
+        player_preview::geometry::mesh_with_cape(
+            body,
             self.player_preview_pose.unwrap_or_default(),
             self.player_preview_view,
             self.player_preview_bob,
@@ -283,6 +306,7 @@ impl UiPresentationRuntime {
             } else {
                 [0.0; 4]
             },
+            cape,
         )
     }
 }

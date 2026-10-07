@@ -3,7 +3,6 @@
 use std::{io::Cursor, sync::Arc};
 
 use assets::RuntimeUiAssets;
-use json_ui::Draw;
 
 use super::{frame, png, snapshot};
 use crate::ui_runtime::presentation::{LoadingStage, UiPresentationRuntime};
@@ -110,9 +109,8 @@ fn settled(
             .unwrap()
             .textures;
         let atlas = textures.lock();
-        let ready = atlas.placement("textures/ui/loading_bar").is_some()
-            && (!atlas.has_image("textures/blocks/dirt")
-                || atlas.placement("textures/blocks/dirt").is_some())
+        let ready = (!atlas.has_image("textures/blocks/dirt")
+            || atlas.placement("textures/blocks/dirt").is_some())
             && (!atlas.has_image(crate::ui_runtime::presentation::menu_artwork::TITLE_KEY)
                 || atlas
                     .placement(crate::ui_runtime::presentation::menu_artwork::TITLE_KEY)
@@ -131,17 +129,34 @@ fn settled(
     frame(player, presentation)
 }
 
-/// Samples the center of a texture's laid-out loading control.
-pub(super) fn center(presentation: &UiPresentationRuntime, texture: &str) -> [u32; 2] {
-    let node = presentation
-        .loading_draw_nodes()
-        .iter()
-        .find(|node| matches!(&node.draw, Draw::Sprite { texture: path, .. } if path == texture))
+/// The native title's painted bounds, rather than the omitted JSON title control.
+pub(super) fn title_bounds(presentation: &UiPresentationRuntime) -> ui::UiRect {
+    let icon = presentation
+        .form_presentation
+        .engine
+        .as_deref()
+        .unwrap()
+        .menu_title(&presentation.menu_artwork.refs)
         .unwrap();
-    let px = layout_pixel_scale(presentation);
+    presentation
+        .last_frame
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find(|node| {
+            matches!(node.visual(), ui::UiVisual::Sprite { texture_page, uv, .. }
+            if *texture_page == icon.page && *uv == icon.uv)
+        })
+        .expect("the resolved title is painted in the loading frame")
+        .bounds()
+}
+
+pub(super) fn center(presentation: &UiPresentationRuntime) -> [u32; 2] {
+    let bounds = title_bounds(presentation);
     [
-        (node.dest.x + node.dest.w * 0.5) as f32 * px,
-        (node.dest.y + node.dest.h * 0.5) as f32 * px,
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
     ]
     .map(|value| value as u32)
 }
@@ -198,9 +213,10 @@ fn texture_only_pack_replacement_updates_loading_background_tile_sizes() {
     // The native tiled image uses the replacement's 32-pixel width. Reusing
     // the previous 16-pixel quads compresses the two colors into each old tile.
     for (x, color) in [(12.0, colors[0]), (24.0, colors[1]), (44.0, colors[0])] {
+        let at = [(x * px) as u32, px as u32];
         assert_eq!(
-            *pixels.get_pixel((x * px) as u32, px as u32),
-            image::Rgba(color),
+            *pixels.get_pixel(at[0], at[1]),
+            image::Rgba(snapshot::loading_backdrop_texel(&presentation, color, at)),
             "replacement texture kept the previous background tile period"
         );
     }
@@ -214,17 +230,20 @@ fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     let input = settled(&player, &mut presentation);
     let pixels = snapshot::rasterize(&input);
-    assert_eq!(*pixels.get_pixel(0, 0), image::Rgba([90, 60, 30, 255]));
-    let nodes = presentation.loading_draw_nodes();
-    let title = nodes
-        .iter()
-        .find(|node| matches!(&node.draw, Draw::Sprite { texture, .. } if texture == "textures/ui/title"))
-        .unwrap();
-    let dialog = nodes.iter().find(|node| node.name == "dialog").unwrap();
-    let px = f64::from(layout_pixel_scale(&presentation));
+    assert_eq!(
+        *pixels.get_pixel(0, 0),
+        image::Rgba(snapshot::loading_backdrop_texel(
+            &presentation,
+            [90, 60, 30, 255],
+            [0, 0]
+        ))
+    );
+    let title = title_bounds(&presentation);
+    let width = title.max().x() - title.min().x();
+    let height = title.max().y() - title.min().y();
     let logo = pixels.get_pixel(
-        ((title.dest.x + title.dest.w * 0.05) * px) as u32,
-        ((title.dest.y + title.dest.h * 0.3) * px) as u32,
+        (title.min().x() + width * 0.05) as u32,
+        (title.min().y() + height * 0.3) as u32,
     );
     assert!(
         logo[0] > 100 && logo[0] > logo[1] && logo[0] > logo[2],
@@ -233,34 +252,30 @@ fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
     let original =
         image::load_from_memory(crate::ui_runtime::presentation::menu_artwork::BUILT_IN_TITLE)
             .unwrap();
-    let aspect = f64::from(original.width()) / f64::from(original.height());
-    assert!((title.dest.w / title.dest.h - aspect).abs() < 0.02);
+    let aspect = original.width() as f32 / original.height() as f32;
+    assert!((width / height - aspect).abs() < 0.02);
     assert!(
-        (title.dest.x + title.dest.w * 0.5 - dialog.dest.x - dialog.dest.w * 0.5).abs() < 0.1,
-        "loading title and dialog should share their horizontal center"
+        (title.min().x() + width * 0.5 - 640.0).abs() < 0.1,
+        "loading title stays horizontally centered"
     );
     assert!(
-        title.dest.y * px < 720.0 * 0.25,
-        "loading controls should start in the upper part of the screen"
+        title.min().y() >= 0.0 && title.max().y() < 720.0,
+        "loading title stays inside the viewport"
     );
-    assert!(
-        dialog.dest.y - (title.dest.y + title.dest.h) >= title.dest.h * 0.2,
-        "loading title and dialog need visible separation"
-    );
-    let [x, y] = center(&presentation, "textures/ui/loading_bar");
-    assert_eq!(*pixels.get_pixel(x, y), image::Rgba([40, 200, 80, 255]));
+    input.validate().unwrap();
     let animated = presentation
         .build(
             &player,
             &crate::ui_runtime::UiRuntime::new(1),
-            100,
+            250,
             [1280, 720],
             ui::DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    assert_eq!(
-        *snapshot::rasterize(&animated).get_pixel(x, y),
-        image::Rgba([220, 40, 100, 255])
+    animated.validate().unwrap();
+    assert!(
+        input.vertices != animated.vertices,
+        "native progress advances independently of carrier flipbooks"
     );
 
     // A server override remains above both raw carrier art and atlas sprites.
@@ -278,8 +293,15 @@ fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
         ..Default::default()
     });
     let overridden = snapshot::rasterize(&settled(&player, &mut presentation));
-    assert_eq!(*overridden.get_pixel(0, 0), image::Rgba([30, 70, 90, 255]));
-    let [x, y] = center(&presentation, "textures/ui/title");
+    assert_eq!(
+        *overridden.get_pixel(0, 0),
+        image::Rgba(snapshot::loading_backdrop_texel(
+            &presentation,
+            [30, 70, 90, 255],
+            [0, 0]
+        ))
+    );
+    let [x, y] = center(&presentation);
     assert_eq!(
         *overridden.get_pixel(x, y),
         image::Rgba([180, 40, 220, 255])

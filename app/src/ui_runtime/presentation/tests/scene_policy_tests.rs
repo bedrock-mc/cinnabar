@@ -44,6 +44,9 @@ fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root()
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping retail_menu_defaults_and_server_visibility_override_share_the_resolved_root: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let runtime = UiRuntime::new(1);
@@ -55,7 +58,22 @@ fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root()
     menu.activate(MenuAction::PauseSettings);
     let settings = client_ui::test_support::menu_settings(&presentation, &runtime, &menu.view());
     assert!(settings.absorbs_input && settings.render_game_behind);
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
+    let (namespace, control) = launcher::menu::SETTINGS_SCREEN.split_once('.').unwrap();
+    let mut opaque_settings = serde_json::json!({"namespace": namespace});
+    opaque_settings[control] = serde_json::json!({"render_game_behind": false});
+    presentation.set_server_ui_pack(&ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/settings_screen.json".into(),
+            serde_json::to_vec(&opaque_settings).unwrap(),
+        )]],
+        ..Default::default()
+    });
     assert!(!presentation.renders_game_behind(&player_runtime, &runtime, &menu));
+    assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
+    presentation.set_server_ui_pack(&ServerUiPack::default());
+    assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
     menu.set_visible(false);
     menu.open_pause();
     presentation.set_server_ui_pack(&ServerUiPack {

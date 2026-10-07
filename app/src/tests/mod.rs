@@ -96,8 +96,8 @@ use crate::runtime::{
     },
     network::{
         ActorFrameClock, NETWORK_INGRESS_BUDGET_PER_FRAME, NetworkHandle,
-        OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor, actor_render_source,
-        drain_network_controls, drain_network_ingress, drain_world_ingress_until_barrier,
+        OUTBOUND_SEND_BUDGET_PER_FRAME, WorldIngressDrain, acceptance_surface_anchor,
+        actor_render_source, drain_network_controls, drain_network_ingress,
         update_actor_render_scene,
     },
     shutdown::{
@@ -300,7 +300,7 @@ fn binding_teleport_completion(
 
 pub(crate) mod actor_frame_allocations;
 mod actor_pack_publication;
-mod actor_rest_presentation;
+pub(crate) mod actor_rest_presentation;
 pub(crate) mod alloc_count;
 mod audio;
 mod audio_camera;

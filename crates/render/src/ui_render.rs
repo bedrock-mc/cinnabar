@@ -269,7 +269,13 @@ pub(crate) fn prepare_ui_resources(
             .animation_seconds(gpu.started.elapsed().as_secs_f32()),
         glint_strength: glint.as_deref().copied().unwrap_or_default().strength,
     };
-    render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
+    {
+        #[cfg(feature = "tracy")]
+        let _span =
+            bevy::log::info_span!("ui.viewport_write", bytes = size_of::<UiViewportUniform>())
+                .entered();
+        render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
+    }
     if let Some(previous) = gpu.last_admitted_revision {
         let reason = if input.revision < previous {
             Some(UiRenderRejectReason::StaleRevision {
@@ -327,6 +333,12 @@ pub(crate) fn prepare_ui_resources(
     let fresh_indices = gpu.index_capacity < input.indices.len();
     if fresh_vertices {
         let capacity = arena_capacity(input.vertices.len(), MAX_UI_VERTICES);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.vertex_allocate",
+            bytes = arena_bytes(capacity, size_of::<UiRenderVertex>())
+        )
+        .entered();
         gpu.vertex_buffer = Some(render_device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI vertex arena"),
             size: arena_bytes(capacity, size_of::<UiRenderVertex>()),
@@ -338,6 +350,12 @@ pub(crate) fn prepare_ui_resources(
     }
     if fresh_indices {
         let capacity = arena_capacity(input.indices.len(), MAX_UI_INDICES);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.index_allocate",
+            bytes = arena_bytes(capacity, size_of::<u32>())
+        )
+        .entered();
         gpu.index_buffer = Some(render_device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI index arena"),
             size: arena_bytes(capacity, size_of::<u32>()),
@@ -351,6 +369,14 @@ pub(crate) fn prepare_ui_resources(
     if let Some(buffer) = gpu.vertex_buffer.as_ref()
         && !upload.vertices.is_empty()
     {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.vertex_write",
+            revision = input.revision,
+            vertices = upload.vertices.len(),
+            bytes = upload.vertices.len() * size_of::<UiRenderVertex>(),
+        )
+        .entered();
         render_queue.write_buffer(
             buffer,
             (upload.vertices.start * size_of::<UiRenderVertex>()) as u64,
@@ -360,6 +386,14 @@ pub(crate) fn prepare_ui_resources(
     if let Some(buffer) = gpu.index_buffer.as_ref()
         && !upload.indices.is_empty()
     {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.index_write",
+            revision = input.revision,
+            indices = upload.indices.len(),
+            bytes = upload.indices.len() * size_of::<u32>(),
+        )
+        .entered();
         render_queue.write_buffer(
             buffer,
             (upload.indices.start * size_of::<u32>()) as u64,

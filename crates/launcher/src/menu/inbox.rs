@@ -91,8 +91,10 @@ impl MenuFeeds {
             }
             Action::Filters => state.filters = !state.filters,
             Action::Cancel => {
+                if state.delete_pending.take().is_some() {
+                    return;
+                }
                 state.filters = false;
-                state.delete_pending = None;
                 state.opened = None;
             }
             Action::Delete(index) => {
@@ -235,6 +237,17 @@ pub fn day(value: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cancelling_deletion_keeps_inbox_settings_open() {
+        let mut menu = MenuFeeds::default();
+        menu.activate_inbox(Action::Filters);
+        menu.activate_inbox(Action::DeleteAllRead);
+        menu.activate_inbox(Action::Cancel);
+        assert!(menu.inbox_state.filters);
+        assert!(menu.inbox_state.delete_pending.is_none());
+        menu.activate_inbox(Action::Cancel);
+        assert!(!menu.inbox_state.filters);
+    }
     #[test]
     fn dates_and_category_names_survive_the_feed() {
         assert_eq!(date("2026-10-02T10:00:00Z"), "10/02/2026");

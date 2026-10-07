@@ -2,6 +2,7 @@
 
 use super::*;
 use bevy::input::keyboard::{Key, NativeKey};
+use semantic_input::Action;
 
 mod controller_inventory;
 

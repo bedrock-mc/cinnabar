@@ -66,14 +66,9 @@ fn drive(
         snapshot.message = progress.to_owned();
     } else if let Some(error) = reload.error() {
         snapshot.message = error.to_owned();
-    } else if snapshot.message == "Preparing resource packs…"
-        && let Some(elapsed) = reload.last_duration()
+    } else if snapshot.message == "Preparing resource packs…" && reload.last_duration().is_some()
     {
-        snapshot.message = format!(
-            "Applied resource revision {} ({:.1} ms preparation)",
-            reload.completed_revision(),
-            elapsed.as_secs_f64() * 1000.0
-        );
+        snapshot.message = "Texture packs applied.".into();
     }
     menu.global_resources = Arc::new(snapshot);
 }

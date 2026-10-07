@@ -1,6 +1,6 @@
 //! Input commands reduced to held, released and tapped controls.
 
-use crate::protocol::{InputCommand, Look, Pointer, Wheel};
+use crate::protocol::{InputCommand, Look, Pointer, Wheel, WheelUnit};
 
 /// Hotbar slots reachable through `key.hotbar.N`.
 pub const HOTBAR_SLOTS: u8 = 9;
@@ -81,7 +81,17 @@ impl InputPlan {
             pointer: command
                 .pointer
                 .or_else(|| command.cursor.map(|[x, y]| Pointer { x, y })),
-            wheel: command.wheel,
+            wheel: command.wheel.or_else(|| {
+                command.scroll.as_ref().map(|scroll| Wheel {
+                    x: scroll.x,
+                    y: scroll.y,
+                    unit: if scroll.pixels {
+                        WheelUnit::Pixel
+                    } else {
+                        WheelUnit::Line
+                    },
+                })
+            }),
             release_control: command.release_control,
         };
         if let Some(look) = &command.look
@@ -108,6 +118,13 @@ impl InputPlan {
         if let Some(movement) = command.movement {
             plan.axis(movement.forward, "key.forward", "key.back")?;
             plan.axis(movement.strafe, "key.right", "key.left")?;
+        }
+        if command.scroll.as_ref().is_some_and(|scroll| {
+            ![scroll.x, scroll.y]
+                .iter()
+                .all(|value| value.is_finite() && value.abs() <= 4096.0)
+        }) {
+            return Err("scroll deltas must be finite and within 4096 units".into());
         }
         for (state, name) in [
             (command.jump, "key.jump"),
@@ -160,7 +177,60 @@ pub fn yaw_difference(from: f32, to: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::Move;
+    use crate::protocol::{Move, Scroll};
+
+    #[test]
+    fn wheel_commands_keep_units_and_reject_invalid_deltas() {
+        let command: InputCommand =
+            serde_json::from_str(r#"{"pointer":[50,60],"scroll":{"y":-2,"pixels":true}}"#).unwrap();
+        let plan = InputPlan::from_command(&command).unwrap();
+        assert_eq!(plan.wheel.unwrap().y, -2.0);
+        assert_eq!(plan.wheel.unwrap().unit, WheelUnit::Pixel);
+        assert_eq!(plan.pointer, Some(Pointer { x: 50.0, y: 60.0 }));
+        for invalid in [f32::NAN, f32::INFINITY, 4097.0] {
+            assert!(
+                InputPlan::from_command(&InputCommand {
+                    scroll: Some(Scroll {
+                        y: invalid,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn pointer_and_wheel_wire_formats_share_a_single_input_plan() {
+        let legacy: InputCommand = serde_json::from_str(
+            r#"{"pointer":[125.5,240],"scroll":{"x":1,"y":-2,"pixels":true}}"#,
+        )
+        .unwrap();
+        let canonical: InputCommand = serde_json::from_str(
+            r#"{"pointer":{"x":125.5,"y":240},"wheel":{"x":1,"y":-2,"unit":"pixel"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            InputPlan::from_command(&legacy),
+            InputPlan::from_command(&canonical)
+        );
+        let both = InputCommand {
+            scroll: legacy.scroll,
+            wheel: Some(Wheel {
+                y: 3.0,
+                ..Wheel::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(InputPlan::from_command(&both).unwrap().wheel, both.wheel);
+        for wire in [
+            r#"{"pointer":[1,2,3]}"#,
+            r#"{"pointer":{"x":1,"y":2,"z":3}}"#,
+        ] {
+            assert!(serde_json::from_str::<InputCommand>(wire).is_err());
+        }
+    }
 
     #[test]
     fn controls_parse_by_kind() {

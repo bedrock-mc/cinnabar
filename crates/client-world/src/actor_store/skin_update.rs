@@ -2,7 +2,7 @@ use super::{ActorApplyResult, ActorStore, PlayerSkin, retained_skin_bytes};
 
 impl ActorStore {
     /// Replaces only a known player's appearance, preserving the roster and retained-byte budget.
-    pub(super) fn apply_skin_update(
+    pub(crate) fn apply_skin_update(
         &mut self,
         uuid: [u8; 16],
         skin: PlayerSkin,

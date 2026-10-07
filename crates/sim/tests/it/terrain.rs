@@ -234,8 +234,9 @@ fn grounded_movement_uses_snapshotted_authority_and_surface_formula() {
         )
         .unwrap();
 
+    // The support block's speed factor never scales ground acceleration.
     let friction: f64 = 0.91 * 0.8;
-    let expected = 0.98 * 0.25 * 1.3 * 0.4 * 0.162_771_36 / friction.powi(3);
+    let expected = 0.98 * 0.25 * 1.3 * 0.162_771_36 / friction.powi(3);
     assert!((tick.movement.z - expected).abs() <= 1.0e-7, "{tick:?}");
 }
 
@@ -332,7 +333,7 @@ fn compound_slab_step_and_head_collision_use_exact_shapes() {
         Aabb::new(Vec3::new(-0.2, 1.5, 1.1), Vec3::new(0.2, 2.0, 1.5)),
     ]);
     let mut state = grounded(Vec3::new(0.0, 1.0, 0.4));
-    state.velocity.z = 0.5;
+    state.velocity = Vec3::new(0.0, -0.0784, 0.5);
     let stepped = Simulator::default()
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
@@ -499,4 +500,220 @@ fn a_step_cannot_tunnel_through_an_obstruction_on_its_raised_path() {
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
     assert_eq!(result.movement.y, 0.0, "{:?}", result.movement);
+}
+
+fn sneaking() -> MovementInput {
+    MovementInput {
+        sneaking: true,
+        ..MovementInput::default()
+    }
+}
+
+/// A step taken on the jump tick rises onto the slab but leaves the ground, so
+/// the next tick uses air acceleration and drag.
+#[test]
+fn jumping_into_a_slab_steps_up_without_staying_grounded() {
+    let mut world = TerrainWorld::floor(Vec3::new(-4.0, 0.0, -4.0), Vec3::new(4.0, 1.0, 4.0));
+    world.boxes.push(Aabb::new(
+        Vec3::new(-1.0, 1.0, 0.7),
+        Vec3::new(1.0, 1.5, 3.0),
+    ));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.4));
+    state.velocity = Vec3::new(0.0, -0.0784, 0.5);
+    let jump = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                jump_pressed: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(jump.movement.y, 0.5, "{jump:?}");
+    assert!(!jump.on_ground, "{jump:?}");
+    assert!((jump.velocity.y + 0.0784).abs() <= 1.0e-7, "{jump:?}");
+
+    let carried = state.velocity.z;
+    let next = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    assert_eq!(next.velocity.z, f64::from(carried as f32 * 0.91_f32));
+}
+
+/// Edge avoidance needs only sneak and ground contact, so the jump tick is clipped too.
+#[test]
+fn sneak_jumping_at_an_edge_is_clipped_on_the_jump_tick() {
+    let world = TerrainWorld::floor(Vec3::new(-0.5, 0.0, -0.5), Vec3::new(0.5, 1.0, 0.5));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity.x = 0.8;
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                jump_pressed: true,
+                ..sneaking()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(tick.movement.y > 0.4, "{tick:?}");
+    assert!((tick.movement.x - 0.75).abs() <= 1.0e-6, "{tick:?}");
+}
+
+/// A partial edge clip shortens the move but leaves the velocity unclipped.
+#[test]
+fn a_partial_edge_clip_keeps_the_unclipped_velocity() {
+    let world = TerrainWorld::floor(Vec3::new(-0.5, 0.0, -0.5), Vec3::new(0.5, 1.0, 0.5));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity.x = 0.8;
+    let tick = Simulator::default()
+        .tick(&mut state, sneaking(), &world)
+        .unwrap();
+    assert!((tick.movement.x - 0.75).abs() <= 1.0e-6, "{tick:?}");
+    assert!(!tick.collisions.x);
+    assert_eq!(tick.velocity.x, f64::from(0.8_f32 * (0.91_f32 * 0.6_f32)));
+}
+
+/// Once one axis clips to zero, the combined probe keeps shortening the other.
+#[test]
+fn the_combined_edge_probe_continues_after_one_axis_reaches_zero() {
+    let world = TerrainWorld {
+        boxes: vec![
+            Aabb::new(Vec3::new(-0.3, 0.0, -0.3), Vec3::new(0.3, 1.0, 0.3)),
+            Aabb::new(Vec3::new(-0.3, 0.0, 1.23), Vec3::new(-0.25, 1.0, 1.26)),
+        ],
+        ..TerrainWorld::default()
+    };
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity = Vec3::new(0.05, 0.0, 1.0);
+    let tick = Simulator::default()
+        .tick(&mut state, sneaking(), &world)
+        .unwrap();
+    assert_eq!(tick.movement.x, 0.0, "{tick:?}");
+    assert!(tick.movement.z < 0.6, "{tick:?}");
+    assert_eq!(tick.velocity.x, 0.0);
+}
+
+/// Edge support is probed with the sneaking box, not the standing one.
+#[test]
+fn the_edge_probe_ignores_shapes_only_the_standing_box_reaches() {
+    let mut world = TerrainWorld::floor(Vec3::new(-0.5, 0.0, -0.5), Vec3::new(0.5, 1.0, 0.5));
+    world.boxes.push(Aabb::new(
+        Vec3::new(1.06, 1.95, -1.0),
+        Vec3::new(2.0, 2.2, 1.0),
+    ));
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.0));
+    state.velocity.x = 0.8;
+    let tick = Simulator::default()
+        .tick(&mut state, sneaking(), &world)
+        .unwrap();
+    assert!((tick.movement.x - 0.75).abs() <= 1.0e-6, "{tick:?}");
+    assert!(!tick.collisions.x, "{tick:?}");
+}
+
+/// Climbing reads only the feet cell; a vine the box merely overlaps must not hold a sneaking faller.
+#[test]
+fn sneaking_beside_a_climbable_cell_keeps_falling() {
+    let mut world = TerrainWorld::default();
+    world.facts.insert(
+        [1, 4, 0],
+        BlockPhysicsFacts {
+            friction: 0.6,
+            horizontal_speed_factor: 1.0,
+            vertical_speed_factor: 1.0,
+            fluid_height_blocks: 0.0,
+            flags: BlockPhysicsFlags::CLIMBABLE,
+            surface_response: SurfaceResponse::None,
+        },
+    );
+    // Feet cell is [0, 4, 0]; the 0.6-wide box reaches x = 1.05, into the vine cell.
+    let mut state = PlayerState::new(Vec3::new(0.75, 4.2, 0.5));
+    state.velocity.y = -0.3;
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                sneaking: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(!tick.environment.on_climbable);
+    assert_eq!(tick.movement.y as f32, -0.3_f32);
+}
+
+fn climbable_at(world: &mut TerrainWorld, block: [i32; 3]) {
+    world.facts.insert(
+        block,
+        BlockPhysicsFacts {
+            friction: 0.6,
+            horizontal_speed_factor: 1.0,
+            vertical_speed_factor: 1.0,
+            fluid_height_blocks: 0.0,
+            flags: BlockPhysicsFlags::CLIMBABLE,
+            surface_response: SurfaceResponse::None,
+        },
+    );
+}
+
+/// A ladder the box only overlaps leaves an ordinary ground jump.
+#[test]
+fn ladder_beside_the_feet_cell_does_not_replace_the_ground_jump() {
+    let mut world = TerrainWorld::floor(Vec3::new(-8.0, 0.0, -8.0), Vec3::new(8.0, 1.0, 8.0));
+    climbable_at(&mut world, [1, 1, 0]);
+    let mut state = grounded(Vec3::new(0.75, 1.0, 0.5));
+    let output = Simulator::default()
+        .tick_with_controls(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                jump_pressed: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(output.jump_initiated);
+    assert!(!output.tick_result.environment.on_climbable);
+    assert_eq!(output.tick_result.movement.y as f32, 0.42_f32);
+}
+
+/// Jumping at a ladder base climbs: no ground jump, sprint impulse or jump delay.
+#[test]
+fn jump_at_a_ladder_base_climbs_without_a_ground_jump() {
+    let mut world = TerrainWorld::floor(Vec3::new(-8.0, 0.0, -8.0), Vec3::new(8.0, 1.0, 8.0));
+    climbable_at(&mut world, [0, 1, 0]);
+    let input = MovementInput {
+        forward: 1.0,
+        sprinting: true,
+        jumping: true,
+        jump_pressed: true,
+        ..MovementInput::default()
+    };
+    let mut state = grounded(Vec3::new(0.5, 1.0, 0.5));
+    let output = Simulator::default()
+        .tick_with_controls(&mut state, input, &world)
+        .unwrap();
+    assert!(!output.jump_initiated);
+    assert!(output.tick_result.environment.on_climbable);
+    assert_eq!(output.tick_result.movement.y as f32, 0.2_f32);
+    assert_eq!(state.jump_delay, 0);
+
+    let mut walking = grounded(Vec3::new(0.5, 1.0, 0.5));
+    let walked = Simulator::default()
+        .tick(
+            &mut walking,
+            MovementInput {
+                jumping: false,
+                jump_pressed: false,
+                ..input
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(output.tick_result.movement.z, walked.movement.z);
 }

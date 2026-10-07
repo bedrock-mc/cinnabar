@@ -21,6 +21,15 @@ pub struct BoundedStat {
 }
 
 impl BoundedStat {
+    /// Absorption displays rounded-up current points; its attribute range does not size the HUD.
+    pub fn from_absorption_points(current: f32) -> Option<Self> {
+        if !current.is_finite() || current < 0.0 || current > u16::MAX as f32 {
+            return None;
+        }
+        let points = current.ceil() as u16;
+        Self::new(points, points.max(1))
+    }
+
     pub const fn new(current: u16, maximum: u16) -> Option<Self> {
         if maximum == 0 || current > maximum {
             return None;

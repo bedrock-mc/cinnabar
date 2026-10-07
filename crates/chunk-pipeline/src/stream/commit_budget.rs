@@ -37,6 +37,8 @@ impl WorldStream {
 
     /// Commits FIFO work without crossing a partially published batch or mutation fence.
     pub(super) fn apply_ready(&mut self) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.commit_ready").entered();
         if self.order.blocking_block_updates().is_some() {
             return;
         }

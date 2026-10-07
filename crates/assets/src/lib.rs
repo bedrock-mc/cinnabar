@@ -164,16 +164,19 @@ pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, DEFAULT_LEATHER_RGB, EQUIPMENT_CARRIER_MAGIC,
     EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory, EquipmentReference,
     EquipmentTexture, EquipmentTransform, ItemUseDuration, MAX_EQUIPMENT_BINDINGS,
-    MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE,
-    MAX_EQUIPMENT_TEXTURES, RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,
-    encode_equipment_catalog_full, encode_equipment_catalog_with_textures,
+    MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_PIXEL_BYTES,
+    MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES, RuntimeEquipmentCatalog, color_mask_texel,
+    encode_equipment_catalog, encode_equipment_catalog_full,
+    encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;
 pub use font::{
-    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FontCatalogError,
-    FontCatalogIdentity, FontPixels, FontTexturePage, GlyphMetrics, MAX_FONT_GLYPHS,
-    MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES,
-    RuntimeFontCatalog, encode_font_catalog,
+    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FALLBACK_ATLAS_SIDE,
+    FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontCatalogError, FontCatalogIdentity,
+    FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering, FontTexturePage, GlyphMetrics,
+    MAX_FONT_FALLBACK_PAGES, MAX_FONT_GLYPHS, MAX_FONT_KERNING_PAIRS, MAX_FONT_PAGE_SIDE,
+    MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
+    encode_font_catalog,
 };
 pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use glyph_sheet::{
@@ -186,10 +189,10 @@ pub use hud::{
 };
 pub use icon::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,
-    ICON_CARRIER_VERSION, IconBlockSheet, IconEntry, IconSprite, MAX_ICON_BLOCK_SHEETS,
-    MAX_ICON_CARRIER_BYTES, MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES, MAX_ICON_SIDE, MAX_ICON_SPRITES,
-    RuntimeIconCatalog, compose_block_item_sheet, encode_icon_catalog,
-    encode_icon_catalog_with_block_sheets,
+    ICON_CARRIER_VERSION, IconBlockModel, IconBlockSheet, IconEntry, IconSprite,
+    MAX_ICON_BLOCK_SHEETS, MAX_ICON_CARRIER_BYTES, MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES,
+    MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog, compose_block_item_sheet,
+    encode_icon_catalog, encode_icon_catalog_with_block_sheets, encode_icon_catalog_with_blocks,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
