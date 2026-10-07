@@ -39,6 +39,12 @@ fn archive_files_with_permissions(
         component: component.map(str::to_owned),
         channels: Vec::new(),
         actions: BTreeSet::new(),
+        templates: assets
+            .iter()
+            .map(|(path, _)| *path)
+            .filter(|path| manifest::template_root(path).is_some())
+            .map(str::to_owned)
+            .collect(),
         files: assets
             .iter()
             .map(|(path, content)| manifest::ContentFile {
@@ -99,7 +105,7 @@ fn verified_component_transfers_to_the_helper_without_copying() {
         BTreeSet::new(),
         Some("guest.wasm"),
     );
-    let bundle = bundle::VerifiedBundle::read(
+    let mut bundle = bundle::VerifiedBundle::read(
         &bytes,
         &deployment.packages[0],
         &deployment.scope,
@@ -107,7 +113,9 @@ fn verified_component_transfers_to_the_helper_without_copying() {
     )
     .unwrap();
     let original = bundle.component().unwrap().as_ptr();
-    let component = bundle.into_component().unwrap();
+    let files = bundle.take_screen_files();
+    let component = bundle.take_component().unwrap();
+    assert!(files.templates.is_empty() && files.textures.is_empty());
     assert_eq!(component, payload);
     assert_eq!(component.as_ptr(), original);
 }
@@ -352,6 +360,7 @@ fn media_revisions() -> (
         connection: "connection".into(),
         subclient: 0,
         expires_unix: 1500,
+        wire: negotiation::Wire::v1(),
     };
     (first, second, grant)
 }
@@ -423,4 +432,86 @@ fn delayed_probes_survive_polling_and_unsolicited_replies() {
             replacement.1 + 1000,
         )
         .unwrap();
+}
+
+/// Verifies a bundle of `assets` with the modal permission.
+fn screen_bundle(assets: &[(&str, &[u8])]) -> anyhow::Result<bundle::VerifiedBundle> {
+    let (bytes, deployment) = archive_files_with_permissions(
+        assets,
+        false,
+        CompressionMethod::Stored,
+        BTreeSet::from([manifest::Permission::ModalUi]),
+        None,
+    );
+    bundle::VerifiedBundle::read(
+        &bytes,
+        &deployment.packages[0],
+        &deployment.scope,
+        policy::MAX_EXPANDED_BYTES,
+    )
+}
+
+#[test]
+fn screen_files_are_bounded_and_templates_own_the_bundle_namespace() {
+    let terminal = br#"{"namespace": "example_cinema", "terminal@common.base_screen": {}}"#;
+    let mut bundle = screen_bundle(&[
+        ("ui/terminal.json", terminal),
+        ("textures/panel.png", b"png"),
+    ])
+    .unwrap();
+    assert_eq!(
+        bundle.manifest.templates,
+        BTreeSet::from(["ui/terminal.json".to_owned()])
+    );
+    let files = bundle.take_screen_files();
+    assert_eq!(files.namespace, "example_cinema");
+    assert_eq!(files.templates["ui/terminal.json"], terminal);
+    assert_eq!(
+        files.textures,
+        [("textures/panel.png".to_owned(), b"png".to_vec())]
+    );
+    let foreign = br#"{"namespace": "common", "button": {}}"#;
+    assert!(screen_bundle(&[("ui/terminal.json", foreign)]).is_err());
+    assert!(screen_bundle(&[("ui/terminal.json", b"{not json")]).is_err());
+    let large = vec![b' '; policy::MAX_TEMPLATE_BYTES + 1];
+    assert!(screen_bundle(&[("ui/terminal.json", &large)]).is_err());
+    assert!(screen_bundle(&[("textures/panel.jpg", b"jpg")]).is_err());
+    let huge = vec![0; policy::MAX_TEXTURE_BYTES + 1];
+    assert!(screen_bundle(&[("textures/panel.png", &huge)]).is_err());
+}
+
+// A media descriptor's poster may be a texture, so a bundle that holds `media` keeps its
+// textures after the presenter takes its screen files; one without moves them out.
+#[test]
+fn media_bundles_keep_their_textures_for_posters() {
+    let terminal = br#"{"namespace": "example_cinema", "terminal@common.base_screen": {}}"#;
+    for (permissions, kept) in [
+        (vec![manifest::Permission::ModalUi], false),
+        (
+            vec![manifest::Permission::ModalUi, manifest::Permission::Media],
+            true,
+        ),
+    ] {
+        let (bytes, deployment) = archive_files_with_permissions(
+            &[
+                ("ui/terminal.json", terminal),
+                ("textures/poster.png", b"png"),
+            ],
+            false,
+            CompressionMethod::Stored,
+            BTreeSet::from_iter(permissions),
+            None,
+        );
+        let mut bundle = bundle::VerifiedBundle::read(
+            &bytes,
+            &deployment.packages[0],
+            &deployment.scope,
+            policy::MAX_EXPANDED_BYTES,
+        )
+        .unwrap();
+        let files = bundle.take_screen_files();
+        assert_eq!(files.textures.len(), 1);
+        assert!(bundle.file("ui/terminal.json").is_none());
+        assert_eq!(bundle.file("textures/poster.png").is_some(), kept);
+    }
 }

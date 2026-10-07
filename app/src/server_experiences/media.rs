@@ -517,6 +517,7 @@ mod tests {
             connection: "connection".into(),
             subclient: 0,
             expires_unix: u64::MAX,
+            wire: server_experience::negotiation::Wire::v1(),
         };
         let mut media = Media::new(grant, 1, PathBuf::new());
         let owner = Principal {

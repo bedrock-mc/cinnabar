@@ -2,6 +2,7 @@ package experience
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -20,6 +21,8 @@ const (
 	probeSend = 19
 	// probeCounterChannel is the client channel that probeSend and probeTrap send on.
 	probeCounterChannel = "probe.counter"
+	// probeItemsChannel is the client channel that the probe's epoch sends probeItems(2) on.
+	probeItemsChannel = "probe.items"
 )
 
 // declaredChannel is a channel that a client part declares to the client.
@@ -91,6 +94,17 @@ func (c *fakeChannels) waitSent(t *testing.T, n int) []sentMessage {
 }
 
 func integer(v int64) Scalar { return Scalar{Integer: &v} }
+
+// probeItems is the probe's item list of n entries: one list of records, each an index and a
+// name.
+func probeItems(n int) []Scalar {
+	items := make([]Scalar, n)
+	for i := range items {
+		name := fmt.Sprintf("item %d", i)
+		items[i] = Scalar{Record: &[]Scalar{integer(int64(i)), {Text: &name}}}
+	}
+	return []Scalar{{List: &items}}
+}
 
 // assertMessage checks one Send of payload on channel, schema, to the fixture's actor.
 func (f *hostFixture) assertMessage(m sentMessage, channel string, schema uint16, payload []Scalar) {
@@ -270,32 +284,55 @@ func TestInvalidSendsDiscardResult(t *testing.T) {
 }
 
 // A client message reaches the guest's client-message on the sender's world, without access to
-// any block, and what it stages commits like any result: here a tell and an echo.
+// any block, and what it stages commits like any result: here a tell and an echo, its lists and
+// records unchanged.
 func TestClientMessageReachesGuest(t *testing.T) {
 	log, _ := testLog(t)
 	sup, _ := startProbe(t, log)
 	channels := &fakeChannels{declared: []declaredChannel{{"probe", "probe.echo", 7}}, active: true}
 	f := newClientFixture(t, log, map[string]*Supervisor{"probe": sup}, channels)
 	yes, text, choice := true, "ack", uint16(3)
-	payload := []Scalar{{Bool: &yes}, integer(-42), {Text: &text}, {Choice: &choice}}
+	payload := append([]Scalar{{Bool: &yes}, integer(-42), {Text: &text}, {Choice: &choice},
+		{Record: &[]Scalar{}}}, probeItems(3)...)
 	if !f.host.DeliverClientMessage(f.actor, "probe", "probe.echo", 7, payload) {
 		t.Fatal("the client message was not queued")
 	}
-	f.waitTells(5*time.Second, "client probe.echo 7 4 read denied write denied echo ok")
+	f.waitTells(5*time.Second, "client probe.echo 7 6 focus none read denied write denied echo ok")
 	f.assertMessage(channels.waitSent(t, 1)[0], "probe.echo", 7, payload)
 }
 
-// A client message for an Experience the Host does not run is refused, and so is one after Close.
-func TestClientMessageRefusedWithoutExperience(t *testing.T) {
+// An epoch reaches the guest's epoch on the player's world, without access to any block, and
+// what it stages commits like any result: here the probe resends its item list and tells.
+func TestEpochReachesGuest(t *testing.T) {
+	log, _ := testLog(t)
+	sup, _ := startProbe(t, log)
+	channels := &fakeChannels{declared: []declaredChannel{{"probe", probeItemsChannel, 1}}, active: true}
+	f := newClientFixture(t, log, map[string]*Supervisor{"probe": sup}, channels)
+	if !f.host.DeliverEpoch(f.actor, "probe") {
+		t.Fatal("the epoch was not queued")
+	}
+	f.waitTells(5*time.Second, "epoch focus none read denied write denied send ok")
+	f.assertMessage(channels.waitSent(t, 1)[0], probeItemsChannel, 1, probeItems(2))
+}
+
+// A client message or an epoch for an Experience the Host does not run is refused, and so is one
+// after Close.
+func TestClientCallbacksRefusedWithoutExperience(t *testing.T) {
 	log, _ := testLog(t)
 	sup, _ := startFake(t, "ok", log, startOptions{})
 	f := newIdleFixture(t, log, map[string]*Supervisor{"probe": sup})
 	if f.host.DeliverClientMessage(f.actor, "other", "other.echo", 1, nil) {
 		t.Fatal("a message for an Experience the Host does not run was queued")
 	}
+	if f.host.DeliverEpoch(f.actor, "other") {
+		t.Fatal("an epoch for an Experience the Host does not run was queued")
+	}
 	f.host.Close()
 	if f.host.DeliverClientMessage(f.actor, "probe", "probe.echo", 1, nil) {
 		t.Fatal("a message was queued after Close")
+	}
+	if f.host.DeliverEpoch(f.actor, "probe") {
+		t.Fatal("an epoch was queued after Close")
 	}
 }
 

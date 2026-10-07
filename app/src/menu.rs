@@ -888,6 +888,20 @@ impl MenuRuntime {
         });
         self.show_connecting();
     }
+
+    /// The featured server `address` joins, as Discord's corner art, when it has a logo URL.
+    pub(crate) fn featured_badge(&self, address: &str) -> Option<rich_presence::Badge> {
+        let target = target_for(address);
+        let server = self
+            .featured
+            .iter()
+            .find(|server| target_for(&server.address) == target)?;
+        let image_url = &self.feeds.details.get(&server.address)?.logo_url;
+        (!image_url.is_empty()).then(|| rich_presence::Badge {
+            image_url: image_url.clone(),
+            name: server.name.clone(),
+        })
+    }
 }
 
 /// Drives the launcher's own services: catalog, saves, settings, the account core and local worlds.

@@ -85,6 +85,8 @@ pub struct ServerDetails {
     pub news: String,
     pub screenshots: Vec<String>,
     pub games: Vec<MenuGameCard>,
+    /// The server's remote HTTPS logo, which Discord Rich Presence shows by URL.
+    pub logo_url: String,
 }
 
 /// One game a featured server advertises.

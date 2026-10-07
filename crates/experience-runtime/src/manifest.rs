@@ -1,4 +1,9 @@
 //! `experience.toml`: an artifact's identity and the index that every other file must match.
+//!
+//! The same file declares the Experience's client part in its `[client]` table, which the
+//! runtime ignores whatever it holds: `cinnabar-cxb build --experience` checks it with the
+//! client's own verifier and signs it into the `.cxb`, and the server half of client parts routes
+//! by that signed manifest, never by this file. Every other key is the manifest's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -21,6 +26,8 @@ pub const SERVER_WASM: &str = "server.wasm";
 pub const ASSETS_DIR: &str = "assets";
 /// The block-data schema this runtime implements.
 pub const DATA_SCHEMA: u32 = 1;
+/// The table that declares the client part, which the runtime ignores.
+pub const CLIENT_TABLE: &str = "client";
 const MAX_ID_BYTES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -53,8 +60,10 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest> {
         "{MANIFEST_FILE} exceeds {MAX_MANIFEST_BYTES} bytes"
     );
     let text = String::from_utf8(bytes).with_context(|| format!("{MANIFEST_FILE} is not UTF-8"))?;
-    let manifest: Manifest =
-        toml::from_str(&text).with_context(|| format!("parsing {MANIFEST_FILE}"))?;
+    let parsing = || format!("parsing {MANIFEST_FILE}");
+    let mut document: toml::Table = toml::from_str(&text).with_context(parsing)?;
+    document.remove(CLIENT_TABLE);
+    let manifest = Manifest::deserialize(document).with_context(parsing)?;
     ensure!(
         is_id(&manifest.id),
         "invalid id \"{}\": ids match ^[a-z][a-z0-9_]{{0,31}}$",

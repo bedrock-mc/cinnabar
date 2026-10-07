@@ -59,6 +59,8 @@ fn drive(
     mut ownership: ResMut<super::input::ConsentInput>,
     time: Res<Time<Real>>,
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut buttons: MessageReader<bevy::input::mouse::MouseButtonInput>,
+    mut keyboard: MessageReader<bevy::input::keyboard::KeyboardInput>,
     mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
     driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
@@ -127,7 +129,11 @@ fn drive(
         extension.session.disable();
     }
     let prompt = wants_prompt && presentation.experience_prompt_visible();
-    let wheel_delta: f64 = wheel.read().map(|event| -f64::from(event.y) * 0.15).sum();
+    let wheel_events: Vec<_> = wheel.read().map(|event| (event.y, event.unit)).collect();
+    let wheel_delta: f64 = wheel_events
+        .iter()
+        .map(|(y, _)| -f64::from(*y) * 0.15)
+        .sum();
     let window = windows.single().ok();
     let cursor = window
         .and_then(Window::cursor_position)
@@ -148,6 +154,76 @@ fn drive(
     let focused = driven.is_some()
         || (window.is_some_and(|window| window.focused)
             && focus.as_ref().is_none_or(|focus| focus.available()));
+    let modal_focus =
+        focused && !wants_prompt && service.live.is_some() && presentation.experience_modal_shown();
+    if let Some(live) = service.live.as_mut() {
+        live.set_modal_size(presentation.experience_modal_size());
+    }
+    if modal_focus {
+        let notches = wheel_events
+            .iter()
+            .map(|(y, unit)| match unit {
+                bevy::input::mouse::MouseScrollUnit::Line => -f64::from(*y),
+                bevy::input::mouse::MouseScrollUnit::Pixel => -f64::from(*y) / 16.0,
+            })
+            .sum();
+        presentation.hover_experience_modal(cursor);
+        presentation.scroll_experience_modal(notches);
+        let (mut pressed, mut released) = (false, false);
+        let (mut secondary_pressed, mut secondary_released) = (false, false);
+        for input in buttons.read() {
+            match input.button {
+                MouseButton::Left => {
+                    pressed |= input.state.is_pressed();
+                    released |= !input.state.is_pressed();
+                }
+                MouseButton::Right => {
+                    secondary_pressed |= input.state.is_pressed();
+                    secondary_released |= !input.state.is_pressed();
+                }
+                _ => {}
+            }
+        }
+        let control = keys.any_pressed([
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::SuperLeft,
+            KeyCode::SuperRight,
+        ]);
+        let typed: Vec<String> = keyboard
+            .read()
+            .filter(|input| input.state.is_pressed())
+            .filter_map(|input| {
+                crate::ui_runtime::typed_text(input.key_code, input.text.as_deref(), control)
+            })
+            .collect();
+        let escape = keys.just_pressed(KeyCode::Escape);
+        let now = time.elapsed_secs_f64();
+        let press = presentation.press_experience_modal(cursor, pressed, released);
+        let secondary = presentation.secondary_press_experience_modal(
+            cursor,
+            secondary_pressed,
+            secondary_released,
+        );
+        let edits = presentation.edit_experience_modal(cursor, pressed, &typed, escape, now);
+        let live = service.live.as_mut().expect("modal focus needs a runtime");
+        for (control, text) in &edits.edits {
+            live.text_changed(control, text);
+        }
+        if escape && !edits.escape_consumed {
+            live.close_modal();
+        } else {
+            if let Some((id, index)) = press {
+                live.press(&id, index);
+            }
+            if let Some((id, index)) = secondary {
+                live.press_secondary(&id, index);
+            }
+        }
+    } else {
+        buttons.clear();
+        keyboard.clear();
+    }
     let choice =
         if focused && can_disable(&extension.session.state) && keys.just_pressed(KeyCode::F9) {
             Some(Choice::Disable)
@@ -168,7 +244,7 @@ fn drive(
         } else {
             None
         };
-    ownership.0 = wants_prompt || choice.is_some();
+    ownership.0 = wants_prompt || choice.is_some() || modal_focus;
     if let Some(choice) = choice {
         let result = service
             .settings
@@ -215,6 +291,11 @@ fn drive(
     }
     let labels = service.live.as_ref().map(super::live::Live::labels);
     presentation.set_experience_labels(labels.as_deref().unwrap_or_default());
+    presentation.set_experience_modal(service.live.as_ref().and_then(super::live::Live::modal));
+    if let Some(error) = presentation.experience_modal_failure() {
+        bevy::log::warn!(%error, "client part screen rejected; server code disabled");
+        extension.session.disable();
+    }
     if matches!(extension.session.state, State::Disabled) {
         network.set_experience_enabled(false);
         service.download = None;

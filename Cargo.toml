@@ -14,6 +14,7 @@ members = [
     "crates/experience-sdk",
     "crates/experience-runtime",
     "examples/experiences/probe",
+    "examples/experiences/terminal-client",
     "crates/input",
     "crates/developer-control",
     "crates/json-ui",
