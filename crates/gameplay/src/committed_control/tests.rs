@@ -255,3 +255,74 @@ fn world_clock_and_weather_cycle_controls_stay_with_the_environment_adapter() {
         assert!(movement.physics_is_authorized());
     }
 }
+
+/// Open air that loads for prediction ticks.
+struct OpenAir;
+
+impl CollisionWorld for OpenAir {
+    fn collision_boxes(
+        &self,
+        _: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+}
+
+/// Terrain that is no longer loaded, so a timeline replay cannot run.
+struct Unloaded;
+
+impl CollisionWorld for Unloaded {
+    fn collision_boxes(
+        &self,
+        _: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Err(sim::WorldQueryError::InvalidBounds)
+    }
+
+    fn block_physics(&self, _: [i32; 3]) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+        Err(sim::WorldQueryError::InvalidBounds)
+    }
+}
+
+/// A delayed boost whose replay fails keeps its whole span for live ticks.
+#[test]
+fn a_failed_boost_replay_keeps_the_unapplied_span_live() {
+    use crate::movement::MovementEffectSource;
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    for _ in 0..4 {
+        let frame = physics.advance(
+            std::time::Duration::from_millis(50),
+            sim::MovementInput::default(),
+            &OpenAir,
+        );
+        assert_eq!(frame.completed_ticks, 1, "{:?}", frame.blocked);
+    }
+    let disposition = CommittedGameplayState {
+        movement: &mut movement,
+        physics: &mut physics,
+        effects: &mut effects,
+        speed: &mut speed,
+        session_generation: 7,
+        dimension: 0,
+        dimension_transfer_active: false,
+    }
+    .apply(
+        CommittedControlEvent::LocalMovementBoost {
+            sequence: 9,
+            event: protocol::MovementEffectEvent {
+                actor_runtime_id: 42,
+                kind: protocol::MovementEffectKind::GlideBoost,
+                duration_ticks: 2,
+                tick: 102,
+            },
+        },
+        &Unloaded,
+        |_| {},
+    );
+    assert_eq!(disposition, ControlDisposition::Handled);
+    for _ in 0..2 {
+        assert!(effects.snapshot().glide_boost);
+        effects.commit_successful_tick();
+    }
+    assert!(!effects.snapshot().glide_boost);
+}

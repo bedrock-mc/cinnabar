@@ -467,7 +467,7 @@ impl UiRuntime {
         let identifier = identifier?;
         self.item_components(identifier)
             .and_then(|components| components.max_durability)
-            .or_else(|| super::item_facts::max_durability(identifier))
+            .or_else(|| client_world::vanilla_max_durability(identifier))
     }
 
     pub fn set_server_ui(&mut self, pack: Option<Arc<super::presentation::ServerUiPack>>) {

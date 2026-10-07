@@ -127,6 +127,29 @@ impl CommittedGameplayState<'_> {
         ) {
             return ControlDisposition::Environment;
         }
+        if let CommittedControlEvent::LocalMovementBoost { sequence, event } = control {
+            // Vanilla predicts a firework's glide boost from the tick the server
+            // stamped, so the boost enters retained inputs and replays from there.
+            if event.kind == protocol::MovementEffectKind::GlideBoost {
+                let span = movement::BoostSpan::from_wire(event.duration_ticks);
+                let mut remaining = Some(span);
+                if self.movement.physics_is_authorized() {
+                    let retime = self.physics.retime_glide_boost(event.tick, span);
+                    remaining = retime.remaining;
+                    // A failed replay boosted no past tick: undo the history edit
+                    // so only the live span carries the boost.
+                    if let Some(rewind) = retime.rewind
+                        && !replay_timeline_edit(self.movement, self.physics, rewind, world)
+                    {
+                        self.physics.revert_glide_boost(retime);
+                        remaining = Some(span);
+                    }
+                }
+                self.effects
+                    .set_glide_boost(self.session_generation, sequence, remaining);
+            }
+            return ControlDisposition::Handled;
+        }
         if let CommittedControlEvent::LocalActorMotion { event, .. } = control {
             // A server-driven impulse (knockback, explosion) must enter the
             // prediction timeline; without it the client keeps its pre-hit
@@ -349,6 +372,7 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::LocalMovementFlags { .. }
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
+            | CommittedControlEvent::LocalMovementBoost { .. }
             | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {
                 unreachable!(

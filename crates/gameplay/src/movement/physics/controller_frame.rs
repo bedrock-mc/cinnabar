@@ -9,7 +9,6 @@ pub(super) struct ControllerFrame {
     pub eye_height: f32,
     pub intent: ModeIntent,
     pub jump_edge: bool,
-    pub fly_toggle: bool,
     pub requested_sneak: bool,
     pub requested_sprint: bool,
     pub sprint_down: bool,
@@ -63,11 +62,9 @@ impl ControllerFrame {
         let [move_sideways, move_forward] = ModeObservation::input_vector(*input);
         let choice = modes.select(
             self.intent,
-            self.fly_toggle,
             ModeObservation {
                 feet: state.position,
                 on_ground: state.on_ground,
-                velocity_y: state.velocity.y,
                 in_water: environment.in_water,
                 in_lava: environment.in_lava,
                 sprinting: input.sprinting,

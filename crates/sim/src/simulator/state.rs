@@ -30,6 +30,10 @@ pub struct PlayerState {
     /// field existed default to "no retained collision".
     #[serde(default)]
     pub collisions: AxisCollisions,
+    /// Previous tick's `[pitch, yaw]` in degrees. Glide steering reads the
+    /// rotation interpolated from it; absence reads as the current rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_rotation: Option<[f32; 2]>,
 }
 
 impl PlayerState {
@@ -50,6 +54,7 @@ impl PlayerState {
                 y: false,
                 z: false,
             },
+            previous_rotation: None,
         }
     }
 }
