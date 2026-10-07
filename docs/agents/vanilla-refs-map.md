@@ -2877,3 +2877,9 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
 - `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
   `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
   `#show_survival_ui` to `#visible`; absorption is native renderer state.
+
+## app/src/hud_tools/debug_overlay.rs (Java Edition frame statistics)
+
+- Java Edition 1.7.10 `Minecraft.runGameLoop` publishes `fpsCounter` after
+  `getSystemTime() >= debugUpdateTime + 1000L`, then advances the counter window by 1000 ms.
+- Other diagnostics use Cinnabar's shared simulation tick duration as their publication budget.

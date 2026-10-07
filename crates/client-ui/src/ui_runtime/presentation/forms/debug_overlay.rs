@@ -22,10 +22,37 @@ impl UiPresentationRuntime {
         if content.iter().any(|axis| *axis <= 0.0) {
             return Ok(());
         }
-        let metrics = debug_overlay::fitted_metrics(metrics, content[1]);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("ui.f3.paint").entered();
+        let metrics = debug_overlay::visible::fitted_metrics(metrics, content[1]);
         let scale = metrics.scale.get();
         self.debug_overlay.retain_font(&self.font);
         let cache = &mut self.debug_overlay;
+        let key = debug_overlay::paint::PaintKey {
+            content,
+            scale: [scale, metrics.dpi_scale.get()],
+            line: [metrics.line_height_64, metrics.baseline_64],
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+        };
+        if cache.matches_lines(lines)
+            && cache.painted.key == Some(key)
+            && cache
+                .painted
+                .catalog
+                .as_ref()
+                .is_some_and(|catalog| std::sync::Arc::ptr_eq(catalog, engine.catalog()))
+        {
+            cache.painted.append(nodes, next);
+            return Ok(());
+        }
+        #[cfg(test)]
+        {
+            cache.paints += 1;
+        }
+        let mut painted = std::mem::take(&mut cache.painted);
+        painted.nodes.clear();
+        let mut paint_next = 1;
         let inputs = EngineInputs {
             layouts: &mut self.layouts,
             font: &self.font,
@@ -37,13 +64,18 @@ impl UiPresentationRuntime {
             language: [0; 3],
         };
         let out = EngineOutput {
-            nodes,
-            next,
+            nodes: &mut painted.nodes,
+            next: &mut paint_next,
             overlay: &[],
         };
         engine.draw(ScreenArt::default(), inputs, out, |env, root| {
             Some(debug_overlay::render(cache, lines, (root, scale), env))
         })?;
+        painted.key = Some(key);
+        painted.catalog = Some(std::sync::Arc::clone(engine.catalog()));
+        painted.count = paint_next - 1;
+        painted.append(nodes, next);
+        cache.painted = painted;
         Ok(())
     }
 }
