@@ -6,7 +6,8 @@ use assets::RuntimeFontCatalog;
 use sha2::{Digest, Sha256};
 
 use crate::ui::{
-    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, UiRenderRejectReason,
+    MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE,
+    UiRenderRejectReason,
 };
 
 /// Buckets bind independently; page count and byte limits bound their residency.
@@ -31,6 +32,15 @@ pub const UI_FALLBACK_FONT_PAGE_SIDE: u32 = assets::FONT_FALLBACK_ATLAS_SIDE;
 /// Replaceable full-resolution pages after the small ones, for menu artwork.
 pub const MAX_UI_ART_PAGES: usize = 2;
 pub const UI_ART_PAGE_SIDE: u32 = 1024;
+/// Growth beyond the blank extents of the bounded skin, model and session-icon slots.
+pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_SKIN_SIDE as usize
+    * render_api::MAX_STANDARD_SKIN_SIDE as usize
+    + MAX_UI_MODEL_ATLAS_PAGES * UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
+    + MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
+    - (MAX_UI_MODEL_ATLAS_PAGES + 2)
+        * UI_DYNAMIC_PAGE_SIDE as usize
+        * UI_DYNAMIC_PAGE_SIDE as usize)
+    * UiTextureFormat::Rgba8.bytes_per_texel();
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Pixels {
@@ -330,6 +340,13 @@ impl UiTextureCatalog {
             .map(|page| (page.dimensions, page.format))
             .collect::<Vec<_>>();
         let plan = UiTexturePlan::with_formats(&planned)?;
+        let fixed_bytes = fixed_budget_bytes(&pages, dynamic_start);
+        if fixed_bytes > MAX_UI_FIXED_TEXTURE_BYTES {
+            return Err(UiRenderRejectReason::TextureByteLimitExceeded {
+                actual: fixed_bytes,
+                limit: MAX_UI_FIXED_TEXTURE_BYTES,
+            });
+        }
         let mut all = Sha256::new();
         let mut static_pages = Sha256::new();
         all.update(source_identity);
@@ -384,6 +401,10 @@ impl UiTextureCatalog {
     pub fn plan(&self) -> &UiTexturePlan {
         &self.plan
     }
+    /// Native slots are charged at their blank extent; only their growth uses reserved capacity.
+    pub fn fixed_budget_bytes(&self) -> usize {
+        fixed_budget_bytes(&self.pages, self.dynamic_start)
+    }
     pub const fn identity(&self) -> [u8; 32] {
         self.identity
     }
@@ -393,6 +414,23 @@ impl UiTextureCatalog {
     pub const fn dynamic_start(&self) -> usize {
         self.dynamic_start
     }
+}
+
+fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
+    let blank = UI_DYNAMIC_PAGE_SIDE as usize
+        * UI_DYNAMIC_PAGE_SIDE as usize
+        * UiTextureFormat::Rgba8.bytes_per_texel();
+    pages
+        .iter()
+        .enumerate()
+        .map(|(index, page)| {
+            if index >= dynamic_start && is_resizable_slot(index - dynamic_start) {
+                blank
+            } else {
+                page.pixels().len()
+            }
+        })
+        .sum()
 }
 
 /// Model sources and session icons can resize without changing their logical slots.
@@ -428,6 +466,9 @@ fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
     }
     [width, height] == [UI_ART_PAGE_SIDE; 2]
 }
+
+#[cfg(test)]
+mod budget_tests;
 
 #[cfg(test)]
 mod tests {

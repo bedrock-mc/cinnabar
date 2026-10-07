@@ -282,6 +282,73 @@ fn a_replay_that_lands_embedded_reprobes_and_pushes_out_on_the_next_tick() {
     );
 }
 
+/// Floor top at `y = 70` with a ceiling edge 1.6 above it: the crouched box
+/// clears it while a standing box would overlap its 0.05-wide lip.
+struct CrouchCeiling;
+
+impl CrouchCeiling {
+    const SOLIDS: [Aabb; 2] = [
+        Aabb::new(Vec3::new(-64.0, 69.0, -64.0), Vec3::new(64.0, 70.0, 64.0)),
+        Aabb::new(Vec3::new(0.75, 71.6, -64.0), Vec3::new(64.0, 72.6, 64.0)),
+    ];
+}
+
+impl CollisionWorld for CrouchCeiling {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(
+            Self::SOLIDS
+                .iter()
+                .copied()
+                .filter(|shape| shape.intersects(query))
+                .collect(),
+        ))
+    }
+}
+
+/// The post-replay probe uses the restored crouch box, so a low ceiling cannot shove a sneaking player.
+#[test]
+fn a_replay_under_a_low_ceiling_keeps_a_crouched_anchor_in_place() {
+    let crouching = MovementInput {
+        sneaking: true,
+        ..MovementInput::default()
+    };
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 71.620_01, 0.5], 100, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 71.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    let established = physics
+        .advance(Duration::from_millis(50), crouching, &CrouchCeiling)
+        .samples
+        .pop()
+        .expect("one crouched sample");
+    let established_tick = established.tick;
+    let crouched_position = established.position;
+    ticker.enqueue_completed_physics(established).unwrap();
+
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        crouched_position,
+        established_tick,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &CrouchCeiling,
+    )
+    .expect("the replay applies");
+
+    let resumed = physics
+        .advance(Duration::from_millis(50), crouching, &CrouchCeiling)
+        .samples
+        .pop()
+        .expect("one resumed sample");
+    assert_eq!(
+        (resumed.position[0], resumed.position[2]),
+        (crouched_position[0], crouched_position[2]),
+        "the probe moved a crouched anchor that already fits",
+    );
+}
+
 #[test]
 fn transient_collision_unavailability_keeps_todays_blocked_behavior() {
     struct DeferredRoom {
@@ -560,7 +627,7 @@ fn failed_probe_marker_names_exact_unit_cell_sealing_colliders() {
     state.note_hard_anchor();
     state.testing_set_evidence_enabled(true);
     assert_eq!(
-        state.before_tick(&UnitShaft, SHAFT_FEET),
+        state.before_tick(&UnitShaft, SHAFT_FEET, sim::PLAYER_HEIGHT),
         BeforeTick::Proceed
     );
 
@@ -911,9 +978,9 @@ fn evidence_instrumentation_never_changes_probe_decisions() {
         state.testing_set_evidence_enabled(evidence_enabled);
         state.note_hard_anchor();
         vec![
-            state.before_tick(world, SHAFT_FEET), // failed probe: proceeds
-            state.before_tick(world, SHAFT_FEET), // already resolved: proceeds
-            state.before_tick(world, SHAFT_FEET),
+            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT), // failed probe: proceeds
+            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT), // already resolved: proceeds
+            state.before_tick(world, SHAFT_FEET, sim::PLAYER_HEIGHT),
         ]
     }
 

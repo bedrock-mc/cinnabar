@@ -14,6 +14,8 @@ import (
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
 )
 
+const defaultChunkWorkers = 4
+
 const maxPlayers = 4 // one local player plus a reconnect overlapping its predecessor
 
 // settings are the per-world options the core passes on the command line.
@@ -25,6 +27,8 @@ type settings struct {
 	dir, addr, name, gameMode, diff        string
 	generator                              string
 	seed                                   int64
+	pregenRadius, chunkWorkers             int
+	generationStats                        bool
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -51,6 +55,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
 	flags.StringVar(&s.generator, "generator", "flat", "normal or flat terrain")
 	flags.Int64Var(&s.seed, "seed", 0, "world seed")
+	flags.IntVar(&s.pregenRadius, "pregen-radius", 0, "generate and save normal overworld chunks around spawn before listening (0 disables)")
+	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
+	flags.BoolVar(&s.generationStats, "generation-stats", false, "report normal generation counts and CPU-path elapsed time at shutdown")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
@@ -62,6 +69,15 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.extensionMediaAddr, "extension-media-addr", extension.DefaultMediaAddr, "IPv4 loopback ip:port of the -extension-media server")
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
+	}
+	if s.pregenRadius < 0 || s.pregenRadius > 512 {
+		return settings{}, errors.New("pregen radius must be 0..512 chunks")
+	}
+	if s.chunkWorkers < 1 || s.chunkWorkers > 16 {
+		return settings{}, errors.New("chunk workers must be 1..16")
+	}
+	if s.pregenRadius > 0 && (s.generator != "normal" || s.terrainFixture || s.opaqueOverdraw || s.terrainFixtureGenerate) {
+		return settings{}, errors.New("-pregen-radius requires -generator normal without a synthetic fixture")
 	}
 	if s.generator != "normal" && s.generator != "flat" {
 		return settings{}, fmt.Errorf("unknown generator %q", s.generator)

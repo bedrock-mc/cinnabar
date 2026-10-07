@@ -27,6 +27,8 @@ pub struct ChunkRenderQueue {
     pub(in crate::chunk) pending: HashMap<SubChunkKey, PendingUpload>,
     pub(in crate::chunk) removals: HashMap<SubChunkKey, PendingRemoval>,
     pub(in crate::chunk) render_manifest: BTreeMap<SubChunkKey, u64>,
+    /// Newest tracked generation per queued or presented key; pruned once its removal applies.
+    tracked_generations: HashMap<SubChunkKey, u64>,
     pub(in crate::chunk) next_generation: u64,
     pub(in crate::chunk) pending_bytes: u64,
     pub(in crate::chunk) limits: ChunkRenderQueueLimits,
@@ -48,6 +50,7 @@ impl ChunkRenderQueue {
             pending: HashMap::new(),
             removals: HashMap::new(),
             render_manifest: BTreeMap::new(),
+            tracked_generations: HashMap::new(),
             next_generation: 0,
             pending_bytes: 0,
             limits,
@@ -66,6 +69,7 @@ impl ChunkRenderQueue {
         self.pending.clear();
         self.removals.clear();
         self.render_manifest.clear();
+        self.tracked_generations.clear();
         self.pending_bytes = 0;
         self.ready_scratch.clear();
         self.session_reset_pending = true;
@@ -252,6 +256,10 @@ impl ChunkRenderQueue {
         token: ChunkUploadToken,
         publication_permit: PublicationPermit,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord, PublicationPermit)> {
+        if self.is_stale(key, Some(token)) {
+            let _ = publication_permit.retire();
+            return Ok(());
+        }
         let expected_bytes = chunk_publication_byte_len(&mesh, &biome);
         let permit_matches = publication_permit.bytes() == Some(expected_bytes)
             && publication_permit.is_zero_byte() == (expected_bytes == 0);
@@ -313,6 +321,10 @@ impl ChunkRenderQueue {
         if !publication_permit.is_zero_byte() || publication_permit.bytes() != Some(0) {
             return Err((key, publication_permit));
         }
+        if self.is_stale(key, Some(token)) {
+            let _ = publication_permit.retire();
+            return Ok(());
+        }
         let replaces_existing = self.pending.contains_key(&key) || self.removals.contains_key(&key);
         if !replaces_existing && self.retained_len() >= self.limits.max_items {
             return Err((key, publication_permit));
@@ -341,6 +353,12 @@ impl ChunkRenderQueue {
         token: Option<ChunkUploadToken>,
         publication_permit: Option<PublicationPermit>,
     ) -> Result<(), SubChunkKey> {
+        if self.is_stale(key, token) {
+            if let Some(permit) = publication_permit {
+                let _ = permit.retire();
+            }
+            return Ok(());
+        }
         let priority = if priority.is_urgent()
             || self
                 .pending
@@ -383,6 +401,7 @@ impl ChunkRenderQueue {
             },
         );
         self.render_manifest.remove(&key);
+        self.record_tracked(key, token);
         Ok(())
     }
 
@@ -547,6 +566,12 @@ impl ChunkRenderQueue {
         token: Option<ChunkUploadToken>,
         publication_permit: Option<PublicationPermit>,
     ) -> Result<(), (ChunkMesh, PackedBiomeRecord)> {
+        if self.is_stale(key, token) {
+            if let Some(permit) = publication_permit {
+                let _ = permit.retire();
+            }
+            return Ok(());
+        }
         let priority = if priority.is_urgent()
             || self
                 .pending
@@ -605,7 +630,24 @@ impl ChunkRenderQueue {
                 publication_permit,
             },
         );
+        self.record_tracked(key, token);
         Ok(())
+    }
+
+    /// Stream generations only grow within a session, so an older tracked change was
+    /// reordered behind a newer one; applying it would resurrect stale geometry or a hole.
+    fn is_stale(&self, key: SubChunkKey, token: Option<ChunkUploadToken>) -> bool {
+        token.is_some_and(|token| {
+            self.tracked_generations
+                .get(&key)
+                .is_some_and(|&newest| newest > token.generation)
+        })
+    }
+
+    fn record_tracked(&mut self, key: SubChunkKey, token: Option<ChunkUploadToken>) {
+        if let Some(token) = token {
+            self.tracked_generations.insert(key, token.generation);
+        }
     }
 }
 
@@ -736,6 +778,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             let Some(pending) = queue.removals.remove(&key) else {
                 continue;
             };
+            queue.tracked_generations.remove(&key);
             let render_permit = pending
                 .publication_permit
                 .map(PublicationPermit::into_render_entity)
@@ -825,6 +868,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             coverage.set(key, true);
         }
         if pending.mesh.is_empty() {
+            queue.tracked_generations.remove(&key);
             if let Some(entity) = entities.0.remove(&key) {
                 if let Ok(instance) = existing_instances.get(entity)
                     && let Some(slot) = &instance.publication_permit

@@ -342,9 +342,12 @@ fn place(
     if !identity.is_exact() {
         return None;
     }
-    submission.world_from_actor = death_tilted(
-        scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
-        actor.death_rotation_progress(alpha),
+    submission.world_from_actor = glide_tilted(
+        death_tilted(
+            scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
+            actor.death_rotation_progress(alpha),
+        ),
+        glide_rotation(actor, alpha),
     );
     submission.overlay_rgba8 = if actor.hurt_overlay_active() {
         pack_overlay_rgba8(HURT_OVERLAY_RGBA)
@@ -663,6 +666,83 @@ pub fn death_tilted(mut rows: [[f32; 4]; 3], progress: Option<f32>) -> [[f32; 4]
     rows
 }
 
+/// Vanilla's single-precision degree/radian factors for the glide tilt.
+const DEGREES_TO_RADIANS: f32 = 0.017_453_292;
+const RADIANS_TO_DEGREES: f32 = 57.295_776;
+/// Cross products below this leave the gliding body unturned.
+const GLIDE_TURN_DEAD_ZONE: f32 = 0.0625;
+
+/// A gliding actor's `[pitch, yaw]` body tilt in degrees: pitch eases in over its first ten
+/// gliding ticks, and yaw turns it toward its horizontal motion.
+#[must_use]
+pub fn glide_rotation(actor: &ActorSnapshot, alpha: f32) -> Option<[f32; 2]> {
+    if !actor.is_gliding() {
+        return None;
+    }
+    let ticks = actor.status.fall_fly_ticks as f32 + alpha;
+    let ease = ticks * ticks / 100.0;
+    let ease = if ease > 1.0 { 1.0 } else { ease.max(0.0) };
+    Some([(-90.0 - actor.pitch) * ease, glide_turn(actor, alpha)])
+}
+
+/// Signed angle from the interpolated view to the horizontal motion, without normalising the
+/// view's own horizontal length, as vanilla measures it.
+fn glide_turn(actor: &ActorSnapshot, alpha: f32) -> f32 {
+    let lerp = |previous: f32, current: f32| {
+        let wrapped = (current - previous + 180.0) % 360.0;
+        let wrapped = if wrapped < 0.0 {
+            wrapped + 360.0
+        } else {
+            wrapped
+        };
+        (wrapped - 180.0) * alpha + previous
+    };
+    let yaw = lerp(actor.previous_pose.yaw, actor.yaw);
+    let pitch = lerp(actor.previous_pose.pitch, actor.pitch);
+    let yaw_angle = f64::from(-std::f32::consts::PI - yaw * DEGREES_TO_RADIANS);
+    let horizontal = -(sim::minecraft_cos(f64::from(-(pitch * DEGREES_TO_RADIANS))) as f32);
+    let view_z = sim::minecraft_cos(yaw_angle) as f32 * horizontal;
+    let view_x = horizontal * sim::minecraft_sin(yaw_angle) as f32;
+    let [delta_x, _, delta_z] = actor.native_velocity();
+    let motion = delta_z * delta_z + delta_x * delta_x;
+    if view_z * view_z + view_x * view_x <= 0.0 || motion <= 0.0 {
+        return 0.0;
+    }
+    let cross = view_z * delta_x - view_x * delta_z;
+    let side = if cross.abs() < GLIDE_TURN_DEAD_ZONE {
+        0.0
+    } else {
+        cross.signum()
+    };
+    let turn = ((view_z * delta_z + view_x * delta_x) / motion.sqrt()).acos() * side;
+    // Rounding can push the cosine just past one; that frame keeps the body unturned.
+    if turn.is_finite() {
+        turn * RADIANS_TO_DEGREES
+    } else {
+        0.0
+    }
+}
+
+/// Pitches the rig about its feet, then turns it about its own up axis.
+pub fn glide_tilted(mut rows: [[f32; 4]; 3], rotation: Option<[f32; 2]>) -> [[f32; 4]; 3] {
+    let Some([pitch, yaw]) = rotation else {
+        return rows;
+    };
+    let (sine, cosine) = (pitch * DEGREES_TO_RADIANS).sin_cos();
+    for row in &mut rows {
+        let (y, z) = (row[1], row[2]);
+        row[1] = y * cosine + z * sine;
+        row[2] = -y * sine + z * cosine;
+    }
+    let (sine, cosine) = (yaw * DEGREES_TO_RADIANS).sin_cos();
+    for row in &mut rows {
+        let (x, z) = (row[0], row[2]);
+        row[0] = x * cosine - z * sine;
+        row[2] = x * sine + z * cosine;
+    }
+    rows
+}
+
 fn interpolated_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<[f32; 3]> {
     actor.interpolated_position(partial_tick)
 }
@@ -725,6 +805,9 @@ fn player_route_and_skin(
         .unwrap_or_else(default_actor_skin_rgba8);
     (route, Some(skin))
 }
+
+#[cfg(test)]
+mod glide_tests;
 
 #[cfg(test)]
 mod death_tests {

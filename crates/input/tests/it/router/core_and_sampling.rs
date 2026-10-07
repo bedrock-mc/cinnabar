@@ -132,9 +132,6 @@ fn extreme_finite_stick_axes_clamp_without_collapsing_to_zero() {
 #[test]
 fn extreme_finite_mouse_motion_clamps_without_collapsing_to_zero() {
     let mut router = SemanticInputRouter::default();
-    let mut settings = ControlSettings::default();
-    settings.mouse_sensitivity = 10.0;
-    router.replace_bindings(settings).unwrap();
     router
         .route(DeviceFrame {
             keyboard_mouse: Some(KeyboardMouseFrame {
@@ -148,6 +145,38 @@ fn extreme_finite_mouse_motion_clamps_without_collapsing_to_zero() {
     let look = router.finalize().unwrap().look_delta;
     assert!(look.iter().all(|axis| axis.is_finite()));
     assert_eq!(look, [MAX_LOOK_DELTA_PER_FRAME, 0.0]);
+}
+
+/// Mouse look reaches the camera in device counts whatever the sensitivity option says.
+#[test]
+fn mouse_look_is_routed_in_counts_and_sensitivity_is_a_unit_option() {
+    for sensitivity in [0.0, 0.5, 1.0] {
+        let mut router = SemanticInputRouter::default();
+        let mut settings = ControlSettings::default();
+        settings.mouse_sensitivity = sensitivity;
+        router.replace_bindings(settings).unwrap();
+        router
+            .route(DeviceFrame {
+                keyboard_mouse: Some(KeyboardMouseFrame {
+                    activity_sequence: 1,
+                    mouse_motion: [7.0, -3.0],
+                    ..KeyboardMouseFrame::default()
+                }),
+                ..DeviceFrame::default()
+            })
+            .unwrap();
+        assert_eq!(router.finalize().unwrap().look_delta, [7.0, -3.0]);
+    }
+    let mut settings = ControlSettings::default();
+    assert_eq!(
+        settings.mouse_sensitivity,
+        semantic_input::DEFAULT_MOUSE_SENSITIVITY
+    );
+    settings.mouse_sensitivity = 1.01;
+    assert_eq!(
+        SemanticInputRouter::default().replace_bindings(settings),
+        Err(BindingError::SensitivityOutOfRange)
+    );
 }
 
 #[test]
