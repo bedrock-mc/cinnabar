@@ -110,6 +110,7 @@ impl ControlModes {
         }
         if let Some(sneaking) = sneaking {
             self.sneak_toggled = sneaking;
+            self.sneaking = sneaking;
         }
     }
 
@@ -240,6 +241,26 @@ mod tests {
                 })
                 .sprint_request
         );
+    }
+
+    /// A server sneak correction during suspended input replaces the retained sneak.
+    #[test]
+    fn server_sneak_correction_replaces_sneak_retained_while_suspended() {
+        let mut modes = ControlModes::default();
+        let toggle = ControlObservation {
+            toggle_sneak: true,
+            sneak_pressed: true,
+            ..frame(0, 0.0)
+        };
+        assert!(modes.update(toggle).sneaking);
+        modes.suspend(true);
+        modes.adopt_server_flags(None, Some(false));
+        let suspended = ControlObservation {
+            toggle_sneak: true,
+            hold_sneak: true,
+            ..frame(50, 0.0)
+        };
+        assert!(!modes.update(suspended).sneaking);
     }
 
     /// Touch release stops a key-started sprint while keyboard release remains latched.
