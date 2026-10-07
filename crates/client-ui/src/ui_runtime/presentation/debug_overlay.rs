@@ -85,7 +85,10 @@ pub(super) fn fitted_metrics(mut metrics: TextMetrics, content_height: f32) -> T
     let px = f64::from(metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32);
     let height = (2.0 * INSET + LINE_HEIGHT * MAX_LINES_PER_COLUMN as f64) * px;
     let factor = (f64::from(content_height) / height).clamp(0.5, 1.0) as f32;
-    metrics.scale = UiScale::new_display(metrics.scale.get() * factor).unwrap_or(metrics.scale);
+    if let Ok(scale) = UiScale::new_display(metrics.scale.get() * factor) {
+        metrics.scale = scale;
+        metrics.gui_scale *= factor;
+    }
     metrics
 }
 
