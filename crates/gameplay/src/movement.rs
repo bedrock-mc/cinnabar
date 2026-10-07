@@ -54,7 +54,7 @@ pub use outbox::OUTBOX_CAPACITY;
 #[cfg(any(test, feature = "test-support"))]
 pub use outbox::flush_player_auth_inputs;
 pub use outbox::{
-    InteractionPacketGuard, MovementOutboxReconciliation, UnsentSampleView,
+    InteractionPacketGuard, InteractionSample, MovementOutboxReconciliation, UnsentSampleView,
     flush_player_auth_inputs_guarded,
 };
 use physics::PhysicsCorrectionConfirmation;
