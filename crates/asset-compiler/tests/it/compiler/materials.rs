@@ -925,6 +925,72 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
     assert_eq!(encode_blob(&reversed).unwrap(), baseline);
 }
 
+/// Transparent-cube surfaces must keep the native cube's per-face UV orientation.
+#[test]
+fn transparent_cube_surfaces_keep_native_face_uv_orientation() {
+    let directory = tempfile::tempdir().expect("create transparent-cube UV fixture");
+    let names = ["glass", "red_stained_glass", "copper_grate", "ice"];
+    let mut blocks = serde_json::Map::new();
+    let mut terrain = serde_json::Map::new();
+    for name in names {
+        let path = format!("textures/blocks/{name}");
+        blocks.insert(name.into(), serde_json::json!({ "textures": name }));
+        terrain.insert(name.into(), serde_json::json!({ "textures": path }));
+        // An asymmetric mask: mirroring a face would move this lone opaque texel.
+        let mut art = solid(TILE_SIZE, TILE_SIZE, [200, 220, 240, 64]);
+        art[0] = [200, 220, 240, 255];
+        write_png(directory.path(), &path, TILE_SIZE, TILE_SIZE, &art);
+    }
+    write_pack(
+        directory.path(),
+        &serde_json::Value::Object(blocks).to_string(),
+        &serde_json::json!({ "texture_data": terrain }).to_string(),
+        "[]",
+    );
+    let records = names.map(|name| {
+        let id = names
+            .iter()
+            .position(|candidate| *candidate == name)
+            .unwrap() as u32;
+        let mut record = model_record(
+            id,
+            93_000 + id,
+            &format!("minecraft:{name}"),
+            "{}",
+            ModelFamily::Cube,
+        );
+        if matches!(name, "glass" | "copper_grate") {
+            record.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
+        }
+        record
+    });
+
+    let compiled = compile_pack(directory.path(), &records).expect("compile transparent cubes");
+    for (id, name) in names.iter().enumerate() {
+        let visual = compiled.visuals[id];
+        assert_eq!(
+            compiled.model_templates[visual.model_template as usize].flags,
+            MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+            "{name}"
+        );
+        for quad in template_quads(&compiled, visual.model_template) {
+            for ([x, y, z], uv) in quad.positions.into_iter().zip(quad.uvs) {
+                let [x, y, z] = [x, y, z].map(|value| value as u16 * 16);
+                let native = match quad.flags {
+                    1 => [x, 4096 - z],
+                    2 => [x, z],
+                    3 => [z, 4096 - y],
+                    4 => [4096 - z, 4096 - y],
+                    5 => [4096 - x, 4096 - y],
+                    6 => [x, 4096 - y],
+                    face => panic!("{name}: unexpected face {face}"),
+                };
+                assert_eq!(uv, native, "{name} face {}", quad.flags);
+            }
+        }
+    }
+}
+
 #[test]
 fn compiler_emits_exact_checked_copper_grate_models() {
     let directory = tempfile::tempdir().expect("create copper-grate fixture");
