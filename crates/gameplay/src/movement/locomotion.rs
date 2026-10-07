@@ -169,6 +169,9 @@ impl ModeTracker {
 
     /// Restores a retained authoritative mode override during correction replay.
     pub(super) fn restore_mode(&mut self, mode: MovementMode) {
+        if mode != MovementMode::Gliding {
+            self.fall_fly_ticks = 0;
+        }
         self.mode = mode;
     }
 
@@ -176,6 +179,7 @@ impl ModeTracker {
     pub(super) fn end(&mut self, mode: MovementMode) {
         if self.mode == mode {
             self.mode = MovementMode::Walking;
+            self.fall_fly_ticks = 0;
         }
     }
 
@@ -274,12 +278,13 @@ impl ModeTracker {
             (MovementMode::Walking, false)
         };
         self.last_server_flying = intent.server_flying;
-        self.mode = mode;
-        self.fall_fly_ticks = if mode == MovementMode::Gliding {
-            self.fall_fly_ticks.saturating_add(1)
-        } else {
-            0
+        // Every glide entry counts from its own first tick.
+        self.fall_fly_ticks = match (self.mode, mode) {
+            (MovementMode::Gliding, MovementMode::Gliding) => self.fall_fly_ticks.saturating_add(1),
+            (_, MovementMode::Gliding) => 1,
+            _ => 0,
         };
+        self.mode = mode;
         self.sneaking = observed.sneaking || forced_sneak;
         self.sprinting = sprinting
             && !matches!(
@@ -716,6 +721,30 @@ mod tests {
         assert_eq!(
             pick(&mut tracker, intent, pressed(airborne())),
             MovementMode::Walking
+        );
+    }
+
+    /// A server-ended glide never carries its tick count into the next glide.
+    #[test]
+    fn an_ended_glide_restarts_the_cancel_window() {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            elytra_ready: true,
+            ..ModeIntent::default()
+        };
+        pick(&mut tracker, intent, pressed(airborne()));
+        for _ in 0..12 {
+            pick(&mut tracker, intent, airborne());
+        }
+        tracker.end(MovementMode::Gliding);
+        assert_eq!(
+            pick(&mut tracker, intent, pressed(airborne())),
+            MovementMode::Gliding
+        );
+        assert_eq!(
+            pick(&mut tracker, intent, pressed(airborne())),
+            MovementMode::Gliding,
+            "a press one tick into the new glide cannot cancel it"
         );
     }
 
