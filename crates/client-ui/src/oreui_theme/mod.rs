@@ -1,6 +1,4 @@
-//! OreUI's vanilla theme as reference facts: the palette, the semantic roles'
-//! fills per state, the type scale and the spacer steps. Sizes are in rem
-//! (one rem is five GUI pixels).
+//! Shared OreUI colours, control styles, type sizes and spacing. Sizes are in rem.
 
 use crate::ui_runtime::oreui_fonts::OreUiFont;
 
