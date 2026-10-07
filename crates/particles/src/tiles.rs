@@ -35,8 +35,7 @@ pub fn linear_to_srgb(c: f32) -> f32 {
 /// The block's terrain tile and its material flags; `None` for unknown or diagnostic blocks.
 ///
 /// Native terrain particles use the bottom material, not a tint-based top/side heuristic.
-/// `BlockDestructionParticlesComponent::getTextureInfo`
-/// resolves `down`, then `*`; the built-in texture fallback uses
+/// Vanilla destruction particles resolve `down`, then `*`; the built-in texture fallback uses
 /// texture group zero, populated from `down`.
 #[must_use]
 pub fn terrain_tile(

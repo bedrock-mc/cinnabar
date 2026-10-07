@@ -38,17 +38,24 @@ fn profile_skin(store: &ActorStore, runtime_id: u64) -> Option<PlayerSkin> {
 
 fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        prefer_client_skin: false,
         uuid: [5; 16],
         username: "local".into(),
         skin: fed_skin(),
         position: [x, 64.0, 0.0],
         velocity: [0.0; 3],
         on_ground: true,
+        flying: false,
         yaw,
         head_yaw: yaw,
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_stack_id: None,
+        main_hand_slot: 0,
+        bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
+        java_swing_ticks: crate::ACTOR_SWING_TICKS,
         teleported: false,
         first_person: false,
         view_bobbing: true,
@@ -71,6 +78,21 @@ fn local_feed_overrides_only_the_predicted_sneak_and_sprint_flags() {
     store.sync_local_player(1, -100, &feed);
     let actor = store.get(1).unwrap();
     assert!(!actor.flag(1) && actor.flag(3));
+}
+
+#[test]
+fn local_flight_fact_clears_when_the_actor_session_or_dimension_is_reset() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.flying = true;
+    store.sync_local_player(1, -1, &feed);
+    assert!(store.local_flying);
+    store.begin_session(2, 0);
+    assert!(!store.local_flying);
+    store.sync_local_player(1, -1, &feed);
+    assert!(store.local_flying);
+    assert_eq!(store.reset_dimension(2, 1, 1), ActorApplyResult::Reset);
+    assert!(!store.local_flying);
 }
 
 #[test]
@@ -267,6 +289,212 @@ fn synthetic_profile_obeys_the_skin_budget() {
     ));
 }
 
+fn cape_skin(byte: u8) -> PlayerSkin {
+    let PlayerSkin::Standard(mut skin) = standard_skin(byte) else {
+        unreachable!()
+    };
+    skin.cape = Some(protocol::CapeImage {
+        width: 64,
+        height: 32,
+        rgba8: vec![byte; 64 * 32 * 4].into(),
+    });
+    PlayerSkin::Standard(skin)
+}
+
+#[test]
+fn unchanged_local_feed_preserves_server_skin_and_cape_update() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, -100, &feed);
+    let server_skin = cape_skin(2);
+    assert_eq!(
+        store.apply(
+            1,
+            1,
+            ActorEvent::Skin {
+                uuid: feed.uuid,
+                skin: server_skin.clone(),
+            }
+        ),
+        ActorApplyResult::Updated
+    );
+    let retained = store.retained_player_skin_bytes;
+    feed.position[0] = 4.0;
+    feed.yaw = 90.0;
+    for _ in 0..3 {
+        store.sync_local_player(1, -100, &feed);
+        assert_eq!(profile_skin(&store, 1), Some(server_skin.clone()));
+        assert_eq!(store.retained_player_skin_bytes, retained);
+    }
+    feed.skin = standard_skin(4);
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(profile_skin(&store, 1), Some(feed.skin.clone()));
+    assert_eq!(
+        store.retained_player_skin_bytes,
+        super::retained_skin_bytes(&feed.skin)
+    );
+}
+
+#[test]
+fn local_feed_preserves_unlisted_authoritative_skin_and_cape() {
+    for uuid in [[5; 16], [7; 16]] {
+        let mut store = ActorStore::new(1, 0);
+        let feed = local_feed(0.0, 0.0);
+        store.sync_local_player(1, -100, &feed);
+        let server_skin = cape_skin(3);
+        store.apply(1, 1, list_add(uuid, -100, server_skin.clone()));
+        store.sync_local_player(1, -100, &feed);
+        let retained = store.retained_player_skin_bytes;
+        store.apply(
+            1,
+            2,
+            ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Remove { uuid }]),
+            }),
+        );
+        for _ in 0..3 {
+            store.sync_local_player(1, -100, &feed);
+            assert_eq!(profile_skin(&store, 1), Some(server_skin.clone()));
+            assert_eq!(store.retained_player_skin_bytes, retained);
+            assert_eq!(store.player_count(), 0);
+            assert!(store.unlisted_players.contains_key(&uuid));
+        }
+        store.reset_dimension(1, 3, 2);
+        assert_eq!(store.retained_player_skin_bytes, 0);
+        assert!(store.unlisted_players.is_empty());
+    }
+}
+
+#[test]
+fn authoritative_echo_releases_unlisted_synthetic_appearance_after_adoption() {
+    let mut store = ActorStore::new(1, 0);
+    let feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, -100, &feed);
+    store.apply(
+        1,
+        1,
+        ActorEvent::PlayerList(PlayerListUpdateEvent {
+            entries: Arc::from([PlayerListEntry::Remove { uuid: feed.uuid }]),
+        }),
+    );
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.unlisted_players.contains_key(&feed.uuid));
+    assert_eq!(profile_skin(&store, 1), Some(feed.skin.clone()));
+
+    let server_uuid = [7; 16];
+    let server_skin = cape_skin(6);
+    store.apply(1, 2, list_add(server_uuid, -100, server_skin.clone()));
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(profile_skin(&store, 1), Some(server_skin.clone()));
+    assert!(matches!(&store.get(1).unwrap().kind,
+        ActorKind::Player { uuid, .. } if *uuid == server_uuid));
+    assert!(!store.unlisted_players.contains_key(&feed.uuid));
+    assert_eq!(store.player_count(), 1);
+    assert_eq!(
+        store.retained_player_skin_bytes,
+        super::retained_skin_bytes(&server_skin)
+    );
+}
+
+#[test]
+fn rejected_synthetic_feed_does_not_retain_uncharged_raster() {
+    let mut store = ActorStore::with_limits(1, 0, 4, 4, 0);
+    let feed = local_feed(0.0, 0.0);
+    let PlayerSkin::Standard(skin) = &feed.skin else {
+        unreachable!()
+    };
+    let pixels = Arc::downgrade(skin.rgba8.pixels());
+    store.sync_local_player(1, -100, &feed);
+    drop(feed);
+    assert_eq!(store.retained_player_skin_bytes, 0);
+    assert!(pixels.upgrade().is_none());
+}
+
+#[test]
+fn server_replacement_releases_previous_client_fed_raster() {
+    let mut store = ActorStore::new(1, 0);
+    let feed = local_feed(0.0, 0.0);
+    let PlayerSkin::Standard(skin) = &feed.skin else {
+        unreachable!()
+    };
+    let pixels = Arc::downgrade(skin.rgba8.pixels());
+    store.sync_local_player(1, -100, &feed);
+    let server_skin = cape_skin(2);
+    store.apply(
+        1,
+        1,
+        ActorEvent::Skin {
+            uuid: feed.uuid,
+            skin: server_skin.clone(),
+        },
+    );
+    drop(feed);
+    assert!(pixels.upgrade().is_none());
+    assert_eq!(
+        store.retained_player_skin_bytes,
+        super::retained_skin_bytes(&server_skin)
+    );
+}
+
+#[test]
+fn rejected_local_skin_change_retries_when_skin_budget_is_freed() {
+    let base_bytes = super::retained_skin_bytes(&fed_skin());
+    let mut store = ActorStore::with_limits(1, 0, 4, 4, base_bytes * 2);
+    let mut feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, -100, &feed);
+    let other_uuid = [7; 16];
+    store.apply(1, 1, list_add(other_uuid, -200, standard_skin(3)));
+    feed.skin = cape_skin(4);
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(profile_skin(&store, 1), Some(fed_skin()));
+    assert_eq!(store.retained_player_skin_bytes, base_bytes * 2);
+    store.apply(
+        1,
+        2,
+        ActorEvent::PlayerList(PlayerListUpdateEvent {
+            entries: Arc::from([PlayerListEntry::Remove { uuid: other_uuid }]),
+        }),
+    );
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(profile_skin(&store, 1), Some(feed.skin.clone()));
+    assert_eq!(
+        store.retained_player_skin_bytes,
+        super::retained_skin_bytes(&feed.skin)
+    );
+}
+
+#[test]
+fn server_skin_update_supersedes_a_pending_rejected_local_skin() {
+    let base_bytes = super::retained_skin_bytes(&fed_skin());
+    let mut store = ActorStore::with_limits(1, 0, 4, 4, base_bytes * 2);
+    let mut feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, -100, &feed);
+    let other_uuid = [7; 16];
+    store.apply(1, 1, list_add(other_uuid, -200, standard_skin(3)));
+    feed.skin = cape_skin(4);
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(profile_skin(&store, 1), Some(fed_skin()));
+    let server_skin = standard_skin(2);
+    store.apply(
+        1,
+        2,
+        ActorEvent::Skin {
+            uuid: feed.uuid,
+            skin: server_skin.clone(),
+        },
+    );
+    store.apply(
+        1,
+        3,
+        ActorEvent::PlayerList(PlayerListUpdateEvent {
+            entries: Arc::from([PlayerListEntry::Remove { uuid: other_uuid }]),
+        }),
+    );
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(profile_skin(&store, 1), Some(server_skin));
+    assert_eq!(store.retained_player_skin_bytes, base_bytes);
+}
+
 #[test]
 fn review_authoritative_echo_under_the_fed_uuid_retains_its_skin() {
     let mut store = ActorStore::new(1, 0);
@@ -278,4 +506,56 @@ fn review_authoritative_echo_under_the_fed_uuid_retains_its_skin() {
     store.sync_local_player(1, -100, &feed);
     assert_eq!(profile_skin(&store, 1), Some(skin));
     assert!(store.player_profile(1).unwrap().verified);
+}
+
+#[test]
+fn client_skin_override_restores_the_retained_server_appearance() {
+    for server_uuid in [[5; 16], [7; 16]] {
+        for unlist_at in [None, Some(0), Some(1)] {
+            let listed = unlist_at.is_none();
+            let mut store = ActorStore::new(1, 0);
+            let mut feed = local_feed(0.0, 0.0);
+            let server_skin = cape_skin(3);
+            store.exclude_remote_state_for(1);
+            store.apply(1, 1, list_add(server_uuid, -100, server_skin.clone()));
+            store.sync_local_player(1, -100, &feed);
+            feed.skin = cape_skin(7);
+            feed.prefer_client_skin = true;
+            for step in 0..3 {
+                if unlist_at == Some(step) {
+                    store.apply(
+                        1,
+                        2,
+                        ActorEvent::PlayerList(PlayerListUpdateEvent {
+                            entries: Arc::from([PlayerListEntry::Remove { uuid: server_uuid }]),
+                        }),
+                    );
+                }
+                store.sync_local_player(1, -100, &feed);
+                store.prune_unlisted_players();
+                assert!(profile_skin(&store, 1).as_ref() == Some(&feed.skin));
+                let retained = store
+                    .players
+                    .get(&server_uuid)
+                    .or_else(|| store.unlisted_players.get(&server_uuid))
+                    .unwrap();
+                assert!(retained.skin == server_skin);
+                assert!(retained.verified);
+            }
+            let synthetic = store.synthetic_local_uuid.unwrap();
+            assert_ne!(synthetic, server_uuid);
+            assert_eq!(store.player_count(), usize::from(listed) + 1);
+            feed.prefer_client_skin = false;
+            store.sync_local_player(1, -100, &feed);
+            assert!(profile_skin(&store, 1).as_ref() == Some(&server_skin));
+            assert!(store.player_profile(1).unwrap().verified);
+            assert!(!store.players.contains_key(&synthetic));
+            assert!(!store.unlisted_players.contains_key(&synthetic));
+            assert_eq!(store.player_count(), usize::from(listed));
+            assert_eq!(
+                store.retained_player_skin_bytes,
+                super::retained_skin_bytes(&server_skin)
+            );
+        }
+    }
 }

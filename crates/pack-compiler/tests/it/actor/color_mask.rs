@@ -16,7 +16,11 @@ fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha
     let entities = compile_entity_assets(root, MANIFEST).unwrap();
     let entity_bytes = encode_entity_blob(&entities).unwrap();
     let compiled = compile_actor_assets(root, MANIFEST).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entity_bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&entity_bytes).unwrap(),
+    )
+    .unwrap();
     let sheep_rigs: Vec<_> = entities
         .rig_bindings
         .iter()

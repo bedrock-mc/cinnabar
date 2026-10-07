@@ -1,6 +1,5 @@
-//! The slider component (`SliderComponent`) as the 1.26.50 factory reads it,
-//! and its value arithmetic (`_updateSliderFromPosition`,
-//! `_updateSliderFromStepSize`).
+//! The slider component as the 1.26.50 factory reads it, and its value
+//! arithmetic from pointer position and step size.
 
 use std::collections::BTreeMap;
 
@@ -103,7 +102,7 @@ impl SliderMeta {
         self.settle(f64::from(fraction.clamp(0.0, 1.0)))
     }
 
-    /// The value after `direction` small steps (`_updateSliderFromStepSize`).
+    /// The value after `direction` small steps.
     pub fn stepped(&self, current: f64, direction: i32) -> (f64, Option<usize>) {
         let direction = if self.inverted { -direction } else { direction };
         if self.is_step() {
@@ -155,8 +154,8 @@ impl SliderManager {
     }
 }
 
-/// The step marks a step slider's component creates through its factory
-/// (`SliderComponent::_createSteps`): one per inner step, spaced across the
+/// The step marks a step slider's component creates through its factory:
+/// one per inner step, spaced across the
 /// slider, the ones past the current step drawn as progress.
 pub(crate) fn step_marks(
     control: &ResolvedControl,

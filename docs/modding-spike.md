@@ -164,7 +164,19 @@ They are developer extension capabilities and do not change the vanilla client.
 
 `panel.set-content` retains a bounded JSON panel of toggles, sliders, buttons and
 choices. It uses the host's JSON-UI engine; guests cannot provide templates or
-binding expressions. Optional sections organize controls into category tabs and
+binding expressions. Optional `style: "compact"` renders a unified menu with up
+to three equal-height cards. Optional `theme: "monochrome"` selects an opaque neutral
+palette for either layout; omitting it preserves the existing dark/light theme.
+Sections can select a bounded `icon` (`pointer`,
+`crosshair`, `ruler`, `settings` or `none`). A `keybind` control has `id`, `label`,
+`key` and optional `capturing` fields; pressing its keycap emits a button event,
+and the guest owns key capture and reservations. Key changes retain geometry.
+Choices open a host-owned option list. Slider numbers open a bounded text editor;
+Enter applies finite values within the declared range and normalizes the step.
+Escape or an outside click cancels an editor before closing the panel. Keyboard
+input belongs to the editor while it is open; reserved emergency and panel keys
+retain priority. The existing choice/slider event payloads are unchanged.
+Optional sections organize controls into category tabs and
 cards; omitting them keeps a flat panel. `input.read-controls` supplies current-window physical key
 edges and panel events. `input.reserve-keys` prevents selected bindings reaching
 gameplay. The panel's `toggle_key` opens or closes it before the ordinary input
@@ -190,6 +202,84 @@ bounded local outline font for the personal panel. It is rasterized once per
 selected font into an isolated atlas alias with filtered sampling. Panel sizing follows display DPI
 independently of the game GUI scale; vanilla and server glyph ownership are preserved.
 
+## Custom rendering
+
+`render` is a separate local grant (`CINNABAR_MOD_RENDER=1`, or `"render": true` in
+`local-mod.json`); depth reads also need `render_depth`. Budgets live in `mod_api`.
+
+- **Post passes.** `register-pass` takes WGSL that defines
+  `fn effect(uv: vec2<f32>) -> vec3<f32>` against a host prelude (`scene`, `param`,
+  `blur`, `bloom`, `world_to_uv`, and `depth` or `world_position` with depth). naga
+  validates the composed module. The guest may not declare resources, overrides or entry
+  points, and may not loop. Worst-case texture reads and expressions per pixel, with call
+  sites expanded, must fit the budget, as must source size, tokens per statement (which
+  bounds nesting) and the size of every type. Validation runs on its own thread, and a frame
+  callback may compile one shader. A rejection returns the reason to the guest. Passes
+  run by `(order, name)` after post-processing and before the HUD, each reading the
+  previous colour. `update-pass` retains an enable flag and 16 floats, and disabled passes
+  cost nothing, and replaced or reloaded passes release their pipelines. Each slot is
+  timed as `gpu_mod_pass_N`.
+- **World primitives.** `draw` appends decals, ribbons, beams and billboards for the
+  current callback. Each successful callback replaces the drawn set; an identical set
+  rebuilds and uploads nothing. One premultiplied,
+  depth-tested draw without depth writes runs in the transparent phase, timed as
+  `gpu_mod_primitives`.
+- Both commit only after a successful callback. A trap, reload, revocation or unload
+  clears them.
+
+### Render sample
+
+`examples/mods/render-sample` registers a vignette pass, which F8 toggles, and draws a
+pulsing ring at the player's feet:
+
+```sh
+cargo build -p render-sample-mod --target wasm32-unknown-unknown --locked
+cargo run -p mod-host --locked -- pack \
+  target/wasm32-unknown-unknown/debug/render_sample_mod.wasm /tmp/cinnabar-render.wasm
+cargo run -p mod-host --locked -- probe-render /tmp/cinnabar-render.wasm
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-render.wasm CINNABAR_MOD_RENDER=1 CINNABAR_MOD_PLAYERS=1 \
+  cargo run -p bedrock-client --features local-mods --locked
+```
+
+Replacing the component reloads it as for other mods. A rejected shader shows its error as
+the mod's label.
+
+## Mobs, camera rig, commands and cues
+
+`CINNABAR_MOD_ENTITIES=1` grants `gameplay.read-mobs`: up to
+`mod_api::MAX_GAMEPLAY_MOBS` non-player actors within `MAX_MOB_RANGE_BLOCKS` of the
+eye, nearest first, with type ID and replicated health. `gameplay.set-camera-rig`
+(camera grant) retains a third-person boom in camera-local blocks plus roll and FOV
+change, swept against blocks like the vanilla boom; it presents third-person-back
+until `none`, a trap or a reload. `CINNABAR_MOD_COMMANDS=ability` (comma-separated)
+lets `gameplay.request-command` send `/ability ...` as a vanilla player command
+request; any other command is refused, and requests are capped by
+`MAX_COMMANDS_PER_FRAME` and `MAX_COMMANDS_PER_SECOND`. `events.emit` publishes bounded
+cues in the app's `ModCueFeed`; `events.poll` returns last frame's cues, at most
+`MAX_INCOMING_CUES`. `input.read-controls` also reports held keys. All output commits
+only after a successful callback and is dropped on a trap or reload.
+
+## Several mods at once
+
+`CINNABAR_MOD_SET=/abs/mods.json` loads up to `mod_api::MAX_LOADED_MODS` components,
+each with its own grants (the `local-mod.json` names), budgets, trap quarantine and hot
+reload. A component that fails to load is skipped:
+
+```json
+{"version": 1, "mods": [
+  {"component": "/abs/camera.wasm", "grants": {"players": true, "camera": true, "controls": true}},
+  {"component": "/abs/hud.wasm", "grants": {"environment": true}}
+]}
+```
+
+File order settles conflicts: the earliest camera rig, rotation, time override, attack
+reach and non-zero packet delay win; a key reserved by an earlier mod never reaches a later
+one; the first mod with a panel owns it; labels join with ` | `; commands and cues keep load
+order. Render passes merge by name with the earliest mod keeping a contested name, and passes
+and each primitive kind fill the single-mod budgets in load order. Each mod polls
+every mod's previous-frame cues. The set takes precedence over `CINNABAR_MOD_COMPONENT`
+and the registration watcher, which still load a single mod.
+
 ## Attach a local component to a running client
 
 A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root`
@@ -208,7 +298,11 @@ A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root
     "camera": true,
     "controls": true,
     "interaction": true,
-    "settings": true
+    "settings": true,
+    "render": false,
+    "render_depth": false,
+    "entities": false,
+    "commands": []
   }
 }
 ```
@@ -281,3 +375,36 @@ HUD-visible bindings and alpha. The spike suppresses its label for focus, menus,
 loading and a statically hidden underlying HUD, but does not yet follow vanilla
 hide-GUI, partial server HUD visibility or animated opacity. See `plan.md`; the
 hidden-HUD test is not full visibility parity evidence.
+
+## Loaded block highlights
+
+The separate `block_highlights` grant (`CINNABAR_MOD_BLOCK_HIGHLIGHTS=1`) permits
+`render.set-block-highlights`. A retained specification names up to
+`mod_api::MAX_BLOCK_HIGHLIGHT_IDENTIFIERS` canonical block identifiers, a bounded
+camera-relative range, and linear RGBA colour. The host scans only loaded primary
+block layers, caches palettes and subchunk identities, and draws full unit cubes
+through terrain without changing world or packet state. Results share the
+`mod_api::MAX_BLOCK_HIGHLIGHTS` nearest-block budget; the earliest active mod wins.
+`none`, unload, reload, or a trap clears the overlay. Output commits only after a
+successful callback; repeated unchanged input rebuilds no geometry.
+## Fullbright
+
+The separate `fullbright` grant (`CINNABAR_MOD_FULLBRIGHT=1`) permits
+`environment.set-fullbright`. Enabling it replaces the shared world light table
+with full illumination without changing time, stored lighting or server state.
+Disabling it restores the current environment. The flag is retained after
+successful callbacks and clears on traps, unload and reload. Unchanged input
+uploads no new table; inactive world sessions suppress the override.
+
+Block highlights inspect received primary block layers even while collision
+readiness is incomplete. Missing subchunks and unloaded data remain excluded.
+
+## Embedding an isolated client
+
+`CINNABAR_USER_ROOT` optionally selects an absolute profile directory on each desktop
+platform, including development binaries. Configuration goes under `config`, data
+and caches under `data`, and runtime files under `run`. Bundled resources stay at
+the executable's normal installation location. Relative and empty overrides fail
+at startup. This does not require changing HOME, LOCALAPPDATA or XDG variables.
+`CINNABAR_WINDOW_TITLE` optionally changes the game window title; absent, empty or
+whitespace-only values retain the product name.

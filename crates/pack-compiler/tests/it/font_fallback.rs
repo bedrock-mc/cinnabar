@@ -78,7 +78,7 @@ fn two_provider_carrier_is_deterministic_and_preserves_primary_page_and_metrics(
     assert_eq!(merged.bytes, repeat.bytes);
     let old = assets::RuntimeFontCatalog::decode(&original.bytes, identity).unwrap();
     let new = assets::RuntimeFontCatalog::decode(&merged.bytes, identity).unwrap();
-    assert_eq!(old.pages()[0].rgba8, new.pages()[0].rgba8);
+    assert_eq!(old.pages()[0].pixels, new.pages()[0].pixels);
     assert_eq!(new.pages()[0].source_sha256, primary_hash);
     assert_eq!(new.pages()[0].source_bytes as usize, primary.len());
     for glyph in old.glyphs() {

@@ -460,31 +460,42 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
         cape_rig,
         |runtime_id| world.authority().actor_rig(runtime_id),
         |runtime_id| world.authority().actor_player_profile(runtime_id),
+        |_| None,
+        |_| false,
     );
-    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
     let layers = frame
         .rig
         .manifest
         .iter()
         .zip(frame.rig.instances.iter())
-        .map(|(entry, instance)| (entry.identity.layer, entry.route, instance.texture_layer))
+        .map(|(entry, instance)| {
+            let pixels = frame
+                .player_skin(instance.texture_layer)
+                .expect("resident skin");
+            assert_eq!(pixels.len(), STANDARD_SKIN_BYTES);
+            (
+                entry.identity.layer,
+                entry.route,
+                pixels[0],
+                pixels.iter().all(|byte| *byte == pixels[0]),
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         layers,
         [
-            (ACTOR_LAYER_BODY, ActorRigRoute::Compiled, 0),
-            (cape::ACTOR_LAYER_CAPE, ActorRigRoute::Compiled, 1),
+            (ACTOR_LAYER_BODY, ActorRigRoute::Compiled, 200, true),
+            (cape::ACTOR_LAYER_CAPE, ActorRigRoute::Compiled, 90, true),
         ]
     );
-    let (skin, cape) = frame.skins_rgba8.split_at(STANDARD_SKIN_BYTES);
-    assert!(skin.iter().all(|byte| *byte == 200));
-    assert!(cape.len() == STANDARD_SKIN_BYTES && cape.iter().all(|byte| *byte == 90));
 }
 
 fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
     LocalPlayerFeed {
         uuid: [5; 16],
+        prefer_client_skin: false,
         username: "local".into(),
         skin: PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
         position: [0.0, 64.0, 0.0],
@@ -495,6 +506,12 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         pitch: 40.0,
         main_hand: main_hand.map(Arc::from),
         off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_slot: 0,
+        main_hand_stack_id: None,
+        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        flying: false,
         teleported: false,
         first_person: true,
         view_bobbing: true,
@@ -668,7 +685,7 @@ fn skin_geometry_replaces_the_default_model_and_keeps_the_player_animations() {
     );
     presentation.submission.input.rig = id;
     let batch = actors::select_actor_presentations(1, false, None, [presentation]);
-    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
     assert_eq!(frame.rig.manifest[0].rig, id);
     assert_eq!(frame.rig.manifest[0].bone_count, 4);
@@ -982,7 +999,7 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
         layer.world_from_actor,
         batch.submissions[0].world_from_actor
     );
-    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
     assert_eq!(frame.rig.manifest.len(), 2);
     assert_eq!(

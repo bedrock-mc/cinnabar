@@ -13,23 +13,24 @@ import (
 	"strings"
 	"time"
 
-	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
-	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
+	"github.com/sandertv/gophertunnel/minecraft/service"
+	"golang.org/x/oauth2"
+	"net/http"
+	"sync"
 )
 
 // File is the small JSON contract consumed by the Rust launcher.
 type File struct {
-	Featured   []Server `json:"featured"`
-	Gatherings []Server `json:"gatherings"`
-	Realms     []Realm  `json:"realms"`
-	Friends    []Friend `json:"friends"`
-	Errors     []string `json:"errors,omitempty"`
+	Featured []Server `json:"featured"`
+	Realms   []Realm  `json:"realms"`
+	Friends  []Friend `json:"friends"`
+	Errors   []string `json:"errors,omitempty"`
 }
 
 type Server struct {
@@ -41,10 +42,9 @@ type Server struct {
 }
 
 type Realm struct {
-	Name    string `json:"name"`
-	State   string `json:"state"`
-	Target  string `json:"target"`
-	Address string `json:"address,omitempty"`
+	Name   string `json:"name"`
+	State  string `json:"state"`
+	Target string `json:"target"`
 	// Details the realms grid binds; all optional.
 	Owner         string `json:"owner,omitempty"`
 	MOTD          string `json:"motd,omitempty"`
@@ -74,10 +74,9 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 		return File{}, errNoAccount
 	}
 	result := File{
-		Featured:   []Server{},
-		Gatherings: []Server{},
-		Realms:     []Realm{},
-		Friends:    []Friend{},
+		Featured: []Server{},
+		Realms:   []Realm{},
+		Friends:  []Friend{},
 	}
 
 	if values, err := Realms(ctx, account); err != nil {
@@ -99,16 +98,6 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 			result.Featured = append(result.Featured, Server{
 				Name: server.Name, Address: server.Address, Caption: server.Caption,
 				imageURL: server.thumbnailURL,
-			})
-		}
-	}
-	if values, err := Gatherings(ctx, account); err != nil {
-		result.Errors = append(result.Errors, "Gatherings: "+err.Error())
-	} else {
-		for _, experience := range values {
-			result.Gatherings = append(result.Gatherings, Server{
-				Name: experience.Name, Address: GatheringTargetPrefix + experience.ID,
-				Caption: experience.Caption, imageURL: experience.Image.URL,
 			})
 		}
 	}
@@ -162,30 +151,6 @@ func Write(ctx context.Context, path string, account *authcache.Account) error {
 	return nil
 }
 
-func artworkURL(item playfabcatalog.Item, games []gatherings.AvailableGame) string {
-	for _, game := range games {
-		if game.ImageTag == "" {
-			continue
-		}
-		for _, image := range item.Images {
-			if image.Tag == game.ImageTag && validArtworkURL(image.URL) {
-				return image.URL
-			}
-		}
-	}
-	for _, image := range item.Images {
-		if strings.EqualFold(image.Type, playfabcatalog.ImageTypeThumbnail) && validArtworkURL(image.URL) {
-			return image.URL
-		}
-	}
-	for _, image := range item.Images {
-		if validArtworkURL(image.URL) {
-			return image.URL
-		}
-	}
-	return ""
-}
-
 // validArtworkURL accepts the shared HTTPS image URL policy.
 func validArtworkURL(raw string) bool { return imagecache.ValidURL(raw) }
 
@@ -194,7 +159,7 @@ func cacheArtwork(ctx context.Context, directory string, result *File) {
 		return
 	}
 	cache := artworkCache(directory)
-	for _, servers := range [][]Server{result.Featured, result.Gatherings} {
+	for _, servers := range [][]Server{result.Featured} {
 		for index := range servers {
 			image, err := cache.Fetch(ctx, servers[index].imageURL)
 			if err == nil {
@@ -221,7 +186,57 @@ func Realms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
 	if account == nil {
 		return nil, errNoAccount
 	}
-	values, err := realms.NewClient(account, nil).Realms(ctx)
+	client, err := RealmsClient(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	return listRealms(ctx, client)
+}
+
+// RealmsClient returns the account's Realms client on the discovered endpoint, built once so its
+// client-version negotiation and token cache last across calls.
+func RealmsClient(ctx context.Context, account *authcache.Account) (*realms.Client, error) {
+	if account == nil {
+		return nil, errNoAccount
+	}
+	discovery, err := service.Default(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("discover services: %w", err)
+	}
+	return sharedRealms.get(discovery, account, nil)
+}
+
+var sharedRealms realmsClients
+
+// realmsClients keeps the Realms client of the account the core last served; a core serves one
+// account at a time.
+type realmsClients struct {
+	mu      sync.Mutex
+	account oauth2.TokenSource
+	client  *realms.Client
+}
+
+func (c *realmsClients) get(discovery *service.Discovery, account oauth2.TokenSource, httpClient *http.Client) (*realms.Client, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.client != nil && c.account == account {
+		return c.client, nil
+	}
+	env := new(realms.Environment)
+	if err := discovery.Environment(env); err != nil {
+		return nil, fmt.Errorf("resolve Realms service: %w", err)
+	}
+	client, err := env.NewClient(account, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Realms service: %w", err)
+	}
+	c.account, c.client = account, client
+	return client, nil
+}
+
+// listRealms maps the client's Realms to catalog entries.
+func listRealms(ctx context.Context, client *realms.Client) ([]Realm, error) {
+	values, err := client.Realms(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -243,12 +258,6 @@ func Realms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
 			if player.Online {
 				entry.OnlinePlayers++
 			}
-		}
-		joinContext, cancel := context.WithTimeout(ctx, 4*time.Second)
-		address, addressErr := realm.Address(joinContext)
-		cancel()
-		if addressErr == nil {
-			entry.Address = address.Address
 		}
 		result = append(result, entry)
 	}
@@ -281,13 +290,7 @@ func fetchFriends(ctx context.Context, client *xsapi.Client) ([]Friend, error) {
 	currentXUID := client.UserInfo().XUID
 	result := make([]Friend, 0, len(worlds))
 	for _, world := range worlds {
-		if world.OwnerID == "" || world.OwnerID == currentXUID || world.HostName == "" {
-			continue
-		}
-		if world.RealmID != 0 || world.ExperienceID != uuid.Nil || world.ExperienceWorldID != uuid.Nil || world.FriendID != "" {
-			continue
-		}
-		if world.Joinability != p2p.JoinabilityFriends {
+		if !FriendWorldListed(world, currentXUID) {
 			continue
 		}
 		connection, err := world.Connection()
@@ -311,6 +314,16 @@ func fetchFriends(ctx context.Context, client *xsapi.Client) ([]Friend, error) {
 	return result, nil
 }
 
+// FriendWorldListed reports whether the friends tab lists world for the player self, by the game's
+// rule. The activity query returns only sessions of people the player follows, so every host counts
+// as a friend. Friends' Realm and experience sessions are left out: joining them is not implemented.
+func FriendWorldListed(world p2p.World, self string) bool {
+	if world.OwnerID == "" || world.RealmID != 0 || world.ExperienceWorldID != uuid.Nil || world.FriendID != "" {
+		return false
+	}
+	return world.Listed(self, false, func(string) bool { return true })
+}
+
 func displayName(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -318,16 +331,4 @@ func displayName(values ...string) string {
 		}
 	}
 	return "Minecraft"
-}
-
-func firstGameCaption(values []gatherings.AvailableGame, fallback string) string {
-	for _, value := range values {
-		if title := strings.TrimSpace(value.Title); title != "" {
-			return title
-		}
-		if subtitle := strings.TrimSpace(value.Subtitle); subtitle != "" {
-			return subtitle
-		}
-	}
-	return fallback
 }

@@ -7,13 +7,23 @@ use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
+/// Byte offset of the alpha of [`pack`]'s probe texel, which its plane samples.
+const PROBE_ALPHA: usize = (7 * 16) * 4 + 3;
 
+#[path = "actor/charged_overlay.rs"]
+mod charged_overlay;
 #[path = "actor/color_mask.rs"]
 mod color_mask;
 #[path = "actor/crystal.rs"]
 mod crystal;
+#[path = "actor/dragon.rs"]
+mod dragon;
 #[path = "actor/fish.rs"]
 mod fish;
+#[path = "actor/light_multiplier.rs"]
+mod light_multiplier;
+#[path = "actor/material_states.rs"]
+mod material_states;
 #[path = "actor/multitexture.rs"]
 mod multitexture;
 
@@ -45,7 +55,7 @@ fn pack(alpha: u8, material: &str, conditional: bool) -> TempDir {
     };
     write(root, "render_controllers/example.json", format!(r#"{{"format_version":"1.8.0","render_controllers":{{"controller.render.example":{{"geometry":"{geometry}","materials":[{{"*":"Material.default"}}],"textures":["Texture.default"]}}}}}}"#).as_bytes());
     let mut image = RgbaImage::from_pixel(16, 16, Rgba([17, 31, 47, 255]));
-    image.put_pixel(0, 0, Rgba([0, 0, 0, alpha]));
+    image.put_pixel(0, 7, Rgba([0, 0, 0, alpha]));
     fs::create_dir_all(root.join("textures/entity")).unwrap();
     image
         .save(root.join("textures/entity/example.png"))
@@ -61,17 +71,24 @@ fn generic_actor_carrier_resolves_unconditional_route_and_exact_entity_identity(
     assert_eq!(first.bytes, second.bytes);
     let entities =
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
-    let runtime = RuntimeActorCatalog::decode(&first.bytes, &entities).unwrap();
+    let runtime = RuntimeActorCatalog::decode(
+        &first.bytes,
+        &assets::RuntimeEntityAssets::decode(&entities).unwrap(),
+    )
+    .unwrap();
     assert_eq!(runtime.bindings().len(), 1);
     assert_eq!(runtime.textures().len(), 1);
     assert_eq!(
         (runtime.textures()[0].width, runtime.textures()[0].height),
         (16, 16)
     );
-    assert_eq!(runtime.textures()[0].rgba8[3], 0);
+    assert_eq!(runtime.textures()[0].rgba8[PROBE_ALPHA], 0);
     let mut stale = entities.to_vec();
     stale[24] ^= 1;
-    assert!(RuntimeActorCatalog::decode(&first.bytes, &stale).is_err());
+    assert!(
+        !assets::RuntimeEntityAssets::decode(&stale)
+            .is_ok_and(|stale| RuntimeActorCatalog::decode(&first.bytes, &stale).is_ok())
+    );
 }
 
 #[test]
@@ -136,10 +153,13 @@ fn ordinary_cube_mirror_and_default_bone_flags_remain_admissible() {
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
     let result = compile_actor_assets(pack.path(), MANIFEST).unwrap();
     assert_eq!(
-        RuntimeActorCatalog::decode(&result.bytes, &entities)
-            .unwrap()
-            .bindings()
-            .len(),
+        RuntimeActorCatalog::decode(
+            &result.bytes,
+            &assets::RuntimeEntityAssets::decode(&entities).unwrap()
+        )
+        .unwrap()
+        .bindings()
+        .len(),
         1
     );
 }
@@ -169,7 +189,11 @@ fn actor_pixels_are_not_cropped_to_geometry_dimensions() {
     assert_eq!(compiled.report.bindings, 1);
     let entities =
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entities).unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&entities).unwrap(),
+    )
+    .unwrap();
     let texture = &catalog.textures()[0];
     assert_eq!((texture.width, texture.height), (32, 16));
     assert_eq!(texture.rgba8.len(), 32 * 16 * 4);
@@ -182,7 +206,11 @@ fn runtime_rejects_rehashed_untrusted_pixels_and_binding_substitutions() {
     let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
     let entities =
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entities).unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&entities).unwrap(),
+    )
+    .unwrap();
     let mut textures = catalog.textures().to_vec();
     let mut bindings = catalog.bindings().to_vec();
     let good_binding = bindings[0].clone();
@@ -214,7 +242,13 @@ fn runtime_rejects_rehashed_untrusted_pixels_and_binding_substitutions() {
     let end = malicious.len() - 32;
     let outer_hash = Sha256::digest(&malicious[..end]);
     malicious[end..].copy_from_slice(&outer_hash);
-    assert!(RuntimeActorCatalog::decode(&malicious, &entities).is_err());
+    assert!(
+        RuntimeActorCatalog::decode(
+            &malicious,
+            &assets::RuntimeEntityAssets::decode(&entities).unwrap()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -320,7 +354,11 @@ fn thrown_item_artwork_accepts_item_icon_sources() {
     );
     let entity =
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entity).unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&entity).unwrap(),
+    )
+    .unwrap();
     assert_eq!(catalog.textures().len(), 1);
 }
 
@@ -335,7 +373,11 @@ fn sprite_uvs_use_declared_dimensions_independently_of_raster_resolution() {
     );
     let entity =
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entity).unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&entity).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         (catalog.textures()[0].width, catalog.textures()[0].height),
         (16, 16)

@@ -12,8 +12,7 @@ use serde_json::Value;
 use super::{menu_caret::with_caret, play_screen};
 use crate::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
 
-/// Settings selector index vars as 1.26.50's `SettingsScreenController`
-/// assigns them.
+/// Settings selector index vars as 1.26.50's settings screen assigns them.
 pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("server_forced_index", 1),
     ("accessibility_forced_index", 2),
@@ -73,7 +72,7 @@ pub(super) fn retail_context() -> Context {
     Context::retail(cfg!(target_os = "macos"))
 }
 
-/// `StartMenuScreenController::addStaticScreenVars` for a full-game, non-edu
+/// Vanilla start screen variables for a full-game, non-edu
 /// account: demo, edu and unlock controls stay ignored.
 fn start_screen_vars(context: Context) -> Context {
     unlock_text(context)
@@ -169,7 +168,10 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 );
             }
             MenuScreen::Pause => {
-                data.set_global("#playername", text(view.display_name.clone()));
+                data.set_global(
+                    "#playername",
+                    text(super::accounts::current_name(view).to_owned()),
+                );
                 flags(&mut data, &["#playername_visible"]);
                 data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
                 // A non-edu client draws the retail pause content, not edu_pause's.
@@ -218,7 +220,10 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 });
             }
             MenuScreen::Store => return store_screen(view, &context, translate),
-            MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
+            MenuScreen::Profile
+            | MenuScreen::DressingRoom
+            | MenuScreen::Inbox
+            | MenuScreen::Friends => return None,
         }
         reference
     };
@@ -381,8 +386,7 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     }
 }
 
-/// The pause store button on a third-party server, as `PauseScreenController`
-/// names it: "%s Store" with the server's store name, else the generic "Server".
+/// The pause store button on a third-party server, as vanilla names it: "%s Store" with the server's store name, else the generic "Server".
 fn server_store_text(translate: Translate<'_>) -> String {
     let server = translated(translate, "menu.serverGenericName", "Server");
     translated(translate, "menu.serverStore", "%s Store").replacen("%s", &server, 1)
@@ -475,6 +479,34 @@ pub(super) fn dialog_model(
     (model, confirm)
 }
 
+/// Vanilla's first-join question for a NetherNet server reached over plain http, in the
+/// active language or vanilla's English.
+pub(super) fn server_trust_model(url: &str, translate: Translate<'_>) -> json_ui::FormModel {
+    let message = translated(
+        translate,
+        "permissions.servertrust.message",
+        "You are connecting to %1$s for the first time. Only trust servers you recognize.",
+    );
+    json_ui::FormModel::Modal(json_ui::ModalForm {
+        title: translated(
+            translate,
+            "permissions.servertrust.title",
+            "Trust this server?",
+        ),
+        body: message.replace("%1$s", url),
+        button1: translated(
+            translate,
+            "permissions.servertrust.button.trust",
+            "Trust and Join",
+        ),
+        button2: translated(
+            translate,
+            "permissions.servertrust.button.doNotTrust",
+            "Don't Trust",
+        ),
+    })
+}
+
 fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
     let title = if view.editing.is_some() {
         translated(translate, "addServer.title.edit", "Edit Server")
@@ -510,7 +542,7 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
     let step = view
         .gui_scale_choices
         .iter()
-        .position(|offset| *offset == view.gui_scale_offset)
+        .position(|choice| choice.offset == view.gui_scale_offset)
         .unwrap_or(0);
     data.set_global("#gui_scale", Scalar::Num(step as f64));
     data.set_global(
@@ -593,7 +625,7 @@ fn base_context() -> Context {
     )
 }
 
-/// The static vars `SettingsScreenController` sets for the global settings a
+/// The static vars vanilla's settings screen sets for the global settings a
 /// desktop client opens from the start screen: no world, realm or creation state.
 fn settings_context(context: Context) -> Context {
     let flags: &[(&str, bool)] = &[
@@ -720,7 +752,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.signin" => MenuAction::StartSignIn,
         "button.sign_out" => MenuAction::SignOut,
         "button.menu_profile" if view.screen == MenuScreen::Home => MenuAction::OpenAccounts,
-        "button.menu_profile" | "button.to_profile_screen" | "button.manage_account" => {
+        "button.to_profile_screen" => MenuAction::Navigate(MenuScreen::DressingRoom),
+        "button.menu_profile" | "button.manage_account" => {
             MenuAction::Navigate(MenuScreen::Profile)
         }
         // The join progress screen's cancel; the menu drops it where vanilla cannot cancel.
@@ -795,8 +828,7 @@ pub(super) fn slider_actions(view: &MenuView, region: &HitRegion) -> Option<Vec<
         return Some(
             view.gui_scale_choices
                 .iter()
-                .copied()
-                .map(MenuAction::SettingsScale)
+                .map(|choice| MenuAction::SettingsScale(choice.offset))
                 .collect(),
         );
     }

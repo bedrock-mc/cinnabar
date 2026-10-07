@@ -72,7 +72,10 @@ fn prepare(
     }
     let page = u16::try_from(page).map_err(|_| UiPresentationError::InvalidFontTexture)?;
     let texture = &source.pages()[0];
-    if [texture.width, texture.height] != [UI_LOCAL_FONT_PAGE_SIDE; 2] {
+    // The reserved slot stays RGBA, so installing a font never moves it to another bucket.
+    if [texture.width, texture.height] != [UI_LOCAL_FONT_PAGE_SIDE; 2]
+        || texture.pixels.rgba8().is_none()
+    {
         return Err(UiPresentationError::InvalidFontTexture);
     }
     if source.glyphs().iter().any(|glyph| {

@@ -1,4 +1,4 @@
-//! `DataBindingComponent::_updateCustomComponentsPostBinding`: after a binding
+//! Post-binding component updates: after a binding
 //! writes a `#target`, the component that target drives takes the value
 //! through its typed reader. Here the component state is the literal property
 //! layout, emit and input read, so a bound target reaches them as if authored.
@@ -29,12 +29,12 @@ impl Native {
     }
 }
 
-/// `_getDesiredValue<bool>`: only a JSON bool, else `default`.
+/// A bool target reads only a JSON bool, else `default`.
 fn boolean(value: &Value, default: bool) -> bool {
     value.as_bool().unwrap_or(default)
 }
 
-/// `_getDesiredValue<float>`: any number or bool, else `default`.
+/// A float target reads any number or bool, else `default`.
 fn float(value: &Value, default: f32) -> f32 {
     match value {
         Value::Number(number) => number.as_f64().map_or(default, |number| number as f32),
@@ -43,14 +43,14 @@ fn float(value: &Value, default: f32) -> f32 {
     }
 }
 
-/// `_getDesiredValue<int>`: only an integral JSON number, else `default`.
+/// An int target reads only an integral JSON number, else `default`.
 fn int(value: &Value, default: i32) -> i32 {
     match value {
         Value::Number(number) => number
             .as_i64()
             .map(|int| int as i32)
             .or_else(|| number.as_u64().map(|uint| uint as i32))
-            // jsoncpp's `isInt` also takes an integral real in range.
+            // An integral real in range also counts as an int.
             .or_else(|| {
                 number
                     .as_f64()
@@ -62,7 +62,7 @@ fn int(value: &Value, default: i32) -> i32 {
     }
 }
 
-/// `Json::Value::asInt`: integers truncate to 32 bits, reals cast, bools 0/1.
+/// Vanilla JSON int reads: integers truncate to 32 bits, reals cast, bools 0/1.
 fn as_int(value: &Value) -> i32 {
     match value {
         Value::Number(number) => number
@@ -75,12 +75,12 @@ fn as_int(value: &Value) -> i32 {
     }
 }
 
-/// `_getDesiredValue<std::string>`: only a JSON string, else `default`.
+/// A string target reads only a JSON string, else `default`.
 fn string(value: &Value, default: &str) -> String {
     value.as_str().unwrap_or(default).to_owned()
 }
 
-/// `PropertyBag::get<T>` on the bag itself: a present value of the right type.
+/// A typed property bag read: a present value of the right type.
 fn bag_string(bag: &BTreeMap<String, Scalar>, name: &str) -> String {
     match bag.get(name) {
         Some(Scalar::Text(text)) => text.clone(),
@@ -141,7 +141,9 @@ pub(super) fn apply(
     };
     match target {
         "#maximum_grid_items" if grid => set("maximum_grid_items", Value::from(int(value, 0))),
-        "#collection_length" if control.properties.contains_key("collection_name") => {
+        "#collection_length"
+            if control.properties.contains_key("collection_name") || kind == "collection_panel" =>
+        {
             let length = match value {
                 Value::Array(_) => Some(value.clone()),
                 other => {

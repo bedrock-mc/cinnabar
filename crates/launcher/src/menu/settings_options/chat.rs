@@ -73,7 +73,7 @@ pub const MENTIONS_COLORS: &[SettingChoice] = &[
 ];
 
 impl SettingsOptions {
-    /// Mirrors ChatUtils::canLanguageBeSmooth's four unsupported locales.
+    /// Vanilla disables smooth chat for these four locales.
     pub fn chat_smooth_available(&self) -> bool {
         !matches!(self.language(), Some("zh_TW" | "zh_CN" | "ko_KR" | "ja_JP"))
     }
@@ -87,7 +87,7 @@ impl SettingsOptions {
         }
     }
 
-    /// Applies ChatUtils' one-decimal padding plus the source's nonzero epsilon.
+    /// Applies vanilla's one-decimal padding plus its nonzero epsilon.
     pub fn chat_line_padding(&self) -> f64 {
         f64::from(self.value("chat_line_spacing")) / 10.0 + 0.001
     }

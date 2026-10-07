@@ -1,5 +1,6 @@
 use assets::{
-    FontCatalogError, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog,
+    FontCatalogError, FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog,
+    encode_font_catalog,
 };
 use sha2::{Digest, Sha256};
 
@@ -16,7 +17,7 @@ fn runtime_uses_existing_multi_page_glyph_routes_without_provider_changes() {
             pixels_sha256: Sha256::digest(&pixels).into(),
             width: 1,
             height: 1,
-            rgba8: pixels,
+            pixels: FontPixels::Rgba8(pixels),
         }
     };
     let glyph = |codepoint, page| GlyphMetrics {
@@ -39,7 +40,7 @@ fn runtime_uses_existing_multi_page_glyph_routes_without_provider_changes() {
     let catalog = RuntimeFontCatalog::decode(&bytes, SOURCE_MANIFEST_SHA256).unwrap();
     assert_eq!(catalog.glyph('A').unwrap().page, 0);
     assert_eq!(catalog.glyph('世').unwrap().page, 1);
-    assert_eq!(catalog.pages()[1].rgba8[3], 128);
+    assert_eq!(catalog.pages()[1].pixels.bytes()[3], 128);
 }
 
 #[test]
@@ -52,7 +53,7 @@ fn runtime_decodes_exact_provenance_and_unmodified_rgba8() {
         pixels_sha256: Sha256::digest(&pixels).into(),
         width: 2,
         height: 1,
-        rgba8: pixels.clone(),
+        pixels: FontPixels::Rgba8(pixels.clone()),
     };
     let glyph = GlyphMetrics {
         codepoint: 'A',
@@ -73,7 +74,7 @@ fn runtime_decodes_exact_provenance_and_unmodified_rgba8() {
     assert_eq!(catalog.identity().carrier_sha256, carrier_sha256);
     assert_eq!(catalog.glyphs(), &[glyph]);
     assert_eq!(catalog.glyph('A'), Some(&glyph));
-    assert_eq!(catalog.pages()[0].rgba8.as_ref(), pixels.as_ref());
+    assert_eq!(catalog.pages()[0].pixels.bytes(), pixels.as_ref());
 }
 
 #[test]
@@ -148,7 +149,7 @@ fn page() -> FontTexturePage {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     }
 }
 
@@ -184,8 +185,11 @@ fn review_glyph_identity_includes_bearings_and_exact_draw_sizes() {
 fn attached_named_font_keeps_default_metrics_and_rebases_private_pages() {
     let base = RuntimeFontCatalog::decode(&carrier(), SOURCE_MANIFEST_SHA256).unwrap();
     let mut private_page = page();
-    private_page.rgba8[3] = 128;
-    private_page.pixels_sha256 = Sha256::digest(&private_page.rgba8).into();
+    let FontPixels::Rgba8(pixels) = &mut private_page.pixels else {
+        unreachable!("authored pages are RGBA");
+    };
+    pixels[3] = 128;
+    private_page.pixels_sha256 = Sha256::digest(&pixels[..]).into();
     let glyph = GlyphMetrics {
         advance_64: 192,
         ..*base.glyph('A').unwrap()
@@ -204,7 +208,7 @@ fn attached_named_font_keeps_default_metrics_and_rebases_private_pages() {
     assert!(alias.linear_sampling());
     assert_eq!(alias.glyph('A').unwrap().page, 1);
     assert_eq!(alias.glyph('A').unwrap().advance_64, 192);
-    assert_eq!(combined.pages()[1].rgba8[3], 128);
+    assert_eq!(combined.pages()[1].pixels.bytes()[3], 128);
     assert_eq!(combined.font_named("unknown").glyph('A'), base.glyph('A'));
     let next = combined
         .with_named_font("second_controls", &private)
@@ -218,4 +222,67 @@ fn attached_named_font_keeps_default_metrics_and_rebases_private_pages() {
         next.font_named("second_controls").identity()
     );
     assert!(base.with_named_font("", &private).is_err());
+}
+
+/// Coverage storage samples like the RGBA page wherever a glyph is visible, at a quarter of the bytes.
+#[test]
+fn coverage_pages_match_rgba_alpha_on_sample_glyphs_and_drop_the_rgba_copy() {
+    // A white glyph edge over transparent texels whose colour nearest sampling never shows.
+    let rgba: Vec<u8> = [
+        [255, 255, 255, 255],
+        [255, 255, 255, 128],
+        [0, 0, 0, 0],
+        [7, 9, 3, 0],
+    ]
+    .concat();
+    let white = FontTexturePage {
+        source_path: "font/glyph.png".into(),
+        source_bytes: 1,
+        source_sha256: [0x24; 32],
+        pixels_sha256: Sha256::digest(&rgba).into(),
+        width: 2,
+        height: 2,
+        pixels: FontPixels::Rgba8(rgba.clone().into()),
+    };
+    let mut tinted = vec![255; 16];
+    tinted[0] = 200;
+    let colour = FontTexturePage {
+        source_path: "font/tinted.png".into(),
+        pixels_sha256: Sha256::digest(&tinted).into(),
+        pixels: FontPixels::Rgba8(tinted.into()),
+        ..white.clone()
+    };
+    let glyph = |codepoint, page| GlyphMetrics {
+        codepoint,
+        page,
+        uv: [0, 0, 2, 2],
+        bearing: [0, -2],
+        advance_64: 128,
+    };
+    let bytes = encode_font_catalog(
+        SOURCE_MANIFEST_SHA256,
+        &[glyph('A', 0), glyph('B', 1)],
+        &[white, colour],
+    )
+    .unwrap();
+    let decoded = RuntimeFontCatalog::decode(&bytes, SOURCE_MANIFEST_SHA256).unwrap();
+    let coverage = decoded.clone().with_coverage_pages();
+    let (original, stored) = (&decoded.pages()[0].pixels, &coverage.pages()[0].pixels);
+    assert!(matches!(stored, FontPixels::Coverage(bytes) if bytes.len() == 4));
+    assert!(stored.rgba8().is_none(), "the RGBA copy is gone");
+    for index in 0..4 {
+        let (rgba, sampled) = (original.texel(index).unwrap(), stored.texel(index).unwrap());
+        assert_eq!(sampled[3], rgba[3], "texel {index} alpha");
+        if rgba[3] != 0 {
+            assert_eq!(sampled, rgba, "visible texel {index}");
+        }
+    }
+    assert!(
+        matches!(coverage.pages()[1].pixels, FontPixels::Rgba8(_)),
+        "coloured pages stay RGBA"
+    );
+    assert!(matches!(
+        decoded.with_linear_sampling().with_coverage_pages().pages()[0].pixels,
+        FontPixels::Rgba8(_)
+    ));
 }

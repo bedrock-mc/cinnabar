@@ -92,7 +92,7 @@ func testLocalReplayRoundTrip(t *testing.T, end string, withPack bool) {
 	}
 	conn, err := (minecraft.Dialer{
 		IdentityData: login.IdentityData{DisplayName: "ReplayTest"},
-		RelayStartup: true, ErrorLog: slog.New(slog.DiscardHandler),
+		Handoff:      minecraft.HandoffAtStartGame, ErrorLog: slog.New(slog.DiscardHandler),
 	}).DialContextNetwork(ctx, streamnet.New(opts.socketDir), "")
 	if err != nil {
 		t.Fatal(err)

@@ -89,17 +89,36 @@ impl Plugin for HandRigRenderPlugin {
     }
 }
 
-/// Block/sky are raw 0..=15 levels at the player; daylight scales the sky channel. 16 bytes.
+/// World light levels and optional Java directional lights in the hand's camera frame.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct HandRigLight {
     pub block_level: u32,
     pub sky_level: u32,
     pub daylight: f32,
     pub pad: u32,
+    /// The first direction's W enables Java shading; zero preserves vanilla's material.
+    pub java_lights: [[f32; 4]; 2],
+    /// Native Z normals in each rig's frame: body, main hand, offhand.
+    pub java_normal_axes: [[f32; 4]; 3],
 }
 
-const _: () = assert!(size_of::<HandRigLight>() == 16);
+impl HandRigLight {
+    /// Sets Java's two fixed lights after view bob and look rotation, before hand sway.
+    pub fn with_java_lighting(mut self, camera_from_light: Mat4) -> Self {
+        self.java_lights =
+            [Vec3::new(0.2, 1.0, -0.7), Vec3::new(-0.2, 1.0, 0.7)].map(|direction| {
+                camera_from_light
+                    .transform_vector3(direction.normalize())
+                    .extend(1.0)
+                    .to_array()
+            });
+        self.java_normal_axes = [Vec3::Z.extend(0.0).to_array(); 3];
+        self
+    }
+}
+
+const _: () = assert!(size_of::<HandRigLight>() == 96);
 
 /// The equipment atlas page an item instance samples (layer chosen by the instance's
 /// `texture_layer` with its top bit set).
@@ -134,6 +153,13 @@ impl HandRigScene {
         self.frame = None;
     }
 
+    /// Shares the skin and projection admission used by early first-person readiness.
+    pub fn accepts_skin_and_fov(skin: &SkinRgba8, fov_radians: f32) -> bool {
+        skin.len() == render_model::STANDARD_SKIN_BYTES
+            && fov_radians > 0.0
+            && fov_radians < std::f32::consts::PI
+    }
+
     /// Accepts a single-instance rig frame with a 64x64 RGBA skin and a finite positive FOV;
     /// anything else clears the scene so the fallback keeps rendering.
     pub fn publish(
@@ -148,8 +174,7 @@ impl HandRigScene {
             || rig.previous_bones.is_empty()
             || rig.previous_bones.len() != rig.current_bones.len()
             || rig.maximum_vertex_count == 0
-            || skin.len() != render_model::STANDARD_SKIN_BYTES
-            || !(fov_radians > 0.0 && fov_radians < std::f32::consts::PI)
+            || !Self::accepts_skin_and_fov(&skin, fov_radians)
             || revision == 0
         {
             self.clear();
@@ -206,7 +231,8 @@ fn install(app: &mut App) {
         HAND_RIG_SHADER,
         "hand_rig.wgsl",
         crate::shader_safety::from_actor_wgsl,
-        crate::actor::ACTOR_GPU_INSTANCE_WORDS
+        crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS
     );
     let render_app = app.sub_app_mut(RenderApp);
     render_app
@@ -248,10 +274,11 @@ fn install_graph(world: &mut World) {
     if graph.get_node_state(HandRigLabel).is_err() {
         graph.add_node(HandRigLabel, runner);
     }
+    // Inside the main pass, so FXAA smooths the hand before the HUD composites over it.
     graph.add_node_edges((
         crate::ui_render::UiWorldLabel,
         HandRigLabel,
-        crate::ui_render::UiOverlayLabel,
+        bevy::core_pipeline::core_3d::graph::Node3d::EndMainPass,
     ));
 }
 
@@ -285,6 +312,9 @@ struct HandRigGpu {
     view_uniform: Buffer,
     material: Buffer,
     light_uniform: Buffer,
+    uniforms: Option<([f32; 16], HandRigLight)>,
+    #[cfg(test)]
+    uniform_uploads: [u64; 2],
     instances: Option<Buffer>,
     vertices: crate::actor::gpu::SegmentedVertexBuffer,
     spans: Option<Buffer>,
@@ -328,7 +358,10 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         }),
         view_uniform: uniform("first-person rig view", &[0u8; 64]),
         material,
-        light_uniform: uniform("first-person rig light", &[0u8; 16]),
+        light_uniform: uniform("first-person rig light", &[0u8; size_of::<HandRigLight>()]),
+        uniforms: None,
+        #[cfg(test)]
+        uniform_uploads: [0; 2],
         instances: None,
         vertices: default(),
         spans: None,
@@ -383,12 +416,7 @@ fn prepare(
     let aspect = viewport.z as f32 / viewport.w as f32;
     let projection =
         Mat4::perspective_infinite_reverse_rh(frame.fov_radians, aspect, HAND_RIG_NEAR_PLANE);
-    queue.write_buffer(
-        &gpu.view_uniform,
-        0,
-        bytemuck::cast_slice(&projection.to_cols_array()),
-    );
-    queue.write_buffer(&gpu.light_uniform, 0, bytemuck::bytes_of(&frame.light));
+    upload_uniforms(&mut gpu, &queue, projection, frame.light);
     build_bind_group(&mut gpu, &device, &cache);
     let gpu = &mut *gpu;
     let layout = gpu.layout.clone();
@@ -398,6 +426,41 @@ fn prepare(
     if gpu.bind_group.is_none() || gpu.pipeline.is_none() {
         gpu.maximum_vertex_count = 0;
     }
+}
+
+/// Keeps unchanged hand projection and lighting out of the staging allocation path.
+fn upload_uniforms(
+    gpu: &mut HandRigGpu,
+    queue: &RenderQueue,
+    projection: Mat4,
+    light: HandRigLight,
+) {
+    let projection = projection.to_cols_array();
+    if gpu.uniforms.as_ref().is_none_or(|old| old.0 != projection) {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "hand.projection_write",
+            bytes = std::mem::size_of_val(&projection)
+        )
+        .entered();
+        queue.write_buffer(&gpu.view_uniform, 0, bytemuck::cast_slice(&projection));
+        #[cfg(test)]
+        {
+            gpu.uniform_uploads[0] += 1;
+        }
+    }
+    if gpu.uniforms.as_ref().is_none_or(|old| old.1 != light) {
+        #[cfg(feature = "tracy")]
+        let _span =
+            bevy::log::info_span!("hand.light_write", bytes = std::mem::size_of_val(&light))
+                .entered();
+        queue.write_buffer(&gpu.light_uniform, 0, bytemuck::bytes_of(&light));
+        #[cfg(test)]
+        {
+            gpu.uniform_uploads[1] += 1;
+        }
+    }
+    gpu.uniforms = Some((projection, light));
 }
 
 fn deactivate(gpu: &mut HandRigGpu) {
@@ -462,6 +525,14 @@ fn upload_pose(
             bytemuck::cast_slice::<_, u8>(&frame.rig.current_bones),
         ),
     ] {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "hand.pose_upload",
+            label,
+            revision = frame.revision,
+            bytes = bytes.len()
+        )
+        .entered();
         match slot {
             Some(buffer) if buffer.size() == bytes.len() as u64 => {
                 queue.write_buffer(buffer, 0, bytes);
@@ -837,7 +908,7 @@ fn hand_rig_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 8,
-                visibility: ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -847,11 +918,11 @@ fn hand_rig_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 9,
-                visibility: ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(16),
+                    min_binding_size: BufferSize::new(size_of::<HandRigLight>() as u64),
                 },
                 count: None,
             },

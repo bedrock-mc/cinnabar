@@ -139,9 +139,8 @@ impl RuntimeBlockEntityAssets {
         {
             return Err(invalid("noncanonical block-entity carrier layout"));
         }
-        if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("block-entity carrier hash mismatch"));
-        }
+        let identity = crate::encoding::sealed_identity(bytes, payload_end)
+            .ok_or_else(|| invalid("block-entity carrier hash mismatch"))?;
         let pixel_bytes = pixel_length(atlas_width, atlas_height)?;
         let mut cursor = HEADER_BYTES;
         let pixels_end = cursor
@@ -190,7 +189,7 @@ impl RuntimeBlockEntityAssets {
             return Err(invalid("trailing block-entity carrier payload"));
         }
         Ok(Self {
-            identity: Sha256::digest(bytes).into(),
+            identity,
             source_manifest_sha256,
             atlas_width,
             atlas_height,

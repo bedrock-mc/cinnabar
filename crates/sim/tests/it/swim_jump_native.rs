@@ -1,9 +1,9 @@
-//! Native SwimAmountComponent/ActorHeadInWater guards in MobJumpSystem.
+//! Vanilla swim-amount and head-in-water guards on jumping.
 
 use sim::{
     Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
     MovementInput, MovementMode, PlayerState, PredictionHistory, SimulationError, Simulator,
-    SurfaceResponse, Vec3, WorldQueryError, sample_water_head,
+    SurfaceResponse, Vec3, WorldQueryError, sample_liquid_submersion, sample_water_head,
 };
 
 struct JumpWorld {
@@ -81,8 +81,8 @@ fn jump(mode: MovementMode) -> MovementInput {
 
 #[test]
 fn native_swim_blend_advances_before_jump_and_zeroes_partial_wet_ascent() {
-    // CurrentSwimAmountSystem 0x099e64c0 is registered before MobJumpSystem
-    // 0x0a5dc2e0 and the current swim trigger. The first entry tick retains
+    // The swim-amount blend advances before the jump step and the swim
+    // trigger. The first entry tick retains
     // zero; subsequent additions follow the prior swimming/crawling flag.
     let blend_bits = [
         0,
@@ -248,6 +248,32 @@ fn head_water_uses_source_level_surface_and_rejects_lava() {
         ..source
     };
     assert!(!sample_water_head(&lava, feet, 0.5).unwrap().value);
+}
+
+/// Breathing-point submersion accepts either liquid against the same surface.
+#[test]
+fn breathing_submersion_admits_water_and_lava_below_the_surface() {
+    let source = JumpWorld {
+        water_top: 6,
+        fluid_height: 8.0 / 9.0,
+        ..JumpWorld::submerged()
+    };
+    let lava = JumpWorld {
+        flags: BlockPhysicsFlags::LAVA,
+        ..source
+    };
+    for world in [&source, &lava] {
+        assert!(
+            sample_liquid_submersion(world, Vec3::new(0.5, 5.95, 0.5))
+                .unwrap()
+                .value
+        );
+        assert!(
+            !sample_liquid_submersion(world, Vec3::new(0.5, 6.0, 0.5))
+                .unwrap()
+                .value
+        );
+    }
 }
 
 #[test]

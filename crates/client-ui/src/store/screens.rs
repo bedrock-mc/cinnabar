@@ -30,6 +30,7 @@ pub const PROGRESS_SCREEN: &str = "store_progress.store_progress_screen";
 const FACTORY: &str = "factory_collection";
 const OFFERS: &str = "offer_collection";
 const GRID_FACTORY: &str = "offer_grid_factory";
+const HERO_COLLECTION: &str = "hero_row_collection";
 const INFO_ROWS_NAME: &str = "offer_info_row_factory";
 const INFO_COLUMNS_NAME: &str = "offer_info_column_factory";
 
@@ -88,7 +89,7 @@ pub struct StoreScreens {
 
 fn sdl_context(base: &Context) -> Context {
     base.clone()
-        .with_flag("content_cards_enabled", true)
+        .with_flag("content_cards_enabled", false)
         .with_flag("is_sidebar_navigation_enabled", false)
         .with_flag("use_animation", false)
 }
@@ -265,6 +266,8 @@ fn row_item(row: &DisplayRow) -> CollectionItem {
         .with("#header_text_color", text("#ffffff"))
         .with("#show_header_background", Scalar::Bool(false))
         .with("#show_banner", Scalar::Bool(false))
+        // The plain row header shows while the sales banner header is hidden.
+        .with("#hide_banner", Scalar::Bool(true))
         .with("#show_timer", Scalar::Bool(false))
         .with("#show_row_background", Scalar::Bool(false))
         .with("#show_row_outline", Scalar::Bool(false))
@@ -284,13 +287,28 @@ fn offer_lists(
 ) {
     let path = image_lookup(snapshot);
     let is_grid = matches!(row.role, "GridList" | "VerticalGridList");
+    // Without content card styles a row draws vanilla's pre-content-card offer panel.
+    let role = if is_grid { "Generic" } else { "GenericOLD" };
     let mut items: Vec<CollectionItem> = row
         .offers
         .iter()
-        .map(|offer| offer_item("Generic", offer, &path, tr))
+        .map(|offer| offer_item(role, offer, &path, tr))
         .collect();
     if row.continuation.is_some() && !is_grid {
         items.push(show_more_item(tr));
+    }
+    if row.role == "HeroRow" {
+        // A hero row reads `hero_row_collection`, scoped to its own factory item.
+        let hero = row
+            .offers
+            .iter()
+            .map(|offer| offer_item("Generic", offer, &path, tr));
+        data.scoped.push((
+            FACTORY.to_owned(),
+            factory_index,
+            HERO_COLLECTION.to_owned(),
+            hero.collect(),
+        ));
     }
     if is_grid {
         // A grid row is one `Generic` grid item that owns the offer list.
@@ -404,6 +422,8 @@ fn detail_sections(
         false,
     );
     data.flag("#progress_loading_anim_visible", snapshot.loading);
+    // Gates the whole summary section (title, creator, ratings, key art).
+    data.flag("#summary_content_visible", true);
     data.global("#main_mashup_key_art_texture", text(key_art.clone()));
     data.global(
         "#main_mashup_key_art_file_system",
@@ -414,17 +434,15 @@ fn detail_sections(
         Scalar::Bool(offer.creator.is_some()),
     );
 
+    // The offer page reads its title, creator and description as globals, not from its row item.
+    data.global("#title_label", text(offer.title.clone()));
+    data.global(
+        "#creator_label",
+        text(offer.creator.clone().unwrap_or_default()),
+    );
+    data.flag("#is_creator_label_visible", offer.creator.is_some());
     items.push(
         CollectionItem::new("ItemSummary")
-            .with("#title_label", text(offer.title.clone()))
-            .with(
-                "#creator_label",
-                text(offer.creator.clone().unwrap_or_default()),
-            )
-            .with(
-                "#is_creator_label_visible",
-                Scalar::Bool(offer.creator.is_some()),
-            )
             .with("#section_title_visible", Scalar::Bool(false))
             .with("#ratings_visible", Scalar::Bool(offer.rating.is_some()))
             .with(
@@ -471,13 +489,10 @@ fn detail_sections(
         ));
     }
     if let Some(description) = detail.description.as_deref().filter(|d| !d.is_empty()) {
+        data.global("#description_label", text(description));
+        data.flag("#is_description_expanded", true);
         items.push(
             CollectionItem::new("ItemDescription")
-                .with("#text", text(description))
-                .with("#is_description_expanded", Scalar::Bool(true))
-                .with("#description_expanded_visible", Scalar::Bool(true))
-                .with("#description_collapsed_visible", Scalar::Bool(false))
-                .with("#collapsed_show_more_visible", Scalar::Bool(false))
                 .with("#section_title_visible", Scalar::Bool(false)),
         );
     }

@@ -6,12 +6,6 @@ const FLAG_MOUTH_OPEN: u32 = 7;
 const TAIL_CHANCE: u64 = 200;
 const TAIL_END: u8 = 8;
 
-pub(super) fn is_horse(actor: &ActorSnapshot) -> bool {
-    matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
-        "minecraft:horse" | "minecraft:donkey" | "minecraft:mule" |
-        "minecraft:zombie_horse" | "minecraft:skeleton_horse"))
-}
-
 fn flag(actor: &ActorSnapshot, bit: u32) -> bool {
     matches!(actor.metadata.get(&KEY_FLAGS), Some(ActorMetadataValue::Long(flags))
         if (*flags as u64) & (1_u64 << bit) != 0)

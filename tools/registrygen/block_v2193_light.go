@@ -29,12 +29,18 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 			continue
 		}
 		current := properties[index]
-		// TopSnowBlock sets light dampening to zero. Its
-		// inherited light getter and height-specific connection
-		// component leave that value intact, unlike Dragonfly's filter=2.
-		// Ice constructors start at zero, but final native registrations
-		// set light dampening to three before the inherited
-		// getter reads it. Packed/blue ice remain excluded.
+		// Every portal axis emits eleven and transmits light, including the
+		// unknown-axis state absent from Dragonfly's block implementation.
+		if record.Name == "minecraft:portal" {
+			const nativePortalLight byte = 11
+			if current != nativePortalLight {
+				properties[index] = nativePortalLight
+				changed++
+			}
+			continue
+		}
+		// Snow layers transmit light regardless of their height. Ice uses
+		// dampening three; packed and blue ice retain their separate rules.
 		isSnowLayer := record.Name == "minecraft:snow_layer"
 		isTransparentIce := record.Name == "minecraft:ice" || record.Name == "minecraft:frosted_ice"
 		isStillWater := record.Name == "minecraft:water"
@@ -51,8 +57,8 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 				// targets the current registry-foundation game version.
 				filter = 1
 			case isFlowingWater:
-				// DynamicLiquidBlock final registration has
-				// no version gate: still and flowing types differ.
+				// Vanilla flowing liquid has no version gate here:
+				// still and flowing types differ.
 				filter = 2
 			}
 			next := current&0x0f | filter<<4
@@ -68,6 +74,15 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 		}
 		if stateResolved {
 			next := current&0xf0 | emission
+			if record.Name == "minecraft:sculk_sensor" || record.Name == "minecraft:calibrated_sculk_sensor" {
+				if exact, ok := retail[record.Name]; ok {
+					_, filter, err := checkedPMMPLight(record.Name, exact)
+					if err != nil {
+						return 0, err
+					}
+					next = filter<<4 | emission
+				}
+			}
 			if next != current {
 				properties[index] = next
 				changed++

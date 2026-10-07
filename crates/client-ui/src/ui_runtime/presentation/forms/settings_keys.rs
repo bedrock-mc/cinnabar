@@ -39,7 +39,11 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
             .enumerate()
             .map(|(index, label)| {
                 let index = offset + index;
-                let name = translate(label);
+                let name = if *label == "key.freelook" {
+                    "Freelook".to_owned()
+                } else {
+                    translate(label)
+                };
                 let control = view.settings_options.key_control(index);
                 let capturing = view.key_remap == Some(index as u16);
                 let key = if capturing {

@@ -1,15 +1,13 @@
 //! First-run preparation of the Mojang-derived asset carriers, which installers never ship.
 //!
-//! Runs before the game window: consent, a download of the pinned public pack, then `assetc`. A
-//! setup window in a child process shows it; without one, native dialogs do. Progress is mirrored
-//! to `logs/first-run-status.json`.
+//! Runs before the game window: consent, a download of the pinned public pack, then one
+//! `assetc prepare`. A setup window in a child process shows it; without one, native dialogs do.
+//! Progress is mirrored to `logs/first-run-status.json`.
 
 mod download;
-mod plan;
 mod prepare;
 mod runner;
 mod screen;
-mod stamp;
 mod status;
 #[cfg(test)]
 mod test_support;
@@ -22,7 +20,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     install_layout::InstallLayout,
-    native_dialog::{NativePrompter, Prompter},
+    native_dialog::{Consent, NativePrompter, Prompter},
 };
 use prepare::prepare;
 use status::{Phase, Status};
@@ -61,7 +59,7 @@ pub(crate) fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
 /// An unreadable kit counts as needing preparation, which then reports it.
 fn needs_preparation(layout: &InstallLayout) -> bool {
     layout.is_installed()
-        && !prepare::selection(layout).is_ok_and(|(_, selection)| selection.is_current())
+        && !prepare::selection(layout).is_ok_and(|selection| selection.is_current())
 }
 
 /// An earlier set exists, so this run updates rather than sets up.
@@ -125,9 +123,24 @@ fn ensure_with(
         0,
         "Waiting for consent",
     ));
-    if !env_consent && !consent_recorded(layout) && !prompter.confirm(TITLE, CONSENT_BODY) {
-        report(Status::failed("Declined", "setup declined"));
-        return Ok(Outcome::Quit);
+    if !env_consent && !consent_recorded(layout) {
+        match prompter.confirm(TITLE, CONSENT_BODY) {
+            Consent::Accepted => {}
+            Consent::Declined => {
+                report(Status::failed("Declined", "setup declined"));
+                return Ok(Outcome::Quit);
+            }
+            Consent::Unavailable => {
+                let message = format!(
+                    "Setup needs your consent, but no setup window, dialog or terminal could \
+                     ask for it. Install zenity or kdialog, or start Cinnabar with \
+                     {CONSENT_ENV}=1 to accept the Minecraft EULA ({EULA_URL})."
+                );
+                report(Status::failed("No consent prompt", &message));
+                prompter.alert(TITLE, &message);
+                bail!("{message}");
+            }
+        }
     }
     let is_update = updating(layout);
     record_consent(layout)?;

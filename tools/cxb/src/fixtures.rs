@@ -133,7 +133,7 @@ macro_rules! all_variants {
 pub fn generate() -> Result<Fixtures> {
     let server = keys::pair(&SERVER_SEED)?;
     let publisher = keys::pair(&PUBLISHER_SEED)?;
-    let built = bundle::build(source(), COMPONENT, &publisher)?;
+    let built = bundle::build(source(), COMPONENT, &[], &publisher)?;
     let offer = Offer {
         version: policy::WIRE_VERSION,
         audience: AUDIENCE.to_owned(),

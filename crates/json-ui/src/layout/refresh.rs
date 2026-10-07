@@ -1,37 +1,69 @@
 //! Preserve control addresses while invalidating changed measurements.
 
-use std::collections::HashSet;
-
 use crate::ResolvedControl;
+use crate::bind::{Children, Patch};
+
+use super::measure::Dirty;
 
 /// Apply a fresh binding, marking changed controls and their ancestors.
 pub(super) fn update(
     tree: &mut ResolvedControl,
-    next: ResolvedControl,
-    dirty: &mut HashSet<usize>,
+    mut next: ResolvedControl,
+    dirty: &mut Dirty,
 ) -> bool {
-    let same_children = tree.children.len() == next.children.len()
-        && tree.children.iter().zip(&next.children).all(|(a, b)| {
-            a.name == b.name
-                && a.properties.get("collection_index") == b.properties.get("collection_index")
-        });
-    let changed = tree.name != next.name
+    let children = std::mem::take(&mut next.children);
+    let changed = update_children(tree, children, dirty);
+    finish(tree, next, changed, dirty)
+}
+
+/// Apply a binder patch: [`update`] for the controls it carries, nothing for
+/// those it reports unchanged.
+pub(super) fn apply(tree: &mut ResolvedControl, patch: Patch, dirty: &mut Dirty) -> bool {
+    let (next, children) = match patch {
+        Patch::Same => return false,
+        Patch::Full(next) => return update(tree, *next, dirty),
+        Patch::Update(next, children) => (next, children),
+    };
+    let changed = match children {
+        Children::Each(patches) => {
+            assert_eq!(
+                patches.len(),
+                tree.children.len(),
+                "a patch must address the tree its bind produced"
+            );
+            let mut changed = false;
+            for (child, patch) in tree.children.iter_mut().zip(patches) {
+                changed |= apply(child, patch, dirty);
+            }
+            changed
+        }
+        Children::Replace(children) => update_children(tree, children, dirty),
+    };
+    match next {
+        Some(next) => finish(tree, *next, changed, dirty),
+        None => {
+            if changed {
+                dirty.changed(std::ptr::from_ref(tree).addr());
+            }
+            changed
+        }
+    }
+}
+
+/// Take `next`'s own fields, marking the control when they or its children changed.
+fn finish(
+    tree: &mut ResolvedControl,
+    next: ResolvedControl,
+    children_changed: bool,
+    dirty: &mut Dirty,
+) -> bool {
+    let changed = children_changed
+        || tree.name != next.name
         || tree.control_type != next.control_type
         || tree.properties != next.properties
         || tree.base != next.base
         || tree.unresolved_base != next.unresolved_base
         || tree.factory != next.factory;
-    let mut changed = changed || !same_children;
-    if same_children {
-        for (child, next) in tree.children.iter_mut().zip(next.children) {
-            changed |= update(child, next, dirty);
-        }
-    } else {
-        for child in &tree.children {
-            mark_subtree(child, dirty);
-        }
-        tree.children = next.children;
-    }
     tree.name = next.name;
     tree.control_type = next.control_type;
     tree.properties = next.properties;
@@ -39,14 +71,39 @@ pub(super) fn update(
     tree.unresolved_base = next.unresolved_base;
     tree.factory = next.factory;
     if changed {
-        dirty.insert(std::ptr::from_ref(tree).addr());
+        dirty.changed(std::ptr::from_ref(tree).addr());
+    }
+    changed
+}
+
+/// Update children in place when names and indices line up, else replace them.
+fn update_children(
+    tree: &mut ResolvedControl,
+    next: Vec<ResolvedControl>,
+    dirty: &mut Dirty,
+) -> bool {
+    let same_children = tree.children.len() == next.len()
+        && tree.children.iter().zip(&next).all(|(a, b)| {
+            a.name == b.name
+                && a.properties.get("collection_index") == b.properties.get("collection_index")
+        });
+    if !same_children {
+        for child in &tree.children {
+            mark_subtree(child, dirty);
+        }
+        tree.children = next;
+        return true;
+    }
+    let mut changed = false;
+    for (child, next) in tree.children.iter_mut().zip(next) {
+        changed |= update(child, next, dirty);
     }
     changed
 }
 
 /// Remove every address before replacing a child allocation.
-fn mark_subtree(tree: &ResolvedControl, dirty: &mut HashSet<usize>) {
-    dirty.insert(std::ptr::from_ref(tree).addr());
+fn mark_subtree(tree: &ResolvedControl, dirty: &mut Dirty) {
+    dirty.removed(std::ptr::from_ref(tree).addr());
     for child in &tree.children {
         mark_subtree(child, dirty);
     }
@@ -131,13 +188,13 @@ mod tests {
         let mut cache = MeasureCache::default();
         let state = ViewState::default();
         let (_, first) =
-            super::super::layout_cached(&boxed, [100.0, 100.0], &env, &state, &mut cache);
+            super::super::layout_reusing(&boxed, [100.0, 100.0], &env, &state, &mut cache);
         assert_eq!(first.scrolls["/root/view"].bar_visible, Some(false));
         assert!(metrics.0.get() > 0);
         let moved = *boxed;
         metrics.0.set(0);
         let (_, next) =
-            super::super::layout_cached(&moved, [100.0, 100.0], &env, &state, &mut cache);
+            super::super::layout_reusing(&moved, [100.0, 100.0], &env, &state, &mut cache);
         assert_eq!(first, next);
         assert_eq!(
             metrics.0.get(),

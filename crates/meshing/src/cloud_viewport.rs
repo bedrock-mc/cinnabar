@@ -1,8 +1,8 @@
 //! Finite vanilla cloud sampling window, rather than nine full texture periods.
 //!
-//! Current 1.26.50.26 tickClouds rebuilds after fifteen blocks of
+//! 1.26.50.26 rebuilds clouds after fifteen blocks of
 //! sampling-space movement. Its task centres a 64*grid window on
-//! floor(samplePosition)>>4, and TextureTessellator emits unit caps
+//! floor(samplePosition)>>4, and the tessellator emits unit caps
 //! and occupied→empty side edges. Alpha bytes greater than one are occupied.
 
 use assets::AtmosphereTexture;

@@ -2,8 +2,27 @@
 use launcher::menu::settings_options::{EXTRA_GAMEPAD, GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
 use semantic_input::PhysicalControl;
 
+/// Inventory shortcuts share the exact configured controls used by gameplay slots.
+pub(crate) fn hotbar_control_slot(
+    menu: Option<&crate::menu::MenuRuntime>,
+    control: PhysicalControl,
+) -> Option<u8> {
+    crate::hotbar::HOTBAR_DIGIT_ACTIONS
+        .iter()
+        .enumerate()
+        .find_map(|(slot, action)| {
+            let (_, name) = super::KEY_BINDINGS
+                .iter()
+                .find(|(candidate, _)| candidate == action)?;
+            (named_control(menu, name) == Some(control)).then_some(slot as u8)
+        })
+}
+
 /// Resolves a gameplay UI control from the menu's persisted settings or startup defaults.
-fn named_control(menu: Option<&crate::menu::MenuRuntime>, name: &str) -> Option<PhysicalControl> {
+pub(crate) fn named_control(
+    menu: Option<&crate::menu::MenuRuntime>,
+    name: &str,
+) -> Option<PhysicalControl> {
     menu.map_or_else(
         || super::SettingsOptions::default().named_key_control(name),
         |menu| menu.settings_options.named_key_control(name),

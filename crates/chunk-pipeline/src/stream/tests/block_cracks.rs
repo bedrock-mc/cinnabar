@@ -170,6 +170,7 @@ fn block_crack_same_dimension_replacement_fences_and_session_replacement_is_fres
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 0,
                 position: [0.0; 3],
+                ..Default::default()
             }),
         )
         .unwrap();

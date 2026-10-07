@@ -1,11 +1,10 @@
-//! Expression source to tokens, as `UIEval::evalExpression` splits it and
-//! `ExprToken::_parseToken` types each piece.
+//! Expression source to tokens, split and typed as the vanilla client does.
 
 use serde_json::Value;
 
 use super::{MAX_BYTES, MAX_NESTING, MAX_TOKENS};
 
-/// Operator codes, as the client's `OperatorType` numbers them.
+/// Operator codes, as the vanilla client numbers them.
 pub(super) const AND: u8 = 1;
 pub(super) const OR: u8 = 2;
 pub(super) const GREATER: u8 = 3;
@@ -46,7 +45,7 @@ pub(crate) enum Operand {
 }
 
 impl Operand {
-    /// `Json::Value::asBool`: nonzero, nonempty, or true.
+    /// Vanilla JSON truthiness: nonzero, nonempty, or true.
     pub(super) fn truthy(&self) -> bool {
         match self {
             Operand::Bool(value) => *value,
@@ -59,7 +58,7 @@ impl Operand {
         }
     }
 
-    /// `Json::Value::asInt`: strings and compound values read 0.
+    /// Vanilla JSON int read: strings and compound values read 0.
     pub(super) fn int(&self) -> i32 {
         match self {
             Operand::Bool(value) => i32::from(*value),
@@ -69,7 +68,7 @@ impl Operand {
         }
     }
 
-    /// `Json::Value::asFloat`: strings and compound values read 0.
+    /// Vanilla JSON float read: strings and compound values read 0.
     pub(super) fn float(&self) -> f32 {
         match self {
             Operand::Bool(value) => f32::from(u8::from(*value)),
@@ -101,7 +100,7 @@ impl Operand {
         matches!(self, Operand::Bool(_))
     }
 
-    /// `createTokenFromUIDefVal`: the token a JSON value becomes.
+    /// The token a JSON value becomes.
     pub(crate) fn from_json(value: &Value) -> Self {
         match value {
             Value::Bool(flag) => Operand::Bool(*flag),
@@ -217,7 +216,7 @@ pub(super) fn tokenize(source: &str) -> Option<Vec<Token>> {
     groups.pop()
 }
 
-/// `ExprToken::_parseToken`: keyword, quoted string, property, int, float,
+/// Token typing order: keyword, quoted string, property, int, float,
 /// bool word, operator, else bare string.
 pub(super) fn parse_word(word: &str) -> Token {
     match word {
@@ -318,7 +317,7 @@ fn leading_float(word: &str) -> Option<f32> {
     value.is_finite().then_some(value)
 }
 
-/// `Util::toBool`, case-insensitive: `true`/`false`, `yes`/`no`, `1`/`0`.
+/// Vanilla bool words, case-insensitive: `true`/`false`, `yes`/`no`, `1`/`0`.
 fn word_bool(word: &str) -> Option<bool> {
     match word.to_ascii_lowercase().as_str() {
         "true" | "yes" | "1" => Some(true),
@@ -327,7 +326,7 @@ fn word_bool(word: &str) -> Option<bool> {
     }
 }
 
-/// `ExprToken::createStringToken` for an operator's text result: reparsed as a
+/// An operator's text result, reparsed as a
 /// full token, empty text staying an empty string.
 pub(super) fn reparse(text: String) -> Operand {
     if text.is_empty() {

@@ -2,6 +2,7 @@
 
 use super::*;
 use bevy::input::keyboard::{Key, NativeKey};
+use semantic_input::Action;
 
 mod controller_inventory;
 
@@ -335,7 +336,7 @@ fn movement_and_jump_cancel_against_the_current_finalized_gameplay_frame() {
 }
 
 #[test]
-fn focus_loss_and_visible_menu_retire_the_wheel_and_playback() {
+fn focus_loss_preserves_emotes_while_visible_menu_retires_them() {
     for lose_focus in [true, false] {
         let mut h = Harness::new();
         h.play();
@@ -353,8 +354,8 @@ fn focus_loss_and_visible_menu_retire_the_wheel_and_playback() {
                 .insert_resource(MenuRuntime::new(true, 2, "Tester".into()));
         }
         h.app.update();
-        assert!(!h.runtime().emotes().is_open());
-        assert!(h.runtime().emotes().playback().is_none());
+        assert_eq!(h.runtime().emotes().is_open(), lose_focus);
+        assert_eq!(h.runtime().emotes().playback().is_some(), lose_focus);
     }
 }
 

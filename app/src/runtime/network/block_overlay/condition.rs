@@ -1,159 +1,136 @@
-//! Per-state component resolution from permutation conditions.
-//!
-//! Only `q.block_state('name') ==/!= literal` conjunctions are evaluated, and
-//! only when one state axis varies (sequential ids); hashed ids evaluate any
-//! combination. Anything else is counted and left at base.
+//! Per-state component resolution: permutation conditions and bone visibility evaluate as
+//! block Molang against one state's values.
 
+use std::sync::Arc;
+
+use pack_compiler::{BlockMolang, BlockStateValue};
 use protocol::{CustomBlock, CustomStateValue, CustomVisualComponents};
 
 use super::OverlayGaps;
 
-pub(super) fn state_components(
-    block: &CustomBlock,
-    state: u32,
-    gaps: &mut OverlayGaps,
-) -> CustomVisualComponents {
-    let visuals = &block.visual;
-    let mut resolved = visuals.base.clone();
-    if visuals.permutations.is_empty() {
-        return resolved;
-    }
-    let varying = visuals
-        .state_axes
-        .iter()
-        .filter(|axis| axis.values.len() > 1)
-        .collect::<Vec<_>>();
-    let enumerable = varying.len() <= 1
-        && varying.first().map_or(1, |axis| axis.values.len() as u64)
-            == u64::from(block.state_count);
-    if !enumerable {
-        gaps.unevaluated_permutations += visuals.permutations.len() as u32;
-        return resolved;
-    }
-    let state_value = |name: &str| {
-        let axis = visuals
-            .state_axes
-            .iter()
-            .find(|axis| axis.name.as_ref() == name)?;
-        let index = if axis.values.len() > 1 {
-            state as usize
-        } else {
-            0
+/// What one block state draws.
+pub(super) struct StateVisual {
+    pub(super) components: CustomVisualComponents,
+    /// Geometry bones whose cubes the state's bone visibility hides.
+    pub(super) hidden_bones: Box<[Arc<str>]>,
+}
+
+/// A block's permutation conditions and bone visibility, parsed once for all of its states.
+pub(super) struct BlockExpressions {
+    conditions: Box<[Option<BlockMolang>]>,
+    /// Bone visibility of each component set: the base, then each permutation.
+    bones: Box<[Box<[BoneVisibility]>]>,
+}
+
+/// A bone and the condition that shows it; `None` always shows it.
+type BoneVisibility = (Arc<str>, Option<BlockMolang>);
+
+impl BlockExpressions {
+    pub(super) fn new(block: &CustomBlock) -> Self {
+        let visuals = &block.visual;
+        let bones = |components: &CustomVisualComponents| {
+            components
+                .bone_visibility
+                .iter()
+                .map(|(bone, expression)| (Arc::clone(bone), BlockMolang::parse(expression)))
+                .collect()
         };
-        axis.values.get(index)
-    };
-    apply_permutations(block, &state_value, &mut resolved, gaps);
-    resolved
-}
-
-/// Components for one hashed-id state, whose `values` follow the block's
-/// `state_axes`; every axis combination is evaluated exactly.
-pub(super) fn assignment_components(
-    block: &CustomBlock,
-    values: &[CustomStateValue],
-    gaps: &mut OverlayGaps,
-) -> CustomVisualComponents {
-    let visuals = &block.visual;
-    let mut resolved = visuals.base.clone();
-    let state_value = |name: &str| {
-        let position = visuals
-            .state_axes
-            .iter()
-            .position(|axis| axis.name.as_ref() == name)?;
-        values.get(position)
-    };
-    apply_permutations(block, &state_value, &mut resolved, gaps);
-    resolved
-}
-
-fn apply_permutations<'v>(
-    block: &CustomBlock,
-    state_value: &impl Fn(&str) -> Option<&'v CustomStateValue>,
-    resolved: &mut CustomVisualComponents,
-    gaps: &mut OverlayGaps,
-) {
-    for permutation in block.visual.permutations.iter() {
-        match evaluate(&permutation.condition, state_value) {
-            Some(true) => {
-                let components = &permutation.components;
-                if components.geometry.is_some() {
-                    resolved.geometry.clone_from(&components.geometry);
-                }
-                if components.materials.is_some() {
-                    resolved.materials.clone_from(&components.materials);
-                }
-                if components.transformation.is_some() {
-                    resolved.transformation = components.transformation;
-                }
-                if components.light_dampening.is_some() {
-                    resolved.light_dampening = components.light_dampening;
-                }
-                if components.light_emission.is_some() {
-                    resolved.light_emission = components.light_emission;
-                }
-            }
-            Some(false) => {}
-            None => gaps.unevaluated_permutations += 1,
+        Self {
+            conditions: visuals
+                .permutations
+                .iter()
+                .map(|permutation| BlockMolang::parse(&permutation.condition))
+                .collect(),
+            bones: std::iter::once(&visuals.base)
+                .chain(
+                    visuals
+                        .permutations
+                        .iter()
+                        .map(|permutation| &permutation.components),
+                )
+                .map(bones)
+                .collect(),
         }
     }
 }
 
-/// Evaluates `term && term ...`; `None` when any term is unsupported.
-pub(super) fn evaluate<'a>(
-    condition: &str,
-    state_value: &impl Fn(&str) -> Option<&'a CustomStateValue>,
-) -> Option<bool> {
-    let mut result = true;
-    for term in condition.split("&&") {
-        result &= evaluate_term(strip_parens(term.trim()), state_value)?;
-    }
-    Some(result)
-}
-
-fn strip_parens(mut term: &str) -> &str {
-    while let Some(inner) = term
-        .strip_prefix('(')
-        .and_then(|rest| rest.strip_suffix(')'))
-    {
-        term = inner.trim();
-    }
-    term
-}
-
-fn evaluate_term<'a>(
-    term: &str,
-    state_value: &impl Fn(&str) -> Option<&'a CustomStateValue>,
-) -> Option<bool> {
-    let (negate, left, right) = if let Some((left, right)) = term.split_once("==") {
-        (false, left, right)
-    } else {
-        let (left, right) = term.split_once("!=")?;
-        (true, left, right)
-    };
-    let left = left.trim();
-    let name = ["q.block_state(", "query.block_state("]
-        .into_iter()
-        .find_map(|prefix| left.strip_prefix(prefix))?
-        .strip_suffix(')')?;
-    let actual = state_value(unquote(name.trim())?)?;
-    let right = right.trim();
-    let equal = match actual {
-        CustomStateValue::String(value) => unquote(right)? == value.as_ref(),
-        CustomStateValue::Int(value) => right.parse::<i64>().ok()? == *value,
-        CustomStateValue::Bool(value) => match right {
-            "true" | "1" => *value,
-            "false" | "0" => !*value,
-            _ => return None,
-        },
-    };
-    Some(equal != negate)
-}
-
-fn unquote(text: &str) -> Option<&str> {
-    text.strip_prefix('\'')
-        .and_then(|rest| rest.strip_suffix('\''))
-        .or_else(|| {
-            text.strip_prefix('"')
-                .and_then(|rest| rest.strip_suffix('"'))
+/// Resolves the state whose values follow the block's `state_axes`. Without values (a state
+/// the axes cannot describe) conditions reading block states stay unevaluated and are counted.
+pub(super) fn state_visual(
+    block: &CustomBlock,
+    expressions: &BlockExpressions,
+    values: Option<&[CustomStateValue]>,
+    gaps: &mut OverlayGaps,
+) -> StateVisual {
+    let visuals = &block.visual;
+    let block_state = |name: &str| {
+        let position = visuals
+            .state_axes
+            .iter()
+            .position(|axis| axis.name.as_ref() == name)?;
+        Some(match values?.get(position)? {
+            CustomStateValue::String(value) => BlockStateValue::String(value),
+            CustomStateValue::Int(value) => BlockStateValue::Number(*value as f32),
+            CustomStateValue::Bool(value) => BlockStateValue::Number(f32::from(u8::from(*value))),
         })
+    };
+    let mut components = visuals.base.clone();
+    let mut bone_set = 0;
+    for (index, (permutation, condition)) in visuals
+        .permutations
+        .iter()
+        .zip(expressions.conditions.iter())
+        .enumerate()
+    {
+        match condition
+            .as_ref()
+            .and_then(|condition| condition.evaluate(&block_state))
+        {
+            Some(value) if value != 0.0 => {
+                if permutation.components.geometry.is_some() {
+                    bone_set = index + 1;
+                }
+                apply(&mut components, &permutation.components);
+            }
+            Some(_) => {}
+            None => gaps.unevaluated_permutations += 1,
+        }
+    }
+    // A bone hides when its value rounds to zero; one that cannot evaluate stays visible.
+    let hidden_bones = expressions.bones[bone_set]
+        .iter()
+        .filter(|(_, expression)| {
+            expression
+                .as_ref()
+                .and_then(|expression| expression.evaluate(&block_state))
+                .is_some_and(|value| value.round() == 0.0)
+        })
+        .map(|(bone, _)| Arc::clone(bone))
+        .collect();
+    StateVisual {
+        components,
+        hidden_bones,
+    }
+}
+
+fn apply(resolved: &mut CustomVisualComponents, components: &CustomVisualComponents) {
+    if components.geometry.is_some() {
+        // Bone visibility belongs to the geometry component it arrived with.
+        resolved.geometry.clone_from(&components.geometry);
+        resolved
+            .bone_visibility
+            .clone_from(&components.bone_visibility);
+    }
+    if components.materials.is_some() {
+        resolved.materials.clone_from(&components.materials);
+    }
+    if components.transformation.is_some() {
+        resolved.transformation = components.transformation;
+    }
+    if components.light_dampening.is_some() {
+        resolved.light_dampening = components.light_dampening;
+    }
+    if components.light_emission.is_some() {
+        resolved.light_emission = components.light_emission;
+    }
 }

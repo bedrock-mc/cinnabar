@@ -949,7 +949,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
             item_registry: None,
             player_game_mode: PlayerGameMode::Survival,
-            world_default_game_mode: PlayerGameMode::Survival,
+            world_default_game_mode: protocol::GameModeUpdate::Explicit(PlayerGameMode::Survival),
             player_game_mode_uses_world_default: false,
             server_authoritative_block_breaking: false,
             rewind_history_size: 20,

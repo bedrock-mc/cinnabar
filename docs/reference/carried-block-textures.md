@@ -1,4 +1,4 @@
-# Native carried block textures
+# Carried block textures
 
 ## Vanilla rules
 
@@ -7,7 +7,7 @@
 | Overlay colors | Keep the low 24 RGB bits, normalize by 255 and force alpha to one. |
 | Overlay mask | For normalized source color `C`, source alpha `a` and overlay `T`, use `mask = a*T.a` and `RGB = C*(1-mask) + T.rgb*C*mask`. Positive overlay alpha makes the face opaque. |
 | Output quantization | Multiply normalized output by 255 and truncate. |
-| Mip construction | Pass the parsed overlay from tile offset `0x30` to atlas mip construction as overlay argument 15. |
+| Mip construction | Atlas mip construction receives the parsed overlay. |
 | Sampling | Retain RGBA channel order. |
 | Carried grass | Pinned `blocks.json:2748–2753` declares carried faces; `textures/terrain_texture.json:61–70` selects a precolored grass top, dirt bottom and side with authored overlay. Do not borrow biome tint. |
 

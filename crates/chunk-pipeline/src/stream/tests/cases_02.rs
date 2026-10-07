@@ -81,6 +81,7 @@ fn block_entity_visual_diagnostics_follow_request_eviction_and_dimension_lifecyc
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0; 3],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -908,6 +909,7 @@ fn change_dimension_non_finite_horizontal_position_keeps_camera_and_scope_togeth
     let change = ChangeDimensionEvent {
         dimension: 1,
         position: [f32::NAN, 32_000.0, f32::INFINITY],
+        ..Default::default()
     };
     let expected = super::server_position::resolve_server_position(
         change.position,

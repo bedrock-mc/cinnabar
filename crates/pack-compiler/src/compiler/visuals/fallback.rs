@@ -232,6 +232,7 @@ impl<'a> FallbackInventory<'a> {
 /// Families with a dedicated exact compile rule, which supersede their inventory envelope.
 fn has_exact_family_route(record: &RegistryRecord) -> bool {
     super::lily_pad::is_record(record)
+        || super::portal::is_record(record)
         || super::literal::is_default_invisible(&record.name)
         || is_cross_visual(record)
         || is_torch(record)
@@ -251,6 +252,10 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
 #[cfg(test)]
 #[path = "fallback/snow_tests.rs"]
 mod snow_tests;
+
+#[cfg(test)]
+#[path = "fallback/leaf_litter_tests.rs"]
+mod leaf_litter_tests;
 
 #[cfg(test)]
 #[path = "fallback/translucent_tests.rs"]

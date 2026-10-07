@@ -70,7 +70,7 @@ fn tile_fraction(value: u16) -> f32 {
 /// The shape of a model-template block, following compound template chains; `None` when
 /// the template is out of range or has no quads. `variant` is the resolved block
 /// variant, whose low two bits carry the same quarter-turn as the terrain pass.
-/// Current extractCracks routes through the block
+/// Vanilla cracks route through the block
 /// tessellator, not an unrotated canonical model or collision AABB.
 #[must_use]
 pub fn crack_shape_from_template(

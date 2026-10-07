@@ -1,6 +1,6 @@
 use std::{io::Write, sync::Arc};
 
-use assets::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind};
+use assets::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind, VisualSupport};
 use protocol::{
     CustomBlock, CustomBlockVisuals, CustomBlocks, CustomMaterialInstance, CustomPermutation,
     CustomStateAxis, CustomStateValue, CustomTransformation, CustomVisualComponents,
@@ -8,6 +8,9 @@ use protocol::{
 use resource_pack::LayeredPackView;
 
 use super::{OverlayGaps, compile_block_overlay};
+
+mod legacy;
+mod vines;
 
 fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
     let image = image::RgbaImage::from_fn(width, height, |x, y| image::Rgba(pixel(x, y)));
@@ -122,12 +125,15 @@ fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
         texture: texture.into(),
         render_method: None,
         tint_method: None,
+        ambient_occlusion: None,
+        face_dimming: None,
     }]))
 }
 
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
     CustomBlock {
         name: name.into(),
+        tags: Default::default(),
         state_count,
         collides: true,
         collision_box: None,
@@ -168,6 +174,7 @@ fn generator() -> CustomBlock {
                     .map(|value| CustomStateValue::String(value.into()))
                     .into(),
             }]),
+            ..CustomBlockVisuals::default()
         },
     )
 }
@@ -318,35 +325,282 @@ fn overlay_extends_runtime_assets_after_base_ids() {
     assert!(base.with_block_overlay(2, &compiled.overlay).is_err());
 }
 
-// Only block_state equality conjunctions evaluate; anything else is unknown, not false.
 #[test]
-fn permutation_conditions_evaluate_only_supported_terms() {
-    let direction = CustomStateValue::String("west".into());
-    let open = CustomStateValue::Bool(true);
-    let state = |name: &str| match name {
-        "minecraft:cardinal_direction" => Some(&direction),
-        "test:open" => Some(&open),
-        _ => None,
+fn sequential_overlay_retains_persistent_custom_identities() {
+    let compiled = compiled();
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &compiled.overlay)
+        .unwrap();
+    let mut definitions = vec![("test:lucky", Vec::new(), 1)];
+    for (offset, direction) in ["south", "west", "north", "east"].into_iter().enumerate() {
+        let states = vec![(
+            "minecraft:cardinal_direction",
+            CustomStateValue::String(direction.into()),
+        )];
+        definitions.push(("test:generator", states, 2 + offset as u32));
+    }
+    definitions.push(("test:missing", Vec::new(), 6));
+    for (name, states, expected_id) in definitions {
+        let hash = protocol::block_state_network_hash(
+            name,
+            states.iter().map(|(name, value)| (*name, value)),
+        );
+        assert_eq!(
+            assets.sequential_id_for_hash(hash),
+            Some(expected_id),
+            "persistent identity must use the existing sequential ID for {name}"
+        );
+    }
+    let hash = protocol::block_state_network_hash("test:lucky", std::iter::empty());
+    assert_eq!(assets.sequential_id_for_hash(hash), Some(1));
+    assert_eq!(
+        assets.resolve(NetworkIdMode::Sequential, 1).kind(),
+        VisualKind::Cube
+    );
+}
+
+#[test]
+fn incomplete_state_identity_preserves_neighboring_custom_blocks() {
+    let plain = |name| {
+        block(
+            name,
+            1,
+            CustomBlockVisuals {
+                base: CustomVisualComponents {
+                    geometry: Some("minecraft:geometry.full_block".into()),
+                    materials: materials("lucky"),
+                    ..CustomVisualComponents::default()
+                },
+                ..CustomBlockVisuals::default()
+            },
+        )
     };
-    let evaluate = |condition| super::condition::evaluate(condition, &state);
-    assert_eq!(
-        evaluate("q.block_state('minecraft:cardinal_direction') == 'west'"),
-        Some(true)
+    let blocks = CustomBlocks {
+        blocks: vec![
+            plain("test:before"),
+            block("test:unnamed_axis", 2, CustomBlockVisuals::default()),
+            plain("test:after"),
+        ]
+        .into(),
+        skipped: 0,
+        ..Default::default()
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+    assert_eq!(compiled.gaps.incomplete_state_identities, 1);
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &compiled.overlay)
+        .unwrap();
+    for (name, id) in [("test:before", 1), ("test:after", 4)] {
+        let hash = protocol::block_state_network_hash(name, std::iter::empty());
+        assert_eq!(assets.sequential_id_for_hash(hash), Some(id));
+        assert_eq!(
+            assets.resolve(NetworkIdMode::Sequential, id).kind(),
+            VisualKind::Cube
+        );
+    }
+    let incomplete = protocol::block_state_network_hash("test:unnamed_axis", std::iter::empty());
+    assert_eq!(assets.sequential_id_for_hash(incomplete), None);
+    assert_eq!(compiled.overlay.visuals.len(), 4);
+    for id in [2, 3] {
+        assert_eq!(
+            assets.resolve(NetworkIdMode::Sequential, id).kind(),
+            VisualKind::Diagnostic
+        );
+    }
+}
+
+// Conditions evaluate as block Molang; one that cannot evaluate is counted, not false.
+#[test]
+fn permutation_conditions_evaluate_as_block_molang() {
+    let open = |condition: &str| CustomPermutation {
+        condition: condition.into(),
+        components: turn(1),
+    };
+    let door = block(
+        "test:door",
+        2,
+        CustomBlockVisuals {
+            permutations: Box::new([
+                open("q.block_state('test:open')"),
+                open("q.block_state('test:open') == 1 || q.block_state('test:missing')"),
+                open("math.random(0, 1) > 0.5"),
+            ]),
+            state_axes: Box::new([CustomStateAxis {
+                name: "test:open".into(),
+                values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+            }]),
+            ..CustomBlockVisuals::default()
+        },
     );
+    let mut gaps = OverlayGaps::default();
+    let expressions = super::condition::BlockExpressions::new(&door);
+    let mut state = |index| {
+        let values = door.state_values(index);
+        super::condition::state_visual(&door, &expressions, values.as_deref(), &mut gaps)
+    };
+    assert_eq!(state(0).components.transformation, None);
+    let opened = state(1);
+    assert_eq!(opened.components, turn(1));
     assert_eq!(
-        evaluate("query.block_state(\"minecraft:cardinal_direction\") != 'west'"),
-        Some(false)
+        gaps.unevaluated_permutations, 3,
+        "the missing state when closed, and the random roll in both states"
     );
+}
+
+// A trait state and a property both vary: each palette index resolves its own permutation.
+#[test]
+fn sequential_states_with_several_axes_resolve_permutations() {
+    let facing = |value: &str, quarters| CustomPermutation {
+        condition: format!("q.block_state('minecraft:cardinal_direction') == '{value}'").into(),
+        components: turn(quarters),
+    };
+    let mut generator = generator();
+    let visual = Arc::make_mut(&mut generator.visual);
+    visual.permutations = Box::new([facing("west", 1), facing("north", 2)]);
+    let mut axes = visual.state_axes.to_vec();
+    axes.push(CustomStateAxis {
+        name: "test:lit".into(),
+        values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+    });
+    visual.state_axes = axes.into_boxed_slice();
+    generator.state_count = 8;
+    let blocks = CustomBlocks {
+        blocks: vec![generator].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).expect("overlay");
+    assert_eq!(compiled.gaps.unevaluated_permutations, 0);
+    let template = |state: usize| compiled.overlay.visuals[state].model_template;
+    // Palette order: cardinal south, west, north, east, then the same with `test:lit` set.
+    assert_eq!(template(1), template(5), "west, lit or not");
+    assert_eq!(template(2), template(6), "north, lit or not");
+    assert_ne!(template(1), template(2));
+    assert_eq!(template(0), template(3), "south and east keep the base");
+}
+
+const BONE_GEOMETRY: &str = r#"{"format_version": "1.12.0", "minecraft:geometry": [{
+    "description": {"identifier": "geometry.bones", "texture_width": 16, "texture_height": 16},
+    "bones": [
+        {"name": "a", "cubes": [{"origin": [-8, 0, -8], "size": [16, 4, 16], "uv": [0, 0]}]},
+        {"name": "b", "cubes": [{"origin": [-8, 4, -8], "size": [16, 4, 16], "uv": [0, 0]}]},
+        {"name": "c", "cubes": [{"origin": [-8, 8, -8], "size": [16, 4, 16], "uv": [0, 0]}]},
+        {"name": "d", "parent": "c", "cubes": [{"origin": [-8, 12, -8], "size": [16, 4, 16], "uv": [0, 0]}]}
+    ]}]}"#;
+
+fn bone_components(bones: &[(&str, &str)]) -> CustomVisualComponents {
+    CustomVisualComponents {
+        geometry: Some("geometry.bones".into()),
+        bone_visibility: bones
+            .iter()
+            .map(|&(bone, expression)| (bone.into(), expression.into()))
+            .collect(),
+        materials: materials("lucky"),
+        ..CustomVisualComponents::default()
+    }
+}
+
+/// The four-pixel slabs a state draws, numbered from the bottom by their north faces.
+fn shown_slabs(compiled: &super::CompiledBlockOverlay, state: usize) -> Vec<i16> {
+    let visual = compiled.overlay.visuals[state];
+    if visual.kind == VisualKind::Invisible {
+        return Vec::new();
+    }
+    let template = compiled.overlay.model_templates[visual.model_template as usize];
+    let mut bottoms = compiled.overlay.model_quads[template.quad_start as usize..]
+        [..template.quad_count as usize]
+        .iter()
+        .filter(|quad| quad.flags & 7 == 5)
+        .map(|quad| {
+            quad.positions
+                .iter()
+                .map(|corner| corner[1])
+                .min()
+                .unwrap_or(0)
+                / 64
+        })
+        .collect::<Vec<_>>();
+    bottoms.sort_unstable();
+    bottoms.dedup();
+    bottoms
+}
+
+// Mirrors a vanilla server's definition: string constants and per-state Molang, applied to the
+// named bone's own cubes only, with a permutation's geometry bringing its own visibility.
+#[test]
+fn bone_visibility_hides_bones_per_state() {
+    let cardinal = CustomStateAxis {
+        name: "minecraft:cardinal_direction".into(),
+        values: ["south", "west", "north", "east"]
+            .map(|value| CustomStateValue::String(value.into()))
+            .into(),
+    };
+    let directed = block(
+        "test:directed",
+        4,
+        CustomBlockVisuals {
+            base: bone_components(&[
+                (
+                    "a",
+                    "q.block_state('minecraft:cardinal_direction') == 'north'",
+                ),
+                ("b", "1.000000"),
+                ("c", "0.000000"),
+                ("missing", "0.000000"),
+            ]),
+            state_axes: Box::new([cardinal]),
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let switched = block(
+        "test:switched",
+        2,
+        CustomBlockVisuals {
+            base: bone_components(&[]),
+            permutations: Box::new([CustomPermutation {
+                condition: "q.block_state('test:s')".into(),
+                components: bone_components(&[("a", "0.000000"), ("b", "0.4"), ("d", "-0.5")]),
+            }]),
+            state_axes: Box::new([CustomStateAxis {
+                name: "test:s".into(),
+                values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+            }]),
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let hidden = block(
+        "test:hidden",
+        1,
+        CustomBlockVisuals {
+            base: bone_components(&[("a", "0"), ("b", "0"), ("c", "0"), ("d", "false")]),
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let blocks = CustomBlocks {
+        blocks: vec![directed, switched, hidden].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(
+        &view_with_geometry(BONE_GEOMETRY.as_bytes()),
+        &blocks,
+        false,
+        None,
+    )
+    .expect("overlay");
+    assert_eq!(shown_slabs(&compiled, 0), [1, 3], "south hides a and c");
     assert_eq!(
-        evaluate(
-            "(q.block_state('test:open') == true) && q.block_state('minecraft:cardinal_direction') == 'west'"
-        ),
-        Some(true)
+        shown_slabs(&compiled, 2),
+        [0, 1, 3],
+        "north shows a; d is not hidden with c"
     );
-    assert_eq!(evaluate("q.block_state('test:open') == false"), Some(false));
-    assert_eq!(evaluate("q.block_state('test:missing') == 1"), None);
-    assert_eq!(evaluate("q.block_state('test:open') || true"), None);
-    assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+    assert_eq!(shown_slabs(&compiled, 4), [0, 1, 2, 3]);
+    assert_eq!(
+        shown_slabs(&compiled, 5),
+        [2, 3],
+        "0.4 rounds to zero, -0.5 away from it"
+    );
+    assert_eq!(compiled.overlay.visuals[6].kind, VisualKind::Invisible);
 }
 
 // Flipbook framing is bounded before copies are cut and each frame is shrunk.
@@ -456,7 +710,7 @@ fn hashed_mode_emits_a_visual_and_hash_per_state() {
     let session = base
         .with_block_overlay(1, &compiled.overlay)
         .expect("session assets");
-    let hash = compiled.overlay.hashes[2];
+    let hash = compiled.overlay.hashes[2].unwrap();
     assert_eq!(session.sequential_id_for_hash(hash), Some(3));
 }
 
@@ -554,6 +808,7 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
         pair("test:lucky_placer", "test:lucky"),
     ];
     let compiled = compiled();
+    assert_eq!(compiled.overlay.visuals[0].support, VisualSupport::Exact);
     assert!(
         compiled.overlay.texture.as_ref().unwrap().mips[0].size
             > u32::from(assets::BLOCK_ITEM_FACE_SIDE),
@@ -593,8 +848,109 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
     }
 }
 
-// Real cached packs (`CINNABAR_PACKCACHE_DIR`): each unencrypted pack's namespaced scalar-textured
-// blocks, as full-block custom blocks, draw item thumbnails.
+#[test]
+fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support() {
+    use super::super::item_icons::custom_block_icons;
+
+    let identity = CustomTransformation {
+        rotation: [0; 3],
+        scale: [1.0; 3],
+        translation: [0.0; 3],
+    };
+    let material = |render_method: Option<&str>,
+                    tint_method: Option<&str>|
+     -> Option<Box<[CustomMaterialInstance]>> {
+        Some(Box::new([CustomMaterialInstance {
+            name: "*".into(),
+            texture: "lucky".into(),
+            render_method: render_method.map(Into::into),
+            tint_method: tint_method.map(Into::into),
+            ambient_occlusion: None,
+            face_dimming: None,
+        }]))
+    };
+    for (case, transformation, materials, thumbnail) in [
+        (
+            "rotation",
+            Some(CustomTransformation {
+                rotation: [0, 1, 0],
+                ..identity
+            }),
+            material(None, None),
+            true,
+        ),
+        (
+            "scale",
+            Some(CustomTransformation {
+                scale: [0.5; 3],
+                ..identity
+            }),
+            material(None, None),
+            true,
+        ),
+        (
+            "translation",
+            Some(CustomTransformation {
+                translation: [0.25, 0.0, 0.0],
+                ..identity
+            }),
+            material(None, None),
+            true,
+        ),
+        ("blend", None, material(Some("blend"), None), true),
+        (
+            "unknown method",
+            None,
+            material(Some("unknown"), None),
+            true,
+        ),
+        (
+            "unresolved tint",
+            None,
+            material(None, Some("grass")),
+            false,
+        ),
+    ] {
+        let blocks = CustomBlocks {
+            blocks: vec![block(
+                "test:cube",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        geometry: Some(super::FULL_BLOCK.into()),
+                        materials,
+                        transformation,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+        assert_eq!(
+            compiled.overlay.visuals[0].support,
+            VisualSupport::VanillaFallback,
+            "{case}"
+        );
+        let icons = custom_block_icons(
+            &compiled.overlay,
+            &blocks,
+            false,
+            &[("test:cube".into(), "test:cube".into())],
+        );
+        assert_eq!(
+            icons.icons.len(),
+            usize::from(thumbnail),
+            "{case}: only an untinted fallback has a drawable thumbnail"
+        );
+        assert_eq!(icons.misses.len(), usize::from(!thumbnail), "{case}");
+        assert!(icons.block_sheets.is_empty(), "{case}");
+    }
+}
+
+// Cached packs supply scalar cube textures independently of custom visual components.
 #[test]
 fn packcache_custom_block_items_draw_when_requested() {
     use super::super::item_icons::custom_block_icons;
@@ -604,64 +960,37 @@ fn packcache_custom_block_items_draw_when_requested() {
         );
         return;
     };
+    let mut eligible = 0usize;
     let mut checked = 0usize;
     for entry in std::fs::read_dir(dir).expect("packcache dir").flatten() {
         let path = entry.path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let Some((id, version)) = name
+        let Some((_, version)) = name
             .strip_suffix(".zip")
             .and_then(|stem| stem.split_once('_'))
         else {
             continue;
         };
-        if path.with_extension("key").exists() {
+        if version.is_empty() {
             continue;
         }
-        let bytes = std::fs::read(&path).unwrap();
-        let Some(blocks_json) = zip::ZipArchive::new(std::io::Cursor::new(&bytes))
-            .ok()
-            .and_then(|mut archive| {
-                let mut file = archive.by_name("blocks.json").ok()?;
-                let mut text = Vec::new();
-                std::io::Read::read_to_end(&mut file, &mut text).ok()?;
-                serde_json::from_slice::<serde_json::Value>(&resource_pack::normalize_jsonc(&text)?)
-                    .ok()
-            })
-        else {
+        let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
             continue;
         };
-        let custom = blocks_json
-            .as_object()
-            .into_iter()
-            .flatten()
+        let custom = view
+            .merged_json_object("blocks.json", None)
+            .iter()
             .filter_map(|(block_name, entry)| {
-                let texture = entry.get("textures")?.as_str()?;
-                block_name.contains(':').then(|| {
-                    block(
-                        block_name,
-                        1,
-                        CustomBlockVisuals {
-                            base: CustomVisualComponents {
-                                materials: materials(texture),
-                                ..CustomVisualComponents::default()
-                            },
-                            ..CustomBlockVisuals::default()
-                        },
-                    )
-                })
+                entry.get("textures")?.as_str()?;
+                block_name
+                    .contains(':')
+                    .then(|| block(block_name, 1, CustomBlockVisuals::default()))
             })
             .collect::<Vec<_>>();
         if custom.is_empty() {
             continue;
         }
-        let (Ok(pack_id), version) = (id.parse(), version.to_owned()) else {
-            continue;
-        };
-        let archive =
-            protocol::ResourcePackArchive::unencrypted(pack_id, version, String::new(), bytes);
-        let view = LayeredPackView::new(resource_pack::validate_handoff(
-            protocol::ResourcePackHandoff::from_archives(vec![archive]),
-        ));
+        eligible += custom.len();
         let blocks = CustomBlocks::from_definitions(std::iter::empty());
         let blocks = CustomBlocks {
             blocks: custom.into(),
@@ -684,6 +1013,12 @@ fn packcache_custom_block_items_draw_when_requested() {
             icons.misses
         );
         checked += icons.icons.len();
+    }
+    if eligible == 0 {
+        eprintln!(
+            "skipping packcache_custom_block_items_draw_when_requested: fixture unavailable; no admitted scalar custom block bindings in cached packs"
+        );
+        return;
     }
     assert!(checked > 0, "fixture must contain drawable custom blocks");
     eprintln!("{checked} packcache custom block item icons drawn");
@@ -714,4 +1049,36 @@ fn review_geometry_catalog_accepts_json_escaped_identifiers() {
     let wanted = std::collections::HashSet::from(["geometry.gen"]);
     let catalog = super::geometry::geometry_catalog(&view, &wanted);
     assert!(catalog.contains_key("geometry.gen"));
+}
+
+// Icons compile beside other subscribers but only once blocks supply their thumbnails.
+#[test]
+fn join_preparation_icons_carry_the_compiled_block_sheets() {
+    let lucky = block(
+        "test:lucky",
+        1,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("minecraft:geometry.full_block".into()),
+                materials: materials("lucky"),
+                ..CustomVisualComponents::default()
+            },
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let inputs = Arc::new(super::super::pack_reload::PackInputs {
+        blocks: CustomBlocks {
+            blocks: vec![lucky].into(),
+            vanilla_blocks: Default::default(),
+            skipped: 0,
+        },
+        block_items: vec![("test:lucky".into(), "test:lucky".into())],
+        ..Default::default()
+    });
+    let application =
+        super::super::resource_packs::prepare_validated_application(view().shared_stack(), inputs);
+    assert!(application.block_overlay.is_some());
+    let icons = application.item_icons.expect("block item icons");
+    assert_eq!(icons.block_sheets.len(), 1);
+    assert_eq!(icons.block_sheets[0].identifier.as_ref(), "test:lucky");
 }

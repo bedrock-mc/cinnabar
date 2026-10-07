@@ -3,6 +3,7 @@
 //! Box sizes follow the conduit textures (6x6x6 shell, 8x8x8 cage, 16x16x16 wind cube); wind
 //! frame timing, wind spin, bob and eye size need native measurement.
 
+use assets::block_entity_geometry as geometry;
 use bevy::math::{Mat4, Vec3};
 
 use super::{
@@ -57,12 +58,12 @@ pub(super) fn emit(
     };
     let center = model_matrix(block, [0.5, 0.0, 0.5], 0.0)
         * Mat4::from_translation(Vec3::new(0.0, ACTIVE_HEIGHT_PIXELS + bob, 0.0));
-    if let Some(shell) = atlas.texture("textures/blocks/conduit_base", [24.0, 12.0]) {
+    if let Some(shell) = atlas.texture(geometry::CONDUIT_TEXTURE.0, geometry::CONDUIT_TEXTURE.1) {
         builder.cuboid(
             Layer::Solid,
             &shell,
             center,
-            BoxSpec::new([-3.0, -3.0, -3.0], [6.0, 6.0, 6.0], [0.0, 0.0]),
+            BoxSpec::from(geometry::CONDUIT_SHELL),
             WHITE,
         );
     }

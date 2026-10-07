@@ -186,19 +186,6 @@ fn vertical_biome_neighbour_is_not_rejected() {
     assert_eq!(record.tint_index_at([8, 16, 8]), Some(0));
 }
 
-#[test]
-fn biome_record_mesh_timing() {
-    let a = uniform_storage(7);
-    let b = uniform_storage(9);
-    let halo = std::array::from_fn(|slot| Some(Arc::clone(if slot % 3 == 2 { &b } else { &a })));
-    let started = std::time::Instant::now();
-    for _ in 0..1000 {
-        std::hint::black_box(PackedBiomeRecord::from_neighbourhood(&halo, |id| id));
-    }
-    let elapsed = started.elapsed();
-    eprintln!("1000 boundary records: {elapsed:?}");
-}
-
 /// Resolves a binary palette to the second biome's contribution.
 fn boundary_weight(record: &PackedBiomeRecord, coordinate: [i32; 3]) -> f32 {
     record

@@ -1,10 +1,8 @@
 //! Local-only renders of the launcher's play flow against fixture service data
-//! (Realms, friends, featured servers, gatherings, pings, saved servers).
+//! (Realms, friends, featured servers, pings, saved servers).
 //! Skips without the gitignored carrier; PNGs go to `CINNABAR_FORM_SNAPSHOT_DIR`.
 
-use std::path::PathBuf;
-
-use ui::DpiScale;
+use ui::{DpiScale, UiVisual};
 
 use super::pack_harness::engine_presentation;
 use crate::menu::MenuAction;
@@ -47,7 +45,7 @@ fn snapshot_play_flow() {
 }
 
 // Writes PNGs of the settings screen, the signing-in start screen and two
-// frames of the connecting screen's loading bar (local only).
+// frames of the connecting screen's loading indicator (local only).
 #[test]
 fn snapshot_settings_signing_in_and_progress() {
     let player_runtime = player_state::PlayerState::new(1);
@@ -69,32 +67,47 @@ fn snapshot_settings_signing_in_and_progress() {
     snapshot_at(&player_runtime, &connecting, "flow-connecting-1", 1_350);
 }
 
-// The connecting screen's loading bar is a flip-book: later frames paint other
-// texels over the same cached layout.
+// The connecting screen advances the installed loader without rebuilding text
+// layouts or moving the status card.
 #[test]
-fn the_loading_bar_animates_over_its_cached_layout() {
+fn the_connecting_loader_animates_over_its_cached_layout() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!(
-            "skipping the_loading_bar_animates_over_its_cached_layout: fixture unavailable; requires installed local carriers (make assets)"
+            "skipping the_connecting_loader_animates_over_its_cached_layout: fixture unavailable; requires installed local carriers (make assets)"
         );
         return;
     };
-    let bar = "textures/ui/loading_bar";
-    let bar_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("../.local")
-        .join(crate::install_layout::vanilla_pack_relative())
-        .join(format!("{bar}.png"));
-    assert!(
-        bar_file.is_file(),
-        "the animation fixture requires the pinned vanilla loading bar at {}",
-        bar_file.display()
-    );
-    let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut view = fixture_view(&dir);
+    let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images()
+        .filter(|images| !images.loading_frames.is_empty())
+    else {
+        eprintln!(
+            "skipping the_connecting_loader_animates_over_its_cached_layout: fixture unavailable; requires the installed OreUI loading animation"
+        );
+        return;
+    };
+    let mut elapsed = 0_u64;
+    let frames: Vec<_> = images
+        .loading_frames
+        .iter()
+        .filter_map(|(key, millis)| {
+            let start = elapsed;
+            elapsed += u64::from(*millis);
+            (*millis > 0).then(|| (start + u64::from(*millis) / 2, images.sprites[key]))
+        })
+        .collect();
+    let first_frame = frames
+        .first()
+        .expect("installed loading animation has positive frame durations");
+    let first_sprite = first_frame.1;
+    let later_frame = frames
+        .iter()
+        .find(|(_, sprite)| *sprite != first_sprite)
+        .expect("installed loading animation has distinct frames");
+    let page = presentation.textures.dynamic_start() as u16;
+    presentation.enable_oreui_originals(images).unwrap();
+    let mut view = crate::menu::MenuView::new(true, "Test".into());
     view.connecting = true;
     view.message = Some("Connecting...".to_owned());
     let runtime = UiRuntime::new(1);
@@ -105,32 +118,47 @@ fn the_loading_bar_animates_over_its_cached_layout() {
             .build(&player_runtime, &runtime, now_millis, [1280, 720], dpi)
             .unwrap()
     };
-    // On-demand texture decodes may finish on workers after the inline budget.
-    // Hold the animation clock still until the strip itself can be drawn.
-    let started = std::time::Instant::now();
-    loop {
-        frame(&mut presentation, 1_000);
-        let resident = presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .textures
-            .lock()
-            .placement(bar)
-            .is_some();
-        if resident {
-            break;
-        }
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(10),
-            "the loading bar decode did not become resident: {}",
-            bar_file.display()
-        );
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    let first = frame(&mut presentation, 1_000);
-    let later = frame(&mut presentation, 1_350);
+    frame(&mut presentation, 0);
+    let cycle_start = (1_000 / elapsed + 1) * elapsed;
+    let loader_bounds =
+        |presentation: &super::super::UiPresentationRuntime,
+         sprite: crate::ui_runtime::oreui_assets::OreUiSprite| {
+            super::pack_harness::menu_nodes(presentation)
+                .iter()
+                .find_map(|node| match node.visual() {
+                    UiVisual::Sprite {
+                        texture_page, uv, ..
+                    } if *texture_page == page + sprite.page && *uv == sprite.bounds => {
+                        Some(node.bounds())
+                    }
+                    _ => None,
+                })
+                .expect("the selected installed loader frame is painted")
+        };
+    let text_layouts = |presentation: &super::super::UiPresentationRuntime| {
+        super::pack_harness::menu_nodes(presentation)
+            .iter()
+            .filter_map(|node| match node.visual() {
+                UiVisual::Text { layout, .. } => Some(layout.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let first = frame(&mut presentation, cycle_start + first_frame.0);
+    let first_bounds = loader_bounds(&presentation, first_sprite);
+    let first_text = text_layouts(&presentation);
+    let later = frame(&mut presentation, cycle_start + later_frame.0);
+    assert_eq!(first_bounds, loader_bounds(&presentation, later_frame.1));
+    let later_text = text_layouts(&presentation);
+    assert!(!first_text.is_empty());
+    assert_eq!(first_text.len(), later_text.len());
+    assert!(
+        first_text
+            .iter()
+            .zip(&later_text)
+            .all(|(first, later)| std::sync::Arc::ptr_eq(first, later)),
+        "loader animation reuses unchanged text layouts"
+    );
     let positions = |input: &render_model::UiRenderInput| {
         input
             .vertices
@@ -146,7 +174,18 @@ fn the_loading_bar_animates_over_its_cached_layout() {
             .collect::<Vec<_>>()
     };
     assert_eq!(positions(&first), positions(&later), "one layout");
-    assert_ne!(uvs(&first), uvs(&later), "another frame of the strip");
+    let pages = |input: &render_model::UiRenderInput| {
+        input
+            .batches
+            .iter()
+            .map(|batch| batch.texture_page)
+            .collect::<Vec<_>>()
+    };
+    assert_ne!(
+        (uvs(&first), pages(&first)),
+        (uvs(&later), pages(&later)),
+        "another frame of the installed loader"
+    );
 }
 
 // The disconnect screen words the failure as vanilla does and offers OK, which
@@ -217,10 +256,10 @@ fn the_server_list_scrolls_under_the_wheel() {
         .collect();
     let runtime = UiRuntime::new(1);
     let dpi = DpiScale::new(1.0).unwrap();
-    let frame = |presentation: &mut super::super::UiPresentationRuntime| {
+    let frame = |presentation: &mut super::super::UiPresentationRuntime, millis| {
         presentation.set_menu_view(Some(view.clone()));
         let input = presentation
-            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .build(&player_runtime, &runtime, millis, [1280, 720], dpi)
             .unwrap();
         (presentation.menu_hit_targets.clone(), input)
     };
@@ -229,7 +268,7 @@ fn the_server_list_scrolls_under_the_wheel() {
             .find(|(action, _)| *action == MenuAction::SelectFeatured(index))
             .map(|(_, bounds)| *bounds)
     };
-    let (before, input) = frame(&mut presentation);
+    let (before, input) = frame(&mut presentation, 0);
     super::snapshot::write(&input, "flow-servers-top");
     assert!(
         row(&before, 19).is_none(),
@@ -238,7 +277,12 @@ fn the_server_list_scrolls_under_the_wheel() {
     let first = row(&before, 0).unwrap().min();
     let point = ui::UiPoint::new(first.x() + 4.0, first.y() + 4.0).unwrap();
     assert!(presentation.scroll_menu(point, -100.0, false));
-    let (after, input) = frame(&mut presentation);
+    let (start, _) = frame(&mut presentation, 0);
+    assert!(
+        row(&start, 19).is_none(),
+        "wheel input starts a transition instead of jumping"
+    );
+    let (after, input) = frame(&mut presentation, 200);
     super::snapshot::write(&input, "flow-servers-scrolled");
     assert!(row(&after, 19).is_some(), "the last row scrolled into view");
     assert!(row(&after, 0).is_none(), "the first row scrolled out");
@@ -364,8 +408,10 @@ fn snapshot_local_worlds() {
         ),
     ));
     menu.update(Input::BeginCreate);
+    menu.update(Input::SetBackend(Backend::Bds));
+    menu.update(Input::SubmitCreate);
     shot(&menu, "local-docker-missing");
-    menu.update(Input::Prompt(PromptButton::CreateFlat));
+    menu.update(Input::Prompt(PromptButton::UseDragonfly));
     shot(&menu, "local-create-flat-only");
 }
 

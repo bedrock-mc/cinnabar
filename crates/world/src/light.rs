@@ -473,7 +473,7 @@ struct StoredSubChunkLight {
 /// Immutable copy-on-write snapshot used by worker jobs.
 #[derive(Debug, Clone, Default)]
 pub struct LightStoreSnapshot {
-    entries: HashMap<SubChunkKey, StoredSubChunkLight>,
+    entries: crate::SectionSnapshot<StoredSubChunkLight>,
 }
 
 impl LightStoreSnapshot {
@@ -560,7 +560,11 @@ impl LightStore {
     #[must_use]
     pub fn snapshot(&self) -> LightStoreSnapshot {
         LightStoreSnapshot {
-            entries: self.entries.clone(),
+            entries: self
+                .entries
+                .iter()
+                .map(|(&key, entry)| (key, entry.clone()))
+                .collect(),
         }
     }
 

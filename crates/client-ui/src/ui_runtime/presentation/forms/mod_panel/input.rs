@@ -1,5 +1,19 @@
 use super::*;
 
+impl UiPresentationRuntime {
+    /// Releases pointer capture while preserving the panel and its editor draft.
+    pub fn cancel_mod_panel_pointer_input(&mut self) {
+        if let Some(panel) = self.form_presentation.mod_panel.as_mut() {
+            panel.drag = None;
+            panel.pointer = None;
+            panel.held = false;
+            panel.view.hovered = None;
+            panel.view.pressed = None;
+            panel.view.pointer = None;
+        }
+    }
+}
+
 impl ModPanel {
     pub(super) fn pointer_events(
         &mut self,
@@ -38,6 +52,50 @@ impl ModPanel {
         let action = pressed
             .then(|| hit.and_then(|hit| hit.pressed.as_deref()))
             .flatten();
+        if pressed {
+            if action == Some("mod.dismiss") {
+                self.cancel_edit();
+                return Vec::new();
+            }
+            if action == Some("mod.editor") {
+                return Vec::new();
+            }
+            if let Some(index) = action
+                .and_then(|action| action.strip_prefix("mod.option:"))
+                .and_then(|index| index.parse().ok())
+            {
+                return self.choose(index);
+            }
+            if let Some(index) = action
+                .and_then(|action| action.strip_prefix("mod.edit:"))
+                .and_then(|index| index.parse::<usize>().ok())
+            {
+                if !self.panel.capture_key {
+                    let rect = hit.map(|hit| [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h]);
+                    if let Some(rect) = rect {
+                        self.open_editor(index, rect);
+                    }
+                }
+                return Vec::new();
+            }
+            if let Some(index) = action
+                .and_then(|action| action.strip_prefix("mod.control:"))
+                .and_then(|index| index.parse::<usize>().ok())
+                && matches!(self.panel.controls.get(index), Some(Control::Choice { .. }))
+            {
+                if !self.panel.capture_key {
+                    let rect = hit.map(|hit| [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h]);
+                    if let Some(rect) = rect {
+                        self.open_editor(index, rect);
+                    }
+                }
+                return Vec::new();
+            }
+            if self.edit.is_some() {
+                self.cancel_edit();
+                return Vec::new();
+            }
+        }
         match action {
             Some("mod.close") => {
                 self.open = false;
@@ -94,11 +152,8 @@ impl ModPanel {
                 *value = !*value;
                 f32::from(u8::from(*value))
             }
-            Control::Choice { index, options, .. } if pressed => {
-                *index = (*index + 1) % options.len() as u32;
-                *index as f32
-            }
-            Control::Button { .. } if pressed => 1.0,
+
+            Control::Button { .. } | Control::Keybind { .. } if pressed => 1.0,
             Control::Slider {
                 value,
                 min,

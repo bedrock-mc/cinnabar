@@ -3,12 +3,12 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
+use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 use ui::{
-    ObfuscationGlyphs, SafeArea, TextEffects, TextLayout, TextLayoutCache, TextLayoutRequest,
-    TextShadow, TextStyle, UiDrawList, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree,
-    UiVisual,
+    FONT_DESIGN_PIXEL_TEXELS, ObfuscationGlyphs, SafeArea, TextEffects, TextLayout,
+    TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow, TextStyle, TextWrap, UiDrawList,
+    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
 
 // Four equal-width (two-texel) rasters with distinct UVs, two atlas pages, so
@@ -22,7 +22,7 @@ fn font() -> CompiledFontCatalog {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 8,
         height: 8,
-        rgba8: rgba8.clone(),
+        pixels: FontPixels::Rgba8(rgba8.clone()),
     };
     let glyph = |codepoint: char, page: u16, u0: u16| GlyphMetrics {
         codepoint,
@@ -31,10 +31,25 @@ fn font() -> CompiledFontCatalog {
         bearing: [0, 0],
         advance_64: 2 * 64,
     };
+    // Catalogs reject empty UV rectangles, so blank glyphs keep a one-texel cell.
     let glyphs = [
+        GlyphMetrics {
+            codepoint: ' ',
+            page: 0,
+            uv: [0, 0, 1, 1],
+            bearing: [0; 2],
+            advance_64: 2 * 64,
+        },
         glyph('A', 0, 0),
         glyph('B', 1, 2),
         glyph('C', 0, 4),
+        GlyphMetrics {
+            codepoint: '\u{301}',
+            page: 0,
+            uv: [0, 0, 1, 1],
+            bearing: [0; 2],
+            advance_64: 0,
+        },
         glyph('\u{fffd}', 0, 6),
     ];
     let identity = [7; 32];
@@ -44,7 +59,19 @@ fn font() -> CompiledFontCatalog {
         &[page("font/page0.png", 1), page("font/page1.png", 2)],
     )
     .unwrap();
-    CompiledFontCatalog::decode(&bytes, identity).unwrap()
+    CompiledFontCatalog::decode(&bytes, identity)
+        .unwrap()
+        .with_glyphs(
+            &glyphs
+                .iter()
+                .filter(|glyph| matches!(glyph.codepoint, ' ' | '\u{301}'))
+                .map(|glyph| assets::SheetGlyph {
+                    metrics: *glyph,
+                    draw_size_64: [0; 2],
+                })
+                .collect::<Vec<_>>(),
+            |_| true,
+        )
 }
 
 fn layout(text: &str, style: TextStyle, font: &CompiledFontCatalog) -> Arc<TextLayout> {
@@ -90,6 +117,82 @@ fn draw_with(layout: Arc<TextLayout>, effects: TextEffects<'_>) -> UiDrawList {
 }
 
 #[test]
+fn fallback_scales_to_primary_em_and_uses_its_own_sampling_per_glyph() {
+    use assets::{FontGlyphRequests, FontLineMetrics, FontRendering, SheetGlyph};
+    let primary = font()
+        .with_line_metrics(FontLineMetrics {
+            em_64: 32 * 64,
+            ascent_64: 24 * 64,
+            descent_64: 8 * 64,
+        })
+        .unwrap()
+        .with_rendering(FontRendering::NativeCoverage);
+    let fallback = font()
+        .with_glyphs(
+            &[SheetGlyph {
+                metrics: GlyphMetrics {
+                    codepoint: '日',
+                    page: 0,
+                    uv: [0, 0, 2, 8],
+                    bearing: [0, -6],
+                    advance_64: 4 * 64,
+                },
+                draw_size_64: [4 * 64, 16 * 64],
+            }],
+            |_| false,
+        )
+        .with_line_metrics(FontLineMetrics {
+            em_64: 64 * 64,
+            ascent_64: 48 * 64,
+            descent_64: 16 * 64,
+        })
+        .unwrap()
+        .with_rendering(FontRendering::NativeSdf);
+    let catalog = font()
+        .with_named_font("body", &primary)
+        .unwrap()
+        .with_shared_fallback(&fallback, Arc::new(FontGlyphRequests::default()))
+        .unwrap();
+    let native = catalog.font_named("body");
+    let latin = layout("A", TextStyle::default(), &primary);
+    let mixed = layout("A日A", TextStyle::default(), native);
+    assert_eq!(
+        mixed.glyphs()[0].bounds_64[0],
+        latin.glyphs()[0].bounds_64[0]
+    );
+    assert_eq!(
+        mixed.glyphs()[0].bounds_64[2],
+        latin.glyphs()[0].bounds_64[2]
+    );
+    assert_eq!(mixed.glyphs()[1].resolved_codepoint, '日');
+    assert_eq!(
+        mixed.glyphs()[1].bounds_64[2] - mixed.glyphs()[1].bounds_64[0],
+        2 * 64
+    );
+    assert!(!mixed.glyphs()[0].linear_sampling);
+    assert!(mixed.glyphs()[1].linear_sampling);
+    let drawing = draw_with(mixed.clone(), TextEffects::default());
+    assert_ne!(
+        drawing.vertices[0].style_flags,
+        drawing.vertices[4].style_flags
+    );
+    assert_eq!(
+        drawing.vertices[0].style_flags,
+        drawing.vertices[8].style_flags
+    );
+    assert_eq!(
+        catalog.glyph('A'),
+        font().glyph('A'),
+        "HUD metrics stay unchanged"
+    );
+    assert_ne!(
+        native.identity(),
+        primary.identity(),
+        "fallback invalidates the text cache"
+    );
+}
+
+#[test]
 fn bold_glyph_emits_a_second_offset_copy() {
     let font = font();
     let plain = draw_with(
@@ -112,7 +215,78 @@ fn bold_glyph_emits_a_second_offset_copy() {
     assert_eq!(bold.vertices.len(), 2 * 2 * 4);
     // The emboldening copy of the first glyph sits one design pixel right.
     let offset = bold.vertices[4].position[0] - bold.vertices[0].position[0];
-    assert!((offset - 1.0).abs() < 1e-4, "bold offset was {offset}");
+    assert!(
+        (offset - FONT_DESIGN_PIXEL_TEXELS as f32).abs() < 1e-4,
+        "bold offset was {offset}"
+    );
+    let next = bold.vertices[8].position[0] - bold.vertices[0].position[0];
+    assert_eq!(next, 2.0 + FONT_DESIGN_PIXEL_TEXELS as f32);
+}
+
+#[test]
+fn bold_measurement_includes_spaces_and_reset_restores_normal_advance() {
+    let font = font();
+    let plain = layout("A B", TextStyle::default(), &font);
+    let styled = layout("§e§lA §rB", TextStyle::default(), &font);
+    assert_eq!(
+        styled.size_64()[0] - plain.size_64()[0],
+        2 * FONT_DESIGN_PIXEL_TEXELS * 64
+    );
+    assert_eq!(
+        styled.glyphs()[2].bounds_64[0] - plain.glyphs()[2].bounds_64[0],
+        (2 * FONT_DESIGN_PIXEL_TEXELS * 64) as i32
+    );
+    assert!(styled.glyphs()[0].style.bold);
+    assert!(styled.glyphs()[1].style.bold);
+    assert!(!styled.glyphs()[2].style.bold);
+    assert_eq!(styled.glyphs()[0].style.color, ui::BedrockColor::Yellow);
+    assert_eq!(styled.glyphs()[2].style.color, ui::BedrockColor::Base);
+    assert_eq!(
+        layout("§lA\u{301}B", TextStyle::default(), &font).size_64()[0],
+        layout("§lAB", TextStyle::default(), &font).size_64()[0]
+    );
+}
+
+#[test]
+fn bold_extent_controls_wrapping_and_centering() {
+    let font = font();
+    let mut cache = TextLayoutCache::new(4, 64 * 1024);
+    let request = TextLayoutRequest {
+        text: "ABC",
+        style: TextStyle::default(),
+        width_64: 8 * 64,
+        line_height_64: 8 * 64,
+        baseline_64: 0,
+        scale: UiScale::default(),
+        font: &font,
+        wrap: TextWrap::default(),
+    };
+    assert_eq!(cache.layout(request).unwrap().line_count(), 1);
+    let bold = cache
+        .layout(TextLayoutRequest {
+            text: "§lABC",
+            ..request
+        })
+        .unwrap();
+    assert_eq!(bold.line_count(), 2);
+    assert_eq!(bold.glyphs()[2].line, 1);
+
+    let centered = cache
+        .layout(TextLayoutRequest {
+            text: "§lAB",
+            width_64: 16 * 64,
+            wrap: TextWrap {
+                align: TextLineAlign::Center,
+                ..TextWrap::default()
+            },
+            ..request
+        })
+        .unwrap();
+    let line_width = 2 * (2 + FONT_DESIGN_PIXEL_TEXELS) * 64;
+    assert_eq!(
+        centered.glyphs()[0].bounds_64[0],
+        ((16 * 64 - line_width) / 2) as i32
+    );
 }
 
 // Styled glyphs never set the glint bit, so bold text draws no enchantment sheen.

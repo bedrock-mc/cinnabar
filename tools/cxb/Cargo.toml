@@ -12,6 +12,7 @@ serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 server-experience = { path = "../../crates/server-experience" }
 toml = "0.9"
+url = "=2.5.8"
 wit-component.workspace = true
 zip = { version = "=7.2.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

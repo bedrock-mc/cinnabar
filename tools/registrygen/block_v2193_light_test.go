@@ -36,8 +36,21 @@ func TestRetailLightCorrectionsReplaceOnlyUnimplementedDefaults(t *testing.T) {
 	}
 }
 
-// 1.26.50.26 TopSnowBlock sets dampening to zero; the
-// inherited getter and per-height component override do not change it.
+func TestSensorLightKeepsItsIdentifiedFilterWhenPhaseControlsEmission(t *testing.T) {
+	for _, name := range []string{"minecraft:sculk_sensor", "minecraft:calibrated_sculk_sensor"} {
+		records := []Record{{Name: name, StateJSON: []byte(`{"sculk_sensor_phase":{"type":"int","value":1}}`)}}
+		properties := []byte{15 << 4}
+		sources := map[string]PMMPLightProperties{name: {Opacity: 0.19999998807907104}}
+		if _, err := applyRetailLightCorrections(records, properties, sources); err != nil {
+			t.Fatal(err)
+		}
+		if properties[0] != 3<<4|1 {
+			t.Fatalf("sensor phase replaced its light filter: %#x", properties[0])
+		}
+	}
+}
+
+// 1.26.50.26 snow layers have zero light dampening at every height.
 func TestSnowLayerNativeLightDampening(t *testing.T) {
 	var records []Record
 	var properties []byte

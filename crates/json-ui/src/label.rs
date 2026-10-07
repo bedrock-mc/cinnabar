@@ -1,4 +1,4 @@
-//! A `label`'s text component, as vanilla's `TextComponent` reads it: glyph
+//! A `label`'s text component, as vanilla reads it: glyph
 //! scale from `font_size` and `font_scale_factor`, `line_padding`, the locked
 //! (disabled) colour and alpha, hyphen and font options.
 

@@ -22,9 +22,14 @@ pub(crate) fn fog_biome_samples(
     sample_positions(position)
         .into_iter()
         .map(|position| {
-            let id = stream.camera_biome_id(position)?;
-            let index = rules.binary_search_by_key(&id, |rule| rule.id).ok()?;
-            Some(rules[index].name.clone())
+            stream
+                .camera_biome_id(position)
+                .and_then(|id| rules.binary_search_by_key(&id, |rule| rule.id).ok())
+                .map(|index| rules[index].name.clone())
+                .or_else(|| {
+                    super::profile_lookup::dimension_fallback_biome(stream.current_dimension())
+                        .map(Into::into)
+                })
         })
         .collect()
 }

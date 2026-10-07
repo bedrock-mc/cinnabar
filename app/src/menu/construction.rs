@@ -4,17 +4,16 @@ use super::input::field_editor;
 use super::*;
 
 impl MenuRuntime {
-    /// Creates a menu with the development install layout.
+    /// Creates a menu over the checkout's assets with private, empty user roots, so parallel test
+    /// processes never share saved settings, servers or accounts.
     #[cfg(test)]
     pub(crate) fn new(visible: bool, gui_scale: u8, display_name: String) -> Self {
         let player_skin = crate::player_skin::LocalPlayerSkin::generated_default(&display_name);
-        Self::new_with_layout(
-            visible,
-            Some(gui_scale),
-            display_name,
-            InstallLayout::discover().expect("test executable must have a development layout"),
-            player_skin,
-        )
+        let mut layout = crate::install_layout::checkout();
+        let user = crate::install_layout::scratch("menu");
+        layout.user_config_root = user.user_config_root;
+        layout.user_data_root = user.user_data_root;
+        Self::new_with_layout(visible, Some(gui_scale), display_name, layout, player_skin)
     }
 
     /// Loads launcher state and both settings authorities for this install.
@@ -74,6 +73,7 @@ impl MenuRuntime {
             name: field_editor(MenuField::Name),
             address: field_editor(MenuField::Address),
             port: field_editor(MenuField::Port),
+            skin_name: field_editor(MenuField::SkinName),
             message,
             gui_scale_preference: gui_scale
                 .filter(|scale| *scale > 0)
@@ -85,10 +85,12 @@ impl MenuRuntime {
             fullscreen_change: saved_video_settings.fullscreen.then_some(true),
             video_settings_writer: None,
             settings_focus: Vec::new(),
+            settings_focus_geometry: focus::SettingsFocusGeometry::default(),
             last_saved_video_settings: saved_video_settings,
             failed_video_settings_save: None,
             render_mode: initial.render_mode,
             render_mode_request: None,
+            vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers,
             saves: ServerWriter::new(config_path.clone(), loaded.allow_writes),
@@ -96,7 +98,6 @@ impl MenuRuntime {
             intents: SessionIntents::default(),
             session: SessionStatus::default(),
             featured: initial.featured,
-            gatherings: initial.gatherings,
             realms: initial.realms,
             friends: initial.friends,
             catalog_message: initial.catalog_message,
@@ -108,6 +109,11 @@ impl MenuRuntime {
             auth_restart_requested: false,
             layout,
             player_skin,
+            dressing_room: initial.dressing_room,
+            dressing_room_worker: None,
+            skin_update_pending: false,
+            skin_outbound: None,
+            skin_packet_pending: None,
             editing: initial.editing,
             settings_section: initial.settings_section,
             disconnect_message: initial.disconnect_message,
@@ -126,13 +132,23 @@ impl MenuRuntime {
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
             settings_dropdown: initial.settings_dropdown,
+            settings_scale_picker: initial.settings_scale_picker,
             settings_dirty: false,
             settings_retry_at: None,
             settings_apply: true,
+            session_overrides: Vec::new(),
+            transient_toggles: false,
             language_choices,
             language_pending,
             language_asset_path,
             settings_slider_drag: None,
+            settings_slider_pointer: None,
+            settings_slider_hovered: None,
+            settings_slider_selected: None,
+            settings_control_activation: None,
+            settings_control_activation_navigation: false,
+            settings_input_revision: 0,
+            input_mode: input::MenuInputMode::default(),
             key_remap: initial.key_remap,
             settings_advanced_graphics: initial.settings_advanced_graphics,
             local_world_joined: false,
@@ -173,5 +189,18 @@ mod tests {
             assert_eq!(actual.auth_state, initial.auth_state);
             assert_eq!(actual.catalog_loading, initial.catalog_loading);
         }
+    }
+
+    /// Parallel test processes must not see each other's saved settings.
+    #[test]
+    fn test_menus_never_share_saved_settings() {
+        let mut first = MenuRuntime::new(true, 2, "Steve".to_owned());
+        let default = first.settings_options.value("field_of_view");
+        first.set_named_option("field_of_view", default + 1);
+        first.sync_user_settings(None);
+        assert!(!first.settings_dirty, "{:?}", first.message);
+
+        let second = MenuRuntime::new(true, 2, "Steve".to_owned());
+        assert_eq!(second.settings_options.value("field_of_view"), default);
     }
 }

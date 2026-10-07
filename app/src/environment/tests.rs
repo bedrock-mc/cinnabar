@@ -242,9 +242,11 @@ fn dimension_change_is_not_an_environment_session_replacement() {
 
     assert!(!apply_environment_control(
         CommittedControlEvent::ChangeDimension {
+            sequence: 1,
             change: ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 64.0, 0.0],
+                ..Default::default()
             },
             resolved: client_world::ResolvedServerPosition {
                 position: [0.0, 64.0, 0.0],

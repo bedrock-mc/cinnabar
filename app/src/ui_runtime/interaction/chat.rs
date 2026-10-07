@@ -17,20 +17,29 @@ pub(crate) fn drive_chat_ui_actions(
     coordinates: super::chat_coordinates::ChatCoordinateContext,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
+    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
-    if runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
         return;
     }
+    let input_available = driven.is_some()
+        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     let pointer = window
         .cursor_position()
         .and_then(|position| UiPoint::new(position.x, position.y).ok());
     let menu_visible = menu.as_ref().is_some_and(|menu| menu.is_visible());
     let bed =
-        !menu_visible && window.focused && runtime.local_sleeping() && !runtime.chat_focused();
+        !menu_visible && input_available && runtime.local_sleeping() && !runtime.chat_focused();
     presentation.set_bed_pointer(pointer.filter(|_| bed));
     if bed && mouse_buttons.just_pressed(MouseButton::Left) {
         match pointer.and_then(|position| presentation.hit_test_bed(position)) {
-            Some(BedHit::LeaveBed) => runtime.request_wake(),
+            Some(BedHit::LeaveBed) => {
+                runtime.request_wake();
+                if let Some(focus) = focus.as_deref_mut() {
+                    focus.authorize_screen_return();
+                }
+            }
             Some(BedHit::OpenChat) => {
                 runtime.open_chat(&mut player_runtime);
             }
@@ -38,7 +47,7 @@ pub(crate) fn drive_chat_ui_actions(
         }
         return;
     }
-    if menu_visible || !runtime.chat_focused() || !window.focused {
+    if menu_visible || !runtime.chat_focused() || !input_available {
         presentation.set_chat_pointer(None);
         return;
     }
@@ -66,6 +75,14 @@ pub(crate) fn drive_chat_ui_actions(
     for position in presses {
         let hit = presentation.hit_test_chat(position);
         match hit {
+            Some(ChatHit::Link(index)) => presentation.request_chat_link(index),
+            Some(ChatHit::LinkOpen) => {
+                if let Some(url) = presentation.take_confirmed_chat_link() {
+                    crate::desktop::open_url(&url);
+                }
+            }
+            Some(ChatHit::LinkCancel) => presentation.cancel_chat_link(),
+            _ if presentation.chat_link_confirmation_open() => {}
             Some(ChatHit::SettingsOpen) => presentation.set_chat_settings_open(true),
             Some(ChatHit::SettingsClose) => presentation.set_chat_settings_open(false),
             Some(ChatHit::SettingsAction(action)) => {
@@ -123,6 +140,12 @@ pub(crate) fn drive_chat_ui_actions(
             GamepadButton::LeftTrigger,
         ] {
             if gamepad.just_pressed(button) {
+                if presentation.chat_link_confirmation_open() {
+                    if button == GamepadButton::East {
+                        presentation.cancel_chat_link();
+                    }
+                    continue;
+                }
                 if presentation.chat_settings_open() {
                     if button == GamepadButton::East {
                         presentation.set_chat_settings_open(false);
@@ -137,5 +160,10 @@ pub(crate) fn drive_chat_ui_actions(
                 );
             }
         }
+    }
+    if !runtime.chat_focused()
+        && let Some(focus) = focus.as_deref_mut()
+    {
+        focus.authorize_screen_return();
     }
 }

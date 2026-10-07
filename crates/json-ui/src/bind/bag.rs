@@ -1,5 +1,4 @@
-//! A control's property bags at creation, as `UIControl::processPropertyBags`
-//! builds them: its own `property_bag` and `property_bag_for_children`, each
+//! A control's property bags at creation, as vanilla builds them: its own `property_bag` and `property_bag_for_children`, each
 //! member evaluated, and the parent's children bag merged into both without
 //! overwriting.
 
@@ -56,7 +55,7 @@ impl Bags {
     }
 }
 
-/// A bag literal's members, each through `UIResolvedDef::_evaluate`: a
+/// A bag literal's members, each evaluated as a definition field: a
 /// parenthesised expression that reads no property becomes its value.
 fn members(value: Option<&Value>) -> Bag {
     let Some(Value::Object(members)) = value else {

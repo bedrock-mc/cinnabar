@@ -19,6 +19,26 @@ pub fn flatten_def(
     name: &str,
     diagnostics: &mut Vec<String>,
 ) -> Option<(RawControl, Option<ControlRef>)> {
+    flatten(catalog, namespace, name, diagnostics, true)
+}
+
+/// Applies the same inheritance rules without copying descendant controls.
+pub(crate) fn flatten_properties(
+    catalog: &Catalog,
+    namespace: &str,
+    name: &str,
+    diagnostics: &mut Vec<String>,
+) -> Option<RawControl> {
+    flatten(catalog, namespace, name, diagnostics, false).map(|(control, _)| control)
+}
+
+fn flatten(
+    catalog: &Catalog,
+    namespace: &str,
+    name: &str,
+    diagnostics: &mut Vec<String>,
+    children: bool,
+) -> Option<(RawControl, Option<ControlRef>)> {
     let top = catalog.lookup(namespace, name)?;
     let provenance = literal_base(top);
     let mut seen = HashSet::from([(namespace.to_owned(), name.to_owned())]);
@@ -44,9 +64,26 @@ pub fn flatten_def(
         chain.push(base);
     }
     let mut chain = chain.into_iter().rev();
-    let mut flattened = clear_base(chain.next()?.clone());
+    let first = chain.next()?;
+    let mut flattened = clear_base(if children {
+        first.clone()
+    } else {
+        RawControl {
+            owner_ns: first.owner_ns.clone(),
+            name: first.name.clone(),
+            base: first.base.clone(),
+            props: first.props.clone(),
+            children: Vec::new(),
+            has_controls: first.has_controls,
+        }
+    });
     for child in chain {
-        flattened = clear_base(inherit(&flattened, child, Layering::Document));
+        flattened = clear_base(inherit_with_children(
+            &flattened,
+            child,
+            Layering::Document,
+            children,
+        ));
     }
     Some((flattened, provenance))
 }
@@ -70,6 +107,15 @@ pub enum Layering {
 
 /// `child` over `base` by whole-property selection, keeping `child`'s identity.
 pub fn inherit(base: &RawControl, child: &RawControl, layering: Layering) -> RawControl {
+    inherit_with_children(base, child, layering, true)
+}
+
+fn inherit_with_children(
+    base: &RawControl,
+    child: &RawControl,
+    layering: Layering,
+    children: bool,
+) -> RawControl {
     let mut props = base.props.clone();
     if child.has_controls {
         props.remove("controls");
@@ -85,7 +131,9 @@ pub fn inherit(base: &RawControl, child: &RawControl, layering: Layering) -> Raw
         name: child.name.clone(),
         base: child.base.clone().or_else(|| base.base.clone()),
         props,
-        children: if child.has_controls {
+        children: if !children {
+            Vec::new()
+        } else if child.has_controls {
             child.children.clone()
         } else {
             base.children.clone()

@@ -23,6 +23,10 @@ pub(crate) fn toggle_fullscreen_hotkey(
         keyboard.clear();
         return;
     };
+    if !window.visible {
+        keyboard.clear();
+        return;
+    }
     let toggles = keyboard
         .read()
         .filter(|input| {
@@ -58,6 +62,10 @@ pub(crate) fn apply_runtime_fullscreen_setting(
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
+    // A hidden capture window keeps its requested size and leaves the saved preference alone.
+    if !window.visible {
+        return;
+    }
     if let Some(fullscreen) = menu.take_fullscreen_change() {
         set_fullscreen(&mut window, fullscreen);
         record_fullscreen(&mut settings, fullscreen);

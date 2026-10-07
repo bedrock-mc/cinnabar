@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 
+use super::ActorRigSurface;
 use super::ids::DIAGNOSTIC_RIG_ID;
 
 pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_SKIN_GEOMETRY_BONES;
@@ -69,9 +70,11 @@ pub struct ActorRigVertex {
     pub uv: [f32; 2],
     pub back_uv: [f32; 2],
     pub bone_index: u32,
+    pub surface: ActorRigSurface,
 }
 
-const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == 44);
+pub const ACTOR_RIG_VERTEX_WORDS: usize = std::mem::size_of::<ActorRigVertex>() / 4;
+const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == ACTOR_RIG_VERTEX_WORDS * 4);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActorRigGeometry {
@@ -104,6 +107,7 @@ impl ActorRigGeometry {
                 .chain(vertex.back_uv.iter())
                 .any(|value| !value.is_finite())
                 || vertex.bone_index as usize >= bone_pivots.len()
+                || !vertex.surface.is_valid()
         }) || bone_pivots.iter().flatten().any(|value| !value.is_finite())
         {
             return Err(ActorRigGeometryError::InvalidVertex);
@@ -182,6 +186,7 @@ pub fn diagnostic_geometry() -> ActorRigGeometry {
             uv: vertex.uv,
             back_uv: vertex.uv,
             bone_index: vertex.part,
+            surface: ActorRigSurface::SINGLE_FACE,
         })
         .collect::<Vec<_>>();
     for triangle in vertices.chunks_exact_mut(3) {

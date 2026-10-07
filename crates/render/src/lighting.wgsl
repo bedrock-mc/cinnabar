@@ -20,8 +20,8 @@ fn light_colour(sample: u32) -> vec3<f32> {
     return world_lightmap[sample & 255u].rgb;
 }
 
-// Current classic builder stores Color::toABGR, which
-// truncates RGB to bytes before LightTexture::getColorForUV reads them.
+// The vanilla classic light texture stores RGB truncated to bytes before
+// lookups read it.
 fn native_light_texel(sample: u32) -> vec3<f32> {
     return floor(clamp(light_colour(sample), vec3(0.0), vec3(1.0)) * 255.0) / 255.0;
 }
@@ -89,6 +89,14 @@ fn face_shade(normal: vec3<f32>, emitting: bool) -> f32 {
     if abs(normal.x) > 0.5 { return select(0.6, 0.9, emitting); }
     if abs(normal.z) > 0.5 { return select(0.8, 0.95, emitting); }
     return 1.0;
+}
+
+fn material_ambient_occlusion(ao: f32, flags: u32) -> f32 {
+    return select(ao, 1.0, (flags & MATERIAL_DISABLE_AO_FLAG) != 0u);
+}
+
+fn material_face_shade(normal: vec3<f32>, emitting: bool, flags: u32) -> f32 {
+    return select(face_shade(normal, emitting), 1.0, (flags & MATERIAL_DISABLE_FACE_DIMMING_FLAG) != 0u);
 }
 
 struct WorldAtmosphere {

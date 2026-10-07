@@ -1,4 +1,4 @@
-//! Native liquid-cell direction (LiquidBlockBase::_getFlow, current 0x0395d2f0).
+//! Vanilla liquid-cell flow direction.
 
 use std::collections::BTreeSet;
 
@@ -9,13 +9,13 @@ use super::{
 
 pub(super) const NORMALIZATION_THRESHOLD: f32 = 0.0001;
 const FALLING_DOWNWARD_COMPONENT: f32 = -6.0;
-// Facing::PLANAR at PE 0x15013e0c7; face masks are 1 << Facing.
+// Planar faces in vanilla order north, east, south, west; face masks are 1 << facing.
 const DIRECTIONS: [(usize, i32, u8); 4] = [(2, -1, 2), (0, 1, 5), (2, 1, 3), (0, -1, 4)];
 
-/// Source-identified material and liquid detection facts, independent of meshes.
+/// Vanilla material and liquid detection facts, independent of meshes.
 ///
-/// `blocked_faces` is BlockLiquidDetectionComponent's cache byte at Block+0xb9.
-/// `allowed_faces` records the native directional virtual's admitted faces.
+/// `blocked_faces` is the block's liquid-detection mask of faces that stop flow.
+/// `allowed_faces` records the faces the block lets liquid flow through.
 /// Missing registrations preserve an unknown result rather than infer these
 /// facts from collision boxes or render face coverage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +75,7 @@ impl Samples<'_, '_> {
     fn liquid(&mut self, block: [i32; 3]) -> Result<Option<LiquidCell>, WorldQueryError> {
         self.record(block);
         let ids = self.world.runtime_ids_at(block)?;
-        // getLiquidBlock (+0x28): extra layer unless it is air, then primary.
+        // Vanilla's liquid lookup: extra layer unless it is air, then primary.
         let runtime_id = ids
             .get(1)
             .copied()
@@ -143,7 +143,7 @@ fn admits(facts: FlowBlockFacts, facing: u8) -> bool {
 }
 
 fn normalize([x, y, z]: [f32; 3]) -> [f32; 3] {
-    // Matching PE 14395d72d / 14395d793: (X² + Y²) + Z².
+    // Vanilla sums (X² + Y²) + Z² in this order.
     let length = (x * x + y * y + z * z).sqrt();
     if length >= NORMALIZATION_THRESHOLD {
         [x / length, y / length, z / length]

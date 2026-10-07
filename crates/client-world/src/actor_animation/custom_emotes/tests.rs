@@ -71,6 +71,8 @@ impl Fixture {
             item_animation: [ItemAnimationState::default(); 2],
             off_hand_animation: [ItemAnimationState::default(); 2],
             animation_variables: ActorAnimationVariables::default(),
+            java: Default::default(),
+            java_equipped: None,
         }
     }
 

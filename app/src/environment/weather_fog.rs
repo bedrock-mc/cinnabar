@@ -1,4 +1,4 @@
-//! Native WeatherRenderer fog accumulator.
+//! Vanilla weather fog accumulator.
 //!
 //! The native renderer accumulates separate rain/snow lattice counters before
 //! summing them. Their combined count gives the same target mathematically;
@@ -28,8 +28,8 @@ impl WeatherFog {
         self.smoothed = 0.0;
     }
 
-    /// Called once per LevelRenderer tick, not once per rendered frame and not
-    /// gated by doWeatherCycle. Native doRainUpdate reads Weather rain at alpha
+    /// Called once per renderer tick, not once per rendered frame and not
+    /// gated by doWeatherCycle. Vanilla's rain update reads rain at alpha
     /// zero (the previous tick), multiplies by .5, then accumulates each cell.
     pub(super) fn tick(&mut self, previous_rain: f32, dimension: i32) {
         // The built-in Overworld admits weather.

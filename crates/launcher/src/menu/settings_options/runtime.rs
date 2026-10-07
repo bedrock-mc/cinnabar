@@ -1,5 +1,5 @@
 //! Converts stored values into the existing subsystem settings.
-use super::SettingsOptions;
+use super::{ANIMATIONS_OPTION, SettingsOptions};
 use semantic_input::PerspectiveMode;
 
 impl SettingsOptions {
@@ -19,8 +19,10 @@ impl SettingsOptions {
         settings.video.damage_bob = self.value("damage_bob") as f32 / 100.0;
         settings.video.frame_cap =
             (self.value("max_framerate") != 0).then(|| self.value("max_framerate") as u16);
+        settings.video.vsync = self.value("vsync") != 0;
         settings.video.render_distance_chunks = self.value("render_distance") as u8;
         settings.video.view_bobbing = self.value("view_bobbing") != 0;
+        settings.video.java_animations = self.value(ANIMATIONS_OPTION.name) == 0;
         settings.video.outline_selection = self.value("classic_box_selection") != 0;
         settings.video.fov_effects_scale = self.value("field_of_view_toggle") as f32;
         settings.controls.mouse_sensitivity =

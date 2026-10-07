@@ -7,35 +7,24 @@ The control is listed in Keyboard & Mouse and Controller settings. Change Emotes
 original custom dance in a chosen slot and persists the complete slot array.
 Equipping an already equipped piece moves/swaps it rather than duplicating it.
 
-## Identified references
+## Vanilla rules
 
-Lens's 26.30 reference and the current reconstructed Windows client identify:
-
-- Keyboard defaults: `VanillaClientInputMappingFactory::_populateKeyboardDefaults`
-  at `0x10096bc20` and full layout at `0x10096e1f0`, action `0x34`, keyboard B.
-  The current Windows mapper at RVA `0x7395f10` names that action `key.emote`.
+- The emote action is named `key.emote`; its keyboard default is B.
 - The pinned pack's `persona_emote.emote_wheel_screen` and
-  `persona_common.emote_wheel_panel`: four cardinal slots. The controller's
-  contextual global bindings query each originating control's `#index`.
-- Controller defaults: `createInputMappingTemplates` at `0x100963250` maps
-  action `0x34` to native button 7, identified as D-pad Left by the sprite/name
-  initializer at `0x102e15a30`. The controller mapper at `0x10097ef10` binds it
-  to `button.emote`. Supplemental binding rows are appended to preserve saved IDs.
-- `LocalPlayer::playEmoteSlot` at `0x103d26d00`: accepts slots 0–3.
-  `PersonaAppearance::setEmote` at `0x103c3b260`: bounds slots and swaps an
-  already equipped piece into the requested slot.
-- `SelectionWheelComponent::receive` at `0x1024ea3d0`: radius follows the shorter
-  rectangle side; the inner boundary is excluded and the outer is included.
-  Visibility at `0x1024e9f30` selects one state, and construction at `0x1024e9af0`
-  starts with no hovered slice.
-- `LocalPlayer::playEmote` at `0x103d24780` and current Windows
-  1.26.50.26 RVA `0x4f382c0`: animation controller playback and emoting status.
-  This function does not directly change the camera perspective.
-- `PlayerMovement::shouldStopEmoting` at `0x1065106b0` and
-  `ClientInputUpdateSystem::updateStopEmotingRequest` at `0x1022bc6a0`:
-  nonzero horizontal movement requests cancellation.
-- `HudPlayerRenderer::update`, current RVA `0x9c78c70`: emoting keeps the paper
-  doll visible with the existing hold timer.
+  `persona_common.emote_wheel_panel` define four cardinal slots. The
+  controller's contextual global bindings query each originating control's
+  `#index`.
+- The controller default is D-pad Left, bound as `button.emote`. Supplemental
+  binding rows are appended to preserve saved IDs.
+- Playing an emote slot accepts slots 0–3. Equipping an emote bounds the slot
+  and swaps an already equipped piece into the requested slot.
+- The selection wheel's radius follows the shorter rectangle side; the inner
+  boundary is excluded and the outer is included. Visibility selects one state,
+  and the wheel starts with no hovered slice.
+- Playing an emote drives animation controller playback and emoting status; it
+  does not directly change the camera perspective.
+- Nonzero horizontal movement requests emote cancellation.
+- Emoting keeps the HUD paper doll visible with the existing hold timer.
 
 ## Original custom emote
 

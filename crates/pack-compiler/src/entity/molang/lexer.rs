@@ -2,7 +2,7 @@ use assets::AssetError;
 
 use crate::entity::invalid;
 
-const MAX_SOURCE_BYTES: usize = 16 * 1024;
+const MAX_SOURCE_BYTES: usize = 32 * 1024;
 const MAX_STRING_BYTES: usize = assets::MAX_MOLANG_STRING_BYTES;
 
 #[derive(Clone, Debug, PartialEq)]

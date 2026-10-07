@@ -3,10 +3,11 @@
 
 pub use bridge::{
     Account, Artwork, AuthState, BridgeError, ConnectProgress, ConnectStage, ConnectTarget, Events,
-    FeaturedGame, FeaturedServer, Friend, Gathering, Home, Inbox, LiveEvent, Message,
-    MessageButton, MessageEvent, MessageImage, Profile, ProfileAchievement, ProfileAchievements,
-    ProfileStatistics, Realm, ServerDisconnect, ServerPing, TransferPending, account_status,
-    connect_target, control_endpoint_path, home, list_featured_servers, list_friends,
-    list_gatherings, list_realms, ping_servers, poll_events, profile, report_message_event,
-    sign_out,
+    FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
+    MessageEvent, MessageImage, Profile, ProfileAchievement, ProfileAchievements,
+    ProfileStatistics, Realm, ServerDisconnect, ServerPing, ServerTrustPrompt, TransferPending,
+    account_status, answer_server_trust, connect_target, control_endpoint_path, home,
+    list_featured_servers, list_featured_servers_with_counts, list_friends, list_realms,
+    ping_servers, poll_events, profile, report_message_event, sign_out,
 };
+pub use bridge::{PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay};

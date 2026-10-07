@@ -13,9 +13,40 @@ pub const MAX_PANEL_SECTIONS: usize = 12;
 pub const MAX_PANEL_CATEGORIES: usize = 4;
 pub const FONT_NAME: &str = "mod_panel";
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    Default,
+    Monochrome,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Style {
+    #[default]
+    Standard,
+    Compact,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Icon {
+    #[default]
+    None,
+    Pointer,
+    Crosshair,
+    Ruler,
+    Settings,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Panel {
+    #[serde(default)]
+    pub theme: Theme,
+    #[serde(default)]
+    pub style: Style,
     pub title: String,
     pub toggle_key: String,
     pub dark: bool,
@@ -30,6 +61,8 @@ pub struct Panel {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Section {
+    #[serde(default)]
+    pub icon: Icon,
     pub id: String,
     pub label: String,
     pub category: String,
@@ -58,6 +91,13 @@ pub enum Control {
         id: String,
         label: String,
     },
+    Keybind {
+        id: String,
+        label: String,
+        key: String,
+        #[serde(default)]
+        capturing: bool,
+    },
     Choice {
         id: String,
         label: String,
@@ -79,6 +119,7 @@ impl Control {
             Self::Toggle { id, .. }
             | Self::Slider { id, .. }
             | Self::Button { id, .. }
+            | Self::Keybind { id, .. }
             | Self::Choice { id, .. } => id,
         }
     }
@@ -88,6 +129,7 @@ impl Control {
             Self::Toggle { label, .. }
             | Self::Slider { label, .. }
             | Self::Button { label, .. }
+            | Self::Keybind { label, .. }
             | Self::Choice { label, .. } => label,
         }
     }
@@ -123,6 +165,11 @@ impl Panel {
             }
             text(control.label(), "control label")?;
             match control {
+                Control::Keybind { key, .. } => {
+                    if key.len() > MAX_PANEL_ID_BYTES || key.chars().any(char::is_control) {
+                        return Err("panel keybind requires a bounded key label".into());
+                    }
+                }
                 Control::Slider {
                     value,
                     min,

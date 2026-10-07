@@ -468,7 +468,7 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
     assert!(!ledger.resync_required());
 }
 
-/// Native _makeCreateItemScopeCreative declares
+/// Vanilla's creative create-item scope declares
 /// the catalog prototype, not the full-stack prediction used for the transfer.
 #[test]
 fn creative_take_declares_the_catalog_item_metadata_and_user_data() {
@@ -507,6 +507,72 @@ fn creative_take_declares_the_catalog_item_metadata_and_user_data() {
     );
     assert_eq!(results[0].user_data, prototype.extra_data);
     assert_eq!(ledger.displayed_stack(4).unwrap().count, 64);
+}
+
+#[test]
+fn creative_take_preserves_high_bit_block_ids_and_signed_aux() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let prototype = NetworkItemStack {
+        metadata: u32::MAX,
+        block_runtime_id: i32::MIN + 123,
+        ..stack(COBBLE, -1, 1)
+    };
+    ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
+        groups: Arc::from([]),
+        items: Arc::from([protocol::CreativeItem {
+            creative_network_id: 44,
+            stack: prototype.clone(),
+            group: 0,
+        }]),
+        skipped: 0,
+    }));
+    ledger
+        .begin_creative_take(44, CreativeDestination::Cursor)
+        .unwrap();
+    let StackRequestAction::CraftResultsDeprecated { results, .. } =
+        &ledger.newest_request().unwrap().actions[1]
+    else {
+        panic!("declared creative prototype")
+    };
+    assert_eq!(results[0].aux, -1);
+    assert_eq!(
+        results[0].block_runtime_id,
+        u32::from_ne_bytes(prototype.block_runtime_id.to_ne_bytes())
+    );
+    assert_eq!(
+        ledger.cursor_stack().unwrap().block_runtime_id,
+        prototype.block_runtime_id
+    );
+}
+
+#[test]
+fn creative_drop_creates_one_or_a_whole_stack_without_occupying_the_cursor() {
+    for (whole_stack, expected) in [(false, 1), (true, protocol::ITEM_DEFAULT_MAX_STACK_SIZE)] {
+        let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+        creative(&mut ledger);
+        let request = ledger
+            .begin_creative_take(44, CreativeDestination::Drop { whole_stack })
+            .unwrap();
+        let actions = &ledger.newest_request().unwrap().actions;
+        assert!(matches!(
+            actions[0],
+            StackRequestAction::CraftCreative {
+                creative_item_network_id: 44,
+                crafts: 1
+            }
+        ));
+        assert!(
+            matches!(actions[2], StackRequestAction::Drop { amount, source, randomly: false } if amount == expected && source.container == StackRequestContainer::CreatedOutput && source.stack_network_id == request)
+        );
+        assert!(ledger.cursor_stack().is_none());
+        assert!(
+            ledger
+                .view()
+                .get(super::cells::Cell::CreatedOutput)
+                .is_none()
+        );
+        assert!(ledger.pending_batch().unwrap().is_some());
+    }
 }
 
 /// Unknown entries and occupied destinations send nothing.

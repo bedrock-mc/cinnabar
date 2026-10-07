@@ -47,7 +47,7 @@ pub(in crate::compiler) fn compile_rule(
     Ok(CompileRuleResult::Compiled(visual))
 }
 
-/// Native row tessellation (MCSRC 06a21df0 / 06a98c10): four full-width
+/// Vanilla crop rows: four full-width
 /// planes at X/Z 1/4 and 3/4, lowered 1/16 to meet farmland's surface.
 fn wheat_row_quads(material: u32) -> [ModelQuad; 4] {
     let uvs = [[0, 0], [0, 4096], [4096, 4096], [4096, 0]];

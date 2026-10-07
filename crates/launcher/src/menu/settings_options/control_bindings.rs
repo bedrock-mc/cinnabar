@@ -11,7 +11,7 @@ pub const EXTRA_KEYS: &[(&str, PhysicalControl)] = &[
     ("key.pickItem", PhysicalControl::MouseButton(3)),
     ("key.screenshot", PhysicalControl::KeyboardUsage(0x3b)),
     ("key.fullscreen", PhysicalControl::KeyboardUsage(0x44)),
-    // R:v/VanillaClientInputMappingFactory.cpp: key.emote defaults to B.
+    // Vanilla's key.emote defaults to B.
     ("key.emote", PhysicalControl::KeyboardUsage(0x05)),
 ];
 pub const SECONDARY_KEYS: &[(&str, PhysicalControl)] =
@@ -21,8 +21,8 @@ pub const EXTRA_GAMEPAD: &[(&str, Option<PhysicalControl>)] = &[
     ("key.chat", Some(PhysicalControl::GamepadButton(14))),
     ("key.drop", Some(PhysicalControl::GamepadButton(12))),
     ("key.pickItem", None),
-    // R:26.30 createInputMappingTemplates action0x34 uses native button7;
-    // GamePadRemappingLayout's native sprite/name map identifies it as D-pad left.
+    // Vanilla 26.30 maps this action to gamepad button 7, which its remapping
+    // layout shows as D-pad left.
     // Append supplemental rows to preserve existing persisted row indices.
     ("key.emote", Some(PhysicalControl::GamepadButton(13))),
 ];

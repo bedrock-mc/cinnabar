@@ -245,13 +245,99 @@ fn lobby_ui_publication_cost() {
         .into_iter()
         .zip(&mut stages)
     {
-        samples.sort_unstable();
-        let mean = samples.iter().sum::<Duration>() / samples.len() as u32;
-        eprintln!(
-            "LOBBY_PUBLICATION stage={name} mean_ms={:.3} median_ms={:.3} p99_ms={:.3}",
-            mean.as_secs_f64() * 1e3,
-            samples[(samples.len() - 1) / 2].as_secs_f64() * 1e3,
-            samples[(samples.len() - 1) * 99 / 100].as_secs_f64() * 1e3
-        );
+        report_stage(name, samples);
     }
+    // One retained-state change per frame: the UI build is the cost a change pays.
+    let mut sequence = 10_000u64;
+    let updates = std::env::var("CINNABAR_LOBBY_UPDATES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(200);
+    let kinds = std::env::var("CINNABAR_LOBBY_UPDATE_KIND").ok();
+    for kind in ["chat_line", "score_row", "title"]
+        .into_iter()
+        .filter(|kind| kinds.as_deref().is_none_or(|only| only == *kind))
+    {
+        let mut builds = Vec::with_capacity(updates);
+        for update in 0..=updates {
+            sequence += 1;
+            let now = 20_000 + sequence * 16;
+            let event = match kind {
+                "chat_line" => chat_event(&format!("§7[§bMember§7] §fUpd{update}§7: gg")),
+                "score_row" => UiEvent::Score(ScoreEvent {
+                    entries: vec![ProtocolScoreEntry {
+                        action: ProtocolScoreAction::Change,
+                        scoreboard_id: 100 + (update % 15) as i64,
+                        objective_name: Arc::from("objective"),
+                        score: (update % 15) as i32,
+                        identity: ProtocolScoreIdentity::FakePlayer(Arc::from(format!(
+                            "§7» §fStat {}: §b{update}§r",
+                            update % 15
+                        ))),
+                    }]
+                    .into(),
+                }),
+                _ => title_event(&format!("§6Round {update}")),
+            };
+            runtime
+                .apply(
+                    &mut player,
+                    SequencedUiEvent {
+                        session_id: 1,
+                        fifo_sequence: sequence,
+                        local_millis: now,
+                        server_tick: None,
+                        event,
+                    },
+                )
+                .unwrap();
+            let prepared = PendingUiPublication {
+                inventory: runtime.capture_presentation_inventory(&player),
+                preview: PreviewCapture {
+                    skin: None,
+                    pose: Default::default(),
+                    shown: false,
+                    hands: false,
+                },
+                item_icons: (None, None),
+                now_millis: now,
+                physical_size: [2560, 1440],
+                dpi_scale: DpiScale::new(2.0).unwrap(),
+            };
+            let started = Instant::now();
+            let input =
+                render_prepared_ui(&player, &mut runtime, &mut presentation, prepared).unwrap();
+            if update > 0 {
+                builds.push(started.elapsed());
+            }
+            scene.publish(input, &stats).unwrap();
+        }
+        report_stage(&format!("update_{kind}"), &mut builds);
+    }
+}
+
+fn title_event(text: &str) -> UiEvent {
+    UiEvent::Title(protocol::TitleEvent {
+        action: protocol::TitleAction::SetTitle,
+        text: Arc::from(text),
+        document: None,
+        fade_in_ticks: 10,
+        stay_ticks: 70,
+        fade_out_ticks: 20,
+        xuid: Arc::from(""),
+        platform_online_id: Arc::from(""),
+        filtered_message: Arc::from(""),
+    })
+}
+
+fn report_stage(name: &str, samples: &mut [Duration]) {
+    samples.sort_unstable();
+    let mean = samples.iter().sum::<Duration>() / samples.len() as u32;
+    eprintln!(
+        "LOBBY_PUBLICATION stage={name} n={} mean_ms={:.3} median_ms={:.3} p99_ms={:.3}",
+        samples.len(),
+        mean.as_secs_f64() * 1e3,
+        samples[(samples.len() - 1) / 2].as_secs_f64() * 1e3,
+        samples[(samples.len() - 1) * 99 / 100].as_secs_f64() * 1e3
+    );
 }

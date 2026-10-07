@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use assets::{NetworkIdMode, RegistryRecord, TOP_SNOW_LAYER_COUNT};
+use assets::{ModelStateField, NetworkIdMode, RegistryRecord, TOP_SNOW_LAYER_COUNT};
 use sim::{Aabb, PaletteWorld, Vec3};
 use world::{BlockUpdate, ChunkStore, SubChunkKey};
 
@@ -235,6 +235,55 @@ fn flowers_grass_and_mushrooms_are_pickable_but_remain_passable() {
 }
 
 #[test]
+fn cobweb_and_all_signs_are_pickable_independently_of_movement_colliders() {
+    let fixture = fixture();
+    let records: Vec<_> = fixture
+        .records
+        .iter()
+        .filter(|record| {
+            record.name.as_ref() == "minecraft:web"
+                || record.name.ends_with("standing_sign")
+                || record.name.ends_with("wall_sign")
+                || record.name.ends_with("hanging_sign")
+        })
+        .collect();
+    assert!(records.len() > 20);
+    for record in records {
+        let expected = shape(record).expect("the pinned selectable block has visual bounds");
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+            let registry = fixture.registries.registry(mode);
+            let id = runtime_id(record, mode);
+            if !record.name.ends_with("hanging_sign") {
+                assert!(
+                    registry.collision_shapes(id).unwrap().is_empty(),
+                    "{} is selectable without a movement collider",
+                    record.name
+                );
+            }
+            let store = store(mode, record);
+            let world = PaletteWorld::new(&store, registry, 0);
+            let center = (expected.min + expected.max) * 0.5;
+            let hit = world
+                .block_interaction_ray_current(
+                    Vec3::new(8.0 + center.x, 10.0, 8.0 + center.z),
+                    Vec3::new(0.0, -1.0, 0.0),
+                    4.0,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                hit.runtime_id, id,
+                "{} must stop the interaction ray above its support",
+                record.name
+            );
+            assert_eq!(hit.block_pos, [8, 8, 8]);
+            assert_eq!(hit.face, 1);
+            assert_eq!(hit.hit_local.y, expected.max.y);
+        }
+    }
+}
+
+#[test]
 fn every_reviewed_foliage_route_binds_selection_without_movement_changes() {
     let fixture = fixture();
     for record in &fixture.records {
@@ -358,6 +407,127 @@ fn barrier_selection_is_creative_only_without_removing_collision_or_the_pick() {
                 runtime_id(stone, mode),
                 game_mode
             ));
+        }
+    }
+}
+
+fn wall_record(connections: u32) -> &'static RegistryRecord {
+    fixture()
+        .records
+        .iter()
+        .find(|record| {
+            record.name.as_ref() == "minecraft:cobblestone_wall"
+                && record.model_state.get(ModelStateField::Connections) == Some(connections)
+        })
+        .expect("wall connection state must exist in the pinned registry")
+}
+
+#[test]
+fn wall_and_fence_picks_stop_at_the_visible_post_without_shortening_collision() {
+    let fixture = fixture();
+    let fence = fixture
+        .records
+        .iter()
+        .find(|record| {
+            if record.name.as_ref() != "minecraft:oak_fence" {
+                return false;
+            }
+            let state: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
+            ["north", "east", "south", "west"]
+                .into_iter()
+                .all(|direction| state[format!("minecraft:connection_{direction}")]["value"] == 0)
+        })
+        .expect("isolated fence must exist in the pinned registry");
+    for (record, inset) in [(wall_record(0x100), 0.25), (fence, 0.375)] {
+        let expected = bounds([inset, 0.0, inset], [1.0 - inset, 1.0, 1.0 - inset]);
+        let collider = bounds([inset, 0.0, inset], [1.0 - inset, 1.5, 1.0 - inset]);
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+            let registry = fixture.registries.registry(mode);
+            let id = runtime_id(record, mode);
+            assert_eq!(registry.selection_shapes(id), Some([expected].as_slice()));
+            assert_eq!(registry.collision_shapes(id), Some([collider].as_slice()));
+            let store = store(mode, record);
+            let world = PaletteWorld::new(&store, registry, 0);
+            assert!(
+                world
+                    .block_interaction_ray_current(
+                        Vec3::new(8.5, 9.25, 6.5),
+                        Vec3::new(0.0, 0.0, 1.0),
+                        3.0,
+                    )
+                    .unwrap()
+                    .is_none(),
+                "{} must not pick the collision extension above the model",
+                record.name
+            );
+            let side = world
+                .block_interaction_ray_current(
+                    Vec3::new(8.5, 8.5, 6.5),
+                    Vec3::new(0.0, 0.0, 1.0),
+                    3.0,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(side.runtime_id, id);
+            assert_eq!(side.block_pos, [8, 8, 8]);
+            let top = world
+                .block_interaction_ray_current(
+                    Vec3::new(8.5, 10.0, 8.5),
+                    Vec3::new(0.0, -1.0, 0.0),
+                    3.0,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(top.runtime_id, id);
+            assert_eq!(top.hit_local.y, expected.max.y);
+        }
+    }
+}
+
+#[test]
+fn wall_straights_follow_the_visible_arm_width_and_height_in_both_id_spaces() {
+    for (connections, min, max) in [
+        (0x11, [0.3125, 0.0, 0.0], [0.6875, 0.875, 1.0]),
+        (0x44, [0.0, 0.0, 0.3125], [1.0, 0.875, 0.6875]),
+        (0x22, [0.3125, 0.0, 0.0], [0.6875, 1.0, 1.0]),
+        (0x88, [0.0, 0.0, 0.3125], [1.0, 1.0, 0.6875]),
+        (0x111, [0.25, 0.0, 0.0], [0.75, 1.0, 1.0]),
+    ] {
+        let record = wall_record(connections);
+        let expected = bounds(min, max);
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+            let registry = fixture().registries.registry(mode);
+            let id = runtime_id(record, mode);
+            assert_eq!(registry.selection_shapes(id), Some([expected].as_slice()));
+            assert!(
+                registry
+                    .collision_shapes(id)
+                    .unwrap()
+                    .iter()
+                    .all(|collider| collider.max.y == 1.5)
+            );
+            let store = store(mode, record);
+            let world = PaletteWorld::new(&store, registry, 0);
+            let top = world
+                .block_interaction_ray_current(
+                    Vec3::new(8.5, 10.0, 8.5),
+                    Vec3::new(0.0, -1.0, 0.0),
+                    3.0,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(top.runtime_id, id);
+            assert_eq!(top.hit_local.y, expected.max.y);
+            assert!(
+                world
+                    .block_interaction_ray_current(
+                        Vec3::new(8.5, 8.0 + expected.max.y + 0.0625, 6.5),
+                        Vec3::new(0.0, 0.0, 1.0),
+                        3.0,
+                    )
+                    .unwrap()
+                    .is_none()
+            );
         }
     }
 }

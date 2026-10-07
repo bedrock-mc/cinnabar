@@ -69,7 +69,7 @@ impl UiPresentationRuntime {
         } else {
             "sign.regular_sign_text_multiline"
         };
-        // `SignScreenController::addStaticScreenVars`: the wood's art and edit box.
+        // Vanilla sign screen variables: the wood's art and edit box.
         let context = renderer
             .context()
             .clone()

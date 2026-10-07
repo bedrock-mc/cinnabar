@@ -1,3 +1,6 @@
+mod checkpoint;
+pub(super) use checkpoint::GeometryCheckpoint;
+
 use super::{evaluation::Evaluator, *};
 use assets::{EntityControllerAnimationTarget, EntityGeometryBone};
 
@@ -112,6 +115,18 @@ pub(super) fn resolve_binding(
     }
     let mut motion = MotionState::spawn(actor.body_yaw, actor.head_yaw);
     motion.horse = super::horse::AnimationState::new(random_seed);
+    let samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
+        assets,
+        rig_binding,
+        geometry_binding,
+        &controllers,
+    );
+    let samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
+        assets,
+        rig_binding,
+        geometry_binding,
+        &controllers,
+    );
     Some(ActorRigState {
         pack: false,
         // The renderer needs the resolved geometry candidate, not only the
@@ -144,7 +159,7 @@ pub(super) fn resolve_binding(
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
         equipped_main: None,
         equipped_off: None,
-        // ItemInHandRenderer's constructor starts both offhand observations at zero.
+        // Vanilla starts both offhand observations at zero.
         off_hand_animation: [ItemAnimationState {
             attack_time: 0.0,
             arm_height: 0.0,
@@ -152,9 +167,17 @@ pub(super) fn resolve_binding(
         skin: None,
         skin_layers: Vec::new(),
         variables,
+        replay: None,
+        samples_render_frames: samples_camera_poses
+            || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
+        samples_camera_poses,
+        samples_swing_poses,
+        render_frame: None,
         clip_clocks: BTreeMap::new(),
         initialized: false,
         culled: false,
+        java: super::java::JavaMotionState::spawn(actor.body_yaw),
+        local_swing: None,
         motion,
     })
 }
@@ -179,7 +202,9 @@ pub(super) fn collect_controllers(
     output.push(ControllerState {
         controller,
         state: compiled.initial_state,
+        active: false,
         entered_tick: 0,
+        blend_from: None,
     });
     let states = assets.controller_states().get(
         compiled.first_state as usize
@@ -343,22 +368,84 @@ pub(super) fn reselect_geometry(
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
 ) {
-    let Some(rig) = assets.rig_bindings().get(state.rig_binding) else {
-        return;
-    };
+    let _ = reselect_geometry_with_checkpoint(
+        assets,
+        layout,
+        state,
+        actor,
+        context,
+        budget,
+        GeometrySelectionMode::Live,
+    );
+}
+
+/// Retains replaced geometry buffers only when a provisional attachable selects another model.
+pub(super) fn reselect_geometry_preview(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    state: &mut ActorRigState,
+    actor: &ActorSnapshot,
+    context: &ActorTickContext,
+    budget: &mut EvalBudget<'_>,
+) -> Option<GeometryCheckpoint> {
+    reselect_geometry_with_checkpoint(
+        assets,
+        layout,
+        state,
+        actor,
+        context,
+        budget,
+        GeometrySelectionMode::Preview,
+    )
+}
+
+/// Reselects late local geometry from the original authored variables of this completed tick.
+pub(super) fn reselect_geometry_replay(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    state: &mut ActorRigState,
+    actor: &ActorSnapshot,
+    context: &ActorTickContext,
+    budget: &mut EvalBudget<'_>,
+    tick: u64,
+) {
+    let _ = reselect_geometry_with_checkpoint(
+        assets,
+        layout,
+        state,
+        actor,
+        context,
+        budget,
+        GeometrySelectionMode::Replay(tick),
+    );
+}
+
+#[derive(Clone, Copy)]
+enum GeometrySelectionMode {
+    Live,
+    Preview,
+    Replay(u64),
+}
+
+/// Shares normal geometry selection while optionally preserving its replaced state.
+fn reselect_geometry_with_checkpoint(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    state: &mut ActorRigState,
+    actor: &ActorSnapshot,
+    context: &ActorTickContext,
+    budget: &mut EvalBudget<'_>,
+    mode: GeometrySelectionMode,
+) -> Option<GeometryCheckpoint> {
+    let rig = assets.rig_bindings().get(state.rig_binding)?;
     if rig.geometry_count < 2 {
-        return;
+        return None;
     }
     let first = rig.first_geometry as usize;
-    let Some(candidates) = assets
+    let candidates = assets
         .rig_geometries()
-        .get(first..first + usize::from(rig.geometry_count))
-    else {
-        return;
-    };
-    let Some(input) = state.history.back().copied() else {
-        return;
-    };
+        .get(first..first + usize::from(rig.geometry_count))?;
+    let input = state.history.back().copied()?;
     let evaluator = Evaluator {
         assets,
         layout,
@@ -372,58 +459,67 @@ pub(super) fn reselect_geometry(
         bones: &state.bones,
         bone_names: &state.bone_names,
     };
-    let mut variables = state.variables.clone();
+    let replay = match mode {
+        GeometrySelectionMode::Replay(tick) => state.replay_at(tick),
+        GeometrySelectionMode::Live | GeometrySelectionMode::Preview => None,
+    };
+    let mut variables = replay
+        .map_or(&state.variables, |replay| &replay.variables)
+        .clone();
     let mut selected = first;
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
-        let Some(condition) = candidate.condition else {
-            return;
-        };
+        let condition = candidate.condition?;
         match evaluator.run(condition as usize, &mut variables, 0.0, budget) {
             Ok(value) if value.truthy() => {
                 selected = first + offset;
                 break;
             }
             Ok(_) => {}
-            Err(_) => return,
+            Err(_) => return None,
         }
     }
     if selected == state.geometry_binding {
-        return;
+        return None;
     }
     let candidate = &assets.rig_geometries()[selected];
     if candidate.animation_count as usize + candidate.controller_count as usize
         > MAX_RUNTIME_BINDINGS_PER_RIG
     {
-        return;
+        return None;
     }
-    let Some((bones, bone_names)) = resolve_bones(assets, candidate.geometry as usize) else {
-        return;
-    };
-    let Some(pose) = compose_pose(&bones, &[]) else {
-        return;
-    };
+    let (bones, bone_names) = resolve_bones(assets, candidate.geometry as usize)?;
+    let pose = compose_pose(&bones, &[])?;
     let controller_first = candidate.first_controller as usize;
-    let Some(bindings) = assets
+    let bindings = assets
         .rig_controllers()
-        .get(controller_first..controller_first + usize::from(candidate.controller_count))
-    else {
-        return;
-    };
+        .get(controller_first..controller_first + usize::from(candidate.controller_count))?;
     let mut controllers = Vec::new();
     for binding in bindings {
-        if collect_controllers(assets, binding.controller as usize, 0, &mut controllers).is_none() {
-            return;
-        }
+        collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
     }
     let rig_id = if state.pack {
         assets::PACK_RIG_ID_BASE.checked_add(selected as u32)
     } else {
         Some(selected as u32)
     };
-    let Some(rig_id) = rig_id else {
-        return;
-    };
+    let rig_id = rig_id?;
+    let checkpoint =
+        matches!(mode, GeometrySelectionMode::Preview).then(|| GeometryCheckpoint::capture(state));
     state.rig = EntityRigId(rig_id);
+    state.samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
+        assets,
+        state.rig_binding,
+        selected,
+        &controllers,
+    );
+    state.samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
+        assets,
+        state.rig_binding,
+        selected,
+        &controllers,
+    );
+    state.samples_render_frames = state.samples_camera_poses
+        || super::render_frame::sampling::needs_frame_sampling(assets, state.rig_binding);
     state.geometry_binding = selected;
     state.bones = bones;
     state.bone_names = bone_names;
@@ -436,4 +532,5 @@ pub(super) fn reselect_geometry(
     state.current = pose;
     state.reset_pending = true;
     state.rest_reset_pending = true;
+    checkpoint
 }

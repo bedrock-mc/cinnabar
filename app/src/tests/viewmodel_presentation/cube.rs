@@ -336,10 +336,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
             dimension: 1,
             position: [3., 64., 0.],
+            ..Default::default()
         }),
         protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
             dimension: 0,
             position: [4., 64., 0.],
+            ..Default::default()
         }),
     ];
     for (index, event) in controls.into_iter().enumerate() {

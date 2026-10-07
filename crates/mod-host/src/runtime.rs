@@ -1,4 +1,7 @@
-use crate::{CameraDelta, FRAME_FUEL, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModGrants};
+use crate::{
+    CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob, GameplaySnapshot, MAX_LABEL_BYTES,
+    MEMORY_BYTES, ModCue, ModGrants,
+};
 use anyhow::{Result, bail};
 use wasmtime::{
     Engine, Store, StoreLimits, StoreLimitsBuilder,
@@ -7,13 +10,18 @@ use wasmtime::{
 
 wasmtime::component::bindgen!({
     path: "../mod-api/wit", world: "extension", imports: { default: trappable },
+    additional_derives: [PartialEq],
 });
 
 const MAX_IMPORT_WRITES: u32 = 8;
+#[path = "block_highlights.rs"]
+mod block_highlights;
 #[path = "controls.rs"]
 mod controls;
 #[path = "gameplay.rs"]
 mod gameplay;
+#[path = "render.rs"]
+mod render;
 
 struct State {
     limits: StoreLimits,
@@ -24,13 +32,62 @@ struct State {
     grants: ModGrants,
     time_override: Option<u32>,
     pending_time: Option<Option<u32>>,
+    fullbright: bool,
+    pending_fullbright: Option<bool>,
     environment_writes: u32,
     snapshot: Option<GameplaySnapshot>,
     gameplay_reads: u32,
     camera_writes: u32,
     pending_camera: Option<CameraDelta>,
     camera_delta: Option<CameraDelta>,
+    packet_delay_ms: u32,
+    pending_packet_delay: Option<u32>,
+    packet_delay_writes: u32,
+    show_real_position: bool,
+    pending_show_real_position: Option<bool>,
     controls: controls::ControlState,
+    world: gameplay::WorldState,
+    render: render::RenderState,
+    block_highlights: block_highlights::HighlightState,
+}
+
+impl State {
+    fn new(grants: ModGrants, settings: String) -> Self {
+        Self {
+            limits: StoreLimitsBuilder::new()
+                .memory_size(MEMORY_BYTES)
+                .table_elements(4096)
+                .instances(16)
+                .memories(1)
+                .tables(2)
+                .trap_on_grow_failure(true)
+                .build(),
+            pressed: false,
+            label: None,
+            pending: None,
+            writes: 0,
+            grants,
+            time_override: None,
+            pending_time: None,
+            fullbright: false,
+            pending_fullbright: None,
+            environment_writes: 0,
+            snapshot: None,
+            gameplay_reads: 0,
+            camera_writes: 0,
+            pending_camera: None,
+            camera_delta: None,
+            packet_delay_ms: 0,
+            pending_packet_delay: None,
+            packet_delay_writes: 0,
+            show_real_position: false,
+            pending_show_real_position: None,
+            controls: controls::ControlState::new(settings),
+            world: gameplay::WorldState::default(),
+            render: render::RenderState::new(),
+            block_highlights: block_highlights::HighlightState::default(),
+        }
+    }
 }
 
 impl cinnabar::extension::hud::Host for State {
@@ -49,6 +106,18 @@ impl cinnabar::extension::hud::Host for State {
 }
 
 impl cinnabar::extension::environment::Host for State {
+    fn set_fullbright(&mut self, enabled: bool) -> Result<Result<(), String>> {
+        self.environment_writes += 1;
+        if self.environment_writes > MAX_IMPORT_WRITES {
+            bail!("environment import budget exhausted");
+        }
+        if !self.grants.fullbright {
+            return Ok(Err("fullbright capability denied".into()));
+        }
+        self.pending_fullbright = Some(enabled);
+        Ok(Ok(()))
+    }
+
     /// Stages a fixed visual clock only with explicit authority and a valid tick.
     fn set_time_override(&mut self, ticks: Option<u32>) -> Result<Result<(), String>> {
         self.environment_writes += 1;
@@ -98,30 +167,7 @@ impl Instance {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
         Extension::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
-        let state = State {
-            limits: StoreLimitsBuilder::new()
-                .memory_size(MEMORY_BYTES)
-                .table_elements(4096)
-                .instances(16)
-                .memories(1)
-                .tables(2)
-                .trap_on_grow_failure(true)
-                .build(),
-            pressed: false,
-            label: None,
-            pending: None,
-            writes: 0,
-            grants,
-            time_override: None,
-            pending_time: None,
-            environment_writes: 0,
-            snapshot: None,
-            gameplay_reads: 0,
-            camera_writes: 0,
-            pending_camera: None,
-            camera_delta: None,
-            controls: controls::ControlState::new(settings),
-        };
+        let state = State::new(grants, settings);
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limits);
         store.set_fuel(FRAME_FUEL)?;
@@ -140,18 +186,28 @@ impl Instance {
         &mut self,
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
+        mobs: Vec<GameplayMob>,
         controls: crate::ControlFrame,
     ) -> Result<()> {
         let state = self.store.data_mut();
         state.snapshot = None;
         state.pending_camera = None;
         state.camera_delta = None;
+        state.pending_packet_delay = None;
+        state.packet_delay_writes = 0;
+        state.pending_show_real_position = None;
+        state.pending_fullbright = None;
         state.controls.begin_frame();
+        state.render.begin_frame();
+        state.block_highlights.begin_frame();
+        state.world.begin_frame();
         if !self.active {
             return Ok(());
         }
         gameplay::validate_snapshot(snapshot.as_ref())?;
+        gameplay::validate_mobs(snapshot.as_ref(), &mobs)?;
         controls::validate_frame(&controls)?;
+        let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
         let state = self.store.data_mut();
         state.pressed = pressed;
         state.writes = 0;
@@ -159,6 +215,8 @@ impl Instance {
         state.gameplay_reads = 0;
         state.camera_writes = 0;
         state.snapshot = snapshot;
+        state.world.advance_command_window(snapshot_seconds);
+        state.world.mobs = mobs;
         state.controls.frame = controls;
         self.store.set_fuel(FRAME_FUEL)?;
         if let Err(error) = self.guest.call_frame(&mut self.store) {
@@ -167,20 +225,61 @@ impl Instance {
             self.store.data_mut().label = None;
             self.store.data_mut().pending_time = None;
             self.store.data_mut().time_override = None;
+            self.store.data_mut().fullbright = false;
+            self.store.data_mut().pending_fullbright = None;
             self.store.data_mut().snapshot = None;
             self.store.data_mut().pending_camera = None;
             self.store.data_mut().camera_delta = None;
             self.store.data_mut().controls.revoke();
+            self.store.data_mut().render.revoke();
+            self.store.data_mut().block_highlights.revoke();
+            self.store.data_mut().world = gameplay::WorldState::default();
+            self.store.data_mut().packet_delay_ms = 0;
+            self.store.data_mut().pending_packet_delay = None;
+            self.store.data_mut().show_real_position = false;
+            self.store.data_mut().pending_show_real_position = None;
             bail!("mod quarantined after a guest trap: {error:#}");
         }
         commit(&mut self.store);
         self.store.data_mut().snapshot = None;
+        self.store.data_mut().world.mobs = Vec::new();
+        self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();
         Ok(())
     }
 
+    pub(super) fn camera_rig(&self) -> Option<GameplayCameraRig> {
+        self.store.data().world.rig
+    }
+
+    pub(super) fn take_commands(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.store.data_mut().world.commands)
+    }
+
+    /// Cues the next callback may poll; they last exactly one callback.
+    pub(super) fn deliver_cues(&mut self, cues: Vec<ModCue>) {
+        self.store.data_mut().world.incoming = gameplay::incoming(cues);
+    }
+
+    pub(super) fn take_cues(&mut self) -> Vec<ModCue> {
+        std::mem::take(&mut self.store.data_mut().world.cues)
+    }
+
     pub(super) fn take_camera_delta(&mut self) -> Option<CameraDelta> {
         self.store.data_mut().camera_delta.take()
+    }
+
+    pub(super) fn packet_delay_ms(&self) -> u32 {
+        self.store.data().packet_delay_ms
+    }
+    pub(super) fn fullbright(&self) -> bool {
+        self.store.data().fullbright
+    }
+    pub(super) fn block_highlights(&self) -> Option<&mod_api::BlockHighlightSpec> {
+        self.store.data().block_highlights.committed.as_ref()
+    }
+    pub(super) fn show_real_position(&self) -> bool {
+        self.store.data().show_real_position
     }
 
     /// Reads the committed presentation clock without entering the component.
@@ -217,6 +316,11 @@ impl Instance {
         self.store.data_mut().controls.dirty_settings = None;
     }
 
+    pub(super) fn render(&self) -> (&mod_render::RenderOutput, u64) {
+        let render = &self.store.data().render;
+        (render.output(), render.generation())
+    }
+
     pub(super) fn settings(&self) -> &str {
         self.store.data().controls.settings()
     }
@@ -226,7 +330,19 @@ impl Instance {
 fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
     state.controls.commit();
+    state.render.commit();
+    state.block_highlights.commit();
+    state.world.commit();
     state.camera_delta = state.pending_camera.take();
+    if let Some(delay) = state.pending_packet_delay.take() {
+        state.packet_delay_ms = delay;
+    }
+    if let Some(show) = state.pending_show_real_position.take() {
+        state.show_real_position = show;
+    }
+    if let Some(enabled) = state.pending_fullbright.take() {
+        state.fullbright = enabled;
+    }
     if let Some(ticks) = state.pending_time.take() {
         state.time_override = ticks;
     }

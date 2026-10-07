@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::{HudModel, HudSlot, hud_data_source};
+use super::{BossBar, HudModel, HudSlot, hud_data_source};
 use crate::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
 
 fn hotbar() -> Arc<ResolvedControl> {
@@ -79,4 +79,106 @@ fn retained_hotbar_clears_an_emptied_slot_when_the_icon_table_compacts() {
         refresh([Some(0), Some(1), Some(2)], &mut state),
         [json!(0.0), json!(1.0), json!(2.0)]
     );
+}
+
+#[test]
+fn unused_boss_slots_clear_names_and_hide_prefix_gated_backgrounds() {
+    let child = |index| ResolvedControl {
+        name: format!("slot{index}"),
+        control_type: Some("panel".into()),
+        base: None,
+        unresolved_base: None,
+        properties: [
+            ("collection_index".into(), json!(index)),
+            (
+                "bindings".into(),
+                json!([
+                    {
+                        "binding_type": "collection",
+                        "binding_collection_name": "boss_bars",
+                        "binding_name": "#bossName"
+                    },
+                    {
+                        "binding_type": "view",
+                        "source_property_name": "(not ((#bossName - 'message:') = #bossName))",
+                        "target_property_name": "#visible"
+                    }
+                ]),
+            ),
+        ]
+        .into(),
+        children: Vec::new(),
+        factory: None,
+    };
+    let root = Arc::new(ResolvedControl {
+        name: "fixed_boss_slots".into(),
+        control_type: Some("panel".into()),
+        base: None,
+        unresolved_base: None,
+        properties: [("collection_name".into(), json!("boss_bars"))].into(),
+        children: (0..8).map(child).collect(),
+        factory: None,
+    });
+    let mut state = BindState::new();
+    for names in [vec![], vec!["Dragon"], vec!["message:Hello"], vec![]] {
+        let model = HudModel {
+            boss_bars: names
+                .iter()
+                .map(|name| BossBar {
+                    name: (*name).into(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let data = hud_data_source(&model);
+        let (bound, diagnostics) = bind_stateful(&root, &data, &EmptyLibrary, &mut state);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        for (index, child) in bound.children.iter().enumerate() {
+            let name = names.get(index).copied().unwrap_or("");
+            assert_eq!(child.properties.get("#bossName"), Some(&json!(name)));
+            assert_eq!(
+                child.properties.get("visible"),
+                Some(&json!(name.contains("message:"))),
+                "unused or unrelated slot {index} must not draw a background"
+            );
+        }
+    }
+}
+
+#[test]
+fn absorption_native_hearts_are_gated_by_survival_ui_and_keep_their_renderer() {
+    let control = Arc::new(ResolvedControl {
+        name: "heart_renderer".into(),
+        control_type: Some("custom".into()),
+        base: None,
+        unresolved_base: None,
+        properties: [
+            ("renderer".into(), json!("heart_renderer")),
+            (
+                "bindings".into(),
+                json!([{
+                    "binding_name": "#show_survival_ui", "binding_name_override": "#visible"
+                }]),
+            ),
+        ]
+        .into(),
+        children: Vec::new(),
+        factory: None,
+    });
+    let mut state = BindState::new();
+    for survival_ui in [true, false, true] {
+        let (bound, diagnostics) = bind_stateful(
+            &control,
+            &hud_data_source(&HudModel {
+                survival_ui,
+                ..Default::default()
+            }),
+            &EmptyLibrary,
+            &mut state,
+        );
+        assert!(diagnostics.is_empty());
+        assert_eq!(bound.properties["visible"], json!(survival_ui));
+        assert_eq!(bound.properties["renderer"], json!("heart_renderer"));
+    }
 }

@@ -1,5 +1,4 @@
-//! Touch scrolling as 1.26.50 `ScrollViewComponent::_updateDynamicsAndScrollPosition`
-//! runs it: a held finger pulls the offset on a spring, a release flings it
+//! Touch scrolling as 1.26.50 runs it: a held finger pulls the offset on a spring, a release flings it
 //! with friction, and past either end a rubber band pulls it back. A touch-mode
 //! scrollbar box shows on touch and fades out a second after it settles.
 

@@ -8,19 +8,33 @@ impl WorldStream {
         budget: usize,
         removal_budget: usize,
     ) -> usize {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!(
+            "mesh.dispatch",
+            budget,
+            pending = self.mesh_jobs.pending.len()
+        )
+        .entered();
         if (budget == 0 && removal_budget == 0) || self.mesh_jobs.pending.is_empty() {
             return 0;
         }
 
-        let view = SchedulerView {
-            position: camera_position,
-            forward: self.view_forward,
-        };
+        let view = self.scheduler_view(camera_position);
         let (resident, known_air) = (&self.resident, &self.known_air);
+        let terrain = self.authority.terrain();
+        let classifier = self.classifier;
+        // Resident sections whose palettes are all air publish an empty mesh without a worker.
+        let requires_geometry = |key| {
+            resident.contains(&key)
+                && !known_air.contains(&key)
+                && terrain
+                    .sub_chunk(key)
+                    .is_none_or(|source| !classifier.is_sub_chunk_air(&source))
+        };
         let probe_near = self
             .mesh_jobs
             .ingress(view, self.poll_deadline, |key, _, pending| {
-                let lane = if resident.contains(&key) && !known_air.contains(&key) {
+                let lane = if requires_geometry(key) {
                     RESIDENT_MESH_LANE
                 } else {
                     MESH_REMOVAL_LANE
@@ -29,15 +43,13 @@ impl WorldStream {
             });
 
         let occupied = self.admitted_mesh_jobs.load(Ordering::Acquire);
-        let worker_budget = budget.min(
-            super::admission::mesh_job_cap(rayon::current_num_threads()).saturating_sub(occupied),
-        );
+        let worker_budget =
+            budget.min(super::admission::mesh_worker_cap().saturating_sub(occupied));
         let mut resident_candidates = if probe_near {
             scheduler::near_camera_keys(view, self.authority.current_dimension())
                 .filter_map(|key| {
                     let pending = self.mesh_jobs.pending.get(&key).copied()?;
-                    (self.resident.contains(&key)
-                        && !self.known_air.contains(&key)
+                    (requires_geometry(key)
                         && !self.mesh_jobs.in_flight.contains_key(&key)
                         && self.revisions.is_current(key, pending.revision))
                     .then_some((
@@ -53,40 +65,40 @@ impl WorldStream {
         resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
         resident_candidates.truncate(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
         let mut removal_candidates = Vec::new();
-        for _ in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
-            if worker_budget == 0 && self.poll_budget_exhausted() {
+        for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+            if index != 0 && worker_budget == 0 && self.poll_budget_exhausted() {
                 break;
             }
             let Some(mut candidate) = self.mesh_jobs.lanes[RESIDENT_MESH_LANE].ready.pop() else {
                 break;
             };
             let key = candidate.key;
-            candidate.distance_squared = view.rank(key);
+            candidate.refresh_rank(view);
             let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
                 continue;
             };
             if pending.revision != candidate.revision {
                 continue;
             }
-            if !self.revisions.is_current(key, pending.revision)
-                || self.mesh_jobs.in_flight.contains_key(&key)
-            {
+            if !self.revisions.is_current(key, pending.revision) {
                 self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                     .deferred
                     .push(candidate);
-            } else if self.resident.contains(&key) && !self.known_air.contains(&key) {
-                if let Some((_, _, queued)) = resident_candidates
-                    .iter_mut()
-                    .find(|(entry, _, _)| entry.key == key)
-                {
-                    *queued = true;
-                } else {
-                    resident_candidates.push((candidate, pending, true));
-                }
-            } else {
+            } else if !requires_geometry(key) {
                 self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
                     .ready
                     .push(candidate);
+            } else if self.mesh_jobs.in_flight.contains_key(&key) {
+                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                    .deferred
+                    .push(candidate);
+            } else if let Some((_, _, queued)) = resident_candidates
+                .iter_mut()
+                .find(|(entry, _, _)| entry.key == key)
+            {
+                *queued = true;
+            } else {
+                resident_candidates.push((candidate, pending, true));
             }
         }
         let removal_authority = self
@@ -130,7 +142,7 @@ impl WorldStream {
                 self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
                     .deferred
                     .push(candidate);
-            } else if self.resident.contains(&key) && !self.known_air.contains(&key) {
+            } else if requires_geometry(key) {
                 self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                     .ready
                     .push(candidate);
@@ -144,9 +156,11 @@ impl WorldStream {
             }
         }
 
+        let mut dispatch = workers::WORKERS.batch(workers::Lane::Mesh);
         let mut dispatched = 0;
         let mut examined = false;
         let now = Instant::now();
+        self.prioritize_transfer_mesh_candidates(&mut resident_candidates);
         resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
         for (candidate, pending, queued) in resident_candidates {
             let key = candidate.key;
@@ -223,9 +237,15 @@ impl WorldStream {
             let runtime_assets = Arc::clone(self.authority.runtime_assets());
             let resolved_biome_tints = Arc::clone(self.authority.resolved_biome_tints());
             let tint_identity = self.biome_tint_identity();
-            workers::WORKERS.mesh.spawn(move || {
+            let dispatched_at = Instant::now();
+            dispatch.spawn(move || {
+                #[cfg(feature = "tracy")]
+                let _zone =
+                    tracing::info_span!("mesh.build", key = ?key, revision = pending.revision)
+                        .entered();
                 let started = Instant::now();
                 let queue_wait = queue_wait(pending.queued_at, started);
+                let dispatch_wait = started.saturating_duration_since(dispatched_at);
                 let source = Arc::clone(&snapshot.center);
                 let biome_sources = snapshot.biomes.clone();
                 let light_halo = snapshot.light_halo.clone();
@@ -241,7 +261,7 @@ impl WorldStream {
                     snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode)
                 };
                 output_permit.reconcile(&mesh, &biome);
-                let _ = tx.send(MeshCompletion {
+                let completion = MeshCompletion {
                     output_permit: Some(output_permit),
                     _job_permit: Some(job_permit),
                     key,
@@ -254,9 +274,15 @@ impl WorldStream {
                     dependency_mask,
                     light_halo,
                     queue_wait,
+                    dispatch_wait,
                     duration: started.elapsed(),
                     urgent: pending.urgent,
-                });
+                };
+                #[cfg(feature = "tracy")]
+                drop(_zone);
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("mesh.completion_send", key = ?completion.key, revision = completion.revision).entered();
+                let _ = tx.send(completion);
             });
             self.stats.last_mesh_dispatch_at = Some(Instant::now());
             self.stats.phase2_stages.mesh_jobs_dispatched = self
@@ -267,6 +293,7 @@ impl WorldStream {
             dispatched += 1;
         }
 
+        drop(dispatch);
         let mut removal_candidates = removal_candidates.into_iter();
         let mut removed = false;
         while let Some((candidate, pending)) = removal_candidates.next() {
@@ -304,7 +331,13 @@ impl WorldStream {
             };
             self.mesh_jobs.pending.remove(&key);
             removed = true;
-            if self.known_air.contains(&key) {
+            let resident_air = self.resident.contains(&key)
+                && self
+                    .authority
+                    .terrain()
+                    .sub_chunk(key)
+                    .is_some_and(|source| self.classifier.is_sub_chunk_air(&source));
+            if self.known_air.contains(&key) || resident_air {
                 self.set_connectivity(key, Some(FaceConnectivity::all()));
                 let registered = self.register_mesh_dependency_mask(
                     key,
@@ -344,10 +377,19 @@ impl WorldStream {
         now: Instant,
     ) -> bool {
         let mut due = false;
-        for neighbour in key
-            .mesh_neighbourhood_dependents()
-            .filter(|neighbour| *neighbour != key)
-        {
+        // A loaded column with no outstanding requests owes nothing, whatever the height.
+        let settled = |column: ChunkKey| {
+            self.loaded_columns.contains(&column) && !self.requests.requested.contains_key(&column)
+        };
+        let mut unsettled = [key; 26];
+        let mut count = 0;
+        for neighbour in key.mesh_neighbourhood_dependents() {
+            if neighbour != key && !settled(neighbour.chunk()) {
+                unsettled[count] = neighbour;
+                count += 1;
+            }
+        }
+        for &neighbour in &unsettled[..count] {
             if self.sub_chunk_is_due(neighbour, now) {
                 due = true;
                 if self.requests.is_expected(neighbour) {
@@ -383,18 +425,12 @@ impl WorldStream {
             center,
             biomes: self.biome_neighbourhood(key),
             adjacent,
-            column_above: self
+            column: self
                 .authority
                 .terrain()
                 .chunk(key.chunk())
-                .into_iter()
-                .flat_map(|chunk| chunk.sub_chunks())
-                .filter_map(|(y, chunk)| {
-                    y.checked_sub(key.y)
-                        .filter(|&offset| offset >= 2)
-                        .map(|offset| (offset, chunk))
-                })
-                .collect(),
+                .map(world::Chunk::shared_sub_chunks),
+            center_y: key.y,
             light_halo,
         }
     }
@@ -493,13 +529,16 @@ impl WorldStream {
         }
     }
     pub(in crate::stream) fn accept_mesh_completion(&mut self, mut completion: MeshCompletion) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("mesh.completion", key = ?completion.key, revision = completion.revision).entered();
         completion._job_permit.take();
         self.stats.phase2_stages.mesh_jobs_completed = self
             .stats
             .phase2_stages
             .mesh_jobs_completed
             .saturating_add(1);
-        self.stats.observe_mesh_queue_wait(completion.queue_wait);
+        self.stats
+            .observe_mesh_queue_wait(completion.queue_wait, completion.dispatch_wait);
         if self.mesh_jobs.in_flight.get(&completion.key) == Some(&completion.revision) {
             self.mesh_jobs.in_flight.remove(&completion.key);
             self.mesh_cancellations.remove(&completion.key);

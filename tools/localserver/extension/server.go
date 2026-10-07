@@ -33,6 +33,10 @@ const Fallback = "Without the client part the server plays exactly as it does fo
 // accepts, so a client clock up to an hour behind the server's still takes it.
 const offerLifetimeSecs = MaxOfferLifetimeSecs - 60*60
 
+// MediaGPUBytes is the GPU memory an offer requests when a bundle may draw scene or media
+// surfaces: one 1280x720 RGBA texture with headroom.
+const MediaGPUBytes = 16 << 20
+
 // nonceBytes is the size of the Accept's server challenge and session, as the client checks them.
 const nonceBytes = 32
 
@@ -45,6 +49,8 @@ type Config struct {
 	Audience string
 	Revision uint64
 	Bundles  []Bundle
+	// MediaOrigins are canonical HTTPS origins added to the offer for media descriptor URLs.
+	MediaOrigins []string
 	// Log receives one line per client part that starts or falls back; nil discards.
 	Log *slog.Logger
 	// Now and Rand default to the wall clock and crypto/rand.
@@ -130,8 +136,8 @@ func NewServer(cfg Config) (*Server, error) {
 	return s, nil
 }
 
-// newOffer is the offer of cfg.Bundles in order: their permissions, the delivery origin and as
-// much memory as the client gives that many guests.
+// newOffer is the offer of cfg.Bundles in order: their permissions, the delivery and media
+// origins, as much memory as the client gives that many guests, and GPU memory for surfaces.
 func (s *Server) newOffer(cfg Config) (Offer, error) {
 	if len(cfg.Bundles) == 0 || len(cfg.Bundles) > MaxBundles {
 		return Offer{}, fmt.Errorf("%d bundles; an offer holds 1 to %d", len(cfg.Bundles), MaxBundles)
@@ -149,6 +155,14 @@ func (s *Server) newOffer(cfg Config) (Offer, error) {
 		Fallback: Fallback,
 		Carrier:  Carrier,
 	}
+	for _, origin := range cfg.MediaOrigins {
+		if !slices.Contains(offer.Scope.Origins, origin) {
+			offer.Scope.Origins = append(offer.Scope.Origins, origin)
+		}
+	}
+	if len(offer.Scope.Origins) > MaxOrigins {
+		return Offer{}, fmt.Errorf("%d origins; an offer holds at most %d", len(offer.Scope.Origins), MaxOrigins)
+	}
 	var total uint64
 	for _, b := range cfg.Bundles {
 		if s.bundles[b.Manifest.ID] != nil {
@@ -164,6 +178,9 @@ func (s *Server) newOffer(cfg Config) (Offer, error) {
 			Bytes:        b.Bytes,
 			URL:          DeliveryOrigin + "/" + b.Digest + bundleSuffix,
 		})
+	}
+	if offer.Scope.Permissions.Has(PermissionScene) || offer.Scope.Permissions.Has(PermissionMedia) {
+		offer.Scope.GPUBytes = MediaGPUBytes
 	}
 	if total > MaxExpandedBytes {
 		return Offer{}, fmt.Errorf("bundles of %d bytes together, over the client's %d", total, MaxExpandedBytes)

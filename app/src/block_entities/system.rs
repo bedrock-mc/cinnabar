@@ -11,7 +11,7 @@ use render::{
     crack_shape_from_template, item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
-use world::{BlockEntityKey, BlockEntityNbt, ChunkKey};
+use world::{BlockEntityKey, BlockEntityNbt, ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
@@ -27,7 +27,7 @@ use crate::{
 };
 use client_ui::ui_runtime::UiRuntime;
 
-pub(crate) const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
+const BLOCK_ENTITY_ASSETS_FILENAME: &str = assets::carriers::BLOCK_ENTITY.output;
 /// Block entities farther than this from the eye are not drawn.
 const SCAN_RADIUS_BLOCKS: f32 = 64.0;
 const MAX_SUBMISSIONS: usize = 4_096;
@@ -35,13 +35,17 @@ const TICKS_PER_SECOND: f64 = 20.0;
 const TEXT_CACHE_ENTRIES: usize = 256;
 const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
 
+mod bed;
 mod crystal_beams;
+mod dragon_death;
+mod portals;
 
-/// Reads the optional block-entity carrier next to the world carrier; on absence or
-/// corruption logs once and returns a scene that draws nothing.
-pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntityScene {
+/// Reads the optional block-entity carrier next to the world carrier, which the block-entity
+/// scene and worn heads share; on absence or corruption logs once and returns `None`.
+pub(crate) fn load_block_entity_carrier(
+    world_asset_path: &Path,
+) -> Option<Arc<RuntimeBlockEntityAssets>> {
     let path = world_asset_path.with_file_name(BLOCK_ENTITY_ASSETS_FILENAME);
-    let mut scene = BlockEntityScene::default();
     let bytes = match diagnostics::bounded_file::read(
         &path,
         assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64,
@@ -49,10 +53,10 @@ pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntitySce
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!(
-                "block-entity carrier {} unavailable ({error}); block-entity models, sign text and break cracks are not drawn; rebuild with: make block-entity-assets",
+                "block-entity carrier {} unavailable ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );
-            return scene;
+            return None;
         }
     };
     match RuntimeBlockEntityAssets::decode(&bytes) {
@@ -63,12 +67,23 @@ pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntitySce
                 assets.placements().len(),
                 assets.atlas_size()
             );
-            scene.install_assets(&assets);
+            Some(Arc::new(assets))
         }
-        Err(error) => eprintln!(
-            "block-entity carrier {} is invalid ({error}); block-entity models, sign text and break cracks are not drawn; rebuild with: make block-entity-assets",
-            path.display()
-        ),
+        Err(error) => {
+            eprintln!(
+                "block-entity carrier {} is invalid ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+/// A scene drawing `assets`, or nothing without them.
+pub(crate) fn block_entity_scene(assets: Option<&RuntimeBlockEntityAssets>) -> BlockEntityScene {
+    let mut scene = BlockEntityScene::default();
+    if let Some(assets) = assets {
+        scene.install_assets(assets);
     }
     scene
 }
@@ -198,8 +213,8 @@ fn light_factor(block: u8, sky: u8, daylight: f32) -> f32 {
 }
 
 fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> BlockEntityLight {
-    // Current SkullBlockRenderer supplies BlockSource light at
-    // the skull's BlockPos to mob_head's ordinary entity material.
+    // Vanilla lights a skull with the world light at its block position,
+    // through mob_head's ordinary entity material.
     if matches!(kind, BlockEntityKind::Skull(_)) {
         BlockEntityLight::Actor { block, sky }
     } else {
@@ -270,6 +285,16 @@ pub(crate) fn update_block_entity_scene(
     profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
     if !scene.has_assets() {
+        dragon_death::update_without_atlas(
+            client_world.stream.as_ref(),
+            actor_partial_tick.0,
+            camera
+                .single()
+                .ok()
+                .map(|(transform, _)| transform.translation),
+            &mut scene,
+            &mut frame,
+        );
         return;
     }
     // Timed in the body: a span around the chain would also count waiting on actor publication.
@@ -325,14 +350,28 @@ pub(crate) fn update_block_entity_scene(
     let mut held: Vec<StaticItemPlacement> = Vec::new();
     runtime.lids.begin();
     let chunk_range = |center: f32| {
-        ((center - SCAN_RADIUS_BLOCKS) / 16.0).floor() as i32
-            ..=((center + SCAN_RADIUS_BLOCKS) / 16.0).floor() as i32
+        ((center - SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
+            ..=((center + SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
     };
     'columns: for chunk_x in chunk_range(eye.x) {
         for chunk_z in chunk_range(eye.z) {
             let Some(chunk) = store.chunk(ChunkKey::new(dimension, chunk_x, chunk_z)) else {
                 continue;
             };
+            portals::submit(
+                &mut submissions,
+                ChunkKey::new(dimension, chunk_x, chunk_z),
+                chunk,
+                eye,
+                |id| {
+                    let info = block_info(runtime, &collisions, mode, id)?;
+                    match info.name.as_ref() {
+                        assets::END_PORTAL_IDENTIFIER => Some(BlockEntityKind::EndPortal),
+                        assets::END_GATEWAY_IDENTIFIER => Some(BlockEntityKind::EndGateway),
+                        _ => None,
+                    }
+                },
+            );
             for (key, nbt) in chunk.block_entities() {
                 if submissions.len() >= MAX_SUBMISSIONS {
                     break 'columns;
@@ -416,7 +455,21 @@ pub(crate) fn update_block_entity_scene(
                     )
                 };
                 if let Some(kind) = kind {
-                    let light = model_light(&kind, block_light, sky_light, daylight);
+                    // Stateless portal surfaces are admitted from the primary palette above.
+                    // A missing or stale NBT record must never add or remove their geometry.
+                    if matches!(
+                        kind,
+                        BlockEntityKind::EndPortal | BlockEntityKind::EndGateway
+                    ) {
+                        continue;
+                    }
+                    let light = if let BlockEntityKind::Bed(model) = &kind {
+                        bed::light(*model, [x, y, z], |position| {
+                            stream.light_level_at(position)
+                        })
+                    } else {
+                        model_light(&kind, block_light, sky_light, daylight)
+                    };
                     submissions.push(BlockEntitySubmission {
                         block: [x, y, z],
                         light,
@@ -442,6 +495,22 @@ pub(crate) fn update_block_entity_scene(
             .single()
             .ok()
             .map(|(transform, _)| transform.translation),
+        |runtime_id, owner_position| {
+            let actor = stream.authority().actor(runtime_id)?;
+            stream.solved_light_at(actor.brightness_sample_position(owner_position))
+        },
+    );
+    dragon_death::submit(
+        &mut submissions,
+        stream.authority().dragon_death_rays(actor_partial_tick.0),
+        camera
+            .single()
+            .ok()
+            .map(|(transform, _)| transform.translation),
+        |runtime_id, owner_position| {
+            let actor = stream.authority().actor(runtime_id)?;
+            stream.solved_light_at(actor.brightness_sample_position(owner_position))
+        },
     );
     placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
@@ -744,7 +813,7 @@ fn glass_tint(name: &str) -> Option<[f32; 3]> {
         "black" => 15,
         _ => return None,
     };
-    Some(render::banner_color(15 - java_id))
+    Some(assets::banner::color_linear(15 - java_id))
 }
 
 /// Blends the tint of each stained-glass block above the beacon, each new pane averaging

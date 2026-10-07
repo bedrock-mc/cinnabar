@@ -121,6 +121,19 @@ fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
     }
 }
 
+// Alpha marks gamma tints that remain constant across every block of a uniform record.
+fn uniform_biome_tint_gamma(tint_kind: u32, material_flags: u32, record: u32) -> vec4<f32> {
+    if (tint_kind == 0u) { return vec4(1.0); }
+    if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS)) { return vec4(0.0); }
+    if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) { return vec4(0.0); }
+    let index = biome_records[record + 1u];
+    if (index == 0xffffffffu) { return vec4(0.0); }
+    let tint = safe_biome_tint(index);
+    // Swamp grass varies with world-position noise even in a uniform biome.
+    if (tint_kind == 0x10u && (tint.flags & BIOME_SWAMP_GRASS) != 0u) { return vec4(0.0); }
+    return vec4(tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, vec3(0))).rgb, 1.0);
+}
+
 fn lattice_point_index(position: vec3<i32>) -> u32 {
     let axis = vec3<u32>((position + vec3(BIOME_LATTICE_STEP)) / BIOME_LATTICE_STEP);
     return (axis.x * BIOME_LATTICE_SIDE + axis.y) * BIOME_LATTICE_SIDE + axis.z;
@@ -145,7 +158,7 @@ fn blended_biome_tint(
         return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind, material_flags, coordinate + vec3<i32>(world_origin));
     }
     // Native seasonal foliage samples the block's biome directly, rather than
-    // interpolating the ordinary foliage lattice (FoliageTessellationPolicy).
+    // interpolating the ordinary foliage lattice.
     if ((material_flags & MATERIAL_SEASONAL_FOLIAGE) != 0u) {
         let tint = safe_biome_tint(packed_biome_tint_index(record, coordinate));
         if ((tint.flags & BIOME_SEASONAL_FOLIAGE) != 0u) {
@@ -157,13 +170,16 @@ fn blended_biome_tint(
     let base = (coordinate - vec3(BIOME_CACHE_ORIGIN)) / BIOME_LATTICE_STEP * BIOME_LATTICE_STEP + vec3(BIOME_CACHE_ORIGIN);
     let residue = vec3<u32>(coordinate - base + vec3(BIOME_RESIDUE_RADIUS));
     if (any(residue >= vec3(BIOME_RESIDUE_SIDE))) { return fallback; }
-    let query = ((residue.x * BIOME_RESIDUE_SIDE + residue.y) * BIOME_RESIDUE_SIDE + residue.z) * BIOME_QUERY_POINTS;
+    let stencil = BIOME_QUERY_STENCILS[(residue.x * BIOME_RESIDUE_SIDE + residue.y) * BIOME_RESIDUE_SIDE + residue.z];
+    let magnitude = vec3<u32>(abs(vec3<i32>(residue) - vec3(BIOME_RESIDUE_RADIUS)));
+    let magnitude_side = u32(BIOME_RESIDUE_RADIUS) + 1u;
+    let weights = ((magnitude.x * magnitude_side + magnitude.y) * magnitude_side + magnitude.z) * 2u;
     var sum = vec4(0.0);
     var denominator = 0.0;
-    for (var point = 0; point < i32(BIOME_QUERY_POINTS); point += 1) {
-        let sample = BIOME_POINTS[query + u32(point)];
-        let weight = sample.w;
-        let position = base + vec3<i32>(sample.xyz);
+    for (var point = 0u; point < BIOME_QUERY_POINTS; point += 1u) {
+        let cell = (stencil[point / 4u] >> (point % 4u * 8u)) & 0xffu;
+        let weight = BIOME_QUERY_WEIGHTS[weights + point / 4u][point % 4u];
+        let position = base + (vec3<i32>(vec3(cell / 9u, cell / 3u % 3u, cell % 3u)) - vec3(1)) * BIOME_LATTICE_STEP;
         if (lattice_point_index(position) >= BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE) { return fallback; }
         let start = record + BIOME_DESCRIPTOR_WORDS + lattice_point_index(position) * BIOME_POINT_WORDS;
         var colour = vec4(0.0);

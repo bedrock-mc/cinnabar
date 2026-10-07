@@ -22,6 +22,7 @@ pub const SHIELD_GUI_ROTATION_RADIANS: f32 = f32::from_bits(0x3f06_0a92);
 pub const SHIELD_ALPHA_CUTOFF: f32 = 0.5;
 pub const SHIELD_ROOT_BONE: &str = "shield";
 pub const SHIELD_IDENTIFIER: &str = "minecraft:shield";
+pub const SHULKER_GUI_LIGHT: f32 = f32::from_bits(0x3f3a_e148);
 pub const SHIELD_FACE_CORNERS: [[usize; 4]; 6] = [
     [3, 2, 1, 0],
     [6, 7, 4, 5],
@@ -68,7 +69,59 @@ pub fn project_cube([x, y, z]: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-/// Static shield ModelPart geometry through its own native GUI matrix, in design pixels.
+/// Closed conduit model-part coordinates through its inventory matrix, in design pixels.
+#[must_use]
+pub fn project_conduit(point: [f32; 3]) -> [f32; 3] {
+    project_entity(
+        point,
+        [8.0, 8.5, -10.0],
+        18.5,
+        f32::from_bits(0x3f06_0a92),
+        f32::from_bits(0xbf5f_66f3),
+    )
+}
+
+/// Plain decorated-pot model-part coordinates through its inventory matrix, in design pixels.
+#[must_use]
+pub fn project_decorated_pot([x, y, z]: [f32; 3]) -> [f32; 3] {
+    project_entity(
+        [x + 8.0, y, z + 8.0],
+        [8.0, 9.0, -10.0],
+        CUBE_SCALE,
+        f32::from_bits(0xc027_8d36),
+        f32::from_bits(0xbf49_0fdb),
+    )
+}
+
+/// Applies a model-part inventory matrix while retaining its view depth.
+fn project_entity(
+    [x, y, z]: [f32; 3],
+    offset: [f32; 3],
+    scale: f32,
+    pitch: f32,
+    yaw: f32,
+) -> [f32; 3] {
+    let (sx, cx) = pitch.sin_cos();
+    let (sy, cy) = yaw.sin_cos();
+    let rotated_x = cy * x + sy * z;
+    let rotated_z = -sy * x + cy * z;
+    let rotated = [rotated_x, cx * y - sx * rotated_z, sx * y + cx * rotated_z];
+    std::array::from_fn(|axis| offset[axis] + rotated[axis] * scale / 16.0)
+}
+
+/// Static standing-banner coordinates through its inventory matrix, in design pixels.
+#[must_use]
+pub fn project_banner(point: [f32; 3]) -> [f32; 3] {
+    project_entity(
+        point,
+        [8.5, 11.0, -10.0],
+        5.5,
+        f32::from_bits(0x3eb2_b8c2),
+        f32::from_bits(0xbf06_0a92),
+    )
+}
+
+/// Static shield model-part geometry through its own vanilla GUI matrix, in design pixels.
 #[must_use]
 pub fn project_shield(authored: [f32; 3]) -> [f32; 3] {
     let [x, y, z] = [
@@ -86,7 +139,7 @@ pub fn project_shield(authored: [f32; 3]) -> [f32; 3] {
     })
 }
 
-/// ModelPart box UV layout, or explicit authored face UV dimensions.
+/// Model-part box UV layout, or explicit authored face UV dimensions.
 #[must_use]
 pub fn shield_face_uvs(cube: &EntityGeometryCube) -> [Option<[[f32; 2]; 4]>; 6] {
     let quad =

@@ -10,7 +10,7 @@ use crate::item::CanonicalItemStack;
 /// Most stacked copies drawn for one dropped stack.
 pub const MAX_DROPPED_ITEM_COPIES: usize = 4;
 
-// ItemRenderer::render, current 1.26.50.26. The random phase belongs to
+// Vanilla dropped-item rendering (1.26.50.26). The random phase belongs to
 // vertical bob only, never spin; the half-tick subtraction is performed after the rate.
 const SPIN_RATE_PER_TICK: f32 = 0.05;
 const SPIN_HALF_TICK: f32 = SPIN_RATE_PER_TICK * 0.5;
@@ -110,7 +110,7 @@ impl ActorStore {
         }
         let ticks = actor.status.age_ticks as f32 + alpha;
         let mut position = actor.interpolated_position(alpha)?;
-        // Native ActorRenderDispatcher uses StateVector origin,
+        // Vanilla renders actors from their network position,
         // whereas our actor store retains collision feet for boxes and brightness.
         position[1] += ITEM_ACTOR_NETWORK_OFFSET;
         let mut bob_multiplier = 1.0;

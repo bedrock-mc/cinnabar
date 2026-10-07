@@ -3,7 +3,7 @@
 //! MovePlayer teleports acknowledge without opt-in. Correction-snap and
 //! respawn acknowledgements remain gated until their reference is established.
 
-use bevy::prelude::{App, Update};
+use bevy::prelude::{App, IntoScheduleConfigs, Update};
 use protocol::{
     ChangeDimensionEvent, MovePlayerEvent, MovementCorrectionSubject, Packet, PlayerInputMode,
     PlayerMovementCorrectionEvent, RespawnEvent, WorldBootstrap, WorldEvent,
@@ -21,7 +21,8 @@ use crate::environment::{WeatherState, WorldClock};
 use crate::local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose};
 use crate::runtime::phase3_evidence::Phase3EvidenceEmitter;
 use crate::runtime::world::{
-    ClientWorld, WorldStreamFramePoll, reconcile_world_stream_before_physics,
+    ClientWorld, WorldStreamFramePoll, advance_dimension_transfer,
+    reconcile_world_stream_before_physics,
 };
 use assets::read_registry_for_protocol;
 use chunk_pipeline::WorldStream;
@@ -30,6 +31,11 @@ use client_ui::ui_runtime::UiRuntime;
 use gameplay::movement::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 use render::ChunkUploadBudget;
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
+
+#[path = "teleport_ack_wiring_tests/correction_presentation.rs"]
+mod correction_presentation;
+#[path = "teleport_ack_wiring_tests/respawn.rs"]
+mod respawn;
 
 fn fixture_world_identity() -> WorldCollisionIdentity {
     WorldCollisionIdentity::new(
@@ -58,7 +64,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> super::PhysicsMovementSamp
         camera_orientation: [0.0, 0.0, 1.0],
         jumping: false,
         sneaking: false,
-        sneak_button: false,
+        input: Default::default(),
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,
@@ -189,7 +195,7 @@ fn committed_respawn_through_production_reconciliation_projects_the_opt_in_flag(
         1,
         WorldEvent::Respawn(RespawnEvent {
             position: [8.5, 71.620_01, -4.25],
-            state: 0,
+            state: 1,
             runtime_entity_id: 1,
         }),
     );
@@ -225,7 +231,7 @@ fn default_off_respawn_reconciliation_stays_inert_and_unflagged() {
         1,
         WorldEvent::Respawn(RespawnEvent {
             position: [8.5, 71.620_01, -4.25],
-            state: 0,
+            state: 1,
             runtime_entity_id: 1,
         }),
     );
@@ -363,6 +369,7 @@ fn change_dimension_clears_an_armed_assertion_through_production_reconciliation(
         WorldEvent::ChangeDimension(ChangeDimensionEvent {
             dimension: 1,
             position: [240.75, 82.0, -17.25],
+            ..Default::default()
         }),
     );
     app.update();
@@ -372,5 +379,159 @@ fn change_dimension_clears_an_armed_assertion_through_production_reconciliation(
         ticker.pending_teleport_ack_admitted_ticks(),
         None,
         "the production dimension boundary must clear the armed assertion"
+    );
+    assert_eq!(
+        ticker.completed_tick(),
+        100,
+        "a dimension switch must preserve the input tick clock"
+    );
+    let physics = app.world().resource::<LocalPhysicsController>();
+    assert_eq!(physics.state().unwrap().tick, 100);
+    assert_eq!(physics.network_position(), Some([240.75, 82.0, -17.25]));
+    let world = app.world().resource::<ClientWorld>();
+    assert!(world.dimension_transfer.active());
+}
+
+#[test]
+fn dimension_destination_controls_preserve_the_client_input_tick() {
+    for source in [MovementSource::Physics, MovementSource::FreeCamera] {
+        for wire_tick in [0, 10_000] {
+            let mut ticker = authorized_ticker(false);
+            ticker.set_source(source);
+            let mut app = wiring_app(ticker, LocalPhysicsController::default());
+            submit(
+                &mut app,
+                1,
+                WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                    dimension: 1,
+                    position: [240.75, 82.0, -17.25],
+                    ..Default::default()
+                }),
+            );
+            app.update();
+            let destination = [242.5, 83.0, -15.5];
+            submit(
+                &mut app,
+                2,
+                WorldEvent::MovePlayer(MovePlayerEvent {
+                    runtime_id: 1,
+                    position: destination,
+                    teleported: true,
+                    mode: protocol::MovePlayerMode::Teleport,
+                    source_tick: wire_tick,
+                    ..MovePlayerEvent::default()
+                }),
+            );
+            app.update();
+            assert_eq!(
+                app.world().resource::<MovementTicker>().completed_tick(),
+                100
+            );
+            let physics = app.world().resource::<LocalPhysicsController>();
+            if matches!(source, MovementSource::Physics) {
+                assert_eq!(physics.state().unwrap().tick, 100);
+                assert_eq!(physics.network_position(), Some(destination));
+            } else {
+                assert!(!physics.is_active());
+            }
+            let respawn = [244.5, 84.0, -14.5];
+            submit(
+                &mut app,
+                3,
+                WorldEvent::Respawn(RespawnEvent {
+                    position: respawn,
+                    state: 1,
+                    runtime_entity_id: 1,
+                }),
+            );
+            app.update();
+            let ticker = app.world().resource::<MovementTicker>();
+            assert_eq!(ticker.completed_tick(), 100);
+            assert_eq!(ticker.next_tick(), 101);
+            let physics = app.world().resource::<LocalPhysicsController>();
+            if matches!(source, MovementSource::Physics) {
+                assert_eq!(physics.state().unwrap().tick, 100);
+                assert_eq!(physics.network_position(), Some(respawn));
+            } else {
+                assert!(!physics.is_active());
+            }
+            assert!(
+                app.world()
+                    .resource::<ClientWorld>()
+                    .dimension_transfer
+                    .active()
+            );
+        }
+    }
+}
+
+#[test]
+fn dimension_transfer_starts_loading_and_tracks_later_server_teleports() {
+    let mut app = wiring_app(authorized_ticker(false), LocalPhysicsController::default());
+    let (network, mut packets) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    app.insert_resource(network);
+    app.add_systems(
+        Update,
+        advance_dimension_transfer.after(reconcile_world_stream_before_physics),
+    );
+    submit(
+        &mut app,
+        1,
+        WorldEvent::ChangeDimension(ChangeDimensionEvent {
+            dimension: 1,
+            position: [0.0, 4000.0, 0.0],
+            loading_screen_id: Some(42),
+            ..Default::default()
+        }),
+    );
+    submit(
+        &mut app,
+        2,
+        WorldEvent::DimensionChangeAck { runtime_id: 0 },
+    );
+    let destination = [240.5, 82.0, -17.25];
+    submit(
+        &mut app,
+        3,
+        WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 1,
+            position: destination,
+            teleported: true,
+            ..Default::default()
+        }),
+    );
+    app.update();
+    let outgoing = packets.drain();
+    assert_eq!(outgoing.len(), 1);
+    let session = protocol::BedrockSession { shield_item_id: 0 };
+    assert_eq!(
+        protocol::encode(&outgoing[0], &session).unwrap(),
+        protocol::encode(
+            &protocol::loading_screen_packet(protocol::LoadingScreenPhase::Start, Some(42)),
+            &session
+        )
+        .unwrap()
+    );
+    let world = app.world().resource::<ClientWorld>();
+    assert!(world.dimension_transfer.active());
+    assert!(world.dimension_transfer.waiting_for_switch());
+    assert_eq!(
+        world
+            .stream
+            .as_ref()
+            .unwrap()
+            .resolved_server_position()
+            .position,
+        destination
+    );
+    assert!(
+        app.world()
+            .resource::<MovementTicker>()
+            .can_advance_physics_frame()
+    );
+    app.update();
+    assert!(
+        packets.drain().is_empty(),
+        "the destination terrain is still absent"
     );
 }

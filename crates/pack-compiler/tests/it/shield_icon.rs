@@ -21,7 +21,7 @@ fn pack() -> tempfile::TempDir {
         ("animation_controllers/empty.json",&br#"{"format_version":"1.10.0","animation_controllers":{}}"#[..]),
         ("render_controllers/item.json",&br#"{"format_version":"1.8.0","render_controllers":{"controller.render.item":{"geometry":"Geometry.default"},"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#[..]),
         ("textures/entity/item.png",&b"unused-entity-raster"[..]),
-        // A different legacy atlas image must never override the native ShieldModel branch.
+        // A different legacy atlas image must never override the vanilla shield model.
         ("textures/item_texture.json",&br#"{"resource_pack_name":"synthetic","texture_name":"atlas.items","texture_data":{"shield":{"textures":"textures/items/flat"},"bundle_blue":{"textures":"textures/items/flat"}}}"#[..]),
     ] { write(pack.path(),path,bytes); }
     fs::create_dir_all(pack.path().join("textures/items")).unwrap();

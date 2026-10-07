@@ -1,5 +1,5 @@
 // Current liquid tessellation owns its lighting,
-// independently of AmbientOcclusionCalculator's terrain sampling.
+// independently of terrain ambient occlusion sampling.
 use std::cell::Cell;
 
 use super::{LightingInputs, MeshLightSample, bake_liquid_quad, bake_quad, cube_face_positions};

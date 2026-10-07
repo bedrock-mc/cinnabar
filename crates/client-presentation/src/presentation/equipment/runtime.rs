@@ -13,24 +13,28 @@ use render::{
 };
 use render_model::{
     ActorRigGeometry, EntityRigId, RenderBoneTransform, equipment_rig_id, find_geometry_index,
-    geometry_bone_names, geometry_bone_pivots, held_sprite_vertices, item_mesh_rig_id,
-    textured_cube_vertices,
+    geometry_bone_binding_expressions, geometry_bone_names, geometry_bone_pivots,
+    held_sprite_vertices, item_mesh_rig_id, textured_cube_vertices,
 };
 
 mod alpha;
 mod diagnostics;
+mod elytra;
+mod java;
 mod modern;
 mod pack;
 mod push;
+mod readiness;
 mod session;
 mod types;
+pub use java::java_draws_attachable;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
 pub use types::{
-    ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, FirstPersonItem, HeldKind,
-    WornItem,
+    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, FirstPersonArms,
+    FirstPersonItem, HeldKind, JavaGrip, WornItem,
 };
-use types::{ArmorGeometry, BodyBones, ElytraStance, MeshKey};
+use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
 
 use super::{
     armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
@@ -41,9 +45,8 @@ use super::{
         FirstPersonHand, FirstPersonShape, ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE,
         LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, attach_to_bone,
         first_person_display, head_block_display, held_block_display, held_sprite_display,
-        is_hand_equipped, is_mirrored_art, view_bone,
+        is_hand_equipped, is_rod, view_bone,
     },
-    elytra,
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {
@@ -53,6 +56,7 @@ fn body_bones(names: Vec<Box<str>>) -> BodyBones {
             .position(|name| name.eq_ignore_ascii_case(wanted))
     };
     BodyBones {
+        right_arm: find("rightArm"),
         right_item: find("rightItem"),
         left_item: find("leftItem"),
         head: find("head"),
@@ -123,7 +127,11 @@ pub struct EquipmentRuntime {
     logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
     poses: PoseMemo,
     attachables: client_world::AttachablesRuntime,
-    attachable_meshes: BTreeMap<(bool, u32, Box<str>), EntityRigId>,
+    attachable_meshes: BTreeMap<AttachableMeshKey, EntityRigId>,
+    /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
+    java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
+    /// Render-controller models queued beyond the scene's binding geometries.
+    selected_geometries: std::collections::BTreeSet<EntityRigId>,
 }
 
 impl EquipmentRuntime {
@@ -200,6 +208,10 @@ impl EquipmentRuntime {
             });
             rasters.len() - 1
         });
+        let artwork = match catalog.as_deref().and_then(Self::actor_glint) {
+            Some(glint) => artwork.with_actor_glint(glint),
+            None => artwork,
+        };
         let (artwork, locations) = artwork.with_equipment_rasters(&rasters);
         let texture_locations = textures
             .iter()
@@ -240,6 +252,8 @@ impl EquipmentRuntime {
         let runtime = Self {
             attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
+            java_rasters: BTreeMap::new(),
+            selected_geometries: Default::default(),
             assets,
             icons,
             placements: atlas.placements,
@@ -283,6 +297,7 @@ impl EquipmentRuntime {
         &mut self,
         body: &ActorRigSubmission,
         input: &ActorEquipmentInput,
+        animation: Option<EquipmentAnimation<'_>>,
     ) -> Vec<EquipmentPresentation> {
         let mut layers = Vec::new();
         if !matches!(
@@ -306,9 +321,21 @@ impl EquipmentRuntime {
         ] {
             let Some(item) = item else { continue };
             let before = layers.len();
-            self.push_held(body, item, layer, bone, &mut layers);
+            match input.java.filter(|_| layer == LAYER_MAIN_HAND) {
+                Some(grip) => {
+                    if !self.push_attachable(body, item, layer, bone, false, &mut layers) {
+                        self.push_java_held(body, item, &bones, grip, &mut layers);
+                    }
+                }
+                None => self.push_held(body, item, layer, bone, &mut layers),
+            }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);
+            } else if input.java.is_some() {
+                // Java draws held items after its red hurt flash.
+                for held in &mut layers[before..] {
+                    held.submission.overlay_rgba8 = 0;
+                }
             }
         }
         let slots = [
@@ -340,19 +367,14 @@ impl EquipmentRuntime {
                     );
                     continue;
                 }
-                let worn = ElytraStance {
-                    sneaking: input.sneaking,
-                    sleeping: input.sleeping,
-                };
+                if slot == ArmorSlot::Chestplate && self.is_elytra(&item.identifier) {
+                    if let Some(animation) = animation {
+                        self.push_elytra(body, item, input, animation, &mut layers);
+                    }
+                    continue;
+                }
                 let before = layers.len();
-                self.push_armor(
-                    body,
-                    &bones,
-                    geometry,
-                    (slot, layer, worn),
-                    item,
-                    &mut layers,
-                );
+                self.push_armor(body, &bones, geometry, (slot, layer), item, &mut layers);
                 if layers.len() == before {
                     self.note_missing_layer(item, Some(slot), bones.head);
                 }
@@ -402,7 +424,7 @@ impl EquipmentRuntime {
 
     /// The main-hand item as a first-person layer, when it is drawable. An attachable rides the
     /// posed `rightItem` bone; any other item carries a camera-space bone (`view_space`), placed
-    /// by `renderFirstPerson`'s own transforms for the arm's `hand` state.
+    /// by vanilla's first-person transforms for the arm's `hand` state.
     pub fn first_person_item(
         &mut self,
         body: &ActorRigSubmission,
@@ -422,7 +444,7 @@ impl EquipmentRuntime {
             FirstPersonShape::Block
         } else {
             FirstPersonShape::Sprite {
-                mirrored_art: is_mirrored_art(&item.identifier),
+                mirrored_art: is_rod(&item.identifier),
             }
         };
         let hand = hand.into();
@@ -447,6 +469,8 @@ impl EquipmentRuntime {
             presentation: layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            java_camera: None,
+            java_normal_axis: bevy::math::Vec3::Z,
         })
     }
 
@@ -478,6 +502,8 @@ impl EquipmentRuntime {
             presentation: layer_presentation(body, LAYER_OFF_HAND, mesh, poses, location, 0),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            java_camera: None,
+            java_normal_axis: bevy::math::Vec3::Z,
         })
     }
 
@@ -506,6 +532,15 @@ impl EquipmentRuntime {
         entry.clone().map(|bones| (geometry, bones))
     }
 
+    /// Identifies wing equipment through its resolved attachable rather than its item name.
+    pub fn is_elytra(&self, identifier: &str) -> bool {
+        self.binding_source(identifier).is_some_and(|(catalog, _)| {
+            catalog
+                .binding(identifier)
+                .is_some_and(|binding| binding.category == EquipmentCategory::Elytra)
+        })
+    }
+
     fn has_armor_binding(&self, identifier: &str) -> bool {
         self.binding_source(identifier).is_some()
     }
@@ -526,6 +561,10 @@ impl EquipmentRuntime {
                 rig: equipment_rig_id(index),
                 names: geometry_bone_names(&self.assets, index as usize)?,
                 pivots: geometry_bone_pivots(&self.assets, index as usize)?,
+                binding_expressions: geometry_bone_binding_expressions(
+                    &self.assets,
+                    index as usize,
+                )?,
             }))
         });
         self.armor_geometry.insert(identifier.into(), entry.clone());
@@ -654,6 +693,7 @@ pub(super) fn layer_presentation(
     identity.layer = layer;
     EquipmentPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: body.culling_bounds,
             input: ActorRigRenderInput {
                 identity,

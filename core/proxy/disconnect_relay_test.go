@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
 	"testing"
@@ -216,12 +218,23 @@ func TestRelayPreLoginDisconnectWordsJoinFailuresAsVanilla(t *testing.T) {
 	}
 }
 
-func TestNetworkForAddressUsesRakNetForTransferTargets(t *testing.T) {
+// A transfer hop names a plain host:port, which vanilla probes for NetherNet like any addressed server.
+func TestNetworkForAddressSelectsTransferTransportLikeAnAddressedServer(t *testing.T) {
 	target := &resolvedUpstreamTarget{address: "Host:1", network: scopedNetherNetNetwork{}}
-	if _, ok := networkForAddress(target, "host:1").(scopedNetherNetNetwork); !ok {
+	if _, ok := networkForAddress(target, "host:1", nil).(scopedNetherNetNetwork); !ok {
 		t.Fatal("resolved address lost its transport")
 	}
-	if _, ok := networkForAddress(target, "other.example:19132").(minecraft.RakNet); !ok {
-		t.Fatal("transfer target must dial over RakNet")
+	signaling := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer signaling.Close()
+	hop, ok := networkForAddress(target, signaling.Listener.Addr().String(), nil).(addressedServerNetwork)
+	if !ok {
+		t.Fatal("transfer target skipped transport selection")
+	}
+	selected, err := hop.Select(t.Context(), signaling.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := selected.(identityProviderDialer); !ok {
+		t.Fatalf("transfer to a NetherNet server selected %T", selected)
 	}
 }

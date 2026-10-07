@@ -285,7 +285,7 @@ pub fn resolve_texture_key(
     }
 }
 
-/// The texture key vanilla's `BlockItem` icon reads: `carried_textures`, else `textures`,
+/// The texture key a vanilla block item's icon reads: `carried_textures`, else `textures`,
 /// down face.
 pub(crate) fn resolve_carried_down_key<'a>(
     blocks: &'a BlockTextureMap,

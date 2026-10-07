@@ -228,8 +228,8 @@ fn finite_in_range(value: f32, min: f32, max: f32) -> Result<f32, GeometryError>
 /// Vanilla desktop GUI scale values.
 const DESKTOP_GUI_SCALE_VALUES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
-/// Physical pixels per GUI pixel: Bedrock's desktop rule
-/// (`GuiData::calculateOptimalGuiScaleIndex`), `min(width/376, height/250)` in
+/// Physical pixels per GUI pixel: Bedrock's desktop rule,
+/// `min(width/376, height/250)` in
 /// 1..=8, or a fixed preference no larger than that.
 #[must_use]
 pub fn gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 {
@@ -253,7 +253,22 @@ pub struct DesktopGuiScale {
     optimal: u8,
 }
 
+/// A native GUI-scale option keeps its persisted modifier and displayed percentage together.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DesktopGuiScaleChoice {
+    pub offset: i8,
+    pub percentage: u16,
+}
+
 impl DesktopGuiScale {
+    pub fn choices(self) -> impl Iterator<Item = DesktopGuiScaleChoice> {
+        self.offsets().map(move |offset| DesktopGuiScaleChoice {
+            offset,
+            percentage: (f32::from(self.scale_for_offset(offset)) / f32::from(self.optimal) * 100.0)
+                .round() as u16,
+        })
+    }
+
     #[must_use]
     pub fn for_window(physical: [u32; 2]) -> Self {
         Self {

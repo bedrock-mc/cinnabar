@@ -361,7 +361,7 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
 }
 
 #[test]
-fn mcbeas04_accepts_only_canonical_two_template_compounds() {
+fn mcbeas04_accepts_only_canonical_compound_parts() {
     const COMPOUND_NEXT: u32 = 1 << 2;
 
     let quad = assets::ModelQuad {
@@ -436,7 +436,7 @@ fn mcbeas04_accepts_only_canonical_two_template_compounds() {
         non_plain_tail.model_templates[1].flags = tail_flags;
         assert!(
             encode_blob(&non_plain_tail).is_err(),
-            "compound continuation must be one plain template"
+            "compound continuation requires a compatible terminated chain"
         );
     }
 
@@ -462,6 +462,52 @@ fn mcbeas04_accepts_only_canonical_two_template_compounds() {
         encode_blob(&combined_head).is_err(),
         "compound head cannot also be kelp or stair"
     );
+}
+
+#[test]
+fn model_compound_chain_retains_more_than_two_visibility_parts() {
+    let mut compiled = valid_assets();
+    compiled.visuals[0].flags = BlockFlags::empty();
+    compiled.visuals[0].kind = VisualKind::Model;
+    compiled.visuals[0].support = VisualSupport::Exact;
+    compiled.visuals[0].model_template = 0;
+    compiled.model_templates = [32, 32, 26]
+        .into_iter()
+        .scan(0, |start, count| {
+            let part = assets::ModelTemplate {
+                quad_start: *start,
+                quad_count: count,
+                flags: if count == 26 {
+                    0
+                } else {
+                    assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+                },
+            };
+            *start += count;
+            Some(part)
+        })
+        .collect();
+    compiled.model_quads = vec![
+        assets::ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 0,
+            flags: 0,
+        };
+        90
+    ]
+    .into();
+    let bytes = encode_blob(&compiled).expect("canonical compound chain");
+    let runtime = assets::RuntimeAssets::decode(&bytes).expect("decode compound chain");
+    assert_eq!(runtime.model_templates(), compiled.model_templates.as_ref());
+    assert_eq!(runtime.model_quads().len(), 90);
+    for tail in [1, 2] {
+        compiled.visuals[0].model_template = tail;
+        assert!(
+            encode_blob(&compiled).is_err(),
+            "continuation cannot be a visual root"
+        );
+    }
 }
 
 #[test]

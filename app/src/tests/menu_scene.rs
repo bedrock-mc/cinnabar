@@ -17,6 +17,8 @@ use protocol::{
     StandardSkin, WorldBootstrap, WorldEvent,
 };
 
+mod hud_visibility;
+
 /// Gives the local player a known rig and skin without any server connection.
 fn player_world(entities: Arc<assets::RuntimeEntityAssets>) -> ClientWorld {
     let assets = Arc::new(assets::RuntimeAssets::diagnostic());
@@ -122,12 +124,18 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
     world.insert_resource(UiRuntime::new(1));
     world.insert_resource(mini_engine_presentation());
     world.insert_resource(MenuRuntime::new(false, 2, "Tester".into()));
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
         world.resource::<render::HandRigScene>().is_active(),
         "HUD submits the hand"
     );
     world.resource_mut::<MenuRuntime>().open_pause();
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
         world.resource::<render::HandRigScene>().is_active(),
@@ -147,6 +155,9 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
             ]],
             ..Default::default()
         });
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
         !world.resource::<render::HandRigScene>().is_active(),
@@ -155,6 +166,9 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
     world
         .resource_mut::<client_ui::ui_runtime::presentation::UiPresentationRuntime>()
         .set_server_ui_pack(&ServerUiPack::default());
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
         world.resource::<render::HandRigScene>().is_active(),
@@ -163,12 +177,18 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
     world
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::Navigate(MenuScreen::Settings));
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
-        !world.resource::<render::HandRigScene>().is_active(),
-        "Settings clears the hand"
+        world.resource::<render::HandRigScene>().is_active(),
+        "Settings opened from pause retains the live world hand"
     );
     world.resource_mut::<MenuRuntime>().set_visible(false);
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     assert!(
         world.resource::<render::HandRigScene>().is_active(),

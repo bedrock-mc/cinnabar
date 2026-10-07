@@ -17,6 +17,8 @@ pub(super) struct Diagnostics {
     /// A table eviction can hide an emission in the total-count delta. Never call
     /// this exact per-effect emission or interpret an emitter ID as one particle.
     pub(super) emitted_lower_bound: u64,
+    pub(super) portal_blocks: u64,
+    pub(super) portal_requests: u64,
     ticks: usize,
     elapsed: Duration,
 }
@@ -44,9 +46,10 @@ impl Diagnostics {
             roll_hits = self.roll_hits, below_admitted = self.below_admitted,
             accepted_requests = self.accepted_requests,
             emitted_lower_bound = self.emitted_lower_bound,
+            portal_blocks = self.portal_blocks, portal_requests = self.portal_requests,
             all_live_particles = system.live_particles(),
             next_samples_per_tick, effect_present = valid[0], view_valid = valid[1],
-            "ambient falling-leaf admission witness");
+            "ambient block particle admission witness");
         *self = Self {
             enabled: true,
             ..Self::default()

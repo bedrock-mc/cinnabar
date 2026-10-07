@@ -2,8 +2,6 @@
 
 #[path = "it/support/frame_stats.rs"]
 mod frame_stats;
-#[path = "it/support/java_pack.rs"]
-mod java_pack;
 #[path = "it/support/mod.rs"]
 mod support;
 
@@ -99,7 +97,7 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
         "fetch vanilla-assets before running the HUD benchmark"
     );
     let mut catalog = Catalog::load_dir(&vanilla).unwrap();
-    let java = java_pack::files();
+    let java = support::java_pack::files();
     catalog.apply_pack(
         java.iter()
             .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),

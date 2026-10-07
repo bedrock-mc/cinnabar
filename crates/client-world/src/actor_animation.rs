@@ -19,9 +19,8 @@ const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
 pub const MAX_MOLANG_OPS_PER_WORLD_TICK: usize = 262_144;
-/// Ordinary actor rendering only interpolates completed tick snapshots. Native held
-/// attachables instead evaluate render-time item queries under the actor evaluation budget.
-pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = 0;
+/// World-wide ceiling for authored render-time layer expressions; pose histories stay tick-owned.
+pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = MAX_MOLANG_OPS_PER_WORLD_TICK;
 pub const MAX_ACTOR_ACTION_HISTORY: usize = 32;
 const MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK: usize = 4_096;
 const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
@@ -82,6 +81,34 @@ pub struct ActorRigSnapshot<'a> {
     pub off_hand_animation: [ItemAnimationState; 2],
     /// The owner's retained Molang values and lifetime for animated equipment.
     pub animation_variables: ActorAnimationVariables<'a>,
+    /// Java 1.7 limb swing, body yaw and equip progress over the last two ticks.
+    pub java: JavaMotion,
+    /// The main-hand item Java's first-person hand still draws while the equip dips.
+    pub java_equipped: Option<&'a JavaHeldItem>,
+}
+
+/// Local swing samples from the committed physics ticks, independent of the remote actor clock.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LocalSwingProgress {
+    pub bedrock: [f32; 2],
+    pub java: [f32; 2],
+    pub frame_alpha: Option<f32>,
+}
+
+impl LocalSwingProgress {
+    /// Samples the native forward wrap using the local physics frame fraction when available.
+    pub fn bedrock_progress(self, alpha: f32) -> f32 {
+        Self::interpolate(self.bedrock, self.frame_alpha.unwrap_or(alpha))
+    }
+
+    /// The native final frame wraps forward before the next tick returns to rest.
+    pub(super) fn interpolate([previous, current]: [f32; 2], alpha: f32) -> f32 {
+        let mut delta = current - previous;
+        if delta < 0.0 {
+            delta += 1.0;
+        }
+        previous + delta * alpha
+    }
 }
 
 /// The arm's swing and equip progress over one tick, as the first-person item reads them.
@@ -161,11 +188,15 @@ pub(crate) struct ActorAnimationStore {
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     /// First actor the world budget skipped last tick, where the next tick starts.
     first_starved: Option<ActorLifetimeId>,
+    local_motion_authority: Option<(u64, (u64, u64))>,
     completed_tick: u64,
     next_reset_generation: u64,
     next_rest_reset_generation: u64,
     stats: ActorAnimationStats,
+    /// Whether the local first-person actor also evaluates a third-person world body.
     local_body_enabled: bool,
+    #[cfg(test)]
+    schedule: schedule::TestSchedule,
 }
 
 #[derive(Debug)]
@@ -206,6 +237,7 @@ struct ActorRigState {
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     ui_pose: Option<Vec<BoneTransform>>,
     ui_animation: Option<hud::UiAnimationState>,
+    /// Optional third-person evaluation used by the local actor's Enhanced shadow caster.
     world_body: Option<body::WorldBodyState>,
     view_context: Option<bool>,
     rest: Vec<BoneTransform>,
@@ -229,10 +261,17 @@ struct ActorRigState {
     skin: Option<skin::SkinModel>,
     skin_layers: Vec<SkinRenderLayer>,
     variables: MolangVariables,
+    replay: Option<replay::Replay>,
+    samples_render_frames: bool,
+    samples_camera_poses: bool,
+    samples_swing_poses: bool,
+    render_frame: Option<render_frame::FrameState>,
     initialized: bool,
     /// Outside the animation view at its last tick, holding its pose.
     culled: bool,
+    local_swing: Option<LocalSwingProgress>,
     motion: MotionState,
+    java: java::JavaMotionState,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -256,8 +295,11 @@ enum AttachableRootFrame {
 struct ControllerState {
     controller: usize,
     state: u16,
+    active: bool,
     /// Animation tick the current state was entered, where its clips start.
     entered_tick: u64,
+    /// Outgoing state, its clip epoch and the frame fraction the worn blend began at.
+    blend_from: Option<(u16, u64, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -296,6 +338,7 @@ struct EvaluatedState {
     controllers: Vec<ControllerState>,
     clip_clocks: clock::ClipClocks,
     variables: MolangVariables,
+    render_frame: Option<render_frame::FrameState>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -368,11 +411,14 @@ impl ActorAnimationStore {
             rigs: BTreeMap::new(),
             runtime_to_lifetime: HashMap::new(),
             first_starved: None,
+            local_motion_authority: None,
             completed_tick: 0,
             next_reset_generation: 1,
             next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
             local_body_enabled: false,
+            #[cfg(test)]
+            schedule: Default::default(),
         }
     }
 
@@ -387,6 +433,7 @@ impl ActorAnimationStore {
 
     pub(crate) fn clear(&mut self) {
         self.rigs.clear();
+        self.local_motion_authority = None;
         self.runtime_to_lifetime.clear();
         self.completed_tick = 0;
         self.bump_generation();
@@ -424,6 +471,14 @@ impl ActorAnimationStore {
             self.stats.unrigged_spawns = self.stats.unrigged_spawns.saturating_add(1);
             return;
         };
+        if let Some((runtime_id, authority)) = self.local_motion_authority
+            && runtime_id == actor.runtime_id
+        {
+            state
+                .java
+                .local_body
+                .set_authority(Some(authority), &mut state.java.motion);
+        }
         state.reset_generation = self.next_reset_generation;
         state.rest_reset_generation = self.take_rest_generation().unwrap_or(0);
         self.bump_generation();
@@ -441,14 +496,67 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Drops Java's equip progress to zero at the actor's next tick.
+    pub(crate) fn reset_java_equip(&mut self, runtime_id: u64) {
+        let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
+            return;
+        };
+        if let Some(state) = self.rigs.get_mut(lifetime) {
+            state.java.reset_equip();
+        }
+    }
+
+    /// Applies Java's limb boost on every hurt event, independently of the hurt countdown.
+    pub(crate) fn hurt_java_limbs(&mut self, runtime_id: u64) {
+        let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
+            return;
+        };
+        if let Some(state) = self.rigs.get_mut(lifetime) {
+            state.java.hurt();
+        }
+    }
+
     /// Restarts the arm swing whose progress feeds `variable.attack_time`.
     pub(crate) fn start_swing(&mut self, runtime_id: u64, ticks: i32) {
         let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
             return;
         };
         if let Some(state) = self.rigs.get_mut(lifetime) {
+            state.local_swing = None;
+            state.java.motion.local_swing_alpha = None;
+            state.motion.set_local_swing(None);
             state.motion.start_swing(ticks);
+            state.java.start_swing(ticks);
         }
+    }
+
+    /// Installs authoritative local swing samples and requests evaluation only when they change.
+    pub(crate) fn sync_local_swing(
+        &mut self,
+        runtime_id: u64,
+        progress: LocalSwingProgress,
+    ) -> bool {
+        let Some(state) = self
+            .runtime_to_lifetime
+            .get(&runtime_id)
+            .and_then(|id| self.rigs.get_mut(id))
+        else {
+            return false;
+        };
+        let changed = state
+            .local_swing
+            .is_none_or(|old| old.bedrock != progress.bedrock || old.java != progress.java);
+        state.local_swing = Some(progress);
+        state.motion.set_local_swing(Some(progress.bedrock[1]));
+        state.java.motion.swing = progress.java;
+        state.java.motion.local_swing_alpha = progress.frame_alpha;
+        if state.java.local_body.active() {
+            state.java.motion.body_frame_alpha = progress.frame_alpha;
+        }
+        if let Some(input) = state.history.back_mut() {
+            input.attack_time = progress.bedrock[1];
+        }
+        changed
     }
 
     /// Advances tick state; only the frame's final tick evaluates visual controllers and poses.
@@ -492,288 +600,6 @@ impl ActorAnimationStore {
             },
             context,
         );
-    }
-
-    fn evaluate_tick(
-        &mut self,
-        actors: &HashMap<u64, ActorSnapshot>,
-        view: Option<&ActorAnimationView>,
-        exempt: Option<u64>,
-        step: PoseStep,
-        context: impl Fn(&ActorSnapshot) -> ActorTickContext,
-    ) {
-        let PoseStep {
-            evaluate,
-            reset_motion_history,
-            refresh_view,
-        } = step;
-        if !refresh_view {
-            self.completed_tick = self.completed_tick.saturating_add(1);
-        }
-        let Some(assets) = self.assets.clone() else {
-            return;
-        };
-        let mut world_left = MAX_MOLANG_OPS_PER_WORLD_TICK;
-        let mut stack = Vec::new();
-        // Start where the world budget ran out last tick so no actor starves every tick.
-        let lifetimes = if refresh_view {
-            exempt
-                .and_then(|id| self.runtime_to_lifetime.get(&id).copied())
-                .into_iter()
-                .collect()
-        } else {
-            match evaluate.then(|| self.first_starved.take()).flatten() {
-                Some(start) => self
-                    .rigs
-                    .range(start..)
-                    .chain(self.rigs.range(..start))
-                    .map(|(lifetime, _)| *lifetime)
-                    .collect::<Vec<_>>(),
-                None => self.rigs.keys().copied().collect(),
-            }
-        };
-        let mut starved = None;
-        for lifetime in lifetimes {
-            let Some(actor) = actors.get(&lifetime.runtime_id) else {
-                continue;
-            };
-            let Some(state) = self.rigs.get_mut(&lifetime) else {
-                continue;
-            };
-            // Observe ownership before any evaluation budget branch. A failed
-            // animation cannot starve static publication for this or later actors.
-            if actor.runtime_id == lifetime.runtime_id
-                && actor.spawn_revision == lifetime.spawn_revision
-                && self.runtime_to_lifetime.get(&lifetime.runtime_id) == Some(&lifetime)
-            {
-                if state.rest_reset_pending {
-                    if let Some(next) = self.next_rest_reset_generation.checked_add(1) {
-                        state.rest_reset_generation = self.next_rest_reset_generation;
-                        self.next_rest_reset_generation = next;
-                        state.rest_reset_pending = false;
-                    } else {
-                        state.rest_reset_generation = 0;
-                    }
-                }
-                state.rest_completed_tick =
-                    if state.rest_reset_generation != 0 && !state.rest_reset_pending {
-                        self.completed_tick
-                    } else {
-                        0
-                    };
-            } else {
-                state.rest_completed_tick = 0;
-            }
-            let context = context(actor);
-            if reset_motion_history
-                && skin::sync_skin(state, context.skin_geometry.as_ref(), &assets)
-            {
-                self.stats.invalid_skin_geometries =
-                    self.stats.invalid_skin_geometries.saturating_add(1);
-            }
-            if !refresh_view {
-                advance_motion(state, actor, &context, reset_motion_history);
-            }
-            let view_changed = state
-                .view_context
-                .is_some_and(|old| old != context.is_local_first_person);
-            if !evaluate {
-                continue;
-            }
-            if state.fallback == EntityRigFallback::GeometryOnly {
-                state.previous.clone_from(&state.current);
-                if state.reset_pending {
-                    state.reset_pending = false;
-                    state.reset_generation = self.next_reset_generation;
-                    self.next_reset_generation = self.next_reset_generation.saturating_add(1);
-                    state.animation_epoch = self.completed_tick;
-                }
-                state.completed_tick = self.completed_tick;
-                continue;
-            }
-            let (state_assets, state_layout) = if state.pack {
-                match &self.pack {
-                    Some(pack) => (&pack.assets, &pack.layout),
-                    None => continue,
-                }
-            } else {
-                (&assets, &self.layout)
-            };
-            if let Some(view) = view
-                && exempt != Some(actor.runtime_id)
-            {
-                let scale = model_scale(state, state_assets) * actor.render_scale();
-                let player = matches!(actor.kind, ActorKind::Player { .. });
-                let bounds = state
-                    .skin_skeleton()
-                    .and_then(|skin| skin.geometry.visible_bounds)
-                    .unwrap_or_default();
-                if !view.admits(actor.position, scale, player, bounds)
-                    && !view.admits(actor.previous_pose.position, scale, player, bounds)
-                {
-                    state.culled = true;
-                    state.previous.clone_from(&state.current);
-                    state.completed_tick = self.completed_tick;
-                    continue;
-                }
-            }
-            if world_left == 0 {
-                self.stats.world_budget_exhaustions =
-                    self.stats.world_budget_exhaustions.saturating_add(1);
-                self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
-                starved.get_or_insert(lifetime);
-                // A frozen tick holds the pose instead of replaying the last change.
-                state.previous.clone_from(&state.current);
-                continue;
-            }
-            let mut budget = EvalBudget {
-                actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
-                world_left: &mut world_left,
-                work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
-                transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
-                used: 0,
-                stack: std::mem::take(&mut stack),
-            };
-            if state.fallback != EntityRigFallback::GeometryOnly {
-                render::cache_layer_skeletons(state_assets, state);
-                geometry::reselect_geometry(
-                    state_assets,
-                    state_layout,
-                    state,
-                    actor,
-                    &context,
-                    &mut budget,
-                );
-                state.refresh_skin_drivers();
-            }
-            let result = evaluate_state(
-                state_assets,
-                state_layout,
-                state,
-                actor,
-                &context,
-                self.completed_tick,
-                &mut budget,
-                None,
-            );
-            if exempt == Some(actor.runtime_id) {
-                let ui_context = ActorTickContext {
-                    is_local_first_person: false,
-                    is_in_ui: true,
-                    ..context.clone()
-                };
-                hud::evaluate(
-                    state_assets,
-                    state_layout,
-                    state,
-                    actor,
-                    &ui_context,
-                    self.completed_tick,
-                    &mut budget,
-                );
-            } else {
-                state.ui_pose = None;
-                state.ui_animation = None;
-            }
-            if self.local_body_enabled
-                && exempt == Some(actor.runtime_id)
-                && context.is_local_first_person
-            {
-                if let Err(error) = body::evaluate(
-                    state_assets,
-                    state_layout,
-                    state,
-                    actor,
-                    &context,
-                    self.completed_tick,
-                    &mut budget,
-                ) {
-                    self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
-                    match error {
-                        EvalError::ActorBudget => {
-                            self.stats.actor_budget_exhaustions =
-                                self.stats.actor_budget_exhaustions.saturating_add(1)
-                        }
-                        EvalError::WorldBudget => {
-                            self.stats.world_budget_exhaustions =
-                                self.stats.world_budget_exhaustions.saturating_add(1)
-                        }
-                        EvalError::Invalid => {}
-                    }
-                }
-            } else {
-                state.world_body = None;
-            }
-            self.stats.evaluated_molang_ops = self
-                .stats
-                .evaluated_molang_ops
-                .saturating_add(budget.used as u64);
-            stack = std::mem::take(&mut budget.stack);
-            match result {
-                Ok(mut evaluated) => {
-                    // A rig back in view starts from its new pose, not the one it held.
-                    let resumed = std::mem::take(&mut state.culled);
-                    state.controllers = evaluated.controllers;
-                    state.clip_clocks = evaluated.clip_clocks;
-                    state.scale = evaluated.scale;
-                    state.variables = evaluated.variables;
-                    skin_layers::carry(
-                        &state.skin_layers,
-                        &mut evaluated.skin_layers,
-                        state.reset_pending || resumed || view_changed,
-                    );
-                    state.skin_layers = evaluated.skin_layers;
-                    if let Some(mut render) = evaluated.render {
-                        render::carry_layer_poses(
-                            &state.render,
-                            &mut render,
-                            state.reset_pending || resumed || view_changed,
-                        );
-                        state.render = render;
-                    }
-                    state.initialized = true;
-                    if state.reset_pending {
-                        state.previous.clone_from(&evaluated.pose);
-                        state.current = evaluated.pose;
-                        state.reset_pending = false;
-                        state.reset_generation = self.next_reset_generation;
-                        self.next_reset_generation = self.next_reset_generation.saturating_add(1);
-                        state.animation_epoch = self.completed_tick;
-                    } else if resumed || view_changed {
-                        state.previous.clone_from(&evaluated.pose);
-                        state.current = evaluated.pose;
-                    } else {
-                        state.previous = std::mem::replace(&mut state.current, evaluated.pose);
-                    }
-                    if view_changed {
-                        state.reset_generation = self.next_reset_generation;
-                        self.next_reset_generation = self.next_reset_generation.saturating_add(1);
-                    }
-                    state.view_context = Some(context.is_local_first_person);
-                    state.completed_tick = self.completed_tick;
-                }
-                Err(EvalError::ActorBudget) => {
-                    self.stats.actor_budget_exhaustions =
-                        self.stats.actor_budget_exhaustions.saturating_add(1);
-                    self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
-                    state.previous.clone_from(&state.current);
-                }
-                Err(EvalError::WorldBudget) => {
-                    self.stats.world_budget_exhaustions =
-                        self.stats.world_budget_exhaustions.saturating_add(1);
-                    self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
-                    starved.get_or_insert(lifetime);
-                    state.previous.clone_from(&state.current);
-                }
-                Err(EvalError::Invalid) => {
-                    self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
-                    state.previous.clone_from(&state.current);
-                }
-            }
-        }
-        if evaluate && !refresh_view {
-            self.first_starved = starved;
-        }
     }
 
     pub(crate) fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
@@ -856,8 +682,60 @@ impl ActorAnimationStore {
                 },
                 &state.variables,
                 state.completed_tick.saturating_sub(state.lifetime_epoch),
-            ),
+            )
+            .with_input(state.history.back().copied()),
+            java: state.java.motion,
+            java_equipped: state.java.equipped(),
         })
+    }
+
+    /// The animated skin layers at `alpha`, each retargeted by the targets `targets` builds
+    /// from its skeleton's bone names and rest pose.
+    pub(crate) fn retargeted_layers(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: impl Fn(&[Box<str>], &[BoneTransform]) -> Option<Vec<Option<BoneTransform>>>,
+    ) -> Option<Vec<SkinRenderLayer>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        let skeletons = state.skin_skeleton().map_or(&[][..], |skin| &skin.layers);
+        state
+            .skin_layers
+            .iter()
+            .map(|layer| {
+                let skeleton = skeletons.iter().find(|skeleton| skeleton.poses(layer))?;
+                let pose: Arc<[BoneTransform]> = java::retarget(
+                    &skeleton.bones,
+                    &layer.previous,
+                    &layer.current,
+                    alpha.clamp(0.0, 1.0),
+                    &targets(&skeleton.names, &skeleton.rest)?,
+                )?
+                .into();
+                Some(SkinRenderLayer {
+                    previous: Arc::clone(&pose),
+                    current: pose,
+                    ..layer.clone()
+                })
+            })
+            .collect()
+    }
+
+    /// The rig's pose at `alpha` with `targets` replacing their joints in model space.
+    pub(crate) fn retargeted_pose(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: &[Option<BoneTransform>],
+    ) -> Option<Vec<BoneTransform>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        java::retarget(
+            state.posed_bones(),
+            &state.previous,
+            &state.current,
+            alpha.clamp(0.0, 1.0),
+            targets,
+        )
     }
 
     fn bump_generation(&mut self) {
@@ -924,10 +802,18 @@ mod evaluation;
 mod geometry;
 mod horse;
 mod hud;
+mod java;
+pub use java::{JavaHeldItem, JavaMotion, java_mounted_body_yaw, java_walked_distance};
 mod motion;
+mod particles;
 mod pose;
+pub use particles::ActorParticleController;
 mod query;
 mod render;
+mod render_frame;
+pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
+mod replay;
+mod schedule;
 mod skin;
 mod skin_layers;
 mod tick;
@@ -946,9 +832,21 @@ pub(crate) use tick::{ActorTickContext, WornArmor};
 use tick::{advance_motion, evaluate_state};
 pub use view::ActorAnimationView;
 
+mod local_motion;
+pub use local_motion::LocalSwingMotionSample;
+
+#[cfg(test)]
+mod local_motion_tests;
+
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
+mod hurt_tests;
+
+#[cfg(test)]
 #[path = "actor_animation/crystal_tests.rs"]
 mod crystal_tests;
+
+#[cfg(test)]
+mod dragon_tests;

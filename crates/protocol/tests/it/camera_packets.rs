@@ -19,9 +19,54 @@ use valentine::bedrock::version::v1_26_51::{
     CameraInstructionOptionsSetInstructionViewOffsetOption,
     CameraInstructionOptionsTargetInstruction, CameraPacket, CameraShakePacket,
     CameraShakePacket as ShakePacket, EnumsCameraShakeAction, EnumsCameraShakeType, McpePacketName,
+    Vec3,
 };
 type InstructionPacket = valentine::bedrock::version::v1_26_51::CameraInstructionPacket;
 type SetEase = CameraInstructionOptionsSetInstructionEaseOption;
+
+#[test]
+fn spline_instruction_reaches_camera_presentation() {
+    use valentine::bedrock::version::v1_26_51::CameraInstructionOptionsSplineInstruction;
+    let event = normalized(InstructionPacket {
+        camera_instruction: CameraInstruction {
+            spline: Some(CameraInstructionOptionsSplineInstruction {
+                total_time: 2.0,
+                type_: 1,
+                curve: vec![
+                    Vec3 {
+                        x: 0.0,
+                        y: 2.0,
+                        z: 0.0,
+                    },
+                    Vec3 {
+                        x: 4.0,
+                        y: 2.0,
+                        z: 0.0,
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    });
+    assert!(matches!(
+        event,
+        Some(WorldEvent::Camera(CameraEvent::Instruction(_)))
+    ));
+}
+
+#[test]
+fn aim_assist_settings_reach_camera_presentation() {
+    let event = normalized(
+        valentine::bedrock::version::v1_26_51::CameraAimAssistPacket {
+            preset_id: "test:combat".into(),
+            view_angle: valentine::bedrock::version::v1_26_51::Vec2 { x: 30.0, y: 30.0 },
+            distance: 8.0,
+            ..Default::default()
+        },
+    );
+    assert!(matches!(event, Some(WorldEvent::Camera(_))));
+}
 
 fn session() -> BedrockSession {
     BedrockSession { shield_item_id: 0 }
@@ -39,7 +84,7 @@ fn instruction_event(instruction: CameraInstruction) -> CameraInstructionEvent {
     let WorldEvent::Camera(CameraEvent::Instruction(event)) = event else {
         panic!("expected a camera instruction event")
     };
-    event
+    *event
 }
 
 #[test]
@@ -96,6 +141,7 @@ fn set_instruction_normalizes_every_present_option() {
             fov: None,
             attach_to_entity: None,
             detach_from_entity: false,
+            spline: None,
         }
     );
 }
@@ -360,7 +406,7 @@ fn oversized_camera_strings_are_semantic_skips() {
 }
 
 #[test]
-fn unsupported_spline_instructions_are_semantic_skips() {
+fn invalid_spline_instructions_are_semantic_skips() {
     let packet: protocol::Packet = InstructionPacket {
         camera_instruction: CameraInstruction {
             spline: Some(
@@ -371,7 +417,7 @@ fn unsupported_spline_instructions_are_semantic_skips() {
     }
     .into();
     let error = into_world_event(packet, 0).expect_err("spline instructions must skip");
-    assert!(matches!(error, WorldPacketError::UnsupportedCameraSpline));
+    assert!(matches!(error, WorldPacketError::InvalidCameraField { .. }));
     assert!(!is_fatal_wire(&error));
 }
 
@@ -426,7 +472,7 @@ fn truncated_camera_shake_wire_stays_fatal() {
 }
 
 #[test]
-fn preset_registry_normalizes_with_indices_and_drops_non_finite_fields() {
+fn preset_registry_preserves_indices_and_counts_non_finite_rejection() {
     use valentine::bedrock::version::v1_26_51::{
         CameraPresets, CameraPresetsPacket, SharedTypesv12650CameraPreset,
     };
@@ -435,12 +481,12 @@ fn preset_registry_normalizes_with_indices_and_drops_non_finite_fields() {
         inherit_from: "minecraft:free".to_owned(),
         radius: Some(radius),
         pos_x: Some(1.0),
-        rot_y: Some(f32::NAN),
+        rot_y: Some(20.0),
         ..Default::default()
     };
     let event = normalized(CameraPresetsPacket {
         camera_presets: CameraPresets {
-            presets: vec![preset("a", 4.0), preset("b", f32::INFINITY)],
+            presets: vec![preset("a", 4.0), preset("b", 7.0)],
         },
     })
     .expect("presets produce an event");
@@ -451,8 +497,20 @@ fn preset_registry_normalizes_with_indices_and_drops_non_finite_fields() {
     assert_eq!(&*presets[0].name, "a");
     assert_eq!(presets[0].radius, Some(4.0));
     assert_eq!(presets[0].position, [Some(1.0), None, None]);
-    assert_eq!(presets[0].rotation_degrees[1], None);
-    assert_eq!(presets[1].radius, None);
+    assert_eq!(presets[0].rotation_degrees[1], Some(20.0));
+    assert_eq!(presets[1].radius, Some(7.0));
+    assert!(matches!(
+        into_world_event(
+            CameraPresetsPacket {
+                camera_presets: CameraPresets {
+                    presets: vec![preset("bad", f32::INFINITY)]
+                },
+            }
+            .into(),
+            0
+        ),
+        Err(WorldPacketError::NonFiniteCameraField { .. })
+    ));
 }
 
 fn is_fatal_wire(error: &WorldPacketError) -> bool {

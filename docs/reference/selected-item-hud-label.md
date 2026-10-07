@@ -42,3 +42,7 @@ verification remains a separate acceptance step.
 
 The inspected survival/creative framebuffer witnesses and integrated checks are
 recorded in [the correction acceptance record](../reviews/inventory-hud-crafting-fixes.md).
+
+Partial server HUD definitions retain this built-in placement unless they author
+a replacement. The native controller's `#item_name_text_offset` binding remains
+incomplete; server templates that explicitly use it still need parity work.

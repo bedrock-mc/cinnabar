@@ -16,3 +16,8 @@ pub mod wire;
 
 #[cfg(test)]
 mod tests;
+
+/// Lets tests exercise the media helper's heap ceiling in a real process.
+#[cfg(test)]
+#[global_allocator]
+static TEST_ALLOCATOR: media::ceiling::BoundedAllocator = media::ceiling::BoundedAllocator::new();

@@ -60,7 +60,7 @@ impl AmbientRandom {
         if upper == 0 { 0 } else { self.next() % upper }
     }
 
-    /// Current Random::nextFloat converts one unsigned MT word to double,
+    /// Vanilla's random float converts one unsigned MT word to double,
     /// multiplies by 2^-32, then rounds once to float.
     pub(super) fn unit(&mut self) -> f32 {
         (f64::from(self.next()) / (f64::from(u32::MAX) + 1.0)) as f32

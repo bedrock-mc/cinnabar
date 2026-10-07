@@ -73,11 +73,20 @@ pub(super) enum Program {
 }
 
 pub(super) fn parse(source: &str) -> Result<Program, AssetError> {
+    parse_with(source, assets::MOLANG_QUERIES)
+}
+
+/// Parses with only the sorted `queries` admitted, as a context restricts what it can read.
+pub(super) fn parse_with(source: &str, queries: &[&str]) -> Result<Program, AssetError> {
     let tokens = tokenize(source)?;
     let complex = tokens
         .iter()
         .any(|token| matches!(token, Token::Semicolon | Token::Assign));
-    let mut parser = Parser { tokens, cursor: 0 };
+    let mut parser = Parser {
+        tokens,
+        cursor: 0,
+        queries,
+    };
     if !complex {
         let expression = parser.expression(0)?;
         parser.expect(&Token::End)?;
@@ -91,12 +100,13 @@ pub(super) fn parse(source: &str) -> Result<Program, AssetError> {
     Ok(Program::Complex(statements))
 }
 
-struct Parser {
+struct Parser<'q> {
     tokens: Vec<Token>,
     cursor: usize,
+    queries: &'q [&'q str],
 }
 
-impl Parser {
+impl Parser<'_> {
     fn peek(&self) -> &Token {
         &self.tokens[self.cursor]
     }
@@ -379,10 +389,7 @@ impl Parser {
             return Ok(Expr::Call(function, arguments));
         }
         if name.starts_with("query.") {
-            if assets::MOLANG_QUERIES
-                .binary_search(&name.as_ref())
-                .is_err()
-            {
+            if self.queries.binary_search(&name.as_ref()).is_err() {
                 return Err(invalid("unknown Molang query"));
             }
             let arguments = calls.then(|| self.arguments(depth)).transpose()?;

@@ -24,6 +24,12 @@ pub const MAX_UI_ATLAS_SIDE: u32 = 4096;
 pub const MAX_UI_TEXTURES: usize = 8192;
 pub const MAX_UI_SIDECARS: usize = 8192;
 pub const MAX_UI_FILES: usize = 4096;
+/// Package data the credits renderer loads alongside the JSON-UI definitions.
+pub const UI_CREDITS_FILES: [&str; 3] = [
+    "credits/end.txt",
+    "credits/credits.json",
+    "credits/quote.txt",
+];
 /// Bound on a texture placement or sidecar or ui-file logical key.
 pub const MAX_UI_KEY_BYTES: usize = 512;
 /// Bound on one stored raw ui-json file.

@@ -9,24 +9,31 @@ use bevy::prelude::{
 use chunk_pipeline::WorldStream;
 use client_world::{ActorStatusNotice, CommittedParticleEvent};
 use particles::{
-    LevelParticle, ParticleSystem, SpawnRequest, block_break_request, block_crack_request,
-    burst_requests, classify_level_event, crack_cadence_due, critical_hit_request, face_toward,
-    item_icon_request, named_request, parse_molang_variables, terrain_request, tiles::item_tile,
+    ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest, block_break_request,
+    block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
+    critical_hit_request, face_toward, item_icon_request, named_request, parse_molang_variables,
+    terrain_request, tiles::item_tile,
 };
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
     ParticleGpuFrame, ParticleSimulation, RainSplashQueue, particle_view, update_particle_frame,
 };
 
+use super::actors::{ActorParticleCommand, queue_actor_particles, route_actor_particles};
 use super::{ambient::AmbientParticles, tiles::block_tile, world_adapter::StreamParticleWorld};
 use crate::{
     camera::FlyCamera, movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
     survival_mining::SurvivalMiningRuntime,
 };
 
+#[cfg(test)]
+#[path = "drive/snowball_tests.rs"]
+mod snowball_tests;
+
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct ParticleInbox {
+    actor_commands: Vec<ActorParticleCommand>,
     events: Vec<CommittedParticleEvent>,
     notices: Vec<ActorStatusNotice>,
     /// Level events `(id, position, data)` the audio runtime drains; separate so particles can consume theirs.
@@ -59,7 +66,7 @@ const RAIN_SPLASH_EFFECT: &str = "minecraft:rain_splash_particle";
 /// Height fraction of an actor's box where head-level effects originate.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
 /// Item pieces per eating or icon-crack event; needs independent measurement.
-const ITEM_ICON_PIECES: f32 = 6.0;
+const ITEM_ICON_PIECES: f32 = ITEM_ICON_PARTICLES as f32;
 
 pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut ParticleInbox) {
     let committed = stream.take_committed_particles();
@@ -95,6 +102,7 @@ pub(crate) fn configure_particles(app: &mut App) {
         )
             .chain()
             .after(crate::camera::FlyCameraUpdateSet)
+            .after(crate::app::ClientFrameSet::ActorPreparation)
             .after(crate::environment::update_seasonal_foliage),
     );
 }
@@ -179,12 +187,13 @@ fn spawn_item_icon(
     identifier: &str,
     aux: i32,
     position: [f32; 3],
+    count: f32,
 ) {
     let Some(icons) = routing.icons else {
         return;
     };
     if let Some(tile) = item_tile(icons, identifier, aux.max(0) as u32) {
-        system.spawn(&item_icon_request(position, tile, ITEM_ICON_PIECES));
+        system.spawn(&item_icon_request(position, tile, count));
     }
 }
 
@@ -196,7 +205,14 @@ fn spawn_item_icon_by_id(
     position: [f32; 3],
 ) {
     if let Some(identifier) = routing.stream.authority().item_identifier(network_id) {
-        spawn_item_icon(system, routing, &identifier, aux, position);
+        spawn_item_icon(
+            system,
+            routing,
+            &identifier,
+            aux,
+            position,
+            ITEM_ICON_PIECES,
+        );
     }
 }
 
@@ -235,8 +251,8 @@ fn route_level_event(
         Some(LevelParticle::ItemIcon { network_id, aux }) => {
             spawn_item_icon_by_id(system, routing, network_id, aux, position);
         }
-        Some(LevelParticle::FixedItemIcon { identifier }) => {
-            spawn_item_icon(system, routing, identifier, 0, position);
+        Some(LevelParticle::FixedItemIcon { identifier, count }) => {
+            spawn_item_icon(system, routing, identifier, 0, position, count as f32);
         }
         None => {}
     }
@@ -335,7 +351,7 @@ fn drive_particles(
     mut inbox: ResMut<ParticleInbox>,
     mut system: ResMut<ParticleSimulation>,
     mut frame: ResMut<ParticleGpuFrame>,
-    client_world: Res<ClientWorld>,
+    mut client_world: ResMut<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     cameras: Query<(&Transform, &Projection), With<FlyCamera>>,
     icons: Option<Res<ParticleIcons>>,
@@ -347,16 +363,18 @@ fn drive_particles(
     mut break_echoes: Local<crate::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
 ) {
-    let Some(stream) = client_world.stream.as_ref() else {
+    let Some(stream) = client_world.stream.as_mut() else {
         if system.emitter_count() > 0 {
             system.clear();
         }
         inbox.events.clear();
         inbox.notices.clear();
+        inbox.actor_commands.clear();
         block_cues.clear();
         ambient.reset();
         return;
     };
+    drain_committed_particles(stream, &mut inbox);
     let Ok((transform, projection)) = cameras.single() else {
         return;
     };
@@ -368,6 +386,7 @@ fn drive_particles(
         *session = identity;
         *break_echoes = crate::audio::EchoLedger::default();
         system.clear();
+        inbox.actor_commands.clear();
         ambient.reset();
         inbox.events.retain(|event| event.dimension == identity.1);
     }
@@ -390,7 +409,7 @@ fn drive_particles(
         &mut system,
     );
 
-    // CommonGameModeMessenger emits local destruction before a server echo.
+    // Vanilla emits local destruction effects before a server echo.
     // The cue carries the destroyed id because the world already predicts air.
     for cue in block_cues.read() {
         if let crate::audio::LocalBlockCue::Break {
@@ -465,6 +484,8 @@ fn drive_particles(
             .and_then(|mining| mining.destroying_target());
         spawn_mining_cracks(&mut system, &routing, local_target, view.position);
     }
+    queue_actor_particles(stream, &mut system, &mut inbox.actor_commands);
+    route_actor_particles(&mut system, &mut inbox.actor_commands);
     follow_bound_emitters(&mut system, stream);
     update_particle_frame(&mut system, &mut frame, time.delta_secs(), &view, &world);
 }

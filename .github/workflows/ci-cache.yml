@@ -1,12 +1,12 @@
 name: CI cache
 
-# Builds what CI compiles and saves it on dev, the base every pull request restores from, and
-# runs the Linux tests so direct pushes that break dev are flagged on the commit that did it.
-# Pull-request caches are private to that PR, so without this each PR compiled from scratch.
-# Runs at most every 30 minutes, and only when dev has changed since the last run.
+# Saves dev's Linux Rust and Go caches, the base every pull request restores from, and tests dev on
+# Linux so direct pushes that break it are flagged on the commit that did it. Windows and macOS
+# caches come from ci.yml's full runs on dev; this dispatches one when their inputs change.
+# Runs at most hourly, and only when dev has changed since the last run.
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 # Queue rather than cancel: a cancelled run saves nothing.
@@ -27,81 +27,57 @@ jobs:
   changed:
     name: Check for new dev commits
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       run: ${{ steps.check.outputs.run }}
+      deps: ${{ steps.check.outputs.deps }}
     steps:
       - id: check
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
         run: |
-          last=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-cache.yml/runs?branch=dev&status=completed&per_page=20" \
-            --jq '[.workflow_runs[] | select(.id != ${{ github.run_id }})][0].head_sha // ""')
-          if [ "${{ github.event_name }}" = workflow_dispatch ] || [ "$last" != "${{ github.sha }}" ]; then
-            echo run=true >> "$GITHUB_OUTPUT"
-          else
-            echo run=false >> "$GITHUB_OUTPUT"
+          last=$(gh api "repos/$REPO/actions/workflows/ci-cache.yml/runs?branch=dev&status=completed&per_page=20" \
+            --jq "[.workflow_runs[] | select(.id != $RUN_ID)][0].head_sha // \"\"")
+          run=false deps=false
+          if [ "$EVENT" = workflow_dispatch ] || [ "$last" != "$SHA" ]; then run=true; fi
+          # Inputs to the Windows and macOS cache keys: lockfiles, toolchain and these workflows.
+          # An unknown or unreachable last commit counts as changed.
+          if [ "$run" = true ]; then
+            files=Cargo.lock
+            if [ -n "$last" ]; then
+              files=$(gh api --paginate "repos/$REPO/compare/$last...$SHA?per_page=100" --jq '.files[].filename') || files=Cargo.lock
+            fi
+            if grep -qE '^(Cargo\.lock|rust-toolchain\.toml|(.*/)?go\.(sum|work\.sum)|\.github/workflows/ci(-cache)?\.yml)$' <<<"$files"; then
+              deps=true
+            fi
           fi
+          { echo "run=$run"; echo "deps=$deps"; } >> "$GITHUB_OUTPUT"
 
-  desktop:
+  full:
+    name: Dispatch full CI on dev
     needs: changed
-    if: needs.changed.outputs.run == 'true'
-    name: Warm desktop (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - windows-latest
-          - ubuntu-latest
-          - macos-latest
+    if: needs.changed.outputs.deps == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: desktop
-          cache-on-failure: true
-      - name: Install Linux desktop development libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
-      - run: cargo build --release -p bedrock-client --locked
-      - run: cargo test -p bridge --locked --no-run
-      - if: runner.os == 'macOS'
-        run: cargo test --workspace --locked --no-run
-      - if: runner.os == 'macOS'
-        continue-on-error: true
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+        run: gh workflow run ci.yml --repo "$REPO" --ref "$REF"
 
-  windows-acceptance:
-    needs: changed
-    if: needs.changed.outputs.run == 'true'
-    name: Warm Windows workspace
-    runs-on: windows-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: windows-acceptance
-          cache-on-failure: true
-      - run: cargo test --workspace --locked --no-run
-      - continue-on-error: true
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
-  verify:
+  linux:
     needs: changed
     if: needs.changed.outputs.run == 'true'
     name: Warm and test Linux
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.1
@@ -109,14 +85,47 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: verify
+          # Must match ci.yml's Linux jobs, which restore this and never save.
+          shared-key: ci
           cache-on-failure: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          # Must match ci.yml.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/chunkfix/go.sum
+            tools/localserver/go.sum
+            tools/bedsimtrace/go.sum
+            go.work.sum
+      - name: Warm Go caches
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/bedrock-core" ./core/cmd/bedrock-core
+          go test -run '^$' ./core/...
+          go -C tools/registrygen test -run '^$' ./...
+          for module in chunkfix localserver bedsimtrace; do
+            GOWORK=off go -C "tools/$module" test -run '^$' ./...
+          done
       - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libasound2-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
+      # Everything ci.yml's verify job compiles, so its dependencies are cached too.
       - run: cargo build -p architecture --locked
-      - name: Test Rust workspace
-        run: cargo test --workspace --locked --no-fail-fast
       - continue-on-error: true
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - continue-on-error: true
+        run: |
+          cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
+          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control --locked -- -D warnings
+          cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
+      - continue-on-error: true
+        run: cargo test -p bedrock-client --features local-mods,developer-control --lib --locked --no-run
+      - name: Test Rust workspace
+        run: cargo nextest run --workspace --locked --no-fail-fast
+      - name: Test Rust doc examples
+        run: cargo test --doc --workspace --locked

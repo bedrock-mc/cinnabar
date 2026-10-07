@@ -202,9 +202,9 @@ fn page_alpha(page: &assets::FontTexturePage, x: i32, y: i32) -> Option<u8> {
     if x >= page.width || y >= page.height {
         return None;
     }
-    page.rgba8
-        .get(((y * page.width + x) * 4 + 3) as usize)
-        .copied()
+    page.pixels
+        .texel((y * page.width + x) as usize)
+        .map(|texel| texel[3])
 }
 
 #[cfg(test)]

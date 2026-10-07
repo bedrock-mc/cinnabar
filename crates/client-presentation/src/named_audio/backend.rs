@@ -9,6 +9,10 @@ use std::{
     time::Duration,
 };
 pub(super) const VOICE_LIMIT: usize = 16;
+/// Captured audio is interleaved stereo.
+pub const CAPTURE_CHANNELS: u16 = 2;
+/// Pull-driven mix of everything played while capturing.
+pub type CaptureMixer = rodio::dynamic_mixer::DynamicMixer<f32>;
 
 pub(super) struct PermitPool {
     slots: [AtomicU64; VOICE_LIMIT],
@@ -142,9 +146,14 @@ impl Source for CancelablePcm {
     }
 }
 
+const MIXER_RATE: u32 = 48_000;
+
 /// Main-thread owner. No automatic reopen, alternate device enumeration or Sink.
 pub struct AudioDevice {
     output: Option<(OutputStream, OutputStreamHandle)>,
+    sample_rate: u32,
+    /// While set, new sources mix into a recording instead of the device.
+    capture: Option<Arc<rodio::dynamic_mixer::DynamicMixerController<f32>>>,
     #[cfg(any(test, feature = "test-support"))]
     test_output: Option<Arc<rodio::dynamic_mixer::DynamicMixerController<f32>>>,
 }
@@ -152,20 +161,28 @@ impl AudioDevice {
     pub fn disabled() -> Self {
         Self {
             output: None,
+            sample_rate: MIXER_RATE,
+            capture: None,
             #[cfg(any(test, feature = "test-support"))]
             test_output: None,
         }
     }
     pub fn open_default_once() -> Self {
-        use rodio::cpal::traits::HostTrait;
+        use rodio::cpal::traits::{DeviceTrait, HostTrait};
         let Some(device) = rodio::cpal::default_host().default_output_device() else {
             eprintln!("named audio disabled: no default output device");
             return Self::disabled();
         };
         // Rodio may negotiate formats on this same device, never another device.
+        // Rodio opens the device at its default config first; match that rate.
+        let sample_rate = device
+            .default_output_config()
+            .map_or(MIXER_RATE, |config| config.sample_rate().0);
         match OutputStream::try_from_device(&device) {
             Ok(output) => Self {
                 output: Some(output),
+                sample_rate,
+                capture: None,
                 #[cfg(any(test, feature = "test-support"))]
                 test_output: None,
             },
@@ -175,7 +192,17 @@ impl AudioDevice {
             }
         }
     }
+    /// Output rate that streaming sources should produce to avoid a second conversion.
+    pub fn sample_rate(&self) -> u32 {
+        if self.capture.is_some() {
+            return crate::audio::OUTPUT_RATE;
+        }
+        self.sample_rate
+    }
     pub fn available(&self) -> bool {
+        if self.capture.is_some() {
+            return true;
+        }
         #[cfg(any(test, feature = "test-support"))]
         if self.test_output.is_some() {
             return true;
@@ -185,17 +212,35 @@ impl AudioDevice {
     /// Only replaces hardware transport; admission and source ownership are real.
     #[cfg(any(test, feature = "test-support"))]
     pub fn memory_mixer() -> (Self, rodio::dynamic_mixer::DynamicMixer<f32>) {
-        let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 48000);
+        let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, MIXER_RATE);
         (
             Self {
                 output: None,
+                sample_rate: MIXER_RATE,
+                capture: None,
                 test_output: Some(controller),
             },
             mixer,
         )
     }
+    /// Diverts every later source into the returned stereo mixer at
+    /// [`crate::audio::OUTPUT_RATE`], which the caller pulls at its own pace, until
+    /// [`Self::stop_capture`]; sources already playing stay on the device.
+    pub fn start_capture(&mut self) -> CaptureMixer {
+        let (controller, mixer) =
+            rodio::dynamic_mixer::mixer::<f32>(CAPTURE_CHANNELS, crate::audio::OUTPUT_RATE);
+        self.capture = Some(controller);
+        mixer
+    }
+    pub fn stop_capture(&mut self) {
+        self.capture = None;
+    }
     /// Plays an already-stereo f32 source; false when the device is unavailable or rejects it.
     pub fn play_source(&mut self, source: impl Source<Item = f32> + Send + 'static) -> bool {
+        if let Some(controller) = &self.capture {
+            controller.add(source);
+            return true;
+        }
         #[cfg(any(test, feature = "test-support"))]
         if let Some(controller) = &self.test_output {
             controller.add(source);
@@ -211,6 +256,10 @@ impl AudioDevice {
         true
     }
     pub(super) fn submit(&mut self, source: CancelablePcm) -> bool {
+        if let Some(controller) = &self.capture {
+            controller.add(source.convert_samples::<f32>());
+            return true;
+        }
         #[cfg(any(test, feature = "test-support"))]
         if let Some(controller) = &self.test_output {
             controller.add(source.convert_samples::<f32>());

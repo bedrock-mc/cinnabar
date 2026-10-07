@@ -15,19 +15,21 @@ use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::launcher_control::{
     self, Account, AuthState as CoreAuth, ConnectProgress, ConnectStage, FeaturedServer, Friend,
-    Gathering, Home, Message, MessageEvent, Profile, Realm, ServerPing,
+    Home, Message, MessageEvent, Profile, Realm, ServerPing,
 };
 
 use super::account_control::{AccountControl, AccountEvent};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 use launcher::menu::view::{
     ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
-    ServerDetails,
+    ServerDetails, ServerTrustPrompt,
 };
 
 #[cfg(test)]
 mod home_promo;
 
+mod feeds;
+use feeds::{CoreFeeds, catalog_round};
 mod message_reports;
 pub(super) mod profile_worker;
 
@@ -53,6 +55,10 @@ struct Snapshot {
     auth_generation: u64,
     /// Wakes the catalog worker when its account identity changes.
     catalog_wake: Option<Sender<()>>,
+    /// Wakes featured details when their count subscription changes.
+    feed_wake: Option<Sender<()>>,
+    /// Wakes Home independently when its account identity changes.
+    home_wake: Option<Sender<()>>,
     /// Wakes Profile independently when its account identity changes.
     profile_wake: Option<Sender<()>>,
     account: Option<Account>,
@@ -60,7 +66,7 @@ struct Snapshot {
     friends: Option<Vec<Friend>>,
     /// Delivered once per fetch.
     featured: Option<Vec<FeaturedServer>>,
-    gatherings: Option<Vec<Gathering>>,
+    player_counts_visible: bool,
     profile: Option<Result<Profile, ()>>,
     ping_targets: Vec<String>,
     pings: Option<Vec<ServerPing>>,
@@ -68,6 +74,9 @@ struct Snapshot {
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
     connect: Option<ConnectProgress>,
+    server_trust: Option<launcher_control::ServerTrustPrompt>,
+    /// The prompt last answered, hidden until the core withdraws it.
+    answered_trust: Option<u64>,
     /// The menu is connecting, so the events worker polls faster.
     joining: bool,
 }
@@ -78,14 +87,20 @@ impl Snapshot {
         self.auth_generation = self.auth_generation.wrapping_add(1);
         self.realms = None;
         self.friends = None;
+        self.featured = None;
         self.profile = None;
         self.home = None;
-        self.gatherings = None;
         if let Some(wake) = &self.catalog_wake {
             // A queued wake already covers the newest snapshot; never block a frame.
             let _ = wake.try_send(());
         }
         if let Some(wake) = &self.profile_wake {
+            let _ = wake.try_send(());
+        }
+        if let Some(wake) = &self.feed_wake {
+            let _ = wake.try_send(());
+        }
+        if let Some(wake) = &self.home_wake {
             let _ = wake.try_send(());
         }
     }
@@ -121,9 +136,13 @@ impl LauncherAccount {
     /// poll on their own worker, publishing every answer as it arrives.
     pub(crate) fn new(socket_dir: PathBuf) -> Self {
         let (catalog_wake, catalog_changes) = bounded(1);
+        let (feed_wake, feed_changes) = bounded(1);
+        let (home_wake, home_changes) = bounded(1);
         let (profile_refresh, profile_requests) = bounded(1);
         let snapshot = Arc::new(Mutex::new(Snapshot {
             catalog_wake: Some(catalog_wake),
+            feed_wake: Some(feed_wake),
+            home_wake: Some(home_wake),
             profile_wake: Some(profile_refresh.clone()),
             ..Default::default()
         }));
@@ -136,7 +155,9 @@ impl LauncherAccount {
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         thread::spawn(move || poll_catalog(&dir, &shared, &until, &catalog_changes));
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
-        thread::spawn(move || poll_feeds(&dir, &shared, &until));
+        thread::spawn(move || feeds::poll_featured(&dir, &shared, &until, &feed_changes));
+        let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
+        thread::spawn(move || feeds::poll_home(&dir, &shared, &until, &home_changes));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
         thread::spawn(move || profile_worker::poll(&dir, &shared, &stop, &profile_requests));
         Self {
@@ -246,6 +267,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
                 }
                 snapshot.last_disconnect.get_or_insert(0);
                 snapshot.connect = events.connect;
+                snapshot.server_trust = events.server_trust;
             });
             publish_account(shared, generation, |snapshot| {
                 snapshot.set_account(events.auth);
@@ -295,51 +317,9 @@ fn poll_catalog(
                 .map(|_| snapshot.auth_generation)
         };
         if let Some(generation) = generation {
-            if let Ok(realms) = runtime.block_on(launcher_control::list_realms(socket_dir)) {
-                publish_account(shared, generation, |snapshot| {
-                    snapshot.realms = Some(realms)
-                });
-            }
-            if let Ok(friends) = runtime.block_on(launcher_control::list_friends(socket_dir)) {
-                publish_account(shared, generation, |snapshot| {
-                    snapshot.friends = Some(friends)
-                });
-            }
+            runtime.block_on(catalog_round(&CoreFeeds(socket_dir), shared, generation));
         }
         if !wait_catalog(stop, changes) {
-            return;
-        }
-    }
-}
-
-/// Polls Home and public catalogs without delaying the independent Profile worker.
-fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
-    let Some(runtime) = runtime() else {
-        return;
-    };
-    let mut reported = HashSet::new();
-    loop {
-        let mut failed = false;
-        let generation = auth_generation(shared);
-        let home = runtime.block_on(launcher_control::home(socket_dir));
-        if let Some(home) = settle("home", home, &mut failed) {
-            publish_account(shared, generation, |snapshot| {
-                snapshot.home = Some(home.clone())
-            });
-            report_impressions(&runtime, socket_dir, &home, &mut reported);
-        }
-        let featured = runtime.block_on(launcher_control::list_featured_servers(socket_dir));
-        if let Some(featured) = settle("featured servers", featured, &mut failed) {
-            publish(shared, |snapshot| snapshot.featured = Some(featured));
-        }
-        let generation = auth_generation(shared);
-        let gatherings = runtime.block_on(launcher_control::list_gatherings(socket_dir));
-        if let Some(gatherings) = settle("gatherings", gatherings, &mut failed) {
-            publish_account(shared, generation, |snapshot| {
-                snapshot.gatherings = Some(gatherings)
-            });
-        }
-        if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
             return;
         }
     }
@@ -537,6 +517,17 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
 }
 
 impl AccountControl for LauncherAccount {
+    fn set_player_counts_visible(&mut self, visible: bool) {
+        self.with(|snapshot| {
+            if snapshot.player_counts_visible != visible {
+                snapshot.player_counts_visible = visible;
+                if let Some(wake) = &snapshot.feed_wake {
+                    let _ = wake.try_send(());
+                }
+            }
+        });
+    }
+
     fn account_status(&mut self) -> Option<AuthState> {
         self.with(|snapshot| snapshot.account.as_ref().and_then(auth_state))
     }
@@ -547,6 +538,28 @@ impl AccountControl for LauncherAccount {
 
     fn set_joining(&mut self, joining: bool) {
         self.with(|snapshot| snapshot.joining = joining);
+    }
+
+    fn server_trust(&mut self) -> Option<ServerTrustPrompt> {
+        self.with(|snapshot| {
+            let prompt = snapshot.server_trust.as_ref()?;
+            (snapshot.answered_trust != Some(prompt.id)).then(|| ServerTrustPrompt {
+                id: prompt.id,
+                url: prompt.url.clone(),
+                from_session_core: false,
+            })
+        })
+    }
+
+    fn answer_server_trust(&mut self, id: u64, trusted: bool) {
+        self.with(|snapshot| snapshot.answered_trust = Some(id));
+        let snapshot = Arc::clone(&self.snapshot);
+        super::server_trust::send(self.socket_dir.clone(), id, trusted, move || {
+            let mut snapshot = snapshot.lock().unwrap_or_else(|poison| poison.into_inner());
+            if snapshot.answered_trust == Some(id) {
+                snapshot.answered_trust = None;
+            }
+        });
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
@@ -601,34 +614,6 @@ impl AccountControl for LauncherAccount {
         Some(servers.iter().map(featured_card).collect())
     }
 
-    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
-        let gatherings = self.with(|snapshot| snapshot.gatherings.take())?;
-        Some(
-            gatherings
-                .iter()
-                .filter(|gathering| !gathering.id.is_empty())
-                .map(|gathering| {
-                    let card = MenuServerCard {
-                        name: gathering.name.clone(),
-                        address: format!(
-                            "{}{}",
-                            super::launcher_core::GATHERING_ADDRESS_PREFIX,
-                            gathering.id
-                        ),
-                        caption: gathering.caption.clone(),
-                        image_path: gathering.image.path.clone(),
-                        icon: None,
-                    };
-                    let details = ServerDetails {
-                        description: gathering.description.clone(),
-                        ..ServerDetails::default()
-                    };
-                    (card, details)
-                })
-                .collect(),
-        )
-    }
-
     /// Queues an inbox action on the dedicated reporting worker.
     fn report_message(&mut self, event: MessageEvent) {
         let _ = self.message_reports.send(event);
@@ -657,6 +642,7 @@ impl AccountControl for LauncherAccount {
                 .into_iter()
                 .map(|ping| {
                     let info = PingInfo {
+                        motd: ping.motd,
                         online: ping.online,
                         players: ping.players,
                         max_players: ping.max_players,
@@ -711,6 +697,7 @@ impl AccountControl for LauncherAccount {
     }
 }
 
+/// Splits the core's featured entry into its menu card and selected details.
 fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
     let card = MenuServerCard {
         name: server.name.clone(),
@@ -720,7 +707,10 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
         icon: None,
     };
     let details = ServerDetails {
+        group: server.group.clone(),
+        player_count: server.player_count,
         description: server.description.clone(),
+        banner: server.background.path.clone(),
         news_title: server.news_title.clone(),
         news: server.news.clone(),
         screenshots: server
@@ -852,8 +842,13 @@ mod tests {
     fn featured_servers_split_into_cards_and_details() {
         let server = FeaturedServer {
             name: "S".into(),
+            player_count: Some(12_345),
             address: "a.test:19132".into(),
             news: "Update".into(),
+            background: protocol::launcher_control::Artwork {
+                url: "https://a.test/bg.png".into(),
+                path: "/art/bg.img".into(),
+            },
             screenshots: vec![
                 protocol::launcher_control::Artwork {
                     url: "https://a.test/s.png".into(),
@@ -870,6 +865,8 @@ mod tests {
         assert_eq!(card.address, "a.test:19132");
         assert_eq!(details.news, "Update");
         assert_eq!(details.screenshots, vec!["/art/t.img".to_owned()]);
+        assert_eq!(details.banner, "/art/bg.img");
+        assert_eq!(details.player_count, Some(12_345));
     }
 
     #[test]

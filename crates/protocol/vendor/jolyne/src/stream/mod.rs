@@ -13,7 +13,10 @@ use transport::{BedrockTransport, Transport};
 pub mod transport;
 
 mod resource_pack_handoff;
-pub use resource_pack_handoff::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
+pub use resource_pack_handoff::{
+    ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, ResourcePackIdentity,
+    ResourcePackStore,
+};
 
 #[cfg(feature = "client")]
 pub mod client;

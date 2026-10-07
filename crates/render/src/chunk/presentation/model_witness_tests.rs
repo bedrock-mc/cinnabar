@@ -702,6 +702,7 @@ fn model_witness_uses_actual_direct_and_mdi_frame_probe_recording_paths() {
 #[test]
 fn depth_liquid_direct_and_mdi_draws_share_exact_addresses() {
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 1, 2, 3),
         generation: 4,
         tint_identity: ChunkBiomeTintIdentity::default(),

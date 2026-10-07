@@ -57,7 +57,9 @@ pub fn paint(input: &PaintInput, fonts: &Fonts, textures: &Textures) -> Result<V
                 .map(|page| Page {
                     width: page.width,
                     height: page.height,
-                    rgba: std::sync::Arc::from(&page.rgba8[..]),
+                    rgba: (0..page.width as usize * page.height as usize)
+                        .flat_map(|texel| page.pixels.texel(texel).unwrap_or_default())
+                        .collect(),
                 })
                 .collect()
         })

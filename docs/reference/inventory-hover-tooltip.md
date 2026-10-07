@@ -8,7 +8,7 @@ selected-item HUD; see [Stack display names](item-display-names.md).
 
 ## Vanilla rules
 
-The constructor accepts only an integer JSON value for `hover_text_max_width`.
+The hover-text control accepts only an integer JSON value for `hover_text_max_width`.
 The bitmap font’s default scale is one and its wrap pitch is the default scale
 times ten; measured line length rounds the widest line upward.
 
@@ -49,7 +49,7 @@ it does not clamp against the right edge. If this also crosses the left edge,
 the box centers above the pointer. No extra top-edge clamp is introduced. Its
 clip is the full content viewport, not the hovered slot. A positive authored
 integer `hover_text_max_width` requests wrapping; zero or a fractional JSON
-number leaves it unrestricted, as in the native constructor.
+number leaves it unrestricted, as in vanilla.
 
 The background is nine sliced from the runtime texture and its sidecar, preserving
 the native border and fill rather than reconstructing colors. The JSON-UI texture

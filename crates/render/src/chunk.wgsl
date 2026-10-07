@@ -6,8 +6,8 @@
 #import cinnabar::enhanced_actor_motion::submitted_surface_motion
 #endif
 #import bevy_render::view::View
-#import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
+#import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_material, waved_position, enhanced_physical_atmosphere, enhanced_light_direction, enhanced_materials_enabled}
 #import cinnabar::enhanced_radiance::block_illumination
@@ -119,6 +119,7 @@ struct VertexOutput {
 #else
     @location(10) native_light_levels: vec2<f32>,
     @location(11) native_ao_face: f32,
+    @location(12) @interpolate(flat) uniform_tint_gamma: vec4<f32>,
 #endif
 }
 
@@ -248,6 +249,11 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    return cube_vertex(vertex_index, instance_index);
+}
+
+// `vertex_index / 4` selects the chunk origin and `instance_index` the packed quad.
+fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let quad = quads[instance_index];
     let geometry = quad.geometry;
     let local_origin = vec3<f32>(
@@ -292,17 +298,25 @@ fn vertex(
     out.next_texture = animation_sample.next_texture;
     out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
-    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
+    let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
+    let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
+    out.lighting = light_colour(light_sample) * ao * dimming;
 #ifdef ENHANCED
     out.lighting = block_illumination(light_sample);
     out.sky_light = sky_illumination(light_sample);
-    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+    out.ambient_occlusion = ao;
 #else
     // Native RenderChunk samples its gamma lightmap after applying vertex AO.
     // Retain separate level and AO interpolants: table lookup occurs in the
     // fragment stage, not before interpolating its nonlinear RGB output.
     out.native_light_levels = terrain_light_levels(light_sample);
-    out.native_ao_face = material_leaf_shade(light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u), material.flags);
+    out.native_ao_face = material_leaf_shade(ao * dimming, material.flags);
+    out.uniform_tint_gamma = vec4(0.0);
+#ifndef ENHANCED_SHADOW
+#ifndef OPAQUE_OVERDRAW
+    out.uniform_tint_gamma = uniform_biome_tint_gamma(material.flags & 0x30u, material.flags, out.biome_record);
+#endif
+#endif
 #endif
 #ifdef ENHANCED
     out.surface_class = material_class(quad.material_id);
@@ -475,22 +489,99 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
-    var material_uv=in.uv;
 #ifdef ENHANCED
-    let basis=material_basis(in.normal,dpdx(in.world_position),dpdy(in.world_position),uv_dx,uv_dy);
-    let view_direction=normalize(view.world_position-in.world_position);
-    material_uv=parallax_material_uv(in.current_texture,in.uv,uv_dx,uv_dy,view_direction,basis,distance(view.world_position,in.world_position),
-        enhanced_materials_enabled() && (in.material_flags&(1u<<8u))==0u && (in.surface_class&48u)==0u && in.frame_blend==0.0);
+    let material_sample = sample_enhanced_cube(in, uv_dx, uv_dy);
+    let sampled = material_sample.colour;
+#else
+    let sampled = sample_cube_texture(in, uv_dx, uv_dy);
 #endif
+    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
+        discard;
+    }
+#ifdef OPAQUE_OVERDRAW
+    return vec4(1.0);
+#else
+#ifdef ENHANCED
+    return shade_cube(in, sampled, material_sample.uv, material_sample.basis, uv_dx, uv_dy);
+#else
+    return shade_cube(in, sampled);
+#endif
+#endif
+}
+
+// Single-sided opaque runs: back-face culling and the mesher's material partition
+// stand in for both discards, keeping early depth and hidden-surface removal.
+@fragment
+fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
+#ifdef OPAQUE_OVERDRAW
+    return vec4(1.0);
+#else
+#ifdef ENHANCED
+    let uv_dx = dpdx(in.uv);
+    let uv_dy = dpdy(in.uv);
+    let material_sample = sample_enhanced_cube(in, uv_dx, uv_dy);
+    return shade_cube(in, material_sample.colour, material_sample.uv, material_sample.basis, uv_dx, uv_dy);
+#else
+    return shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
+#endif
+#endif
+}
+
+fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
+    return sample_cube_colour(in, in.uv, uv_dx, uv_dy);
+}
+
+fn sample_cube_colour(in: VertexOutput, material_uv: vec2<f32>, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
     let current_sample = sample_material_texture_ref(in.current_texture, material_uv, uv_dx, uv_dy, in.material_flags);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
         let next_sample = sample_material_texture_ref(in.next_texture, material_uv, uv_dx, uv_dy, in.material_flags);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
-        discard;
+    return sampled;
+}
+
+#ifdef ENHANCED
+struct EnhancedCubeSample {
+    colour: vec4<f32>,
+    uv: vec2<f32>,
+    basis: MaterialBasis,
+}
+
+fn sample_enhanced_cube(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> EnhancedCubeSample {
+    let basis = material_basis(in.normal, dpdx(in.world_position), dpdy(in.world_position), uv_dx, uv_dy);
+    let view_direction = normalize(view.world_position - in.world_position);
+    let material_uv = parallax_material_uv(in.current_texture, in.uv, uv_dx, uv_dy, view_direction, basis,
+        distance(view.world_position, in.world_position),
+        enhanced_materials_enabled() && (in.material_flags & (1u << 8u)) == 0u && (in.surface_class & 48u) == 0u && in.frame_blend == 0.0);
+    return EnhancedCubeSample(sample_cube_colour(in, material_uv, uv_dx, uv_dy), material_uv, basis);
+}
+#endif
+
+#ifndef ENHANCED
+// Mixed records and position-noise grass keep their original per-block fragment lookup.
+fn ordinary_cube_tint_gamma(in: VertexOutput) -> vec3<f32> {
+    if (in.uniform_tint_gamma.a != 0.0) { return in.uniform_tint_gamma.rgb; }
+    var tint_gamma = vec3(1.0);
+    let tint_kind = in.material_flags & 0x30u;
+    if (tint_kind != 0u) {
+        tint_gamma = blended_biome_tint_gamma(
+            tint_kind,
+            in.material_flags,
+            in.biome_record,
+            in.local_position - in.normal * 0.001,
+            in.world_position - in.local_position,
+        ).rgb;
     }
+    return tint_gamma;
+}
+#endif
+
+fn shade_cube(in: VertexOutput, sampled: vec4<f32>,
+#ifdef ENHANCED
+    material_uv: vec2<f32>, basis: MaterialBasis, uv_dx: vec2<f32>, uv_dy: vec2<f32>,
+#endif
+) -> vec4<f32> {
 #ifdef ENHANCED
     var pbr_normal_sample = sample_pbr_texture(true, in.current_texture, material_uv, uv_dx, uv_dy);
     var pbr_mer_sample = sample_pbr_texture(false, in.current_texture, material_uv, uv_dx, uv_dy);
@@ -526,17 +617,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
-    var tint_gamma = vec3(1.0);
-    let tint_kind = in.material_flags & 0x30u;
-    if (tint_kind != 0u) {
-        tint_gamma = blended_biome_tint_gamma(
-            tint_kind,
-            in.material_flags,
-            in.biome_record,
-            in.local_position - in.normal * 0.001,
-            in.world_position - in.local_position,
-        ).rgb;
-    }
+    let tint_gamma = ordinary_cube_tint_gamma(in);
     let native_colour = native_cube_colour(
         sampled,
         in.material_flags,

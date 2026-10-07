@@ -203,7 +203,7 @@ pub struct ButtonEvent {
     pub collection_index: Option<usize>,
     pub collection: Option<String>,
     pub down: bool,
-    /// `isInteracted`: the press edge for pointer/gamepad, the release for touch.
+    /// Interaction edge: the press for pointer/gamepad, the release for touch.
     pub interacted: bool,
     pub scope: crate::input::MappingScope,
 }

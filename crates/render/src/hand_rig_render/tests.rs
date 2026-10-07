@@ -32,7 +32,63 @@ fn light() -> HandRigLight {
         sky_level: 0,
         daylight: 1.0,
         pad: 0,
+        ..Default::default()
     }
+}
+
+#[test]
+fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
+    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let buffers = [gpu.view_uniform.id(), gpu.light_uniform.id()];
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 1.5, HAND_RIG_NEAR_PLANE);
+    let mut light = light();
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(gpu.uniform_uploads, [1, 1]);
+    let allocated = crate::alloc_count::thread_allocations();
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(
+        gpu.uniform_uploads,
+        [1, 1],
+        "equal uniforms issue no queue writes"
+    );
+    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 2.0, HAND_RIG_NEAR_PLANE);
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(gpu.uniform_uploads, [2, 1]);
+    light.java_lights[1][2] = 0.75;
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(gpu.uniform_uploads, [2, 2]);
+    light.java_normal_axes[2][0] = 0.25;
+    upload_uniforms(&mut gpu, &queue, projection, light);
+    assert_eq!(gpu.uniform_uploads, [2, 3]);
+    assert_eq!([gpu.view_uniform.id(), gpu.light_uniform.id()], buffers);
+}
+
+#[test]
+fn java_fixed_light_directions_rotate_without_translation_or_world_brightness_changes() {
+    let base = light();
+    let transform = Mat4::from_translation(Vec3::new(3.0, 4.0, 5.0))
+        * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
+    let java = base.with_java_lighting(transform);
+    assert_eq!(java.block_level, base.block_level);
+    assert_eq!(java.sky_level, base.sky_level);
+    for (direction, original) in java
+        .java_lights
+        .into_iter()
+        .zip([Vec3::new(0.2, 1.0, -0.7), Vec3::new(-0.2, 1.0, 0.7)])
+    {
+        let expected = transform.transform_vector3(original.normalize());
+        assert!(Vec3::from_slice(&direction).abs_diff_eq(expected, 1e-6));
+        assert_eq!(direction[3], 1.0);
+    }
+    assert_eq!(base.java_lights, [[0.0; 4]; 2]);
 }
 
 #[test]

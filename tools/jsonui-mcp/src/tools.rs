@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use jsonui_editor::api::{self, TreeLimits};
 use jsonui_editor::mock::MockData;
 use jsonui_editor::{Session, View};
+use mcp_stdio::text_content;
 use serde_json::{Value, json};
 
 /// Files read eagerly from a pack folder; texture images load on demand.
@@ -22,6 +23,20 @@ pub struct Server {
     /// Pack roots on disk per layer, for textures supplied on demand.
     roots: Vec<Option<PathBuf>>,
     font_error: Option<String>,
+}
+
+impl mcp_stdio::ToolServer for Server {
+    fn info(&self) -> (&'static str, &'static str) {
+        ("jsonui-mcp", env!("CARGO_PKG_VERSION"))
+    }
+
+    fn definitions(&self) -> Value {
+        definitions()
+    }
+
+    fn call(&mut self, name: &str, arguments: &Value) -> Value {
+        Server::call(self, name, arguments)
+    }
 }
 
 impl Server {
@@ -255,9 +270,7 @@ impl Server {
                 if arguments.get("inline").and_then(Value::as_bool) != Some(false)
                     && png.len() <= MAX_INLINE_PNG
                 {
-                    content.push(
-                        json!({ "type": "image", "mimeType": "image/png", "data": base64(&png) }),
-                    );
+                    content.push(mcp_stdio::png_content(&png));
                 }
                 json!({ "content": content, "isError": false })
             }
@@ -425,10 +438,6 @@ fn context_argument(
     serde_json::from_value(value).map_err(|_| "`context` must be an object or a preset name".into())
 }
 
-fn text_content(value: &Value, error: bool) -> Value {
-    json!({ "content": [{ "type": "text", "text": value.to_string() }], "isError": error })
-}
-
 /// The folder holding the pack: `path` itself, else the shallowest descendant
 /// with a `manifest.json` or `ui/` (two levels deep at most).
 fn pack_root(path: &Path) -> PathBuf {
@@ -504,25 +513,6 @@ fn encode_png(rgba: &[u8], size: [u32; 2]) -> Result<Vec<u8>, String> {
         .write_image(rgba, size[0], size[1], image::ExtendedColorType::Rgba8)
         .map_err(|e| e.to_string())?;
     Ok(out)
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(char::from(TABLE[(n >> (18 - 6 * i) & 63) as usize]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 /// Tool names, descriptions and input schemas.

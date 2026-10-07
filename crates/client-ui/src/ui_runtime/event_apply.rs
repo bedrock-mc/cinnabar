@@ -10,6 +10,30 @@ use super::{UiApplyOutcome, UiRuntime, UiRuntimeError, hud_adapter};
 impl UiRuntime {
     pub(super) fn apply_text(
         &mut self,
+        mut event: TextEvent,
+        fifo_sequence: u64,
+        event_millis: u64,
+    ) -> Result<UiApplyOutcome, UiRuntimeError> {
+        if event.needs_translation && event.kind != TextKind::Translation {
+            let translate = |key: &str| self.translation(key);
+            let template = json_ui::localize_text(&event.message, &translate);
+            let parameters = event
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    protocol::localize_parameter_prefix(parameter, &translate, usize::MAX)
+                        .into_owned()
+                })
+                .collect::<Vec<_>>();
+            event.message = Arc::from(protocol::format_translation(&template, &parameters));
+            event.parameters = Arc::from([]);
+        }
+        self.apply_resolved_text(event, fifo_sequence, event_millis)
+    }
+
+    /// Routes resolved component text without repeating packet localization.
+    pub(super) fn apply_resolved_text(
+        &mut self,
         event: TextEvent,
         fifo_sequence: u64,
         event_millis: u64,

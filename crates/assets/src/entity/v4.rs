@@ -13,7 +13,8 @@ use super::{
     RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_scalars,
 };
 
-pub const MAX_ENTITY_ANIMATION_CLIPS: usize = 4_096;
+/// Clips are geometry-specific instances and share the retained rig animation instance budget.
+pub const MAX_ENTITY_ANIMATION_CLIPS: usize = MAX_ENTITY_RIG_ANIMATIONS;
 pub const MAX_ENTITY_ANIMATION_CHANNELS: usize = 65_536;
 pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 524_288;
 pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
@@ -21,7 +22,7 @@ pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
 pub const MAX_ENTITY_CONTROLLER_ANIMATIONS: usize = 524_288;
 pub const MAX_MOLANG_EXPRESSIONS: usize = 65_536;
-pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 1_024;
+pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 2_048;
 pub const MAX_MOLANG_OPS: usize = 1_048_576;
 pub const MAX_MOLANG_STACK_DEPTH: u8 = 32;
 pub const MAX_MOLANG_COLLECTION_ITEMS: usize = 32;
@@ -43,10 +44,11 @@ pub(super) use encode::{encode_compiled, encode_runtime};
 mod render;
 use render::validate_render_payload;
 pub use render::{
-    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderSlot, EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES,
-    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS,
-    MAX_ENTITY_RENDER_VISIBILITY,
+    ENTITY_ALPHA_TEST_THRESHOLD, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
+    EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
+    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+    entity_render_pattern_matches,
 };
 #[path = "v4/rig.rs"]
 mod rig;
@@ -184,9 +186,15 @@ pub struct EntityAnimationController {
     pub initial_state: u16,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityControllerState {
+    /// Seconds to blend out this state when transitioning to another state.
+    #[serde(default, skip_serializing_if = "is_default_blend")]
+    pub blend_transition: EntityGeometryScalar,
+    /// Chooses the shorter rotation arc when blending controller states.
+    #[serde(default, skip_serializing_if = "is_default_blend")]
+    pub blend_via_shortest_path: bool,
     pub name: u32,
     pub first_animation: u32,
     pub animation_count: u16,
@@ -194,6 +202,11 @@ pub struct EntityControllerState {
     pub transition_count: u16,
     pub on_entry: Option<u32>,
     pub on_exit: Option<u32>,
+}
+
+/// Omits legacy-compatible controller blending defaults from encoded payloads.
+fn is_default_blend<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -724,6 +737,10 @@ fn validate_controller_state(
     state: &EntityControllerState,
     controller_state_count: u16,
 ) -> Result<(), AssetError> {
+    validate_geometry_scalar(state.blend_transition)?;
+    if state.blend_transition.get() < 0.0 {
+        return Err(invalid("entity controller blend duration is negative"));
+    }
     if !molang_symbol_has_kind(compiled, state.name, &[MolangSymbolKind::Name])
         || !range_in_bounds(
             state.first_animation,

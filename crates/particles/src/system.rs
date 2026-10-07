@@ -22,7 +22,7 @@ pub const MAX_SPAWN_DISTANCE: f32 = 128.0;
 /// Longest single simulation step; larger frame gaps are split.
 const MAX_STEP: f32 = 1.0 / 30.0;
 const MAX_FRAME_SECONDS: f32 = 0.25;
-/// `_addTerrainEffect` checks the selected effect's
+/// Vanilla terrain effects check the selected effect's
 /// existing emitter/particle totals, with strict `>` comparisons before spawn.
 const TERRAIN_EMITTER_LIMIT: usize = 20;
 const TERRAIN_PARTICLE_LIMIT: usize = 500;
@@ -47,6 +47,10 @@ const MAX_QUEUED_SOUNDS: usize = 256;
 
 #[derive(Default)]
 pub struct ParticleSystem {
+    /// Winning client-entity aliases and authored controller-state effects.
+    pub actor_bindings: super::actor::ActorEffectBindings,
+    /// Emitters retained for the currently observed actor/controller state entries.
+    pub actor_emitters: super::actor::ActorEffectTracker,
     library: EffectLibrary,
     atlas: ParticleAtlas,
     emitters: Vec<Emitter>,
@@ -113,6 +117,7 @@ impl ParticleSystem {
     pub fn clear(&mut self) {
         self.emitters.clear();
         self.sounds.clear();
+        self.actor_emitters.clear();
     }
 
     /// The atlas's static-region snapshot; see [`ParticleAtlas::base`].

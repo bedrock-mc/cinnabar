@@ -299,7 +299,7 @@ pub(super) fn hand_fixture() -> (
     let bytes = encode_entity_blob(&compiled).unwrap();
     let entities = std::sync::Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let actor = pack_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&actor.bytes, &bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&actor.bytes, &entities).unwrap();
     let artwork = render::ActorArtworkPages::new(&catalog);
     let geometry = render::ViewmodelGeometry::from_runtime(&entities, &artwork).unwrap();
     (pack, geometry, entities)
@@ -465,7 +465,18 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         .resource_mut::<crate::menu::MenuRuntime>()
         .activate(crate::menu::MenuAction::PauseSettings);
     app.world_mut().run_system_once(observe).unwrap();
+    assert!(app.world().resource::<HandAdapter>().stats.mode.is_some());
+    app.world_mut()
+        .resource_mut::<crate::menu::MenuRuntime>()
+        .activate(crate::menu::MenuAction::Navigate(
+            crate::menu::MenuScreen::Home,
+        ));
+    app.world_mut().run_system_once(observe).unwrap();
     assert!(app.world().resource::<HandAdapter>().stats.mode.is_none());
+    assert_eq!(
+        app.world().resource::<HandAdapter>().stats.fallback,
+        Some(HandFallback::Hidden)
+    );
     app.world_mut()
         .resource_mut::<crate::menu::MenuRuntime>()
         .set_visible(false);

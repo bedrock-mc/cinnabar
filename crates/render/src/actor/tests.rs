@@ -202,10 +202,14 @@ fn high_resolution_standard_skin_is_nearest_sampled_and_invalid_skin_uses_author
     let mut scene = ActorRenderScene::default();
     let frame = scene.update(1.0, None, [first, second]);
 
-    assert_eq!(&frame.skins_rgba8[0..4], &[1, 2, 3, 255]);
-    assert_eq!(frame.skins_rgba8.len(), 2 * super::STANDARD_SKIN_BYTES);
-    let default = &frame.skins_rgba8[super::STANDARD_SKIN_BYTES..];
-    assert_eq!(default, expected_default.as_ref());
+    let skin = |index: usize| {
+        frame
+            .player_skin(frame.instances[index].skin_layer)
+            .expect("drawn skins are resident")
+    };
+    assert_eq!(&skin(0)[0..4], &[1, 2, 3, 255]);
+    assert_eq!(skin(0).len(), super::STANDARD_SKIN_BYTES);
+    assert_eq!(skin(1), &expected_default);
 }
 
 /// New skin models and item meshes share one catalog rebuild instead of one each.
@@ -216,7 +220,7 @@ fn batched_geometries_rebuild_the_catalog_once() {
         super::ActorRigGeometry::synthetic_cuboid(
             render_model::skin_rig_id(slot),
             [0.0; 3],
-            [1.0; 3],
+            [slot as f32 + 1.0, 1.0, 1.0],
             1,
         )
         .unwrap()

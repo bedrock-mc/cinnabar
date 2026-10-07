@@ -55,7 +55,7 @@ struct Request {
 struct ResultSnapshot(Option<GameplaySnapshot>);
 
 fn capture(context: GameplayContext, request: Res<Request>, mut result: ResMut<ResultSnapshot>) {
-    result.0 = context.snapshot(request.allowed, request.grants);
+    result.0 = context.snapshot(request.allowed, &request.grants);
 }
 
 fn stream() -> WorldStream {
@@ -361,4 +361,83 @@ fn camera_delta_obeys_both_existing_pitch_limits_through_the_system_param() {
         .rotation()
         .to_euler(EulerRot::YXZ);
     assert!((pitch + PITCH_LIMIT).abs() < 1e-4);
+}
+
+fn mob(id: u64, identifier: &str, position: [f32; 3]) -> WorldEvent {
+    spawn(
+        id,
+        ActorKind::Entity {
+            identifier: identifier.into(),
+        },
+        position,
+    )
+}
+
+#[test]
+fn nearby_mobs_are_non_players_in_range_nearest_first_with_health() {
+    let mut stream = stream();
+    stream.submit(1, player(2, [1.0, 0.0, 0.0])).unwrap();
+    stream
+        .submit(2, mob(3, "cinnabar:hollow_warden", [5.0, 0.0, 0.0]))
+        .unwrap();
+    stream
+        .submit(3, mob(4, "minecraft:zombie", [2.0, 0.0, 0.0]))
+        .unwrap();
+    let far = mod_host::MAX_MOB_RANGE_BLOCKS + 1.0;
+    stream
+        .submit(4, mob(5, "minecraft:zombie", [far, 0.0, 0.0]))
+        .unwrap();
+    let mut actors: Vec<_> = stream.authority().remote_actors().cloned().collect();
+    let warden = actors
+        .iter_mut()
+        .find(|actor| actor.runtime_id == 3)
+        .unwrap();
+    warden.attributes.insert(
+        "minecraft:health".into(),
+        protocol::ActorAttribute {
+            name: "minecraft:health".into(),
+            min: 0.0,
+            max: 400.0,
+            current: 250.0,
+            default: None,
+            modifiers: Arc::from([]),
+        },
+    );
+    let mobs = nearest_mobs(actors.iter(), Vec3::ZERO);
+    let ids: Vec<_> = mobs.iter().map(|mob| mob.runtime_id).collect();
+    assert_eq!(ids, [4, 3]);
+    assert_eq!(mobs[1].type_id, "cinnabar:hollow_warden");
+    assert_eq!(
+        (mobs[1].health, mobs[1].max_health),
+        (Some(250.0), Some(400.0))
+    );
+    assert_eq!(mobs[0].health, None);
+}
+
+#[test]
+fn mobs_need_the_entities_grant_and_a_current_snapshot() {
+    #[derive(Resource, Default)]
+    struct Mobs(usize);
+    fn capture_mobs(context: GameplayContext, request: Res<Request>, mut mobs: ResMut<Mobs>) {
+        let snapshot = context.snapshot(request.allowed, &request.grants);
+        mobs.0 = context.mobs(snapshot.as_ref(), &request.grants).len();
+    }
+    let mut app = app();
+    app.init_resource::<Mobs>()
+        .add_systems(Update, capture_mobs);
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(1, mob(3, "cinnabar:hollow_warden", [5.0, 0.0, 0.0]))
+        .unwrap();
+    app.update();
+    assert_eq!(app.world().resource::<Mobs>().0, 0);
+    app.world_mut().resource_mut::<Request>().grants.entities = true;
+    app.update();
+    assert_eq!(app.world().resource::<Mobs>().0, 1);
+    app.world_mut().resource_mut::<Request>().allowed = false;
+    app.update();
+    assert_eq!(app.world().resource::<Mobs>().0, 0);
 }

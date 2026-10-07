@@ -580,7 +580,7 @@ fn closing_inventory_with_a_click_cannot_publish_attack_after_semantic_finalizat
 }
 
 #[test]
-fn menu_and_focus_loss_preempt_inventory_pointer_ownership() {
+fn focus_loss_preserves_inventory_without_routing_pointer_actions() {
     for (menu_visible, window_focused) in [(true, true), (false, false)] {
         let mut player_runtime = PlayerRuntime::new(1);
         let current = stack(6, 2, 55);
@@ -664,9 +664,10 @@ fn menu_and_focus_loss_preempt_inventory_pointer_ownership() {
             );
         } else {
             assert!(
-                !runtime.inventory_open(),
-                "focus loss closes inventory before pointer routing"
+                runtime.inventory_open(),
+                "focus loss preserves the open inventory"
             );
+            assert!(!app.world().resource::<MenuRuntime>().is_visible());
         }
     }
 }

@@ -12,6 +12,7 @@ pub(in crate::chunk) struct GpuChunkAllocation {
     pub(in crate::chunk) generation: u64,
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
     pub(in crate::chunk) quad_range: Range<u32>,
+    pub(in crate::chunk) cube_layout: CubeQuadLayout, // validated against the GPU material table
     pub(in crate::chunk) cube_lighting_range: Option<Range<u32>>,
     pub(in crate::chunk) model_range: Option<Range<u32>>,
     pub(in crate::chunk) model_lighting_range: Option<Range<u32>>,
@@ -166,7 +167,7 @@ pub(in crate::chunk) const fn diagnostic_draw_mode(draw_mode: ChunkDrawMode) -> 
 }
 
 pub(in crate::chunk) fn opaque_allocation_is_drawable(allocation: &GpuChunkAllocation) -> bool {
-    indexed_indirect_command(allocation).is_some()
+    cube_stream_drawable(allocation)
         || model_direct_draw_command(allocation).is_some()
         || depth_liquid_direct_draw_command(allocation).is_some()
 }
@@ -212,6 +213,11 @@ pub(in crate::chunk) fn resolve_surface_present_mode(
         bevy::window::PresentMode::Immediate => {
             &[wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo]
         }
+        bevy::window::PresentMode::AutoNoVsync => &[
+            wgpu::PresentMode::Immediate,
+            wgpu::PresentMode::Mailbox,
+            wgpu::PresentMode::Fifo,
+        ],
         _ => return None,
     };
     fallbacks
@@ -226,6 +232,7 @@ pub(in crate::chunk) fn window_present_mode_name(
     match mode {
         bevy::window::PresentMode::Fifo => Some("Fifo"),
         bevy::window::PresentMode::Immediate => Some("Immediate"),
+        bevy::window::PresentMode::AutoNoVsync => Some("AutoNoVsync"),
         _ => None,
     }
 }
@@ -234,6 +241,7 @@ pub(in crate::chunk) fn surface_present_mode_name(mode: wgpu::PresentMode) -> Op
     match mode {
         wgpu::PresentMode::Fifo => Some("Fifo"),
         wgpu::PresentMode::Immediate => Some("Immediate"),
+        wgpu::PresentMode::Mailbox => Some("Mailbox"),
         _ => None,
     }
 }
@@ -469,28 +477,61 @@ mod graphics_metadata_tests {
     }
 }
 
-pub(in crate::chunk) fn indexed_indirect_command(
+/// Validated cube-stream instance range, the layout it honours, and the origin base vertex.
+pub(in crate::chunk) fn cube_draw_base(
     allocation: &GpuChunkAllocation,
-) -> Option<DrawIndexedIndirectArgs> {
+) -> Option<(Range<u32>, CubeQuadLayout, i32)> {
     let addresses = mdi_stream_addresses(allocation);
     if !cube_stream_addresses_valid(&addresses) || !shared_stream_ranges_disjoint(&addresses) {
         return None;
     }
-    let cube = addresses.cube.as_ref()?;
-    let instance_count = cube.end.checked_sub(cube.start)?;
-    if instance_count == 0 {
-        return None;
-    }
+    let cube = addresses.cube.clone()?;
     cube_lighting_record_address(&addresses, cube.start)?;
     cube_lighting_record_address(&addresses, cube.end.checked_sub(1)?)?;
     let base_vertex = metadata_base_vertex(allocation.metadata_index)?;
-    Some(DrawIndexedIndirectArgs {
+    let layout = if allocation.cube_layout.solid_len() <= cube.end - cube.start {
+        allocation.cube_layout
+    } else {
+        CubeQuadLayout::default()
+    };
+    Some((cube, layout, base_vertex))
+}
+
+fn cube_quad_command(base_vertex: i32, quads: Range<u32>) -> DrawIndexedIndirectArgs {
+    DrawIndexedIndirectArgs {
         index_count: STATIC_QUAD_INDICES.len() as u32,
-        instance_count,
+        instance_count: quads.end - quads.start,
         first_index: 0,
         base_vertex,
-        first_instance: cube.start,
-    })
+        first_instance: quads.start,
+    }
+}
+
+pub(in crate::chunk) fn cube_stream_drawable(allocation: &GpuChunkAllocation) -> bool {
+    cube_draw_base(allocation).is_some()
+}
+
+/// The cube quads that keep the alpha-tested two-sided pipeline.
+pub(in crate::chunk) fn cutout_indirect_command(
+    allocation: &GpuChunkAllocation,
+) -> Option<DrawIndexedIndirectArgs> {
+    let (cube, layout, base_vertex) = cube_draw_base(allocation)?;
+    let quads = cube.start + layout.solid_len()..cube.end;
+    (!quads.is_empty()).then(|| cube_quad_command(base_vertex, quads))
+}
+
+/// Draws for the solid runs whose faces can face the camera; `None` for an invalid cube stream.
+pub(in crate::chunk) fn solid_indirect_commands(
+    allocation: &GpuChunkAllocation,
+    camera: Option<[f64; 3]>,
+) -> Option<impl Iterator<Item = DrawIndexedIndirectArgs>> {
+    let (cube, layout, base_vertex) = cube_draw_base(allocation)?;
+    let facing = camera.map_or(meshing::FaceMask::ALL, |camera| {
+        meshing::sub_chunk_facing_faces(chunk_origin(allocation.key), camera)
+    });
+    Some(layout.solid_runs(facing).map(move |run| {
+        cube_quad_command(base_vertex, cube.start + run.start..cube.start + run.end)
+    }))
 }
 
 pub(in crate::chunk) fn model_draw_command(
@@ -681,7 +722,7 @@ pub(in crate::chunk) fn build_indexed_indirect_commands<'a>(
 ) -> Vec<DrawIndexedIndirectArgs> {
     allocations
         .into_iter()
-        .filter_map(indexed_indirect_command)
+        .filter_map(cutout_indirect_command)
         .collect()
 }
 

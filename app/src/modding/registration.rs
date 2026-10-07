@@ -43,31 +43,7 @@ struct Registration {
     #[serde(default)]
     font: Option<PathBuf>,
     #[serde(default)]
-    grants: Grants,
-}
-
-#[derive(Clone, Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-struct Grants {
-    environment: bool,
-    players: bool,
-    camera: bool,
-    controls: bool,
-    interaction: bool,
-    settings: bool,
-}
-
-impl From<&Grants> for ModGrants {
-    fn from(grants: &Grants) -> Self {
-        Self {
-            environment: grants.environment,
-            players: grants.players,
-            camera: grants.camera,
-            controls: grants.controls,
-            interaction: grants.interaction,
-            settings: grants.settings,
-        }
-    }
+    grants: ModGrants,
 }
 
 impl Registration {
@@ -92,7 +68,6 @@ impl Registration {
 
 struct Candidate {
     host: ModHost,
-    grants: ModGrants,
     font: Option<Arc<RuntimeFontCatalog>>,
     identity: [u8; 32],
     registration: Registration,
@@ -113,7 +88,7 @@ fn build_candidate_with_settings(
         component,
         font: font_bytes,
     } = snapshot;
-    let grants = ModGrants::from(&registration.grants);
+    let grants = registration.grants.clone();
     let font = if grants.controls {
         font_bytes
             .as_deref()
@@ -132,7 +107,6 @@ fn build_candidate_with_settings(
     .map_err(|error| format!("{error:#}"))?;
     Ok(Candidate {
         host,
-        grants,
         font,
         identity,
         registration,
@@ -513,8 +487,13 @@ fn install(world: &mut World, update: Update) {
                     world.insert_resource(ModInteraction::default());
                     world.insert_resource(ModRuntime {
                         host: candidate.host,
+                        companions: Vec::new(),
+                        label: None,
+                        label_inputs: Vec::new(),
+                        label_rebuilds: 0,
+                        render_sources: Vec::new(),
+                        render_merge: Default::default(),
                         last_reload: Instant::now(),
-                        grants: candidate.grants,
                         controls: mod_host::empty_controls(),
                         reload_on_main: false,
                         registration_identity: Some(candidate.identity),
@@ -592,6 +571,8 @@ fn sync_authority(world: &mut World) {
             runtime.host.set_panel_open(false);
             runtime.host.take_interaction();
             runtime.host.take_camera_delta();
+            runtime.host.take_commands();
+            runtime.host.take_cues();
             true
         });
     if suspend {
@@ -621,6 +602,15 @@ fn clear_owned_state(world: &mut World) -> Option<ModHost> {
 }
 
 fn clear_presentation(world: &mut World) {
+    if let Some(mut scene) = world.get_resource_mut::<render::ModRenderScene>() {
+        scene.clear();
+    }
+    if let Some(mut cues) = world.get_resource_mut::<super::ModCueFeed>() {
+        cues.0.clear();
+    }
+    if let Some(mut camera) = world.get_resource_mut::<crate::camera::CameraSettingsAuthority>() {
+        camera.set_rig(None);
+    }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationRuntime>() {
         presentation.set_mod_panel_open(false);
         let _ = presentation.set_mod_panel(None);

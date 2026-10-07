@@ -760,7 +760,7 @@ fn v06_v17_fitting_content_hides_the_bar_panel() {
     assert_eq!(node(&nodes, "content").1[2], 92.0);
 }
 
-// V08: a horizontally draggable box scrolls the content along x (`_updateScroll`
+// V08: a horizontally draggable box scrolls the content along x (scrolling
 // reads the box's `draggable`).
 #[test]
 fn v08_horizontal_scrolling() {

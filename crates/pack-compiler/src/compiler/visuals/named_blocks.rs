@@ -47,12 +47,6 @@ pub(in crate::compiler) fn named_shape(record: &RegistryRecord) -> Option<NamedS
         _ if name.ends_with("copper_bulb") => shape(FULL, false, true),
         // Side art is opaque only from the second pixel row down.
         "grass_path" => shape(15 * 16, true, false),
-        // Side art is opaque only from the fourth pixel row down.
-        "end_portal_frame"
-            if canonical_state_u32(&record.canonical_state, "end_portal_eye_bit") == Some(0) =>
-        {
-            shape(13 * 16, true, false)
-        }
         "snow_layer" => {
             let height = canonical_state_u32(&record.canonical_state, "height")?;
             if height >= u32::from(assets::TOP_SNOW_LAYER_COUNT) {
@@ -163,18 +157,6 @@ mod tests {
         assert_eq!(layer(count / 2 - 1).map(|s| s.top), Some(FULL / 2));
         assert_eq!(layer(count - 1).map(|s| s.top), Some(FULL));
         assert_eq!(layer(count), None);
-    }
-
-    #[test]
-    fn end_portal_frame_is_admitted_only_without_the_eye() {
-        let frame = |eye: u32| {
-            named_shape(&record(
-                "minecraft:end_portal_frame",
-                &format!(r#"{{"end_portal_eye_bit":{{"type":"byte","value":{eye}}}}}"#),
-            ))
-        };
-        assert_eq!(frame(0).map(|s| s.top), Some(208));
-        assert_eq!(frame(1), None);
     }
 
     #[test]

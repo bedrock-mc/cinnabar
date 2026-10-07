@@ -146,21 +146,20 @@ pub(super) fn eval_curves(curves: &[Curve], vars: &mut Vec<f32>, rng: &mut Rng, 
     }
 }
 
-/// Closed-form drag integration: returns `(new_velocity, displacement)` over `dt`.
+/// Dynamic motion integrates velocity before advancing position.
 fn integrate(velocity: f32, acceleration: f32, drag: f32, dt: f32) -> (f32, f32) {
-    if drag.abs() < 1e-4 {
-        (
-            velocity + acceleration * dt,
-            velocity * dt + 0.5 * acceleration * dt * dt,
-        )
+    let velocity = if drag.abs() <= f32::EPSILON {
+        velocity + acceleration * dt
     } else {
-        let terminal = acceleration / drag;
-        let decay = (-drag * dt).exp();
-        (
-            terminal + (velocity - terminal) * decay,
-            terminal * dt + (velocity - terminal) * (1.0 - decay) / drag,
-        )
-    }
+        let growth = (drag * dt).exp();
+        if growth >= f32::MAX {
+            0.0
+        } else {
+            let terminal = acceleration / drag;
+            (terminal * growth + (velocity - terminal)) / growth
+        }
+    };
+    (velocity, velocity * dt)
 }
 
 fn overlaps(boxes: &[[f32; 6]], c: [f32; 3], r: f32) -> bool {
@@ -289,9 +288,9 @@ impl Emitter {
                     }
                     let spin_acc = rotation_acceleration.eval(&mut p.vars, rng, &queries);
                     let spin_drag = rotation_drag.eval(&mut p.vars, rng, &queries);
-                    let (rate, shift) = integrate(p.rotation_rate, spin_acc, spin_drag, dt);
+                    let rate = p.rotation_rate + (spin_acc - spin_drag * p.rotation_rate) * dt;
                     p.rotation_rate = rate;
-                    p.rotation += shift;
+                    p.rotation += rate * dt;
                 }
                 Motion::Parametric { position, rotation } => {
                     let relative = eval3(position, &mut p.vars, rng, &queries);
@@ -513,6 +512,49 @@ mod tests {
     fn drag_integration_approaches_terminal_velocity() {
         let (velocity, _) = integrate(0.0, -10.0, 5.0, 10.0);
         assert!((velocity + 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn dynamic_acceleration_moves_with_the_updated_velocity() {
+        let (velocity, shift) = integrate(1.0, -1.5, 0.0, 0.05);
+        assert!((velocity - 0.925).abs() < 1e-6);
+        assert!((shift - 0.04625).abs() < 1e-6);
+        let mut particle = Particle::new([0.0; 3], [1.0, 0.0, 0.0], 1.0, Vec::new());
+        for _ in 0..20 {
+            let (velocity, shift) = integrate(particle.vel[0], -1.5, 0.0, 0.05);
+            particle.vel[0] = velocity;
+            particle.pos[0] += shift;
+        }
+        assert!((particle.pos[0] - 0.2125).abs() < 1e-5);
+        assert!((particle.vel[0] + 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn dynamic_drag_uses_the_updated_velocity_and_native_overflow_retirement() {
+        let (velocity, shift) = integrate(2.0, 0.0, 1.0, 0.5);
+        let expected_velocity = 2.0 * (-0.5_f32).exp();
+        assert!((velocity - expected_velocity).abs() < 1e-6);
+        assert!((shift - expected_velocity * 0.5).abs() < 1e-6);
+        assert_eq!(integrate(2.0, 1.5, 1000.0, 1.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn dynamic_spin_updates_angular_rate_before_angle_with_euler_drag() {
+        let mut emitter = falling("");
+        let Motion::Dynamic {
+            rotation_acceleration,
+            rotation_drag,
+            ..
+        } = &mut Arc::get_mut(&mut emitter.def).unwrap().particle.motion
+        else {
+            panic!("dynamic motion fixture");
+        };
+        *rotation_acceleration = Program::constant(3.0);
+        *rotation_drag = Program::constant(2.0);
+        emitter.particles[0].rotation_rate = 4.0;
+        emitter.update_particles(0.25, &EmptyWorld, &mut Vec::new(), &mut Outputs::default());
+        assert_eq!(emitter.particles[0].rotation_rate, 2.75);
+        assert_eq!(emitter.particles[0].rotation, 0.6875);
     }
     #[test]
     fn review_render_collision_detects_a_segment_crossing_the_whole_floor() {

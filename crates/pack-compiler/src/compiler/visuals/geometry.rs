@@ -1,5 +1,24 @@
 use super::super::*;
 
+/// Crops each native block face to its cuboid coordinates and outside-view orientation.
+pub(in crate::compiler) fn vanilla_cuboid_quads(
+    materials: [u32; 6],
+    min: [i16; 3],
+    max: [i16; 3],
+) -> [ModelQuad; 6] {
+    let mut quads = cuboid_quads(materials, min, max);
+    for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
+        for uv in &mut quad.uvs {
+            match face {
+                BlockFace::North | BlockFace::East => uv[0] = 4096 - uv[0],
+                BlockFace::Down => uv[1] = 4096 - uv[1],
+                _ => {}
+            }
+        }
+    }
+    quads
+}
+
 pub(in crate::compiler) fn cuboid_quads(
     materials: [u32; 6],
     min: [i16; 3],

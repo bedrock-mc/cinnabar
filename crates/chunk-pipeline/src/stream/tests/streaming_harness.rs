@@ -51,6 +51,14 @@ struct Report {
     poll_p95_us: u128,
     poll_p99_us: u128,
     poll_max_us: u128,
+    /// Per-frame worst mesh queue wait (queued to worker start), over frames that completed meshes.
+    mesh_wait_p50_us: u128,
+    mesh_wait_p99_us: u128,
+    mesh_wait_max_us: u128,
+    /// Per-frame worst worker-pool wait for a dispatched mesh job.
+    dispatch_wait_p50_us: u128,
+    dispatch_wait_p99_us: u128,
+    dispatch_wait_max_us: u128,
     artifact_frames: u64,
     dark_meshes: u64,
     geometry_meshes: u64,
@@ -81,6 +89,8 @@ struct Harness {
     held: Vec<(ChunkKey, WorldEvent)>,
     poll_times: Vec<Duration>,
     frame_work_times: Vec<Duration>,
+    mesh_waits: Vec<Duration>,
+    dispatch_waits: Vec<Duration>,
     peak_light_jobs: usize,
     terrain: fn(SubChunkKey) -> bool,
     payloads: HashMap<SubChunkKey, Vec<u8>>, // An empty payload answers ChunkNotFound.
@@ -115,6 +125,8 @@ impl Harness {
             held: Vec::new(),
             poll_times: Vec::new(),
             frame_work_times: Vec::new(),
+            mesh_waits: Vec::new(),
+            dispatch_waits: Vec::new(),
             peak_light_jobs: 0,
             terrain: solid,
             payloads: HashMap::new(),
@@ -435,6 +447,12 @@ impl Harness {
         let poll_started = Instant::now();
         let _ = self.stream.poll(self.camera, MESH_JOBS_PER_FRAME);
         self.poll_times.push(poll_started.elapsed());
+        let mesh_wait = std::mem::take(&mut self.stream.stats.max_mesh_queue_wait);
+        let dispatch_wait = std::mem::take(&mut self.stream.stats.max_mesh_dispatch_wait);
+        if !mesh_wait.is_zero() {
+            self.mesh_waits.push(mesh_wait);
+            self.dispatch_waits.push(dispatch_wait);
+        }
         let work_time = work_started.elapsed();
         self.frame_work_times.push(work_time);
         if work_time > BACKLOG_FRAME_LIMIT && std::env::var_os("CINNABAR_HARNESS_TRACE").is_some() {
@@ -487,6 +505,8 @@ impl Harness {
         let started = Instant::now();
         let log_start = self.log.len();
         self.poll_times.clear();
+        self.mesh_waits.clear();
+        self.dispatch_waits.clear();
         let initial = self.presented.clone();
         let mut frame_times = Vec::new();
         let mut presented_per_frame = Vec::new();
@@ -505,7 +525,19 @@ impl Harness {
             .map(|(key, _)| *key)
             .collect::<BTreeSet<_>>();
         self.poll_times.sort_unstable();
+        self.mesh_waits.sort_unstable();
+        self.dispatch_waits.sort_unstable();
+        let percentile = |samples: &[Duration], percent: usize| {
+            let index = (samples.len() * percent / 100).min(samples.len().saturating_sub(1));
+            samples.get(index).map_or(0, Duration::as_micros)
+        };
         let mut report = Report {
+            mesh_wait_p50_us: percentile(&self.mesh_waits, 50),
+            mesh_wait_p99_us: percentile(&self.mesh_waits, 99),
+            mesh_wait_max_us: percentile(&self.mesh_waits, 100),
+            dispatch_wait_p50_us: percentile(&self.dispatch_waits, 50),
+            dispatch_wait_p99_us: percentile(&self.dispatch_waits, 99),
+            dispatch_wait_max_us: percentile(&self.dispatch_waits, 100),
             poll_p95_us: self.poll_times[self.poll_times.len() * 95 / 100].as_micros(),
             poll_p99_us: self.poll_times[self.poll_times.len() * 99 / 100].as_micros(),
             poll_max_us: self.poll_times.last().unwrap().as_micros(),
@@ -513,6 +545,10 @@ impl Harness {
             min_presented_in_view: usize::MAX,
             ..Report::default()
         };
+        assert!(report.mesh_wait_p50_us <= report.mesh_wait_p99_us);
+        assert!(report.mesh_wait_p99_us <= report.mesh_wait_max_us);
+        assert!(report.dispatch_wait_p50_us <= report.dispatch_wait_p99_us);
+        assert!(report.dispatch_wait_p99_us <= report.dispatch_wait_max_us);
         // Per in-view key: frame since which it has shown its final mesh, and windows in which
         // it showed a different one.
         let mut converged_at = HashMap::new();
@@ -646,7 +682,7 @@ fn zero_light_samples(mesh: &ChunkMesh) -> usize {
 #[test]
 #[ignore = "timing harness; run explicitly with --ignored --nocapture"]
 fn streaming_harness_reports_teleport_and_resend() {
-    println!("rayon threads: {}", rayon::current_num_threads());
+    println!("world pool: {:?}", workers::WORKERS.size());
     for (columns_per_frame, frames_per_column) in [(8, 1), (1, 4)] {
         let mut harness = Harness::new(columns_per_frame, frames_per_column);
         let columns_per_frame = format!("{columns_per_frame}/{frames_per_column}");
@@ -768,6 +804,7 @@ fn scheduler_serves_sub_chunks_in_view_before_nearer_ones_behind() {
     let view = super::SchedulerView {
         position: [8.0, 72.0, 8.0],
         forward: Some([0.0, 0.0, 1.0]),
+        startup_center: None,
     };
     let ahead = SubChunkKey::new(0, 0, 4, 3);
     let behind = SubChunkKey::new(0, 0, 4, -2);
@@ -817,7 +854,7 @@ fn teleport_eviction_timing() {
         harness.stream.evict_all_resident();
         times.push(before.elapsed().as_micros());
         assert!(harness.stream.resident.is_empty());
-        assert!(harness.stream.connectivity.is_empty());
+        assert_eq!(harness.stream.connectivity.len(), 0);
     }
     println!("teleport_eviction_us {times:?}");
 }

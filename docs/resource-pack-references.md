@@ -34,6 +34,7 @@ layout, never committed assets.
 | --- | --- |
 | Composite stack | Compose separate stacks, a conditional stack and lower fallbacks. |
 | Resource lookup | Resolve the first matching resource, checking its selected subpack before the pack root. |
+| Unavailable subpack | Use root resources when the server's selected name has no declared subpack; retain the selection as metadata. |
 | Unchanged global stack | Compare pack identities and avoid applying an unchanged stack. |
 | Manifest | Read UUID, minimum engine version, subpacks and `memory_tier`; serialize and deserialize subpack counts. |
 

@@ -116,6 +116,7 @@ fn install_ui_render(app: &mut App) {
         .init_resource::<composite::UiCompositePipeline>()
         .insert_resource(stats)
         .init_resource::<UiHandCoverage>()
+        .init_resource::<composite::UiLayerStore>()
         .init_resource::<model_depth::UiModelDepths>()
         .add_systems(RenderStartup, init_ui_gpu)
         .add_systems(
@@ -149,6 +150,8 @@ pub(crate) struct UiGpu {
     linear_sampler: Sampler,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
+    /// The accepted revision draws glint, which animates without a new revision.
+    animated: bool,
     // Admission watermark survives every draw rejection, even after payload drop.
     last_admitted_revision: Option<u64>,
     last_admitted_publication: Weak<UiRenderInput>,
@@ -156,8 +159,8 @@ pub(crate) struct UiGpu {
     uploads: uploads::BufferUploads,
     view_pipelines:
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
-    /// Each view's UI-layer composite pipeline.
-    composite_pipelines: std::collections::BTreeMap<Entity, CachedRenderPipelineId>,
+    /// Each view's UI-layer composite pipelines.
+    composite_pipelines: std::collections::BTreeMap<Entity, composite::CompositePipelines>,
     world_view_pipelines: std::collections::BTreeMap<
         (Entity, bool, bool),
         (CachedRenderPipelineId, CachedRenderPipelineId),
@@ -209,6 +212,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         linear_sampler,
         batches: Arc::from([]),
         accepted_revision: None,
+        animated: false,
         last_admitted_revision: None,
         last_admitted_publication: Weak::new(),
         index_count: 0,
@@ -265,7 +269,13 @@ pub(crate) fn prepare_ui_resources(
             .animation_seconds(gpu.started.elapsed().as_secs_f32()),
         glint_strength: glint.as_deref().copied().unwrap_or_default().strength,
     };
-    render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
+    {
+        #[cfg(feature = "tracy")]
+        let _span =
+            bevy::log::info_span!("ui.viewport_write", bytes = size_of::<UiViewportUniform>())
+                .entered();
+        render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
+    }
     if let Some(previous) = gpu.last_admitted_revision {
         let reason = if input.revision < previous {
             Some(UiRenderRejectReason::StaleRevision {
@@ -323,6 +333,12 @@ pub(crate) fn prepare_ui_resources(
     let fresh_indices = gpu.index_capacity < input.indices.len();
     if fresh_vertices {
         let capacity = arena_capacity(input.vertices.len(), MAX_UI_VERTICES);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.vertex_allocate",
+            bytes = arena_bytes(capacity, size_of::<UiRenderVertex>())
+        )
+        .entered();
         gpu.vertex_buffer = Some(render_device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI vertex arena"),
             size: arena_bytes(capacity, size_of::<UiRenderVertex>()),
@@ -334,6 +350,12 @@ pub(crate) fn prepare_ui_resources(
     }
     if fresh_indices {
         let capacity = arena_capacity(input.indices.len(), MAX_UI_INDICES);
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.index_allocate",
+            bytes = arena_bytes(capacity, size_of::<u32>())
+        )
+        .entered();
         gpu.index_buffer = Some(render_device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI index arena"),
             size: arena_bytes(capacity, size_of::<u32>()),
@@ -347,6 +369,14 @@ pub(crate) fn prepare_ui_resources(
     if let Some(buffer) = gpu.vertex_buffer.as_ref()
         && !upload.vertices.is_empty()
     {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.vertex_write",
+            revision = input.revision,
+            vertices = upload.vertices.len(),
+            bytes = upload.vertices.len() * size_of::<UiRenderVertex>(),
+        )
+        .entered();
         render_queue.write_buffer(
             buffer,
             (upload.vertices.start * size_of::<UiRenderVertex>()) as u64,
@@ -356,6 +386,14 @@ pub(crate) fn prepare_ui_resources(
     if let Some(buffer) = gpu.index_buffer.as_ref()
         && !upload.indices.is_empty()
     {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "ui.index_write",
+            revision = input.revision,
+            indices = upload.indices.len(),
+            bytes = upload.indices.len() * size_of::<u32>(),
+        )
+        .entered();
         render_queue.write_buffer(
             buffer,
             (upload.indices.start * size_of::<u32>()) as u64,
@@ -365,6 +403,10 @@ pub(crate) fn prepare_ui_resources(
     gpu.viewport_size = input.viewport_size;
 
     gpu.batches = Arc::clone(&input.batches);
+    gpu.animated = input
+        .vertices
+        .iter()
+        .any(|vertex| vertex.style_flags & render_model::UI_STYLE_GLINT != 0);
     gpu.index_count = input.indices.len();
     gpu.accepted_revision = Some(input.revision);
     gpu.last_admitted_revision = Some(input.revision);
@@ -476,6 +518,16 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
                 binding: 3,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(16),
+                },
                 count: None,
             },
         ],

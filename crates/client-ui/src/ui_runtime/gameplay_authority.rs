@@ -124,7 +124,7 @@ impl UiRuntime {
 
     /// Refreshes the selected-item identity clock. Runs before presentation so
     /// the label timer starts when the selection or item identity changes.
-    /// Bedrock's GuiData tick notices slot changes even between identical items.
+    /// Bedrock's HUD tick notices slot changes even between identical items.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn observe_selected_item_identity(
         &mut self,
@@ -283,8 +283,8 @@ impl UiRuntime {
                 "minecraft:player.saturation" => {
                     self.gameplay_hud.set_saturation(attribute.current);
                 }
-                // Absorption is an ordinary bounded attribute; zero is common
-                // and simply hides the golden hearts.
+                // The native heart renderer reads current absorption, independently
+                // of the attribute range; zero clears the golden hearts.
                 "minecraft:absorption" => match hud_adapter::attribute_stat(attribute) {
                     Some(stat) => absorption = Some(stat),
                     None => self.gameplay_hud.note_odd_attribute(),

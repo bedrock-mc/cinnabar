@@ -58,7 +58,7 @@ fn stale_source_manifest_identity_fails_startup_closed_with_rebuild_command() {
         message.contains(&format!("{:02x}", 0x42)),
         "the foreign identity must be named: {message}"
     );
-    assert!(message.contains(COMPILE_COMMAND.as_str()), "{message}");
+    assert!(message.contains(COMPILE_COMMAND), "{message}");
     assert!(matches!(
         error,
         bedrock_client::asset_startup::AssetStartupError::WorldAssetsProvenance { .. }
@@ -99,7 +99,7 @@ fn foreign_registry_identity_fails_startup_closed_naming_the_component() {
         assert!(message.contains(&path.display().to_string()), "{message}");
         assert!(message.contains("stale provenance"), "{message}");
         assert!(message.contains(component), "{message}");
-        assert!(message.contains(COMPILE_COMMAND.as_str()), "{message}");
+        assert!(message.contains(COMPILE_COMMAND), "{message}");
 
         fs::remove_dir_all(directory).unwrap();
     }

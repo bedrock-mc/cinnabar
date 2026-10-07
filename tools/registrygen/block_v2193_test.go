@@ -77,7 +77,11 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 			t.Fatalf("runtime ID %d is %d", index, record.SequentialID)
 		}
 	}
-	if got := strings.ToLower(hexDigest(breg)); got != "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53" {
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.ToLower(hexDigest(breg)); got != blockHash {
 		t.Fatalf("BREG SHA-256 = %s", got)
 	}
 	lreg, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-light-registry-v2193.bin"))
@@ -103,10 +107,24 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 			}
 			continue
 		}
+		if isEducationConstructionName(record.Name) {
+			want := byte(15 << 4)
+			if record.Name == "minecraft:border_block" {
+				want = 3 << 4
+			}
+			if properties[index] != want {
+				t.Fatalf("Education light at %d = %#x, want %#x", index, properties[index], want)
+			}
+			continue
+		}
 		want, ok := legacyLights[factKey(record)]
 		// Final native registrations override the legacy filter for these
 		// types. Keep the independent emission nibble from the fact source.
 		switch record.Name {
+		case "minecraft:portal":
+			// The unknown-axis legacy row has no emitter implementation.
+			// Native registration sets both properties for all portal states.
+			want = 11
 		case "minecraft:snow_layer":
 			want &= 0x0f
 		case "minecraft:water":
@@ -254,8 +272,8 @@ func TestV2193ManifestPublishesOnlyDeniedAggregate(t *testing.T) {
 		t.Fatal(err)
 	}
 	projection := manifest.Projection
-	if projection.DeniedCount != 662 || len(projection.DeniedFingerprint) != 64 || projection.TwinNames != len(v2193Twins) ||
-		projection.States != projection.LegacyExactStates+projection.LegacyReducedStates+projection.TwinStates+projection.DeniedCount {
+	if projection.DeniedCount != v2193PhysicsReservedCount || projection.EducationStates != v2193EducationStateCount || len(projection.DeniedFingerprint) != 64 || projection.TwinNames != len(v2193Twins) ||
+		projection.States != projection.LegacyExactStates+projection.LegacyReducedStates+projection.TwinStates+projection.DeniedCount+projection.EducationStates {
 		t.Fatalf("projection aggregate = %+v", projection)
 	}
 	if manifest.Source.Version != v2193DragonflyVersion || manifest.Source.ModuleSum != v2193DragonflyModuleSum ||

@@ -8,12 +8,12 @@
 //! with no bag at all the expression is undecidable. An unbound `$var` is null.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::Value;
 
 use crate::env::Env;
+use crate::lru::Lru;
 
 mod ops;
 mod token;
@@ -207,7 +207,7 @@ fn collect_properties(tokens: &[Token], names: &mut Vec<String>) {
 }
 
 thread_local! {
-    static CACHE: RefCell<HashMap<String, Option<Arc<Vec<Token>>>>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<Lru<String, Option<Arc<Vec<Token>>>>> = RefCell::new(Lru::new(PARSE_CACHE));
 }
 
 /// The tokens of `expression`, parsed once per thread.
@@ -220,11 +220,9 @@ fn parsed(expression: &str) -> Option<Arc<Vec<Token>>> {
             return hit.clone();
         }
         let tokens = token::tokenize(expression).map(Arc::new);
-        let mut cache = cache.borrow_mut();
-        if cache.len() >= PARSE_CACHE {
-            cache.clear();
-        }
-        cache.insert(expression.to_owned(), tokens.clone());
+        cache
+            .borrow_mut()
+            .insert(expression.to_owned(), tokens.clone());
         tokens
     })
 }
@@ -252,7 +250,7 @@ struct EvalScope<'a> {
 impl ops::Scope for EvalScope<'_> {
     fn result_property(&self, name: &str) -> Option<Operand> {
         if !self.bindings.has_bag() {
-            // `getPropertyValue` without a bag yields the name as text.
+            // A property read without a bag yields the name as text.
             return Some(Operand::Str(name.to_owned()));
         }
         self.property(name)

@@ -4,7 +4,8 @@ pub(in crate::stream) struct MeshSnapshot {
     pub(in crate::stream) center: Arc<SubChunk>,
     pub(in crate::stream) biomes: BiomeNeighbourhood,
     pub(in crate::stream) adjacent: [Option<Arc<SubChunk>>; 27],
-    pub(in crate::stream) column_above: Vec<(i32, Arc<SubChunk>)>,
+    pub(in crate::stream) column: Option<Arc<BTreeMap<i32, Arc<SubChunk>>>>,
+    pub(in crate::stream) center_y: i32,
     pub(in crate::stream) light_halo: MeshLightHalo,
 }
 
@@ -46,7 +47,7 @@ impl MeshLightHalo {
         ]
     }
 
-    /// Vanilla `BlockSource` reads an absent chunk at the dimension's default brightness
+    /// Vanilla reads an absent chunk at the dimension's default brightness
     /// (block 0, sky 15); Nether and End store no sky light, so only the Overworld is sky-lit.
     fn absent_light(&self) -> [u8; 2] {
         match self.center {
@@ -88,9 +89,8 @@ impl MeshSnapshot {
                 debug_assert!(inserted);
             }
         }
-        for &(offset_y, ref sub_chunk) in &self.column_above {
-            let inserted = neighbourhood.insert_column_above(offset_y, sub_chunk);
-            debug_assert!(inserted);
+        if let Some(column) = &self.column {
+            neighbourhood = neighbourhood.with_shared_column(self.center_y, column);
         }
         neighbourhood
     }

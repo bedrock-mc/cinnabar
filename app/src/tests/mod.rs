@@ -27,6 +27,34 @@ use std::{
 };
 use world::{ChunkKey, LightSolveError, SubChunkKey};
 
+fn actor_snapshot(spawn: protocol::ActorSpawnEvent) -> client_world::ActorSnapshot {
+    let runtime = spawn.runtime_id;
+    let position = spawn.position;
+    let mut stream = chunk_pipeline::WorldStream::new_with_assets(
+        WorldBootstrap {
+            dimension: spawn.dimension,
+            local_player_runtime_id: 0,
+            local_player_unique_id: 0,
+            player_position: spawn.position,
+            world_spawn_position: [0; 3],
+            air_network_id: protocol::air_network_id(false),
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        spawn.position,
+        None,
+    );
+    stream
+        .submit(1, WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)))
+        .unwrap();
+    stream.poll(position, 0);
+    stream
+        .authority()
+        .actor(runtime)
+        .expect("spawn committed")
+        .clone()
+}
+
 use crate::acceptance::markers::{
     ACCEPTANCE_RUNTIME_METADATA, CAMERA_COMMITTED, GALLERY_ANCHOR_READY, MOVE_PLAYER_INGRESS,
     MUTATION_COORDINATE, TARGET_MUTATION_ARMED, TELEPORT_COHORT, TELEPORT_GLOBAL_STAGE_DIAGNOSTIC,
@@ -68,8 +96,8 @@ use crate::runtime::{
     },
     network::{
         ActorFrameClock, NETWORK_INGRESS_BUDGET_PER_FRAME, NetworkHandle,
-        OUTBOUND_SEND_BUDGET_PER_FRAME, acceptance_surface_anchor, actor_render_source,
-        drain_network_controls, drain_network_ingress, drain_world_ingress_until_barrier,
+        OUTBOUND_SEND_BUDGET_PER_FRAME, WorldIngressDrain, acceptance_surface_anchor,
+        actor_render_source, drain_network_controls, drain_network_ingress,
         update_actor_render_scene,
     },
     shutdown::{
@@ -272,7 +300,7 @@ fn binding_teleport_completion(
 
 pub(crate) mod actor_frame_allocations;
 mod actor_pack_publication;
-mod actor_rest_presentation;
+pub(crate) mod actor_rest_presentation;
 pub(crate) mod alloc_count;
 mod audio;
 mod audio_camera;

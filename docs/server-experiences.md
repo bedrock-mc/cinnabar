@@ -14,7 +14,7 @@ no server SDK, BDS script, or server sidecar is included.
 | Discovery and delivery | Admitted-pack marker, Ed25519 offer and challenge verification, destination/key/scope pins, HTTPS fetch policy, digest cache, indexed ZIP verification | Real vanilla marker compatibility; optional-pack provenance in the Go handoff; CDN and hostile archive fixtures |
 | Consent | Private JSON-UI catalog, join-time popup that holds the loading screen, once/always/never/not now, changed-key disclosure, persistent settings, running indicator and F9 revocation | Visual/layout/accessibility review; settings editor; controller/touch consent and disable controls |
 | Runtime | Versioned WIT, fuel and memory limits, transactional capability checks, per-bundle developer processes, bounded IPC and watchdog, typed channels and JSON-UI label preview | Restricted OS launch and compiler containment; full screen, focus/input, scene, particle and material adapters; snapshot recovery |
-| Media | Signed descriptors, authenticated HTTPS ranges, optional off-thread WebM decode, clock/timeline primitives, frame queue, retained GPU texture, bounded PCM mixer source | Live message routing, surface ownership/binding, production decoder process, device clock, resampling, efficient seeking/looping and underrun recovery |
+| Media | Signed descriptors, authenticated HTTPS ranges, developer `media.control` routing, memory-limited decoder process, AV1/Opus decode, emissive scene-quad surfaces, resampled mixer audio steered onto the media clock, rebuffering, end-of-stream events | Production restricted launch; server clock wire; keyframe seeking (restarts decode from the start); seamless loops; device output latency; UI/entity surfaces |
 | Fallback | No marker means no probe/download/helper/prompt; pre-consent messages dropped before the world FIFO; ordinary session survives extension failure | Compare real packet captures; verify no-advertisement equivalence |
 
 Production execution deliberately fails closed. `Helper::spawn_restricted` returns
@@ -22,13 +22,12 @@ an error. The app negotiates only after consent, but never downloads or starts a
 bundle without `CINNABAR_DEV_SERVER_EXPERIENCES=1`. Without that switch, its hello
 advertises an empty capability set and it never sends `ready`.
 
-With the switch, the developer app advertises only `ui` and `messaging`. The UI
-adapter currently renders bounded labels in a separate JSON-UI area. It denies
-modal screens, input, scenes and media imports. A data-only bundle is accepted
-without a component, but its media is not automatically played. Enabling the
-optional `server-experience/developer-media` feature compiles decoder primitives,
-but workers remain unavailable until a helper enforces a process memory ceiling.
-The developer switch does not bypass this requirement.
+With the switch, the developer app advertises `ui`, `messaging`, `scene` and
+`media`. The UI adapter renders bounded labels in a separate JSON-UI area. It
+denies modal screens and input. Scene objects are validated, but only quads whose
+texture names one of the bundle's playing media descriptors are drawn; see
+[Developer media path](#developer-media-path). A data-only bundle is accepted
+without a component, but its media is not automatically played.
 
 ## Ordinary Bedrock remains the transport
 
@@ -176,8 +175,8 @@ digest covers the scope plus the ordered package-ID/publisher-key pairs, allowin
 content updates under the same trust decision. Remembered joins persist a new
 revision floor before sending their hello. Save failures revoke the pending grant
 and reload disk state. A malformed settings file disables extensions. Missing
-settings grant nothing. The media mute/autoplay preferences are stored but await
-live playback integration and a settings UI.
+settings grant nothing. Developer media playback honours `media_muted`;
+`media_autoplay` and a settings editor await a settings UI.
 
 The popup's buttons are `Allow once` (F6), `Always allow on this server` (F7),
 `Never on this server` (F8) and `Not now` (Escape; nothing is stored). It owns the
@@ -309,8 +308,8 @@ Guests export `init()` and `dispatch(channel, record-json)`.
 | `modal_ui` | Open an owned signed JSON template | Denied |
 | `input` | Query a declared, host-delivered action edge | Always false; no focus adapter |
 | `messaging` | Send a signed typed channel record | Connected to the existing packet send FIFO |
-| `scene` | Put/remove a declarative quad, mesh or particle object | Validated host contract; renderer adapter denied |
-| `media` | Control an indexed media descriptor | Validated host contract; app adapter denied |
+| `scene` | Put/remove a declarative quad, mesh or particle object | Media-textured quads drawn as emissive screens; other objects ignored |
+| `media` | Control an indexed media descriptor | Developer decoder process, see below |
 
 Scene transforms are position xyz, normalized quaternion xyzw, positive scale xyz.
 A quad declares an owned texture and size; a mesh an owned asset and triangle
@@ -340,15 +339,42 @@ implemented. Wasmtime and native decoders remain attack surfaces. A separate
 process and a signature are not a security claim. Production stays unavailable
 until restricted launch, fault injection and independent review pass on each OS.
 
-## Built-in media contracts (not yet a live advertised channel)
+## Developer media path
+
+With `CINNABAR_DEV_SERVER_EXPERIENCES=1`, a guest's `media.control(id, op, ms)` names an
+indexed descriptor; the host prepares a player for it and applies the operation on the client's
+monotonic clock (`play`/`seek` position to `ms`, `pause` freezes in place). A scene quad of the
+same bundle whose `texture` is that descriptor path becomes its screen: an unlit, depth-tested
+quad sampling the one retained media texture, black before the first frame and from behind. The
+host dispatches `cinnabar.media` records `[text path, choice event, integer ms]` (events
+`playing`, `paused`, `stopped`, `ended`) to the owning guest, which may forward them to the
+server; a failed player is dropped and reported as `stopped`.
+
+Decoding runs in `cinnabar-media-helper`, a fresh process per decode (`cargo build -p mod-host
+--features media`; without that feature the helper reports that it has no decoder). The parent
+alone fetches and hash-checks chunks and serves them to the child over stdio; the child has no
+network authority. The memory ceiling is a **real per-process limit**, not an in-process cap:
+the helper's global allocator refuses Rust heap growth past 192 MiB (an aborting allocation
+failure), Linux adds `RLIMIT_DATA` of 512 MiB for native codec memory, and on macOS the parent
+polls the child's physical footprint and kills it past 512 MiB. Windows has no ceiling yet, so
+the worker is unavailable there. Video frames before a restart position skip colour conversion.
+
+Video presents on the media clock. Audio is resampled linearly to the device rate; its read head
+is the device clock, which excludes the hidden output latency. Drift within 20 ms holds, up to
+250 ms adjusts the resampling rate by at most ±0.5 %, and beyond that late audio is dropped or
+early audio held with silence. While the decoder starves the timeline holds, so playback resumes
+where it stalled. Loopback HTTPS origins are allowed only with the switch and
+`CINNABAR_DEV_MEDIA_CA` naming the CA PEM the origin presents; every other address rule stands.
+[experience-runtime.md](experience-runtime.md#client-part-media-developer) has the localserver
+media server.
+
+## Built-in media contracts
 
 The Rust media service is independent of Wasm: callers can prepare a signed
-bundle's descriptor without starting a component. Its controls are serializable
-contracts for the future built-in adapter. This app does **not** advertise media,
-route these controls from `ScriptMessage`, or attach its outputs to a surface.
-Do not send them to the working typed runtime channel and expect playback.
-A future adapter must negotiate a media channel revision and validate the same
-session, connection, sequence and epoch envelope before invoking these APIs.
+bundle's descriptor without starting a component. Its timeline messages below are
+not routed from `ScriptMessage`; the developer path builds them from guest
+controls. A future server-driven adapter must negotiate a media channel revision
+and validate the same session, connection, sequence and epoch envelope.
 
 A descriptor is an indexed, hashed JSON file signed indirectly by the manifest.
 Fields are `id`, `timeline`, `profile`, `url`, `bytes`, `chunk_bytes`, `chunk_hashes`,
@@ -405,28 +431,25 @@ is present yet. Future routing must bind replies to the live negotiated server
 clock generation; a raw timestamp is not sufficient authorization.
 
 Future controls are applied only when due. Desired playback position comes from
-the authoritative timeline and loop bounds. Drift decisions hold within 20 ms,
-request rate correction up to ±0.5%, and seek beyond 250 ms. These decisions are
-implemented, but **the output adapter does not yet apply resampling or automatic
-seek correction**. Current restart/seek decodes from the beginning and discards
-older output. Seamless loops and sparse keyframe seeking remain incomplete.
+the authoritative timeline and loop bounds; without a server clock sample the
+timeline runs on the client's monotonic clock. A restart, seek or loop wrap decodes
+from the beginning and discards older output. Seamless loops and sparse keyframe
+seeking remain incomplete.
 
 The worker uses bounded compressed-range, video-frame and PCM queues, one decoder
-lease process-wide, a shared download-byte allowance across seeks, and generation
+process at a time, a shared download-byte allowance across restarts, and generation
 checks on output. Decoding is off the render and audio threads. GPU upload updates
-one retained texture rather than allocating per frame; the texture has a reusable
-view but no JSON-UI/world/entity binding yet. The mixer source consumes timestamped
-stereo PCM from a fixed ring, supplies silence on underrun and obeys master/records
-volume, user mute, pause, spatial attenuation and stereo-to-mono spatial playback.
-It reports submitted PTS only: the actual audible Rodio/device timestamp is a stub.
-No production synchronization claim is made from a submission timestamp.
+one retained texture per screen rather than allocating per frame. The mixer source
+consumes timestamped stereo PCM from a fixed ring, supplies silence on underrun and
+obeys master/records volume, user mute, pause and spatial attenuation. The user's
+`media_autoplay` preference awaits a settings UI; consent currently covers playback.
 
 ## Decoder dependencies and rationale
 
 - [`matroska-demuxer 0.8.1`](https://docs.rs/matroska-demuxer/0.8.1/matroska_demuxer/):
   Rust demuxer exposing seekable `Read + Seek`, tracks, sample bytes and timestamp
-  scale. Its declared-size allocations are not bounded by authenticated ranges;
-  it must only run in a memory-limited helper. Reader faults are retained separately
+  scale. Its declared-size allocations are not bounded by authenticated ranges,
+  so it runs only in the memory-limited helper. Reader faults are retained separately
   so a failed download or hash check cannot become successful end-of-stream.
 - [`dav1d 0.11.1`](https://docs.rs/dav1d/0.11.1/dav1d/): Rust wrapper around the
   native AV1 decoder, with strict compliance, thread count and frame-size controls.
@@ -438,10 +461,9 @@ No production synchronization claim is made from a submission timestamp.
 
 The choice favors established decoder implementations over writing codec parsers
 or relying on an unverified pure-Rust AV1+Opus stack. The native dependencies are
-optional. Worker availability and startup both fail closed, including with the
-developer switch, until a memory-limited helper is implemented. Matroska internal
+optional and linked only into the helper, never the client. Matroska internal
 allocations occur before some sample checks, so post-decode validation is not a
-substitute for process memory limits or adversarial fuzzing.
+substitute for the process memory limit or adversarial fuzzing.
 MP4/H.264/AAC remains the explicitly unavailable `PlatformDecoder` trait stub.
 
 Other pinned direct dependencies reuse locked versions: reqwest 0.12.28,

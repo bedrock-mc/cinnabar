@@ -6,7 +6,7 @@ fn scalar(value: f32) -> EntityGeometryScalar {
     EntityGeometryScalar::new(value).unwrap()
 }
 
-fn compiled_fixture() -> CompiledEntityAssets {
+pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
     let sources = [
         "animations/item.json",
         "attachables/item.json",
@@ -181,6 +181,9 @@ fn compiled_fixture() -> CompiledEntityAssets {
         item_visual_aliases: Box::new([]),
         render: EntityRenderData {
             layers: vec![EntityRenderLayer {
+                material: Default::default(),
+                material_state: None,
+                hurt_color: None,
                 rig: 0,
                 condition: None,
                 first_slot: 0,
@@ -194,6 +197,7 @@ fn compiled_fixture() -> CompiledEntityAssets {
                 first_geometry: 0,
                 geometry_count: 0,
                 ignore_lighting: false,
+                light_color_multiplier: None,
             }]
             .into_boxed_slice(),
             slots: vec![EntityRenderSlot {
@@ -215,7 +219,7 @@ fn fixture() -> Arc<RuntimeEntityAssets> {
     Arc::new(RuntimeEntityAssets::from_compiled(compiled_fixture()).unwrap())
 }
 
-fn owner_rig() -> ActorRigSnapshot<'static> {
+pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
     ActorRigSnapshot {
         actor: ActorLifetimeId {
             session_id: 1,
@@ -244,6 +248,8 @@ fn owner_rig() -> ActorRigSnapshot<'static> {
         item_animation: [ItemAnimationState::default(); 2],
         off_hand_animation: [ItemAnimationState::default(); 2],
         animation_variables: ActorAnimationVariables::default(),
+        java: Default::default(),
+        java_equipped: None,
     }
 }
 
@@ -516,6 +522,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
         0.25
     );
     context.attachable = Some(AttachableQueryContext {
+        worn: false,
         first_person: true,
         off_hand: false,
         is_paperdoll: false,
@@ -1092,4 +1099,38 @@ fn downloaded_offhand_shield_retracts_while_owner_draws_bow() {
     };
     // resource_pack/attachables/shield.entity.json:36-45; animations/shield.animation.json:17.
     assert!((sample(true) - sample(false) + 30.1).abs() < 0.001);
+}
+
+#[path = "worn_tests.rs"]
+mod worn_tests;
+
+#[test]
+fn local_attachable_swing_samples_the_physics_fraction() {
+    let mut compiled = compiled_fixture();
+    compiled.rig_bindings[0].pre_animation = None;
+    compiled.molang_symbols[7].identifier = "variable.attack_time".into();
+    compiled.molang_ops[11] = MolangOp::LoadVariable(7);
+    compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let mut runtime = AttachablesRuntime::new(assets);
+    let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    let mut rig = owner_rig();
+    rig.item_animation[0].attack_time = 0.25;
+    rig.item_animation[1].attack_time = 0.5;
+    rig.java.local_swing_alpha = Some(0.75);
+    for actor_alpha in [0.0, 0.25, 1.0] {
+        let snapshot = runtime
+            .evaluate(
+                "minecraft:test_item",
+                &owner,
+                &rig,
+                AttachableAnimationInput {
+                    first_person: true,
+                    frame_alpha: actor_alpha,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!((snapshot.pose[0].translation_scale[0] + 0.4375).abs() < 1e-6);
+    }
 }

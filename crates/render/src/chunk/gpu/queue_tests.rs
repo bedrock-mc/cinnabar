@@ -249,6 +249,7 @@ fn matching_identity_uploads_acks_and_queues_direct_and_mdi_draws() {
             (
                 entity,
                 GpuChunkAllocation {
+                    cube_layout: CubeQuadLayout::default(),
                     key: instance.key,
                     generation: instance.generation,
                     tint_identity: instance.tint_identity,

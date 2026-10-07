@@ -12,6 +12,9 @@ pub struct MovementInput {
     pub jump_pressed: bool,
     pub sprinting: bool,
     pub sneaking: bool,
+    /// Tick-captured authority that disables travel without discarding device input.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub immobile: bool,
     /// Axes precede item and pose slowdown. False preserves historical
     /// already-processed input clamping; true retains partial-axis magnitude.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -56,6 +59,9 @@ pub struct MovementInput {
     /// Soul Speed level on the boots; replaces the soul sand slowdown.
     #[serde(default, skip_serializing_if = "is_zero_level")]
     pub soul_speed: u8,
+    /// Swift Sneak level on the leggings, captured for this tick and replay.
+    #[serde(default, skip_serializing_if = "is_zero_level")]
+    pub swift_sneak: u8,
     /// Ability vertical flight speed (per-tick acceleration scale); `None` selects 1.0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vertical_fly_speed: Option<f64>,
@@ -65,6 +71,14 @@ pub struct MovementInput {
     /// Ability flight speed; `None` selects the vanilla default. Read only when flying.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fly_speed: Option<f64>,
+}
+
+impl MovementInput {
+    /// Returns the item- and pose-adjusted controls used by the simulator for this input.
+    #[must_use]
+    pub fn processed_controls(self) -> super::ProcessedControls {
+        super::controls::process(self)
+    }
 }
 
 fn is_walking(mode: &MovementMode) -> bool {

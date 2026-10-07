@@ -2,6 +2,7 @@
 //! not a Bedrock parity screen; its visual reference is the supplied 19w05a image.
 
 mod details;
+mod entities;
 mod spatial;
 #[cfg(test)]
 mod tests;
@@ -15,7 +16,9 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use render::UiRenderStatsResource;
-use render::{ChunkRenderQueue, VisibilityDiagnostics};
+use render::{
+    ChunkRenderQueue, GpuFrameTimes, RuntimeStage, RuntimeStageProfiler, VisibilityDiagnostics,
+};
 
 use crate::{
     app::ClientFrameSet,
@@ -80,6 +83,26 @@ pub(super) fn configure(app: &mut App) {
     );
 }
 
+/// The latest read-back GPU frame and its three costliest passes.
+fn gpu_line(frame: &GpuFrameTimes) -> Option<String> {
+    let total = frame.get(RuntimeStage::GpuFrame)?;
+    let mut passes: Vec<_> = frame
+        .iter()
+        .filter(|(stage, _)| *stage != RuntimeStage::GpuFrame)
+        .collect();
+    passes.sort_unstable_by_key(|(_, elapsed)| std::cmp::Reverse(*elapsed));
+    let mut line = format!("GPU: {:.2} ms", total.as_secs_f64() * 1_000.0);
+    for (index, (stage, elapsed)) in passes.into_iter().take(3).enumerate() {
+        let name = stage.name().trim_start_matches("gpu_");
+        let separator = if index == 0 { " | " } else { " / " };
+        line.push_str(&format!(
+            "{separator}{name} {:.2}",
+            elapsed.as_secs_f64() * 1_000.0
+        ));
+    }
+    Some(line)
+}
+
 /// Read existing authorities; never change gameplay or drain queues.
 #[derive(SystemParam)]
 struct DebugContext<'w, 's> {
@@ -98,6 +121,9 @@ struct DebugContext<'w, 's> {
     queue: Option<Res<'w, ChunkRenderQueue>>,
     ui_stats: Option<Res<'w, UiRenderStatsResource>>,
     camera_settings: Option<Res<'w, CameraSettingsAuthority>>,
+    profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    focus: Option<Res<'w, client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<'w, crate::camera::DrivenInput>>,
     window: Query<'w, 's, (&'static Window, &'static CursorOptions), With<PrimaryWindow>>,
 }
 
@@ -138,6 +164,14 @@ fn publish_debug_overlay(
         ],
         right: Vec::new(),
     };
+    if let Some(gpu) = context
+        .profiler
+        .as_deref()
+        .and_then(RuntimeStageProfiler::latest_gpu_frame)
+        .and_then(|frame| gpu_line(&frame))
+    {
+        lines.left.push(gpu);
+    }
     context.append_world(&mut lines, time.elapsed_secs_f64());
     context.append_client(&mut lines, &presentation);
     lines.left.push(String::new());

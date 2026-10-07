@@ -232,7 +232,7 @@ fn equipment_frame_texture_ingestion_rejects_invalid_cross_indices() {
 }
 
 #[test]
-fn attachable_controllers_share_the_existing_compiled_controller_pipeline() {
+fn attachable_controller_blend_settings_survive_the_compiled_controller_pipeline() {
     let mut files = framed_pack();
     let source = files
         .iter_mut()
@@ -244,10 +244,20 @@ fn attachable_controllers_share_the_existing_compiled_controller_pipeline() {
     description["scripts"]["animate"] = json!(["controller"]);
     source.1 = serde_json::to_vec(&attachable).unwrap();
     files.push(("animation_controllers/test.json".into(), serde_json::to_vec(&json!({"format_version":"1.10.0", "animation_controllers":{
-        "controller.animation.test":{"initial_state":"default","states":{"default":{"animations":["wield",{"pull":"context.is_first_person"}]}}}
+        "controller.animation.test":{"initial_state":"default","states":{"default":{"animations":["wield",{"pull":"context.is_first_person"}],"blend_transition":0.2,"blend_via_shortest_path":true}}}
     }})).unwrap()));
     let compiled = compile_actor_pack(files).unwrap().unwrap();
     assert_eq!(compiled.entities.controllers.len(), 4);
+    for state in &compiled.entities.controller_states {
+        assert_eq!(state.blend_transition.get(), 0.2);
+        assert!(state.blend_via_shortest_path);
+    }
+    let runtime =
+        RuntimeEntityAssets::decode(&encode_entity_blob(&compiled.entities).unwrap()).unwrap();
+    assert_eq!(
+        runtime.controller_states(),
+        compiled.entities.controller_states.as_ref()
+    );
     for geometry in &compiled.entities.rig_geometries {
         assert_eq!(geometry.controller_count, 1);
         assert_eq!(geometry.animation_count, 0);

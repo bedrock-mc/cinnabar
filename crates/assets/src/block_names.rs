@@ -1,6 +1,6 @@
 //! Shared vanilla block identities and compatibility names.
 
-/// Current SkullBlock identities mapped to the legacy `SkullType` ordinal.
+/// Current skull block identities mapped to the legacy `SkullType` ordinal.
 /// Native placed-head rendering selects its model from the backing block type.
 #[must_use]
 pub fn vanilla_skull_type(identifier: &str) -> Option<u8> {

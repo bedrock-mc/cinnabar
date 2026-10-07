@@ -897,7 +897,3 @@ impl ChunkUploadAcknowledgements {
         true
     }
 }
-
-#[path = "api/render_instance.rs"]
-mod render_instance;
-pub use render_instance::ChunkRenderInstance;

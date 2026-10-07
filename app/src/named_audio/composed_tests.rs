@@ -9,6 +9,7 @@ fn play(sequence: u64) -> SequencedAudioEvent {
         sequence,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         event: protocol::AudioEvent::Play(protocol::PlayAudioEvent {
             name: Arc::from("ambient.underwater.loop"),
             position: [0; 3],
@@ -25,6 +26,7 @@ fn stop(sequence: u64, all: bool) -> SequencedAudioEvent {
         sequence,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         event: protocol::AudioEvent::Stop(protocol::StopAudioEvent {
             name: Arc::from("ambient.underwater.loop"),
             stop_all_sounds: all,
@@ -147,6 +149,7 @@ fn live_dimension(dimension: i32) -> protocol::WorldEvent {
     protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
         dimension,
         position: [0.0, 64.0, 0.0],
+        ..Default::default()
     })
 }
 
@@ -248,15 +251,15 @@ fn every_committed_camera_family_cancels_live_voice_without_reminting_or_regrant
             camera_unique_id: 1,
             target_player_unique_id: 1,
         }),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent::default()),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent {
+        protocol::CameraEvent::Instruction(Box::default()),
+        protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
             clear: Some(true),
             ..Default::default()
-        }),
-        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent {
+        })),
+        protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
             clear: Some(false),
             ..Default::default()
-        }),
+        })),
         protocol::CameraEvent::Shake(protocol::CameraShakeEvent {
             intensity: 0.1,
             duration_seconds: 0.1,

@@ -79,6 +79,10 @@ impl FrameQueue {
         self.frames.len() < MAX_FRAMES
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
     /// Sorts by presentation timestamp, with a fixed queue ceiling.
     pub fn push(&mut self, frame: VideoFrame, generation: u64) -> Result<()> {
         frame.validate(generation)?;
@@ -134,6 +138,7 @@ pub fn bt709_rgba(
             "invalid YUV plane stride"
         );
     }
+    let lut = SRGB_LUT.get_or_init(|| std::array::from_fn(|i| encode(i as f32 / LUT_MAX as f32)));
     let mut rgba = vec![0; w * h * 4];
     for row in 0..h {
         for col in 0..w {
@@ -142,9 +147,9 @@ pub fn bt709_rgba(
             let v = (f32::from(planes[2][row / 2 * strides[2] + col / 2]) - 128.0) / 224.0;
             let offset = (row * w + col) * 4;
             rgba[offset..offset + 4].copy_from_slice(&[
-                srgb(y + 1.5748 * v),
-                srgb(y - 0.1873 * u - 0.4681 * v),
-                srgb(y + 1.8556 * u),
+                srgb(lut, y + 1.5748 * v),
+                srgb(lut, y - 0.1873 * u - 0.4681 * v),
+                srgb(lut, y + 1.8556 * u),
                 255,
             ]);
         }
@@ -152,8 +157,16 @@ pub fn bt709_rgba(
     Ok(rgba)
 }
 
+const LUT_MAX: usize = 4095;
+static SRGB_LUT: std::sync::OnceLock<[u8; LUT_MAX + 1]> = std::sync::OnceLock::new();
+
+/// Looks up the transfer conversion; per-pixel powf is too slow for 720p in real time.
+fn srgb(lut: &[u8; LUT_MAX + 1], value: f32) -> u8 {
+    lut[(value.clamp(0.0, 1.0) * LUT_MAX as f32).round() as usize]
+}
+
 /// Converts the BT.709 transfer curve to the renderer's sRGB texture encoding.
-fn srgb(value: f32) -> u8 {
+fn encode(value: f32) -> u8 {
     let value = value.clamp(0.0, 1.0);
     let linear = if value < 0.081 {
         value / 4.5

@@ -28,7 +28,7 @@ not read. No account identifiers or cached payloads are included here.
 | Lifecycle | Start first and refresh only after start succeeds. |
 | Event | Send JSON `SessionId`, `continuationToken`, `events`. |
 | Surfaces | Construct message surface controllers. |
-| Images | Associate fetched images by message and image ID with a local Core::Path. |
+| Images | Associate fetched images by message and image ID with a local file path. |
 
 The refresh request uses the discovered messaging service URI and has no
 placement, platform or locale query. Locale is an HTTP header. The service's
@@ -114,9 +114,9 @@ The older client constructs a GET request for `/api/v1.0/config/public` using th
 network game version and build platform/subplatform, omitting subplatform only
 when empty. Resolve its host through service discovery, send Authorization and
 Session-Id, and set JSON Content-Type only for a nonempty body. The fork uses its
-supplied Minecraft service token. These older details have not yet been matched
-to the current public request; an unsuccessful search does not prove removal.
-The endpoint and authentication implementation therefore remain unchanged.
+supplied Minecraft service token. The current client no longer makes this request
+and the service answers it with 404, so the core stopped fetching live events;
+the gathering panel stays hidden as in the current client.
 
 The badge callback returns downloaded art or the built-in badge. Its filesystem
 callback returns `RawPath` for downloaded art and `InUserPackage` for the fallback.

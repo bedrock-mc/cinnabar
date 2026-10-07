@@ -2,155 +2,154 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"strings"
 
-	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
-	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
-	"golang.org/x/text/language"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 const (
-	defaultSearchCount = 24
-	maxSearchOffers    = 50
+	maxDescription   = 8192
+	maxScreenshots   = 12
+	maxThumbnailSize = 1024
 )
 
-// Search runs a catalog search against PlayFab as the account and marks owned offers.
+// Search renders the store's search page for q.Term, or continues an earlier search from
+// q.Continuation; offers are marked owned from the inventory. The service sets the page size.
 func (c *Client) Search(ctx context.Context, q SearchQuery) (SearchResults, error) {
 	if err := q.Validate(); err != nil {
 		return SearchResults{}, err
 	}
-	if q.Count == 0 {
-		q.Count = defaultSearchCount
-	}
-	result, err := c.cfg.Catalog.SearchItems(ctx, playfabcatalog.SearchFilter{
-		Count: q.Count, ContinuationToken: q.Continuation, Filter: q.Filter, OrderBy: q.OrderBy,
-		Term: q.Term, Language: language.AmericanEnglish,
-	})
-	if err != nil {
-		return SearchResults{}, err
-	}
-	if result == nil {
-		return SearchResults{}, errors.New("store: empty search result")
-	}
-	out := SearchResults{Offers: make([]Offer, 0, len(result.Items)), Continuation: result.ContinuationToken}
-	for i := range result.Items {
-		if len(out.Offers) >= maxSearchOffers {
-			out.Truncated = true
-			break
+	var items []marketplace.Item
+	var next string
+	if q.Continuation != "" {
+		var err error
+		if items, next, err = c.continueRow(ctx, q.Continuation); err != nil {
+			return SearchResults{}, err
 		}
-		if offer, ok := offerFromItem(&result.Items[i]); ok {
-			out.Offers = append(out.Offers, offer)
+	} else {
+		cfg, err := c.sessionConfig(ctx)
+		if err != nil {
+			return SearchResults{}, err
+		}
+		state, err := c.layoutState(ctx)
+		if err != nil {
+			return SearchResults{}, err
+		}
+		page, err := c.cfg.Market.Search(ctx, cfg, marketplace.SearchRequest{Search: q.Term}, state)
+		if err != nil {
+			return SearchResults{}, err
+		}
+		if results := page.Component(marketplace.ComponentPagedItemList); results != nil {
+			items, next = results.Items, results.ContinuationToken
 		}
 	}
-	c.markOwned(ctx, out.Offers)
+	out := SearchResults{}
+	// The service sizes the page and its continuation starts after it, so every offer is kept.
+	out.Offers, _ = c.offers(items, len(items))
+	if ValidContinuation(next) {
+		out.Continuation = next
+	}
 	return out, nil
 }
 
-// Offer returns the detail of one offer from the catalog.
+// Offer returns one offer's detail from its store detail page.
 func (c *Client) Offer(ctx context.Context, id string) (OfferDetail, error) {
 	if !ValidOfferID(id) {
 		return OfferDetail{}, ErrInvalidRequest
 	}
-	item, err := c.cfg.Catalog.ItemByID(ctx, id)
+	state, err := c.layoutState(ctx)
 	if err != nil {
 		return OfferDetail{}, err
 	}
-	offer, ok := offerFromItem(item)
+	page, err := c.cfg.Market.Page(ctx, marketplace.PageByProductID, id, state)
+	if err != nil {
+		return OfferDetail{}, err
+	}
+	summary := page.Component(marketplace.ComponentItemSummary)
+	if summary == nil || summary.Item == nil {
+		return OfferDetail{}, errNoOffer
+	}
+	offer, ok := offerFromMarketItem(summary.Item)
 	if !ok {
 		return OfferDetail{}, errNoOffer
 	}
-	detail := OfferDetail{Offer: offer, DisplayVersion: clip(item.DisplayVersion), Description: firstLocalized(item.Description)}
-	if len(detail.Description) > 8192 {
-		detail.Description = detail.Description[:8192]
+	if purchase := page.Component(marketplace.ComponentPurchaseInfo); purchase != nil && purchase.Price != nil {
+		offer.Prices = []Price{priceOf(purchase.Price)}
 	}
-	for _, img := range item.Images {
-		if strings.EqualFold(img.Type, playfabcatalog.ImageTypeScreenshot) && strings.HasPrefix(img.URL, "https://") && len(detail.ScreenshotURLs) < 12 {
-			detail.ScreenshotURLs = append(detail.ScreenshotURLs, img.URL)
+	if rating := page.Component(marketplace.ComponentRating); rating != nil && rating.Rating != nil && rating.Rating.TotalCount > 0 {
+		offer.Rating = &Rating{Average: rating.Rating.Average, Count: rating.Rating.TotalCount}
+	}
+	offer.Owned = c.owned(offer.ID)
+	detail := OfferDetail{Offer: offer}
+	if packs := summary.Item.PackIdentity; len(packs) > 0 {
+		detail.DisplayVersion = clip(packs[0].Version)
+	}
+	if description := page.Component(marketplace.ComponentItemDescription); description != nil {
+		detail.Description = description.Description
+		if len(detail.Description) > maxDescription {
+			detail.Description = detail.Description[:maxDescription]
 		}
 	}
-	for _, p := range item.Platforms {
-		if len(detail.Platforms) < 16 {
-			detail.Platforms = append(detail.Platforms, clip(p))
+	if gallery := page.Component(marketplace.ComponentImageGallery); gallery != nil {
+		for _, image := range gallery.Images {
+			if safeImageURL(image.URL) && len(detail.ScreenshotURLs) < maxScreenshots {
+				detail.ScreenshotURLs = append(detail.ScreenshotURLs, image.URL)
+			}
 		}
 	}
-	one := []Offer{detail.Offer}
-	c.markOwned(ctx, one)
-	detail.Owned = one[0].Owned
 	return detail, nil
 }
 
-func firstLocalized(d playfabcatalog.Dictionary[string]) string {
-	if v, ok := d.Lookup(locale.Default); ok && v != "" {
-		return v
+// offers maps up to limit items, marking them owned; truncated reports items left out.
+func (c *Client) offers(items []marketplace.Item, limit int) (offers []Offer, truncated bool) {
+	offers = []Offer{}
+	for i := range items {
+		offer, ok := offerFromMarketItem(&items[i])
+		if !ok {
+			continue
+		}
+		if len(offers) >= limit {
+			return offers, true
+		}
+		offer.Owned = c.owned(offer.ID)
+		offers = append(offers, offer)
 	}
-	return d.Neutral()
+	return offers, false
 }
 
-// offerFromItem maps a PlayFab catalog item; an item without an id or title is skipped.
-func offerFromItem(item *playfabcatalog.Item) (Offer, bool) {
-	if item == nil || item.ID == "" || item.Hidden {
+// offerFromMarketItem maps a store item to the bridge offer; an item without an id or title is skipped.
+func offerFromMarketItem(item *marketplace.Item) (Offer, bool) {
+	id := strings.ToLower(item.ID)
+	title := clip(item.Title.Neutral())
+	if !ValidOfferID(id) || title == "" {
 		return Offer{}, false
 	}
-	title := clip(firstLocalized(item.Title))
-	if title == "" {
-		return Offer{}, false
+	offer := Offer{
+		ID: id, Title: title, Creator: clip(item.CreatorName),
+		ContentType: clip(item.ContentType), StoreID: clip(item.StoreID),
 	}
-	offer := Offer{ID: item.ID, Title: title, ContentType: clip(item.ContentType)}
-	var props struct {
-		Creator string `json:"creatorName"`
+	if thumbnail := item.ThumbnailURL(); safeImageURL(thumbnail) {
+		offer.ThumbnailURL = thumbnail
 	}
-	if len(item.DisplayProperties) > 0 {
-		_ = json.Unmarshal(item.DisplayProperties, &props)
+	if item.Rating != nil && item.Rating.TotalCount > 0 {
+		offer.Rating = &Rating{Average: item.Rating.Average, Count: item.Rating.TotalCount}
 	}
-	offer.Creator = clip(props.Creator)
-	offer.ThumbnailURL = thumbnailOf(item.Images)
-	for _, option := range item.PriceOptions {
-		if price, ok := singlePrice(option); ok && len(offer.Prices) < maxPricesPerItem {
-			offer.Prices = append(offer.Prices, price)
-		}
-	}
-	if len(item.PriceOptions) > 0 && len(offer.Prices) == 0 {
-		return Offer{}, false // only price forms the store cannot quote or buy
-	}
-	if item.Rating.TotalCount > 0 {
-		offer.Rating = &Rating{Average: float64(item.Rating.Average), Count: item.Rating.TotalCount}
+	if item.Price != nil {
+		offer.Prices = []Price{priceOf(item.Price)}
 	}
 	for _, tag := range item.Tags {
-		if len(offer.Tags) < maxTagsPerOffer {
-			offer.Tags = append(offer.Tags, clip(tag))
+		if tag.Name != "" && len(offer.Tags) < maxTagsPerOffer {
+			offer.Tags = append(offer.Tags, clip(tag.Name))
 		}
 	}
 	return offer, true
 }
 
-// singlePrice maps a price option the store can quote and buy: one currency amount for one unit
-// with no duration. Options needing several currencies together, several units or a duration are
-// refused rather than split into prices the purchase flow would misread.
-func singlePrice(option playfabcatalog.Price) (Price, bool) {
-	if len(option.Amounts) != 1 || option.UnitAmount > 1 || option.UnitDurationInSeconds != 0 {
-		return Price{}, false
-	}
-	amount := option.Amounts[0]
-	if amount.Value < 0 || amount.ItemID == "" {
-		return Price{}, false
-	}
-	return Price{Currency: amount.ItemID, Amount: int64(amount.Value)}, true
+func priceOf(price *marketplace.Price) Price {
+	return Price{Currency: price.CurrencyID, Amount: price.Amount()}
 }
 
-func thumbnailOf(images []playfabcatalog.Image) string {
-	var fallback string
-	for _, img := range images {
-		if !strings.HasPrefix(img.URL, "https://") || len(img.URL) > 1024 {
-			continue
-		}
-		if strings.EqualFold(img.Type, playfabcatalog.ImageTypeThumbnail) || strings.EqualFold(img.Tag, "thumbnail") {
-			return img.URL
-		}
-		if fallback == "" {
-			fallback = img.URL
-		}
-	}
-	return fallback
+// safeImageURL reports whether the image cache may fetch url.
+func safeImageURL(url string) bool {
+	return strings.HasPrefix(url, "https://") && len(url) <= maxThumbnailSize
 }

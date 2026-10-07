@@ -1,4 +1,4 @@
-//! Data binding as the client's `DataBindingComponent` runs it: each control's
+//! Data binding as the vanilla client runs it: each control's
 //! property bag starts from its `property_bag` literals, its bindings write
 //! controller values into it on the schedule their `binding_condition` sets,
 //! `view` bindings observe other controls' bags, and every written target
@@ -28,6 +28,7 @@ pub(crate) mod feed;
 mod grid;
 mod native;
 mod output;
+mod reuse;
 mod source;
 mod spec;
 mod state;
@@ -37,8 +38,10 @@ pub use data::{CollectionItem, DataSource, scoped_key};
 pub use feed::FactoryItem;
 pub use state::BindState;
 
+pub(crate) use reuse::{Children, Patch};
+
 use bag::Bag;
-use feed::{collection_name, is_collection_factory};
+use feed::{collection_name, factory_awaits_views, is_collection_factory};
 use grid::{grid_awaits_views, grid_capacity, grid_cell_index, grid_template, static_grid_columns};
 use native::Native;
 use source::Src;
@@ -61,6 +64,17 @@ pub trait ControlLibrary {
     ) -> Option<ResolvedControl> {
         let _ = (key, vars);
         self.resolve(reference)
+    }
+
+    /// [`Self::resolve_with`] as a tree a caching library hands out unchanged across
+    /// binds, so its instances keep their identity.
+    fn resolve_shared(
+        &self,
+        reference: &ControlRef,
+        key: &str,
+        vars: &dyn Fn() -> BTreeMap<String, Value>,
+    ) -> Option<Arc<ResolvedControl>> {
+        self.resolve_with(reference, key, vars).map(Arc::new)
     }
 }
 
@@ -100,7 +114,7 @@ pub fn bind_reporting(
     data: &DataSource,
     lib: &dyn ControlLibrary,
 ) -> (ResolvedControl, Vec<String>) {
-    bind_with(root, data, lib, &mut BindState::new(), false)
+    bind_stateful(root, data, lib, &mut BindState::new())
 }
 
 /// One data refresh of a live screen: bindings run against `state`'s bags on
@@ -111,17 +125,63 @@ pub fn bind_stateful(
     lib: &dyn ControlLibrary,
     state: &mut BindState,
 ) -> (ResolvedControl, Vec<String>) {
-    bind_with(root, data, lib, state, true)
+    let diagnostics = bind_with(root, data, lib, state, false);
+    state.data = None;
+    (state.bake(&data.components), diagnostics)
 }
 
+/// [`bind_stateful`] that rebuilds only the controls whose inputs changed since
+/// this state's last incremental bind.
+pub fn bind_incremental(
+    root: &Arc<ResolvedControl>,
+    data: &Arc<DataSource>,
+    lib: &dyn ControlLibrary,
+    state: &mut BindState,
+) -> ResolvedControl {
+    bind_with(root, data, lib, state, true);
+    state.data = Some(Arc::clone(data));
+    state.bake(&data.components)
+}
+
+/// [`bind_incremental`] applied in place onto `bound`, the tree this state's last
+/// incremental bind produced, keeping `measures` for unchanged controls.
+pub fn rebind(
+    root: &Arc<ResolvedControl>,
+    data: &Arc<DataSource>,
+    lib: &dyn ControlLibrary,
+    state: &mut BindState,
+    bound: &mut ResolvedControl,
+    measures: &mut crate::MeasureCache,
+) {
+    bind_with(root, data, lib, state, true);
+    state.data = Some(Arc::clone(data));
+    if let Some(node) = state.tree.as_deref_mut() {
+        measures.apply_patch(bound, reuse::patch(node, &data.components));
+    }
+}
+
+/// Build, settle and keep `root` in `state`; `incremental` reuses unchanged subtrees.
 fn bind_with(
     root: &Arc<ResolvedControl>,
     data: &DataSource,
     lib: &dyn ControlLibrary,
     state: &mut BindState,
-    retain: bool,
-) -> (ResolvedControl, Vec<String>) {
+    incremental: bool,
+) -> Vec<String> {
     state.scroll_observed = false;
+    state.built.clear();
+    let changes = match &state.data {
+        Some(previous)
+            if incremental && state.published.is_empty() && data.components.is_empty() =>
+        {
+            reuse::changes(previous, data)
+        }
+        _ => None,
+    };
+    let mut pool = state::KeyMap::default();
+    if let Some(previous) = state.tree.take() {
+        pool.insert(previous.key, *previous);
+    }
     let mut binder = Binder {
         data,
         lib,
@@ -132,8 +192,9 @@ fn bind_with(
         resolved: BTreeMap::new(),
         resolved_with: BTreeMap::new(),
         keys: state::KeyMap::default(),
-        retain,
         created: 0,
+        pool,
+        changes,
     };
     let scope = Scope {
         values: Arc::clone(&data.creation_values),
@@ -141,9 +202,9 @@ fn bind_with(
     };
     let mut node = binder.build(Src::root(Arc::clone(root)), &scope, 0);
     binder.settle_views(&mut node);
-    let baked = binder.bake(&node);
+    reuse::finish(&mut node);
     binder.retain(node);
-    (baked, binder.diagnostics)
+    binder.diagnostics
 }
 
 /// The collection a `collection_details` binding names, for hit regions.
@@ -168,7 +229,7 @@ struct Scope {
     /// The control's layout key, tracked only while components write bags.
     layout_key: String,
     /// Active factory/template references, carried through deferred children.
-    expansions: Vec<ControlRef>,
+    expansions: Arc<Vec<ControlRef>>,
 }
 
 impl Default for Scope {
@@ -181,12 +242,12 @@ impl Default for Scope {
             parent_key: state::KEY_ROOT,
             retained_parent: state::KEY_ROOT,
             layout_key: String::new(),
-            expansions: Vec::new(),
+            expansions: Arc::default(),
         }
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Cursor {
     /// `collection_name` → the item index its `collection` bindings read;
     /// `-1` is an item without an index.
@@ -212,6 +273,7 @@ impl Scope {
 }
 
 /// A control with its bag and component state for this refresh.
+#[derive(Clone)]
 struct Node {
     src: Src,
     /// The layout-key hash, made unique among same-named siblings.
@@ -227,6 +289,20 @@ struct Node {
     deferred: Option<Scope>,
     /// Whether its state outlives the refresh.
     retained: bool,
+    /// The scope it was built under, which a reuse must match.
+    scope: Scope,
+    track: reuse::Track,
+}
+
+impl Node {
+    fn update_collection_size(&mut self) {
+        if self.native.collection_length.is_some() {
+            self.own.insert(
+                "#collection_number_size".to_owned(),
+                Scalar::Int(self.children.len() as i64),
+            );
+        }
+    }
 }
 
 struct Binder<'a> {
@@ -242,10 +318,12 @@ struct Binder<'a> {
     resolved_with: BTreeMap<(ControlRef, String), Option<Arc<ResolvedControl>>>,
     /// Keys handed out this refresh, with how often.
     keys: state::KeyMap<usize>,
-    /// Whether the refresh's state outlives it.
-    retain: bool,
     /// Controls materialized in this bind, including factory creations.
     created: usize,
+    /// The last bind's controls not yet rebuilt or reused, by key.
+    pool: state::KeyMap<Node>,
+    /// What the data changed since the last incremental bind; `None` rebuilds all.
+    changes: Option<reuse::Changes>,
 }
 
 impl<'a> Binder<'a> {
@@ -276,12 +354,24 @@ impl<'a> Binder<'a> {
     /// Create `src` under `scope`: its bag, its bindings for this refresh, and
     /// its subtree unless it is hidden.
     fn build(&mut self, src: Src, scope: &Scope, repeat: usize) -> Node {
-        self.created += 1;
         let key = self.control_key(&src, scope.parent_key);
+        let (retained, prior) = match self.pool.remove(&key) {
+            Some(previous) if self.reusable(&previous, &src, scope) => {
+                return self.reuse(previous);
+            }
+            Some(previous) => {
+                let (retained, prior) = self.replace(previous);
+                (retained, Some(prior))
+            }
+            None => (self.state.controls.remove(&key), None),
+        };
+        self.created += 1;
+        self.state.built.push(key);
         let declaration = self.declaration(&src);
         let bindings = Arc::clone(&declaration.bindings);
+        let built_under = scope.clone();
         let mut scope = scope.clone();
-        self.attach_item(&src, &mut scope);
+        let selection = self.attach_item(&src, &mut scope);
         let control = src.get();
         if !self.data.components.is_empty() {
             scope.layout_key = crate::layout::instance_key(
@@ -292,7 +382,6 @@ impl<'a> Binder<'a> {
             );
         }
         let for_children = declaration.bags.children(&scope.for_children);
-        let retained = self.state.controls.remove(&key);
         let parent = scope.retained_parent;
         let created = retained.is_none();
         let mut memory = retained.unwrap_or_default();
@@ -340,10 +429,32 @@ impl<'a> Binder<'a> {
             &mut native,
             &mut memory,
         );
+        if native.collection_length.is_none()
+            && is_collection_factory(control)
+            && let Some(length) = own.get("#collection_length")
+        {
+            native::apply(
+                "#collection_length",
+                &length.to_json(),
+                control,
+                &own,
+                &mut native,
+            );
+        }
         if declaration.radio_group {
             self.radio_state(control, &mut own);
         }
+        let mut reads = self.own_reads(&declaration, control, src.name(), &scope);
+        if let Some(scoped) = selection {
+            // Which list this item reads, and how much of it, follows its item's own list.
+            reads.add(reuse::Data::Length, &scoped, None);
+        }
+        let origin = GRID_BOUNDS
+            .iter()
+            .any(|name| native.props.contains_key(*name))
+            .then(|| src.clone());
         let src = native_grid(src, &native);
+        let track = reuse::Track::built(reads, declaration.observes_scroll, origin, prior);
         let control = src.get();
         if let Some(capacity) = grid_capacity(&src) {
             own.insert("#grid_number_size".to_owned(), Scalar::Int(capacity as i64));
@@ -352,7 +463,8 @@ impl<'a> Binder<'a> {
         let mut child_scope = scope;
         child_scope.parent_key = key;
         let visible = native.visible(control);
-        let awaits_views = grid_awaits_views(control, &bindings);
+        let awaits_views =
+            grid_awaits_views(control, &bindings) || factory_awaits_views(control, &bindings);
         // Only state a refresh cannot rebuild from literals is retained.
         let retained =
             !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
@@ -377,19 +489,17 @@ impl<'a> Binder<'a> {
             children: Vec::new(),
             deferred: None,
             retained,
+            scope: built_under,
+            track,
         };
         // A hidden control's subtree builds only once shown or named, so a
-        // pack's many title-selected layouts cost only the one on screen. A grid
-        // whose cell count a view may set builds once views settle.
+        // pack's many title-selected layouts cost only the one on screen.
+        // View-selected collection roles and grid counts wait for settled views.
         if !visible || awaits_views {
             node.deferred = Some(child_scope);
         } else {
             node.children = self.children_of(&node, &child_scope);
-            if node.native.collection_length.is_some() {
-                let created = node.children.len() as i64;
-                node.own
-                    .insert("#collection_number_size".to_owned(), Scalar::Int(created));
-            }
+            node.update_collection_size();
         }
         node
     }
@@ -413,12 +523,12 @@ impl<'a> Binder<'a> {
     /// `UIControlFactory`'s collection item: a child of a collection panel is
     /// an item at its `collection_index`, `-1` without one. A grid's cell is
     /// its grid item and keeps the enclosing index without one.
-    fn attach_item(&self, src: &Src, scope: &mut Scope) {
-        let Some((collection, grid)) = scope.parent_collection.take() else {
-            return;
-        };
+    /// Enters the collection item `src` is, if any; returns the item-scoped list key that could
+    /// replace the shared list, which the item's reads must track.
+    fn attach_item(&self, src: &Src, scope: &mut Scope) -> Option<String> {
+        let (collection, grid) = scope.parent_collection.take()?;
         if src.prop("ignoreCollectionItem").and_then(Value::as_bool) == Some(true) {
-            return;
+            return None;
         }
         let index = src
             .prop("collection_index")
@@ -427,12 +537,29 @@ impl<'a> Binder<'a> {
             .filter(|index| *index != -1);
         let index = match (index, grid) {
             (Some(index), _) => index,
-            (None, true) => return,
+            (None, true) => return None,
             (None, false) => -1,
         };
+        // A factory or grid instance already entered its own list; a collection panel's child inside a
+        // factory item reads that item's own list when one is registered, else the shared one.
+        let entered = scope
+            .cursor
+            .path
+            .last()
+            .is_some_and(|(key, _)| scope.cursor.keys.get(&collection) == Some(key));
+        let candidate = (!entered)
+            .then(|| scope.cursor.path.last())
+            .flatten()
+            .map(|(parent, at)| scoped_key(parent, *at, &collection));
+        let key = (!entered).then(|| self.collection_key(&collection, scope));
         let cursor = Arc::make_mut(&mut scope.cursor);
         cursor.indices.insert(collection.clone(), index);
+        // Falling back to the shared list drops a key inherited from an outer item's own list.
+        if let Some(key) = key {
+            cursor.keys.insert(collection.clone(), key);
+        }
         cursor.items.push((collection, index));
+        candidate
     }
 
     fn children_of(&mut self, node: &Node, scope: &Scope) -> Vec<Node> {
@@ -464,7 +591,7 @@ impl<'a> Binder<'a> {
         } else if let Some(items) = self.feed(control) {
             Some(self.expand_feed(control, items, scope))
         } else {
-            // `SliderComponent::_createSteps` through the slider's own factory.
+            // A step slider creates its step marks through its own factory.
             crate::component::slider_step_marks(control, &node.own)
                 .map(|items| self.expand_feed(control, &items, scope))
         };
@@ -500,7 +627,7 @@ impl<'a> Binder<'a> {
             return None;
         }
         let mut inner = scope.clone();
-        inner.expansions.push(reference.clone());
+        Arc::make_mut(&mut inner.expansions).push(reference.clone());
         Some(inner)
     }
 
@@ -533,6 +660,7 @@ impl<'a> Binder<'a> {
                 None => self.build(child, scope, repeat),
             };
             if node.src.get().control_type.as_deref() == Some("factory") {
+                node.track.hoisted |= !node.children.is_empty();
                 created.append(&mut node.children);
             }
             nodes.push(node);
@@ -545,7 +673,7 @@ impl<'a> Binder<'a> {
         if let Some(resolved) = self.resolved.get(reference) {
             return resolved.clone();
         }
-        let resolved = self.lib.resolve(reference).map(Arc::new);
+        let resolved = self.lib.resolve_shared(reference, "", &BTreeMap::new);
         self.resolved.insert(reference.clone(), resolved.clone());
         resolved
     }
@@ -553,12 +681,17 @@ impl<'a> Binder<'a> {
     /// Build deferred subtrees that are now shown under shown ancestors;
     /// `true` when any was built.
     fn expand_deferred(&mut self, node: &mut Node, fresh: bool) -> bool {
+        if node.track.quiet() && !node.track.deferred_below {
+            return false;
+        }
         if !node.native.visible(node.src.get()) {
             return false;
         }
         let mut expanded = false;
-        // A grid built this pass has yet to run the views its cell count reads.
-        let waits = fresh && grid_awaits_views(node.src.get(), &node.bindings);
+        // Newly created collections have yet to run the views selecting their children.
+        let waits = fresh
+            && (grid_awaits_views(node.src.get(), &node.bindings)
+                || factory_awaits_views(node.src.get(), &node.bindings));
         if !waits && let Some(scope) = node.deferred.take() {
             self.build_deferred(node, &scope);
             expanded = true;
@@ -567,12 +700,18 @@ impl<'a> Binder<'a> {
         for child in &mut node.children {
             expanded |= self.expand_deferred(child, fresh);
         }
+        node.track.dirty |= expanded;
         expanded
     }
 
     /// Builds a deferred subtree under the values its views have since settled.
     fn build_deferred(&mut self, node: &mut Node, scope: &Scope) {
+        if !node.track.fresh && node.track.touched_children.is_none() {
+            node.track.touched_children = Some(node.children.iter().map(|c| c.key).collect());
+        }
+        node.track.touched = true;
         node.children = self.children_of(node, scope);
+        node.update_collection_size();
         if let Some(capacity) = grid_capacity(&native_grid(node.src.clone(), &node.native)) {
             node.own
                 .insert("#grid_number_size".to_owned(), Scalar::Int(capacity as i64));
@@ -630,117 +769,66 @@ impl<'a> Binder<'a> {
         name.to_owned()
     }
 
-    /// Bake bag values and bound component state into literals.
-    fn bake(&self, node: &Node) -> ResolvedControl {
-        let control = node.src.get();
-        let properties = if self.data.components.is_empty()
-            && let Some(properties) = output::get(node)
-        {
-            properties
-        } else {
-            let properties = self.bake_output(node);
-            if self.data.components.is_empty() {
-                output::put(node, properties.clone());
-            }
-            properties
-        };
-        ResolvedControl {
-            name: node.src.name().to_owned(),
-            control_type: control.control_type.clone(),
-            base: control.base.clone(),
-            unresolved_base: control.unresolved_base.clone(),
-            properties,
-            children: node.children.iter().map(|child| self.bake(child)).collect(),
-            factory: control.factory.clone(),
+    /// Keep the tree for the next refresh, and the memory of dropped controls
+    /// inside subtrees still hidden.
+    fn retain(&mut self, node: Node) {
+        self.state.generation += 1;
+        let generation = self.state.generation;
+        let mut leftover = std::mem::take(&mut self.state.controls);
+        for (_, dropped) in self.pool.drain() {
+            reuse::dormant(dropped, generation, &mut leftover);
         }
+        if !leftover.is_empty() {
+            let mut built = state::KeyMap::default();
+            reuse::live(&node, &mut built);
+            // A control not built this refresh stays only under a still-hidden one.
+            let kept: Vec<u64> = leftover
+                .iter()
+                .filter(|(_, memory)| {
+                    let mut parent = memory.parent;
+                    for _ in 0..MAX_KEEP_DEPTH {
+                        if let Some(deferred) = built.get(&parent) {
+                            return *deferred;
+                        }
+                        match leftover.get(&parent) {
+                            Some(above) => parent = above.parent,
+                            None => return false,
+                        }
+                    }
+                    false
+                })
+                .map(|(key, _)| *key)
+                .collect();
+            for key in kept {
+                if let Some(memory) = leftover.remove(&key) {
+                    self.state.controls.insert(key, memory);
+                }
+            }
+        }
+        self.state.tree = Some(Box::new(node));
     }
+}
 
-    /// Bake the properties of one changed control; its children cache independently.
-    fn bake_output(&self, node: &Node) -> crate::tree::Properties {
-        let control = node.src.get();
-        let mut properties = bake_properties(&control.properties, &node.own);
+/// Bake one changed control's properties; its children cache independently.
+fn bake_output(node: &Node, components: &crate::component::Components) -> crate::tree::Properties {
+    let control = node.src.get();
+    let mut properties = bake_properties(&control.properties, &node.own);
+    properties.extend(
+        node.native
+            .props
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
+    crate::component::write_properties(components, &node.layout_key, &mut properties);
+    if let Some(patch) = &node.src.patch {
         properties.extend(
-            node.native
-                .props
+            patch
+                .properties
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())),
         );
-        crate::component::write_properties(
-            &self.data.components,
-            &node.layout_key,
-            &mut properties,
-        );
-        if let Some(patch) = &node.src.patch {
-            properties.extend(
-                patch
-                    .properties
-                    .iter()
-                    .map(|(key, value)| (key.clone(), value.clone())),
-            );
-        }
-        properties.into()
     }
-
-    /// Keep every built control's bag and binding memory for the next refresh,
-    /// and the memory of controls inside subtrees still hidden.
-    fn retain(&mut self, node: Node) {
-        if !self.retain {
-            return;
-        }
-        self.state.generation += 1;
-        let generation = self.state.generation;
-        let leftover = std::mem::take(&mut self.state.controls);
-        self.keep(node, generation);
-        // A control not built this refresh stays only under a still-hidden one.
-        let built = &self.state.controls;
-        let kept: Vec<u64> = leftover
-            .iter()
-            .filter(|(_, memory)| {
-                let mut parent = memory.parent;
-                for _ in 0..MAX_KEEP_DEPTH {
-                    if let Some(control) = built.get(&parent) {
-                        return control.deferred;
-                    }
-                    match leftover.get(&parent) {
-                        Some(above) => parent = above.parent,
-                        None => return false,
-                    }
-                }
-                false
-            })
-            .map(|(key, _)| *key)
-            .collect();
-        let mut leftover = leftover;
-        for key in kept {
-            if let Some(memory) = leftover.remove(&key) {
-                self.state.controls.insert(key, memory);
-            }
-        }
-    }
-
-    fn keep(&mut self, node: Node, generation: u64) {
-        let Node {
-            key,
-            own,
-            native,
-            mut memory,
-            children,
-            deferred,
-            retained,
-            ..
-        } = node;
-        for child in children {
-            self.keep(child, generation);
-        }
-        if !retained {
-            return;
-        }
-        memory.bag = own;
-        memory.native = native.props;
-        memory.generation = generation;
-        memory.deferred = deferred.is_some();
-        self.state.controls.insert(key, memory);
-    }
+    properties.into()
 }
 
 /// Ancestors a hidden control's memory is traced through.
@@ -751,7 +839,7 @@ fn native_grid(src: Src, native: &Native) -> Src {
     let bound: Vec<(&String, &Value)> = native
         .props
         .iter()
-        .filter(|(key, _)| matches!(key.as_str(), "grid_dimensions" | "maximum_grid_items"))
+        .filter(|(key, _)| GRID_BOUNDS.contains(&key.as_str()))
         .collect();
     if bound.is_empty() {
         return src;
@@ -762,6 +850,9 @@ fn native_grid(src: Src, native: &Native) -> Src {
         .collect();
     src.patched(|patch| patch.properties.extend(bound))
 }
+
+/// Grid properties a binding can set, which patch the grid's expansion.
+const GRID_BOUNDS: [&str; 2] = ["grid_dimensions", "maximum_grid_items"];
 
 /// Control names vanilla authors as `#name` identifiers.
 const IDENTITY_NAMES: [&str; 3] = ["text_box_name", "dropdown_name", "slider_name"];

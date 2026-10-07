@@ -60,7 +60,7 @@ use bevy::{
         },
     },
 };
-use meshing::{ChunkBiomeTintIdentity, Face, chunk_publication_byte_len};
+use meshing::{ChunkBiomeTintIdentity, CubeQuadLayout, Face, chunk_publication_byte_len};
 use render_api::{PublicationPermit, PublicationPermitStage, PublicationServiceConfig};
 use world::SubChunkKey;
 
@@ -87,6 +87,9 @@ mod draw;
 pub(crate) mod enhanced;
 mod extract;
 mod gpu;
+mod gpu_cull;
+pub(crate) use gpu_cull::{GpuCullLateLabel, TerrainPassLabel, admit_depth_sampling};
+mod instance;
 pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;
 mod plugin;
@@ -97,12 +100,13 @@ mod queue;
 #[cfg(feature = "enhanced")]
 mod resident_coverage;
 mod resource_geometry;
+pub use instance::ChunkRenderInstance;
 #[cfg(feature = "enhanced")]
 pub(crate) use resident_coverage::ChunkResidentCoverage;
 mod texture_reload;
 mod textures;
 pub use texture_reload::ChunkTextureReload;
-mod transparent;
+pub(crate) mod transparent;
 
 use constants::{
     BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,
@@ -121,9 +125,9 @@ use api::{
     PublicationPermitSlot, evaluate_model_witness_frame,
 };
 pub use api::{
-    ChunkRenderInstance, ChunkUploadAcknowledgement, ChunkUploadAcknowledgements,
-    ChunkUploadBudget, ChunkUploadPriority, ChunkUploadToken, PresentedFrameAck,
-    PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
+    ChunkUploadAcknowledgement, ChunkUploadAcknowledgements, ChunkUploadBudget,
+    ChunkUploadPriority, ChunkUploadToken, PresentedFrameAck, PresentedFrameGate, RenderViewCohort,
+    TargetRenderExpectation,
 };
 pub use biome_tints::{
     BiomeTint, ChunkBiomeTints, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V,
@@ -167,7 +171,6 @@ use gpu::layout::{
     GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS, account_chunk_gpu_uploads,
     advance_arena_migration, arena_capacities, begin_arena_migration, buffer_byte_len,
     checked_align_up, first_arena_growth, plan_arena_growth, write_geometry_stream_words,
-    write_stream_records,
 };
 #[allow(unused_imports)]
 use gpu::texture_upload::{padded_mip_bytes, upload_texture_page};
@@ -177,15 +180,15 @@ use gpu::types::{
     ChunkIndirectBatches, ChunkModelIndirectBatches, GpuChunkAllocation, GpuChunkOrigin,
     LEGACY_FIXED_MODEL_QUADS_PER_REF, MODEL_INDEX_COUNT, QueueFrameProbeParams,
     RetiredArenaAllocation, StreamAddresses, absolutize_liquid_lighting_indices,
-    adapter_metadata_field, cube_lighting_record_address, cube_stream_addresses_valid,
+    adapter_metadata_field, cube_draw_base, cube_lighting_record_address,
+    cube_stream_addresses_valid, cube_stream_drawable, cutout_indirect_command,
     depth_liquid_direct_draw_command, depth_liquid_draw_command, depth_liquid_mdi_draw_command,
     diagnostic_draw_mode, direct_stream_addresses, extracted_camera_identity, gpu_chunk_origin,
-    indexed_indirect_command, mdi_stream_addresses, metadata_base_vertex,
-    model_direct_draw_command, model_draw_command, model_mdi_draw_command,
-    model_ref_count_for_witness, opaque_allocation_is_drawable, publish_graphics_runtime_metadata,
-    resolve_surface_present_mode, select_chunk_draw_mode, shared_stream_ranges_disjoint,
-    summarize_model_workload, surface_present_mode_name, transparent_model_direct_draw_command,
-    window_present_mode_name,
+    mdi_stream_addresses, metadata_base_vertex, model_direct_draw_command, model_draw_command,
+    model_mdi_draw_command, model_ref_count_for_witness, opaque_allocation_is_drawable,
+    publish_graphics_runtime_metadata, resolve_surface_present_mode, select_chunk_draw_mode,
+    shared_stream_ranges_disjoint, solid_indirect_commands, summarize_model_workload,
+    surface_present_mode_name, transparent_model_direct_draw_command, window_present_mode_name,
 };
 #[allow(unused_imports)]
 use gpu::upload::{
@@ -231,8 +234,6 @@ pub use presentation::transparent_witness::{
     TransparentWitnessRequest, TransparentWitnessRequestError, TransparentWitnessStageEvent,
     TransparentWitnessStageRecord,
 };
-#[allow(unused_imports)]
-use presentation::transparent_witness::{TransparentWitnessEvidenceState, TransparentWitnessToken};
 #[cfg(feature = "publication-test-support")]
 pub use publication_test_support::{
     PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
@@ -245,8 +246,6 @@ use queue::{
     biome_record_byte_len, biome_record_is_fallback, chunk_origin, pending_upload_byte_len,
     update_chunk_animation_clock,
 };
-#[allow(unused_imports)]
-use textures::{ANIMATION_TICK_MODULUS, ANIMATION_TICKS_PER_SECOND};
 pub use textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
     EnhancedTextureAssets, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
@@ -255,9 +254,7 @@ pub use textures::{
     texture_asset_needs_rebuild,
 };
 #[allow(unused_imports)]
-use transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws, transparent_liquid_phase_distance,
-};
+use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};
 #[allow(unused_imports)]
 use transparent::model::{
     TransparentModelAddressIdentity, TransparentModelAllocationIdentity,
@@ -266,7 +263,7 @@ use transparent::model::{
     TransparentModelStagedSort, TransparentModelWorkerResult, TransparentUploadBudget,
     clear_active_transparent_metrics, fail_closed_transparent_sort_key_error,
     prepare_transparent_model_sorts, sort_transparent_model_candidates,
-    spawn_transparent_model_sort, spawn_transparent_sort, take_transparent_model_upload_batches,
+    spawn_transparent_model_sort, take_transparent_model_upload_batches,
     transparent_model_draw_candidate, transparent_model_phase_distance,
     transparent_model_subchunk_center, transparent_request_to_commit_latency,
 };
@@ -279,24 +276,25 @@ use transparent::retirement::{
     transparent_snapshot_references_allocation,
     transparent_snapshot_references_resident_allocation, transparent_view_missing_witness_keys,
 };
-
 pub use transparent::sort::{
     DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME, MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_DRAW_REFS,
     MAX_TRANSPARENT_VIEWS, MAX_TRANSPARENT_WITNESS_KEYS, PackedTransparentDrawRef,
     TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES, TransparentAllocationIdentity,
-    TransparentDrawArgs, TransparentOrderedSnapshot, TransparentSortCandidate,
-    TransparentSortError, TransparentSortJobGate, TransparentSortResult, TransparentSortState,
-    TransparentUploadBatch, ViewSortGeneration, ViewSortKey, validate_transparent_sort_ref_count,
+    TransparentDrawArgs, TransparentOrderedSnapshot, TransparentSortError, TransparentSortJobGate,
+    TransparentSortResult, TransparentSortState, TransparentUploadBatch, ViewSortGeneration,
+    ViewSortKey, validate_transparent_sort_ref_count,
 };
 #[allow(unused_imports)]
 use transparent::sort::{
-    MAX_TRANSPARENT_RETIRED_ALLOCATIONS, MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity,
-    TransparentCandidateCache, TransparentLiquidPhaseGroup, TransparentSortRequest,
+    INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
+    MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity, TransparentCandidateCache,
+    TransparentGroupInput, TransparentGroupOrder, TransparentGroups, TransparentLiquidPhaseGroup,
     TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
-    TransparentWorkerResult, build_transparent_candidates, prepare_transparent_sorts,
-    sort_transparent_candidates, transparent_draw_args, transparent_draw_range_args,
-    transparent_indirect_args, transparent_liquid_phase_groups,
-    transparent_snapshot_addresses_are_resident,
+    TransparentWorkerResult, build_transparent_group, changed_ref_spans, distinct_tint_count,
+    ensure_transparent_ref_capacity, prepare_transparent_sorts, sort_transparent_groups,
+    spawn_transparent_sort, transparent_draw_args, transparent_draw_range_args,
+    transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
+    transparent_ref_offset, transparent_snapshot_addresses_are_resident,
 };
 
 #[cfg(test)]

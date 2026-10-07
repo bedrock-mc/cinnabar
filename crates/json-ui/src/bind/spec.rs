@@ -1,5 +1,4 @@
-//! A control's `bindings` array parsed as `UIControlFactory::
-//! _populateDataBindingComponent` reads it: the binding type and condition, the
+//! A control's `bindings` array parsed as vanilla reads it: the binding type and condition, the
 //! name expression, its target, collection fields and view scope.
 
 use serde_json::{Map, Value};
@@ -120,7 +119,7 @@ pub(super) fn parse(control: &ResolvedControl, diagnostics: &mut Vec<String>) ->
         }
     };
     // A grid's `grid_dimension_binding` asks the controller for its size
-    // (`ScreenController::bindGridSize`) every refresh.
+    // every refresh.
     if control.control_type.as_deref() == Some("grid")
         && let Some(name) = control
             .properties
@@ -148,7 +147,7 @@ fn ignored(value: Option<&Value>) -> bool {
     }
 }
 
-/// `UIResolvedDef::getAsString`: the field through `_evaluate`, so a constant
+/// A string field, evaluated first, so a constant
 /// parenthesised expression reads as its result.
 fn text(binding: &Map<String, Value>, key: &str) -> String {
     let raw = binding.get(key).and_then(Value::as_str).unwrap_or("");
@@ -228,7 +227,7 @@ enum BindingType {
     View,
 }
 
-/// `UIResolvedDef::getAsBindingType`: absent is global, `none` binds nothing,
+/// Binding type: absent is global, `none` binds nothing,
 /// an unknown name logs and falls back to global.
 fn binding_type(
     value: Option<&Value>,
@@ -251,7 +250,7 @@ fn binding_type(
     })
 }
 
-/// `UIResolvedDef::getAsBindingCondition`: an unknown name logs and reads `none`.
+/// Binding condition: an unknown name logs and reads `none`.
 fn condition(value: Option<&Value>, owner: &str, diagnostics: &mut Vec<String>) -> Condition {
     let Some(value) = value else {
         return Condition::None;
@@ -273,7 +272,7 @@ fn condition(value: Option<&Value>, owner: &str, diagnostics: &mut Vec<String>) 
 /// Levels of `$var`/constant indirection a name may take.
 const MAX_INDIRECTION: usize = 8;
 
-/// `UIResolvedDef::getAsPropetyEvaluation`: a `#name` is one property; a
+/// Property evaluation: a `#name` is one property; a
 /// parenthesised expression reading properties is kept, a constant one is
 /// evaluated and read again; anything else binds nothing.
 fn property_evaluation(value: Option<&Value>) -> Option<Source> {

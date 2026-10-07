@@ -38,13 +38,15 @@ impl LocalPhysicsController {
                 .is_some_and(|state| state.swim_pose_active);
             let previous_jump_held = self.previous_jump_held;
             let jump_edge_pending = self.jump_edge_pending;
+            let input_edges = self.input_edges;
             let fly_toggle_pending = self.fly_toggle_pending;
             let modes = self.modes;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
-            // MovePlayer changes spatial state without resetting jump input or
-            // movement abilities (native MovePlayerInput RVAs 04b046c0/04b047e0).
+            // As in vanilla, MovePlayer changes spatial state without resetting
+            // jump input or movement abilities.
             self.previous_jump_held = previous_jump_held;
             self.jump_edge_pending = jump_edge_pending;
+            self.input_edges = input_edges;
             self.fly_toggle_pending = fly_toggle_pending;
             self.modes = modes;
             if let Some(state) = self.state.as_mut() {
@@ -89,8 +91,8 @@ impl LocalPhysicsController {
             f64::from(network_position[1] - PLAYER_NETWORK_OFFSET),
             f64::from(network_position[2]),
         );
-        // Vanilla's correction input writes both position and StateVector
-        // motion into the corrected frame before replaying later inputs.
+        // Vanilla's correction input writes both position and velocity
+        // into the corrected frame before replaying later inputs.
         corrected.position = feet;
         corrected.on_ground = on_ground;
         // Axis collisions describe the motion that produced a position, so they
@@ -152,6 +154,7 @@ impl LocalPhysicsController {
         if let Some(velocity) = velocity {
             corrected.velocity = velocity;
         }
+        self.deferred_corrections.supersede(tick);
         self.replay_from_corrected(tick, corrected, Some(network_position), world)
     }
 
@@ -183,6 +186,8 @@ impl LocalPhysicsController {
         corrected_network_position: Option<[f32; 3]>,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let prior_position = self.state.as_ref().map(|state| state.position);
+        let prior_previous_position = self.previous_position;
         let on_ground = corrected.on_ground;
         let feet = corrected.position;
         let corrected_velocity = [
@@ -194,12 +199,22 @@ impl LocalPhysicsController {
         let motion_overlays: Vec<sim::MotionOverlay> =
             self.server_motions.iter().copied().collect();
         let mut controller_frames = self.controller_history.clone();
+        let immobility_edits: Vec<u64> = controller_frames
+            .iter()
+            .filter(|frame| {
+                self.history
+                    .input_at(frame.tick)
+                    .is_some_and(|input| input.immobile != frame.input.immobile)
+            })
+            .map(|frame| frame.tick)
+            .collect();
         let anchor_controller = controller_frames
             .iter()
             .find(|frame| frame.tick == tick)
             .copied()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
+        let deferred_corrections = self.deferred_corrections.clone();
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -211,6 +226,7 @@ impl LocalPhysicsController {
                 world,
                 &motion_overlays,
                 |state, input, world, previous| {
+                    deferred_corrections.apply_before(state);
                     let frame = controller_frames
                         .iter_mut()
                         .find(|frame| frame.tick == state.tick + 1)
@@ -222,6 +238,8 @@ impl LocalPhysicsController {
                 },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
+
+        self.deferred_corrections.mark_replayed();
 
         if replayed_ticks.len() != replay.replayed_ticks {
             return Err(PhysicsCorrectionError::ReplayFailed);
@@ -263,6 +281,8 @@ impl LocalPhysicsController {
             };
             if self.history.world_at(result.tick).is_none()
                 && retained.world_identity != result.world_identity
+                && (immobility_edits.binary_search(&result.tick).is_err()
+                    || retained.world_identity.registry != result.world_identity.registry)
             {
                 return Err(PhysicsCorrectionError::WorldIdentityMismatch { tick: result.tick });
             }
@@ -294,7 +314,7 @@ impl LocalPhysicsController {
             let Some(frame_input) = self.history.input_at(result.tick) else {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
-            if frame_input.mode == sim::MovementMode::Riding {
+            if frame_input.immobile || frame_input.mode == sim::MovementMode::Riding {
                 jump_fold = ReplayJumpArcFold::seed(true, false, false);
             }
             let (initiated, arc_active) = jump_fold.step(output.jump_initiated, result.on_ground);
@@ -315,10 +335,6 @@ impl LocalPhysicsController {
                     retained.movement = delta;
                 }
             }
-            retained.processed.direction_flags = Some(super::super::encoding::direction_flags([
-                -frame_input.strafe as f32,
-                frame_input.forward as f32,
-            ]));
             retained.processed.jump_initiated = initiated;
             retained.processed.jump_arc_active = arc_active;
             replayed_samples.push(retained.clone());
@@ -346,6 +362,7 @@ impl LocalPhysicsController {
             corrected_sample.world_identity.clone()
         };
 
+        self.refresh_motion_ticks();
         let state = self
             .state
             .as_ref()
@@ -363,7 +380,13 @@ impl LocalPhysicsController {
                 .state_at(final_tick.saturating_sub(1))
                 .map_or(feet, |previous| previous.position)
         };
-        self.accumulated_seconds = 0.0;
+        if let Some(prior_position) = prior_position {
+            self.visual_correction.correct(
+                prior_position - state.position,
+                prior_previous_position - self.previous_position,
+                state.velocity,
+            );
+        }
         self.last_world_identity = replayed_samples
             .last()
             .map(|sample| sample.world_identity.clone())

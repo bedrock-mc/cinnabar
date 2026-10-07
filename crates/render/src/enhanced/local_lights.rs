@@ -11,7 +11,10 @@ use bytemuck::{Pod, Zeroable};
 use std::{
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 #[path = "local_light_selection.rs"]
 mod selection;
@@ -25,6 +28,7 @@ pub(crate) const POINT_SHADOW_FACES: usize = 6;
 pub(crate) const TILE_SIDE: u32 = 32;
 const TILE_LIGHTS: usize = 8;
 pub(crate) const POINT_SHADOW_RESOLUTION: u32 = 256;
+pub(crate) const POINT_SHADOW_ANIMATION_INTERVAL: f32 = 1.0 / 15.0;
 pub(crate) const LIGHT_RADIUS: f32 = 12.0;
 const POINT_SHADOW_NEAR: f32 = 0.05;
 const SOURCE_RADIUS: f32 = 0.22;
@@ -39,8 +43,36 @@ pub(crate) struct LightSource {
 #[derive(Resource, Default)]
 pub(crate) struct LocalLightSources {
     chunks: HashMap<Entity, Vec<LightSource>>,
+    casters: HashMap<Entity, CasterGeometry>,
     pub revision: u64,
     lights_revision: u64,
+}
+
+struct CasterGeometry {
+    key: world::SubChunkKey,
+    cubes: Arc<[meshing::PackedQuad]>,
+    models: Arc<[meshing::PackedModelRef]>,
+}
+
+impl CasterGeometry {
+    fn matches(
+        &self,
+        key: world::SubChunkKey,
+        cubes: &Arc<[meshing::PackedQuad]>,
+        models: &Arc<[meshing::PackedModelRef]>,
+    ) -> bool {
+        self.key == key
+            && (Arc::ptr_eq(&self.cubes, cubes) || self.cubes.as_ref() == cubes.as_ref())
+            && (Arc::ptr_eq(&self.models, models)
+                || (self.models.len() == models.len()
+                    && self.models.iter().zip(models.iter()).all(|(old, new)| {
+                        // Lighting arena addresses do not change a model's shadow coverage.
+                        let [old_transform, old_template, _, old_mask] = old.words();
+                        let [new_transform, new_template, _, new_mask] = new.words();
+                        (old_transform, old_template, old_mask)
+                            == (new_transform, new_template, new_mask)
+                    })))
+    }
 }
 
 impl LocalLightSources {
@@ -62,12 +94,23 @@ pub(crate) fn collect_sources(
     let mut geometry_dirty = false;
     let mut lights_dirty = false;
     for entity in removed.read() {
-        geometry_dirty = true;
+        geometry_dirty |= cache.casters.remove(&entity).is_some();
         lights_dirty |= cache.chunks.remove(&entity).is_some();
     }
     for (entity, chunk) in &changed {
-        geometry_dirty = true;
         let key = chunk.key();
+        let (cubes, models, _, _) = chunk.indirect_geometry();
+        if cubes.is_empty() && models.is_empty() {
+            geometry_dirty |= cache.casters.remove(&entity).is_some();
+        } else if let Some(previous) = cache.casters.get_mut(&entity) {
+            geometry_dirty |= !previous.matches(key, &cubes, &models);
+            *previous = CasterGeometry { key, cubes, models };
+        } else {
+            cache
+                .casters
+                .insert(entity, CasterGeometry { key, cubes, models });
+            geometry_dirty = true;
+        }
         let origin =
             Vec3::new(key.x as f32, key.y as f32, key.z as f32) * world::SUB_CHUNK_SIDE as f32;
         let lights = || {

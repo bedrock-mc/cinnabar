@@ -1,40 +1,54 @@
 use super::*;
 
 fn actor() -> ActorSnapshot {
-    let pose = client_world::ActorPose {
-        position: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        head_yaw: 0.0,
-    };
-    ActorSnapshot {
+    let mut stream = chunk_pipeline::WorldStream::new_with_assets(
+        protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 0,
+            local_player_unique_id: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: protocol::air_network_id(false),
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(assets::RuntimeAssets::diagnostic()),
+        [0.0; 3],
+        None,
+    );
+    let spawn = protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: 1,
         runtime_id: 1,
-        spawn_revision: 1,
-        movement_revision: 1,
         kind: ActorKind::Player {
             uuid: [1; 16],
             username: "p".into(),
         },
-        position: pose.position,
+        position: [0.0; 3],
         velocity: [0.0; 3],
         pitch: 0.0,
         yaw: 0.0,
         head_yaw: 0.0,
-        previous_pose: pose,
-        received_pose: pose,
-        interpolation_ticks_remaining: 0,
         body_yaw: 0.0,
-        on_ground: None,
-        teleported: false,
-        player_mode: None,
-        source_tick: None,
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
-    }
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    };
+    stream
+        .submit(
+            1,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)),
+        )
+        .unwrap();
+    stream.poll([0.0; 3], 0);
+    let mut actor = stream
+        .authority()
+        .actor(1)
+        .expect("spawn committed")
+        .clone();
+    actor.movement_revision = 1;
+    actor
 }
 
 pub(in crate::ui_runtime::presentation) fn anchor(name: &str) -> NametagAnchor {

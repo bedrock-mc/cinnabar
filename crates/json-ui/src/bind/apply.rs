@@ -1,4 +1,4 @@
-//! `DataBindingComponent::_bind` for one control: each binding runs when its
+//! Data binding for one control, as vanilla runs it: each binding runs when its
 //! condition allows, the controller writes its properties into the bag, and
 //! the written target reaches its component.
 
@@ -227,7 +227,7 @@ pub(super) fn widget_defaults(control: &ResolvedControl, own: &mut Bag) {
     }
 }
 
-/// An edit box's content binding seeds the text vanilla's TextEditComponent then owns;
+/// An edit box's content binding seeds the text vanilla's edit box then owns;
 /// here the host owns that text, so the binding reads it every refresh. Vanilla's
 /// `common.text_edit_box` binds it on the child label that draws `#item_name`.
 fn host_owned_text(control: &ResolvedControl, binding: &Binding) -> bool {

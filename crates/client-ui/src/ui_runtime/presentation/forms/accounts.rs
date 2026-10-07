@@ -1,86 +1,7 @@
-//! Saved accounts use the vanilla popup, button and scrolling-panel controls.
+//! The current saved account's name and picture for the start screen; the picker itself
+//! is the OreUI modal in `oreui/accounts.rs`.
 
-use json_ui::{Catalog, CollectionItem, DataSource, HitRegion, Scalar};
-
-use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
-
-pub(super) use json_ui::ACCOUNTS_SCREEN as SCREEN;
-
-pub(super) fn extend_catalog(catalog: &mut Catalog) {
-    catalog.overlay_text("ui/cinnabar_accounts.json", include_str!("accounts.json"));
-}
-
-pub(super) fn data(view: &MenuView) -> DataSource {
-    let mut data = DataSource::new();
-    data.set_strict(true);
-    let busy = view.feeds.account_adding;
-    data.set_global("#accounts_busy", Scalar::Bool(busy));
-    data.set_global("#accounts_ready", Scalar::Bool(!busy));
-    data.set_global(
-        "#account_count",
-        Scalar::Num(view.feeds.accounts.len() as f64),
-    );
-    data.set_global(
-        "#account_error",
-        Scalar::Text(view.feeds.account_error.clone().unwrap_or_default()),
-    );
-    let status = match &view.auth_state {
-        AuthState::AwaitingCode { uri, code } => {
-            format!("Finish signing in in the browser.\n\n{uri}\n\n{code}")
-        }
-        AuthState::Failed(reason) => reason.clone(),
-        AuthState::Authenticated => "Loading Xbox profile…".into(),
-        _ => "Opening Microsoft sign-in…".into(),
-    };
-    data.set_global("#account_status", Scalar::Text(status));
-    data.set_collection(
-        "cinnabar_accounts",
-        view.feeds
-            .accounts
-            .iter()
-            .map(|account| {
-                let current = view.feeds.account_active_id.as_deref() == Some(account.id.as_str());
-                CollectionItem::default()
-                    .with(
-                        "#account_name",
-                        Scalar::Text(if current {
-                            format!("{} · Current", account.gamertag)
-                        } else {
-                            account.gamertag.clone()
-                        }),
-                    )
-                    .with(
-                        "#account_picture",
-                        Scalar::Text(
-                            account
-                                .picture_path
-                                .clone()
-                                .filter(|path| !path.is_empty())
-                                .unwrap_or_else(|| "textures/ui/icon_alex".into()),
-                        ),
-                    )
-                    .with("#account_enabled", Scalar::Bool(!busy && !current))
-            })
-            .collect(),
-    );
-    data
-}
-
-pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
-    Some(match region.pressed.as_deref()? {
-        "button.cinnabar_switch_account" if !view.feeds.account_adding => {
-            MenuAction::SwitchAccount(region.collection_index?)
-        }
-        "button.cinnabar_add_account" if !view.feeds.account_adding => MenuAction::AddAccount,
-        "button.cinnabar_cancel_account" => MenuAction::CancelSignIn,
-        "button.cinnabar_view_profile" if !view.feeds.account_adding => {
-            MenuAction::Navigate(MenuScreen::Profile)
-        }
-        "button.cinnabar_accounts_close" if view.feeds.account_adding => MenuAction::CancelSignIn,
-        "button.cinnabar_accounts_close" => MenuAction::DismissDialog,
-        _ => return None,
-    })
-}
+use crate::menu::MenuView;
 
 pub(super) fn current_name(view: &MenuView) -> &str {
     if !view.feeds.profile.gamertag.is_empty() {
@@ -114,7 +35,7 @@ mod tests {
         test_support::draw_menu_actions,
     };
     use super::*;
-    use crate::menu::MenuDialog;
+    use crate::menu::{MenuAction, MenuDialog, MenuScreen, auth::AuthState};
 
     fn manager_view() -> MenuView {
         let mut view = MenuView::new(true, "First".into());
@@ -134,37 +55,6 @@ mod tests {
             },
         ];
         view
-    }
-
-    #[test]
-    fn saved_gamerpics_bind_their_file_paths_to_image_textures() {
-        let mut catalog = Catalog::default();
-        extend_catalog(&mut catalog);
-        let context = super::super::menu_screens::retail_context();
-        let root = json_ui::resolve(&catalog, "cinnabar_accounts.list", &context)
-            .control
-            .unwrap();
-        let library = json_ui::CatalogLibrary {
-            catalog: &catalog,
-            context: &context,
-        };
-        let bound = json_ui::bind(&root, &data(&manager_view()), &library);
-        fn images<'a>(control: &'a json_ui::ResolvedControl, paths: &mut Vec<&'a str>) {
-            if control.control_type.as_deref() == Some("image")
-                && let Some(path) = control
-                    .properties
-                    .get("texture")
-                    .and_then(serde_json::Value::as_str)
-            {
-                paths.push(path);
-            }
-            for child in &control.children {
-                images(child, paths);
-            }
-        }
-        let mut paths = Vec::new();
-        images(&bound, &mut paths);
-        assert_eq!(paths, ["first.png", "second.png"]);
     }
 
     #[test]

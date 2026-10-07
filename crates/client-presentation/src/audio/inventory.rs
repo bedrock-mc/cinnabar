@@ -160,7 +160,7 @@ mod tests {
             });
         if !path.is_file() {
             eprintln!(
-                "skipping local_pinned_drop_route_reaches_the_mixer_when_bank_is_present: missing sound bank {}; run make audio-bank",
+                "skipping local_pinned_drop_route_reaches_the_mixer_when_bank_is_present: missing sound bank {}; run make audio-bank-assets",
                 path.display()
             );
             return;

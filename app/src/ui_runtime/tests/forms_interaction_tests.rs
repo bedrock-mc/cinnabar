@@ -881,3 +881,54 @@ fn custom_form_toggle_and_input_edit_their_values() {
     app.update();
     assert_eq!(values(&app)[1], FormValue::Text("x".into()));
 }
+
+#[test]
+fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
+    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    for key in [KeyCode::Enter, KeyCode::Escape] {
+        let (mut app, window) = app(&mut player);
+        let mut focus = client_presentation::camera::CursorFocus::default();
+        focus.begin_frame(false);
+        app.insert_resource(focus)
+            .insert_resource(crate::camera::AutoFly::new(false))
+            .add_systems(
+                Update,
+                crate::camera::update_cursor_capture.after(drive_menu_input),
+            );
+        app.update();
+        {
+            let mut focus = app
+                .world_mut()
+                .resource_mut::<client_presentation::camera::CursorFocus>();
+            focus.begin_frame(true);
+            focus.record_activation(true);
+        }
+        press(&mut app, window, key);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<UiRuntime>()
+                .server_forms()
+                .active()
+                .is_none()
+        );
+        assert!(
+            app.world()
+                .resource::<UiRuntime>()
+                .server_forms()
+                .owns_input()
+        );
+        assert_eq!(
+            app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+            bevy::window::CursorGrabMode::None
+        );
+        flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap();
+        app.world_mut()
+            .resource_mut::<client_presentation::camera::CursorFocus>()
+            .begin_frame(true);
+        app.update();
+        let cursor = app.world().get::<CursorOptions>(window).unwrap();
+        assert_eq!(cursor.grab_mode, bevy::window::CursorGrabMode::Locked);
+        assert!(!cursor.visible);
+    }
+}

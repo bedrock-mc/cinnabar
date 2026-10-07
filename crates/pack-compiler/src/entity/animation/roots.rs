@@ -8,8 +8,7 @@ use serde_json::Value;
 #[path = "roots_tests.rs"]
 mod tests;
 
-// ActorResourceDefinitionGroup::upgrade_v1_8_to_v1_10
-// moves legacy controllers into a distinct animation alias before appending activation roots.
+// Vanilla's 1.8 to 1.10 entity definition upgrade moves legacy controllers into a distinct animation alias before appending activation roots.
 // In particular, a legacy controller named `move` must not activate an ordinary `move` clip.
 fn legacy_controller_alias(alias: &str) -> Box<str> {
     format!("controller__{alias}").into_boxed_str()

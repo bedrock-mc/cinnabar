@@ -12,6 +12,7 @@ fn assets_with_chest_offset(chest_x: u32) -> assets::RuntimeBlockEntityAssets {
         ("textures/environment/destroy_stage_0", 64, 16, 16),
         ("textures/entity/end_portal", 80, 256, 256),
         ("textures/entity/beacon_beam", 336, 16, 16),
+        ("textures/environment/end_portal_colors", 352, 4, 4),
     ]
     .map(|(name, x, width, height)| assets::BlockEntityPlacement {
         name: name.into(),
@@ -53,7 +54,7 @@ fn chest(index: i32, light: f32) -> BlockEntitySubmission {
     }
 }
 
-/// Creates a portal that emits geometry into both solid and additive draw layers.
+/// Creates a portal that emits encoded geometry into its dedicated draw layer.
 fn portal(index: i32) -> BlockEntitySubmission {
     BlockEntitySubmission {
         block: [index, 63, 0],
@@ -77,7 +78,7 @@ fn reference_frame(
         emit_submission(
             &mut builder,
             atlas,
-            (&scene.heads, &scene.mobs),
+            (&scene.heads, &scene.mobs, scene.bed.as_ref()),
             submission,
             clock,
         );
@@ -102,7 +103,10 @@ fn reference_frame(
             solid: builder.solid.into(),
             overlay: builder.overlay.into(),
             crack: builder.crack.into(),
+            portal: builder.portal.into(),
             additive: builder.additive.into(),
+            portal_star_rect: super::super::portal::star_rect(atlas),
+            portal_time_seconds: (clock.ticks / f64::from(world::TICKS_PER_SECOND)) as f32,
         },
         rejected,
     )
@@ -121,7 +125,10 @@ fn assert_matches_reference(
     assert_eq!(frame.solid, expected.solid);
     assert_eq!(frame.overlay, expected.overlay);
     assert_eq!(frame.crack, expected.crack);
+    assert_eq!(frame.portal, expected.portal);
     assert_eq!(frame.additive, expected.additive);
+    assert_eq!(frame.portal_star_rect, expected.portal_star_rect);
+    assert_eq!(frame.portal_time_seconds, expected.portal_time_seconds);
     assert_eq!(frame.dynamic_revision, expected.dynamic_revision);
     assert_eq!(frame.dynamic_rgba8, expected.dynamic_rgba8);
     assert_eq!(scene.rejected_quads(), rejected);
@@ -151,11 +158,11 @@ fn mixed_scenes_build_static_models_once_and_preserve_every_draw_layer() {
     for tick in 0..30 {
         assert_matches_reference(&mut scene, f64::from(tick), &cracks, &submissions);
     }
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 3);
     assert!(!scene.frame.solid.is_empty());
     assert!(!scene.frame.overlay.is_empty());
     assert!(!scene.frame.crack.is_empty());
-    assert!(!scene.frame.additive.is_empty());
+    assert!(!scene.frame.portal.is_empty());
 }
 
 #[test]
@@ -163,24 +170,24 @@ fn reordered_removed_and_changed_submissions_rebuild_only_the_changed_models() {
     let mut scene = scene();
     let mut submissions = vec![chest(0, 1.0), portal(1), chest(2, 0.5)];
     assert_matches_reference(&mut scene, 0.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 3);
     // Walking reorders the scan; moved models replay their geometry.
     submissions.swap(0, 2);
     assert_matches_reference(&mut scene, 1.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 3);
     submissions[0].light = 0.75.into();
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 3);
+    assert_eq!(scene.static_rebuilds, 4);
     let BlockEntityKind::Chest(model) = &mut submissions[2].kind else {
         panic!("expected authored chest");
     };
     model.lid = 0.5;
     assert_matches_reference(&mut scene, 3.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 4);
+    assert_eq!(scene.static_rebuilds, 5);
     submissions.remove(0);
     assert_matches_reference(&mut scene, 4.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 4);
-    assert_eq!(scene.cached_submissions.len(), 1);
+    assert_eq!(scene.static_rebuilds, 5);
+    assert_eq!(scene.cached_submissions.len(), 2);
     assert_matches_reference(&mut scene, 5.0, &[], &[]);
     assert!(scene.cached_submissions.is_empty());
 }
@@ -190,16 +197,16 @@ fn changed_prefix_vertex_counts_keep_later_static_fragments_that_still_fit() {
     let mut scene = scene();
     let mut submissions = [portal(0), chest(1, 1.0)];
     assert_matches_reference(&mut scene, 0.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 1);
+    assert_eq!(scene.static_rebuilds, 2);
     submissions[0].kind = BlockEntityKind::EndGateway;
     assert_matches_reference(&mut scene, 1.0, &[], &submissions);
-    // Only the gateway builds a fragment; the chest replays at its new offsets.
-    assert_eq!(scene.static_rebuilds, 2);
+    // The gateway builds a new fragment; the chest replays at its new offsets.
+    assert_eq!(scene.static_rebuilds, 3);
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 3);
     submissions[0].kind = BlockEntityKind::EndPortal;
     assert_matches_reference(&mut scene, 3.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 4);
 }
 
 #[test]
@@ -222,13 +229,13 @@ fn dynamic_atlas_updates_keep_static_meshes_and_asset_installs_invalidate_them()
     let first = scene.frame.clone();
     scene.text_rect(2, || vec![128; 96 * 48 * 4]).unwrap();
     assert_matches_reference(&mut scene, 1.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 3);
     assert_ne!(scene.frame.dynamic_revision, first.dynamic_revision);
     assert_ne!(scene.frame.dynamic_rgba8, first.dynamic_rgba8);
     scene.install_assets(&assets_with_chest_offset(384));
     assert!(scene.cached_submissions.is_empty());
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 4);
+    assert_eq!(scene.static_rebuilds, 6);
     assert_ne!(scene.frame.solid, first.solid);
 }
 
@@ -300,15 +307,81 @@ fn cached_fragments_preserve_vertex_limits_and_rejected_quad_counts() {
     for tick in 0..2 {
         assert_matches_reference(&mut scene, f64::from(tick), &[], &submissions);
     }
-    assert_eq!(scene.static_rebuilds, 3700);
+    assert_eq!(scene.static_rebuilds, submissions.len());
     assert_eq!(scene.frame.solid.len(), MAX_BLOCK_ENTITY_VERTICES);
     assert!(scene.rejected_quads() > 0);
     submissions.remove(0);
     submissions.push(portal(0));
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    // Every chest keeps a fragment; the clock-driven portal never does.
-    assert_eq!(scene.cached_submissions.len(), submissions.len() - 1);
+    // Portal animation changes uniforms, so its geometry stays cached with the chests.
+    assert_eq!(scene.cached_submissions.len(), submissions.len());
     assert_eq!(scene.frame.solid.len(), MAX_BLOCK_ENTITY_VERTICES);
+}
+
+#[test]
+fn cached_portal_fragment_respects_capacity_after_its_prefix_moves() {
+    assert_cached_fragment_capacity(portal(0), |builder| &mut builder.portal, 6);
+}
+
+#[test]
+fn cached_additive_fragment_respects_capacity_after_its_prefix_moves() {
+    assert_cached_fragment_capacity(
+        BlockEntitySubmission {
+            block: [0; 3],
+            light: 1.0.into(),
+            kind: BlockEntityKind::DragonDeath(DragonDeathModel {
+                center: [0.0; 3],
+                death_ticks: world::TICKS_PER_SECOND,
+                partial_tick: 0.0,
+                seed: 1,
+                duration_ticks: (world::TICKS_PER_SECOND * 2) as f32,
+            }),
+        },
+        |builder| &mut builder.additive,
+        3,
+    );
+}
+
+fn assert_cached_fragment_capacity(
+    submission: BlockEntitySubmission,
+    layer: fn(&mut MeshBuilder) -> &mut Vec<BlockEntityVertex>,
+    vertices_per_rejected_quad: u64,
+) {
+    let scene = scene();
+    let atlas = scene.atlas.as_ref().unwrap();
+    let emit = |builder: &mut MeshBuilder| {
+        emit_submission(
+            builder,
+            atlas,
+            (&scene.heads, &scene.mobs, scene.bed.as_ref()),
+            &submission,
+            SceneClock::default(),
+        );
+    };
+    let mut original = MeshBuilder::new(atlas.size());
+    emit(&mut original);
+    let fragment = CachedSubmission::capture(&submission, [0; 5], 0, &original);
+    let emitted = layer(&mut original).len();
+    assert_ne!(emitted, 0);
+    let mut fitting_prefix = MeshBuilder::new(atlas.size());
+    layer(&mut fitting_prefix).resize(
+        MAX_BLOCK_ENTITY_VERTICES - emitted,
+        BlockEntityVertex::default(),
+    );
+    assert!(fragment.matches(&submission, &fitting_prefix));
+    fragment.append_to(&mut fitting_prefix);
+    assert_eq!(layer(&mut fitting_prefix).len(), MAX_BLOCK_ENTITY_VERTICES);
+
+    assert!(
+        !fragment.matches(&submission, &fitting_prefix),
+        "a moved cached fragment cannot bypass its saturated draw-layer budget"
+    );
+    emit(&mut fitting_prefix);
+    assert_eq!(layer(&mut fitting_prefix).len(), MAX_BLOCK_ENTITY_VERTICES);
+    assert_eq!(
+        fitting_prefix.rejected_quads,
+        emitted as u64 / vertices_per_rejected_quad
+    );
 }
 
 #[test]
@@ -353,7 +426,7 @@ fn frame_cost_bench_block_entity_mixed_scene_400_chests() {
         ));
     }
     let new = started.elapsed() / frames;
-    assert_eq!(new_scene.static_rebuilds, 400);
+    assert_eq!(new_scene.static_rebuilds, 420);
     eprintln!(
         "FRAME_COST block_entity_mixed_scene_400_chests: old={:.3}ms new={:.3}ms static_builds={}",
         old.as_secs_f64() * 1e3,
@@ -393,8 +466,12 @@ fn review_render_static_gateway_reuses_geometry_across_ticks() {
         std::slice::from_ref(&gateway),
     );
     let revision = scene.frame.revision;
+    let first = Arc::clone(&scene.frame.portal);
+    let time = scene.frame.portal_time_seconds;
     scene.update(SceneClock { ticks: 2.0 }, &[], &[gateway]);
     assert_eq!(scene.frame.revision, revision);
+    assert!(Arc::ptr_eq(&first, &scene.frame.portal));
+    assert!(scene.frame.portal_time_seconds > time);
 }
 
 #[test]
@@ -420,7 +497,7 @@ fn review_render_atlas_snapshot_does_not_block_mob_installation() {
     let entities = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
     let catalog = assets::RuntimeActorCatalog::decode(
         &assets::encode_actor_catalog(&bytes, &[], &[]).unwrap(),
-        &bytes,
+        &entities,
     )
     .unwrap();
     let mut scene = scene();

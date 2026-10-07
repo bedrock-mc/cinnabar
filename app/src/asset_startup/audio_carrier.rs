@@ -14,14 +14,13 @@ use std::{
 };
 
 use assets::RuntimeAudioCatalog;
-use sha2::{Digest, Sha256};
 
 use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, VANILLA_SOURCE_JSON, canonical_source_manifest_sha256,
     format_sha256,
 };
 
-pub const AUDIO_ASSETS_FILENAME: &str = "vanilla-v1.mcbeaud";
+pub const AUDIO_ASSETS_FILENAME: &str = assets::carriers::AUDIO.output;
 pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
 const AUDIO_ASSETS_REPORT_FILENAME: &str = "audio-assets.json";
 const MAX_AUDIO_ASSET_BLOB_BYTES: u64 = assets::MAX_AUDIO_CARRIER_BYTES as u64;
@@ -170,7 +169,7 @@ pub fn load_audio_assets(
         });
     }
     Ok(Some(LoadedAudioAssets {
-        identity: Sha256::digest(&bytes).into(),
+        identity: runtime.carrier_sha256(),
         runtime: Arc::new(runtime),
         selected_path: path,
     }))

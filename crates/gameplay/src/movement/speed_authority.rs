@@ -30,8 +30,8 @@ impl EffectiveMovementSpeed {
         }
     }
 
-    /// Native LocalPlayer::setSprinting is edge-triggered; Mob adds/removes only
-    /// its identified modifier. An attribute packet replaces that modifier set.
+    /// Vanilla sprint toggling is edge-triggered and adds/removes only the
+    /// sprint speed modifier. An attribute packet replaces that modifier set.
     pub(crate) fn set_sprinting(&mut self, sprinting: bool) {
         if self.sprinting == sprinting {
             return;

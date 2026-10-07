@@ -243,6 +243,7 @@ fn push_quad(
             uv: uvs[index],
             back_uv: back_uvs[index],
             bone_index: 0,
+            surface: crate::ActorRigSurface::SINGLE_FACE,
         });
     }
 }

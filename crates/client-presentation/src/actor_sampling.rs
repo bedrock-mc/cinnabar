@@ -1,10 +1,10 @@
 use chunk_pipeline::WorldStream;
-use sim::{Aabb, Vec3, sample_actor_liquids};
+use sim::{Aabb, Vec3, sample_actor_liquids, sample_liquid_submersion};
 
 use crate::observations::CollisionLookup;
 
-/// Samples the world state actor animation queries read: body liquid contact and the bed
-/// orientation under each sleeper.
+/// Samples the world state actor presentation reads: body liquid contact, breathing-point
+/// submersion and the bed orientation under each sleeper.
 pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn CollisionLookup) {
     let mode = stream.network_id_mode();
     let world = sim::PaletteWorld::new(
@@ -12,16 +12,23 @@ pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn Colli
         collisions.registry(mode),
         stream.current_dimension(),
     );
-    let fluids: Vec<_> = stream
-        .authority()
-        .actor_fluid_probes()
-        .into_iter()
+    let probes = stream.authority().actor_fluid_probes();
+    let vector = |[x, y, z]: [f32; 3]| Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+    let fluids: Vec<_> = probes
+        .iter()
         .filter_map(|probe| {
-            let vector = |[x, y, z]: [f32; 3]| Vec3::new(f64::from(x), f64::from(y), f64::from(z));
             let bounds = Aabb::new(vector(probe.min), vector(probe.max));
             // Keep the previous sample when a probe crosses unavailable chunk data.
             let (water, lava) = sample_actor_liquids(&world, bounds).ok()?;
             Some((probe.runtime_id, water, lava))
+        })
+        .collect();
+    let breathing: Vec<_> = probes
+        .iter()
+        .filter_map(|probe| {
+            let submerged =
+                sample_liquid_submersion(&world, vector(breathing_point(probe))).ok()?;
+            Some((probe.runtime_id, submerged.value))
         })
         .collect();
     let beds: Vec<_> = stream
@@ -35,7 +42,18 @@ pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn Colli
         })
         .collect();
     stream.set_actor_fluids(&fluids);
+    stream.set_actor_breathing_liquids(&breathing);
     stream.set_actor_bed_rotations(&beds);
+}
+
+/// The body-box point tested for submersion: the eye at nine tenths of the height, as vanilla
+/// places a mob's eyes by default; per-entity breathing offsets are not modelled.
+fn breathing_point(probe: &client_world::ActorFluidProbe) -> [f32; 3] {
+    [
+        (probe.min[0] + probe.max[0]) * 0.5,
+        probe.min[1] + (probe.max[1] - probe.min[1]) * 0.9,
+        (probe.min[2] + probe.max[2]) * 0.5,
+    ]
 }
 
 /// Quarter turns of the bed's `direction` state as degrees; the origin needs native measurement.

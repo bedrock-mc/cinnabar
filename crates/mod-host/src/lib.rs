@@ -11,14 +11,20 @@ pub mod server;
 mod settings;
 
 #[cfg(feature = "execution")]
-pub use mod_api::{MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_PLAYERS};
+pub use mod_api::{
+    MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS,
+    MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+};
+#[cfg(feature = "execution")]
+pub use mod_render;
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{
-    Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
+    CameraRig as GameplayCameraRig, Mob as GameplayMob, Player as GameplayPlayer,
+    Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::{
-    input::Controls as ControlFrame, panel::Event as ControlEvent,
+    events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,
 };
 
 /// Successfully committed local interaction requests, consumed once per frame.
@@ -38,14 +44,10 @@ pub struct CameraDelta {
 }
 #[cfg(feature = "execution")]
 use {
-    anyhow::{Context, Result, ensure},
+    anyhow::{Context, Result},
     runtime::Instance,
     sha2::{Digest, Sha256},
-    std::{
-        fs::File,
-        io::Read,
-        path::{Path, PathBuf},
-    },
+    std::path::PathBuf,
     wasmtime::Engine,
 };
 
@@ -59,8 +61,10 @@ pub(crate) const FRAME_FUEL: u64 = 100_000;
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Explicit per-instance authority; optional capabilities are denied by default.
+/// Field names are the registration and set-file grant names.
 #[cfg(feature = "execution")]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ModGrants {
     /// Allows this instance to replace visual time only.
     pub environment: bool,
@@ -74,6 +78,20 @@ pub struct ModGrants {
     pub interaction: bool,
     /// Allows the selected component's bounded companion settings file.
     pub settings: bool,
+    /// Allows sandboxed post passes and bounded world primitives.
+    pub render: bool,
+    /// Lets render passes read scene depth.
+    pub render_depth: bool,
+    /// Allows current-frame reads of nearby non-player actors.
+    pub entities: bool,
+    /// Command names this instance may request; empty denies command requests.
+    pub commands: Vec<String>,
+    /// Allows bounded post-login packet delay through the private core endpoint.
+    pub packet_delay: bool,
+    /// Allows retained full-block highlights of matching loaded blocks.
+    pub block_highlights: bool,
+    /// Allows retained local fullbright lighting, without altering server light data.
+    pub fullbright: bool,
 }
 
 /// A developer-selected component with transactional reload and trap quarantine.
@@ -111,9 +129,40 @@ impl ModHost {
         snapshot: Option<GameplaySnapshot>,
         controls: ControlFrame,
     ) -> Result<()> {
-        self.instance.frame(pressed, snapshot, controls)?;
+        self.frame_with_world(pressed, snapshot, Vec::new(), controls)
+    }
+
+    /// Adds nearby mobs, readable only with the entities grant and a current snapshot.
+    pub fn frame_with_world(
+        &mut self,
+        pressed: bool,
+        snapshot: Option<GameplaySnapshot>,
+        mobs: Vec<GameplayMob>,
+        controls: ControlFrame,
+    ) -> Result<()> {
+        self.instance.frame(pressed, snapshot, mobs, controls)?;
         self.queue_settings();
         Ok(())
+    }
+
+    /// The retained camera rig from the last successful callback.
+    pub fn camera_rig(&self) -> Option<GameplayCameraRig> {
+        self.instance.camera_rig()
+    }
+
+    /// Consumes the last successful frame's granted command requests once.
+    pub fn take_commands(&mut self) -> Vec<String> {
+        self.instance.take_commands()
+    }
+
+    /// Cues the next callback can poll, typically last frame's from every loaded mod.
+    pub fn deliver_cues(&mut self, cues: Vec<ModCue>) {
+        self.instance.deliver_cues(cues);
+    }
+
+    /// Consumes the last successful frame's presentation cues once.
+    pub fn take_cues(&mut self) -> Vec<ModCue> {
+        self.instance.take_cues()
     }
 
     fn queue_settings(&mut self) {
@@ -149,9 +198,33 @@ impl ModHost {
         self.instance.take_interaction()
     }
 
+    /// Retained request from a successful callback, independent of UI focus.
+    pub fn packet_delay_ms(&self) -> u32 {
+        self.instance.packet_delay_ms()
+    }
+    /// Successfully committed local lighting override.
+    pub fn fullbright(&self) -> bool {
+        self.instance.fullbright()
+    }
+
+    /// Committed selection; no raw block reads are exposed to the component.
+    pub fn block_highlights(&self) -> Option<&mod_api::BlockHighlightSpec> {
+        self.instance.block_highlights()
+    }
+
+    /// Explicit opt-in to the private core's last-relayed local position witness.
+    pub fn show_real_position(&self) -> bool {
+        self.instance.show_real_position()
+    }
+
     /// Consumes the last successful frame's rotation once, without entering the guest.
     pub fn take_camera_delta(&mut self) -> Option<CameraDelta> {
         self.instance.take_camera_delta()
+    }
+
+    /// Committed render output and a process-unique generation that changes with it.
+    pub fn render(&self) -> (&mod_render::RenderOutput, u64) {
+        self.instance.render()
     }
 
     /// Returns only the last successfully committed plain-text label.
@@ -171,7 +244,7 @@ impl ModHost {
 
     /// Replaces an instance only after changed bytes compile and initialize.
     pub fn reload_if_changed(&mut self) -> Result<bool> {
-        let bytes = read_component(&self.path)?;
+        let bytes = load::read_component(&self.path)?;
         let digest = Sha256::digest(&bytes).into();
         if self.attempted == digest {
             return Ok(false);
@@ -180,7 +253,7 @@ impl ModHost {
         let candidate = Instance::new(
             &self.engine,
             &bytes,
-            self.grants,
+            self.grants.clone(),
             self.instance.settings().to_owned(),
         )
         .context("reload rejected; previous mod retained")?;
@@ -198,46 +271,9 @@ pub fn empty_controls() -> ControlFrame {
         gameplay: false,
         panel_open: false,
         keys_pressed: Vec::new(),
+        keys_held: Vec::new(),
         events: Vec::new(),
     }
-}
-
-#[cfg(feature = "execution")]
-fn read_settings(path: &Path, grants: ModGrants) -> Result<String> {
-    if !grants.settings {
-        return Ok(String::new());
-    }
-    let path = path.with_extension("settings.json");
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("read mod settings {}", path.display()));
-        }
-    };
-    let mut bytes = Vec::new();
-    file.take((mod_api::MAX_SETTINGS_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= mod_api::MAX_SETTINGS_BYTES,
-        "mod settings exceed byte limit"
-    );
-    Ok(String::from_utf8(bytes)?)
-}
-
-/// Bounds file reads even if a writer grows the file between metadata and read.
-#[cfg(feature = "execution")]
-fn read_component(path: &Path) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    File::open(path)
-        .with_context(|| format!("open mod {}", path.display()))?
-        .take((MAX_COMPONENT_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= MAX_COMPONENT_BYTES,
-        "component exceeds byte limit"
-    );
-    Ok(bytes)
 }
 
 #[cfg(all(test, feature = "execution"))]

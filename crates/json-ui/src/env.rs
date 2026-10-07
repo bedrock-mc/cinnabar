@@ -1,5 +1,5 @@
-//! Variable scopes and value evaluation as the vanilla client performs them
-//! (`UIEval::evalVariable`, `UIResolvedDef::_evaluate`). Each control pushes a
+//! Variable scopes and value evaluation as the vanilla client performs them.
+//! Each control pushes a
 //! frame of its `$` declarations over its parent's; names are exact, with the
 //! `$` dropped. A lookup takes the nearest frame holding the name, and only when
 //! no frame does, the nearest holding `name|default`.
@@ -86,7 +86,7 @@ impl Env {
     }
 }
 
-/// `UIResolvedDef::_evaluate`: a string starting with `$` reads that variable
+/// Field evaluation: a string starting with `$` reads that variable
 /// (a `__string` wrapper yields its `value`, raw text skipping expressions); a
 /// string starting with `(` is replaced by its value while it evaluates without
 /// runtime bindings. Anything else, or a lookup that finds nothing, stays as written.

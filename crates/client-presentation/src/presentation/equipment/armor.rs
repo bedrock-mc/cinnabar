@@ -2,8 +2,7 @@
 
 use render_model::RenderBoneTransform;
 
-/// Undyed leather colour (RGB); needs native measurement against the retail client.
-pub(super) const DEFAULT_LEATHER_RGB: u32 = 0x00a0_6540;
+pub(super) use assets::DEFAULT_LEATHER_RGB;
 
 /// The zero-scale pose vanilla uses to hide a bone.
 pub(super) fn hidden_bone() -> RenderBoneTransform {

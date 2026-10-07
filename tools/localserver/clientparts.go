@@ -34,12 +34,21 @@ func startClientParts(cfg settings, log *slog.Logger) (*extension.Server, error)
 	if err != nil {
 		return nil, err
 	}
+	var mediaOrigins []string
+	if cfg.extensionMedia != "" {
+		origin, err := extension.MediaOrigin(cfg.extensionMediaAddr)
+		if err != nil {
+			return nil, err
+		}
+		mediaOrigins = []string{origin}
+	}
 	ext, err := extension.NewServer(extension.Config{
-		Key:      key,
-		Audience: cfg.extensionAudience,
-		Revision: revision,
-		Bundles:  bundles,
-		Log:      log,
+		Key:          key,
+		Audience:     cfg.extensionAudience,
+		Revision:     revision,
+		Bundles:      bundles,
+		MediaOrigins: mediaOrigins,
+		Log:          log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("-extension-audience or -extension-cxb: %w", err)
@@ -55,6 +64,17 @@ func startClientParts(cfg settings, log *slog.Logger) (*extension.Server, error)
 	log.Info("client parts offered", "audience", offer.Audience, "revision", offer.Revision,
 		"expires", time.Unix(int64(offer.ExpiresUnix), 0).UTC(), "packages", ids)
 	return ext, nil
+}
+
+// startMedia serves -extension-media on loopback HTTPS, writing its CA into the world directory.
+func startMedia(cfg settings, log *slog.Logger) (*extension.MediaServer, error) {
+	caPath := filepath.Join(cfg.dir, extension.MediaCAFile)
+	media, err := extension.ServeMedia(cfg.extensionMedia, cfg.extensionMediaAddr, caPath, log)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("client part media served", "addr", cfg.extensionMediaAddr, "ca", caPath)
+	return media, nil
 }
 
 // deliverClientMessages passes each client part message to the Experience whose id is the bundle

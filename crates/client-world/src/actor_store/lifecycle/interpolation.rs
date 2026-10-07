@@ -3,6 +3,37 @@
 use super::*;
 
 impl ActorStore {
+    /// Java torso ticks follow this local simulation identity rather than the remote actor clock.
+    pub(crate) fn set_local_motion_authority(
+        &mut self,
+        runtime_id: u64,
+        authority: Option<(u64, u64)>,
+    ) {
+        self.animation
+            .set_local_motion_authority(runtime_id, authority);
+    }
+
+    /// Corrects only local torso motion after this frame's interaction admissions.
+    pub(crate) fn sync_local_swing_motion(
+        &mut self,
+        runtime_id: u64,
+        authority: (u64, u64),
+        samples: impl IntoIterator<Item = crate::LocalSwingMotionSample>,
+    ) {
+        self.local_view_dirty |= self
+            .animation
+            .sync_local_swing_motion(runtime_id, authority, samples);
+    }
+
+    /// Changed committed local swing samples refresh the local rig even between actor ticks.
+    pub(crate) fn sync_local_swing(
+        &mut self,
+        runtime_id: u64,
+        progress: crate::LocalSwingProgress,
+    ) {
+        self.local_view_dirty |= self.animation.sync_local_swing(runtime_id, progress);
+    }
+
     /// Advances explicit simulation ticks, retaining the legacy per-tick evaluation contract.
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
         self.advance_interpolation(ticks, false);
@@ -24,8 +55,13 @@ impl ActorStore {
                 for actor in self.actors.values_mut() {
                     let current = actor.current_pose();
                     actor.previous_pose = current;
-                    let mut next = actor.received_pose;
-                    // Native MovementInterpolator tick clears StateVector velocity
+                    let mut next =
+                        if actor.interpolation_ticks_remaining == 0 && actor.is_dying_dragon() {
+                            current
+                        } else {
+                            actor.received_pose
+                        };
+                    // Vanilla's interpolation tick clears velocity
                     // before decrementing any positive interpolation count, including its last tick.
                     if actor.interpolation_ticks_remaining > 0 {
                         actor.status.native_velocity = [0.0; 3];
@@ -33,23 +69,27 @@ impl ActorStore {
                     // The final step lands exactly on the target.
                     if actor.interpolation_ticks_remaining > 1 {
                         // Each step closes 1/n of the remaining gap; angles take the short way.
-                        let divisor = f32::from(actor.interpolation_ticks_remaining);
+                        let divisor = actor.interpolation_ticks_remaining as f32;
                         let target = actor.received_pose;
                         next.position = std::array::from_fn(|axis| {
                             current.position[axis]
                                 + (target.position[axis] - current.position[axis]) / divisor
                         });
-                        let step = |from: f32, to: f32| from + wrap_degrees(to - from) / divisor;
-                        next.pitch = step(current.pitch, target.pitch);
-                        next.yaw = step(current.yaw, target.yaw);
-                        next.head_yaw = step(current.head_yaw, target.head_yaw);
                     }
+                    actor.interpolate_movement_rotation(current, &mut next);
                     actor.interpolation_ticks_remaining =
                         actor.interpolation_ticks_remaining.saturating_sub(1);
                     actor.set_current_pose(next);
+                    actor.advance_movement_interpolation();
                     actor.status.tick();
                 }
                 self.seat_riders();
+            }
+            if !refresh_view {
+                self.advance_dragon_animation();
+                self.advance_dragon_beams();
+                self.advance_dragon_particles();
+                self.advance_synchronized_audio();
             }
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
@@ -75,7 +115,13 @@ impl ActorStore {
                 .filter(|_| self.local_first_person);
             let local_runtime = self.remote_state_excluded_runtime_id;
             let local_view_bobbing = self.local_view_bobbing;
+            let local_flying = self.local_flying;
             let local_hands = self.local_hands.clone();
+            let local_main_metadata = self.local_main_metadata;
+            let local_main_slot = self.local_main_slot;
+            let local_main_stack_id = self.local_main_stack_id;
+            let local_bedrock_swing_ticks = self.local_bedrock_swing_ticks;
+            let local_java_swing_ticks = self.local_java_swing_ticks;
             let view = self.animation_view.as_ref();
             let context = |actor: &ActorSnapshot| {
                 let lifetime = ActorLifetimeId {
@@ -106,6 +152,18 @@ impl ActorStore {
                         .is_some_and(|equipment| equipment.item.charged_projectile.is_some())
                 });
                 let main_hand = held(protocol::ActorHandedness::Right);
+                let main_hand_metadata = if is_local {
+                    local_main_metadata
+                } else {
+                    items
+                        .get_in_hand(lifetime, protocol::ActorHandedness::Right)
+                        .map_or(0, |equipment| {
+                            equipment
+                                .item
+                                .damage
+                                .unwrap_or(equipment.item.identity.metadata)
+                        })
+                };
                 let main_hand_max_use_ticks = main_hand
                     .as_deref()
                     .and_then(|identifier| items.max_use_ticks(identifier))
@@ -121,10 +179,37 @@ impl ActorStore {
                     .copied()
                     .unwrap_or_default();
                 crate::actor_animation::ActorTickContext {
+                    frame_alpha: 0.0,
                     animation_elapsed_ticks: frame.then_some(ticks),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
                     hand_charged,
                     main_hand,
+                    main_hand_metadata,
+                    main_hand_stack_id: if is_local {
+                        local_main_stack_id
+                    } else {
+                        items
+                            .get_in_hand(lifetime, protocol::ActorHandedness::Right)
+                            .map(|equipment| equipment.item.identity.stack_network_id)
+                            .filter(|id| *id > 0)
+                    },
+                    bedrock_swing_ticks: if is_local {
+                        local_bedrock_swing_ticks
+                    } else {
+                        0
+                    },
+                    java_swing_ticks: if is_local {
+                        local_java_swing_ticks
+                    } else {
+                        crate::ACTOR_SWING_TICKS
+                    },
+                    main_hand_slot: if is_local {
+                        local_main_slot
+                    } else {
+                        items
+                            .get_in_hand(lifetime, protocol::ActorHandedness::Right)
+                            .map_or(0, |equipment| equipment.selected_slot)
+                    },
                     main_hand_max_use_ticks,
                     off_hand: held(protocol::ActorHandedness::Left),
                     ridden: rider_to_ridden
@@ -139,6 +224,8 @@ impl ActorStore {
                     attachable: None,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     view_bobbing: is_local.then_some(local_view_bobbing),
+                    is_local,
+                    is_flying: is_local && local_flying,
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,
@@ -179,11 +266,6 @@ impl ActorStore {
             }
         }
     }
-}
-
-/// Wraps an angle to the shortest signed turn.
-fn wrap_degrees(degrees: f32) -> f32 {
-    (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
 /// Worn stacks in helmet, chestplate, leggings, boots, body order.

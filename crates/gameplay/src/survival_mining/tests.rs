@@ -229,7 +229,7 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
     );
 }
 
-/// Only zero hardness breaks on the start tick (`GameMode::startDestroyBlock`);
+/// Only zero hardness breaks on the start tick;
 /// a block with hardness breaks on the first continued tick however fast.
 #[test]
 fn only_zero_hardness_breaks_on_the_start_tick() {
@@ -453,7 +453,7 @@ fn a_held_instant_destroy_repeats_after_the_delay_or_per_block_travelled() {
     );
 }
 
-/// stopDestroyBlock clears the delay, so a fresh press starts at once.
+/// Releasing clears the delay, so a fresh press starts at once.
 #[test]
 fn release_clears_the_destroy_delay() {
     let torch = target([1, 1, 1], "minecraft:torch", None);

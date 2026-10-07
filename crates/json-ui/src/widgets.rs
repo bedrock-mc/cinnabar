@@ -149,7 +149,7 @@ impl SliderFrame {
 }
 
 /// A panel holding a `dropdown`: the dropdown's name, its `dropdown_area` and
-/// its content sibling's name (`DropdownComponent`).
+/// its content sibling's name.
 pub(crate) fn dropdown_area(control: &ResolvedControl) -> Option<(String, String, String)> {
     control.children.iter().find_map(|child| {
         if child.control_type.as_deref() != Some("dropdown") {
@@ -161,7 +161,7 @@ pub(crate) fn dropdown_area(control: &ResolvedControl) -> Option<(String, String
     })
 }
 
-/// The content's top as `DropdownComponent::_positionContent` places it:
+/// The content's top as vanilla dropdowns place it:
 /// level with the dropdown, raised to end inside the area, never above it,
 /// and centred on the area when taller than it.
 pub(crate) fn dropdown_content_top(dropdown: Rect, area: Rect, content_height: f64) -> f64 {

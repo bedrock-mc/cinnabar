@@ -1,7 +1,7 @@
 //! Render-controller selection expressions (`A ? B : C`, `Array.name[index]`) expanded into the
 //! leaves they can select, each with the condition that selects it.
 
-const MAX_LEAVES: usize = 256;
+const MAX_SELECTOR_LEAVES: usize = 256;
 const MAX_DEPTH: usize = 8;
 
 /// One step of the path to a leaf.
@@ -55,7 +55,7 @@ impl<T> Selector<'_, T> {
         output: &mut Vec<(Vec<Step>, T)>,
         depth: usize,
     ) -> Option<()> {
-        if depth > MAX_DEPTH || output.len() > MAX_LEAVES {
+        if depth > MAX_DEPTH {
             return None;
         }
         let expression = strip_outer_parentheses(expression.trim());
@@ -72,8 +72,26 @@ impl<T> Selector<'_, T> {
         let lower = expression.to_ascii_lowercase();
         if let Some(alias) = lower.strip_prefix(self.prefix) {
             if let Some(leaf) = (self.resolve)(alias) {
+                if output.len() >= MAX_SELECTOR_LEAVES {
+                    return None;
+                }
                 output.push((path.clone(), leaf));
             }
+            return Some(());
+        }
+        // Runtime string textures have no catalog leaf; static siblings keep their conditions.
+        if self.prefix == "texture."
+            && lower.strip_prefix("variable.").is_some_and(|name| {
+                !name.is_empty()
+                    && name.split('.').all(|part| {
+                        let mut chars = part.chars();
+                        chars
+                            .next()
+                            .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+                            && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                    })
+            })
+        {
             return Some(());
         }
         let (name, index) = split_index(expression)?;
@@ -199,11 +217,47 @@ mod tests {
     #[test]
     fn unsupported_atoms_reject_and_plain_aliases_are_unconditional() {
         let selector = selector(&resolve);
-        assert!(selector.leaves("variable.foo").is_none());
+        assert!(selector.leaves("query.foo").is_none());
         let leaves = selector.leaves("Texture.a").unwrap();
         assert_eq!(leaves.len(), 1);
         assert!(condition_text(&leaves[0].0).is_none());
         assert!(selector.leaves("q ? Texture.a").is_none());
+    }
+
+    #[test]
+    fn unresolved_texture_variable_keeps_the_static_trim_branch_condition() {
+        let selector = selector(&resolve);
+        let leaves = selector
+            .leaves("variable.has_trim ? variable.trim_path : Texture.a")
+            .expect("unresolved runtime texture variables must not discard static siblings");
+        assert_eq!(leaves.len(), 1);
+        assert_eq!(
+            condition_text(&leaves[0].0).as_deref(),
+            Some("!(variable.has_trim)")
+        );
+        assert_eq!(leaves[0].1, 0);
+        assert!(selector.leaves("variable.trim_path + 1").is_none());
+        assert!(selector.leaves("variable.").is_none());
+        assert!(selector.leaves("variable.trim_path[0]").is_none());
+    }
+
+    #[test]
+    fn selector_leaf_capacity_is_an_exact_bound() {
+        let mut selector = selector(&resolve);
+        selector.arrays.insert(
+            "array.skins".into(),
+            vec!["Texture.a".into(); MAX_SELECTOR_LEAVES],
+        );
+        assert_eq!(
+            selector.leaves("Array.skins[query.variant]").unwrap().len(),
+            MAX_SELECTOR_LEAVES
+        );
+        selector
+            .arrays
+            .get_mut("array.skins")
+            .unwrap()
+            .push("Texture.a".into());
+        assert!(selector.leaves("Array.skins[query.variant]").is_none());
     }
 
     #[test]

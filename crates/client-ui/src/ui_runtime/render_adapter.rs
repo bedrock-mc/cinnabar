@@ -6,6 +6,9 @@ use render_model::{
 };
 use ui::{DpiScale, SafeArea, UiDrawList, UiLimits, UiRect};
 
+// Style bits pass through verbatim, so the renderer's glint bit must be the UI crate's.
+const _: () = assert!(ui::UI_STYLE_GLINT as u32 == render_model::UI_STYLE_GLINT);
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiRenderViewport {
     pub physical_size: [u32; 2],

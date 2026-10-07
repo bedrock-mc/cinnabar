@@ -375,6 +375,7 @@ fn contextual_grid_dimension_round_trip_accepts_only_final_epoch_cells() {
                 WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                     dimension,
                     position: [0.0, 70.0, 0.0],
+                    ..Default::default()
                 }),
             )
             .unwrap();
@@ -804,6 +805,7 @@ fn actual_dimension_boundaries_drop_old_cells_and_accept_only_the_final_epoch_su
             WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 70.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -827,6 +829,7 @@ fn actual_dimension_boundaries_drop_old_cells_and_accept_only_the_final_epoch_su
                 WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                     dimension,
                     position: [0.0, 70.0, 0.0],
+                    ..Default::default()
                 }),
             )
             .unwrap();

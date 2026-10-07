@@ -116,7 +116,7 @@ fn embedment_wall_pocket_reports_no_horizontal_drift() {
         );
     }
 
-    // FinalizeMove reconstructs the centre of the native float AABB.
+    // Move finalization recomputes the centre of the f32 AABB.
     assert!((state.position.x - start.x).abs() <= f64::from(f32::EPSILON));
     assert_eq!(state.position.z, start.z);
 }

@@ -118,7 +118,7 @@ fn copy_chain(
                 .get(start..start + bytes)
                 .ok_or_else(|| invalid("lily-pad source mip is truncated"))?
                 .to_vec();
-            // TextureAtlas::updateTextureAtUVs multiplies RGB only.
+            // Vanilla atlas tinting multiplies RGB only.
             // UNORM bytes are truncated after tinting; holes keep their alpha.
             crate::apply_atlas_tint(&mut rgba8, tint);
             Ok(TextureMip {

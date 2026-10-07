@@ -13,7 +13,7 @@ pub(super) fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
     bool_rule(rules, "dodaylightcycle")
 }
 
-/// Native GameRules slot 9 gates ClientLevel's seasonal palette accumulation.
+/// The `doweathercycle` rule gates vanilla's seasonal palette accumulation.
 pub(super) fn weather_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
     bool_rule(rules, "doweathercycle")
 }

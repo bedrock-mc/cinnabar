@@ -184,7 +184,7 @@ impl SessionGlyphPages {
         Some(super::nametag_atlas::GlyphPage {
             width: PAGE_SIDE,
             height: PAGE_SIDE,
-            rgba8: page.pixels(),
+            pixels: super::nametag_atlas::GlyphPixels::Rgba8(page.pixels()),
         })
     }
 }

@@ -62,7 +62,7 @@ fn lobby_join_setup_bench() {
     let pack = std::env::var_os("CINNABAR_RENDER_PACK").expect("captured pack required");
     let capture = read_capture(Path::new(&capture));
     for trial in 0..3 {
-        let (mut world, _, _) = build_world(&capture, Path::new(&pack), false);
+        let (mut world, _, _) = build_world(&capture, Some(Path::new(&pack)), false);
         world
             .resource_mut::<Time<Real>>()
             .update_with_instant(Instant::now());
@@ -122,7 +122,7 @@ fn measure_setup(world: &mut World, trial: usize, phase: &str) {
     let allocated = crate::tests::alloc_count::thread_allocations();
     let started = Instant::now();
     let cpu_started = thread_cpu_time();
-    world.run_system_cached(prepare_actor_render_frame).unwrap();
+    prepare_offline_actor_frame(world);
     world.run_system_cached(publish_actor_render_frame).unwrap();
     let elapsed = started.elapsed();
     let cpu = thread_cpu_time()

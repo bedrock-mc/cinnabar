@@ -41,10 +41,83 @@ fn main() -> Result<()> {
             println!("initial={initial:?}\nafter_key={:?}", host.label());
         }
         [command, path] if command == "bench" => benchmark(Path::new(path))?,
+        [command, path] if command == "probe-render" => probe_render(Path::new(path))?,
         _ => bail!(
-            "usage: mod-host pack CORE.wasm COMPONENT.wasm | probe[-environment] COMPONENT.wasm | bench COMPONENT.wasm"
+            "usage: mod-host pack CORE.wasm COMPONENT.wasm | probe[-environment] COMPONENT.wasm | probe-render COMPONENT.wasm | bench COMPONENT.wasm"
         ),
     }
+    Ok(())
+}
+
+/// Drives a render mod through synthetic gameplay, every key edge and panel event.
+fn probe_render(path: &Path) -> Result<()> {
+    let grants = ModGrants {
+        players: true,
+        controls: true,
+        render: true,
+        ..Default::default()
+    };
+    let mut host = ModHost::load_with_grants(path, grants)?;
+    println!(
+        "passes={:?}",
+        host.render()
+            .0
+            .passes
+            .iter()
+            .map(|p| &p.name)
+            .collect::<Vec<_>>()
+    );
+    let keys = ["Digit1", "Digit2", "Digit3", "Digit4", "Space", "Space"];
+    let panel = ["telegraph", "phase2", "health", "die"];
+    let mut peak = [0; 4];
+    for frame in 0..240_usize {
+        let snapshot = mod_host::GameplaySnapshot {
+            session: 1,
+            dimension: 0,
+            eye: mod_host::GameplayVector3 {
+                x: frame as f32 * 0.05,
+                y: 65.62,
+                z: 0.0,
+            },
+            yaw: frame as f32 * 0.01,
+            pitch: 0.0,
+            attack_held: frame % 20 < 3,
+            frame_seconds: 1.0 / 60.0,
+            players: Vec::new(),
+        };
+        let mut controls = mod_host::empty_controls();
+        controls.seconds = 1.0 / 60.0;
+        controls.focused = true;
+        controls.gameplay = true;
+        if let Some(key) = keys.get(frame / 10).filter(|_| frame % 10 == 0) {
+            controls.keys_pressed.push((*key).into());
+        }
+        if let Some(id) = panel.get(frame / 30).filter(|_| frame % 30 == 15) {
+            controls.events.push(mod_host::ControlEvent {
+                id: (*id).into(),
+                value: if *id == "health" { 0.15 } else { 1.0 },
+            });
+        }
+        host.frame_with_controls(false, Some(snapshot), controls)?;
+        let primitives = &host.render().0.primitives;
+        for (slot, count) in [
+            primitives.decals.len(),
+            primitives.ribbons.len(),
+            primitives.beams.len(),
+            primitives.billboards.len(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            peak[slot] = peak[slot].max(count);
+        }
+    }
+    ensure!(host.is_active(), "render mod was quarantined");
+    let enabled: Vec<_> = host.render().0.passes.iter().map(|p| p.enabled).collect();
+    println!(
+        "frames=240 peak_decals={} peak_ribbons={} peak_beams={} peak_billboards={} enabled={enabled:?}",
+        peak[0], peak[1], peak[2], peak[3]
+    );
     Ok(())
 }
 

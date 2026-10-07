@@ -1,6 +1,5 @@
-//! The text edit component (`TextEditComponent`) of an `edit_box`: what the
-//! factory reads, the retained text/caret state, and the character rules of
-//! `handleTextCharEvent` and `_textFitsInControl`.
+//! The text edit component of an `edit_box`: what the factory reads, the
+//! retained text/caret state, and vanilla's character-entry and fit rules.
 
 use serde_json::Value;
 
@@ -8,7 +7,7 @@ use super::{descendant, text_of};
 use crate::layout::{LaidOut, TextMeasure};
 use crate::widgets::bound_bool;
 
-/// Seconds between caret blinks (`updateCaretBlink`).
+/// Seconds between caret blinks.
 pub const CARET_BLINK_SECONDS: f64 = 0.3;
 /// The glyph a selected box's text target draws at its caret.
 pub const CARET_GLYPH: char = '_';
@@ -52,7 +51,7 @@ impl EditMeta {
         EditMeta {
             name: text_of(control, "text_box_name"),
             grid_collection: text_of(control, "text_edit_box_grid_collection_name"),
-            // `asInt` admits any integral number, else reads zero.
+            // Any integral number is admitted, else it reads zero.
             max_length: crate::widgets::bound_number(control, "max_length")
                 .filter(|length| length.fract() == 0.0)
                 .map_or(0, |length| length as i64),
@@ -143,7 +142,7 @@ pub enum CharOutcome {
     Unchanged,
 }
 
-/// Apply typed `input` (`handleTextCharEvent`): Enter without newlines ends
+/// Apply typed `input`: Enter without newlines ends
 /// editing, backspace drops the last character, anything else appends whole
 /// when the result fits.
 pub(crate) fn type_text(

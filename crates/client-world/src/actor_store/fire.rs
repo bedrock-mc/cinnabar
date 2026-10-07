@@ -2,7 +2,7 @@
 
 use super::{ActorSnapshot, ActorStatus};
 
-const ACTOR_FLAG_ON_FIRE: u32 = 0;
+pub(super) const ACTOR_FLAG_ON_FIRE: u32 = 0;
 /// Vanilla fire-state retention and default on-fire color ramp/fade duration.
 pub const FIRE_FADE_TICKS: u32 = 5;
 

@@ -22,7 +22,8 @@ fn make_client_acquires_and_builds_the_required_physics_registry() {
         "$(PHYSICS_REGISTRY_INSTALL)",
         "PHYSICS_REGISTRY_INSTALL = $(POWERSHELL)",
         "$(GO) -C tools/registrygen run ./cmd/hashcheck",
-        "$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_INSTALL) && $(PHYSICS_REGISTRY_CHECK) )",
+        "\t$(PHYSICS_REGISTRY_CHECK)",
+        ".DELETE_ON_ERROR:",
     ] {
         assert!(
             makefile.contains(contract),
@@ -298,6 +299,13 @@ fn install_pinned_registry_once(root: &Path, shell: &RecipeShell, label: &str) {
     let manifest = temporary.join("bedrock-target.json");
     let pinned = b"protocol-2193-physics";
     fs::write(&source, pinned).unwrap();
+    // An older source proves the install restamps its copy rather than keeping the source time.
+    fs::File::options()
+        .write(true)
+        .open(&source)
+        .unwrap()
+        .set_modified(SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
     fs::write(&manifest, b"{}").unwrap();
     fs::write(&expected_sha, format!("{:x}\n", Sha256::digest(pinned))).unwrap();
     let install = install_recipe(&invocation_log, &source, &physics);
@@ -380,10 +388,10 @@ fn shell_assignment(shell: &RecipeShell) -> Option<String> {
 fn install_recipe(invocation_log: &Path, source: &Path, physics: &Path) -> String {
     if cfg!(windows) {
         format!(
-            "powershell -NoProfile -Command \"Add-Content -Path {} -Value 'invocation'; Copy-Item -Force {} {}\"",
+            "powershell -NoProfile -Command \"Add-Content -Path {} -Value 'invocation'; Copy-Item -Force {} {target}; (Get-Item -LiteralPath {target}).LastWriteTime = Get-Date\"",
             powershell_single_quoted(&make_path(invocation_log)),
             powershell_single_quoted(&make_path(source)),
-            powershell_single_quoted(&make_path(physics))
+            target = powershell_single_quoted(&make_path(physics))
         )
     } else {
         format!(

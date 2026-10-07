@@ -49,9 +49,8 @@ ordinary fish explain the reported animation issue.
 
 ## Restoring the swimming phase
 
-Native FishAnimationSystem copies the current phase to previous, then advances
-current by `1 + 0.1 * length(StateVector.velocity)` each tick. The native variable
-updater publishes `variable.AnimationAmount` and `variable.AnimationAmountPrev`
+Each tick vanilla copies the fish's current swim phase to previous, then advances
+current by `1 + 0.1 * length(velocity)`. The variable updater then publishes `variable.AnimationAmount` and `variable.AnimationAmountPrev`
 before authored scripts. The pack interpolates those fields with
 `query.frame_alpha` before evaluating lateral body and tail sway. Their former
 absence froze that sway independently of the dry-state roll.

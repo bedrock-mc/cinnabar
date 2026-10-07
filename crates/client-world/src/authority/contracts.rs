@@ -113,7 +113,7 @@ pub enum CommittedControlEvent {
         sequence: u64,
         dimension: i32,
         current: f64,
-        /// Total/current factor for the identified native sprint modifier.
+        /// Total/current factor for the vanilla sprint modifier.
         sprint_modifier: Option<f32>,
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
@@ -147,8 +147,13 @@ pub enum CommittedControlEvent {
         sequence: u64,
     },
     ChangeDimension {
+        sequence: u64,
         change: ChangeDimensionEvent,
         resolved: ResolvedServerPosition,
+    },
+    DimensionChangeAck {
+        sequence: u64,
+        dimension_epoch: u64,
     },
     Respawn {
         sequence: u64,
@@ -230,12 +235,14 @@ pub enum CommittedUiEvent {
     },
 }
 
-/// One packet-order-preserving audio command committed by the world stream.
+/// One audio command retaining its world commit and transport identity.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommittedAudioEvent {
     pub sequence: u64,
     pub dimension: i32,
     pub dimension_epoch: u64,
+    /// Already-committed sound released by this actor's fixed-tick synchronization.
+    pub actor_synchronization: Option<crate::ActorLifetimeId>,
     pub event: AudioEvent,
 }
 

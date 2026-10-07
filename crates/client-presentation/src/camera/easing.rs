@@ -1,5 +1,4 @@
-//! Camera easing curves addressed by wire selector or name; standard easing families.
-//! The spring curve is an approximation and needs native measurement.
+//! Camera easing curves addressed by wire selector or name.
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -53,20 +52,20 @@ pub fn ease(kind: u8, t: f32) -> f32 {
     if !t.is_finite() {
         return 1.0;
     }
-    let t = t.clamp(0.0, 1.0);
-    if t >= 1.0 {
-        return 1.0;
-    }
     let family = kind.saturating_sub(2) / 3;
     let variant = kind.saturating_sub(2) % 3;
     match kind {
         0 | 32.. => t,
-        1 => 1.0 - (-6.0 * t).exp() * (8.0 * t).cos(),
+        1 => {
+            let t = t.clamp(0.0, 1.0);
+            let wave = sim::minecraft_sin(f64::from((2.5 * t * t * t + 0.2) * PI * t)) as f32;
+            (wave * (1.0 - t).powf(2.2) + t) * (1.0 + 1.2 * (1.0 - t))
+        }
         2..=13 => polynomial(u32::from(family) + 2, variant, t),
         14..=16 => match variant {
-            0 => 1.0 - (t * FRAC_PI_2).cos(),
-            1 => (t * FRAC_PI_2).sin(),
-            _ => -((PI * t).cos() - 1.0) / 2.0,
+            0 => 1.0 - sim::minecraft_cos(f64::from(t * FRAC_PI_2)) as f32,
+            1 => sim::minecraft_sin(f64::from(t * FRAC_PI_2)) as f32,
+            _ => -(sim::minecraft_cos(f64::from(PI * t)) as f32 - 1.0) / 2.0,
         },
         17..=19 => expo(variant, t),
         20..=22 => circ(variant, t),
@@ -76,6 +75,7 @@ pub fn ease(kind: u8, t: f32) -> f32 {
     }
 }
 
+/// Evaluates the in, out, and symmetric power curves.
 fn polynomial(power: u32, variant: u8, t: f32) -> f32 {
     let power = power as i32;
     match variant {
@@ -86,23 +86,17 @@ fn polynomial(power: u32, variant: u8, t: f32) -> f32 {
     }
 }
 
+/// Preserves the exponential family's nonzero endpoint residuals.
 fn expo(variant: u8, t: f32) -> f32 {
-    let rise = |x: f32| {
-        if x <= 0.0 {
-            0.0
-        } else {
-            2.0_f32.powf(10.0 * x - 10.0)
-        }
-    };
     match variant {
-        0 => rise(t),
-        1 => 1.0 - rise(1.0 - t),
-        _ if t <= 0.0 => 0.0,
-        _ if t < 0.5 => 2.0_f32.powf(20.0 * t - 10.0) / 2.0,
-        _ => (2.0 - 2.0_f32.powf(-20.0 * t + 10.0)) / 2.0,
+        0 => 2.0_f32.powf((t - 1.0) * 10.0),
+        1 => 1.0 - 2.0_f32.powf(-10.0 * t),
+        _ if t < 0.5 => 2.0_f32.powf((2.0 * t - 1.0) * 10.0) * 0.5,
+        _ => (2.0 - 2.0_f32.powf((2.0 * t - 1.0) * -10.0)) * 0.5,
     }
 }
 
+/// Evaluates circular easing without negative square roots.
 fn circ(variant: u8, t: f32) -> f32 {
     match variant {
         0 => 1.0 - (1.0 - t * t).max(0.0).sqrt(),
@@ -112,6 +106,7 @@ fn circ(variant: u8, t: f32) -> f32 {
     }
 }
 
+/// Evaluates the four piecewise parabolic bounce intervals.
 fn out_bounce(t: f32) -> f32 {
     const N: f32 = 7.5625;
     const D: f32 = 2.75;
@@ -129,6 +124,7 @@ fn out_bounce(t: f32) -> f32 {
     }
 }
 
+/// Reflects the out-bounce curve for its other variants.
 fn bounce(variant: u8, t: f32) -> f32 {
     match variant {
         0 => 1.0 - out_bounce(1.0 - t),
@@ -138,6 +134,7 @@ fn bounce(variant: u8, t: f32) -> f32 {
     }
 }
 
+/// Allows the native back curves to overshoot their endpoints.
 fn back(variant: u8, t: f32) -> f32 {
     const C1: f32 = 1.70158;
     const C2: f32 = C1 * 1.525;
@@ -150,17 +147,17 @@ fn back(variant: u8, t: f32) -> f32 {
     }
 }
 
+/// Evaluates the damped oscillation for each elastic variant.
 fn elastic(variant: u8, t: f32) -> f32 {
-    const C4: f32 = TAU / 3.0;
-    const C5: f32 = TAU / 4.5;
-    if t <= 0.0 {
-        return 0.0;
+    if t == 0.0 || t == 1.0 {
+        return t;
     }
+    let wave = |value: f32| sim::minecraft_sin(f64::from((value - 0.075) * TAU / 0.3)) as f32;
     match variant {
-        0 => -(2.0_f32.powf(10.0 * t - 10.0)) * ((t * 10.0 - 10.75) * C4).sin(),
-        1 => 2.0_f32.powf(-10.0 * t) * ((t * 10.0 - 0.75) * C4).sin() + 1.0,
-        _ if t < 0.5 => -(2.0_f32.powf(20.0 * t - 10.0) * ((20.0 * t - 11.125) * C5).sin()) / 2.0,
-        _ => (2.0_f32.powf(-20.0 * t + 10.0) * ((20.0 * t - 11.125) * C5).sin()) / 2.0 + 1.0,
+        0 => -2.0_f32.powf((t - 1.0) * 10.0) * wave(t - 1.0),
+        1 => 2.0_f32.powf(-10.0 * t) * wave(t) + 1.0,
+        _ if t < 0.5 => -0.5 * 2.0_f32.powf((2.0 * t - 1.0) * 10.0) * wave(2.0 * t - 1.0),
+        _ => 0.5 * 2.0_f32.powf((2.0 * t - 1.0) * -10.0) * wave(2.0 * t - 1.0) + 1.0,
     }
 }
 
@@ -169,10 +166,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_curve_starts_at_zero_and_ends_at_one() {
+    fn every_curve_has_finite_samples_and_bounded_endpoint_residuals() {
         for kind in 0..=32u8 {
             assert!(ease(kind, 0.0).abs() < 1e-3, "kind {kind} start");
-            assert!((ease(kind, 1.0) - 1.0).abs() < 1e-6, "kind {kind} end");
+            assert!((ease(kind, 1.0) - 1.0).abs() < 1e-3, "kind {kind} end");
             assert!(ease(kind, 0.37).is_finite(), "kind {kind} mid");
         }
     }
@@ -198,6 +195,31 @@ mod tests {
         assert!((ease(2, 0.5) - 0.25).abs() < 1e-6);
         assert!((ease(3, 0.5) - 0.75).abs() < 1e-6);
         assert!((ease(5, 0.5) - 0.125).abs() < 1e-6);
+    }
+
+    #[test]
+    fn exponential_endpoints_keep_native_residuals() {
+        assert_eq!(ease(17, 0.0), 1.0 / 1024.0);
+        assert_eq!(ease(18, 1.0), 1.0 - 1.0 / 1024.0);
+        assert_eq!(ease(19, 0.0), 1.0 / 2048.0);
+        assert_eq!(ease(19, 1.0), 1.0 - 1.0 / 2048.0);
+    }
+
+    #[test]
+    fn spring_and_elastic_golden_samples() {
+        for (kind, expected) in [
+            (1, 1.051_012),
+            (29, -0.015625),
+            (30, 1.015625),
+            (31, -0.0078125),
+        ] {
+            let t = if kind == 31 { 0.25 } else { 0.5 };
+            assert!(
+                (ease(kind, t) - expected).abs() < 1e-4,
+                "kind {kind}: {}",
+                ease(kind, t)
+            );
+        }
     }
 
     #[test]

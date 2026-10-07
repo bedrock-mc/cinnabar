@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use super::{SETTINGS_OPTIONS, SettingsOptions};
+use super::{ANIMATIONS_OPTION, SETTINGS_OPTIONS, SettingsOptions};
 
 const MAX_SETTINGS_BYTES: u64 = 64 * 1024;
 pub const SETTINGS_FILE: &str = "settings.json";
@@ -31,7 +31,13 @@ impl SettingsOptions {
 
     /// Parses and validates stored values against the current option registry.
     pub fn decode(bytes: &[u8]) -> Option<Self> {
-        let saved: Self = serde_json::from_slice(bytes).ok()?;
+        let mut saved: Self = serde_json::from_slice(bytes).ok()?;
+        if let Some(toggle) = saved.values.remove("java_animations") {
+            saved
+                .values
+                .entry(ANIMATIONS_OPTION.name.to_owned())
+                .or_insert(1 - toggle.clamp(0, 1));
+        }
         let mut validated = Self::default();
         for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
             if let Some(value) = saved.values.get(option.name) {
@@ -45,6 +51,7 @@ impl SettingsOptions {
             validated.set_language(language);
         }
         validated.keys = saved.keys;
+        validated.server_list = saved.server_list;
         if let Some(slots) = saved.emote_slots {
             validated.set_emote_slots(slots);
         }

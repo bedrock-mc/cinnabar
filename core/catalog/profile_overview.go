@@ -8,7 +8,7 @@ import (
 )
 
 // overviewAchievementLimit is shared with Rust's Overview drawing and art loading.
-// Vanilla reference: OreUI J b2, Ik, Rk, xk (docs/profile-parity.md).
+// Vanilla rules: docs/profile-parity.md.
 //
 //go:embed profile_overview_limit.txt
 var overviewAchievementLimit string

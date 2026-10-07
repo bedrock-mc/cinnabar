@@ -10,7 +10,7 @@ use std::{
 };
 
 /// Fixed voice output rate; rodio's mixer converts to the device rate.
-pub(super) const OUTPUT_RATE: u32 = 48_000;
+pub const OUTPUT_RATE: u32 = 48_000;
 const GAIN_SLEW: f32 = 0.002;
 
 /// Decoded PCM16 shared between the cache and every voice playing it.

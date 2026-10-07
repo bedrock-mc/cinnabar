@@ -417,6 +417,78 @@ async fn physics_send_ack_is_emitted_only_after_successful_socket_write() {
 }
 
 #[tokio::test]
+async fn transfer_messages_survive_reanchor_and_precede_destination_movement() {
+    let (mut handle, _) = NetworkHandle::stub();
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    handle.commands = commands;
+    let stale = protocol::PhysicsSendIdentity {
+        session_generation: 7,
+        tick: 100,
+        admission_id: 3,
+        reanchor_epoch: 0,
+    };
+    handle
+        .send_physics_packet(stale, test_packet(), None)
+        .unwrap();
+    let transfer = [
+        protocol::loading_screen_packet(protocol::LoadingScreenPhase::Start, Some(0)),
+        protocol::dimension_change_done_packet(42),
+        protocol::loading_screen_packet(protocol::LoadingScreenPhase::End, Some(0)),
+    ];
+    for packet in &transfer {
+        handle.send_dimension_packet(packet.clone()).unwrap();
+    }
+    handle.physics_epoch_publisher().send_replace(1);
+    let current = protocol::PhysicsSendIdentity {
+        tick: 101,
+        admission_id: 4,
+        reanchor_epoch: 1,
+        ..stale
+    };
+    let (_, movement) = traced_movement_packets(current.tick);
+    handle
+        .send_physics_packet(current, movement.clone(), None)
+        .unwrap();
+    let expected = transfer
+        .into_iter()
+        .chain([movement])
+        .map(|packet| {
+            protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 })
+                .unwrap()
+                .to_vec()
+        })
+        .collect::<Vec<_>>();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        RecordingSendSession {
+            sent: Arc::clone(&sent),
+        },
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(1), controls.recv()).await,
+        Ok(Some(NetworkControlEvent::PhysicsPacketCancelled {
+            identity,
+            definitely_unsent: true,
+        })) if identity == stale
+    ));
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(1), controls.recv()).await,
+        Ok(Some(NetworkControlEvent::PhysicsPacketSent { identity })) if identity == current
+    ));
+    shutdown.send_replace(true);
+    worker.await.unwrap();
+    assert_eq!(*sent.lock().unwrap(), expected);
+}
+
+#[tokio::test]
 async fn failed_physics_socket_write_never_emits_success_ack() {
     let identity = protocol::PhysicsSendIdentity {
         session_generation: 7,

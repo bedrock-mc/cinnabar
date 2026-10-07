@@ -14,7 +14,7 @@ Pack paths are relative to the install-fetched resource pack pinned by
 | HUD actor | Use the resolved actor geometry and a separate full-body UI pose, preserving head rotation. |
 | Visibility | Respect Hide Paper Doll, Hide HUD/F1 and spectator. |
 | Menu projection | Use inverse GUI scale and `min(width/20,height/39)` with the authored model origin. |
-| Model origin | Retain the 24-pixel ModelPart origin scaled by the player model scale; swimming adds a 0.8 vertical adjustment. |
+| Model origin | Retain the 24-pixel model-part origin scaled by the player model scale; swimming adds a 0.8 vertical adjustment. |
 | Inventory geometry | `ui/inventory_screen.json:987,1047,1114,1170` and `ui/ui_common.json:3794,5180` define inventory placement. |
 | Pause dimming | `ui/pause_screen.json:1181` defines full-screen background alpha 0.1 and an additional left panel. |
 | Home player and Profile | `ui/start_screen.json` uses `#is_paper_doll_visible` and `#profile_button_a_visible`. |
@@ -53,7 +53,7 @@ The preview's Y rotation already uses the native yaw direction; negating that
 fixed yaw again reversed the HUD body. It now faces screen-right, toward the
 player's left, while world turns leave its facing fixed and the head keeps its
 relative look animation. This changes the HUD view only. The HUD retains the
-native 24-pixel ModelPart origin, scaled by the player model scale; its control
+vanilla 24-pixel model-part origin, scaled by the player model scale; its control
 center is therefore not the body midpoint. Swimming applies the native 0.8
 vertical adjustment. Original skin texels are sampled at final pixel resolution.
 The existing UI lighting implementation is described in `player-preview-rendering.md`.

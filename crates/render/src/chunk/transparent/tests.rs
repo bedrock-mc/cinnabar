@@ -1,55 +1,12 @@
 use super::*;
 use crate::chunk::transparent::retirement::transparent_view_key_satisfies_witness;
 
-fn sort_candidate(
-    key: SubChunkKey,
-    local_quad_index: u32,
-    record: u32,
-    subchunk_center: [f32; 3],
-    quad_centroid: [f32; 3],
-) -> TransparentSortCandidate {
-    TransparentSortCandidate::new(
-        key,
-        local_quad_index,
-        record,
-        record + 100,
-        subchunk_center,
-        quad_centroid,
-    )
-}
-
-#[test]
-fn transparent_sort_is_grouped_back_to_front_stable_and_rotation_sensitive() {
-    let near_key = SubChunkKey::new(0, 0, 0, -1);
-    let far_key = SubChunkKey::new(0, 0, 0, -2);
-    let candidates = Arc::from(vec![
-        sort_candidate(near_key, 1, 11, [0.0, 0.0, -2.0], [0.0, 0.0, -2.5]),
-        sort_candidate(far_key, 1, 21, [0.0, 0.0, -10.0], [0.0, 0.0, -10.0]),
-        sort_candidate(far_key, 0, 20, [0.0, 0.0, -10.0], [0.0, 0.0, -12.0]),
-        sort_candidate(far_key, 2, 22, [0.0, 0.0, -10.0], [0.0, 0.0, -10.0]),
-    ]);
-    let identity = sort_transparent_candidates(Mat4::IDENTITY, Arc::clone(&candidates));
-    assert_eq!(
-        identity
-            .iter()
-            .map(|draw_ref| draw_ref.liquid_record_index())
-            .collect::<Vec<_>>(),
-        vec![20, 21, 22, 11],
-        "subchunks and their internal faces are back-to-front; ties use local index"
-    );
-
-    let rotated = sort_transparent_candidates(
-        Mat4::from_quat(Quat::from_rotation_y(std::f32::consts::PI)),
-        candidates,
-    );
-    assert_eq!(rotated[0].liquid_record_index(), 11);
-}
-
 pub(super) fn resident_transparent_allocation(
     identity: &TransparentAllocationIdentity,
     tint_identity: ChunkBiomeTintIdentity,
 ) -> GpuChunkAllocation {
     GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: identity.key,
         generation: identity.mesh_generation,
         tint_identity,
@@ -77,7 +34,6 @@ fn visibility_membership_churn_retains_resident_snapshot_until_ordered_swap() {
     let c = TransparentAllocationIdentity::new(SubChunkKey::new(0, 2, 0, 0), 5, 24..32, 40..44, 3);
     let old_key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![a.clone(), b.clone()],
         texture_identity,
         tint_identity,
@@ -105,18 +61,13 @@ fn visibility_membership_churn_retains_resident_snapshot_until_ordered_swap() {
     // B leaves the frustum while C enters it. B's arena allocation remains
     // resident, so every absolute reference in the old ordered snapshot is
     // still safe to draw while the replacement sort runs.
-    let next_key = ViewSortKey::try_new(
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![a, c],
-        texture_identity,
-        tint_identity,
-    )
-    .unwrap();
+    let next_key =
+        ViewSortKey::try_new([1.0, 0.0, 0.0], vec![a, c], texture_identity, tint_identity).unwrap();
     let next_generation = state.request_retaining_resident_snapshot(&next_key, true);
     assert_eq!(state.committed(), Some(&old_snapshot));
     let retained_draw = transparent_draw_args(
         state.committed().unwrap().buffer_slot(),
+        INITIAL_TRANSPARENT_SLOT_REFS,
         state.committed().unwrap().refs().len(),
     )
     .unwrap();
@@ -148,20 +99,13 @@ fn missing_or_reallocated_snapshot_identity_clears_absolute_refs_immediately() {
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
     let key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![identity.clone()],
         texture_identity,
         tint_identity,
     )
     .unwrap();
-    let changed_key = ViewSortKey::try_new(
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![],
-        texture_identity,
-        tint_identity,
-    )
-    .unwrap();
+    let changed_key =
+        ViewSortKey::try_new([1.0, 0.0, 0.0], vec![], texture_identity, tint_identity).unwrap();
 
     let exact = resident_transparent_allocation(&identity, tint_identity);
     let mut changed_liquid_range = exact.clone();
@@ -195,7 +139,6 @@ fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
     let old_key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![old_identity.clone()],
         texture_identity,
         tint_identity,
@@ -227,7 +170,6 @@ fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
     );
     let next_key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![next_identity],
         texture_identity,
         tint_identity,
@@ -237,6 +179,7 @@ fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
     assert_eq!(state.committed(), Some(&old_snapshot));
     let retained_args = transparent_draw_args(
         state.committed().unwrap().buffer_slot(),
+        INITIAL_TRANSPARENT_SLOT_REFS,
         state.committed().unwrap().refs().len(),
     )
     .unwrap();
@@ -438,7 +381,6 @@ fn transparent_witness_snapshot_rejects_gen193_missing_key_then_accepts_gen194_c
     };
     let missing = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![allocation(a, 193, 8)],
         texture_identity,
         tint_identity,
@@ -446,7 +388,6 @@ fn transparent_witness_snapshot_rejects_gen193_missing_key_then_accepts_gen194_c
     .unwrap();
     let complete = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![allocation(a, 194, 8), allocation(b, 194, 12)],
         texture_identity,
         tint_identity,
@@ -577,14 +518,8 @@ fn retired_identity_matches_exact_old_snapshot_and_not_unrelated_active_address(
         old.gpu.liquid_lighting_range.clone().unwrap(),
         old.gpu.metadata_index,
     );
-    let key = ViewSortKey::try_new(
-        [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![identity],
-        texture_identity,
-        tint_identity,
-    )
-    .unwrap();
+    let key =
+        ViewSortKey::try_new([0.0; 3], vec![identity], texture_identity, tint_identity).unwrap();
     let snapshot = committed_transparent_state(
         &key,
         vec![PackedTransparentDrawRef::new(2, old.gpu.metadata_index)],
@@ -622,14 +557,8 @@ fn removal_to_empty_arms_only_after_snapshot_no_longer_references_retired_identi
         old.gpu.liquid_lighting_range.clone().unwrap(),
         old.gpu.metadata_index,
     );
-    let key = ViewSortKey::try_new(
-        [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![identity],
-        texture_identity,
-        tint_identity,
-    )
-    .unwrap();
+    let key =
+        ViewSortKey::try_new([0.0; 3], vec![identity], texture_identity, tint_identity).unwrap();
     let snapshot = committed_transparent_state(
         &key,
         vec![PackedTransparentDrawRef::new(2, old.gpu.metadata_index)],
@@ -649,7 +578,6 @@ fn asset_or_tint_identity_change_clears_even_resident_snapshot() {
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
     let old_key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![identity.clone()],
         texture_identity,
         tint_identity,
@@ -671,7 +599,6 @@ fn asset_or_tint_identity_change_clears_even_resident_snapshot() {
         ));
         let next_key = ViewSortKey::try_new(
             [1.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
             vec![identity.clone()],
             next_texture,
             next_tint,
@@ -702,7 +629,6 @@ fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric()
     });
     let key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![],
         ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
@@ -724,8 +650,10 @@ fn conflicting_manifest_fail_closes_every_absolute_ref_owner_and_active_metric()
         generation: pending_generation,
         requested_at: Instant::now(),
         key: key.clone(),
-        view_from_world: Mat4::IDENTITY,
-        candidates: Arc::from([]),
+        camera: Vec3::ZERO,
+        groups: Arc::from([]),
+        cached: Vec::new(),
+        base: None,
         distinct_tint_count: 0,
     };
     assert!(runtime.gate.submit(pending_generation, work).is_some());
@@ -771,7 +699,6 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
     });
     let key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![],
         ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
@@ -789,8 +716,7 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
         Ok(true)
     );
     let moved = ViewSortKey::try_new(
-        [f32::from_bits(1), 0.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
+        [16.0, 0.0, 0.0],
         vec![],
         ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
@@ -813,8 +739,10 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
         generation: pending,
         requested_at: Instant::now(),
         key: moved,
-        view_from_world: Mat4::IDENTITY,
-        candidates: Arc::from([]),
+        camera: Vec3::ZERO,
+        groups: Arc::from([]),
+        cached: Vec::new(),
+        base: None,
         distinct_tint_count: 0,
     };
     assert!(runtime.gate.submit(pending, work).is_some());
@@ -846,7 +774,6 @@ fn invalid_camera_transform_fail_closes_committed_staged_gate_and_metadata() {
 fn staged_generation_is_not_resubmitted_and_retains_causal_latency_origin() {
     let key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![],
         ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
@@ -875,68 +802,64 @@ fn staged_generation_is_not_resubmitted_and_retains_causal_latency_origin() {
 
 #[test]
 fn candidate_cache_reuses_camera_only_arc_rebuilds_identity_and_clears_on_failure() {
-    let key = ViewSortKey::try_new(
-        [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![],
-        ChunkTextureAssetIdentity::new(1, 1),
-        ChunkBiomeTintIdentity::new(1, 1),
-    )
-    .unwrap();
-    let camera_only = ViewSortKey::try_new(
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![],
-        ChunkTextureAssetIdentity::new(1, 1),
-        ChunkBiomeTintIdentity::new(1, 1),
-    )
-    .unwrap();
-    let candidate =
-        TransparentSortCandidate::new(SubChunkKey::new(0, 0, 0, 0), 0, 4, 5, [8.0; 3], [0.5; 3]);
+    let identity =
+        TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 1, 16..20, 32..36, 5);
+    let key = |camera: [f32; 3], assets: usize| {
+        ViewSortKey::try_new(
+            camera,
+            vec![identity.clone()],
+            ChunkTextureAssetIdentity::new(assets, 1),
+            ChunkBiomeTintIdentity::new(1, 1),
+        )
+        .unwrap()
+    };
+    let group = |identity: &TransparentAllocationIdentity| {
+        Ok(TransparentGroupInput {
+            identity: identity.clone(),
+            tint_identity: ChunkBiomeTintIdentity::new(1, 1),
+            centroids: Box::new([Vec3::splat(0.5)]),
+            tint_colors: Box::new([[1, 2, 3], [4, 5, 6]]),
+        })
+    };
     let mut runtime = TransparentSortRuntime::default();
     let (first, first_tints) = runtime
-        .resolve_candidate_cache(&key, || Ok((vec![candidate.clone()], 2)))
+        .resolve_candidate_cache(&key([0.0; 3], 1), group)
         .unwrap();
     let (camera_reuse, camera_tints) = runtime
-        .resolve_candidate_cache(&camera_only, || {
+        .resolve_candidate_cache(&key([40.0, 0.0, 0.0], 1), |_| {
             panic!("camera-only key rebuilt candidates")
         })
         .unwrap();
     assert!(Arc::ptr_eq(&first, &camera_reuse));
     assert_eq!((first_tints, camera_tints), (2, 2));
 
-    let changed_identity = ViewSortKey::try_new(
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![],
-        ChunkTextureAssetIdentity::new(2, 1),
-        ChunkBiomeTintIdentity::new(1, 1),
-    )
-    .unwrap();
+    // A new address set reuses the unchanged group's input instead of rebuilding it.
     let (rebuilt, _) = runtime
-        .resolve_candidate_cache(&changed_identity, || Ok((vec![candidate], 3)))
+        .resolve_candidate_cache(&key([40.0, 0.0, 0.0], 2), |_| {
+            panic!("unchanged group rebuilt")
+        })
         .unwrap();
     assert!(!Arc::ptr_eq(&first, &rebuilt));
+    assert!(Arc::ptr_eq(&first[0], &rebuilt[0]));
 
-    let failed_identity = ViewSortKey::try_new(
-        [1.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-        vec![],
+    let mut moved = identity.clone();
+    moved.mesh_generation += 1;
+    let failed = ViewSortKey::try_new(
+        [0.0; 3],
+        vec![moved],
         ChunkTextureAssetIdentity::new(3, 1),
         ChunkBiomeTintIdentity::new(1, 1),
     )
     .unwrap();
+    let ceiling = TransparentSortError::ReferenceCeiling {
+        requested: MAX_TRANSPARENT_DRAW_REFS + 1,
+        ceiling: MAX_TRANSPARENT_DRAW_REFS,
+    };
     assert_eq!(
-        runtime.resolve_candidate_cache(&failed_identity, || {
-            Err(TransparentSortError::ReferenceCeiling {
-                requested: MAX_TRANSPARENT_DRAW_REFS + 1,
-                ceiling: MAX_TRANSPARENT_DRAW_REFS,
-            })
-        }),
-        Err(TransparentSortError::ReferenceCeiling {
-            requested: MAX_TRANSPARENT_DRAW_REFS + 1,
-            ceiling: MAX_TRANSPARENT_DRAW_REFS,
-        })
+        runtime
+            .resolve_candidate_cache(&failed, |_| Err(ceiling))
+            .err(),
+        Some(ceiling)
     );
     assert!(runtime.candidate_cache.is_none());
 }

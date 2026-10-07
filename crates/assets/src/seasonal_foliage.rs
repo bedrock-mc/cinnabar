@@ -1,7 +1,6 @@
 //! Native seasonal foliage palette, independent of GPU colour packing.
 //!
-//! 1.26.50.26 `SeasonsRenderer` palette generation
-//! creates covered evergreen/birch/default columns, then their exposed
+//! 1.26.50.26 seasonal palette generation creates covered evergreen/birch/default columns, then their exposed
 //! counterparts. Snow blending precedes the half-intensity RGBA8 storage;
 //! the world material doubles stored RGB without clipping before multiplying
 //! the texture. The CPU particle consumer instead clamps it.
@@ -16,7 +15,7 @@ pub const SEASONAL_FOLIAGE_EXPOSED_OFFSET: usize = 3;
 pub const SEASONAL_FOLIAGE_COUNT: usize = SEASONAL_FOLIAGE_EXPOSED_OFFSET * 2;
 const COVERED_MAPS: [TintMapId; SEASONAL_FOLIAGE_EXPOSED_OFFSET] =
     [TintMapId::Evergreen, TintMapId::Birch, TintMapId::Foliage];
-/// LeavesBlock::getRenderLayer cold limit.
+/// Temperature below which vanilla leaves take the snowy seasonal layer.
 pub const SEASONAL_FOLIAGE_COLD_THRESHOLD: f32 = 0.15;
 pub const SEASONAL_FOLIAGE_SNOW_RGB: f32 = 1.8;
 
@@ -70,8 +69,8 @@ impl From<ResolvedBlock> for SeasonalFoliageBlock {
     }
 }
 
-/// Native ClientLeavesSeasonColorUtils
-/// skips the main block's air/leaves properties before canBeBuiltOver.
+/// Vanilla's seasonal scan skips the main block's air/leaves properties before
+/// testing whether it can be built over.
 /// TopSnow's override delegates to a non-air extra block
 /// first; only with air extra does its height decide replaceability.
 ///
@@ -100,7 +99,7 @@ pub const fn seasonal_foliage_cell_shelters(
             && !extra.flags.contains(BlockFlags::AIR)
         {
             // The main leaves property shortcut is not an extra block's
-            // canBeBuiltOver predicate: an extra leaf still needs replacement.
+            // Built-over test: an extra leaf still needs replacement.
             return matches!(extra.kind, VisualKind::Diagnostic)
                 || !extra.flags.contains(BlockFlags::SEASONAL_REPLACEABLE);
         }

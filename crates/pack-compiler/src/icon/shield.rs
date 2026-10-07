@@ -1,4 +1,4 @@
-//! ShieldRenderer GUI branch, not the first-person attachable animation or a flat UV sheet.
+//! Vanilla's GUI shield drawing, not the first-person attachable animation or a flat UV sheet.
 //! Vanilla transform: T(8,10,-10) S(11) Rx(30) Ry(30), model unit 1/16.
 
 use crate::entity::{EntityAssetCompilation, compile_equipment_textures};
@@ -53,7 +53,7 @@ pub(super) fn compile(
 }
 
 fn bake(geometry: &EntityGeometry, texture: &EquipmentTexture) -> Option<IconSprite> {
-    // The retail ShieldModel loads its named root. Exotic animated/inherited model-part trees
+    // The vanilla shield model loads its named root. Exotic animated/inherited model-part trees
     // must not silently use an invented transform; those remain an explicit unsupported branch.
     let bone = geometry
         .bones

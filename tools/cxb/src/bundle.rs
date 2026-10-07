@@ -59,9 +59,22 @@ pub struct Bundle {
     pub manifest: SignedDocument,
 }
 
-/// Signs the manifest and packs it with the component.
-pub fn build(source: Source, wasm: &[u8], publisher: &Ed25519KeyPair) -> Result<Bundle> {
+/// Signs the manifest and packs it with the component and the `(path, bytes)` assets.
+pub fn build(
+    source: Source,
+    wasm: &[u8],
+    assets: &[(String, Vec<u8>)],
+    publisher: &Ed25519KeyPair,
+) -> Result<Bundle> {
     let component = componentize(wasm)?;
+    let mut entries: Vec<(&str, &[u8])> = vec![(COMPONENT_PATH, &component)];
+    for (path, bytes) in assets {
+        ensure!(
+            path != MANIFEST_PATH && path != COMPONENT_PATH,
+            "asset {path} would replace a bundle file"
+        );
+        entries.push((path, bytes));
+    }
     let manifest = Manifest {
         version: WIRE_VERSION,
         api: API_VERSION,
@@ -72,17 +85,20 @@ pub fn build(source: Source, wasm: &[u8], publisher: &Ed25519KeyPair) -> Result<
         component: Some(COMPONENT_PATH.to_owned()),
         channels: source.channels,
         actions: source.actions,
-        files: vec![ContentFile {
-            path: COMPONENT_PATH.to_owned(),
-            bytes: component.len() as u64,
-            sha256: crypto::digest(&component),
-        }],
+        files: entries
+            .iter()
+            .map(|(path, bytes)| ContentFile {
+                path: (*path).to_owned(),
+                bytes: bytes.len() as u64,
+                sha256: crypto::digest(bytes),
+            })
+            .collect(),
     };
     let signed = crypto::sign(&manifest, crypto::MANIFEST_DOMAIN, publisher)?;
-    let bytes = archive(&[
-        (MANIFEST_PATH, &serde_json::to_vec(&signed)?),
-        (COMPONENT_PATH, &component),
-    ])?;
+    let signed_bytes = serde_json::to_vec(&signed)?;
+    let mut archived = vec![(MANIFEST_PATH, signed_bytes.as_slice())];
+    archived.extend(entries.iter().copied());
+    let bytes = archive(&archived)?;
     let offer = PackageOffer {
         digest: crypto::digest(&bytes),
         bytes: bytes.len() as u64,
@@ -152,4 +168,37 @@ fn archive(entries: &[(&str, &[u8])]) -> Result<Vec<u8>> {
         bytes[offset] = 0;
     }
     Ok(bytes)
+}
+
+/// Reads every regular file under `dir` as an asset at its `/`-separated relative path, sorted.
+pub fn read_assets(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut assets = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        for entry in
+            std::fs::read_dir(&next).with_context(|| format!("reading {}", next.display()))?
+        {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            ensure!(
+                kind.is_file(),
+                "{}: assets must be regular files",
+                entry.path().display()
+            );
+            let relative = entry.path().strip_prefix(dir)?.to_owned();
+            let path = relative
+                .components()
+                .map(|part| part.as_os_str().to_str())
+                .collect::<Option<Vec<_>>>()
+                .with_context(|| format!("{}: not UTF-8", relative.display()))?
+                .join("/");
+            assets.push((path, std::fs::read(entry.path())?));
+        }
+    }
+    assets.sort();
+    Ok(assets)
 }

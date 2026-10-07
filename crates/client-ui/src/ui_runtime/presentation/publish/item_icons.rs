@@ -1,5 +1,5 @@
-//! Stack-aware icons: native CrossbowItem::getAnimationFrame feeds
-//! getIcon, whose nonzero frame N selects crossbow_pulling variant N-1.
+//! Stack-aware icons: a crossbow's nonzero animation frame N selects
+//! crossbow_pulling variant N-1.
 
 use super::*;
 

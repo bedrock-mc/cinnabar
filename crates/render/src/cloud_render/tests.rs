@@ -88,6 +88,34 @@ fn buffer_id(world: &World, entity: Entity) -> BufferId {
 }
 
 #[test]
+fn steady_uploads_cloud_colour_ignores_clock_only_changes() {
+    use bevy::render::renderer::WgpuWrapper;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    world.init_resource::<crate::AtmosphereViewInputs>();
+    let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+    world.insert_resource(frame);
+    world.run_system_once(init_cloud_gpu).unwrap();
+    let buffer = world.resource::<CloudGpu>().colour_buffer.id();
+    let mut system = IntoSystem::into_system(prepare_cloud_colour);
+    system.initialize(&mut world);
+    system.run((), &mut world).unwrap();
+    assert_eq!(world.resource::<CloudGpu>().colour_uploads, 1);
+    world.insert_resource(frame.with_cloud_renderer_ticks(123.0));
+    let allocated = crate::alloc_count::thread_allocations();
+    system.run((), &mut world).unwrap();
+    assert_eq!(world.resource::<CloudGpu>().colour_uploads, 1);
+    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+
+    world.insert_resource(AtmosphereFrame::from_bedrock_time(6_000.0, 1.0, 1.0));
+    system.run((), &mut world).unwrap();
+    assert_eq!(world.resource::<CloudGpu>().colour_uploads, 2);
+    assert_eq!(world.resource::<CloudGpu>().colour_buffer.id(), buffer);
+}
+
+#[test]
 fn viewport_records_are_identity_cached_with_exact_diagnostic_layout() {
     let mut world = world();
     let view = spawn_view(&mut world, Vec3::ZERO);
@@ -124,6 +152,28 @@ fn viewport_records_are_identity_cached_with_exact_diagnostic_layout() {
     world.run_system_once(prepare_cloud_records).unwrap();
     assert_ne!(buffer_id(&world, view), first);
     assert_eq!(world.resource::<CloudGpu>().upload_count, 2);
+}
+
+#[test]
+fn dimension_changes_remove_clouds_and_restore_them_only_in_the_overworld() {
+    let mut world = world();
+    let view = spawn_view(&mut world, Vec3::ZERO);
+    let base = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+    world.run_system_once(prepare_cloud_records).unwrap();
+    assert!(world.resource::<CloudGpu>().views[&view].record_count > 0);
+
+    for kind in [crate::SkyKind::End, crate::SkyKind::Nether] {
+        world.insert_resource(base.with_sky_kind(kind));
+        world.run_system_once(prepare_cloud_records).unwrap();
+        assert!(
+            world.resource::<CloudGpu>().views.is_empty(),
+            "clouds survived the switch to {kind:?}"
+        );
+
+        world.insert_resource(base.with_sky_kind(crate::SkyKind::Overworld));
+        world.run_system_once(prepare_cloud_records).unwrap();
+        assert!(world.resource::<CloudGpu>().views[&view].record_count > 0);
+    }
 }
 
 #[test]

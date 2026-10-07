@@ -218,6 +218,7 @@ pub fn composite_celestial(
 }
 
 pub struct RuntimeAtmosphereAssets {
+    carrier_identity: [u8; 32], // SHA-256 of the decoded carrier file
     source_manifest_sha256: [u8; 32],
     textures: Box<[AtmosphereTexture]>,
     biome_profiles: Box<[BiomeVisualProfile]>,
@@ -233,6 +234,7 @@ impl RuntimeAtmosphereAssets {
         fogs: &[FogProfile],
     ) -> Result<Self, AssetError> {
         let mut result = Self {
+            carrier_identity: self.carrier_identity,
             source_manifest_sha256: self.source_manifest_sha256,
             textures: self.textures.clone(),
             biome_profiles: biomes.into(),
@@ -303,10 +305,8 @@ impl RuntimeAtmosphereAssets {
         {
             return Err(invalid("noncanonical MCBEATM2 section layout"));
         }
-        let digest = Sha256::digest(&bytes[..environment_end]);
-        if &bytes[environment_end..] != digest.as_slice() {
-            return Err(invalid("MCBEATM2 envelope hash mismatch"));
-        }
+        let carrier_identity = crate::encoding::sealed_identity(bytes, environment_end)
+            .ok_or_else(|| invalid("MCBEATM2 envelope hash mismatch"))?;
 
         let specs = source_specs();
         let mut expected_path_offset = paths_offset;
@@ -356,12 +356,10 @@ impl RuntimeAtmosphereAssets {
             if texture_end > texture_payload_end {
                 return Err(invalid("MCBEATM2 texture payload is out of range"));
             }
+            // The envelope seals the pixels; their digests are checked when encoding.
             let rgba8 = bytes[texture_offset..texture_end]
                 .to_vec()
                 .into_boxed_slice();
-            if Sha256::digest(&rgba8).as_slice() != pixels_sha256 {
-                return Err(invalid("MCBEATM2 texture pixel hash mismatch"));
-            }
             textures.push(AtmosphereTexture {
                 role,
                 source_path: expected_path.into(),
@@ -391,11 +389,18 @@ impl RuntimeAtmosphereAssets {
         }
         validate_environment_profiles(&environment.biome_profiles, &environment.fog_profiles)?;
         Ok(Self {
+            carrier_identity,
             source_manifest_sha256,
             textures: textures.into_boxed_slice(),
             biome_profiles: environment.biome_profiles,
             fog_profiles: environment.fog_profiles,
         })
+    }
+
+    /// The SHA-256 of the carrier file this was decoded from.
+    #[must_use]
+    pub const fn carrier_identity(&self) -> [u8; 32] {
+        self.carrier_identity
     }
 
     #[must_use]

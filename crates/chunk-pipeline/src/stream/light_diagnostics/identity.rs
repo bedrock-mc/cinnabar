@@ -74,7 +74,7 @@ impl BlockIdentities {
 
     /// Resolves one custom state without formatting the rest of the server palette.
     fn custom_state(&self, ids: &DecodeIds, runtime_id: u32) -> Option<String> {
-        let (block_index, mut offset) = match ids.mode {
+        let (block_index, offset) = match ids.mode {
             NetworkIdMode::Hashed => *self.hashes.get(&runtime_id)?,
             NetworkIdMode::Sequential => {
                 if !ids.custom_blocks.contains(&runtime_id) {
@@ -93,20 +93,14 @@ impl BlockIdentities {
             }
         };
         let block = self.custom.blocks.get(block_index)?;
-        let axes = &block.visual.state_axes;
-        if ids.mode == NetworkIdMode::Sequential
-            && (axes.iter().filter(|axis| axis.values.len() > 1).count() > 1
-                || axes.iter().fold(1_usize, |total, axis| {
-                    total.saturating_mul(axis.values.len())
-                }) != block.state_count as usize)
-        {
+        let Some(values) = block.state_values(offset as u32) else {
             return Some(format!(
                 "name={} states=unavailable(sequential_state_offset={offset})",
                 bounded_text(&block.name, MAX_IDENTITY_TEXT / 2)
             ));
-        }
+        };
         let mut states = String::new();
-        for axis in axes.iter().rev() {
+        for (axis, value) in block.visual.state_axes.iter().zip(values.iter()) {
             if states.len() >= MAX_IDENTITY_TEXT / 2 {
                 states.push('…');
                 break;
@@ -114,12 +108,7 @@ impl BlockIdentities {
             if !states.is_empty() {
                 states.push(',');
             }
-            if axis.values.is_empty() {
-                return None;
-            }
-            let pick = offset % axis.values.len();
-            offset /= axis.values.len();
-            let value = match &axis.values[pick] {
+            let value = match value {
                 CustomStateValue::String(value) => bounded_text(value, MAX_IDENTITY_TEXT / 4),
                 CustomStateValue::Int(value) => value.to_string(),
                 CustomStateValue::Bool(value) => value.to_string(),
@@ -207,6 +196,7 @@ mod tests {
         stream.set_light_diagnostic_custom_blocks(CustomBlocks {
             blocks: Arc::from([CustomBlock {
                 name: Arc::from("test:roof"),
+                tags: Default::default(),
                 state_count: 2,
                 collides: true,
                 collision_box: None,
@@ -314,8 +304,9 @@ mod tests {
         );
     }
 
+    // Both id modes name every axis in palette order; axes that miss states stay unavailable.
     #[test]
-    fn multiple_custom_axes_are_exact_for_hashes_and_unavailable_for_sequential_ids() {
+    fn multiple_custom_axes_are_exact_for_hashes_and_sequential_ids() {
         let mut hashed = custom_stream(true);
         let mut custom = hashed.light_diagnostics.identities.custom.clone();
         let block = &mut Arc::make_mut(&mut custom.blocks)[0];
@@ -334,11 +325,22 @@ mod tests {
             .identities
             .describe(&hashed.decode_ids(0), states[2].hash);
         assert!(
-            text.contains("states=[test:side=1,test:open=true]"),
+            text.contains("states=[test:open=false,test:side=2]"),
             "{text}"
         );
 
         let mut sequential = custom_stream(false);
+        sequential.set_light_diagnostic_custom_blocks(custom.clone());
+        let text = sequential
+            .light_diagnostics
+            .identities
+            .describe(&sequential.decode_ids(0), 11);
+        assert!(
+            text.contains("name=test:roof states=[test:open=true,test:side=1]"),
+            "{text}"
+        );
+
+        Arc::make_mut(&mut custom.blocks)[0].state_count = 8;
         sequential.set_light_diagnostic_custom_blocks(custom);
         let text = sequential
             .light_diagnostics

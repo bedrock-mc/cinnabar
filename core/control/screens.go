@@ -11,7 +11,6 @@ import (
 // Menu screen feeds served beside the account methods.
 const (
 	methodFeaturedServers = "featured_servers.v1"
-	methodGatherings      = "gatherings.v1"
 	methodProfile         = "profile.v1"
 	methodPing            = "ping.v1"
 	methodHome            = "home.v1"
@@ -23,13 +22,17 @@ var errInvalidParams = errors.New("control: invalid params")
 // ScreenServices feeds the start and play screens; a Services value may implement it.
 type ScreenServices interface {
 	FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer, error)
-	Gatherings(ctx context.Context) ([]catalog.Gathering, error)
 	Profile(ctx context.Context) (catalog.Profile, error)
 	// Ping needs no account; unreachable servers come back offline.
 	Ping(ctx context.Context, addresses []string) []catalog.PingResult
 	// Home gathers messaging, inbox, treatments, invites, live events and the persona head.
 	Home(ctx context.Context) (catalog.Home, error)
 	ReportMessage(ctx context.Context, event catalog.MessageEvent) error
+}
+
+// ScreenCountServices adds live populations only when experience details request them.
+type ScreenCountServices interface {
+	FeaturedServersWithCounts(context.Context) ([]catalog.FeaturedServer, error)
 }
 
 type homeResultV1 struct {
@@ -52,11 +55,6 @@ type featuredServersResultV1 struct {
 	Servers       []catalog.FeaturedServer `json:"servers"`
 }
 
-type gatheringsResultV1 struct {
-	SchemaVersion uint32              `json:"schema_version"`
-	Gatherings    []catalog.Gathering `json:"gatherings"`
-}
-
 type profileResultV1 struct {
 	SchemaVersion uint32          `json:"schema_version"`
 	Profile       catalog.Profile `json:"profile"`
@@ -64,7 +62,7 @@ type profileResultV1 struct {
 
 func isScreenMethod(method string) bool {
 	switch method {
-	case methodFeaturedServers, methodGatherings, methodProfile, methodPing, methodHome, methodMessageEvent:
+	case methodFeaturedServers, methodProfile, methodPing, methodHome, methodMessageEvent:
 		return true
 	}
 	return false
@@ -99,7 +97,16 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 		})
 		return emptyResultV1{SchemaVersion: 1}, err
 	}
-	if len(raw) != 0 {
+	includeCounts := false
+	if method == methodFeaturedServers && len(raw) != 0 {
+		var params struct {
+			IncludePlayerCounts bool `json:"include_player_counts"`
+		}
+		if !decodeParams(raw, &params) {
+			return nil, errInvalidParams
+		}
+		includeCounts = params.IncludePlayerCounts
+	} else if len(raw) != 0 {
 		return nil, errInvalidParams
 	}
 	switch method {
@@ -107,17 +114,17 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 		home, err := screens.Home(ctx)
 		return homeResultV1{SchemaVersion: 1, Home: home}, err
 	case methodFeaturedServers:
-		servers, err := screens.FeaturedServers(ctx)
+		var servers []catalog.FeaturedServer
+		var err error
+		if counts, ok := screens.(ScreenCountServices); includeCounts && ok {
+			servers, err = counts.FeaturedServersWithCounts(ctx)
+		} else {
+			servers, err = screens.FeaturedServers(ctx)
+		}
 		if servers == nil {
 			servers = []catalog.FeaturedServer{}
 		}
 		return featuredServersResultV1{SchemaVersion: 1, Servers: servers}, err
-	case methodGatherings:
-		gatherings, err := screens.Gatherings(ctx)
-		if gatherings == nil {
-			gatherings = []catalog.Gathering{}
-		}
-		return gatheringsResultV1{SchemaVersion: 1, Gatherings: gatherings}, err
 	default:
 		profile, err := screens.Profile(ctx)
 		return profileResultV1{SchemaVersion: 1, Profile: profile}, err

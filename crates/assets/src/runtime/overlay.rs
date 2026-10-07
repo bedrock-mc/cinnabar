@@ -34,8 +34,8 @@ pub struct BlockOverlay {
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,
     pub texture: Option<TextureArray>,
-    /// Network hashes parallel to `visuals` for a hashed-id session; empty otherwise.
-    pub hashes: Vec<u32>,
+    /// Canonical network hashes parallel to `visuals`; incomplete state identities are absent.
+    pub hashes: Vec<Option<u32>>,
     pub material_overrides: Vec<MaterialOverride>,
     /// Optional pack-defined tint maps and biome appearance rules.
     pub biomes: Option<crate::CompiledBiomeAssets>,
@@ -179,11 +179,12 @@ impl RuntimeAssets {
             });
         }
         let mut model_templates = self.model_templates.to_vec();
+        let compound_tails = crate::blob::compiled_compound_tails(&overlay.model_templates)?;
         let mut covered = 0usize;
         for template in &overlay.model_templates {
             if template.quad_start as usize != covered
-                || template.quad_count > 32
-                || template.flags != 0
+                || template.quad_count as usize > crate::MAX_MODEL_TEMPLATE_QUADS
+                || !matches!(template.flags, 0 | crate::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT)
             {
                 return Err(invalid("overlay template spans are noncanonical"));
             }
@@ -198,6 +199,11 @@ impl RuntimeAssets {
         }
         let mut visuals = self.visuals.to_vec();
         for visual in &overlay.visuals {
+            if visual.model_template != NO_MODEL_TEMPLATE
+                && compound_tails.get(visual.model_template as usize).copied() == Some(true)
+            {
+                return Err(invalid("overlay visual references a compound continuation"));
+            }
             if !visual.flags.has_valid_semantics()
                 || !visual_semantics_are_valid(
                     visual.kind,
@@ -242,7 +248,10 @@ impl RuntimeAssets {
         light_properties.extend_from_slice(&overlay.light_properties);
         // A hash the base or an earlier overlay state already owns keeps its owner.
         let mut hashed = self.hashed.to_vec();
-        for (index, &hash) in overlay.hashes.iter().enumerate() {
+        for (index, hash) in overlay.hashes.iter().copied().enumerate() {
+            let Some(hash) = hash else {
+                continue;
+            };
             if self.sequential_id_for_hash(hash).is_none() {
                 hashed.push((hash, first_id + index as u32));
             }
@@ -390,10 +399,10 @@ mod tests {
     fn overlay_hashes_extend_the_hash_table() {
         let base = RuntimeAssets::diagnostic();
         let mut overlay = cube_overlay(page(16));
-        overlay.hashes = vec![0xdead_beef];
+        overlay.hashes = vec![Some(0xdead_beef)];
         let session = base.with_block_overlay(1, &overlay).unwrap();
         assert_eq!(session.sequential_id_for_hash(0xdead_beef), Some(1));
-        overlay.hashes = vec![1, 2];
+        overlay.hashes = vec![Some(1), Some(2)];
         assert!(base.with_block_overlay(1, &overlay).is_err());
     }
 

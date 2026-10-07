@@ -14,8 +14,9 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            AddRenderCommand, DrawFunctionId, DrawFunctions, PhaseItem, PhaseItemExtraIndex,
+            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
+            ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -298,6 +299,7 @@ impl FromWorld for NametagPipeline {
 struct NametagPipelineKey {
     msaa: Msaa,
     hdr: bool,
+    gamma_blend: bool,
     depth_tested: bool,
     text: bool,
 }
@@ -319,6 +321,12 @@ impl Specializer<RenderPipeline> for NametagPipelineSpecializer {
         } else {
             TextureFormat::bevy_default()
         };
+        if key.gamma_blend {
+            let fragment = descriptor.fragment.as_mut().unwrap();
+            let target = fragment.targets[0].as_mut().unwrap();
+            target.format = target.format.remove_srgb_suffix();
+            fragment.shader_defs.push("NAMETAG_GAMMA_BLEND".into());
+        }
         // Reverse-Z: nearer fragments carry larger depth.
         descriptor.depth_stencil.as_mut().unwrap().depth_compare = if key.depth_tested {
             CompareFunction::GreaterEqual
@@ -393,7 +401,13 @@ fn queue_nametags(
     gpu: Res<NametagGpu>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    views: Query<(
+        Entity,
+        &MainEntity,
+        &ExtractedView,
+        &Msaa,
+        Option<&crate::EnhancedRendering>,
+    )>,
 ) {
     if gpu.total == 0 {
         return;
@@ -401,7 +415,7 @@ fn queue_nametags(
     let functions = draw_functions.read();
     // Preserve record order (plate then glyphs, ordinary then sneaking) after world alpha.
     // At this magnitude one float ULP is 64; 128 avoids losing the batch ordering.
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, msaa, enhanced) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -411,6 +425,11 @@ fn queue_nametags(
                 NametagPipelineKey {
                     msaa: *msaa,
                     hdr: view.hdr,
+                    gamma_blend: crate::chunk::transparent::gamma_pass::admitted(
+                        view.hdr,
+                        *msaa,
+                        enhanced.is_some(),
+                    ),
                     depth_tested: batch.depth_tested,
                     text: batch.text,
                 },
@@ -432,6 +451,13 @@ fn queue_nametags(
 }
 
 type DrawNametags = (SetItemPipeline, SetNametagBindGroup<0>, DrawNametagRange);
+
+pub(crate) fn draw_function(world: &World) -> Option<DrawFunctionId> {
+    world
+        .get_resource::<DrawFunctions<Transparent3d>>()?
+        .read()
+        .get_id::<DrawNametags>()
+}
 
 struct SetNametagBindGroup<const I: usize>;
 
@@ -553,6 +579,70 @@ mod tests {
     }
 
     #[test]
+    fn encoded_blending_selects_the_matching_attachment_and_shader() {
+        for hdr in [false, true] {
+            for msaa in [Msaa::Off, Msaa::Sample4] {
+                for enhanced in [false, true] {
+                    let gamma_blend =
+                        crate::chunk::transparent::gamma_pass::admitted(hdr, msaa, enhanced);
+                    for text in [false, true] {
+                        let mut descriptor = RenderPipelineDescriptor {
+                            fragment: Some(FragmentState {
+                                targets: vec![Some(ColorTargetState {
+                                    format: TextureFormat::bevy_default(),
+                                    blend: Some(BlendState::ALPHA_BLENDING),
+                                    write_mask: ColorWrites::ALL,
+                                })],
+                                ..default()
+                            }),
+                            depth_stencil: Some(DepthStencilState {
+                                format: CORE_3D_DEPTH_FORMAT,
+                                depth_write_enabled: false,
+                                depth_compare: CompareFunction::Always,
+                                stencil: default(),
+                                bias: default(),
+                            }),
+                            ..default()
+                        };
+                        NametagPipelineSpecializer
+                            .specialize(
+                                NametagPipelineKey {
+                                    msaa,
+                                    hdr,
+                                    gamma_blend,
+                                    depth_tested: false,
+                                    text,
+                                },
+                                &mut descriptor,
+                            )
+                            .unwrap();
+                        let fragment = descriptor.fragment.unwrap();
+                        let target = fragment.targets[0].as_ref().unwrap();
+                        let base = if hdr {
+                            ViewTarget::TEXTURE_FORMAT_HDR
+                        } else {
+                            TextureFormat::bevy_default()
+                        };
+                        assert_eq!(
+                            target.format,
+                            if gamma_blend {
+                                base.remove_srgb_suffix()
+                            } else {
+                                base
+                            }
+                        );
+                        assert_eq!(target.blend, Some(BlendState::ALPHA_BLENDING));
+                        assert_eq!(
+                            fragment.shader_defs.contains(&"NAMETAG_GAMMA_BLEND".into()),
+                            gamma_blend
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn four_native_material_modes_keep_depth_writes_alpha_test_and_bias() {
         for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
             for depth_tested in [false, true] {
@@ -580,6 +670,7 @@ mod tests {
                             NametagPipelineKey {
                                 msaa,
                                 hdr: false,
+                                gamma_blend: false,
                                 depth_tested,
                                 text,
                             },

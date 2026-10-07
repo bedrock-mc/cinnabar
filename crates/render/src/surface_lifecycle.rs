@@ -30,10 +30,6 @@ fn release_orphan_targets<T: Component>(
 }
 
 #[cfg(test)]
-#[path = "../tests/it/support/gpu_snapshot.rs"]
-mod gpu_fixture;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use bevy::{
@@ -109,7 +105,7 @@ mod tests {
             },
         };
         const SIDE: u32 = 8;
-        let gpu = super::gpu_fixture::Gpu::new().unwrap();
+        let gpu = crate::gpu_snapshot::Gpu::new().unwrap();
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("surface ownership regression"),
             size: wgpu::Extent3d {

@@ -14,7 +14,7 @@ use ui::TextLayoutCache;
 use super::render_report::{compile_local_pack, world_for};
 use crate::presentation::{actors, entity_layers};
 use client_ui::ui_runtime::presentation::{
-    nametag_atlas::{GlyphPage, NametagAtlas, font_page},
+    nametag_atlas::{GlyphPage, GlyphPixels, NametagAtlas, font_page},
     nametags::{build_nametag_scene, extract_nametag},
 };
 
@@ -123,7 +123,7 @@ fn render_captured_scene() {
                     .map(|pixels| GlyphPage {
                         width: GLYPH_PAGE_SIDE,
                         height: GLYPH_PAGE_SIDE,
-                        rgba8: pixels,
+                        pixels: GlyphPixels::Rgba8(pixels),
                     })
             })
         },
@@ -348,13 +348,8 @@ pub(super) fn draw_actors(
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
-    let rendered = scene.update_rigs_with_artwork(
-        1.0,
-        None,
-        batch.submissions.clone(),
-        Arc::from([]),
-        &batch.artwork,
-    );
+    let rendered =
+        scene.update_rigs_with_artwork(1.0, None, batch.submissions.clone(), &[], &batch.artwork);
     let rig = rendered.rig.clone();
     for (instance, entry) in rig.instances.iter().zip(rig.manifest.iter()) {
         let Some(location) = batch.artwork.get(&entry.identity) else {

@@ -118,8 +118,8 @@ impl InventoryKeys {
     }
 }
 
-/// Keyboard gestures over the hovered cell: digits swap with that hotbar
-/// cell (or craft into it over the result), Q drops one item and Control+Q
+/// Keyboard gestures over the hovered cell: resolved bindings swap with that hotbar
+/// cell (or craft into it over the result); the configured drop key drops one item, Control drops
 /// the whole stack; arrows scroll the creative grid.
 pub fn dispatch_inventory_key(
     player_runtime: &mut player_state::PlayerState,
@@ -127,22 +127,11 @@ pub fn dispatch_inventory_key(
     hit: Option<InventoryCellHit>,
     key: KeyCode,
     control: bool,
+    hotbar: Option<u8>,
+    drop: bool,
 ) -> Option<Result<i32, InventoryGestureError>> {
-    let hotbar = [
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
-        KeyCode::Digit7,
-        KeyCode::Digit8,
-        KeyCode::Digit9,
-    ]
-    .iter()
-    .position(|digit| *digit == key);
-    if let (Some(InventoryCellHit::CraftOutput), Some(slot)) = (hit, hotbar) {
-        return Some(runtime.craft_into_hotbar(player_runtime, slot as u8));
+    if let Some(slot) = hotbar {
+        return dispatch_inventory_hotbar(player_runtime, runtime, hit, slot);
     }
     if runtime.screen_state().book.is_some() && runtime.book_key(player_runtime, key) {
         return None;
@@ -173,16 +162,49 @@ pub fn dispatch_inventory_key(
             .scroll_loom(rows, super::screen_recipes::LOOM_PATTERNS.len());
         return None;
     }
+    if drop && runtime.screen_state().text_focused() {
+        return None;
+    }
+    if drop {
+        if runtime
+            .inventory_ledger(player_runtime)
+            .cursor_stack()
+            .is_some()
+        {
+            return Some(
+                runtime
+                    .inventory_ledger_mut(player_runtime)
+                    .begin_drop(DropSource::Cursor, (!control).then_some(1)),
+            );
+        }
+        if let Some(outcome) = runtime.drop_creative_hit(player_runtime, hit?, control) {
+            return Some(outcome);
+        }
+    }
     let target = super::inventory_actions::gesture_target(hit?)?;
     let ledger = runtime.inventory_ledger_mut(player_runtime);
-    match (hotbar, key) {
-        (Some(slot), _) => Some(ledger.begin_hotbar_swap(target, slot as u8)),
-        (None, KeyCode::KeyQ) => {
-            let amount = (!control).then_some(1);
-            Some(ledger.begin_drop(DropSource::Target(target), amount))
-        }
-        _ => None,
+    drop.then(|| ledger.begin_drop(DropSource::Target(target), (!control).then_some(1)))
+}
+
+/// Applies a resolved hotbar binding directly to the predicted inventory cells.
+pub fn dispatch_inventory_hotbar(
+    player_runtime: &mut player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    hit: Option<InventoryCellHit>,
+    slot: u8,
+) -> Option<Result<i32, InventoryGestureError>> {
+    if slot >= protocol::HOTBAR_SLOT_COUNT || runtime.screen_state().text_focused() {
+        return None;
     }
+    if hit == Some(InventoryCellHit::CraftOutput) {
+        return Some(runtime.craft_into_hotbar(player_runtime, slot));
+    }
+    let target = super::inventory_actions::gesture_target(hit?)?;
+    Some(
+        runtime
+            .inventory_ledger_mut(player_runtime)
+            .begin_hotbar_swap(target, slot),
+    )
 }
 
 /// Routes one resolved pointer gesture; the output cell crafts once.

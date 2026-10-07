@@ -1,5 +1,3 @@
-use sha2::{Digest, Sha256};
-
 use super::RuntimeAssets;
 use crate::model::{
     MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
@@ -34,11 +32,17 @@ impl RuntimeAssets {
     /// Validates the complete world-carrier envelope, its embedded source
     /// provenance, and every cross-reference before allocating tables.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
+        Self::decode_sealed(bytes).map(|(assets, _)| assets)
+    }
+
+    /// [`Self::decode`], also returning the SHA-256 of the whole carrier from its envelope check.
+    pub fn decode_sealed(bytes: &[u8]) -> Result<(Self, [u8; 32]), AssetError> {
         let header = Header::decode(bytes)?;
         let provenance = decode_provenance(bytes)?;
         header.validate_layout(bytes)?;
         let sections = header.sections(bytes);
-        validate_hash(bytes, header.offsets[12])?;
+        let identity = crate::encoding::sealed_identity(bytes, header.offsets[12])
+            .ok_or_else(|| invalid("compiled asset SHA-256 mismatch"))?;
         let page_meta = validate_pages(
             sections[7],
             sections[8],
@@ -49,7 +53,7 @@ impl RuntimeAssets {
         let materials = decode_materials(sections[2])?;
         crate::material_variations::validate(&materials)?;
         let biomes = decode_biomes(sections[9], sections[10], sections[11])?;
-        Ok(Self {
+        let assets = Self {
             visuals: decode_visuals(sections[0])?,
             light_properties: decode_light_properties(sections[0]),
             hashed: decode_hashes(sections[1]),
@@ -62,7 +66,8 @@ impl RuntimeAssets {
             biomes,
             provenance,
             missing: AtomicU64::new(0),
-        })
+        };
+        Ok((assets, identity))
     }
 }
 
@@ -235,12 +240,10 @@ fn validate_pages(
             checked_add(total, meta.length, "page relative offset")
         })?;
         let relative_end = checked_add(relative_offset, length, "page relative end")?;
-        let data = payload
+        // The envelope seals the page; the encoder writes its digest.
+        payload
             .get(relative_offset..relative_end)
             .ok_or_else(|| invalid("texture page exceeds payload section"))?;
-        if Sha256::digest(data).as_slice() != &record[32..64] {
-            return Err(invalid("texture page SHA-256 mismatch"));
-        }
         metas.push(PageMeta {
             layers,
             relative_offset,
@@ -406,7 +409,7 @@ fn validate_fixed(
     let mut quad = 0usize;
     for record in sections[3].chunks_exact(TEMPLATE_BYTES) {
         if u32_at(record, 0) as usize != quad
-            || u32_at(record, 4) > 32
+            || u32_at(record, 4) as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || !model_template_flags_are_valid(u32_at(record, 8))
             || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
             || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && u32_at(record, 4) != 6)
@@ -554,10 +557,10 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
             return Err(invalid("compound template head has no quads"));
         }
         let Some(tail) = records.get(index + 1) else {
-            return Err(invalid("compound template pair is truncated"));
+            return Err(invalid("compound template chain is truncated"));
         };
-        if u32_at(tail, 8) != 0 {
-            return Err(invalid("compound continuation is not a plain template"));
+        if !matches!(u32_at(tail, 8), 0 | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT) {
+            return Err(invalid("compound continuation has incompatible flags"));
         }
         if u32_at(tail, 4) == 0 {
             return Err(invalid("compound continuation has no quads"));
@@ -857,12 +860,6 @@ fn decode_biomes(
     Ok(result)
 }
 
-fn validate_hash(bytes: &[u8], payload: usize) -> Result<(), AssetError> {
-    if Sha256::digest(&bytes[..payload]).as_slice() != &bytes[payload..] {
-        return Err(invalid("compiled asset SHA-256 mismatch"));
-    }
-    Ok(())
-}
 fn texture_byte_length(layers: usize) -> Result<usize, AssetError> {
     let mut total = 0;
     for level in 0..MIP_COUNT {

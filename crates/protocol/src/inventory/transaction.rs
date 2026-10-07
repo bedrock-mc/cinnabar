@@ -1,5 +1,5 @@
 //! Normal complex transactions write their final descriptors on the client.
-//! Vanilla client verification does not reject a stale fromItem.
+//! Vanilla client verification does not reject a stale source item.
 
 use std::sync::Arc;
 
@@ -83,7 +83,7 @@ fn inventory_identity(action: &InventoryAction) -> Option<SlotIdentity> {
                 dynamic_id: None,
             }
         }
-        // Native UI output 50 defers an InventoryTransactionManager action;
+        // Vanilla defers UI output slot 50 to a pending transaction action;
         // treating that as an ordinary slot write would invent authority.
         _ => return None,
     };

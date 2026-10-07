@@ -133,7 +133,7 @@ impl StoreState {
                 .map(|row| DisplayRow {
                     id: row.id.clone(),
                     title: row.title.clone().unwrap_or_default(),
-                    role: role_for(row.kind.as_deref()),
+                    role: role_for(row.kind.as_deref()).unwrap_or("StoreRow"),
                     offers: row.offers.clone(),
                     continuation: row.continuation.clone(),
                 })
@@ -439,7 +439,10 @@ impl StoreState {
     pub fn apply(&mut self, event: StoreEvent) -> Vec<StoreRequest> {
         self.dirty = true;
         match event {
-            StoreEvent::Page(Ok(page)) => {
+            StoreEvent::Page(Ok(mut page)) => {
+                // Dropped here, not when drawn, so row indices stay those of `page.rows`.
+                page.rows
+                    .retain(|row| role_for(row.kind.as_deref()).is_some());
                 self.failure = None;
                 self.loading_page = false;
                 self.pending_rows.clear();
@@ -477,8 +480,10 @@ impl StoreState {
                 }
                 self.details
                     .insert(detail.offer.id.to_ascii_lowercase(), detail.clone());
-                let mut requests = self.image_requests(std::iter::once(&detail.offer));
-                requests.extend(self.screenshot_requests(&detail));
+                // The offer page's art jumps the queue ahead of the page's remaining thumbnails.
+                let art = detail.offer.thumbnail_url.iter().cloned();
+                let shots = detail.screenshot_urls.iter().take(8).cloned();
+                let mut requests = self.image_urls(art.chain(shots), true);
                 if self
                     .selected
                     .as_ref()
@@ -589,7 +594,7 @@ impl StoreState {
                     }
                     Err(_) => self.fail_image(url),
                 }
-                self.image_urls(std::iter::empty())
+                self.image_urls(std::iter::empty(), false)
             }
             StoreEvent::OfferFailed { id, error } => {
                 self.pending_details.remove(&id.to_ascii_lowercase());
@@ -640,11 +645,6 @@ impl StoreState {
         self.failed_images.insert(url);
     }
 
-    fn screenshot_requests(&mut self, detail: &StoreOfferDetail) -> Vec<StoreRequest> {
-        let urls: Vec<String> = detail.screenshot_urls.iter().take(8).cloned().collect();
-        self.image_urls(urls.into_iter())
-    }
-
     /// Image fetches for offers whose thumbnail is neither cached, in flight nor known bad.
     fn image_requests<'a>(
         &mut self,
@@ -653,29 +653,43 @@ impl StoreState {
         let urls: Vec<String> = offers
             .filter_map(|offer| offer.thumbnail_url.clone())
             .collect();
-        self.image_urls(urls.into_iter())
+        self.image_urls(urls.into_iter(), false)
     }
 
-    fn image_urls(&mut self, urls: impl Iterator<Item = String>) -> Vec<StoreRequest> {
+    /// Queues image fetches, ahead of those already waiting when `first`, and starts what fits.
+    fn image_urls(&mut self, urls: impl Iterator<Item = String>, first: bool) -> Vec<StoreRequest> {
+        let mut front = Vec::new();
         for url in urls {
-            if !self.image_files.contains_key(&url)
-                && !self.pending_images.contains(&url)
-                && !self.failed_images.contains(&url)
-                && !self.queued_images.contains(&url)
-                && self.queued_images.len() < MAX_OWNED
+            if self.image_files.contains_key(&url)
+                || self.pending_images.contains(&url)
+                || self.failed_images.contains(&url)
             {
+                continue;
+            }
+            if first {
+                if front.contains(&url) {
+                    continue;
+                }
+                self.queued_images.retain(|queued| *queued != url);
+                front.push(url);
+            } else if !self.queued_images.contains(&url) && self.queued_images.len() < MAX_OWNED {
                 self.queued_images.push_back(url);
             }
+        }
+        for url in front.into_iter().rev() {
+            self.queued_images.push_front(url);
         }
         let mut requests = Vec::new();
         while self.pending_images.len() < MAX_IMAGES_IN_FLIGHT {
             let Some(url) = self.queued_images.pop_front() else {
                 break;
             };
-            if self.image_files.contains_key(&url) || self.failed_images.contains(&url) {
+            if self.image_files.contains_key(&url)
+                || self.failed_images.contains(&url)
+                || !self.pending_images.insert(url.clone())
+            {
                 continue;
             }
-            self.pending_images.insert(url.clone());
             requests.push(StoreRequest::Image(url));
         }
         requests

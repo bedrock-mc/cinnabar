@@ -29,7 +29,7 @@ impl AtmosphereFrame {
     /// Sets the ordinary above-water alpha distance from adjusted render distance
     /// in blocks. Invalid/unknown input disables distance adjustment, not fog.
     ///
-    /// Incomplete: the native underwater/no-FrameBuilder branch uses a distinct
+    /// Incomplete: vanilla's underwater branch without the advanced renderer uses a distinct
     /// half-distance and minimum. Its admission is not represented by this API.
     #[must_use]
     pub fn with_liquid_render_distance(mut self, adjusted_blocks: f32) -> Self {

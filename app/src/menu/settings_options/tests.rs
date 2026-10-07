@@ -44,6 +44,30 @@ fn camera_input_and_window_settings_read_the_saved_values() {
 }
 
 #[test]
+fn server_list_actions_save_preferences_without_changing_selection_or_gameplay() {
+    use crate::menu::{MenuAction, MenuRuntime};
+    use launcher::menu::server_list::{ServerGroup, ServerListAction};
+    let mut menu = MenuRuntime::new(true, 2, "Server list test".into());
+    menu.feeds.select_saved(2);
+    menu.settings_apply = false;
+    menu.activate(MenuAction::ServerList(ServerListAction::Toggle(
+        ServerGroup::Featured,
+    )));
+    menu.activate(MenuAction::ServerList(ServerListAction::MoveBefore(
+        ServerGroup::Saved,
+        Some(ServerGroup::Featured),
+    )));
+    assert!(menu.settings_dirty);
+    assert!(!menu.settings_apply);
+    assert_eq!(menu.feeds.selected_saved, Some(2));
+    menu.sync_user_settings(None);
+    assert!(!menu.settings_dirty);
+    let saved = SettingsOptions::load(&menu.config_path.with_file_name(SETTINGS_FILE));
+    assert!(saved.server_list().collapsed(ServerGroup::Featured));
+    assert_eq!(saved.server_list().order()[0], ServerGroup::Saved);
+}
+
+#[test]
 fn saved_volumes_reach_the_mixer() {
     use crate::{
         audio::{AudioCategory, AudioSettings},
@@ -320,4 +344,74 @@ fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
     assert!(menu.settings_retry_at.is_none());
     assert_eq!(SettingsOptions::load(&path).value("gamma"), 80);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn session_overrides_apply_in_memory_but_are_never_saved() {
+    let layout = crate::install_layout::scratch("session-overrides");
+    let settings_path = layout.server_file().with_file_name(SETTINGS_FILE);
+    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Overrides");
+    let mut menu =
+        crate::menu::MenuRuntime::new_with_layout(true, Some(2), "Overrides".into(), layout, skin);
+    menu.set_session_option("hide_hud", Some(1));
+    menu.set_session_option("hide_hand", Some(1));
+    assert_eq!(menu.settings_snapshot().0.value("hide_hud"), 1);
+    // A real edit elsewhere saves the file without the overrides.
+    menu.set_option(index("main_volume") as u16, 30);
+    menu.sync_user_settings(None);
+    let saved = SettingsOptions::load(&settings_path);
+    assert_eq!(saved.value("hide_hud"), 0);
+    assert_eq!(saved.value("hide_hand"), 0);
+    assert_eq!(saved.value("main_volume"), 30);
+    menu.set_session_option("hide_hud", None);
+    assert_eq!(menu.settings_snapshot().0.value("hide_hud"), 0);
+    assert_eq!(menu.settings_snapshot().0.value("hide_hand"), 1);
+}
+
+#[test]
+fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
+    use super::hotbar_control_slot;
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == semantic_input::Action::Hotbar1)
+        .unwrap();
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)),
+        Some(0)
+    );
+    assert!(
+        std::sync::Arc::make_mut(&mut menu.settings_options)
+            .remap(row, PhysicalControl::KeyboardUsage(0x15))
+    );
+    menu.settings_options = std::sync::Arc::new(
+        SettingsOptions::decode(&serde_json::to_vec(menu.settings_options.as_ref()).unwrap())
+            .unwrap(),
+    );
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x15)),
+        Some(0)
+    );
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)),
+        None
+    );
+    assert!(
+        std::sync::Arc::make_mut(&mut menu.settings_options)
+            .remap(row, PhysicalControl::MouseButton(4))
+    );
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::MouseButton(4)),
+        Some(0)
+    );
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x15)),
+        None
+    );
+    for (slot, usage) in (0x1f..=0x26).enumerate() {
+        assert_eq!(
+            hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(usage)),
+            Some(slot as u8 + 1)
+        );
+    }
 }

@@ -151,6 +151,11 @@ impl Chunk {
             .map(|(&y, sub_chunk)| (y, Arc::clone(sub_chunk)))
     }
 
+    /// Retains the immutable section index; edits copy the index only while a job holds it.
+    pub fn shared_sub_chunks(&self) -> Arc<BTreeMap<i32, Arc<SubChunk>>> {
+        Arc::clone(&self.sub_chunks)
+    }
+
     /// Returns the packed biome storage for one absolute sub-chunk Y.
     #[must_use]
     pub fn biome_storage(&self, y: i32) -> Option<Arc<BiomeStorage>> {

@@ -173,3 +173,28 @@ fn biome_reads_check_spans_before_address_addition_and_reject_bad_weights() {
     assert!(source.contains("fraction >= 0.0 && fraction <= 1.0"));
     assert!(source.contains("bits > 32u"));
 }
+
+/// naga's HLSL builds each const array through a by-value constructor; FXC holds its arguments,
+/// result and static copy as temps, and rejects a shader over 4096 temp registers.
+#[test]
+fn tinted_pipelines_keep_const_tables_within_the_fxc_temp_budget() {
+    for name in ["chunk.wgsl", "model.wgsl", "liquid.wgsl"] {
+        let standalone = shader_source::standalone(&shader(name), &[]);
+        let module = naga::front::wgsl::parse_str(&standalone).unwrap();
+        let elements: u32 = module
+            .constants
+            .iter()
+            .filter_map(|(_, constant)| match module.types[constant.ty].inner {
+                naga::TypeInner::Array {
+                    size: naga::ArraySize::Constant(size),
+                    ..
+                } => Some(size.get()),
+                _ => None,
+            })
+            .sum();
+        assert!(
+            elements * 3 < 4096,
+            "{name} const arrays need {elements} x 3 FXC temp registers"
+        );
+    }
+}

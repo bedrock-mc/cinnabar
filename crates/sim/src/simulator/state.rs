@@ -10,13 +10,16 @@ pub struct PlayerState {
     pub position: Vec3,
     pub velocity: Vec3,
     pub movement: Vec3,
+    /// Requested displacement before collision resolution, retained for controls.
+    #[serde(default)]
+    pub requested_movement: Vec3,
     pub on_ground: bool,
     pub jump_delay: u8,
-    /// Native SwimAmountComponent blend retained across ticks and replay. Both
+    /// Vanilla swim-amount blend retained across ticks and replay. Both
     /// the swimming and crawling flags advance it before the jump system.
     #[serde(default)]
     pub swim_amount: f32,
-    /// Retained native swimming-or-crawling flag observed by SwimAmount before
+    /// Retained swimming-or-crawling flag observed by the swim-amount blend before
     /// this tick's local swim/pose trigger applies its new choice.
     #[serde(default)]
     pub swim_pose_active: bool,
@@ -37,6 +40,7 @@ impl PlayerState {
             position,
             velocity: Vec3::ZERO,
             movement: Vec3::ZERO,
+            requested_movement: Vec3::ZERO,
             on_ground: false,
             jump_delay: 0,
             swim_amount: 0.0,
@@ -129,6 +133,7 @@ pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
         ("position", state.position),
         ("velocity", state.velocity),
         ("movement", state.movement),
+        ("requested_movement", state.requested_movement),
     ] {
         if !value.is_finite() {
             return Err(SimulationError::NonFiniteState { field });

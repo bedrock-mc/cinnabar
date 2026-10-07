@@ -129,6 +129,7 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     let add = AddPlayerPacket {
         uuid,
         player_name: "Alex".to_owned(),
+        player_game_type: valentine::bedrock::version::v1_26_51::EnumsGameType::Spectator,
         // AddPlayer has no standalone unique ID in 1.26.40; the spawned player's
         // unique ID is the first field of the embedded ability data.
         abilities_data: SerializedAbilitiesData {
@@ -165,11 +166,15 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     }
     .into();
 
-    let Some(WorldEvent::Actor(ActorEvent::Spawn(spawn))) =
+    let Some(WorldEvent::Actor(ActorEvent::PlayerSpawn { spawn, game_mode })) =
         into_world_event(add, 1).expect("normalize add player")
     else {
         panic!("expected player spawn")
     };
+    assert_eq!(
+        game_mode,
+        protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Spectator)
+    );
     assert_eq!(spawn.unique_id, -9);
     assert_eq!(spawn.runtime_id, 55);
     assert_eq!(spawn.links[0].link_type, ActorLinkType::Passenger);
@@ -245,7 +250,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
         panic!("expected delta actor move")
     };
     assert_eq!(delta.position, [Some(7.5), Some(8.25), None]);
-    // MoveActorDeltaData::parseDeltas merges into the previous absolute data,
+    // Vanilla merges deltas into the previous absolute data,
     // so both forms share the absolute network origin.
     assert_eq!(delta.position_origin, ActorPositionOrigin::NetworkOffset);
     assert_eq!(delta.yaw, Some(270.0));

@@ -281,8 +281,8 @@ impl PlayerInventoryLedger {
                 .flat_map(|pending| &pending.predicted)
                 .any(|prediction| prediction.cell == requested && prediction.active)
         {
-            // Native tryPushSlotPrediction returns MissingPrediction,
-            // not HistoricPrediction, after a newer owner was removed.
+            // Vanilla treats this as a missing prediction, not a historic one,
+            // after a newer owner was removed.
             self.note_unrouted_container();
             return;
         }
@@ -292,7 +292,7 @@ impl PlayerInventoryLedger {
             return;
         }
         if let Some(prediction) = prediction {
-            // Native tryPushSlotPrediction and the historic path
+            // Vanilla's slot prediction and the historic path
             // use the requested slot's item, not the destination's.
             let held = prediction
                 .held

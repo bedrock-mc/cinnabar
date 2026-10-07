@@ -331,7 +331,7 @@ mod review_tests {
             ],
             width: 1,
             height: 1,
-            rgba8: vec![255; 4].into_boxed_slice(),
+            pixels: assets::FontPixels::Rgba8(vec![255; 4].into_boxed_slice()),
         };
         let glyph = assets::GlyphMetrics {
             codepoint: 'A',

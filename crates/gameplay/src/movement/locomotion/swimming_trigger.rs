@@ -1,10 +1,11 @@
-//! Current SwimTriggerSystem (0x09fd25a0), for unmounted desktop input.
+//! Vanilla swim start/stop trigger, for unmounted desktop input.
 
 use sim::view_direction;
 
 use super::{CollisionWorld, ModeIntent, ModeObservation, MovementMode, Vec3, WorldQueryError};
 
-// PE VAs 0x14feff2ac, 0x14ffab6c8, 0x15013adc8 and 0x14ffd5070.
+// Swimming needs input magnitude ≥ 1/√2; entry needs look y below 0.15; at the
+// surface the pose holds within 45°, using vanilla's f32 degrees-per-radian.
 const MIN_SWIM_INPUT: f32 = std::f32::consts::FRAC_1_SQRT_2;
 const ENTRY_UPWARD_LIMIT: f32 = 0.15;
 const SURFACE_KEEP_ANGLE: f32 = 45.0;

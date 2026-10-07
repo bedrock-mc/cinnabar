@@ -44,7 +44,12 @@ pub(crate) fn drain_committed_ui_before_authority(
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
+    let authority = stream.authority();
+    if let Some(name) = authority.actor_display_name(authority.local_player_unique_id()) {
+        ui_runtime.set_chat_source_name(name);
+    }
     ui_runtime.note_stream_dimension(stream.current_dimension());
+    let current_dimension = stream.current_dimension();
     let dimension_epoch = stream.form_dimension_epoch();
     ui_runtime.experiences.epoch = dimension_epoch;
     ui_runtime
@@ -114,18 +119,64 @@ pub(crate) fn drain_committed_ui_before_authority(
                 event: protocol::UiEvent::Form(_),
                 ..
             } => continue,
-            CommittedUiEvent::Ui { sequence, event } => ui_runtime
-                .apply(
-                    &mut player_runtime,
-                    SequencedUiEvent {
-                        session_id: clock.session_generation(),
-                        fifo_sequence: sequence,
-                        local_millis,
-                        server_tick: None,
-                        event,
-                    },
-                )
-                .map(|_| ()),
+            CommittedUiEvent::Ui { sequence, event } => {
+                if let protocol::UiEvent::Boss(boss) = &event {
+                    let authority = client_world.stream.as_ref().unwrap().authority();
+                    let actor_present = authority
+                        .actor_by_unique_id(boss.target_entity_id)
+                        .is_some();
+                    bevy::log::debug!(
+                        sequence,
+                        target_entity_id = boss.target_entity_id,
+                        action = ?boss.action,
+                        actor_present,
+                        actors = ?authority.remote_actors().map(|actor| {
+                            (actor.unique_id, actor.runtime_id, &actor.kind)
+                        }).collect::<Vec<_>>(),
+                        "boss actor admission"
+                    );
+                    // Vanilla resolves the target before dispatch or registration.
+                    // A Show before AddActor must not acknowledge a subscription
+                    // that cannot yet survive the player's actor-lifetime check.
+                    if !actor_present {
+                        continue;
+                    }
+                }
+                if let protocol::UiEvent::ShowCredits(credits) = &event {
+                    bevy::log::info!(
+                        session,
+                        sequence,
+                        runtime_id = credits.runtime_id,
+                        dimension = current_dimension,
+                        "committed credits start received"
+                    );
+                }
+                if matches!(
+                    event,
+                    protocol::UiEvent::Hud(protocol::HudEvent::PlayerStatus(
+                        protocol::PlayerStatus::PlayerSpawn
+                    ))
+                ) {
+                    bevy::log::debug!(
+                        target: "bedrock_client::runtime::world::dimension",
+                        sequence,
+                        transfer_active = client_world.dimension_transfer.active(),
+                        "player spawn readiness received"
+                    );
+                }
+                ui_runtime
+                    .apply(
+                        &mut player_runtime,
+                        SequencedUiEvent {
+                            session_id: clock.session_generation(),
+                            fifo_sequence: sequence,
+                            local_millis,
+                            server_tick: None,
+                            event,
+                        },
+                    )
+                    .map(|_| ())
+            }
             CommittedUiEvent::BlockCrack {
                 sequence,
                 dimension,
@@ -190,6 +241,9 @@ pub(crate) fn drain_committed_ui_before_authority(
             );
             return;
         }
+    }
+    if let Some(stream) = client_world.stream.as_ref() {
+        ui_runtime.retain_boss_actors(|id| stream.authority().actor_by_unique_id(id).is_some());
     }
 }
 

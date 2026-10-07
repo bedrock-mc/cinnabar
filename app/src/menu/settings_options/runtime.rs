@@ -43,6 +43,9 @@ impl MenuRuntime {
 
     /// Applies a validated setting edit and marks its persistence and runtime handoff dirty.
     pub(in crate::menu) fn set_option(&mut self, index: u16, value: i32) {
+        // A real edit replaces any session override and is saved.
+        self.session_overrides
+            .retain(|(overridden, _)| *overridden != usize::from(index));
         if Arc::make_mut(&mut self.settings_options).set(usize::from(index), value) {
             self.settings_dirty = true;
             self.settings_apply = true;
@@ -68,7 +71,16 @@ impl MenuRuntime {
                 .is_none_or(|due| Instant::now() >= due)
         {
             let path = self.config_path.with_file_name(SETTINGS_FILE);
-            match self.settings_options.save(&path) {
+            let saved = if self.session_overrides.is_empty() {
+                Arc::clone(&self.settings_options)
+            } else {
+                let mut persisted = (*self.settings_options).clone();
+                for &(index, value) in &self.session_overrides {
+                    persisted.set(index, value);
+                }
+                Arc::new(persisted)
+            };
+            match saved.save(&path) {
                 Ok(()) => {
                     self.settings_dirty = false;
                     self.settings_retry_at = None;
@@ -82,12 +94,53 @@ impl MenuRuntime {
     }
 
     /// Bridges legacy named menu actions into the persisted option registry.
-    pub(in crate::menu) fn set_named_option(&mut self, name: &str, value: i32) {
+    pub(crate) fn set_named_option(&mut self, name: &str, value: i32) {
         if let Some(index) = SETTINGS_OPTIONS
             .iter()
             .position(|option| option.name == name)
         {
             self.set_option(index as u16, value);
+        }
+    }
+
+    /// Overrides `name` in memory only (saves keep the persisted value); `None` restores it.
+    pub(crate) fn set_session_option(&mut self, name: &str, value: Option<i32>) {
+        let Some(index) = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == name)
+        else {
+            return;
+        };
+        let slot = self
+            .session_overrides
+            .iter()
+            .position(|(overridden, _)| *overridden == index);
+        let value = match (value, slot) {
+            (Some(value), Some(_)) => value,
+            (Some(value), None) => {
+                let persisted = self.settings_options.get(index);
+                self.session_overrides.push((index, persisted));
+                value
+            }
+            (None, Some(slot)) => self.session_overrides.swap_remove(slot).1,
+            (None, None) => return,
+        };
+        if Arc::make_mut(&mut self.settings_options).set(index, value) {
+            self.settings_apply = true;
+        }
+    }
+
+    /// Starts or ends a developer-driven stretch; ending restores the hotkey options it toggled.
+    #[cfg_attr(
+        not(feature = "developer-control"),
+        allow(dead_code, reason = "called by the developer control endpoint")
+    )]
+    pub(crate) fn set_transient_toggles(&mut self, transient: bool) {
+        self.transient_toggles = transient;
+        if !transient {
+            for (_, option) in crate::menu::input::HOTKEY_OPTIONS {
+                self.set_session_option(option, None);
+            }
         }
     }
 }

@@ -637,6 +637,9 @@ pub(in crate::chunk) fn update_chunk_animation_clock(
 pub(in crate::chunk) struct RenderQueueRuntime<'w> {
     gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
     acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
+    immediate_terrain: Option<
+        ResMut<'w, crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>,
+    >,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
     #[cfg(feature = "enhanced")]
     coverage: Option<Res<'w, ChunkResidentCoverage>>,
@@ -651,6 +654,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     runtime: RenderQueueRuntime,
     reload: Option<Res<ChunkTextureReload>>,
 ) {
+    let mut runtime = runtime;
+    if let Some(immediate) = runtime.immediate_terrain.as_deref_mut() {
+        immediate.0.clear();
+    }
     if !queue.session_reset_pending
         && reload
             .as_ref()
@@ -661,6 +668,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     let RenderQueueRuntime {
         gpu_removals,
         acknowledgements,
+        mut immediate_terrain,
         profiler,
         #[cfg(feature = "enhanced")]
         coverage,
@@ -762,6 +770,9 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = token {
                 acknowledgements.complete(key, token, Instant::now());
+                if let Some(immediate) = immediate_terrain.as_deref_mut() {
+                    immediate.0.push((key, token.generation));
+                }
             }
             zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;
@@ -833,12 +844,16 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = pending.token {
                 acknowledgements.complete(key, token, Instant::now());
+                if let Some(immediate) = immediate_terrain.as_deref_mut() {
+                    immediate.0.push((key, token.generation));
+                }
             }
             zero_byte_applications = zero_byte_applications.saturating_add(1);
             continue;
         }
 
         let origin = chunk_origin(key);
+        let cube_layout = pending.mesh.cube_layout();
         let (
             (
                 cube_quads,
@@ -871,6 +886,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             key,
             cube_quads: Arc::from(cube_quads),
             cube_lighting: Arc::from(cube_lighting),
+            cube_layout,
             model_refs: Arc::from(model_refs),
             model_lighting: Arc::from(model_lighting),
             model_draw_refs: Arc::from(model_draw_refs),

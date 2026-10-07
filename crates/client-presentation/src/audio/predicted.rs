@@ -19,7 +19,7 @@ use super::{
 const PLAYER: &str = "minecraft:player";
 /// Height fraction of an actor's box standing in for its head attach point.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
-/// Seconds between block hit sounds while mining (`GameMode` 200 ms).
+/// Seconds between block hit sounds while mining (vanilla 200 ms).
 const HIT_INTERVAL: f32 = 0.2;
 /// Seconds between eating/drinking sounds while an item is in use; needs native measurement.
 const CONSUME_INTERVAL: f32 = 0.25;
@@ -311,6 +311,7 @@ fn status_request(
 ) -> Option<(&'static str, SoundRequest)> {
     let event = match notice.kind {
         ActorStatusKind::Hurt | ActorStatusKind::HurtWithoutDamage => "hurt",
+        ActorStatusKind::Death if identifier == "minecraft:ender_dragon" => return None,
         ActorStatusKind::Death => "death",
         _ => return None,
     };
@@ -458,7 +459,57 @@ mod tests {
         assert!(silent.is_none());
     }
 
-    /// `GameMode` spaces mining hit sounds 200 ms apart.
+    #[test]
+    fn dragon_death_audio_waits_for_the_server_sound_event() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"entity_sounds": {"entities": {
+                "ender_dragon": {"volume": 80.0, "pitch": [0.8, 1.2], "events": {
+                    "death": "mob.enderdragon.death", "hurt": "mob.enderdragon.hit"
+                }}
+            }}}),
+            &serde_json::json!({}),
+        );
+        let notice = ActorStatusNotice {
+            runtime_id: 9,
+            kind: ActorStatusKind::Death,
+            data: 0,
+            position: [1.0, 64.0, 1.0],
+            height: Some(4.0),
+        };
+        assert!(
+            status_request(&tables, "minecraft:ender_dragon", &notice).is_none(),
+            "the death status starts the visual sequence without an early voice"
+        );
+        let hurt = ActorStatusNotice {
+            kind: ActorStatusKind::Hurt,
+            ..notice
+        };
+        assert!(status_request(&tables, "minecraft:ender_dragon", &hurt).is_some());
+        let event = protocol::LevelAudioEvent {
+            sound_event: "death".into(),
+            position: [1.0, 64.2, 1.0],
+            data: -1,
+            actor_identifier: "minecraft:ender_dragon".into(),
+            is_baby: false,
+            is_global: false,
+            actor_unique_id: -1,
+            fire_at_position: None,
+        };
+        let request = super::super::route::level_sound_request(&tables, &event, &|_| None)
+            .expect("the explicit server event owns the death voice");
+        assert_eq!(&*request.name, "mob.enderdragon.death");
+        assert_eq!(request.position, Some(event.position));
+        assert_eq!(
+            request.volume,
+            assets::FloatRange {
+                min: 80.0,
+                max: 80.0
+            }
+        );
+        assert_eq!(request.pitch, assets::FloatRange { min: 0.8, max: 1.2 });
+    }
+
+    /// Vanilla spaces mining hit sounds 200 ms apart.
     #[test]
     fn mining_hits_follow_the_reference_interval() {
         assert_eq!(HIT_INTERVAL, 0.2);

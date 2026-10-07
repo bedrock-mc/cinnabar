@@ -287,3 +287,20 @@ fn session_reload_publishes_prepared_actor_pages() {
         assert_eq!(pages.route(rig), expected.route(rig));
     }
 }
+
+#[test]
+fn aim_highlight_pack_art_is_available_at_join_and_released_at_session_end() {
+    let texture = Arc::new(render::AimAssistTexture::new([1, 1], Arc::from([255; 4])).unwrap());
+    let packs = resource_packs::PackApplication {
+        aim_assist_textures: [Some(texture.clone()), None],
+        ..Default::default()
+    };
+    let mut reload = PackReload::default();
+    reload.begin_session(1, &packs);
+    assert!(Arc::ptr_eq(
+        reload.aim_assist_textures()[0].as_ref().unwrap(),
+        &texture
+    ));
+    reload.end_session();
+    assert!(reload.aim_assist_textures().iter().all(Option::is_none));
+}

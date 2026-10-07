@@ -24,6 +24,30 @@ pub struct SettingDefinition {
     pub default: i32,
 }
 
+/// Ordered animation choices shared by the registry and the Video selector.
+pub const ANIMATION_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "animations_radio_java",
+        label: "Java 1.7",
+    },
+    SettingChoice {
+        name: "animations_radio_bedrock",
+        label: "Bedrock",
+    },
+];
+
+/// The default choice uses Java animation while Bedrock retains the vanilla paths.
+pub const ANIMATIONS_OPTION: SettingDefinition =
+    dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
+
+/// Optional crosshair visibility in both third-person camera views.
+pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
+    toggle("third_person_crosshair", "Third Person Crosshair", false);
+
+/// Keeps the crosshair's background inversion enabled unless the player opts out.
+pub const INVERT_CROSSHAIR_OPTION: SettingDefinition =
+    toggle("invert_crosshair", "Invert Crosshair Colors", true);
+
 /// Defines one boolean binding with an integral persisted value.
 const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
     SettingDefinition {
@@ -147,7 +171,7 @@ const CHAT_DURATIONS: &[SettingChoice] = &[
 ];
 
 // Defaults retained from the existing desktop host are provisional until the
-// current OptionRegistry values are recovered; see plan.md.
+// current vanilla option defaults are confirmed; see plan.md.
 pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     dropdown(
         "content_log_gui_level",
@@ -215,6 +239,8 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS,
     ),
     slider("max_framerate", "options.framerateLimit", 0, 240, 0),
+    // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
+    toggle("vsync", "options.vsync", true),
     slider("field_of_view", "options.fov", 30, 110, 60),
     slider("gamma", "options.gamma", 0, 100, 50),
     slider("interface_opacity", "options.hudOpacity", 0, 100, 100),
@@ -223,6 +249,8 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle("hide_hand", "options.hidehand", false),
     toggle("hide_paperdoll", "options.hidepaperdoll", false),
     toggle("hide_hud", "options.hidehud", false),
+    THIRD_PERSON_CROSSHAIR_OPTION,
+    INVERT_CROSSHAIR_OPTION,
     toggle("screen_animations", "options.screenAnimations", true),
     toggle("show_auto_save_icon", "options.showautosaveicon", true),
     toggle(
@@ -232,6 +260,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     ),
     toggle("ingame_player_names", "options.ingamePlayerNames", true),
     toggle("view_bobbing", "options.viewBobbing", true),
+    ANIMATIONS_OPTION,
     toggle("camera_shake", "options.screenShake", true),
     toggle("transparent_leaves", "options.transparentleaves", true),
     toggle("bubble_particles", "options.bubbleparticles", true),
@@ -461,4 +490,10 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     slider("chat_font_size", "chat.settings.fontSize", 5, 20, 10),
     slider("chat_line_spacing", "chat.settings.lineSpacing", 0, 100, 0),
     toggle("always_sprint", "Always Sprint", false),
+    toggle(
+        super::SHOW_EXACT_SERVER_PING,
+        "options.showExactServerPing",
+        false,
+    ),
+    toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
 ];

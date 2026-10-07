@@ -78,10 +78,13 @@ pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
     let refs = std::fs::read("../.local/assets/compiled/vanilla-v1.vanillarefs.json")
         .ok()
         .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes));
-    let compiled =
-        pack_compiler::compile_actor_pack(super::collect::collect_files(&view, refs.as_ref()))
-            .unwrap()
-            .unwrap();
+    let compiled = pack_compiler::compile_actor_pack(super::collect::collect_files(
+        &view,
+        refs.as_ref(),
+        None,
+    ))
+    .unwrap()
+    .unwrap();
     let artwork =
         ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
     let candidates = compiled
@@ -202,13 +205,8 @@ fn draw(
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
-    let frame = scene.update_rigs_with_artwork(
-        1.0,
-        None,
-        batch.submissions.clone(),
-        Arc::from([]),
-        &batch.artwork,
-    );
+    let frame =
+        scene.update_rigs_with_artwork(1.0, None, batch.submissions.clone(), &[], &batch.artwork);
     let rig = &frame.rig;
     eprintln!(
         "render: submissions={} instances={} rejects={:?} layers={}",
@@ -355,7 +353,7 @@ fn measure_pages(
     let entity_bytes = read("vanilla-v1.mcbeent");
     let entities = Arc::new(RuntimeEntityAssets::decode(&entity_bytes).unwrap());
     let catalog =
-        assets::RuntimeActorCatalog::decode(&read("vanilla-v1.mcbeact"), &entity_bytes).unwrap();
+        assets::RuntimeActorCatalog::decode(&read("vanilla-v1.mcbeact"), &entities).unwrap();
     let equipment = assets::RuntimeEquipmentCatalog::decode(&read("vanilla-v1.mcbeeqp")).ok();
     let icons = assets::RuntimeIconCatalog::decode(&read("vanilla-v1.mcbeico")).unwrap();
     let world = std::fs::read(dir.join("vanilla-v2193.mcbea"))

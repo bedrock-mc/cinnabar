@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn synced_block_update_waits_for_its_cached_column_before_visual_handoff() {
+    let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+    resolver
+        .accept_cached_packet(cached_request_level(
+            4,
+            client_blob_hash(b"pending-falling-column"),
+        ))
+        .unwrap();
+    let event = WorldEvent::SyncedBlockUpdates(vec![protocol::SyncedBlockUpdateEvent {
+        update: BlockUpdateEvent {
+            dimension: 0,
+            position: [64, 0, 0],
+            layer: 0,
+            network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        },
+        flags: 3,
+        sync: protocol::ActorBlockSyncMessage {
+            actor_unique_id: -2,
+            message: 1,
+        },
+    }]);
+    resolver
+        .accept_world_event(event.clone(), size_of::<protocol::SyncedBlockUpdateEvent>())
+        .unwrap();
+    assert!(
+        resolver.pop_ready().is_none(),
+        "later source clearing must not precede the retained terrain snapshot"
+    );
+    assert!(resolver.unblock_ordinary_lane().unwrap());
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
+    ));
+    assert!(
+        matches!(resolver.pop_ready(), Some(BlobCacheReady::WorldEvent(actual)) if actual == event)
+    );
+}
+
+#[test]
 fn cinnabar_transaction_safety_bound_and_status_packet_limit_are_defaults() {
     assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, 2_048);
     assert_eq!(protocol::MAX_CLIENT_BLOB_PENDING_BYTES, 64 * 1024 * 1024);

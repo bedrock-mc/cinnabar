@@ -1,6 +1,6 @@
 use super::support::*;
 
-fn write_chiseled_bookshelf_pack(root: &Path, terrain_overrides: Option<&str>) {
+pub(super) fn write_chiseled_bookshelf_pack(root: &Path, terrain_overrides: Option<&str>) {
     write_pack(
         root,
         r#"{"chiseled_bookshelf":{"textures":{"down":"chiseled_bookshelf_top","up":"chiseled_bookshelf_top","north":"chiseled_bookshelf_front","east":"chiseled_bookshelf_side","south":"chiseled_bookshelf_side","west":"chiseled_bookshelf_side"}}}"#,
@@ -178,9 +178,6 @@ fn compiler_chiseled_bookshelf_admission_fails_closed_as_a_complete_family() {
     let mut missing = records.clone();
     missing.pop();
     families.push(missing);
-    let mut wrong_id = records.clone();
-    wrong_id[0].sequential_id = 1604;
-    families.push(wrong_id);
     let mut wrong_state = records.clone();
     wrong_state[0].canonical_state =
         r#"{"books_stored":{"type":"byte","value":0},"direction":{"type":"int","value":0}}"#.into();
@@ -263,7 +260,7 @@ fn compiler_chiseled_bookshelf_rejects_extra_side_fallback() {
     }));
 }
 
-fn write_bee_housing_pack(root: &Path) {
+pub(super) fn write_bee_housing_pack(root: &Path) {
     write_pack(
         root,
         r#"{
@@ -451,9 +448,6 @@ fn compiler_bee_housing_admission_is_atomic_and_pack_routes_are_exact() {
     )
     .model_state;
     families.push(("projection disagreement", wrong_projection));
-    let mut wrong_id = records.clone();
-    wrong_id[0].sequential_id -= 1;
-    families.push(("wrong ID", wrong_id));
     let mut wrong_family = records.clone();
     wrong_family[0].model_family = ModelFamily::Decorative;
     families.push(("wrong family", wrong_family));

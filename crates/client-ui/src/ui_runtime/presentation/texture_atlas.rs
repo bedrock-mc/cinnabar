@@ -3,7 +3,9 @@
 //! presentation root to honor the production line budget.
 
 use assets::{HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
-use render_model::{MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray, UiTexturePage, UiTexturePlan};
+use render_model::{
+    MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray, UiTextureFormat, UiTexturePage, UiTexturePlan,
+};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -177,16 +179,39 @@ pub(super) fn font_texture_array_with_hud_and_icons(
         .and_then(|width| width.checked_mul(height as usize))
         .and_then(|pixels| pixels.checked_mul(4))
         .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let mut dimensions = font
-        .pages()
+    let font_pages = (0..font.pages().len())
+        .map(|index| {
+            UiTexturePage::font(Arc::clone(font), index)
+                .map_err(|_| UiPresentationError::InvalidFontTexture)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut planned = font_pages
         .iter()
-        .map(|p| [p.width, p.height])
+        .map(|page| (page.dimensions(), page.format()))
         .collect::<Vec<_>>();
-    dimensions.extend(std::iter::repeat_n(
-        [width, height],
-        (layers - font_layers + 9) as usize,
+    planned.extend(std::iter::repeat_n(
+        ([width, height], UiTextureFormat::Rgba8),
+        (layers - font_layers) as usize,
     ));
-    UiTexturePlan::new(&dimensions).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    planned.extend((0..render_model::MAX_UI_DYNAMIC_PAGES).map(|offset| {
+        if offset >= render_model::UI_FALLBACK_FONT_PAGE_OFFSET {
+            return (
+                [render_model::UI_FALLBACK_FONT_PAGE_SIDE; 2],
+                UiTextureFormat::Coverage,
+            );
+        }
+        let side = if offset == render_model::UI_LOCAL_FONT_PAGE_OFFSET {
+            render_model::UI_LOCAL_FONT_PAGE_SIDE
+        } else {
+            width
+        };
+        ([side; 2], UiTextureFormat::Rgba8)
+    }));
+    planned.extend(std::iter::repeat_n(
+        ([render_model::UI_ART_PAGE_SIDE; 2], UiTextureFormat::Rgba8),
+        render_model::MAX_UI_ART_PAGES,
+    ));
+    UiTexturePlan::with_formats(&planned).map_err(|_| UiPresentationError::InvalidFontTexture)?;
     let total_bytes = layer_bytes * (layers - font_layers) as usize;
     let mut rgba8 = vec![0; total_bytes];
     let solid_start = 0;
@@ -330,12 +355,7 @@ pub(super) fn font_texture_array_with_hud_and_icons(
         None
     };
 
-    let mut pages = (0..font.pages().len())
-        .map(|index| {
-            UiTexturePage::font(Arc::clone(font), index)
-                .map_err(|_| UiPresentationError::InvalidFontTexture)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut pages = font_pages;
     for pixels in rgba8.chunks_exact(layer_bytes) {
         pages.push(
             UiTexturePage::owned([width, height], Arc::from(pixels))
@@ -346,6 +366,9 @@ pub(super) fn font_texture_array_with_hud_and_icons(
     let blank = UiTexturePage::owned([width, height], vec![0; layer_bytes].into())
         .map_err(|_| UiPresentationError::InvalidFontTexture)?;
     pages.extend((0..render_model::MAX_UI_DYNAMIC_PAGES).map(|offset| {
+        if offset >= render_model::UI_FALLBACK_FONT_PAGE_OFFSET {
+            return super::font_fallback::blank_page();
+        }
         if offset == render_model::UI_LOCAL_FONT_PAGE_OFFSET {
             super::mod_panel_font::blank_page()
         } else {

@@ -1,20 +1,20 @@
-# Native sparse inventory prediction
+# Sparse inventory prediction
 
 ## Vanilla rules
 
 | Rule | Behaviour |
 | --- | --- |
-| `SparseContainer::getItem` | Return the absolute sparse item when the cell is predicted; otherwise return its backing item. |
-| `SparseContainer::setItem` | Save the new sparse item and invoke the set listener. |
-| `SparseContainerSetListenerClient::postSetItem` | Stamp every changed item with the current typed request id, including an emptied item, and register its container with the request. |
-| `SparseContainerClient::_networkUpdateItem` | Update the backing container without rebasing or subtracting an active prediction. |
-| `ItemStackRequestActionHandler::_validateRequestSlot` | Resolve odd-negative request references through request-id, container-runtime-id, and requested-slot assignments. A request id is not a globally unique item identity. |
-| `ItemStackNetManagerClient::handleItemStackResponse` | Find the issued request across retained screens; skip unknown ids. Process each answer immediately. |
-| `SparseContainerClient::tryPushSlotPrediction` | Requested slot locates the sparse item; actual slot receives the correction. Validate amount/net-id pairing. A later owner selects the historic path. A missing sparse cell is skipped. |
-| `SparseContainerClient::_pushHistoricPredictionItem` | Correct backing using the request's historic item without removing the newer active prediction. |
-| `SparseContainerClient::clearAllPredictions` | Remove remaining active cells whose stamp is the answered request, not older or later owners. |
-| `ItemStackNetManagerClient::_clearPredictiveContainerRequest` | Remove the answered historic snapshot and clear that request's active sparse cells. |
-| `ItemStackNetManagerBase::onContainerScreenClose` | Retire the oldest retained screen after close acknowledgement. Its late replies no longer own a retained screen. |
+| Reading a cell | Return the absolute sparse item when the cell is predicted; otherwise return its backing item. |
+| Writing a cell | Save the new sparse item and notify the client set listener. |
+| Set listener | Stamp every changed item with the current typed request id, including an emptied item, and register its container with the request. |
+| Network update | Update the backing container without rebasing or subtracting an active prediction. |
+| Request slot validation | Resolve odd-negative request references through request-id, container-runtime-id, and requested-slot assignments. A request id is not a globally unique item identity. |
+| Response handling | Find the issued request across retained screens; skip unknown ids. Process each answer immediately. |
+| Slot correction | Requested slot locates the sparse item; actual slot receives the correction. Validate amount/net-id pairing. A later owner selects the historic path. A missing sparse cell is skipped. |
+| Historic correction | Correct backing using the request's historic item without removing the newer active prediction. |
+| Clearing predictions | Remove remaining active cells whose stamp is the answered request, not older or later owners. |
+| Request completion | Remove the answered historic snapshot and clear that request's active sparse cells. |
+| Screen close | Retire the oldest retained screen after close acknowledgement. Its late replies no longer own a retained screen. |
 
 The slot field formerly called `hotbar_slot` in our normalized response is the
 wire `requested_slot`; it is not a second hotbar address. Both addresses use the
@@ -36,7 +36,7 @@ carry that owner's negative request id. Replacing an owner preserves its histori
 snapshot but does not resurrect it when the newer owner is answered. Accepted
 corrections update backing data from the requested snapshot, never by replaying an
 operation against a pushed count. A nonempty reply to an emptied prediction uses
-the retained pre-empty item, matching native zeroed-out-item handling. Count/id
+the retained pre-empty item, matching vanilla zeroed-out-item handling. Count/id
 pair errors are counted skips. Well-framed negative response ids are retained for
 consumer validation rather than causing a protocol disconnect. Damage correction
 zero is authoritative too; it is not mistaken for an absent repair.
@@ -54,7 +54,7 @@ Focused behavior-contract tests cover drop push ordering, request-id/slot chaini
 split halves, sparse empty ownership, historic replies, missing active cells,
 requested-to-actual slot remapping, backing replacement, invalid count/id pairs,
 and the offhand sequence. Existing inventory tests were migrated from the old
-proxy delta contracts to the identified native contracts.
+proxy delta contracts to the identified vanilla contracts.
 
 Live acceptance on 2026-10-02 UTC used the canonical macOS/Metal build at
 Retina scale 2, offline loopback vanilla BDS (the server version pinned in
@@ -72,5 +72,5 @@ Real drop/pickup also passed through the separate
 [normal transaction receive path](inventory-normal-transactions.md).
 Existing bounded transport-pressure,
 timeout/refresh recovery, registry-change recovery, and multi-screen UI admission
-policies remain Cinnabar safety policies, not a claim that every native inventory
+policies remain Cinnabar safety policies, not a claim that every vanilla inventory
 manager lifecycle and arbitrary container has been reproduced.

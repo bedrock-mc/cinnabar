@@ -172,7 +172,7 @@ impl DataSource {
     }
 
     /// Answer the global a `grid_dimension_binding` named `name` (with its `#`)
-    /// binds, as `ScreenController::bindGridSize` does: a `[columns, rows]` array.
+    /// binds, as vanilla's screen controller does: a `[columns, rows]` array.
     pub fn set_grid_dimensions(&mut self, name: impl Into<String>, dimensions: [u32; 2]) {
         let [columns, rows] = dimensions;
         self.globals.insert(

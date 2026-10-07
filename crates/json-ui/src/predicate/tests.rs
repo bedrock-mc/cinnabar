@@ -90,7 +90,7 @@ fn predicates_over_variables() {
     assert_eq!(eval("($banner_text_binding_name = '')", &env()), Some(true));
 }
 
-// An unbound `$var` is null as in `UIEval::evalVariable`; with no bag a `#name`
+// An unbound `$var` is null as in vanilla; with no bag a `#name`
 // is undecidable.
 #[test]
 fn unbound_variable_is_null_and_bagless_binding_undecidable() {
@@ -164,6 +164,26 @@ fn numeric_types_follow_int32_and_float32() {
     assert_eq!(value("(1.5)"), Some(Scalar::Int(1)));
     assert_eq!(value("100%"), Some(Scalar::Int(100)));
     assert_eq!(value("(2147483647 + 1)"), Some(Scalar::Int(-2147483648)));
+}
+
+// A decimal with a leading digit types as its integer prefix (`0.01` is int 0);
+// only `.01` is a float. Int-by-int arithmetic, division included, stays integral.
+#[test]
+fn leading_digit_decimals_read_their_integer_prefix() {
+    let scope = bindings(&[("#f", Scalar::Num(250.0)), ("#i", Scalar::Int(7))]);
+    let eval = |expression| eval_scalar(expression, &env(), &scope);
+    assert_eq!(eval("(#f * 0.01)"), Some(Scalar::Num(0.0)));
+    assert_eq!(eval("(#f * .01)"), Some(Scalar::Num(2.5)));
+    assert_eq!(eval("(#i * 0.5)"), Some(Scalar::Int(0)));
+    assert_eq!(eval("(#i * 1.0)"), Some(Scalar::Int(7)));
+    assert_eq!(eval("(#i / 2)"), Some(Scalar::Int(3)));
+    assert_eq!(eval("(#i / 2.0)"), Some(Scalar::Int(3)));
+    assert_eq!(eval("(#i / .5)"), Some(Scalar::Num(14.0)));
+    assert_eq!(eval("(#f / 8)"), Some(Scalar::Num(31.25)));
+    assert_eq!(value("(10.25)"), Some(Scalar::Int(10)));
+    assert_eq!(value("(-0.5)"), Some(Scalar::Int(0)));
+    assert_eq!(value("(-1.5)"), Some(Scalar::Int(-1)));
+    assert_eq!(value("(-.25)"), Some(Scalar::Num(-0.25)));
 }
 
 // E14: numeric comparison is float32.

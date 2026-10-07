@@ -425,6 +425,8 @@ fn finalize_controllers(
                 transition_count: (output.transitions.len() as u32 - first_transition) as u16,
                 on_entry: state.on_entry,
                 on_exit: state.on_exit,
+                blend_transition: state.blend_transition,
+                blend_via_shortest_path: state.blend_via_shortest_path,
             });
         }
         let initial_state = *state_indices

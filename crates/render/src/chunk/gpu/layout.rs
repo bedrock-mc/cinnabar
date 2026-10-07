@@ -324,6 +324,13 @@ pub(in crate::chunk) fn begin_arena_migration(
     growth: ArenaGrowthPlan,
 ) {
     debug_assert!(arena.migration.is_none());
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "terrain.arena_allocate",
+        stream = stream.label(),
+        bytes = growth.new_capacity as u64 * stream.item_bytes(),
+    )
+    .entered();
     arena.migration = Some(ArenaMigration {
         stream,
         buffer: create_storage_buffer(
@@ -353,6 +360,14 @@ pub(in crate::chunk) fn advance_arena_migration(
         .min(allowance & !(wgpu::COPY_BUFFER_ALIGNMENT - 1));
     let (buffer, capacity) = migration.stream.buffer_and_capacity(arena);
     if slice > 0 {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "terrain.migration",
+            stream = migration.stream.label(),
+            bytes = slice,
+            offset = migration.copied_bytes,
+        )
+        .entered();
         let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("migrate packed chunk arena"),
         });
@@ -363,7 +378,12 @@ pub(in crate::chunk) fn advance_arena_migration(
             migration.copied_bytes,
             slice,
         );
-        render_queue.submit([encoder.finish()]);
+        let command = encoder.finish();
+        {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!("terrain.migration_submit", bytes = slice).entered();
+            render_queue.submit([command]);
+        }
         migration.copied_bytes += slice;
     }
     if migration.copied_bytes == migration.copy_bytes {
@@ -383,6 +403,9 @@ pub(in crate::chunk) fn write_geometry_stream_words(
     offset_bytes: u64,
     bytes: &[u8],
 ) {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("terrain.geometry_write", offset_bytes, bytes = bytes.len())
+        .entered();
     render_queue.write_buffer(&arena.geometry_stream_buffer, offset_bytes, bytes);
     if let Some(migration) = arena
         .migration
@@ -438,21 +461,4 @@ pub(in crate::chunk) fn plan_arena_growth(
         new_capacity,
         gpu_copy_bytes: buffer_byte_len(current_capacity, item_bytes),
     }))
-}
-
-pub(in crate::chunk) fn write_stream_records<T: bytemuck::Pod>(
-    render_queue: &RenderQueue,
-    buffer: &Buffer,
-    item_bytes: u64,
-    writes: Vec<(u32, Vec<T>)>,
-) {
-    for (offset, records) in writes {
-        if !records.is_empty() {
-            render_queue.write_buffer(
-                buffer,
-                u64::from(offset) * item_bytes,
-                bytemuck::cast_slice(&records),
-            );
-        }
-    }
 }

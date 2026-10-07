@@ -78,7 +78,9 @@ impl EquipmentRuntime {
             return false;
         };
         // Only single-bone models are placed; a hierarchy needs its parent chain composed.
-        let [pivot] = geometry.pivots[..] else {
+        let ([pivot], [has_binding_expression]) =
+            (&geometry.pivots[..], &geometry.binding_expressions[..])
+        else {
             return false;
         };
         let (Some(previous), Some(current)) = (
@@ -88,8 +90,8 @@ impl EquipmentRuntime {
             return false;
         };
         let (Some(previous), Some(current)) = (
-            attachable::attach(*previous, pivot, channels),
-            attachable::attach(*current, pivot, channels),
+            attachable::attach(*previous, *pivot, channels, *has_binding_expression),
+            attachable::attach(*current, *pivot, channels, *has_binding_expression),
         ) else {
             return false;
         };
@@ -197,7 +199,7 @@ impl EquipmentRuntime {
         body: &ActorRigSubmission,
         bones: &BodyBones,
         body_geometry: u32,
-        (slot, layer, stance): (ArmorSlot, u8, ElytraStance),
+        (slot, layer): (ArmorSlot, u8),
         item: &WornItem,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
@@ -207,8 +209,6 @@ impl EquipmentRuntime {
         let Some(binding) = catalog.binding(&item.identifier) else {
             return;
         };
-        let elytra_in_chest =
-            binding.category == EquipmentCategory::Elytra && slot == ArmorSlot::Chestplate;
         // A custom item's `minecraft:wearable` slot names where its attachable is worn.
         let category = match (binding.category, self.wearable_slot(&item.identifier)) {
             (EquipmentCategory::Elytra | EquipmentCategory::Shield, _) | (_, None) => {
@@ -216,7 +216,7 @@ impl EquipmentRuntime {
             }
             (_, Some(worn)) => EquipmentCategory::Armor { slot: worn },
         };
-        if category != (EquipmentCategory::Armor { slot }) && !elytra_in_chest {
+        if category != (EquipmentCategory::Armor { slot }) {
             return;
         }
         let Some(location) = self.texture_location(&binding.texture.identifier, from_pack) else {
@@ -226,38 +226,6 @@ impl EquipmentRuntime {
         else {
             return;
         };
-        if elytra_in_chest {
-            let Some(pose) = elytra::stance_pose(binding, stance.sneaking, stance.sleeping) else {
-                return;
-            };
-            let Some(body_index) = bones
-                .names
-                .iter()
-                .position(|name| name.eq_ignore_ascii_case("body"))
-            else {
-                return;
-            };
-            let (Some(previous), Some(current)) = (
-                body.input.previous_bones.get(body_index),
-                body.input.current_bones.get(body_index),
-            ) else {
-                return;
-            };
-            let (previous, current) = (
-                elytra::pose(&geometry.names, pose, *previous),
-                elytra::pose(&geometry.names, pose, *current),
-            );
-            let poses = self.poses.share(body, layer, [&previous, &current]);
-            layers.push(layer_presentation(
-                body,
-                layer,
-                geometry.rig,
-                poses,
-                location,
-                0,
-            ));
-            return;
-        }
         let map = Arc::clone(
             self.armor_maps
                 .entry((

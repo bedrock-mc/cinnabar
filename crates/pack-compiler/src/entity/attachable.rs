@@ -138,7 +138,7 @@ pub fn compile_item_use(behavior_pack: &Path) -> Result<Vec<ItemUseDuration>, As
         }
         let Some(item) = std::fs::read(&path)
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|bytes| parse_unique_json(&path, &bytes).ok())
             .and_then(|document| document.get("minecraft:item").cloned())
         else {
             continue;
@@ -207,11 +207,13 @@ pub fn compile_textures_with(
     compile_texture_identifiers_with(sources, identifiers, read)
 }
 
+/// Includes the shared enchantment raster alongside every requested equipment image.
 fn compile_texture_identifiers_with(
     sources: &[EntityAssetSource],
     mut identifiers: Vec<&str>,
     read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
 ) -> Result<Vec<EquipmentTexture>, AssetError> {
+    identifiers.push(assets::ACTOR_GLINT_TEXTURE_IDENTIFIER);
     identifiers.sort_unstable();
     identifiers.dedup();
     let mut textures = Vec::new();
@@ -295,7 +297,7 @@ fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
     if item_identifier == "minecraft:shield" || geometry == "geometry.shield" {
         return EquipmentCategory::Shield;
     }
-    if item_identifier == "minecraft:elytra" || geometry == "geometry.elytra" {
+    if item_identifier == "minecraft:elytra" || geometry == assets::ELYTRA_GEOMETRY_IDENTIFIER {
         return EquipmentCategory::Elytra;
     }
     let armor = |needle: &str| item_identifier.contains(needle) || geometry.contains(needle);
@@ -919,5 +921,32 @@ mod tests {
                 ("minecraft:iron_spear", 72000)
             ]
         );
+    }
+
+    /// Comments in a food's unrelated effects must not hide its use duration.
+    #[test]
+    fn item_use_durations_accept_commented_food_definitions() {
+        let root = tempfile::tempdir().unwrap();
+        let items = root.path().join("items");
+        std::fs::create_dir(&items).unwrap();
+        std::fs::write(
+            items.join("golden_apple.json"),
+            r#"{"minecraft:item":{
+                "description":{"identifier":"minecraft:golden_apple"},
+                "components":{
+                    "minecraft:use_duration":32,
+                    "minecraft:food":{
+                        "can_always_eat":true, /* Usable at full hunger. */
+                        "effects":[{"duration":120 // Seconds.
+                        }]
+                    }
+                }
+            }}"#,
+        )
+        .unwrap();
+        let durations = compile_item_use(root.path()).unwrap();
+        assert_eq!(durations.len(), 1);
+        assert_eq!(durations[0].identifier.as_ref(), "minecraft:golden_apple");
+        assert_eq!(durations[0].ticks, 32);
     }
 }

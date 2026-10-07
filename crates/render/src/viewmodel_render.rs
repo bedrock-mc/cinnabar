@@ -107,10 +107,11 @@ pub(crate) fn install_hand_graph(world: &mut World) {
     if graph.get_node_state(HandLabel).is_err() {
         graph.add_node(HandLabel, runner);
     }
+    // Inside the main pass, so FXAA smooths the hand before the HUD composites over it.
     graph.add_node_edges((
         crate::ui_render::UiWorldLabel,
         HandLabel,
-        crate::ui_render::UiOverlayLabel,
+        bevy::core_pipeline::core_3d::graph::Node3d::EndMainPass,
     ));
 }
 
@@ -569,9 +570,15 @@ fn submit_completion(
             .finish();
         let callback = gate.clone();
         command.on_submitted_work_done(move || {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!("viewmodel.completion_callback").entered();
             callback.complete(reservation);
         });
-        queue.submit([command]);
+        {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!("viewmodel.completion_submit").entered();
+            queue.submit([command]);
+        }
         ViewmodelCompletionGate::observe_stage(4, 1, token);
     } else {
         ViewmodelCompletionGate::observe_stage(
@@ -580,6 +587,8 @@ fn submit_completion(
             token.or(gpu.token),
         );
     }
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("viewmodel.completion_poll").entered();
     if let Err(error) = device.poll(PollType::Poll) {
         ViewmodelCompletionGate::observe_stage(4, 4, token);
         if let Some(token) = token {

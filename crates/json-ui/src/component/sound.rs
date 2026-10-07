@@ -1,5 +1,4 @@
-//! The sound component (`UIControlFactory::_populateSoundComponent`,
-//! `SoundComponent::receive`): a shorthand sound for every interacted button
+//! The sound component: a shorthand sound for every interacted button
 //! event, plus `sounds[]` entries filtered by button and replay interval.
 
 use serde_json::Value;

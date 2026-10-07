@@ -18,15 +18,18 @@ use valentine::{
 
 use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 
+pub(crate) mod identifiers;
 mod skin;
+pub use identifiers::{ActorIdentifier, ActorIdentifierRegistry, MAX_ACTOR_IDENTIFIERS};
 mod skin_update;
 pub(crate) use skin_update::normalize_skin_update;
 mod status;
 use skin::normalize_player_skin;
 pub use skin::{
-    CLASSIC_SKIN_SIDE, CapeImage, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS,
-    MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable, SkinAnimation,
-    SkinAnimationKind, SkinGeometrySource, SkinRgba8, StandardSkin, expand_legacy_skin_rgba8,
+    CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage, MAX_CLASSIC_SKIN_SIDE,
+    MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable,
+    SkinAnimation, SkinAnimationKind, SkinGeometrySource, SkinRgba8, StandardSkin,
+    expand_legacy_skin_rgba8, normalize_classic_skin_rgba8,
 };
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{
@@ -157,7 +160,17 @@ pub struct ActorMoveEvent {
     pub teleported: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
     pub source_tick: Option<u64>,
+    pub interpolation: ActorInterpolation,
 }
+
+/// Server-requested actor movement duration and completion ordering.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActorInterpolation {
+    pub ticks: u64,
+    pub force_completion: bool,
+}
+
+const MOVE_FORCE_COMPLETION: u8 = 1 << 3;
 
 /// Coordinate space carried by an actor movement position.
 ///
@@ -258,13 +271,21 @@ pub struct PlayerListUpdateEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ActorEvent {
+    Identifiers(ActorIdentifierRegistry),
     Spawn(ActorSpawnEvent),
+    PlayerSpawn {
+        spawn: ActorSpawnEvent,
+        game_mode: crate::GameModeUpdate,
+    },
     Remove(ActorRemoveEvent),
     Move(ActorMoveEvent),
     Metadata(ActorMetadataUpdateEvent),
     Attributes(ActorAttributesUpdateEvent),
     PlayerList(PlayerListUpdateEvent),
-    Skin { uuid: [u8; 16], skin: PlayerSkin },
+    Skin {
+        uuid: [u8; 16],
+        skin: PlayerSkin,
+    },
     Status(ActorStatusEvent),
     TakeItem(ActorTakeItemEvent),
 }
@@ -385,32 +406,36 @@ pub(crate) fn normalize_add_player(
     let properties = normalize_properties(packet.synched_properties)?;
     let held_item = normalize_item(packet.carried_item)?;
     let links = normalize_actor_links(packet.actor_links, dimension)?;
-    Ok(ActorEvent::Spawn(ActorSpawnEvent {
-        dimension,
-        // AddPlayer carries no standalone unique ID; the spawned player's unique
-        // ID is the first field of the embedded ability data. Protocol 1001's
-        // prismarine schema flattened that block, which is why the old code read
-        // a top-level `unique_id`. gophertunnel
-        // be6713da4dc051a4197f897d04835e89e9c54321
-        // `minecraft/protocol/ability.go`: `AbilityData.EntityUniqueID`.
-        unique_id: packet.abilities_data.target_player_raw_id,
-        runtime_id: packet.target_runtime_id.actor_runtime_id,
-        kind: ActorKind::Player {
-            uuid: *packet.uuid.as_bytes(),
-            username: Arc::from(packet.player_name),
+    let game_mode = crate::PlayerGameMode::update_from_game_mode(packet.player_game_type);
+    Ok(ActorEvent::PlayerSpawn {
+        game_mode,
+        spawn: ActorSpawnEvent {
+            dimension,
+            // AddPlayer carries no standalone unique ID; the spawned player's unique
+            // ID is the first field of the embedded ability data. Protocol 1001's
+            // prismarine schema flattened that block, which is why the old code read
+            // a top-level `unique_id`. gophertunnel
+            // be6713da4dc051a4197f897d04835e89e9c54321
+            // `minecraft/protocol/ability.go`: `AbilityData.EntityUniqueID`.
+            unique_id: packet.abilities_data.target_player_raw_id,
+            runtime_id: packet.target_runtime_id.actor_runtime_id,
+            kind: ActorKind::Player {
+                uuid: *packet.uuid.as_bytes(),
+                username: Arc::from(packet.player_name),
+            },
+            position: [packet.position.x, packet.position.y, packet.position.z],
+            velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
+            pitch,
+            yaw,
+            head_yaw: packet.y_head_rotation,
+            body_yaw: yaw,
+            held_item,
+            metadata,
+            attributes: Arc::from([]),
+            properties,
+            links,
         },
-        position: [packet.position.x, packet.position.y, packet.position.z],
-        velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
-        pitch,
-        yaw,
-        head_yaw: packet.y_head_rotation,
-        body_yaw: yaw,
-        held_item,
-        metadata,
-        attributes: Arc::from([]),
-        properties,
-        links,
-    }))
+    })
 }
 
 pub(crate) const fn normalize_remove_entity(
@@ -455,6 +480,10 @@ pub(crate) fn normalize_move_entity(
         teleported: move_data.header & 2 != 0,
         player_mode: None,
         source_tick: None,
+        interpolation: ActorInterpolation {
+            force_completion: move_data.header & MOVE_FORCE_COMPLETION != 0,
+            ..Default::default()
+        },
     }))
 }
 
@@ -507,6 +536,10 @@ pub(crate) fn normalize_move_entity_body(
         teleported: flags & 2 != 0,
         player_mode: None,
         source_tick: None,
+        interpolation: ActorInterpolation {
+            force_completion: flags & MOVE_FORCE_COMPLETION != 0,
+            ..Default::default()
+        },
     }))
 }
 
@@ -532,8 +565,7 @@ pub(crate) fn normalize_move_entity_delta(
             move_data.new_position_y,
             move_data.new_position_z,
         ],
-        // `MoveActorDeltaData::parseDeltas` merges into the previous absolute
-        // data, so deltas share the absolute network origin.
+        // Partial movement retains the same coordinate origin as absolute movement.
         position_origin: ActorPositionOrigin::NetworkOffset,
         pitch: move_data.rotation_x.map(signed_byte_rotation_degrees),
         yaw: move_data.rotation_y.map(signed_byte_rotation_degrees),
@@ -549,6 +581,10 @@ pub(crate) fn normalize_move_entity_delta(
         teleported: move_data.force_move,
         player_mode: None,
         source_tick: None,
+        interpolation: ActorInterpolation {
+            ticks: move_data.ticks,
+            force_completion: move_data.force_completion,
+        },
     }))
 }
 

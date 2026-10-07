@@ -62,6 +62,57 @@ pub fn nearest_lattice_points(coordinate: [i32; 3]) -> [([i32; 3], f32); LATTICE
     selected
 }
 
+/// Shader query kernel: FXC copies a const array through a by-value constructor, so one flat
+/// 2744-entry table overflows its 4096 temp registers; these two stay far below it.
+pub(crate) struct QueryTables {
+    /// Per residue, the nearest points' 3x3x3 stencil indices in blend order, one byte each.
+    pub(crate) stencils: Vec<[u32; 2]>,
+    /// Blend weights, keyed by the residue's per-axis magnitude; reflecting an axis keeps them.
+    pub(crate) weights: Vec<[f32; LATTICE_QUERY_POINTS]>,
+}
+
+const _: () = assert!(
+    LATTICE_QUERY_POINTS == 8,
+    "stencils pack four bytes per word"
+);
+const MAGNITUDE_SIDE: usize = BIOME_RESIDUE_RADIUS as usize + 1;
+
+pub(crate) fn query_tables() -> QueryTables {
+    let mut stencils = Vec::new();
+    let mut weights: Vec<Option<[f32; LATTICE_QUERY_POINTS]>> =
+        vec![None; MAGNITUDE_SIDE * MAGNITUDE_SIDE * MAGNITUDE_SIDE];
+    let radius = -BIOME_RESIDUE_RADIUS..=BIOME_RESIDUE_RADIUS;
+    for x in radius.clone() {
+        for y in radius.clone() {
+            for z in radius.clone() {
+                let points = nearest_lattice_points([x, y, z].map(|v| v + BIOME_CACHE_ORIGIN));
+                let mut words = [0; 2];
+                for (point, (position, _)) in points.iter().enumerate() {
+                    let [dx, dy, dz] = position
+                        .map(|v| ((v - BIOME_CACHE_ORIGIN) / BIOME_LATTICE_STEP + 1) as u32);
+                    words[point / 4] |= (dx * 9 + dy * 3 + dz) << (point % 4 * 8);
+                }
+                stencils.push(words);
+                let [mx, my, mz] = [x, y, z].map(|v| v.unsigned_abs() as usize);
+                let slot = &mut weights[(mx * MAGNITUDE_SIDE + my) * MAGNITUDE_SIDE + mz];
+                let these = points.map(|(_, weight)| weight);
+                assert!(
+                    slot.is_none_or(|known| known.map(f32::to_bits) == these.map(f32::to_bits)),
+                    "blend weights must not depend on residue sign",
+                );
+                *slot = Some(these);
+            }
+        }
+    }
+    QueryTables {
+        stencils,
+        weights: weights
+            .into_iter()
+            .map(|w| w.expect("every magnitude occurs"))
+            .collect(),
+    }
+}
+
 impl PackedBiomeRecord {
     /// Counts 27 biomes at each lattice point and retains the four most frequent.
     pub(crate) fn build_lattice(&mut self) {
@@ -170,23 +221,25 @@ pub fn shader_source(source: &str) -> String {
         LATTICE_QUERY_POINTS,
         BIOME_QUERY_SIDE,
     );
-    let queries = (-BIOME_RESIDUE_RADIUS..=BIOME_RESIDUE_RADIUS).flat_map(|x| {
-        (-BIOME_RESIDUE_RADIUS..=BIOME_RESIDUE_RADIUS).flat_map(move |y| {
-            (-BIOME_RESIDUE_RADIUS..=BIOME_RESIDUE_RADIUS)
-                .map(move |z| [x, y, z].map(|v| v + BIOME_CACHE_ORIGIN))
-        })
-    });
-    let points = queries.flat_map(nearest_lattice_points).collect::<Vec<_>>();
+    let tables = query_tables();
     constants.push_str(&format!(
-        "const BIOME_POINTS = array<vec4<f32>, {}>(\n",
-        points.len()
+        "const BIOME_QUERY_STENCILS = array<vec2<u32>, {}>(\n",
+        tables.stencils.len()
     ));
-    for (position, weight) in points {
-        let position = position.map(|v| v - BIOME_CACHE_ORIGIN);
-        constants.push_str(&format!(
-            "vec4<f32>({}.0, {}.0, {}.0, {:?}),\n",
-            position[0], position[1], position[2], weight
-        ));
+    for [low, high] in tables.stencils {
+        constants.push_str(&format!("vec2<u32>({low}u, {high}u),\n"));
+    }
+    constants.push_str(&format!(
+        ");\nconst BIOME_QUERY_WEIGHTS = array<vec4<f32>, {}>(\n",
+        tables.weights.len() * 2
+    ));
+    for weights in tables.weights {
+        for half in weights.chunks_exact(4) {
+            constants.push_str(&format!(
+                "vec4<f32>({:?}, {:?}, {:?}, {:?}),\n",
+                half[0], half[1], half[2], half[3]
+            ));
+        }
     }
     constants.push_str(");\n");
     let permutation = assets::grass_noise_permutation();
@@ -215,4 +268,30 @@ pub fn shader_source(source: &str) -> String {
             .join(",")
     ));
     source.replace("// BIOME_CONSTANTS", &constants)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The shader's compact query tables must reproduce the CPU kernel's points, order and bits.
+    #[test]
+    fn query_tables_decode_to_the_exact_cpu_kernel() {
+        let tables = query_tables();
+        let side = BIOME_RESIDUE_SIDE as usize;
+        for (query, words) in tables.stencils.iter().enumerate() {
+            let residue = [query / (side * side), query / side % side, query % side]
+                .map(|v| v as i32 - BIOME_RESIDUE_RADIUS);
+            let expected = nearest_lattice_points(residue.map(|v| v + BIOME_CACHE_ORIGIN));
+            let [mx, my, mz] = residue.map(|v| v.unsigned_abs() as usize);
+            let weights = tables.weights[(mx * MAGNITUDE_SIDE + my) * MAGNITUDE_SIDE + mz];
+            for (point, (position, weight)) in expected.into_iter().enumerate() {
+                let cell = (words[point / 4] >> (point % 4 * 8)) & 0xff;
+                let offset = [cell / 9, cell / 3 % 3, cell % 3]
+                    .map(|v| (v as i32 - 1) * BIOME_LATTICE_STEP + BIOME_CACHE_ORIGIN);
+                assert_eq!(offset, position, "residue {residue:?} point {point}");
+                assert_eq!(weights[point].to_bits(), weight.to_bits());
+            }
+        }
+    }
 }

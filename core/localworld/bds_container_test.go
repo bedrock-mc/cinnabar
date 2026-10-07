@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -252,5 +254,236 @@ func TestPullProgressCountsLayers(t *testing.T) {
 	}
 	if done != 2 || total != 3 {
 		t.Fatalf("progress = %d/%d", done, total)
+	}
+}
+
+func writeExecutable(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A Finder-launched app's PATH has no Docker folder, so the CLI must be found in its install folders.
+func TestFindDockerSearchesInstallFoldersOutsidePATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("install folders are Unix paths")
+	}
+	t.Setenv("PATH", t.TempDir())
+	home := t.TempDir()
+	dirs := dockerDirs(home)
+	for _, want := range []string{filepath.Join(home, ".orbstack", "bin"), filepath.Join(home, ".docker", "bin"), "/opt/homebrew/bin", "/Applications/Docker.app/Contents/Resources/bin"} {
+		if !slices.Contains(dirs, want) {
+			t.Fatalf("dockerDirs = %v, missing %s", dirs, want)
+		}
+	}
+	notExec, orb := filepath.Join(home, "a"), filepath.Join(home, ".orbstack", "bin")
+	writeExecutable(t, filepath.Join(notExec, "docker"), 0o600)
+	writeExecutable(t, filepath.Join(orb, "docker"), 0o700)
+	if got, ok := findDocker("docker", []string{filepath.Join(home, "missing"), notExec, orb}); !ok || got != filepath.Join(orb, "docker") {
+		t.Fatalf("findDocker = %q, %v", got, ok)
+	}
+	if _, ok := findDocker("docker", []string{notExec}); ok {
+		t.Fatal("a non-executable file must not count as docker")
+	}
+	if _, ok := findDocker(filepath.Join(home, "nope", "docker"), []string{orb}); ok {
+		t.Fatal("an explicit path must not fall back to the install folders")
+	}
+}
+
+// Docker shells out to credential helpers next to it, so its folder leads the child's PATH.
+func TestDockerCommandRunsAbsolutePathWithItsFolderOnPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("install folders are Unix paths")
+	}
+	t.Setenv("PATH", "/nonexistent")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeExecutable(t, filepath.Join(home, ".orbstack", "bin", "docker"), 0o700)
+	cmd := dockerCommand(context.Background(), "docker", nil, "info")
+	if !filepath.IsAbs(cmd.Path) {
+		t.Fatalf("docker path = %q, want absolute", cmd.Path)
+	}
+	path := envValue(cmd.Env, "PATH")
+	if first, _, _ := strings.Cut(path, string(os.PathListSeparator)); first != filepath.Dir(cmd.Path) || !strings.HasSuffix(path, "/nonexistent") {
+		t.Fatalf("PATH = %q for %s", path, cmd.Path)
+	}
+}
+
+// probeGate holds each runtime detection until the test answers it.
+type probeGate struct{ calls chan chan RuntimeInfo }
+
+func newProbeGate() *probeGate { return &probeGate{calls: make(chan chan RuntimeInfo, 4)} }
+
+func (g *probeGate) detect(context.Context) RuntimeInfo {
+	reply := make(chan RuntimeInfo)
+	g.calls <- reply
+	return <-reply
+}
+
+func (g *probeGate) next(t *testing.T) chan<- RuntimeInfo {
+	t.Helper()
+	select {
+	case reply := <-g.calls:
+		return reply
+	case <-time.After(5 * time.Second):
+		t.Fatal("no detection started")
+		return nil
+	}
+}
+
+var (
+	dockerUp   = RuntimeInfo{Kind: RuntimeContainer, Reason: "docker up"}
+	dockerDown = RuntimeInfo{Kind: RuntimeNone, Reason: "down", Unavailable: "docker_not_running"}
+)
+
+// pendingManager is a macOS manager whose startup detection is held by the returned gate.
+func pendingManager(t *testing.T) (*Manager, *Provisioner, *probeGate) {
+	t.Helper()
+	gate := newProbeGate()
+	store := newTestStore(t)
+	store.SetDefaultBackend(BackendBDS) // core's optimistic default while the probe runs
+	p := &Provisioner{Root: t.TempDir(), goos: "darwin", goarch: "arm64"}
+	p.SetDetector(gate.detect)
+	m := NewManager(store, Runners{}, nil)
+	m.SetSetup(p)
+	m.SetAutoBackend(true)
+	p.DetectInBackground(RuntimeInfo{Kind: RuntimeContainer, Reason: "checking"})
+	return m, p, gate
+}
+
+func awaitSettled(t *testing.T, p *Provisioner) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.AwaitRuntime(ctx); err != nil {
+		t.Fatal("detection never settled")
+	}
+}
+
+// Core startup must not wait on `docker info`: prefs report checking_runtime until it lands, then the
+// unavailable reason the launcher polls for.
+func TestDetectInBackgroundReportsCheckingThenResult(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	if _, err := m.Prefs(context.Background(), PrefsUpdate{}); err != nil {
+		t.Fatal(err)
+	}
+	if st := m.Status(); st.Setup.State != SetupCheckingRuntime || st.Setup.Runtime != RuntimeContainer || st.BackendUnavailableReason != "" {
+		t.Fatalf("while probing = %+v", st.Setup)
+	}
+	gate.next(t) <- dockerDown
+	awaitSettled(t, p)
+	if st := m.Status(); st.Setup.State != SetupUnsupported || st.BackendUnavailableReason != "docker_not_running" {
+		t.Fatalf("after probe = %+v", st.Setup)
+	}
+}
+
+// A world created while the probe runs takes the backend the probe settles on, never the optimistic guess.
+func TestCreateDuringPendingDetectionWaitsForTheResult(t *testing.T) {
+	m, _, gate := pendingManager(t)
+	reply := gate.next(t)
+	created := make(chan World, 1)
+	go func() {
+		world, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat})
+		if err != nil {
+			t.Error(err)
+		}
+		created <- world
+	}()
+	select {
+	case <-created:
+		t.Fatal("Create returned before detection settled")
+	case <-time.After(50 * time.Millisecond):
+	}
+	reply <- dockerDown
+	select {
+	case world := <-created:
+		if world.Backend != BackendDragonfly {
+			t.Fatalf("flat world saved for %q", world.Backend)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Create never returned")
+	}
+	if world, err := m.Create(Spec{Name: "normal"}); err != nil || world.Backend != BackendDragonfly {
+		t.Fatalf("normal Dragonfly world without Docker: %+v, %v", world, err)
+	}
+}
+
+// A probe that outlasts the wait refuses the create instead of saving a guess.
+func TestCreateRefusesWhileDetectionOutlastsTheWait(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	m.runtimeWait = 20 * time.Millisecond
+	reply := gate.next(t)
+	if _, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat}); !errors.Is(err, ErrRuntimePending) {
+		t.Fatalf("err = %v", err)
+	}
+	if worlds, _ := m.List(); len(worlds) != 0 {
+		t.Fatalf("saved %v while detection was pending", worlds)
+	}
+	reply <- dockerUp
+	awaitSettled(t, p)
+}
+
+// A slow startup probe that lands after a newer Retry must not replace the Retry's result.
+func TestOverlappingRedetectKeepsTheNewestResult(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	startup := gate.next(t)
+	retried := make(chan struct{})
+	go func() {
+		if _, err := m.Prefs(context.Background(), PrefsUpdate{Redetect: true}); err != nil {
+			t.Error(err)
+		}
+		close(retried)
+	}()
+	gate.next(t) <- dockerUp
+	<-retried
+	startup <- dockerDown
+	awaitSettled(t, p)
+	if st := m.Status(); st.Setup.Runtime != RuntimeContainer || st.BackendUnavailableReason != "" {
+		t.Fatalf("stale startup result won: %+v", st.Setup)
+	}
+	if world, err := m.Create(Spec{Name: "normal"}); err != nil || world.Backend != BackendBDS {
+		t.Fatalf("world = %+v, %v", world, err)
+	}
+}
+
+// A Flat world asks for Dragonfly outright, which no Docker probe can change, so it never waits on one.
+func TestExplicitDragonflyCreateSkipsPendingDetection(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	m.runtimeWait = time.Minute
+	reply := gate.next(t)
+	created := make(chan error, 1)
+	go func() {
+		_, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat, Backend: BackendDragonfly})
+		created <- err
+	}()
+	select {
+	case err := <-created:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("explicit Dragonfly create waited on the Docker probe")
+	}
+	reply <- dockerUp
+	awaitSettled(t, p)
+}
+
+// With Docker down and no Dragonfly binary, nothing can host the fallback, so Create refuses and saves nothing.
+func TestCreateRefusesTheFallbackWhenItsServerIsMissing(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	m.SetUnavailable(BackendDragonfly, errors.New("local world server binary not found"))
+	gate.next(t) <- dockerDown
+	awaitSettled(t, p)
+	for _, spec := range []Spec{{Name: "auto", Generator: GeneratorFlat}, {Name: "explicit", Generator: GeneratorFlat, Backend: BackendDragonfly}} {
+		if _, err := m.Create(spec); !errors.Is(err, ErrBackendUnavailable) {
+			t.Fatalf("%s: err = %v", spec.Name, err)
+		}
+	}
+	if worlds, _ := m.List(); len(worlds) != 0 {
+		t.Fatalf("saved unopenable worlds %v", worlds)
 	}
 }

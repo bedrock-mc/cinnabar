@@ -39,6 +39,13 @@ pub fn settings_view() -> MenuView {
     view
 }
 
+/// Resolves a settings selector using the production section map.
+pub fn settings_section_index(variable: &str) -> Option<u8> {
+    super::menu_screens::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == variable).then_some(*index))
+}
+
 /// Renders an offline menu fixture with the requested retained-frame state.
 pub fn snapshot_menu(player_runtime: &player_state::PlayerState, view: &MenuView, name: &str) {
     snapshot_menu_at(player_runtime, view, name, 0);
@@ -116,10 +123,12 @@ pub fn snapshot_menu_with_catalog(
     ));
     presentation.finish_menu_artwork();
     let dpi = DpiScale::new(2.0).unwrap();
-    for _ in 0..warm {
+    // Warm frames run up to `now_millis` so screen entry animations have played.
+    for frame in 0..warm {
+        let at = now_millis.saturating_sub(((warm - frame) as u64) * 1_000);
         presentation.set_menu_view(Some(view.clone()));
         presentation
-            .build(player_runtime, &runtime, now_millis, [2560, 1440], dpi)
+            .build(player_runtime, &runtime, at, [2560, 1440], dpi)
             .unwrap();
         if warm > 2 {
             std::thread::sleep(std::time::Duration::from_millis(50));

@@ -1,7 +1,5 @@
 //! Native liquid winding, using real packed faces and the production fragments.
-#[path = "../../src/chunk/constants.rs"]
-#[allow(dead_code, reason = "reuse the production quad index order")]
-mod chunk_constants;
+use crate::chunk_constants;
 use crate::gpu_snapshot;
 use crate::shader_source;
 

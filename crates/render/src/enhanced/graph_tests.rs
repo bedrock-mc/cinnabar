@@ -1,5 +1,15 @@
-use super::*;
-use bevy::render::render_graph::EmptyNode;
+use super::{
+    depth::EnhancedDepthLabel,
+    graph::{EnhancedHandLabel, EnhancedHandRigLabel, install_graph},
+    post::{EnhancedLightingLabel, EnhancedPostLabel, EnhancedSkyLabel},
+    shadows::EnhancedShadowLabel,
+    snapshot::EnhancedSnapshotLabel,
+    *,
+};
+use bevy::{
+    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    render::render_graph::{EmptyNode, RenderGraph, RenderLabel},
+};
 use std::collections::HashSet;
 
 /// Checks graph reachability without looping on a cycle.
@@ -39,6 +49,8 @@ fn enhanced_views_bloom_and_grade_the_world_before_hand_and_ui() {
         Node3d::Bloom,
         Node3d::MotionBlur,
         Node3d::Tonemapping,
+        Node3d::EndMainPassPostProcessing,
+        Node3d::Upscaling,
     ] {
         core.add_node(label, EmptyNode);
     }
@@ -50,6 +62,8 @@ fn enhanced_views_bloom_and_grade_the_world_before_hand_and_ui() {
         Node3d::StartMainPassPostProcessing,
         Node3d::Bloom,
         Node3d::Tonemapping,
+        Node3d::EndMainPassPostProcessing,
+        Node3d::Upscaling,
     ));
     core.add_node_edges((
         Node3d::StartMainPassPostProcessing,
@@ -65,15 +79,15 @@ fn enhanced_views_bloom_and_grade_the_world_before_hand_and_ui() {
         Node3d::MainTransparentPass,
         UiWorldLabel,
         HandLabel,
-        UiOverlayLabel,
         Node3d::EndMainPass,
     ));
-    core.add_node_edges((UiWorldLabel, HandRigLabel, UiOverlayLabel));
+    core.add_node_edges((UiWorldLabel, HandRigLabel, Node3d::EndMainPass));
     let mut graphs = RenderGraph::default();
     graphs.add_sub_graph(Core3d, core);
     let mut world = World::new();
     world.insert_resource(graphs);
 
+    install_overlay_graph(&mut world);
     install_graph(&mut world);
 
     let graph = world
@@ -102,14 +116,19 @@ fn enhanced_views_bloom_and_grade_the_world_before_hand_and_ui() {
     assert!(reaches(graph, Node3d::Bloom, EnhancedPostLabel));
     assert!(!reaches(graph, EnhancedPostLabel, Node3d::Bloom));
     assert!(!reaches(graph, EnhancedPostLabel, Node3d::EndMainPass));
-    for post in [
-        EnhancedHandLabel.intern(),
-        EnhancedHandRigLabel.intern(),
-        overlay::UiOverlayPostLabel.intern(),
-    ] {
+    for post in [EnhancedHandLabel.intern(), EnhancedHandRigLabel.intern()] {
         assert!(reaches(graph, EnhancedPostLabel, post), "{post:?}");
         assert!(reaches(graph, post, Node3d::Tonemapping), "{post:?}");
     }
+    // The HUD composites after every post-process, FXAA included, and before the output.
+    let hud = overlay::UiOverlayPostLabel;
+    assert!(reaches(graph, EnhancedPostLabel, hud.clone()));
+    assert!(reaches(
+        graph,
+        Node3d::EndMainPassPostProcessing,
+        hud.clone()
+    ));
+    assert!(reaches(graph, hud, Node3d::Upscaling));
     assert!(reaches(
         graph,
         EnhancedHandLabel,

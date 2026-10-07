@@ -3,8 +3,8 @@
 use protocol::PLAYER_NETWORK_OFFSET;
 use sim::MovementMode;
 
-// VanillaOffsetSystem dispatcher selects the
-// current-game-version 0x3eb33333 drop. The older-version branch is not our target.
+// The current game version drops the eye by 0x3eb33333 (0.35 f32) when
+// crouching; the older-version drop is not our target.
 const CROUCH_EYE_DROP: f32 = 0.35;
 // Horizontal poses use this eye height on each client tick.
 const HORIZONTAL_POSE_EYE_HEIGHT: f32 = 0.4;

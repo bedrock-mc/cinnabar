@@ -46,6 +46,7 @@ fn shared_controller_graph() -> CompiledEntityAssets {
             transition_count: 0,
             on_entry: None,
             on_exit: None,
+            ..Default::default()
         })
         .collect();
     compiled.controller_animations = [

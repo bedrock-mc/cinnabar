@@ -32,6 +32,9 @@ fn node_at_mut<'n>(root: &'n mut Node, path: &[usize]) -> &'n mut Node {
 
 /// Every view binding, as `(control path, binding index)`, in tree order.
 fn views(node: &Node, path: &mut Path, out: &mut Vec<(Path, usize)>) {
+    if node.track.quiet() && !node.track.views_below {
+        return;
+    }
     for (index, binding) in node.bindings.iter().enumerate() {
         if matches!(binding.kind, Kind::View { .. }) {
             out.push((path.clone(), index));
@@ -133,6 +136,7 @@ impl Binder<'_> {
         for child in &mut node.children {
             expanded |= self.expand_named(child, name);
         }
+        node.track.dirty |= expanded;
         expanded
     }
 
@@ -248,10 +252,12 @@ impl Binder<'_> {
         let first = node.memory.once.insert(index);
         let registered = node.memory.views.contains_key(&index);
         let mut wrote = false;
+        node.track.touched |= first;
         if source.is_some() {
             let fire = observed.is_some() && node.memory.views.get(&index) != Some(&observed);
             if !registered || node.memory.views.get(&index) != Some(&observed) {
                 node.memory.views.insert(index, observed.clone());
+                node.track.touched = true;
             }
             if let (true, Some(value)) = (fire, observed) {
                 wrote = node.own.get(target) != Some(&value);

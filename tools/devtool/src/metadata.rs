@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, path::PathBuf};
 
 use serde::Deserialize;
 
-use crate::{DevtoolError, Package};
+use crate::{DevtoolError, GoModule, Package, selection::normalize};
 
 #[derive(Deserialize)]
 struct Metadata {
@@ -75,10 +75,86 @@ pub fn packages_from_metadata(json: &str) -> Result<Vec<Package>, DevtoolError> 
         .collect()
 }
 
+/// Returns the module of each `go.mod` path, marking those `go.work` lists.
+#[must_use]
+pub fn go_modules(go_mod_paths: &[&str], go_work: Option<&str>) -> Vec<GoModule> {
+    let workspace = go_work.map(go_work_uses).unwrap_or_default();
+    let mut modules: Vec<_> = go_mod_paths
+        .iter()
+        .filter_map(|path| {
+            let path = normalize(path);
+            let dir = if path == "go.mod" {
+                ""
+            } else {
+                path.strip_suffix("/go.mod")?
+            };
+            Some(GoModule::new(dir, workspace.contains(dir)))
+        })
+        .collect();
+    modules.sort();
+    modules
+}
+
+/// Module directories named by `use` directives, single or block form.
+fn go_work_uses(go_work: &str) -> BTreeSet<String> {
+    let mut uses = BTreeSet::new();
+    let mut in_block = false;
+    for line in go_work.lines() {
+        let line = line.split("//").next().unwrap_or_default().trim();
+        let entry = if in_block {
+            if line == ")" {
+                in_block = false;
+                continue;
+            }
+            line
+        } else if let Some(rest) = line.strip_prefix("use") {
+            let rest = rest.trim();
+            if rest == "(" {
+                in_block = true;
+                continue;
+            }
+            rest
+        } else {
+            continue;
+        };
+        let dir = normalize(entry.trim_matches('"'));
+        if !dir.is_empty() {
+            uses.insert(if dir == "." { String::new() } else { dir });
+        }
+    }
+    uses
+}
+
 #[cfg(test)]
 mod tests {
-    use super::packages_from_metadata;
-    use crate::{Selection, TestRunner, select_packages, verification_commands};
+    use super::{go_modules, packages_from_metadata};
+    use crate::{GoModule, Selection, TestRunner, select_packages, verification_commands};
+
+    #[test]
+    fn go_work_marks_its_modules_and_leaves_others_standalone() {
+        let go_work = "go 1.26.1\n\nuse (\n\t./core // client core\n\t\"./tools/registrygen\"\n)\nuse ./tools/fixturegen\n";
+        assert_eq!(
+            go_modules(
+                &[
+                    "tools/localserver/go.mod",
+                    "core/go.mod",
+                    "tools/registrygen/go.mod",
+                    "tools/fixturegen/go.mod",
+                ],
+                Some(go_work)
+            ),
+            vec![
+                GoModule::new("core", true),
+                GoModule::new("tools/fixturegen", true),
+                GoModule::new("tools/localserver", false),
+                GoModule::new("tools/registrygen", true),
+            ]
+        );
+        assert_eq!(
+            go_modules(&["core/go.mod"], None),
+            vec![GoModule::new("core", false)]
+        );
+    }
 
     /// The nextest supplement honors Cargo target metadata and the affected-package selection.
     #[test]

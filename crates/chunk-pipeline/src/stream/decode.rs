@@ -2,6 +2,8 @@ use super::*;
 
 impl WorldStream {
     pub(super) fn accept_decode_completion(&mut self, completion: DecodeCompletion) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("decode.completion").entered();
         self.stats.phase2_stages.decode_jobs_completed = self
             .stats
             .phase2_stages
@@ -53,6 +55,8 @@ impl WorldStream {
             .collect()
     }
     pub(super) fn dispatch_decode_jobs(&mut self) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("decode.dispatch").entered();
         let budget = DECODE_DISPATCH_BUDGET_PER_POLL
             .min(MAX_IN_FLIGHT_DECODE_JOBS.saturating_sub(self.in_flight_decode_jobs));
         // Enqueueing is count-bounded; spent commit time must not idle the decode lane.
@@ -67,11 +71,43 @@ impl WorldStream {
                 .decode_jobs_dispatched
                 .saturating_add(1);
             let tx = self.decode_tx.clone();
-            workers::WORKERS.decode.spawn(move || {
+            workers::WORKERS.spawn(workers::Lane::Decode, move || {
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("decode.work").entered();
                 let completion = job.run(queued_at);
+                #[cfg(feature = "tracy")]
+                drop(_zone);
+                #[cfg(feature = "tracy")]
+                let _zone =
+                    tracing::info_span!("decode.completion_send", sequence = completion.sequence)
+                        .entered();
                 let _ = tx.send(completion);
             });
         }
+    }
+
+    pub(super) fn snapshot_synced_block_mutation_batches(
+        &mut self,
+        mut events: Vec<SyncedBlockUpdateEvent>,
+    ) -> (Vec<BlockMutationBatch>, Vec<SyncedBlockUpdateEvent>) {
+        events.retain(|event| match split_block_update(event.update) {
+            Ok((key, _))
+                if event.update.layer <= 1 && self.column_is_data_interesting(key.chunk()) =>
+            {
+                true
+            }
+            Ok(_) => {
+                self.record_normalization_error(NormalizationErrorReason::InactiveBlockUpdate);
+                false
+            }
+            Err(_) => {
+                self.record_normalization_error(NormalizationErrorReason::MalformedBlockUpdate);
+                false
+            }
+        });
+        let batches =
+            self.snapshot_block_mutation_batches(events.iter().map(|event| event.update).collect());
+        (batches, events)
     }
 }
 
@@ -79,6 +115,14 @@ impl WorldStream {
     /// Sequential ids of this session's server-defined blocks, which decode as known.
     pub fn set_custom_block_ids(&mut self, ids: std::ops::Range<u32>) {
         self.authority.set_custom_block_ids(ids);
+    }
+
+    /// Installs session block state identities before terrain admission or visual pack compilation.
+    pub fn set_custom_block_identities(
+        &mut self,
+        definitions: &client_world::ingestion::CustomBlocks,
+    ) {
+        self.authority.set_custom_block_identities(definitions);
     }
 
     /// Translates sequential wire ids when custom blocks sort among vanilla names.

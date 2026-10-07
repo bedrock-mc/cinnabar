@@ -43,7 +43,7 @@ impl UiPresentationRuntime {
             return Ok(());
         };
         let data = toast_data(toast, now_millis);
-        // `ToastScreenController::addStaticScreenVars`.
+        // Vanilla toast screen variables.
         let context = renderer
             .context()
             .clone()

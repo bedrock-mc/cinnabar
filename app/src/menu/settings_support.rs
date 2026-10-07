@@ -11,7 +11,7 @@ impl MenuRuntime {
             }
             SupportAction::Open(link) => {
                 self.dialog = None;
-                crate::local_worlds::open_url(link.url());
+                crate::desktop::open_url(link.url());
             }
         }
     }

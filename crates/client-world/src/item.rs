@@ -27,6 +27,10 @@ pub struct CanonicalItemStack {
     pub visual: ItemVisualRoute,
     /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
     pub charged_projectile: Option<Arc<str>>,
+    /// Durability damage retained separately from the stack's visual metadata.
+    pub damage: Option<u32>,
+    /// The stack carries the enchantment list that enables worn item glint.
+    pub enchanted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,8 +356,12 @@ impl ItemStateStore {
                 &mut snapshot.body,
             ] {
                 let charged = piece.item.charged_projectile.take();
+                let damage = piece.item.damage;
+                let enchanted = piece.item.enchanted;
                 piece.item = self.resolve_identity(piece.item.identity);
                 piece.item.charged_projectile = charged;
+                piece.item.damage = damage;
+                piece.item.enchanted = enchanted;
             }
             self.armor.insert(runtime_id, snapshot);
         }
@@ -373,6 +381,14 @@ impl ItemStateStore {
                 .equipment
                 .get(&key)
                 .and_then(|equipment| equipment.item.charged_projectile.clone());
+            item.damage = self
+                .equipment
+                .get(&key)
+                .and_then(|equipment| equipment.item.damage);
+            item.enchanted = self
+                .equipment
+                .get(&key)
+                .is_some_and(|equipment| equipment.item.enchanted);
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
             if let Some(equipment) = self.equipment.get_mut(&key) {
                 equipment.item = item;
@@ -425,6 +441,8 @@ impl ItemStateStore {
         };
         let mut item = self.resolve_identity(identity);
         item.charged_projectile = protocol::item_charged_projectile(&stack.extra_data);
+        item.damage = protocol::item_stack_damage(stack);
+        item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
         Some(item)
     }
 
@@ -442,6 +460,8 @@ impl ItemStateStore {
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
                 charged_projectile: None,
+                damage: None,
+                enchanted: false,
             };
         }
         let identifier = self
@@ -461,6 +481,8 @@ impl ItemStateStore {
             identifier,
             visual,
             charged_projectile: None,
+            damage: None,
+            enchanted: false,
         }
     }
 
@@ -644,6 +666,51 @@ mod armor_tests {
         );
         let plain = store.canonicalize(&stack(1, &dyed_extra())).unwrap();
         assert_eq!(plain.charged_projectile, None);
+    }
+
+    #[test]
+    fn canonical_armor_retains_enchantment_glint() {
+        let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x09];
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"ench");
+        extra.extend_from_slice(&[0x0a, 0, 0, 0, 0, 0]);
+        let store = ItemStateStore::diagnostic();
+        assert!(store.canonicalize(&stack(1, &extra)).unwrap().enchanted);
+        assert!(
+            !store
+                .canonicalize(&stack(1, &dyed_extra()))
+                .unwrap()
+                .enchanted
+        );
+    }
+
+    #[test]
+    fn registry_refresh_preserves_held_and_worn_damage_and_glint() {
+        let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x09];
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"ench");
+        extra.extend_from_slice(&[0x0a, 0, 0, 0, 0, 0x03]);
+        extra.extend_from_slice(&6u16.to_le_bytes());
+        extra.extend_from_slice(b"Damage");
+        extra.extend_from_slice(&7u32.to_le_bytes());
+        extra.push(0);
+        let actor = lifetime(7, 1);
+        let mut store = ItemStateStore::diagnostic();
+        store.insert_spawn(actor, 1, stack(1, &extra));
+        assert!(store.apply_armor(actor, 2, &event(7, stack(1, &extra))));
+        assert!(store.apply_registry(ItemRegistryEvent {
+            entries: Arc::from([])
+        }));
+        for item in [
+            &store.get(actor).unwrap().item,
+            &store.armor(7).unwrap().helmet.item,
+        ] {
+            assert_eq!(item.damage, Some(7));
+            assert!(
+                item.enchanted,
+                "registry resolution must retain the stack's enchantments"
+            );
+        }
     }
 
     #[test]

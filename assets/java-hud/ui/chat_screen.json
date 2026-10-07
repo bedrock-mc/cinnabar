@@ -77,6 +77,18 @@
       }
     ]
   },
+  "auto_complete_panel/panel/auto_complete_grid": {
+    "size": [ "100%", "default" ],
+    "grid_rescaling_type": "horizontal",
+    "bindings": [
+      {
+        "binding_name": "#collection_total_items",
+        "binding_name_override": "#maximum_grid_items",
+        "binding_type": "collection",
+        "binding_collection_name": "auto_complete"
+      }
+    ]
+  },
   "auto_complete_panel_contents_with_item": {
     "modifications": [
       {

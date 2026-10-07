@@ -18,12 +18,12 @@ pub struct AtmosphereViewInputs {
     pub dimension: i32,
     pub forward: [f32; 3],
     pub fog_weather_level: f32,
-    /// Weather+0x38: current simulation rain, not the frame's interpolated rain.
+    /// Current simulation rain, not the frame's interpolated rain.
     pub current_rain_level: f32,
 }
 
 impl AtmosphereViewInputs {
-    /// getSunIntensity; the caller supplies the narrow or broad threshold.
+    /// Vanilla sun intensity; the caller supplies the narrow or broad threshold.
     fn sun_intensity(self, angle: f32, threshold: f32) -> f32 {
         if !angle.is_finite() || !self.forward.into_iter().all(f32::is_finite) {
             return 0.0;
@@ -46,7 +46,7 @@ impl AtmosphereViewInputs {
         self.sun_intensity(angle, SKY_SUN_THRESHOLD) * SUN_COLOUR_SUBTRACTION
     }
 
-    /// getInterpolatedSkyColor: precipitation fog first, then thunder.
+    /// Vanilla sky colour: precipitation fog first, then thunder.
     pub(crate) fn sky_colour(self, shaded: [f32; 3], angle: f32, thunder: f32) -> [f32; 3] {
         let fog = celestial::unit(self.fog_weather_level);
         if !angle.is_finite() || celestial::unit(self.current_rain_level) <= 0.2 || fog <= 0.0 {
@@ -70,7 +70,7 @@ impl AtmosphereViewInputs {
     }
 }
 
-/// Overworld::getFogColor; unlike cloud colour, fog uses full cosf.
+/// Vanilla Overworld fog colour; unlike cloud colour, fog uses full cosf.
 pub(crate) fn fog_multipliers(angle: f32) -> [f32; 3] {
     let angle = if angle.is_finite() { angle } else { 0.0 };
     let brightness = ((angle * TAU).cos() * 2.0 + 0.5).clamp(0.0, 1.0);

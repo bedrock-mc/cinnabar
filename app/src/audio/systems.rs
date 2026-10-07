@@ -21,6 +21,7 @@ const AUDIO_STAGE: usize = render::RuntimeStage::Audio as usize;
 
 /// Installs presentation audio and preserves its existing ordered frame stage.
 pub(crate) fn configure(app: &mut App) {
+    super::synchronized::configure(app);
     app.add_plugins(client_presentation::audio::AudioPresentationPlugin)
         .add_systems(
             Update,
@@ -34,7 +35,7 @@ pub(crate) fn configure(app: &mut App) {
                 drive_block_cues,
                 drive_consume_audio,
                 drive_actor_audio,
-                pump_audio,
+                pump_audio.after(crate::app::ClientFrameSet::Camera),
                 render::end_stage_span::<AUDIO_STAGE>,
             )
                 .chain()
@@ -115,6 +116,7 @@ pub(crate) fn drive_ambience(
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     view: Res<LocalViewPose>,
     player_runtime: Option<Res<crate::player_runtime::PlayerRuntime>>,
+    ui: Option<Res<client_ui::ui_runtime::UiRuntime>>,
     engine: ResMut<AudioEngine>,
     state: Local<AmbientState>,
 ) {
@@ -128,6 +130,7 @@ pub(crate) fn drive_ambience(
             .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
         view,
         player_runtime.as_deref().map(|value| &**value),
+        ui.as_deref().is_some_and(|ui| ui.credits().owns_input()),
         engine,
         state,
     );

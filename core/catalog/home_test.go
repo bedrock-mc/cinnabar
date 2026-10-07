@@ -3,9 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
-	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 	"github.com/sandertv/gophertunnel/minecraft/service/playermessaging"
 )
 
@@ -47,38 +45,30 @@ func TestMessagesKeepWellFormedEntriesOnce(t *testing.T) {
 }
 
 // Ended events are dropped and the running segment dresses the button.
-func TestLiveEventsKeepRunningOnes(t *testing.T) {
-	var configs []gatherings.GatheringConfig
-	data := []byte(`[
-		{"gatheringId":"g1","title":"Live","startTimeUtc":"2026-09-01T00:00:00Z","endTimeUtc":"2026-12-01T00:00:00Z",
-		 "externalVenue":{"serverIpAddress":"1.2.3.4","serverPort":19132},
-		 "segments":[{"startTimeUtc":"2026-08-01T00:00:00Z","endTimeUtc":"2026-08-02T00:00:00Z","ui":{"startScreenButtonText":"Soon"}},
-		             {"startTimeUtc":"2026-09-01T00:00:00Z","ui":{"startScreenButtonText":"Watch",
-		   "captionText":"Live now","captionIncludesCountdown":true,"badgeImage":"https://cdn.test/b.png"}}]},
-		{"gatheringId":"old","endTimeUtc":"2020-01-01T00:00:00Z"}
-	]`)
-	if err := json.Unmarshal(data, &configs); err != nil {
-		t.Fatal(err)
-	}
-	events := liveEventsFrom(configs, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC))
-	if len(events) != 1 {
-		t.Fatalf("events = %+v", events)
-	}
-	event := events[0]
-	if event.Address != "1.2.3.4:19132" || event.ButtonText != "Watch" || !event.CaptionCountdown || event.Badge.URL == "" {
-		t.Fatalf("event = %+v", event)
-	}
-}
-
 // A partial refresh keeps the previous copy of each part that failed, and only those.
 func TestRefillKeepsOnlyFailedParts(t *testing.T) {
-	previous := Home{RealmInvites: 2, LiveEvents: []LiveEvent{{ID: "old"}}, Messages: []Message{{ID: "old"}}}
-	fresh := Home{RealmInvites: 5, Messages: []Message{{ID: "new"}}, failed: partEvents | partPersona}
+	previous := Home{RealmInvites: 2, PersonaHead: Image{Path: "/old"}, Messages: []Message{{ID: "old"}}}
+	fresh := Home{RealmInvites: 5, Messages: []Message{{ID: "new"}}, failed: partPersona}
 	got := fresh.Refill(previous)
-	if got.RealmInvites != 5 || got.Messages[0].ID != "new" || len(got.LiveEvents) != 1 || got.LiveEvents[0].ID != "old" {
+	if got.RealmInvites != 5 || got.Messages[0].ID != "new" || got.PersonaHead.Path != "/old" {
 		t.Fatalf("refilled = %+v", got)
 	}
 	if fresh.Failed() || !(Home{failed: allHomeParts}).Failed() {
 		t.Fatal("Failed must mean every part failed")
+	}
+}
+
+// The game no longer fetches live events, so the home feed neither carries nor waits on them.
+func TestHomeHasNoLiveEvents(t *testing.T) {
+	if !(Home{failed: partInvites | partTreatments | partMessages | partPersona}).Failed() {
+		t.Fatal("a home whose service parts all failed must count as failed")
+	}
+	var wire map[string]json.RawMessage
+	data, _ := json.Marshal(Home{})
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := wire["live_events"]; ok {
+		t.Fatal("home feed still sends live events")
 	}
 }

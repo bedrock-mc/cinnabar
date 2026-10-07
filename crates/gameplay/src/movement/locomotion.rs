@@ -5,6 +5,7 @@
 
 use sim::{CollisionWorld, MovementMode, Vec3, WorldQueryError, pose_fits};
 
+mod sprint_trigger;
 mod swimming_trigger;
 
 /// What the local player is mounted on; only the steering-relevant classes.
@@ -58,8 +59,14 @@ pub struct ModeIntent {
     /// Boot enchantment levels the simulator reads.
     pub depth_strider: u8,
     pub soul_speed: u8,
+    /// Leggings enchantment that raises the sneak/crawl input multiplier.
+    pub swift_sneak: u8,
     /// Native sprint-stop request caused by unavailable/low hunger without flight permission.
     pub swim_hunger_blocked: bool,
+    pub sprint_blocked: bool,
+    pub sprint_start_blocked: bool,
+    /// A user setting explicitly ended the sprint latch.
+    pub stop_sprinting: bool,
 }
 
 /// Per-tick simulation facts read before the tick runs.
@@ -71,6 +78,11 @@ pub(super) struct ModeObservation {
     pub in_water: bool,
     pub in_lava: bool,
     pub sprinting: bool,
+    pub sprint_blinded: bool,
+    pub sprint_down: bool,
+    pub input_mode: protocol::PlayerInputMode,
+    /// Previous tick displacement requested before collision clipping.
+    pub requested_movement: Vec3,
     pub move_sideways: f32,
     pub move_forward: f32,
     pub sneaking: bool,
@@ -81,6 +93,20 @@ pub(super) struct ModeObservation {
     pub jumping: bool,
     /// A fresh jump press arrived this tick.
     pub jump_edge: bool,
+}
+
+impl ModeObservation {
+    /// Intent systems see item slowdown before the later sneak/crawl multiplier.
+    pub(super) fn input_vector(input: sim::MovementInput) -> [f32; 2] {
+        sim::MovementInput {
+            sneaking: false,
+            mode: MovementMode::Walking,
+            ..input
+        }
+        .processed_controls()
+        .move_vector
+        .map(|axis| axis as f32)
+    }
 }
 
 /// One tick's selected mode plus whether a low ceiling forces the sneak pose.
@@ -97,6 +123,8 @@ pub(super) struct ModeTracker {
     last_server_flying: bool,
     sprinting: bool,
     sneaking: bool,
+    previous_feet: Option<Vec3>,
+    sprint_trigger: sprint_trigger::SprintTrigger,
 }
 
 impl ModeTracker {
@@ -125,6 +153,12 @@ impl ModeTracker {
         self.sneaking = sneaking;
     }
 
+    /// Captures the final primary controls for the next fixed tick's double-tap detector.
+    pub(super) fn record_controls(&mut self, input: sim::MovementInput, sneak_down: bool) {
+        self.sprint_trigger
+            .record_controls(input.processed_controls().move_vector[1] as f32, sneak_down);
+    }
+
     /// Restores a retained authoritative mode override during correction replay.
     pub(super) fn restore_mode(&mut self, mode: MovementMode) {
         self.mode = mode;
@@ -150,6 +184,7 @@ impl ModeTracker {
             self.mode = MovementMode::Riding;
             self.sprinting = false;
             self.sneaking = observed.sneaking;
+            self.previous_feet = Some(observed.feet);
             return Ok(ModeChoice {
                 mode: MovementMode::Riding,
                 forced_sneak: false,
@@ -179,11 +214,19 @@ impl ModeTracker {
             in_lava: sampled.value.in_lava,
             ..observed
         };
-        // SprintTrigger runs before SwimTrigger and keeps the previous actor
+        // The sprint trigger runs before the swim trigger and keeps the previous actor
         // sprint flag while its previous swimming pose still contacts water.
+        let sprint_candidate =
+            self.sprint_trigger
+                .select(self.sprinting, self.previous_feet, intent, observed);
         let sprinting =
             (self.mode == MovementMode::Swimming && observed.in_water && self.sprinting)
-                || (observed.sprinting && observed.move_forward > 0.0 && !observed.sneaking);
+                || sprint_candidate;
+        self.previous_feet = Some(observed.feet);
+        let observed = ModeObservation {
+            sprinting,
+            ..observed
+        };
         let liquid = observed.in_water || observed.in_lava;
         let gliding = !flying
             && intent.elytra_ready
@@ -308,6 +351,10 @@ mod tests {
             in_water: false,
             in_lava: false,
             sprinting: false,
+            sprint_blinded: false,
+            sprint_down: false,
+            input_mode: protocol::PlayerInputMode::Mouse,
+            requested_movement: Vec3::ZERO,
             move_sideways: 0.0,
             move_forward: 0.0,
             sneaking: false,

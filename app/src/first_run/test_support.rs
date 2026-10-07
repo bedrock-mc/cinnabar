@@ -28,7 +28,7 @@ impl Drop for Dir {
     }
 }
 
-/// Writes a schema-complete vanilla manifest under `root` pinning `archive` at `sha256`.
+/// Writes a schema-complete vanilla manifest into the kit at `root` pinning `archive` at `sha256`.
 pub(super) fn write_vanilla_manifest(root: &Path, url: &str, sha256: &str, archive: &str) {
     let manifest = serde_json::json!({
         "schema": 1,
@@ -40,7 +40,8 @@ pub(super) fn write_vanilla_manifest(root: &Path, url: &str, sha256: &str, archi
         "artifact_policy": "local-only",
         "cache_dir": ".local/assets/bedrock-samples/test/full",
     });
-    let path = root.join(super::plan::VANILLA_MANIFEST);
+    let path =
+        assets::carriers::Sources::Kit(root.into()).resolve(assets::carriers::VANILLA_MANIFEST);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, manifest.to_string()).unwrap();
 }

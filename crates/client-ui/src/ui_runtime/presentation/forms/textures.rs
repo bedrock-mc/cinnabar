@@ -9,7 +9,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     path::PathBuf,
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use assets::RuntimeUiAssets;
@@ -31,6 +31,8 @@ pub(super) struct TextureSet {
     /// Texture page of the first reserved server page.
     pub(super) server_page: u16,
     vanilla: Option<PathBuf>,
+    /// Encoded carrier images too large for its sprite atlas.
+    carrier: Option<Arc<RuntimeUiAssets>>,
     pub(super) remote: RemoteImages,
     /// Full-resolution art-page copies of server textures too big for a server page.
     full_res: HashMap<String, IconRef>,
@@ -44,6 +46,13 @@ impl TextureSet {
             first_page,
             ..Self::default()
         }
+    }
+
+    pub(super) fn with_carrier(mut self, carrier: Arc<RuntimeUiAssets>) -> Self {
+        self.carrier = Some(carrier);
+        let atlas = std::mem::take(self.atlas_mut());
+        self.set_atlas(atlas, self.server_page);
+        self
     }
 
     pub(super) fn lock(&self) -> MutexGuard<'_, ServerAtlas> {
@@ -63,21 +72,6 @@ impl TextureSet {
         self.full_res = full_res;
     }
 
-    /// The carrier, icon and vanilla lookups without the server atlas's pack or
-    /// residency, for laying out a no-pack screen on another thread.
-    pub(super) fn detached(&self) -> Self {
-        let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
-        let atlas = ServerAtlas::new(&[], None, pages).with_fallbacks(self.vanilla.clone(), None);
-        Self {
-            atlas: Mutex::new(atlas),
-            icons: self.icons.clone(),
-            vanilla: self.vanilla.clone(),
-            remote: RemoteImages::default(),
-            full_res: HashMap::new(),
-            ..*self
-        }
-    }
-
     /// Drawn textures too big for a server page, with their source bytes.
     pub(super) fn oversized(&self) -> Vec<(String, std::sync::Arc<[u8]>)> {
         self.lock().oversized()
@@ -85,7 +79,9 @@ impl TextureSet {
 
     /// Install a server atlas, wired to the vanilla and remote fallbacks.
     pub(super) fn set_atlas(&mut self, atlas: ServerAtlas, server_page: u16) {
-        let atlas = atlas.with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()));
+        let atlas = atlas
+            .with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()))
+            .with_carrier(self.carrier.clone());
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
         self.full_res.clear();
@@ -125,6 +121,13 @@ impl Textures<'_> {
     }
 
     fn image(&self, path: &str) -> Option<IconRef> {
+        // Cinnabar's shipped logo is a base-pack replacement. Actual server
+        // titles still win, including while their pixels decode asynchronously.
+        if texture_key(path) == super::super::menu_artwork::TITLE_KEY
+            && self.atlas.has_image(texture_key(path))
+        {
+            return None;
+        }
         let images = self.images?;
         images
             .get(path)
@@ -146,10 +149,12 @@ impl Textures<'_> {
             .collect()
     }
 
-    /// Whether no source has `path`; a URL still loading is not missing.
+    /// Whether no source has `path`; a URL still loading, or a local file the artwork atlas has not
+    /// packed, is not missing, so it draws nothing instead of white.
     pub(super) fn missing(&self, path: &str) -> bool {
         let key = texture_key(path);
         !is_remote(key)
+            && !std::path::Path::new(path).is_absolute()
             && self.images.is_none_or(|images| !images.contains_key(path))
             && !self.atlas.has_image(key)
             && self.assets.texture(key).is_none()
@@ -185,6 +190,16 @@ impl Textures<'_> {
             return Some((icon.page, [u0, v0, u1 - u0, v1 - v0]));
         }
         None
+    }
+
+    /// Frame strips wait for artwork rather than a preview that merges adjacent frames.
+    pub(super) fn animation_sprite(&self, path: &str) -> Option<(u16, [f32; 4])> {
+        let sprite = self.sprite(path)?;
+        if self.set.full_res.contains_key(texture_key(path)) {
+            return Some(sprite);
+        }
+        let pixels = self.texture(path)?.pixels;
+        ([f64::from(sprite.1[2]), f64::from(sprite.1[3])] == pixels).then_some(sprite)
     }
 }
 
@@ -259,6 +274,10 @@ pub(super) fn texture_key(path: &str) -> &str {
 }
 
 #[cfg(test)]
+#[path = "textures/animation_tests.rs"]
+mod animation_tests;
+
+#[cfg(test)]
 mod review_tests {
     use super::*;
     #[test]
@@ -292,5 +311,23 @@ mod review_tests {
             textures.texture("textures/ui/test").unwrap().pixels,
             [256.0, 128.0]
         );
+    }
+
+    // Offer art past the atlas drew vanilla's white instead of nothing.
+    #[test]
+    fn an_unpacked_local_file_is_not_missing() {
+        let assets = super::super::tests::mini_carrier();
+        let set = TextureSet::new(0);
+        let atlas = ServerAtlas::new(&[], None, 1);
+        let textures = Textures {
+            assets: &assets,
+            set: &set,
+            atlas: &atlas,
+            images: None,
+        };
+        // A rooted path without a drive is not absolute on Windows.
+        let local = std::env::temp_dir().join("store-images").join("a.jpg");
+        assert!(!textures.missing(local.to_str().unwrap()));
+        assert!(textures.missing("textures/ui/White"));
     }
 }

@@ -54,7 +54,7 @@ pub(crate) fn run_setup_process() -> i32 {
     let Ok(layout) = InstallLayout::discover() else {
         return EXIT_UNAVAILABLE;
     };
-    let font = super::plan::ui_font_file(&layout.prep_kit())
+    let font = super::prepare::ui_font_file(&layout.prep_kit())
         .map(|file| layout.resource_root.join(FONT_DIR).join(file));
     let Some(text) = font
         .as_ref()

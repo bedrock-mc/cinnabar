@@ -33,7 +33,7 @@ fn cactus_pixels(seed: u8) -> Vec<[u8; 4]> {
         .collect()
 }
 
-fn write_cactus_pack(root: &Path) {
+pub(super) fn write_cactus_pack(root: &Path) {
     write_pack(
         root,
         r#"{"cactus":{"textures":{"down":"cactus_bottom","side":"cactus_side","up":"cactus_top"}}}"#,
@@ -190,9 +190,6 @@ fn compiler_cactus_admission_fails_closed_atomically() {
     )
     .model_state;
     families.push(("extra model-state field", extra_projection));
-    let mut wrong_id = records.clone();
-    wrong_id[0].sequential_id = 13_605;
-    families.push(("wrong ID", wrong_id));
     let mut wrong_family = records.clone();
     wrong_family[0].model_family = ModelFamily::Crop;
     families.push(("wrong family", wrong_family));

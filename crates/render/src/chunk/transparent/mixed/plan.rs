@@ -59,14 +59,10 @@ pub(super) fn collect_faces(
     allocation: &GpuChunkAllocation,
     model_words: &[[u32; 2]],
     assets: &ChunkTextureAssets,
-    snapshot: &TransparentOrderedSnapshot,
-    group: &TransparentLiquidPhaseGroup,
+    water_refs: &[PackedTransparentDrawRef],
 ) -> Option<Vec<MixedFace>> {
     let model_base = allocation.model_range.as_ref()?.start.checked_div(4)?;
     let liquid_base = allocation.liquid_range.as_ref()?.start.checked_div(4)?;
-    let start = usize::try_from(group.ref_range.start).ok()?;
-    let end = usize::try_from(group.ref_range.end).ok()?;
-    let water_refs = snapshot.refs().get(start..end)?;
     let mut faces = Vec::with_capacity(model_words.len().checked_add(water_refs.len())?);
     let transparent_end = instance
         .depth_liquid_start
@@ -79,10 +75,7 @@ pub(super) fn collect_faces(
         let quad = *instance.liquid_quads.get(..transparent_end)?.get(local)?;
         faces.push(MixedFace {
             stream: MixedStream::Water,
-            index: group
-                .ref_range
-                .start
-                .checked_add(u32::try_from(index).ok()?)?,
+            index: u32::try_from(index).ok()?,
             centroid: Vec3::from_array(liquid_quad_centroid(instance.origin, quad)),
             stable: [u32::try_from(local).ok()?, 0],
         });

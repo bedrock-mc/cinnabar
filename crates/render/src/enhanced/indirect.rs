@@ -125,8 +125,6 @@ impl IndirectGridGpu {
         let spacing = PROBE_SPACING as f32;
         let snapped = (camera / spacing).floor().as_ivec3() * PROBE_SPACING as i32;
         let origin = snapped - IVec3::from_array(GRID_SIZE.map(|v| v as i32 / 2));
-        let previous_geometry = self.geometry_revision;
-        let previous_coverage = self.coverage_revision;
         let regional = match self.geometry_revision {
             Some((revision, previous_origin, previous_dimension, regional))
                 if revision == geometry.revision
@@ -160,18 +158,15 @@ impl IndirectGridGpu {
         };
         let changed = self.prepared != Some(key);
         let relight = self.lighting != Some(lighting_signature);
-        let scroll = self.prepared.filter(|previous| {
-            previous.origin != origin
-                && previous.dimension == dimension
+        let retained = self.prepared.filter(|previous| {
+            previous.dimension == dimension
                 && previous.assets == key.assets
-                && previous.tints == key.tints
-                && previous_geometry.is_some_and(|value| value.0 == geometry.revision)
-                && previous_coverage.is_some_and(|value| value.0 == coverage_revision)
                 && grids_overlap(previous.origin, origin)
         });
+        let scroll = retained.filter(|previous| previous.origin != origin);
         if changed || relight {
-            if changed {
-                if scroll.is_none() {
+            if changed && (retained.is_none() || scroll.is_some()) {
+                if retained.is_none() {
                     self.epoch = self.epoch.wrapping_add(1).max(1);
                 }
                 self.cursor = 0;
@@ -181,6 +176,7 @@ impl IndirectGridGpu {
             } else if self.cursor == PROBE_COUNT {
                 self.cursor = 0;
             } else if self.cursor > 0 {
+                // Finish the current sweep before refreshing its already submitted probes.
                 self.relight_again = true;
             }
             if changed {

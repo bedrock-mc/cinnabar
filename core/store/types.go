@@ -8,8 +8,6 @@ import (
 var (
 	// ErrInvalidRequest is returned for parameters that fail validation before any network call.
 	ErrInvalidRequest = errors.New("store: invalid request")
-	// ErrUnknownPage is returned when the session config has no such known page.
-	ErrUnknownPage = errors.New("store: unknown page")
 	// ErrPurchaseBusy is returned while a purchase of the same offer is in flight or unresolved.
 	ErrPurchaseBusy = errors.New("store: purchase in progress")
 	// ErrPurchaseReused is returned when a purchase_id is replayed with different parameters.
@@ -74,12 +72,9 @@ type Page struct {
 	Truncated        bool   `json:"truncated,omitempty"`
 }
 
-// SearchQuery is a catalog search; Term and Filter are passed through validated.
+// SearchQuery is a store search, or the continuation of one.
 type SearchQuery struct {
 	Term         string
-	Filter       string
-	OrderBy      string
-	Count        int
 	Continuation string
 }
 
@@ -139,7 +134,6 @@ var (
 	idPattern       = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 	purchaseIDRegex = regexp.MustCompile(`^[A-Za-z0-9-]{16,64}$`)
 	amountPattern   = regexp.MustCompile(`^[1-9][0-9]{0,9}$`)
-	filterPattern   = regexp.MustCompile(`^[A-Za-z0-9 _.,:/'"()!=<>-]{0,512}$`)
 )
 
 // Validate reports ErrInvalidRequest unless every field is well formed and Confirmed is set.
@@ -159,8 +153,7 @@ func (r PurchaseRequest) Validate() error {
 
 // Validate reports ErrInvalidRequest for an unusable search.
 func (q SearchQuery) Validate() error {
-	if len(q.Term) > 200 || q.Count < 0 || q.Count > 50 || len(q.Continuation) > 2048 ||
-		!filterPattern.MatchString(q.Filter) || !filterPattern.MatchString(q.OrderBy) {
+	if len(q.Term) > 200 || len(q.Continuation) > 2048 {
 		return ErrInvalidRequest
 	}
 	return nil

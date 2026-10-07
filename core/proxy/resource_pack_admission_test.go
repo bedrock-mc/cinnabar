@@ -2186,7 +2186,7 @@ func negotiatedAdmissionPacks(t *testing.T, packs []*resource.Pack, required boo
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	conn, err := (minecraft.Dialer{
-		RelayStartup: true,
+		Handoff:      minecraft.HandoffAtStartGame,
 		IdentityData: login.IdentityData{DisplayName: "Selection"},
 	}).DialContextNetwork(ctx, network, "")
 	if err != nil {

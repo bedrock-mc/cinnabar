@@ -1,4 +1,4 @@
-//! Player liquid-current impulse from the preceding pose (native 0x0a5d5c40).
+//! Player liquid-current impulse from the preceding pose, as vanilla applies it.
 
 use std::collections::BTreeMap;
 
@@ -55,7 +55,7 @@ impl Samples<'_, '_> {
     ) -> Result<Contact, WorldQueryError> {
         let probe = liquid_probe_bounds(aabb, material == LiquidMaterial::Water);
         let min = block_floor(probe.min)?;
-        // Native Range<int> uses floor(f32(upper + 1)) as its exclusive
+        // Vanilla's integer cell range uses floor(f32(upper + 1)) as its exclusive
         // end. Preserve that operation even where large coordinates round
         // the addition away rather than substituting floor(upper) + 1.
         let end = block_floor(Vec3::new(
@@ -141,7 +141,7 @@ pub(super) fn sample(
     };
     let lava = samples.contact(previous_pose, LiquidMaterial::Lava)?;
     let water = samples.contact(previous_pose, LiquidMaterial::Water)?;
-    // LiquidPhysics selects lava when both material probes find contact.
+    // Vanilla selects lava when both material probes find contact.
     let contact = if lava.cells.is_empty() { water } else { lava };
     if !contact.depths_known {
         return Ok(None);
@@ -165,8 +165,7 @@ pub(super) fn sample(
             }
         }
         let [x, y, z] = sum;
-        // Matching PE preserves (X² + Y²) + Z² despite the reconstructed
-        // expression listing the operands in another order.
+        // Vanilla sums (X² + Y²) + Z² in this order; f32 rounding depends on it.
         let length = (x * x + y * y + z * z).sqrt();
         if length >= NORMALIZATION_THRESHOLD {
             let scale = match contact.material {

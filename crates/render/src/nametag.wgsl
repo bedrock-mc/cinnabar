@@ -1,4 +1,5 @@
 #import bevy_render::view::View
+#import cinnabar::lighting::tint_to_gamma
 
 struct Record {
     anchor: vec3<f32>,
@@ -74,11 +75,14 @@ fn nametag_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 @fragment
 fn nametag_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     var color = input.color;
-    let texel = textureSample(atlas, atlas_sampler, input.uv);
+    var texel = textureSample(atlas, atlas_sampler, input.uv);
     if (input.textured != 0u) {
 #ifdef NAMETAG_ALPHA_TEST
         // Test the sampled glyph, before multiplying the native 0.125 sneak opacity.
         if (texel.a < 0.5) { discard; }
+#endif
+#ifdef NAMETAG_GAMMA_BLEND
+        texel = tint_to_gamma(texel);
 #endif
         color = color * texel;
     }

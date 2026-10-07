@@ -1,5 +1,5 @@
-//! Raw input through button mappings to components, as
-//! `InputComponent::handleButtonEvent` / `handlePointerLocation` do: controls
+//! Raw input through button mappings to components, as vanilla routes
+//! button and pointer events: controls
 //! are visited top to bottom (inside the topmost modal panel), each fires its
 //! first eligible mapping for the button, and a consuming mapping stops the walk.
 
@@ -46,7 +46,7 @@ pub struct Dispatch {
 /// The per-screen input state vanilla keeps on its input components.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Dispatcher {
-    /// Last button state per (control key, mapping index): `lastButtonState`.
+    /// Last button state per (control key, mapping index).
     last: HashMap<(String, usize), bool>,
     /// Press count, time and position per (control key, button): `PressStats`.
     presses: HashMap<(String, String), (u32, f64, [f64; 2])>,
@@ -94,7 +94,7 @@ impl Dispatcher {
                 continue;
             };
             let previous = self.last.insert((region.key.clone(), index), input.down);
-            // `isInteracted`: the press edge, or the release on touch.
+            // Interaction edge: the press, or the release on touch.
             let edge = input.mode != InputMode::Touch;
             let interacted = previous != Some(edge) && input.down == edge;
             let fired = event(
@@ -168,7 +168,7 @@ impl Dispatcher {
             }
         }
         view.hovered = hovered.first().cloned();
-        // A button losing its hover lets go of its press (`ButtonComponent::receive`).
+        // A button losing its hover lets go of its press.
         if input.mode != InputMode::Gamepad
             && view
                 .pressed
@@ -331,7 +331,7 @@ impl Dispatcher {
         true
     }
 
-    /// `_shouldHandlePressedMapping` and the focused/global rules.
+    /// Whether a pressed mapping applies, with the focused/global rules.
     fn eligible(
         &self,
         region: &HitRegion,
@@ -403,7 +403,7 @@ impl Dispatcher {
             }
         }
         let components = &mut view.components;
-        // `GestureComponent`: its button's hold tracks motion; the release zeroes the deltas.
+        // Gesture component: its button's hold tracks motion; the release zeroes the deltas.
         if region.widget.gesture.as_deref() == Some(fired.id.as_str()) {
             if input.down {
                 self.gesture = Some((region.key.clone(), input.point));
@@ -477,7 +477,7 @@ impl Dispatcher {
         }
     }
 
-    /// `SliderComponent::receive` for a button event.
+    /// A slider's response to a button event.
     fn slider_button(
         &mut self,
         region: &HitRegion,
@@ -531,7 +531,7 @@ impl Dispatcher {
         out: &mut Dispatch,
     ) {
         if hovered {
-            // `_sendHoverScreenEvent` raises a hover mapping in the Up state: never a press.
+            // A hover event raises a hover mapping in the Up state: never a press.
             for (to, scope) in &region.input.hover_mappings {
                 let probe = ButtonInput {
                     id: to,
@@ -658,7 +658,7 @@ fn checked(region: &HitRegion, components: &Components) -> bool {
         .unwrap_or(false)
 }
 
-/// `_setChecked` plus the radio group's `_updateToggleGroupState`.
+/// Sets a toggle's checked state and updates its radio group.
 fn set_toggle(
     regions: &[HitRegion],
     region: &HitRegion,
@@ -816,7 +816,7 @@ fn write_text(region: &HitRegion, text: &str, selected: bool, components: &mut C
     }
 }
 
-/// The control's index in its named collection (`UIControl::findCollectionIndex`):
+/// The control's index in its named collection:
 /// the enclosing instance's index unless it belongs to another collection.
 fn collection_index(region: &HitRegion, collection: Option<&str>) -> Option<usize> {
     let Some(name) = collection else {

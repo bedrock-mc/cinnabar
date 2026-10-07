@@ -3,7 +3,10 @@ use std::{
     path::Path,
 };
 
-use assets::{AssetError, EntityAssetKind, EntityAssetSource, MAX_ENTITY_CONTROLLER_NESTING};
+use assets::{
+    AssetError, EntityAssetKind, EntityAssetSource, EntityGeometryScalar,
+    MAX_ENTITY_CONTROLLER_NESTING,
+};
 use serde_json::{Map, Value};
 
 use super::{
@@ -32,6 +35,8 @@ pub(super) enum PendingTarget {
 
 #[derive(Default)]
 pub(super) struct PendingState {
+    pub blend_transition: EntityGeometryScalar,
+    pub blend_via_shortest_path: bool,
     pub name: Box<str>,
     pub animations: Vec<(PendingTarget, Option<u32>)>,
     pub transitions: Vec<(Box<str>, u32)>,
@@ -170,6 +175,26 @@ fn compile_one_controller(
         let state = state
             .as_object()
             .ok_or_else(|| invalid("controller state must be an object"))?;
+        let blend_transition =
+            state
+                .get("blend_transition")
+                .map_or(Ok(EntityGeometryScalar::ZERO), |value| {
+                    value
+                        .as_f64()
+                        .filter(|seconds| *seconds >= 0.0)
+                        .and_then(|seconds| EntityGeometryScalar::new(seconds as f32))
+                        .ok_or_else(|| {
+                            invalid("controller blend duration must be finite and nonnegative")
+                        })
+                })?;
+        let blend_via_shortest_path =
+            state
+                .get("blend_via_shortest_path")
+                .map_or(Ok(false), |value| {
+                    value.as_bool().ok_or_else(|| {
+                        invalid("controller shortest-path blend flag must be boolean")
+                    })
+                })?;
         let mut animations = Vec::new();
         if let Some(entries) = state.get("animations") {
             for entry in entries
@@ -239,6 +264,8 @@ fn compile_one_controller(
             transitions,
             on_entry,
             on_exit,
+            blend_transition,
+            blend_via_shortest_path,
         });
     }
     pending_states.sort_by(|left, right| left.name.cmp(&right.name));

@@ -86,7 +86,7 @@ fn newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat() {
         pixels_sha256: sha2::Sha256::digest(&pixels).into(),
         width: 16,
         height: 16,
-        rgba8: pixels,
+        pixels: assets::FontPixels::Rgba8(pixels),
     };
     let glyphs = ['A', '\u{fffd}'].map(|codepoint| assets::GlyphMetrics {
         codepoint,
@@ -271,9 +271,13 @@ fn local_effects_metadata_armor_and_mount_fan_into_gameplay_hud_state() {
             .map(|air| (air.current(), air.maximum())),
         Some((150, 300))
     );
-    // Full freezing wins over the (expired) poison recolor.
+    // Poison wins until it expires, then full freezing supplies the recolor.
     assert_eq!(
         runtime.gameplay_hud().heart_variant(Some(500)),
+        HeartVariant::Poisoned
+    );
+    assert_eq!(
+        runtime.gameplay_hud().heart_variant(Some(701)),
         HeartVariant::Frozen
     );
 
@@ -314,7 +318,7 @@ fn stale_local_gameplay_events_fail_without_mutation() {
 }
 
 #[test]
-fn wither_outranks_poison_and_unknown_effect_actions_are_counted() {
+fn absorption_poison_outranks_wither_and_unknown_effect_actions_are_counted() {
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply_local_effect(1, 1, effect(ActorEffectAction::Add, 19, -1, 0), 0)
@@ -324,7 +328,7 @@ fn wither_outranks_poison_and_unknown_effect_actions_are_counted() {
         .unwrap();
     assert_eq!(
         runtime.gameplay_hud().heart_variant(None),
-        HeartVariant::Withered
+        HeartVariant::Poisoned
     );
     runtime
         .apply_local_effect(1, 3, effect(ActorEffectAction::Unknown(9), 21, -1, 0), 0)
@@ -724,23 +728,6 @@ fn lang_catalog_resolves_rawtext_translation_and_item_names() {
         runtime.chat().messages().back().unwrap().message.as_ref(),
         "no.such.key"
     );
-}
-
-fn raw_text_event(json: &str) -> protocol::UiEvent {
-    protocol::UiEvent::RawText(protocol::RawTextEvent {
-        text: protocol::TextEvent {
-            category: protocol::TextCategory::MessageOnly,
-            kind: protocol::TextKind::Raw,
-            needs_translation: false,
-            source: None,
-            message: std::sync::Arc::from(""),
-            parameters: std::sync::Arc::from([]),
-            xuid: std::sync::Arc::from(""),
-            platform_chat_id: std::sync::Arc::from(""),
-            filtered_message: None,
-        },
-        document: protocol::parse_raw_text(json).unwrap(),
-    })
 }
 
 #[test]
@@ -1156,10 +1143,7 @@ fn malformed_absorption_preserves_the_last_authoritative_stat() {
             )
             .unwrap();
     }
-    assert_eq!(
-        runtime.hud().absorption(),
-        ui::BoundedStat::new_scaled(400, 2000, 100)
-    );
+    assert_eq!(runtime.hud().absorption(), ui::BoundedStat::new(4, 4));
 }
 
 #[test]

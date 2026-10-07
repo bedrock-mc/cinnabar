@@ -4,6 +4,8 @@ use sim::{
 };
 use world::{BlockUpdate, ChunkKey, ChunkStore, SubChunkKey};
 
+mod camera;
+
 fn identity() -> CollisionRegistryIdentity {
     CollisionRegistryIdentity {
         protocol: 2193,

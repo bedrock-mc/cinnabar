@@ -44,10 +44,13 @@ impl WorldStream {
         }) else {
             return false;
         };
-        let in_range = vanilla_dimension_range(key.dimension).is_some_and(|range| {
-            (range.base_sub_chunk_y..range.base_sub_chunk_y + range.sub_chunk_count as i32)
-                .contains(&key.y)
-        });
+        let in_range = self
+            .authority
+            .dimension_range(key.dimension)
+            .is_some_and(|range| {
+                (range.base_sub_chunk_y..range.base_sub_chunk_y + range.sub_chunk_count as i32)
+                    .contains(&key.y)
+            });
         if !in_range
             || !self.authority.terrain().is_sub_chunk_loaded(key)
             || !self.column_is_data_interesting(key.chunk())

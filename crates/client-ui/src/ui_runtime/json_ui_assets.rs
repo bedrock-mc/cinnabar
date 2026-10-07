@@ -11,7 +11,7 @@ use std::{
 
 use assets::{MAX_UI_CARRIER_BYTES, RuntimeUiAssets};
 
-pub const UI_ASSETS_FILENAME: &str = "vanilla-v1.mcbeui";
+pub const UI_ASSETS_FILENAME: &str = assets::carriers::UI.output;
 const UI_ASSETS_COMPILE_COMMAND: &str = "make ui-assets";
 
 /// The carrier path beside the selected world carrier.

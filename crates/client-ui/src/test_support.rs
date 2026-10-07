@@ -2,7 +2,7 @@
 
 use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use assets::{
-    FontTexturePage, GlyphMetrics, HudTexture, HudTextureRole, RuntimeFontCatalog,
+    FontPixels, FontTexturePage, GlyphMetrics, HudTexture, HudTextureRole, RuntimeFontCatalog,
     RuntimeHudCatalog, RuntimeUiAssets, UiAtlasPage, UiFile, encode_font_catalog,
     encode_hud_catalog, encode_ui_catalog,
 };
@@ -24,7 +24,7 @@ pub fn fixture_font() -> Arc<RuntimeFontCatalog> {
         pixels_sha256: Sha256::digest(&pixels).into(),
         width: 16,
         height: 16,
-        rgba8: pixels,
+        pixels: FontPixels::Rgba8(pixels),
     };
     let glyphs = ['/', '0', '2', '\u{fffd}'].map(|codepoint| GlyphMetrics {
         codepoint,
@@ -213,8 +213,8 @@ pub fn creative_with(player_runtime: &mut player_state::PlayerState, count: u32)
 }
 
 pub use crate::ui_runtime::presentation::forms::test_support::{
-    draw_menu_actions, settings_view, snapshot_menu, snapshot_menu_after, snapshot_menu_at,
-    snapshot_menu_vanilla,
+    draw_menu_actions, settings_section_index, settings_view, snapshot_menu, snapshot_menu_after,
+    snapshot_menu_at, snapshot_menu_vanilla,
 };
 
 pub use crate::ui_runtime::presentation::{

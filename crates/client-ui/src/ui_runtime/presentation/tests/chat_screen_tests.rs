@@ -1,4 +1,4 @@
-//! The open chat through Java and server `chat.chat_screen`: history, edit box,
+//! The open chat through built-in and native `chat.chat_screen`: history, edit box,
 //! suggestions, send/back hits and scrolling. Needs the gitignored UI carrier;
 //! each test skips when it is absent.
 
@@ -8,16 +8,10 @@ use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
 use crate::ui_runtime::presentation::ChatHit;
 
-/// Selects vanilla chat above the built-in Java pack for native control checks.
+/// Selects the native catalog directly for native control checks.
 fn native_chat_presentation() -> Option<UiPresentationRuntime> {
     let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())?;
-    presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
-        ui_layers: vec![vec![(
-            "ui/chat_screen.json".into(),
-            br#"{"namespace":"chat"}"#.to_vec(),
-        )]],
-        ..Default::default()
-    });
+    presentation.set_native_chat_fixture(true)?;
     Some(presentation)
 }
 
@@ -302,29 +296,43 @@ fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
         );
         return;
     };
-    let mut runtime = UiRuntime::new(1);
-    chat(
-        &mut player_runtime,
-        &mut runtime,
-        1,
-        "history with suggestions",
-    );
-    runtime.open_chat(&mut player_runtime);
-    suggestions(&mut player_runtime, &mut runtime, 4);
-    build(&player_runtime, &mut presentation, &runtime, 0);
-    let nodes = presentation.chat_draw_nodes();
-    let edit = text_node(nodes, "/|").expect("edit box text");
-    assert!(texts(nodes).contains(&"history with suggestions"));
-    for index in 0..4 {
-        let row = text_node(nodes, &format!("/give{index}")).expect("suggestion row");
-        assert!(
-            row.dest.y + row.dest.h <= edit.dest.y,
-            "rows sit above the edit box"
+    for count in [1, 4] {
+        let mut runtime = UiRuntime::new(1);
+        chat(
+            &mut player_runtime,
+            &mut runtime,
+            1,
+            "history with suggestions",
         );
-        assert!(row.layer > text_node(nodes, "history with suggestions").unwrap().layer);
+        runtime.open_chat(&mut player_runtime);
+        suggestions(&mut player_runtime, &mut runtime, count);
+        build(&player_runtime, &mut presentation, &runtime, 0);
+        let nodes = presentation.chat_draw_nodes();
+        let edit = text_node(nodes, "/|").expect("edit box text");
+        assert!(texts(nodes).contains(&"history with suggestions"));
+        for index in 0..count {
+            let row = text_node(nodes, &format!("/give{index}")).expect("suggestion row");
+            assert!(
+                row.dest.y + row.dest.h <= edit.dest.y,
+                "rows sit above the edit box"
+            );
+            assert!(row.layer > text_node(nodes, "history with suggestions").unwrap().layer);
+        }
+        let last = text_node(nodes, &format!("/give{}", count - 1)).unwrap();
+        let gap = edit.dest.y - (last.dest.y + last.dest.h);
+        assert!(
+            gap >= 0.0 && gap <= last.dest.h,
+            "suggestions stay adjacent to the input: gap {gap}, row {:?}, input {:?}",
+            last.dest,
+            edit.dest
+        );
+        assert_suggestion_hits(&presentation, count);
     }
+}
+
+fn assert_suggestion_hits(presentation: &UiPresentationRuntime, count: usize) {
     let hits = presentation.chat_hits();
-    for index in 0..4 {
+    for index in 0..count {
         let (_, bounds) = hits
             .iter()
             .find(|(hit, _)| *hit == ChatHit::Suggestion(index))
@@ -334,6 +342,81 @@ fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
             Some(ChatHit::Suggestion(index))
         );
     }
+}
+
+#[test]
+fn server_suggestion_offset_keeps_the_builtin_anchor_and_hits() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping server_suggestion_offset_keeps_the_builtin_anchor_and_hits: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat(&mut player_runtime);
+    suggestions(&mut player_runtime, &mut runtime, 4);
+    build(&player_runtime, &mut presentation, &runtime, 0);
+    let baseline = text_node(presentation.chat_draw_nodes(), "/give3")
+        .expect("suggestion row")
+        .dest;
+    presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/chat_screen.json".into(),
+            br#"{
+                "namespace": "chat",
+                "java_chat_content/suggestions": {"offset": [0, -70]}
+            }"#
+            .to_vec(),
+        )]],
+        ..Default::default()
+    });
+    build(&player_runtime, &mut presentation, &runtime, 0);
+    let moved = text_node(presentation.chat_draw_nodes(), "/give3")
+        .expect("server-positioned suggestion")
+        .dest;
+    assert_eq!(moved, baseline);
+    assert_suggestion_hits(&presentation, 4);
+}
+
+#[test]
+fn server_chat_screen_keeps_builtin_content_and_scene_policy() {
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping server_chat_screen_keeps_builtin_content_and_scene_policy: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat(&mut player);
+    runtime.insert_chat_text("draft").unwrap();
+    build(&player, &mut presentation, &runtime, 0);
+    let baseline = text_node(presentation.chat_draw_nodes(), "draft|")
+        .unwrap()
+        .dest;
+    presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
+        ui_layers: vec![vec![("ui/chat_screen.json".into(), br#"{
+            "namespace":"chat",
+            "chat_screen":{"render_game_behind":false,"$screen_content":"chat.server_content"},
+            "server_content":{"type":"panel","controls":[{"marker":{"type":"label","text":"Server chat"}}]}
+        }"#.to_vec())]],
+        ..Default::default()
+    });
+    build(&player, &mut presentation, &runtime, 0);
+    assert_eq!(
+        text_node(presentation.chat_draw_nodes(), "draft|")
+            .unwrap()
+            .dest,
+        baseline
+    );
+    assert!(!texts(presentation.chat_draw_nodes()).contains(&"Server chat"));
+    assert!(
+        presentation
+            .chat_scene_settings()
+            .unwrap()
+            .render_game_behind
+    );
 }
 
 #[test]
@@ -424,13 +507,7 @@ fn chat_screen_snapshot() {
             &format!("<Steve> message number {sequence}"),
         );
     }
-    presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
-        ui_layers: vec![vec![(
-            "ui/chat_screen.json".into(),
-            br#"{"namespace":"chat"}"#.to_vec(),
-        )]],
-        ..Default::default()
-    });
+    presentation.set_native_chat_fixture(true).unwrap();
     runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("hello world").unwrap();
     let input = presentation
@@ -443,6 +520,7 @@ fn chat_screen_snapshot() {
         )
         .unwrap();
     super::super::forms::snapshot::write(&input, "before-chat_history");
+    presentation.set_native_chat_fixture(false).unwrap();
     presentation.set_server_ui_pack(&Default::default());
     let input = presentation
         .build(
@@ -642,4 +720,103 @@ fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
         ChatHit::CopyCoordinates | ChatHit::Paste | ChatHit::CoordinateDropdown
     )));
     assert_eq!(runtime.chat_editor().as_str(), "draft");
+}
+
+#[test]
+fn chat_links_use_rendered_history_and_native_confirmation_in_both_pack_styles() {
+    for native in [false, true] {
+        let Some(mut presentation) = (if native {
+            native_chat_presentation()
+        } else {
+            engine_presentation()
+        }) else {
+            eprintln!(
+                "skipping chat_links_use_rendered_history_and_native_confirmation_in_both_pack_styles: missing installed local UI carrier (make assets)"
+            );
+            return;
+        };
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = gameplay_runtime(&mut player);
+        chat(
+            &mut player,
+            &mut runtime,
+            1,
+            "prefix https://example.com/a then https://example.net/b suffix",
+        );
+        runtime.open_chat(&mut player);
+        runtime.insert_chat_text("keep my draft").unwrap();
+        build(&player, &mut presentation, &runtime, 0);
+        let links = presentation
+            .chat_hits()
+            .into_iter()
+            .filter_map(|(hit, rect)| {
+                if let ChatHit::Link(index) = hit {
+                    Some((index, rect))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            links.len(),
+            2,
+            "style native={native}: {:?}",
+            presentation.chat_draw_nodes()
+        );
+        assert_eq!(
+            presentation.chat_link(links[0].0),
+            Some("https://example.com/a")
+        );
+        assert_eq!(
+            presentation.chat_link(links[1].0),
+            Some("https://example.net/b")
+        );
+        assert_eq!(
+            presentation.hit_test_chat(centre(links[0].1)),
+            Some(ChatHit::Link(links[0].0))
+        );
+        assert_eq!(
+            presentation.hit_test_chat(centre(links[1].1)),
+            Some(ChatHit::Link(links[1].0))
+        );
+        // The first layout discovers the native edit box; the next frame applies focus.
+        build(&player, &mut presentation, &runtime, 0);
+        let old_target_pointer = presentation.chat_link(0).unwrap().as_ptr();
+        build(&player, &mut presentation, &runtime, 1);
+        assert_eq!(
+            presentation.chat_link(0).unwrap().as_ptr(),
+            old_target_pointer,
+            "unchanged frame retains parsed targets"
+        );
+        presentation.set_chat_settings_open(true);
+        build(&player, &mut presentation, &runtime, 2);
+        assert!(
+            !presentation
+                .chat_hits()
+                .iter()
+                .any(|(hit, _)| matches!(hit, ChatHit::Link(_)))
+        );
+        presentation.set_chat_settings_open(false);
+        build(&player, &mut presentation, &runtime, 3);
+        presentation.request_chat_link(links[1].0);
+        build(&player, &mut presentation, &runtime, 4);
+        let popup = presentation.chat_hits();
+        assert!(
+            popup.iter().any(|(hit, _)| *hit == ChatHit::LinkOpen),
+            "{popup:?}"
+        );
+        assert!(
+            popup.iter().any(|(hit, _)| *hit == ChatHit::LinkCancel),
+            "{popup:?}"
+        );
+        assert!(
+            popup
+                .iter()
+                .all(|(hit, _)| matches!(hit, ChatHit::LinkOpen | ChatHit::LinkCancel))
+        );
+        presentation.cancel_chat_link();
+        assert_eq!(runtime.chat_editor().as_str(), "keep my draft");
+        assert_eq!(runtime.chat().messages().len(), 1);
+        assert!(!presentation.chat_link_confirmation_open());
+    }
 }

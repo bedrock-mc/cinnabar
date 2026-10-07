@@ -110,7 +110,7 @@ impl Harness {
             )
             .unwrap();
         let root = pack_harness::scratch_dir("server-input");
-        let mut layout = InstallLayout::discover().unwrap();
+        let mut layout = crate::install_layout::checkout();
         layout.user_config_root = root.clone();
         let menu = MenuRuntime::new_with_layout(
             true,

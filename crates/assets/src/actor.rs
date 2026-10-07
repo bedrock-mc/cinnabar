@@ -5,12 +5,16 @@ use sha2::{Digest, Sha256};
 
 use crate::{AssetError, RuntimeEntityAssets};
 mod color_mask;
+mod dissolve;
 mod eligibility;
 pub use color_mask::{
     native_actor_texture_uses_color_mask, native_actor_texture_uses_multitexture,
     native_actor_uses_multitexture,
 };
-pub use eligibility::neutral_actor_geometry_uvs_are_supported;
+pub use dissolve::actor_dissolve_mask_sources;
+pub use eligibility::{
+    neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
+};
 
 pub const ACTOR_CARRIER_MAGIC: [u8; 8] = *b"MCBEACT3";
 pub const ACTOR_CARRIER_VERSION: u32 = 3;
@@ -89,7 +93,8 @@ pub fn neutral_actor_material_is_supported(name: &str) -> bool {
 }
 
 impl RuntimeActorCatalog {
-    pub fn decode(bytes: &[u8], entity_bytes: &[u8]) -> Result<Self, AssetError> {
+    /// Decodes a carrier compiled against exactly the carrier `entities` was decoded from.
+    pub fn decode(bytes: &[u8], entities: &RuntimeEntityAssets) -> Result<Self, AssetError> {
         if bytes.len() < HEADER + HASH || bytes.len() > MAX_ACTOR_CARRIER_BYTES {
             return Err(invalid("actor carrier size exceeds bounds"));
         }
@@ -116,11 +121,10 @@ impl RuntimeActorCatalog {
             .ok_or_else(|| invalid("actor carrier layout is invalid"))?;
         if Sha256::digest(&bytes[..end]).as_slice() != &bytes[end..]
             || policy != <[u8; 32]>::from(Sha256::digest(POLICY))
-            || entity_identity != <[u8; 32]>::from(Sha256::digest(entity_bytes))
+            || entities.carrier_identity() != Some(entity_identity)
         {
             return Err(invalid("actor carrier identity mismatch"));
         }
-        let entities = RuntimeEntityAssets::decode(entity_bytes)?;
         if manifest != entities.source_manifest_sha256() {
             return Err(invalid("actor entity manifest mismatch"));
         }
@@ -179,7 +183,7 @@ impl RuntimeActorCatalog {
         if cursor.offset != end {
             return Err(invalid("actor carrier has trailing payload"));
         }
-        validate(&textures, &bindings, &entities)?;
+        validate(&textures, &bindings, entities, PixelHashes::Sealed)?;
         let color_mask_textures = textures
             .iter()
             .map(|texture| {
@@ -195,7 +199,9 @@ impl RuntimeActorCatalog {
             .collect::<Vec<_>>()
             .into();
         Ok(Self {
-            identity: Sha256::digest(bytes).into(),
+            identity: bytes[end..]
+                .try_into()
+                .expect("sealed trailer is a SHA-256"),
             entity_identity,
             textures: textures.into(),
             bindings: bindings.into(),
@@ -252,7 +258,7 @@ pub fn encode_actor_catalog(
     bindings: &[ActorArtworkBinding],
 ) -> Result<Vec<u8>, AssetError> {
     let entities = RuntimeEntityAssets::decode(entity_bytes)?;
-    validate(textures, bindings, &entities)?;
+    validate(textures, bindings, &entities, PixelHashes::Check)?;
     let mut bytes = Vec::with_capacity(HEADER);
     bytes.extend_from_slice(&ACTOR_CARRIER_MAGIC);
     bytes.extend_from_slice(&ACTOR_CARRIER_VERSION.to_le_bytes());
@@ -297,16 +303,25 @@ pub fn encode_actor_catalog(
     Ok(bytes)
 }
 
+/// Whether per-texture pixel digests are rehashed; a decoded carrier's trailer already seals them.
+#[derive(Clone, Copy, PartialEq)]
+enum PixelHashes {
+    Check,
+    Sealed,
+}
+
 fn validate(
     textures: &[ActorTexture],
     bindings: &[ActorArtworkBinding],
     entities: &RuntimeEntityAssets,
+    pixel_hashes: PixelHashes,
 ) -> Result<(), AssetError> {
     if textures.len() > MAX_ACTOR_TEXTURES || bindings.len() > MAX_ACTOR_BINDINGS {
         return Err(invalid("actor catalog counts exceed bounds"));
     }
     let mut total = 0usize;
     let mut seen_sources = std::collections::BTreeSet::new();
+    let dissolve_masks = actor_dissolve_mask_sources(entities.render_data());
     for texture in textures {
         let length = pixel_length(texture.width, texture.height)?;
         total = total
@@ -320,9 +335,11 @@ fn validate(
         if !source.path.starts_with("textures/")
             || !(source.path.ends_with(".png") || source.path.ends_with(".tga"))
             || texture.rgba8.len() != length
-            || texture.pixel_sha256 != <[u8; 32]>::from(Sha256::digest(&texture.rgba8))
+            || (pixel_hashes == PixelHashes::Check
+                && texture.pixel_sha256 != <[u8; 32]>::from(Sha256::digest(&texture.rgba8)))
             || (!native_actor_texture_uses_color_mask(source)
                 && !native_actor_texture_uses_multitexture(source)
+                && !dissolve_masks.contains(&texture.source)
                 && texture
                     .rgba8
                     .chunks_exact(4)

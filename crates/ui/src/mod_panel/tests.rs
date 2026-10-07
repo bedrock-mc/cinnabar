@@ -2,6 +2,8 @@ use super::*;
 
 fn panel() -> Panel {
     Panel {
+        theme: Default::default(),
+        style: Default::default(),
         title: "Personal controls".into(),
         toggle_key: "ShiftRight".into(),
         dark: true,
@@ -81,6 +83,7 @@ fn choices_require_a_valid_selection_and_bounded_options() {
 fn sections_require_complete_unique_control_references() {
     let mut panel = panel();
     panel.sections = vec![Section {
+        icon: Default::default(),
         id: "distance_section".into(),
         label: "Distance".into(),
         category: "Tools".into(),
@@ -96,4 +99,26 @@ fn sections_require_complete_unique_control_references() {
     assert!(panel.validate().is_err());
     panel.sections[0].toggle = Some("distance".into());
     assert!(panel.validate().is_err());
+}
+
+#[test]
+fn compact_style_and_keybind_labels_are_bounded_and_opt_in() {
+    let mut settings = panel();
+    assert_eq!(settings.style, Style::Standard);
+    settings.style = Style::Compact;
+    settings.controls = vec![Control::Keybind {
+        id: "binding".into(),
+        label: "Keybind".into(),
+        key: "KeyR".into(),
+        capturing: true,
+    }];
+    assert!(settings.validate().is_ok());
+    if let Control::Keybind { key, .. } = &mut settings.controls[0] {
+        *key = "a".repeat(MAX_PANEL_ID_BYTES + 1);
+    }
+    assert!(settings.validate().is_err());
+    if let Control::Keybind { key, .. } = &mut settings.controls[0] {
+        *key = "R\n".into();
+    }
+    assert!(settings.validate().is_err());
 }

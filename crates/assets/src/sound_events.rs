@@ -299,7 +299,7 @@ impl SoundEventTables {
 
     /// Sound material name (`stone`, `wood`, ...) of a block identifier.
     pub fn material_of(&self, block_identifier: &str) -> Option<&str> {
-        // Native BlockGraphics loads textures and `sound` from the same
+        // Vanilla loads block textures and `sound` from the same
         // blocks.json entry. The pack
         // still calls grass_block `grass`; apply the shared texture alias
         // after the exact entry, without inventing a default sound material.

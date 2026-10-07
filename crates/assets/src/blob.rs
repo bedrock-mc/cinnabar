@@ -400,6 +400,26 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         }
         if visual.model_template != NO_MODEL_TEMPLATE {
             let template_flags = compiled.model_templates[visual.model_template as usize].flags;
+            if template_flags == crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL {
+                if visual.kind != VisualKind::Model
+                    || !matches!(
+                        visual.variant,
+                        0 | crate::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN
+                    )
+                {
+                    return Err(invalid("portal visual has invalid kind or transform"));
+                }
+                if visual.variant == crate::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN
+                    && compiled
+                        .model_templates
+                        .get(visual.model_template as usize + 1)
+                        .is_none_or(|next| next.flags != crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL)
+                {
+                    return Err(invalid(
+                        "unknown-axis portal has no alternate-axis template",
+                    ));
+                }
+            }
             let connected_flag = template_flags
                 & (MODEL_TEMPLATE_FLAG_PANE
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
@@ -454,11 +474,13 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     for template in &compiled.model_templates {
         if !model_template_flags_are_valid(template.flags)
             || template.quad_start as usize != expected_quad
-            || template.quad_count > 32
+            || template.quad_count as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_SNOW_LAYER && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_LILY_PAD && template.quad_count != 2)
+            || (template.flags == crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                && template.quad_count != 6)
         {
             return Err(invalid("model template spans are not canonical"));
         }
@@ -549,7 +571,9 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     Ok(())
 }
 
-fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<bool>, AssetError> {
+pub(crate) fn compiled_compound_tails(
+    templates: &[crate::ModelTemplate],
+) -> Result<Vec<bool>, AssetError> {
     let mut tails = vec![false; templates.len()];
     for (index, template) in templates.iter().enumerate() {
         if template.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
@@ -569,10 +593,10 @@ fn compiled_compound_tails(templates: &[crate::ModelTemplate]) -> Result<Vec<boo
             return Err(invalid("compound template head has no quads"));
         }
         let Some(tail) = templates.get(index + 1) else {
-            return Err(invalid("compound template pair is truncated"));
+            return Err(invalid("compound template chain is truncated"));
         };
-        if tail.flags != 0 {
-            return Err(invalid("compound continuation is not a plain template"));
+        if !matches!(tail.flags, 0 | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT) {
+            return Err(invalid("compound continuation has incompatible flags"));
         }
         if tail.quad_count == 0 {
             return Err(invalid("compound continuation has no quads"));

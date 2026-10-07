@@ -9,7 +9,7 @@ const KEY_SEAT_ROTATION_DEGREES: u32 = 60;
 const KEY_BED_POSITION: u32 = 28;
 
 const FLAG_SADDLED: u32 = 8;
-const FLAG_BABY: u32 = 11;
+pub(crate) const FLAG_BABY: u32 = 11;
 const FLAG_TAMED: u32 = 28;
 const FLAG_SHEARED: u32 = 31;
 
@@ -399,12 +399,14 @@ mod tests {
             on_ground: Some(false),
             teleported: false,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::from([(0, ActorMetadataValue::Flags(flags))]),
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
             status: Default::default(),
+            dragon_animation: None,
         }
     }
 

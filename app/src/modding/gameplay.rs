@@ -5,7 +5,9 @@ use client_presentation::{
     camera::{AutoFly, PITCH_LIMIT, ServerCameraView},
     local_player::LocalViewPose,
 };
-use mod_host::{CameraDelta, GameplayPlayer, GameplaySnapshot, GameplayVector3, ModGrants};
+use mod_host::{
+    CameraDelta, GameplayMob, GameplayPlayer, GameplaySnapshot, GameplayVector3, ModGrants,
+};
 
 use crate::{runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot};
 
@@ -21,9 +23,13 @@ pub(super) struct GameplayContext<'w> {
 
 impl GameplayContext<'_> {
     /// No snapshot exists outside captured gameplay or without explicit grants.
-    pub(super) fn snapshot(&self, allowed: bool, grants: ModGrants) -> Option<GameplaySnapshot> {
+    pub(super) fn snapshot(&self, allowed: bool, grants: &ModGrants) -> Option<GameplaySnapshot> {
         if !allowed
-            || !(grants.players || grants.camera || grants.interaction)
+            || !(grants.players
+                || grants.camera
+                || grants.interaction
+                || grants.entities
+                || !grants.commands.is_empty())
             || self
                 .auto_fly
                 .as_ref()
@@ -60,6 +66,22 @@ impl GameplayContext<'_> {
         })
     }
 
+    /// Nearby mobs around the snapshot eye, only with the entities grant.
+    pub(super) fn mobs(
+        &self,
+        snapshot: Option<&GameplaySnapshot>,
+        grants: &ModGrants,
+    ) -> Vec<GameplayMob> {
+        let (Some(frame), true) = (snapshot, grants.entities) else {
+            return Vec::new();
+        };
+        let Some(stream) = self.world.as_ref().and_then(|world| world.stream.as_ref()) else {
+            return Vec::new();
+        };
+        let eye = Vec3::new(frame.eye.x, frame.eye.y, frame.eye.z);
+        nearest_mobs(stream.authority().remote_actors(), eye)
+    }
+
     /// Called only for a successfully committed, once-consumed current-frame delta.
     pub(super) fn apply(&mut self, delta: CameraDelta) {
         if let Some(view) = self.view.as_mut() {
@@ -94,6 +116,52 @@ fn nearest_players<'a>(
     });
     players.truncate(mod_host::MAX_GAMEPLAY_PLAYERS);
     players
+}
+
+/// Non-player actors within the published range, nearest first; health is the replicated attribute.
+fn nearest_mobs<'a>(
+    actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
+    eye: Vec3,
+) -> Vec<GameplayMob> {
+    let range = mod_host::MAX_MOB_RANGE_BLOCKS * mod_host::MAX_MOB_RANGE_BLOCKS;
+    let mut mobs: Vec<_> = actors
+        .filter_map(|actor| {
+            let protocol::ActorKind::Entity { identifier } = &actor.kind else {
+                return None;
+            };
+            let position = Vec3::from_array(actor.position);
+            if actor.runtime_id == 0
+                || !position.is_finite()
+                || position.distance_squared(eye) > range
+                || identifier.is_empty()
+                || identifier.len() > mod_host::MAX_MOB_TYPE_BYTES
+            {
+                return None;
+            }
+            let health = actor
+                .attributes
+                .get("minecraft:health")
+                .filter(|health| health.current.is_finite() && health.max.is_finite());
+            Some(GameplayMob {
+                runtime_id: actor.runtime_id,
+                unique_id: actor.unique_id,
+                type_id: identifier.to_string(),
+                position: vector(position),
+                health: health.map(|health| health.current),
+                max_health: health.map(|health| health.max),
+            })
+        })
+        .collect();
+    let distance = |mob: &GameplayMob| {
+        Vec3::new(mob.position.x, mob.position.y, mob.position.z).distance_squared(eye)
+    };
+    mobs.sort_by(|a, b| {
+        distance(a)
+            .total_cmp(&distance(b))
+            .then_with(|| a.runtime_id.cmp(&b.runtime_id))
+    });
+    mobs.truncate(mod_host::MAX_GAMEPLAY_MOBS);
+    mobs
 }
 
 fn distance_squared(player: &GameplayPlayer, eye: Vec3) -> f32 {

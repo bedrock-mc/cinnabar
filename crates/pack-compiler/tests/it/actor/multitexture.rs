@@ -17,7 +17,7 @@ fn pinned_llama_body_and_decor_rasters_retain_three_sampler_alpha() {
     let entity_bytes = encode_entity_blob(&entities).unwrap();
     let runtime_entities = assets::RuntimeEntityAssets::decode(&entity_bytes).unwrap();
     let compiled = compile_actor_assets(root, MANIFEST).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entity_bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &runtime_entities).unwrap();
     let used: std::collections::BTreeSet<_> = entities
         .render
         .candidates

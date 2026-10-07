@@ -268,13 +268,19 @@ func testAdmissionPackArchive(t *testing.T) []byte {
 // admissionPackArchiveWithID gives selection fixtures distinct pack identities.
 func admissionPackArchiveWithID(t *testing.T, id string) []byte {
 	t.Helper()
+	return admissionPackArchiveWithVersion(t, id, "1, 0, 0")
+}
+
+// admissionPackArchiveWithVersion builds a minimal pack; version is the manifest's array body.
+func admissionPackArchiveWithVersion(t *testing.T, id, version string) []byte {
+	t.Helper()
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
 	manifest, err := writer.Create("manifest.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fmt.Fprintf(manifest, `{"format_version":2,"header":{"name":"test","description":"test","uuid":%q,"version":[1,0,0],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`, id)
+	_, err = fmt.Fprintf(manifest, `{"format_version":2,"header":{"name":"test","description":"test","uuid":%q,"version":[%s],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`, id, version)
 	if err != nil {
 		t.Fatal(err)
 	}

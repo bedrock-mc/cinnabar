@@ -239,7 +239,7 @@ fn collect(
 }
 
 /// The node's own primitives; a sprite crops to its progress clip.
-fn emit_own(
+pub(crate) fn emit_own(
     node: &LaidOut,
     env: &LayoutEnv,
     out: &mut Vec<(i32, usize, DrawNode)>,

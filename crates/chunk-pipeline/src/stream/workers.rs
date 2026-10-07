@@ -1,111 +1,232 @@
 mod priority;
 
-use std::sync::LazyLock;
+use std::collections::VecDeque;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
-use rayon::{ThreadPool, ThreadPoolBuilder};
+/// Cores left to the frame (main and render threads).
+const FRAME_CORES: usize = 2;
+const MIN_WORLD_THREADS: usize = 3;
+/// A lower lane's oldest job jumps the priority order after waiting this long, so
+/// sustained mesh load cannot starve the decode and light work that mesh depends on.
+const DECODE_MAX_WAIT: Duration = Duration::from_millis(4);
+const LIGHT_MAX_WAIT: Duration = Duration::from_millis(16);
 
-/// Only one decode lane counts against the background budget; extra lanes are bursty and
-/// preempt the lowered-priority light pool rather than taking its threads.
-const RESERVED_DECODE_WORKERS: usize = 1;
-const MAX_DECODE_WORKERS: usize = 3;
-const MIN_MESH_WORKERS: usize = 1;
-
-/// Separate queues keep column solves from holding up decode and ready geometry.
-pub(super) struct WorldWorkers {
-    pub(super) light: ThreadPool,
-    pub(super) mesh: ThreadPool,
-    pub(super) decode: ThreadPool,
+/// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light trails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Lane {
+    Mesh,
+    Decode,
+    Light,
 }
 
-pub(super) static WORKERS: LazyLock<WorldWorkers> = LazyLock::new(|| {
+/// Thread split for one machine; only background threads take light, so they cap its width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct PoolSize {
+    pub(super) foreground: usize,
+    pub(super) background: usize,
+}
+
+impl PoolSize {
+    pub(super) fn for_cores(cores: usize) -> Self {
+        let threads = cores.saturating_sub(FRAME_CORES).max(MIN_WORLD_THREADS);
+        let background = (threads * 2 / 3).max(super::MIN_EFFECTIVE_LIGHT_JOB_CAP);
+        Self {
+            foreground: threads - background,
+            background,
+        }
+    }
+
+    pub(super) const fn threads(self) -> usize {
+        self.foreground + self.background
+    }
+}
+
+type Job = Box<dyn FnOnce(&mut world::LightSolverScratch) + Send + 'static>;
+type Queue = VecDeque<(Instant, Job)>;
+
+#[derive(Default)]
+struct Queues {
+    mesh: Queue,
+    decode: Queue,
+    light: Queue,
+    shutdown: bool,
+}
+
+impl Queues {
+    fn push(&mut self, lane: Lane, queued_at: Instant, job: Job) {
+        let queue = match lane {
+            Lane::Mesh => &mut self.mesh,
+            Lane::Decode => &mut self.decode,
+            Lane::Light => &mut self.light,
+        };
+        queue.push_back((queued_at, job));
+    }
+
+    /// Next job for a worker at time `now`; the clock is a parameter so ageing is testable.
+    fn take(&mut self, background: bool, now: Instant) -> Option<Job> {
+        let overdue = |queue: &Queue, limit| {
+            queue
+                .front()
+                .is_some_and(|(queued, _)| now.saturating_duration_since(*queued) >= limit)
+        };
+        let lane = if background && overdue(&self.light, LIGHT_MAX_WAIT) {
+            &mut self.light
+        } else if overdue(&self.decode, DECODE_MAX_WAIT) || self.mesh.is_empty() {
+            if self.decode.is_empty() && background {
+                &mut self.light
+            } else {
+                &mut self.decode
+            }
+        } else {
+            &mut self.mesh
+        };
+        lane.pop_front().map(|(_, job)| job)
+    }
+}
+
+#[derive(Default)]
+struct Shared {
+    queues: Mutex<Queues>,
+    ready: Condvar,
+}
+
+impl Shared {
+    fn lock(&self) -> MutexGuard<'_, Queues> {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.queue_lock").entered();
+        self.queues
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// One world pool: threads prefer mesh, then decode, then light, unless a lower lane is
+/// overdue. Light runs only on the lowered-priority background threads.
+pub(super) struct WorldPool {
+    shared: Arc<Shared>,
+    size: PoolSize,
+}
+
+pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
-    WorldWorkers::new(cores)
+    WorldPool::new(PoolSize::for_cores(cores))
 });
 
-impl WorldWorkers {
-    /// Limits world workers below CPU capacity when at least six processors are available.
-    fn new(cores: usize) -> Self {
-        let minimum =
-            super::MIN_EFFECTIVE_LIGHT_JOB_CAP + MIN_MESH_WORKERS + RESERVED_DECODE_WORKERS;
-        let background = cores.saturating_sub(2).max(minimum);
-        let light = (cores / 2).clamp(
-            super::MIN_EFFECTIVE_LIGHT_JOB_CAP,
-            background - MIN_MESH_WORKERS - RESERVED_DECODE_WORKERS,
-        );
-        Self {
-            light: pool("world-light", light, true),
-            mesh: pool(
-                "world-mesh",
-                background - light - RESERVED_DECODE_WORKERS,
-                false,
-            ),
-            decode: pool("world-decode", decode_workers(cores), false),
+impl WorldPool {
+    fn new(size: PoolSize) -> Self {
+        let shared = Arc::new(Shared::default());
+        for (name, count, background) in [
+            ("world", size.foreground, false),
+            ("world-bg", size.background, true),
+        ] {
+            for index in 0..count {
+                let shared = Arc::clone(&shared);
+                std::thread::Builder::new()
+                    .name(format!("{name}-{index}"))
+                    .spawn(move || work(&shared, name, background))
+                    .expect("world worker could not start");
+            }
+        }
+        Self { shared, size }
+    }
+
+    pub(super) const fn size(&self) -> PoolSize {
+        self.size
+    }
+
+    pub(super) fn spawn(&self, lane: Lane, job: impl FnOnce() + Send + 'static) {
+        self.shared
+            .lock()
+            .push(lane, Instant::now(), Box::new(move |_| job()));
+        // A foreground waiter cannot take light, so light wakes everyone.
+        if lane == Lane::Light {
+            self.shared.ready.notify_all();
+        } else {
+            self.shared.ready.notify_one();
+        }
+    }
+    /// Publishes a bounded dispatch cohort with one queue lock and one wakeup.
+    pub(super) fn batch(&self, lane: Lane) -> DispatchBatch<'_> {
+        DispatchBatch {
+            pool: self,
+            lane,
+            jobs: Vec::new(),
         }
     }
 }
 
-/// Completions re-sequence in the ordered commit state, so decode width never reorders commits.
-fn decode_workers(cores: usize) -> usize {
-    (cores / 4).clamp(RESERVED_DECODE_WORKERS, MAX_DECODE_WORKERS)
+/// Prepared jobs retain independent scheduling priority after their shared publication.
+pub(super) struct DispatchBatch<'a> {
+    pool: &'a WorldPool,
+    lane: Lane,
+    jobs: Vec<(Instant, Job)>,
 }
 
-/// Names workers so captured thread samples identify the service that owns them.
-fn pool(name: &'static str, threads: usize, background: bool) -> ThreadPool {
-    ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .start_handler(move |_| {
-            if background && let Err(error) = priority::lower() {
-                eprintln!("{name}: could not lower worker priority: {error}");
-            }
-        })
-        .thread_name(move |index| format!("{name}-{index}"))
-        .build()
-        .expect("world worker pool could not start")
+impl DispatchBatch<'_> {
+    /// Adds an independent task without waking or locking the pool yet.
+    pub(super) fn spawn(&mut self, job: impl FnOnce() + Send + 'static) {
+        self.spawn_with_scratch(move |_| job());
+    }
+
+    /// Gives a solve exclusive access to this worker's retained scratch buffers.
+    pub(super) fn spawn_with_scratch(
+        &mut self,
+        job: impl FnOnce(&mut world::LightSolverScratch) + Send + 'static,
+    ) {
+        self.jobs.push((Instant::now(), Box::new(job)));
+    }
+}
+
+impl Drop for DispatchBatch<'_> {
+    fn drop(&mut self) {
+        if self.jobs.is_empty() {
+            return;
+        }
+        let mut queues = self.pool.shared.lock();
+        for (at, job) in self.jobs.drain(..) {
+            queues.push(self.lane, at, job);
+        }
+        drop(queues);
+        self.pool.shared.ready.notify_all();
+    }
+}
+
+impl Drop for WorldPool {
+    fn drop(&mut self) {
+        self.shared.lock().shutdown = true;
+        self.shared.ready.notify_all();
+    }
+}
+
+fn work(shared: &Shared, name: &str, background: bool) {
+    if background && let Err(error) = priority::lower() {
+        eprintln!("{name}: could not lower worker priority: {error}");
+    }
+    let mut scratch = world::LightSolverScratch::default();
+    let mut queues = shared.lock();
+    loop {
+        if queues.shutdown {
+            return;
+        }
+        let Some(job) = queues.take(background, Instant::now()) else {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.worker_wait").entered();
+            queues = shared
+                .ready
+                .wait(queues)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            continue;
+        };
+        drop(queues);
+        // Matches rayon's default: a panicking world job aborts rather than losing its permits.
+        if catch_unwind(AssertUnwindSafe(|| job(&mut scratch))).is_err() {
+            std::process::abort();
+        }
+        queues = shared.lock();
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    /// Decode widens with the machine but stays small and leaves the light and mesh lanes intact.
-    #[test]
-    fn decode_lanes_scale_with_cores_up_to_a_small_cap() {
-        assert_eq!(decode_workers(1), 1);
-        assert_eq!(decode_workers(4), 1);
-        assert!(decode_workers(8) >= 2);
-        assert_eq!(decode_workers(64), MAX_DECODE_WORKERS);
-        let workers = WorldWorkers::new(12);
-        assert!(workers.decode.current_num_threads() >= 2);
-        assert!(workers.mesh.current_num_threads() >= MIN_MESH_WORKERS);
-        assert!(workers.light.current_num_threads() >= super::super::MIN_EFFECTIVE_LIGHT_JOB_CAP);
-    }
-
-    /// Saturating every light worker leaves both latency-sensitive lanes available.
-    #[test]
-    fn saturated_lighting_cannot_queue_ahead_of_mesh_or_decode() {
-        let workers = WorldWorkers::new(8);
-        let (started_tx, started_rx) = crossbeam_channel::unbounded();
-        let (release_tx, release_rx) = crossbeam_channel::unbounded();
-        for _ in 0..workers.light.current_num_threads() {
-            let started = started_tx.clone();
-            let release = release_rx.clone();
-            workers.light.spawn(move || {
-                started.send(()).unwrap();
-                release.recv_timeout(Duration::from_secs(5)).unwrap();
-            });
-        }
-        for _ in 0..workers.light.current_num_threads() {
-            started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        }
-        let (done_tx, done_rx) = crossbeam_channel::unbounded();
-        let mesh_done = done_tx.clone();
-        workers.mesh.spawn(move || mesh_done.send(()).unwrap());
-        workers.decode.spawn(move || done_tx.send(()).unwrap());
-        let completed = (0..2).all(|_| done_rx.recv_timeout(Duration::from_secs(2)).is_ok());
-        for _ in 0..workers.light.current_num_threads() {
-            release_tx.send(()).unwrap();
-        }
-        assert!(completed, "lighting blocked another worker lane");
-    }
-}
+mod tests;

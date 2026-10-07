@@ -8,7 +8,11 @@ fn pinned_fish_models_keep_artwork_for_every_geometry_and_controller() {
     let entities = compile_entity_assets(root, MANIFEST).unwrap();
     let entity_bytes = encode_entity_blob(&entities).unwrap();
     let compiled = compile_actor_assets(root, MANIFEST).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entity_bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&entity_bytes).unwrap(),
+    )
+    .unwrap();
     for identifier in [
         "minecraft:cod",
         "minecraft:salmon",

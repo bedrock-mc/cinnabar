@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::random::AmbientRandom;
 
-pub(super) const MIN_SAMPLES: u32 = 100;
+pub const MIN_SAMPLES: u32 = 100;
 pub(super) const NEAR_SAMPLES: u32 = 667;
 pub(super) const MAX_SAMPLES: u32 = NEAR_SAMPLES * 2;
 const NEAR_RADIUS: u32 = 16;
@@ -26,8 +26,7 @@ pub struct Sampler {
 
 impl Default for Sampler {
     fn default() -> Self {
-        // Target-version LevelRendererPlayer constructor starts
-        // mode 2 at 100 samples with its previous camera position zeroed.
+        // The target version starts mode 2 at 100 samples with its previous camera position zeroed.
         Self {
             sample_count: MIN_SAMPLES,
             previous_position: [0.0; 3],

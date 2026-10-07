@@ -580,12 +580,16 @@ fn parse_color(value: &Value, it: &mut Interner) -> Option<[Program; 4]> {
                     .ok()
                     .map(|v| f32::from(v) / 255.0)
             };
-            let (r, g, b) = (component(0)?, component(2)?, component(4)?);
-            let a = if digits.len() >= 8 {
-                component(6)?
-            } else {
-                1.0
+            let (offset, a) = match digits.len() {
+                6 => (0, 1.0),
+                8 => (2, component(0)?),
+                _ => return None,
             };
+            let (r, g, b) = (
+                component(offset)?,
+                component(offset + 2)?,
+                component(offset + 4)?,
+            );
             Some([r, g, b, a].map(Program::constant))
         }
         Value::Array(items) if items.len() >= 3 => {
@@ -860,6 +864,10 @@ fn parse_event(value: &Value, it: &mut Interner) -> Option<EventNode> {
         _ => Some(EventNode::Sequence(nodes)),
     }
 }
+
+#[cfg(test)]
+#[path = "def/color_tests.rs"]
+mod color_tests;
 
 #[cfg(test)]
 mod tests {

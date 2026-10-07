@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
+use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 use ui::{
     BedrockColor, TextError, TextLayout, TextLayoutCache, TextLayoutRequest, TextLineAlign,
@@ -20,7 +20,7 @@ fn font() -> CompiledFontCatalog {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 32,
         height: 8,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let glyphs: Vec<GlyphMetrics> = [' ', '-', '.', 'W', 'a', 'b', 'c', 'd', '\u{fffd}']
         .into_iter()
@@ -65,6 +65,56 @@ fn label(chop: WordChop) -> TextWrap {
         chop,
         ..TextWrap::default()
     }
+}
+
+#[test]
+fn letter_spacing_moves_the_pen_and_changes_wrap_without_changing_ink() {
+    let spacing = TextWrap {
+        letter_spacing_64: 64,
+        ..TextWrap::default()
+    };
+    let spaced = layout("ab", 6, spacing).unwrap();
+    assert_eq!(spaced.size_64()[0], 6 * 64);
+    assert_eq!(spaced.glyphs()[1].bounds_64[0], 3 * 64);
+    assert_eq!(
+        spaced.glyphs()[1].bounds_64[2] - spaced.glyphs()[1].bounds_64[0],
+        2 * 64
+    );
+    assert_eq!(layout("ab", 4, spacing).unwrap().line_count(), 2);
+    assert_eq!(
+        layout("ab", 4, TextWrap::default()).unwrap().line_count(),
+        1
+    );
+}
+
+#[test]
+fn native_pair_advance_shapes_before_letter_spacing_and_restarts_at_line_boundaries() {
+    let font = font()
+        .with_kerning(std::collections::BTreeMap::from([(('a', 'b'), -64)]))
+        .unwrap();
+    let request = |text, width: u32| TextLayoutRequest {
+        text,
+        style: TextStyle::default(),
+        width_64: width * 64,
+        line_height_64: 8 * 64,
+        baseline_64: 0,
+        scale: UiScale::default(),
+        font: &font,
+        wrap: TextWrap {
+            letter_spacing_64: 64,
+            ..TextWrap::default()
+        },
+    };
+    let mut cache = TextLayoutCache::new(8, 65536);
+    let pair = cache.layout(request("ab", 5)).unwrap();
+    assert_eq!(pair.line_count(), 1);
+    assert_eq!(pair.size_64()[0], 5 * 64);
+    assert_eq!(pair.glyphs()[1].bounds_64[0], 2 * 64);
+    assert!(Arc::ptr_eq(&pair, &cache.layout(request("ab", 5)).unwrap()));
+    let broken = cache.layout(request("a\nb", 5)).unwrap();
+    assert!(broken.glyphs().iter().all(|glyph| glyph.bounds_64[0] == 0));
+    let wrapped = cache.layout(request("abab", 5)).unwrap();
+    assert_eq!(lines(&wrapped), ["ab", "ab"]);
 }
 
 // An overlong word chops so its prefix plus `-` fits, then draws the `-`.
@@ -155,4 +205,51 @@ fn explicit_white_and_formatting_newlines() {
     );
     let joined = layout("a§\nb", 64, TextWrap::default()).unwrap();
     assert_eq!(lines(&joined), ["ab"]);
+}
+
+#[test]
+fn glyph_sources_survive_format_codes_wrapping_and_generated_punctuation() {
+    let text = "a§bbcd§r abcd";
+    let plain = ui::parse_bedrock_text(text, ui::UiLimits::MAX_TEXT_BYTES)
+        .unwrap()
+        .plain_text()
+        .chars()
+        .collect::<Vec<_>>();
+    let wrapped = layout(
+        text,
+        5,
+        TextWrap {
+            chop: WordChop::Hyphen,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(wrapped.line_count() > 1);
+    assert!(wrapped.glyph_source_indices().contains(&None));
+    for (glyph, index) in wrapped.glyphs().iter().zip(wrapped.glyph_source_indices()) {
+        if let Some(index) = index {
+            assert_eq!(glyph.codepoint, plain[*index]);
+        } else {
+            assert_eq!(glyph.codepoint, '-');
+        }
+    }
+    let cut = layout(
+        text,
+        5,
+        TextWrap {
+            chop: WordChop::Hyphen,
+            max_lines: Some(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(cut.ellipsized());
+    assert!(
+        cut.glyphs()
+            .iter()
+            .zip(cut.glyph_source_indices())
+            .rev()
+            .take(3)
+            .all(|(glyph, index)| glyph.codepoint == '.' && index.is_none())
+    );
 }

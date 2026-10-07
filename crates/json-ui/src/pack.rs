@@ -330,7 +330,7 @@ const OPERATIONS: &[&str] = &[
     "replace",
 ];
 
-/// jsoncpp's `asString`: text as is, bools and numbers spelled out, null empty.
+/// Vanilla's JSON string read: text as is, bools and numbers spelled out, null empty.
 fn native_string(value: Option<&Value>) -> String {
     match value {
         Some(Value::String(text)) => text.clone(),
@@ -441,7 +441,7 @@ impl Target {
     }
 }
 
-/// `UIModification::_findIndex` over the original elements: a name matches an
+/// A modification's target lookup over the original elements: a name matches an
 /// object's first member key before `@`; an object condition matches when any
 /// member is equal; an array condition when it contains the element; a missing
 /// condition falls back to the first element, as does a scalar one.

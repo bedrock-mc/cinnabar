@@ -74,6 +74,13 @@ impl Src {
             .or_else(|| self.get().properties.get(key))
     }
 
+    /// Same template node and patch.
+    pub(super) fn same(&self, other: &Src) -> bool {
+        Arc::ptr_eq(&self.tree, &other.tree)
+            && self.path == other.path
+            && self.patch.as_deref() == other.patch.as_deref()
+    }
+
     /// This source with `edit` applied to its patch.
     pub(super) fn patched(mut self, edit: impl FnOnce(&mut Patch)) -> Self {
         let mut patch = self.patch.as_deref().cloned().unwrap_or_default();

@@ -42,13 +42,13 @@ numbers or a partially published batch on credit refusal.
 ## Scope and remaining gates
 
 Supported direct writes are player, offhand, armor, and ordinary personal UI
-cells, with the native cursor projection. Unknown or unreviewed sources/slots,
+cells, with the vanilla cursor projection. Unknown or unreviewed sources/slots,
 odd final descriptors, and writes exceeding the existing inventory retention
 limit are counted skips. The known world balancing leg produces no inventory
 write and no fabricated unknown-container count. Truncation, envelope failures
 and trailing packet bytes remain fatal framing errors.
 
-The native UI output-50 deferred `InventoryTransactionManager` path, arbitrary
+The vanilla deferred UI output-50 path, arbitrary
 open-window transaction execution, and non-normal complex transaction types are
 not implemented here. Offhand charged-item attachable context is a separate
 existing gap. This patch does not close general inventory/container parity.

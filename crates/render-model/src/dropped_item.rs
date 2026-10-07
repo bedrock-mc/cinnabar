@@ -20,3 +20,11 @@ pub struct DroppedItemCube {
     pub faces: [Arc<[u8]>; 6],
     pub tints: [u32; 6],
 }
+
+/// A centered block mesh retaining its world templates and material tiles.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DroppedItemBlock {
+    pub materials: Arc<[(DroppedItemSprite, u32)]>,
+    pub quads: Arc<[assets::ModelQuad]>,
+    pub rotation: u32,
+}

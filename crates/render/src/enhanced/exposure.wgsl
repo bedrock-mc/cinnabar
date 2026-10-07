@@ -78,7 +78,8 @@ fn adapt_exposure() {
     let policy = highlight_exposure_policy(average, exp2(highlight_log), day, frame.ambient_colour.w);
     var desired_exposure = clamp(frame.grade.y, exposure_limits(day).x, policy.z);
     if (accepted > 0.0) { desired_exposure = policy.x; }
-    exposure.x = adapted_exposure(exposure.x, desired_exposure, frame.temporal.z, frame.temporal.y > 0.5);
+    // Meter history remains valid when image reprojection rejects a frame or TAA is disabled.
+    exposure.x = adapted_exposure(exposure.x, desired_exposure, frame.temporal.z, exposure.w > 0.5);
     exposure.y = desired_exposure;
     exposure.z = average;
     exposure.w = 1.0;

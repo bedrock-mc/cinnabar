@@ -1,4 +1,4 @@
-//! Precipitation model after the vanilla `WeatherRenderer`: biome lattice, per-kind intensity,
+//! Precipitation model after vanilla: biome lattice, per-kind intensity,
 //! ten wrapped particle layers per kind, a 64x64 column occlusion grid and the splash hook.
 
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use crate::celestial::unit;
 
 /// Rain level change per second while the server target moves.
-/// Weather::tick approaches its targets by this amount.
+/// Vanilla weather approaches its targets by this amount per tick.
 pub const PRECIPITATION_LEVEL_PER_TICK: f32 = 0.01;
 pub const PRECIPITATION_LEVEL_PER_SECOND: f32 =
     PRECIPITATION_LEVEL_PER_TICK * world::TICKS_PER_SECOND as f32;
@@ -84,7 +84,7 @@ pub fn approach_level(current: f32, target: f32, max_step: f32) -> f32 {
     current + (target - current).clamp(-step, step)
 }
 
-/// Per-kind constants from the vanilla `paramsRain`/`paramsSnow` tables.
+/// Vanilla's per-kind rain and snow constants.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PrecipitationParams {
     /// Blocks per tick at unit speed.
@@ -482,7 +482,7 @@ pub struct PrecipitationScene {
     pub occlusion_generation: u64,
 }
 
-/// Biome sample lattice around the player from the vanilla `precipitationOffsets` table.
+/// Vanilla's biome sample lattice around the player for precipitation.
 pub const PRECIPITATION_SAMPLE_OFFSETS: [[i32; 3]; 27] = {
     const RING: [[i32; 2]; 9] = [
         [0, 0],

@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use assets::{
-    FONT_CARRIER_SCHEMA, FontTexturePage, GlyphMetrics, MAX_FONT_PAGE_SIDE, MAX_FONT_SOURCE_BYTES,
-    encode_font_catalog,
+    FONT_CARRIER_SCHEMA, FontPixels, FontTexturePage, GlyphMetrics, MAX_FONT_PAGE_SIDE,
+    MAX_FONT_SOURCE_BYTES, encode_font_catalog,
 };
 use fontdue::{Font, FontSettings};
 use sha2::{Digest, Sha256};
@@ -11,6 +11,11 @@ use super::{CompiledFontCarrier, FontCompileError, FontCompileReport, invalid};
 
 mod providers;
 pub use providers::compile_outline_font_with_fallback;
+mod runtime;
+pub use runtime::{
+    NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, compile_native_fallback_fonts,
+    compile_native_outline_font, compile_native_outline_font_sizes, compile_runtime_outline_font,
+};
 
 const ATLAS_PADDING: u32 = 1;
 const FIXED_POINT_DENOMINATOR: i64 = 64;
@@ -96,6 +101,24 @@ pub fn compile_outline_font(
             detail: detail.to_string().into_boxed_str(),
         }
     })?;
+    compile_parsed_outline(
+        source_path,
+        source_bytes,
+        source_manifest_sha256,
+        config,
+        &font,
+        false,
+    )
+}
+
+fn compile_parsed_outline(
+    source_path: &Path,
+    source_bytes: &[u8],
+    source_manifest_sha256: [u8; 32],
+    config: OutlineFontConfig,
+    font: &Font,
+    runtime: bool,
+) -> Result<CompiledFontCarrier, FontCompileError> {
     let mut codepoints = REVIEWED_RANGES
         .iter()
         .flat_map(|(first, last)| *first..=*last)
@@ -113,11 +136,28 @@ pub fn compile_outline_font(
             {
                 synthetic_replacement(config.pixel_height)
             } else {
-                rasterize(&font, codepoint, config.pixel_height, config.advances)
+                let mut glyph = rasterize(font, codepoint, config.pixel_height, config.advances)?;
+                if runtime {
+                    let advance = font
+                        .metrics(codepoint, config.pixel_height as f32)
+                        .advance_width
+                        * 64.0;
+                    if !advance.is_finite() || advance < 0.0 || advance > i16::MAX as f32 {
+                        return Err(metric_error(codepoint, "advance"));
+                    }
+                    glyph.advance_64 = advance.round() as i16;
+                }
+                Ok(glyph)
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let (glyphs, rgba8) = pack(&rasterized, config.atlas_side)?;
+    let (glyphs, mut rgba8) = pack(&rasterized, config.atlas_side)?;
+    if runtime {
+        // Linear white-glyph sampling retains coverage without darkening transparent gutters.
+        for texel in rgba8.chunks_exact_mut(4) {
+            texel[..3].fill(255);
+        }
+    }
     let source_sha256 = Sha256::digest(source_bytes).into();
     let pixels_sha256 = Sha256::digest(&rgba8).into();
     let page = FontTexturePage {
@@ -131,7 +171,7 @@ pub fn compile_outline_font(
         pixels_sha256,
         width: config.atlas_side,
         height: config.atlas_side,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let pages = [page];
     let bytes = encode_font_catalog(source_manifest_sha256, &glyphs, &pages)?;
@@ -158,6 +198,15 @@ fn validate_config(
     source_manifest_sha256: [u8; 32],
     config: OutlineFontConfig,
 ) -> Result<(), FontCompileError> {
+    validate_config_minimum(source_bytes, source_manifest_sha256, config, 8)
+}
+
+fn validate_config_minimum(
+    source_bytes: &[u8],
+    source_manifest_sha256: [u8; 32],
+    config: OutlineFontConfig,
+    minimum_height: u32,
+) -> Result<(), FontCompileError> {
     if source_bytes.is_empty() || source_bytes.len() as u64 > MAX_FONT_SOURCE_BYTES {
         return Err(FontCompileError::SourceTooLarge {
             path: "font/outline.ttf".into(),
@@ -178,7 +227,7 @@ fn validate_config(
     }
     if source_manifest_sha256 == [0; 32]
         || config.replacement_codepoint != REQUIRED_REPLACEMENT
-        || !(8..=128).contains(&config.pixel_height)
+        || !(minimum_height..=128).contains(&config.pixel_height)
         || config.atlas_side < 256
         || config.atlas_side > MAX_FONT_PAGE_SIDE
         || !config.atlas_side.is_power_of_two()

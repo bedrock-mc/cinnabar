@@ -29,7 +29,7 @@ fn stream() -> WorldStream {
     })
 }
 
-fn lit_stream(dimension: i32) -> WorldStream {
+pub(super) fn lit_stream(dimension: i32) -> WorldStream {
     WorldStream::new_with_assets(
         WorldBootstrap {
             dimension,
@@ -163,7 +163,7 @@ pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     panic!("light convergence exceeded the bounded test iteration limit");
 }
 
-fn install_current_light(
+pub(super) fn install_current_light(
     stream: &mut WorldStream,
     key: SubChunkKey,
     block: u8,
@@ -247,16 +247,24 @@ fn synthetic_light_completion(
     }
 }
 
+mod air_fixed_point;
 mod boundary_dominance;
 mod cases_01;
 mod cases_02;
 mod filter_dominance;
 mod sky_boundary;
+mod worker_caps;
 
 mod mesh_admission;
 
 mod backlog;
+mod mixed_prefix;
 mod mutation_summary;
+mod pending_coalescing;
+mod resident_air;
+mod startup_lanes;
+mod transfer_priority;
+mod uniform_air;
 
 /// Retired workers without tracked completions must release their slots before convergence retries.
 #[test]

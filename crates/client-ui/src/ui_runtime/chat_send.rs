@@ -35,6 +35,17 @@ impl UiRuntime {
         Ok(request)
     }
 
+    /// Queues exactly `message` as a sent line, leaving the editor's draft untouched.
+    pub fn queue_chat_message(
+        &mut self,
+        message: &str,
+        now_millis: u64,
+    ) -> Result<ChatSendRequest, ChatSendError> {
+        let request = self.chat_sends.push(self.session_id, message, now_millis)?;
+        self.chat_history.push(Arc::clone(&request.message));
+        Ok(request)
+    }
+
     pub fn front_chat_packet(&self) -> Result<Option<(u64, Packet)>, ChatPacketError> {
         self.chat_sends
             .pending()

@@ -11,12 +11,19 @@ use assets::RuntimeEquipmentCatalog;
 
 use super::{IconRef, UiPresentationRuntime};
 
+pub(super) mod cape;
+pub(super) mod controller;
 mod equipment;
+mod fitting;
 pub mod geometry;
+pub(super) mod model;
 mod skin;
+pub use cape::render_cape_thumbnail;
+pub use controller::MenuPreviewConfig;
 pub use equipment::{
     PreviewEquipment, PreviewHandItem, PreviewHeldModel, PreviewHeldPlacement, PreviewTexture,
 };
+pub use model::render_skin_thumbnail;
 use render_model::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
 pub use skin::local_preview_skin;
 
@@ -161,24 +168,42 @@ pub const PREVIEW_FEET_Y: f32 = 106.0;
 /// A player's eye height above its feet, the point a live renderer centres.
 pub const PLAYER_EYE_HEIGHT: f32 = 1.62;
 /// Undyed leather armor's colour (the equipment renderer's default).
-const LEATHER_RGB: u32 = 0x00a0_6540;
+use assets::DEFAULT_LEATHER_RGB as LEATHER_RGB;
 /// The player entity's render scale.
 pub(super) const PLAYER_MODEL_SCALE: f32 = 0.9375;
 /// The HUD translates its shared outer actor frame while swimming.
 pub(super) const HUD_SWIM_OFFSET: f32 = 0.8;
-/// UI rendering retains the native ModelPart origin rather than the world feet origin.
+/// UI rendering retains vanilla's model-part origin rather than the world feet origin.
 pub const PLAYER_UI_ORIGIN: f32 = client_world::MODEL_PART_ORIGIN_Y / 16.0 * PLAYER_MODEL_SCALE;
+const POINTER_DISTANCE_GUI_PIXELS: f32 = 40.0;
+const POINTER_ANGLE_FACTOR: f32 = 20.0;
+const HEAD_PIVOT: [f32; 3] = [0.0, 1.5, 0.0];
+const SHOULDER_PIVOTS: [[f32; 3]; 2] = [
+    [-5.0 / 16.0, 22.0 / 16.0, 0.0],
+    [5.0 / 16.0, 22.0 / 16.0, 0.0],
+];
 
 /// How a UI renderer shows the player model; both face the viewer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PreviewView {
     /// `live_player_renderer`: the model turns toward the pointer, `offset` the
-    /// renderer's centre minus the pointer in GUI pixels
-    /// (`LivePlayerRenderer::_getMousePosition`).
+    /// renderer's centre minus the pointer in GUI pixels.
     Live { offset: [f32; 2] },
     /// `paper_doll_renderer`: a fixed turn (`starting_rotation`) under a camera tilt
     /// (`camera_tilt_degrees`), both in degrees.
     Doll { yaw: f32, tilt: f32 },
+    /// A gesture-controlled paper doll keeps its camera tilt while its head follows the pointer.
+    DollLook {
+        yaw: f32,
+        tilt: f32,
+        offset: [f32; 2],
+    },
+    /// The skin selector retains menu head tracking while playing the player idle sway.
+    SkinSelector {
+        yaw: f32,
+        tilt: f32,
+        offset: [f32; 2],
+    },
     /// Native fixed body yaw while the actor keeps its animated pose and relative head look.
     Hud,
 }
@@ -191,16 +216,48 @@ impl Default for PreviewView {
 
 impl PreviewView {
     /// `(body yaw, head yaw, head pitch, model pitch)` in degrees. A live renderer
-    /// follows `LivePlayerRenderer::render`: body `atan(dx / 40) * 20`, head
+    /// turns the body `atan(dx / 40) * 20`, head
     /// `atan(dx / 40) * 40` and `atan(dy / 40) * -20`, the whole model tilted by
     /// `atan(dy / 40) * -20` about the eyes.
     fn angles(self) -> [f32; 4] {
         match self {
             Self::Live { offset: [dx, dy] } => {
-                let (x, y) = ((dx / 40.0).atan(), (dy / 40.0).atan());
-                [x * 20.0, x * 40.0, y * -20.0, y * -20.0]
+                let (x, y) = (
+                    (dx / POINTER_DISTANCE_GUI_PIXELS).atan(),
+                    (dy / POINTER_DISTANCE_GUI_PIXELS).atan(),
+                );
+                [
+                    x * POINTER_ANGLE_FACTOR,
+                    x * POINTER_ANGLE_FACTOR * 2.0,
+                    y * -POINTER_ANGLE_FACTOR,
+                    y * -POINTER_ANGLE_FACTOR,
+                ]
             }
             Self::Doll { yaw, tilt } => [yaw, yaw, 0.0, tilt],
+            Self::DollLook {
+                yaw,
+                tilt,
+                offset: [dx, dy],
+            }
+            | Self::SkinSelector {
+                yaw,
+                tilt,
+                offset: [dx, dy],
+            } => {
+                let direction = if ((yaw + 180.0).rem_euclid(360.0) - 180.0).abs() > 90.0 {
+                    -1.0
+                } else {
+                    1.0
+                };
+                [
+                    yaw,
+                    yaw + (dx / POINTER_DISTANCE_GUI_PIXELS).atan()
+                        * POINTER_ANGLE_FACTOR
+                        * direction,
+                    (dy / POINTER_DISTANCE_GUI_PIXELS).atan() * -POINTER_ANGLE_FACTOR,
+                    tilt,
+                ]
+            }
             Self::Hud => {
                 // Vanilla fixes both HUD body-yaw samples.
                 // rotate_y already uses the native yaw direction.
@@ -212,9 +269,9 @@ impl PreviewView {
 }
 
 /// A player renderer's pose request and its raster's logical rect. A live
-/// renderer (`LivePlayerRenderer::render`) centres the eyes on the control at
+/// renderer centres the eyes on the control at
 /// `min(w, h)` pixels per block and turns toward the pointer; a paper doll
-/// (`PaperDollRenderer::_render`) centres the model at `min(w / 20, h / 39)`
+/// centres the model at `min(w / 20, h / 39)`
 /// pixels per model pixel, turned by `starting_rotation` under
 /// `camera_tilt_degrees`.
 pub fn renderer_frame(
@@ -224,7 +281,6 @@ pub fn renderer_frame(
     px: f32,
     pointer: Option<[f32; 2]>,
 ) -> (PreviewView, [f32; 4]) {
-    let number = |key: &str| data.get(key).and_then(serde_json::Value::as_f64);
     let (w, h) = (dest[2] - dest[0], dest[3] - dest[1]);
     let centre = [(dest[0] + dest[2]) * 0.5, (dest[1] + dest[3]) * 0.5];
     let (view, block, anchor) = if renderer == "live_player_renderer" {
@@ -235,10 +291,10 @@ pub fn renderer_frame(
     } else if renderer == "hud_player_renderer" {
         (PreviewView::Hud, w, PLAYER_UI_ORIGIN)
     } else {
-        let view = PreviewView::Doll {
-            yaw: number("starting_rotation").unwrap_or(0.0) as f32,
-            tilt: number("camera_tilt_degrees").unwrap_or(0.0) as f32,
-        };
+        let offset = pointer.map_or([0.0; 2], |point| {
+            [centre[0] / px - point[0], centre[1] / px - point[1]]
+        });
+        let view = MenuPreviewConfig::from_data(data).view(offset);
         // The native menu model retains its authored Y=24 origin. The
         // paper-doll renderer subtracts inverse GUI scale in model pixels.
         let anchor = PLAYER_UI_ORIGIN - 1.0 / (px * 16.0);
@@ -334,12 +390,36 @@ pub fn render(
     bob: f32,
     gear: &PreviewEquipment,
 ) -> Vec<u8> {
+    let mut vertices = standard_biped_vertices();
+    vertices.extend(standard_biped_overlay_vertices());
+    render_body(&vertices, skin, pose, view, bob, gear)
+}
+
+pub(super) fn render_body(
+    vertices: &[ActorVertex],
+    skin: &[u8],
+    pose: PlayerPreviewPose,
+    view: PreviewView,
+    bob: f32,
+    gear: &PreviewEquipment,
+) -> Vec<u8> {
+    render_body_with_cape(vertices, skin, pose, view, bob, gear, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_body_with_cape(
+    vertices: &[ActorVertex],
+    skin: &[u8],
+    pose: PlayerPreviewPose,
+    view: PreviewView,
+    bob: f32,
+    gear: &PreviewEquipment,
+    cape: Option<&protocol::CapeImage>,
+) -> Vec<u8> {
     let width = PREVIEW_WIDTH as usize;
     let height = PREVIEW_HEIGHT as usize;
     let mut pixels = vec![0u8; width * height * 4];
     let mut depth = vec![f32::NEG_INFINITY; width * height];
-    let mut vertices = standard_biped_vertices();
-    vertices.extend(standard_biped_overlay_vertices());
     let rig = Rig::new(pose, view, bob, [gear.held.is_some(), false]);
     let mut draw = |vertices: &[ActorVertex], sample: &dyn Fn([f32; 2]) -> Option<[u8; 4]>| {
         for triangle in vertices.chunks_exact(3) {
@@ -347,7 +427,12 @@ pub fn render(
             rasterize_triangle(&mut pixels, &mut depth, width, height, sample, projected);
         }
     };
-    draw(&vertices, &|uv| sample_skin(skin, uv));
+    draw(vertices, &|uv| sample_skin(skin, uv));
+    if let Some(texture) = cape.and_then(cape::texture) {
+        draw(cape::rest_vertices(), &|uv| {
+            texture.sample(uv).filter(|texel| texel[3] >= 128)
+        });
+    }
     for (slot, texture) in gear.armor.iter().enumerate() {
         if let Some(texture) = texture {
             let size = [f32::from(texture.width), f32::from(texture.height)];
@@ -378,16 +463,25 @@ struct Rig {
 impl Rig {
     fn new(pose: PlayerPreviewPose, view: PreviewView, bob: f32, holding: [bool; 2]) -> Self {
         let [body, head_yaw, head_pitch, model_pitch] = view.angles();
-        // PaperDollRenderer sets variable.is_paperdoll=1. The vanilla player
+        // A vanilla paper doll sets variable.is_paperdoll=1. The vanilla player
         // controller's paperdoll branch excludes holding, sneak and idle bob.
-        let is_live = !matches!(view, PreviewView::Doll { .. });
+        let is_live = !matches!(
+            view,
+            PreviewView::Doll { .. }
+                | PreviewView::DollLook { .. }
+                | PreviewView::SkinSelector { .. }
+        );
         Self {
             parts: [None; 6],
             body: body.to_radians(),
             head_yaw: (head_yaw - body).to_radians(),
             head_pitch: head_pitch.to_radians(),
             model_pitch: model_pitch.to_radians(),
-            bob: if is_live { bob.to_radians() } else { 0.0 },
+            bob: if is_live || matches!(view, PreviewView::SkinSelector { .. }) {
+                bob.to_radians()
+            } else {
+                0.0
+            },
             sneaking: is_live && pose.sneaking,
             holding: holding.map(|holding| is_live && holding),
         }
@@ -405,19 +499,19 @@ impl Rig {
             }
             match vertex.part {
                 0 => {
-                    local = rotate_x(local, self.head_pitch, [0.0, 1.5, 0.0]);
-                    local = rotate_y(local, self.head_yaw, [0.0, 1.5, 0.0]);
+                    local = rotate_x(local, self.head_pitch, HEAD_PIVOT);
+                    local = rotate_y(local, self.head_yaw, HEAD_PIVOT);
                 }
                 // The arms sway out from the shoulders.
                 2 => {
-                    let shoulder = [-5.0 / 16.0, 22.0 / 16.0, 0.0];
+                    let shoulder = SHOULDER_PIVOTS[0];
                     if self.holding[0] {
                         local = rotate_x(local, -18f32.to_radians(), shoulder);
                     }
                     local = rotate_z(local, -self.bob, shoulder);
                 }
                 3 => {
-                    let shoulder = [5.0 / 16.0, 22.0 / 16.0, 0.0];
+                    let shoulder = SHOULDER_PIVOTS[1];
                     if self.holding[1] {
                         local = rotate_x(local, -18f32.to_radians(), shoulder);
                     }

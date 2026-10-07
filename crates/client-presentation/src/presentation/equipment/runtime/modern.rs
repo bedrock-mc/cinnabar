@@ -13,6 +13,7 @@ impl EquipmentRuntime {
         owner: &ActorSnapshot,
         owner_rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
+        java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
         let (catalog, from_pack) = self.binding_source(&item.identifier)?;
         let assets = if from_pack {
@@ -64,17 +65,57 @@ impl EquipmentRuntime {
         for (axis, scale) in model_scale.into_iter().enumerate() {
             parent.axis_scale[axis] *= scale;
         }
-        let placed = pose
-            .iter()
-            .enumerate()
-            .map(|(index, bone)| {
-                if hidden.contains(&(index as u32)) {
-                    return Some(hidden_bone());
-                }
-                compose_parent(parent, *bone)
-            })
-            .collect::<Option<Vec<_>>>()?;
         let key = (from_pack, geometry_index, texture.identifier.clone());
+        // Java draws a raster attachable (the bow's pull frames) as its own flat item.
+        let java = java_hand
+            .filter(|_| super::java::java_draws_attachable(&item.identifier))
+            .and_then(|hand| {
+                let raster = self
+                    .java_rasters
+                    .entry(key.clone())
+                    .or_insert_with(|| {
+                        let (image_to_rig, pivots) = render_model::attachable_raster_frame(
+                            &assets,
+                            geometry_index as usize,
+                            texture,
+                        )?;
+                        Some(JavaRasterFrame {
+                            image_to_rig,
+                            rest: pivots.into_iter().map(super::java::rest_bone).collect(),
+                            normal_axis: image_to_rig
+                                .transform_vector3(-bevy::math::Vec3::Y)
+                                .normalize(),
+                        })
+                    })
+                    .clone()?;
+                let camera = super::java::java_raster_camera(
+                    hand,
+                    raster.image_to_rig,
+                    texture.width,
+                    texture.height,
+                );
+                camera
+                    .is_finite()
+                    .then_some((camera, raster.rest, raster.normal_axis))
+            });
+        let (java_camera, placed, java_normal_axis): (_, Arc<[RenderBoneTransform]>, _) = match java
+        {
+            Some((camera, rest, normal_axis)) => (Some(camera), rest, normal_axis),
+            None => (
+                None,
+                pose.iter()
+                    .enumerate()
+                    .map(|(index, bone)| {
+                        if hidden.contains(&(index as u32)) {
+                            return Some(hidden_bone());
+                        }
+                        compose_parent(parent, *bone)
+                    })
+                    .collect::<Option<Vec<_>>>()?
+                    .into(),
+                bevy::math::Vec3::Z,
+            ),
+        };
         let rig = if let Some(rig) = self.attachable_meshes.get(&key) {
             *rig
         } else {
@@ -94,17 +135,19 @@ impl EquipmentRuntime {
                     LAYER_MAIN_HAND
                 },
                 rig,
-                [Arc::from(placed.clone()), Arc::from(placed)],
+                [Arc::clone(&placed), placed],
                 location,
                 0,
             ),
-            camera_space: false,
+            camera_space: java_camera.is_some(),
             alpha_mode: render::HandItemAlphaMode::Cutout,
+            java_camera,
+            java_normal_axis,
         })
     }
 }
 
-fn interpolate_parent(
+pub(super) fn interpolate_parent(
     previous: RenderBoneTransform,
     current: RenderBoneTransform,
     alpha: f32,
@@ -128,9 +171,9 @@ fn interpolate_parent(
     })
 }
 
-/// Native setupAttachableNoChecks copies the parent's complete matrix before the held
+/// Vanilla attachable setup copies the parent's complete matrix before the held
 /// model's own channels. Poses and translations here already use the mirrored rig frame.
-fn compose_parent(
+pub(super) fn compose_parent(
     parent: RenderBoneTransform,
     local: BoneTransform,
 ) -> Option<RenderBoneTransform> {

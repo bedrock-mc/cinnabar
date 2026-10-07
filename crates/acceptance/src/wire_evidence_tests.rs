@@ -7,6 +7,7 @@ fn event(session: u64, sequence: u64) -> SequencedAudioEvent {
         origin_stream_session_id: session,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         sequence,
         event: protocol::AudioEvent::Play(protocol::PlayAudioEvent {
             name: Arc::from(TARGET),

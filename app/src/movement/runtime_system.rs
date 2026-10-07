@@ -45,6 +45,8 @@ pub(crate) fn advance_local_physics(
         return;
     }
     if !movement_ticker.can_advance_physics_frame() {
+        // Transport admission pauses ticks, not publication of the retained visual pose.
+        publish_physics_view(&physics, &mut view);
         return;
     }
     let Some(stream) = client_world.stream.as_ref() else {
@@ -88,6 +90,8 @@ pub(crate) fn advance_local_physics(
             movement,
             raw_movement,
             analogue_movement,
+            movement_buttons: semantic
+                .map_or_else(Default::default, |snapshot| snapshot.movement_buttons),
             yaw,
             pitch: -bevy_pitch.to_degrees(),
             camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
@@ -102,6 +106,11 @@ pub(crate) fn advance_local_physics(
             item_use_modifier: item_use
                 .as_deref()
                 .and_then(|item_use| item_use.movement_modifier()),
+            hold: (client_world.dimension_transfer.active() || client_world.respawn.input_held())
+                .then(|| gameplay::movement::PhysicsFrameHold {
+                    registry: collisions.registry(stream.network_id_mode()).identity(),
+                    withhold_input: client_world.respawn.input_held(),
+                }),
         },
         &mut physics,
         &mut movement_ticker,
@@ -112,6 +121,11 @@ pub(crate) fn advance_local_physics(
     if !advanced {
         return;
     }
+    publish_physics_view(&physics, &mut view);
+}
+
+/// Publishes the retained interpolated pose even while transport pauses simulation.
+fn publish_physics_view(physics: &LocalPhysicsController, view: &mut LocalViewPose) {
     if let (Some(eye), Some(feet)) = (
         physics.render_eye_position(),
         physics.render_feet_position(),

@@ -3,6 +3,11 @@
 mod debug_overlay;
 mod screenshot;
 
+#[cfg(all(test, feature = "developer-control"))]
+pub(crate) use screenshot::configure_frame_capture;
+#[cfg(feature = "developer-control")]
+pub(crate) use screenshot::{FrameCapture, FrameCaptureSet, write_png};
+
 use std::path::PathBuf;
 
 use bevy::prelude::{App, Plugin};

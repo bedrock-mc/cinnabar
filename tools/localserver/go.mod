@@ -3,7 +3,8 @@ module github.com/hashimthearab/rust-mcbe/tools/localserver
 go 1.26.1
 
 require (
-	github.com/df-mc/dragonfly v0.0.0-20260919192252-3d29a693c54b
+	github.com/bedrock-mc/vanilla-gen v0.0.0-20260807001906-7b4e6f6a280d
+	github.com/df-mc/dragonfly v0.11.2-0.20260807000407-2988c7f4f621
 	github.com/go-gl/mathgl v1.2.0
 	github.com/google/uuid v1.6.0
 	github.com/sandertv/gophertunnel v1.62.0
@@ -56,5 +57,5 @@ require (
 replace (
 	github.com/df-mc/dragonfly => github.com/hashimthearab/dragonfly v0.0.0-20260930194619-58003c1d2ced
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261001135308-41f1893421b5
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261006223521-1d6b0fe58532
 )

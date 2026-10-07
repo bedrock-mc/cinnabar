@@ -1,7 +1,11 @@
 use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryUv};
 use glam::Vec3;
 
-use super::{ActorRigGeometryError, ActorRigVertex};
+use super::{ActorRigGeometryError, ActorRigSurface, ActorRigVertex};
+
+#[cfg(test)]
+#[path = "dragon_geometry_tests.rs"]
+mod dragon_geometry_tests;
 
 /// Face corners as `[top-left, top-right, bottom-right, bottom-left]` seen from outside, in
 /// authored geometry space where the model faces -Z and its right side is -X.
@@ -103,7 +107,7 @@ fn append_cube_vertices(
     let cube_rotation = cube.rotation.map(|value| value.get());
     let bind_rotation = bind.map_or([0.0; 3], |(_, rotation)| rotation);
     let rotation: [f32; 3] = std::array::from_fn(|axis| cube_rotation[axis] + bind_rotation[axis]);
-    // Native ModelPart cube setup adds the bind Euler angles
+    // Vanilla model-part cube setup adds the bind Euler angles
     // to the cube's angles and rotates its pivot about the part's pivot separately.
     let bind_offset = match bind {
         None => [0.0; 3],
@@ -143,48 +147,19 @@ fn append_cube_vertices(
     } else {
         [0, 3, 2, 0, 2, 1]
     };
-    if let Some(axis) = zero_axes.first() {
-        let (front, back) = [(2, 3), (4, 5), (0, 1)][*axis];
-        // A plane draws only the faces given a UV, like any other cube.
-        let (front, back, front_uv, back_uv) = match (face_uvs[front], face_uvs[back]) {
-            (Some(front_uv), back_uv) => (front, back, front_uv, back_uv),
-            (None, Some(back_uv)) => (back, front, back_uv, None),
-            (None, None) => return Ok(()),
-        };
-        let quad = face_corners[front];
-        let normal = triangle_normal(
-            corners[quad[order[0]]],
-            corners[quad[order[1]]],
-            corners[quad[order[2]]],
-        );
-        // One physical quad: the opposing authored face supplies UVs only.
-        // Corner correspondence is geometric, not opposing-array ordinal order.
-        for index in order {
-            let corner = quad[index];
-            let back_uv = match back_uv {
-                None => ONE_SIDED_BACK_UV,
-                Some(back_uv) => {
-                    let opposite = face_corners[back]
-                        .iter()
-                        .position(|back| corners[*back] == corners[corner])
-                        .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
-                    back_uv[opposite]
-                }
-            };
-            vertices.push(ActorRigVertex {
-                position: corners[corner],
-                normal,
-                uv: front_uv[index],
-                back_uv,
-                bone_index,
-            });
-        }
-        return Ok(());
-    }
-    for (quad, uv) in face_corners.into_iter().zip(face_uvs) {
-        let Some(uv) = uv else {
+    let faces: &[usize] = match zero_axes.first() {
+        Some(0) => &[3, 2],
+        Some(1) => &[4, 5],
+        Some(2) => &[0, 1],
+        _ => &[0, 1, 2, 3, 4, 5],
+    };
+    // Coincident faces remain independent: a nocull quad can show through a transparent
+    // opposite quad. Choosing its UV by view direction would implicitly cull that face.
+    for &face in faces {
+        let Some(uv) = face_uvs[face] else {
             continue;
         };
+        let quad = face_corners[face];
         let normal = triangle_normal(
             corners[quad[order[0]]],
             corners[quad[order[1]]],
@@ -196,6 +171,7 @@ fn append_cube_vertices(
             uv: uv[index],
             back_uv: uv[index],
             bone_index,
+            surface: ActorRigSurface::SINGLE_FACE,
         }));
     }
     Ok(())
@@ -235,7 +211,7 @@ fn entity_face_uvs(
                 Some(quad([u, v + z], [z, y])),
                 Some(quad([u + z + x, v + z], [z, y])),
                 Some(quad([u + z, v], [x, z])),
-                Some(quad([u + z + x, v], [x, z])),
+                Some(quad([u + z + x, v + z], [x, -z])),
             ]
         }
         EntityGeometryUv::Faces(faces) => {
@@ -260,7 +236,10 @@ fn entity_face_uvs(
     {
         return Err(ActorRigGeometryError::InvalidAssetGeometry);
     }
-    Ok(result)
+    // Vanilla clips cube UV corners before interpolation; sampler clamping would
+    // stretch a transparent edge texel across the overflowing part of the face.
+    Ok(result
+        .map(|face| face.map(|corners| corners.map(|uv| uv.map(|value| value.clamp(0.0, 1.0))))))
 }
 
 type FaceUvQuad = [[f32; 2]; 4];
@@ -273,7 +252,7 @@ fn face_uv_quad(
     face.map(|face| {
         quad(
             face.uv.map(|value| value.get()),
-            // Geometry::_parseBoxFaceUV first copies the cube's
+            // Vanilla box face UVs first copy the cube's
             // face dimensions, then optionally replaces them with authored uv_size.
             face.uv_size
                 .map_or(dimensions, |size| size.map(|value| value.get())),
@@ -357,6 +336,7 @@ pub(crate) fn cuboid_vertices(
                     uv,
                     back_uv: uv,
                     bone_index,
+                    surface: ActorRigSurface::SINGLE_FACE,
                 }
             })
         })
@@ -463,7 +443,7 @@ mod tests {
             ),
             ([0.0, 0.0, 1.0], [24.0, 8.0, 32.0, 16.0], [-4.0, 32.0, 4.0]),
             ([0.0, 1.0, 0.0], [8.0, 0.0, 16.0, 8.0], [4.0, 32.0, 4.0]),
-            ([0.0, -1.0, 0.0], [16.0, 0.0, 24.0, 8.0], [4.0, 24.0, -4.0]),
+            ([0.0, -1.0, 0.0], [16.0, 0.0, 24.0, 8.0], [4.0, 24.0, 4.0]),
         ];
         for (normal, texels, top_left) in cases {
             let face = face(&vertices, normal);
@@ -483,11 +463,11 @@ mod tests {
     }
 
     #[test]
-    fn every_planar_axis_emits_one_quad_with_finite_opposed_uvs_and_normal() {
+    fn every_planar_axis_retains_both_authored_quads_with_finite_uvs_and_normals() {
         for axis in 0..3 {
             for mirror in [false, true] {
                 let vertices = build(&plane(axis, mirror));
-                assert_eq!(vertices.len(), 6);
+                assert_eq!(vertices.len(), 12);
                 assert!((vertices[0].normal[axis].abs() - 1.0).abs() < 1.0e-6);
                 assert!(vertices.iter().all(|vertex| {
                     vertex.position[axis] == 0.0
@@ -497,7 +477,8 @@ mod tests {
                             .chain(vertex.back_uv.iter())
                             .all(|value| value.is_finite())
                 }));
-                assert!(vertices.iter().any(|vertex| vertex.uv != vertex.back_uv));
+                assert!(vertices.iter().all(|vertex| vertex.uv == vertex.back_uv));
+                assert_eq!(vertices[6].normal, vertices[0].normal.map(|value| -value));
                 let mut equivalent = Vec::new();
                 append_entity_cube_vertices(
                     &mut equivalent,
@@ -585,10 +566,9 @@ mod tests {
         }
     }
 
-    // A plane with one textured face (display text, logos) draws that face one-sided instead of
-    // rejecting the whole model; a plane with neither face draws nothing.
+    // A missing UV omits that authored face; material culling controls the surviving quad.
     #[test]
-    fn a_plane_with_one_textured_face_draws_it_one_sided() {
+    fn a_plane_with_one_textured_face_keeps_only_that_authored_quad() {
         let mut cube = plane(0, false);
         let face = || {
             Some(EntityGeometryFaceUv {
@@ -611,11 +591,7 @@ mod tests {
             let mut vertices = Vec::new();
             append_entity_cube_vertices(&mut vertices, &cube, 0, (16, 16), false, 0.0).unwrap();
             assert_eq!(vertices.len(), 6);
-            assert!(
-                vertices
-                    .iter()
-                    .all(|vertex| vertex.back_uv == ONE_SIDED_BACK_UV)
-            );
+            assert!(vertices.iter().all(|vertex| vertex.back_uv == vertex.uv));
         }
         let front = {
             cube.uv = faces(face(), None);

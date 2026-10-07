@@ -4,6 +4,48 @@ fn compiles(source: &str) -> bool {
     MolangCompiler::default().compile(source).is_ok()
 }
 
+#[test]
+fn long_authored_scripts_compile_as_one_program_with_ordered_assignments() {
+    let mut compiler = MolangCompiler::default();
+    let assignment = "variable.long_authored_script_value = variable.long_authored_script_value + query.wing_flap_position + query.life_time;";
+    let entries = vec![assignment; 250];
+    let (expression, dropped) = compiler.compile_script(&entries).unwrap();
+    assert_eq!(dropped, 0);
+    let payload = compiler.finish().unwrap();
+    let expression = &payload.expressions[expression.expect("complete script retained") as usize];
+    let program = &payload.ops[expression.first_op as usize..][..usize::from(expression.op_count)];
+    assert!(program.len() <= MAX_MOLANG_OPS_PER_EXPRESSION);
+    assert_eq!(
+        program
+            .iter()
+            .filter(|op| matches!(op, MolangOp::StoreVariable(_)))
+            .count(),
+        entries.len()
+    );
+}
+
+#[test]
+fn server_pre_animation_retains_visibility_after_optional_item_and_property_branches() {
+    let mut compiler = MolangCompiler::default();
+    let entries = [
+        "v.near = q.camera_distance_range_lerp(2, 6);",
+        "v.spear ? { t.rate = 1 / q.base_swing_duration; };",
+        "v.wardrobe ? { v.hat = q.has_property('custom:hat') ? q.property('custom:hat') : 0; v.hat = v.hat && !q.has_armor_slot(0); };",
+        "v.visible = q.mark_variant != 255;",
+    ];
+    let (expression, dropped) = compiler.compile_script(&entries).unwrap();
+    assert_eq!(dropped, 0);
+    let payload = compiler.finish().unwrap();
+    let expression = &payload.expressions[expression.expect("complete script retained") as usize];
+    let visible = payload
+        .symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "variable.visible")
+        .unwrap() as u32;
+    let program = &payload.ops[expression.first_op as usize..][..usize::from(expression.op_count)];
+    assert!(program.contains(&MolangOp::StoreVariable(visible)));
+}
+
 fn constant(source: &str) -> f32 {
     MolangCompiler::evaluate_default(source).unwrap_or_else(|| panic!("{source} folds"))
 }
@@ -38,6 +80,15 @@ fn precedence_matches_the_vanilla_table() {
     assert_eq!(constant("math.pi > 3.14"), 1.0);
     assert_eq!(constant("1 / 0"), 0.0);
     assert_eq!(constant("2.5f * 2"), 5.0);
+}
+
+// Molang literals are all floats, unlike JSON-UI's integer-prefix typing.
+#[test]
+fn leading_zero_decimals_and_division_are_float() {
+    assert_eq!(constant("0.01 * 300"), 0.01_f32 * 300.0);
+    assert_eq!(constant("0.5 + .25"), 0.75);
+    assert_eq!(constant("-0.5 * 2"), -1.0);
+    assert_eq!(constant("7 / 2"), 3.5);
 }
 
 #[test]
@@ -173,4 +224,73 @@ fn malformed_script_shapes_drop_the_whole_script_for_entities_and_controllers_al
         .compile_script_value(Some(&serde_json::json!("v.x = 1;")))
         .unwrap();
     assert!(script.is_some() && dropped == 0);
+}
+
+// Block contexts compare strings and read integer/boolean states as numbers.
+#[test]
+fn block_expressions_read_block_states() {
+    let state = |name: &str| match name {
+        "minecraft:cardinal_direction" => Some(BlockStateValue::String("north")),
+        "df:s" => Some(BlockStateValue::Number(1.0)),
+        _ => None,
+    };
+    let evaluate = |source| BlockMolang::parse(source)?.evaluate(&state);
+    assert_eq!(
+        evaluate("q.block_state('minecraft:cardinal_direction') == 'north'"),
+        Some(1.0)
+    );
+    assert_eq!(
+        evaluate("query.block_state('minecraft:cardinal_direction') != 'north'"),
+        Some(0.0)
+    );
+    assert_eq!(evaluate("q.block_state('df:s')"), Some(1.0));
+    assert_eq!(evaluate("!q.block_state('df:s') || 0"), Some(0.0));
+    assert_eq!(evaluate("1.000000"), Some(1.0));
+    assert_eq!(evaluate("0.000000"), Some(0.0));
+    assert_eq!(evaluate("q.block_state('df:missing') == 1"), None);
+    assert_eq!(
+        evaluate("q.block_state('df:s') == 'true'"),
+        None,
+        "mixed types"
+    );
+    assert_eq!(evaluate("q.is_baby"), None, "other queries do not parse");
+    assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+}
+
+#[test]
+fn block_property_alias_reads_the_same_named_state() {
+    let state = |name: &str| match name {
+        "custom:facing_direction" => Some(BlockStateValue::Number(2.0)),
+        "minecraft:cardinal_direction" => Some(BlockStateValue::String("west")),
+        _ => None,
+    };
+    for query in [
+        "q.block_property",
+        "query.block_property",
+        "q.block_state",
+        "query.block_state",
+    ] {
+        for (suffix, expected) in [
+            ("('custom:facing_direction') == 2", Some(1.0)),
+            ("('custom:facing_direction') == 1", Some(0.0)),
+            ("('minecraft:cardinal_direction') == 'west'", Some(1.0)),
+            ("('custom:missing')", None),
+        ] {
+            let source = format!("{query}{suffix}");
+            let expression = BlockMolang::parse(&source).expect("block-state query alias");
+            assert_eq!(expression.evaluate(&state), expected, "{source}");
+        }
+    }
+}
+
+// A server-sent flat operator chain cannot exhaust the stack that walks its tree.
+#[test]
+fn block_expressions_bound_their_tree_depth() {
+    let chain = |terms: usize| vec!["1"; terms].join("+");
+    let state = |_: &str| None;
+    assert_eq!(
+        BlockMolang::parse(&chain(1024)).and_then(|expression| expression.evaluate(&state)),
+        Some(1024.0)
+    );
+    assert!(BlockMolang::parse(&chain(16_000)).is_none());
 }

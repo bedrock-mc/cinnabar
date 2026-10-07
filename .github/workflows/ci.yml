@@ -1,145 +1,329 @@
 name: CI
 
-# Pull requests and main; ci-cache.yml keeps dev's Rust caches warm for pull requests.
+# Pull requests run every Linux check plus a platform subset on Windows and macOS. Scheduled and
+# manual runs are full: every test, clippy and Go check on all three OSes. `ci-ok` is the one
+# required check; it passes when every job succeeded or was skipped by a path filter.
 on:
-  push:
-    branches:
-      - main
   pull_request:
+  schedule:
+    - cron: "41 */6 * * *"
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Verification needs assertions, but not large debug-symbol artifacts.
+# Must match ci-cache.yml: rust-cache keys include CARGO_* variables.
 env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
 
-jobs:
-  desktop-compile-readiness:
-    name: Desktop compile readiness (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - windows-latest
-          - ubuntu-latest
-          - macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93.1
-        with:
-          components: clippy
-      - name: Cache Rust dependencies and build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Shared with ci-cache.yml, which saves on dev so every pull request starts warm.
-          shared-key: desktop
-          cache-on-failure: true
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 1.26.x
-      - name: Install Linux desktop development libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
-      - name: Build release desktop client
-        run: cargo build --release -p bedrock-client --locked
-      - name: Build release Go core on Windows
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: go build -trimpath -o "$env:RUNNER_TEMP\bedrock-core.exe" ./core/cmd/bedrock-core
-      - name: Build release Go core on Unix
-        if: runner.os != 'Windows'
-        shell: bash
-        run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core" ./core/cmd/bedrock-core
-      - name: Test Rust bridge
-        run: cargo test -p bridge --locked
-      - name: Test Go local transport and credential storage
-        run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
-      - name: Test Rust workspace on macOS
-        if: runner.os == 'macOS'
-        run: cargo test --workspace --locked --no-fail-fast
-      - name: Lint Rust workspace on macOS
-        if: runner.os == 'macOS'
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Test Go core on macOS
-        if: runner.os == 'macOS'
-        run: go test ./core/...
-      - name: Vet Go core on macOS
-        if: runner.os == 'macOS'
-        run: go vet ./core/...
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
 
-  windows-acceptance:
-    runs-on: windows-latest
+jobs:
+  changes:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      full: ${{ steps.plan.outputs.full }}
+      os: ${{ steps.plan.outputs.os }}
+      packaging: ${{ steps.plan.outputs.full == 'true' || steps.filter.outputs.packaging == 'true' }}
+      physics: ${{ steps.plan.outputs.full == 'true' || steps.filter.outputs.physics == 'true' }}
+      scripts: ${{ steps.plan.outputs.full == 'true' || steps.filter.outputs.scripts == 'true' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 1.26.x
-      - name: Test Windows PowerShell 5.1 acceptance harness and dry-run contract
-        shell: powershell
-        run: .\scripts\tests\acceptance.Tests.ps1
-      - uses: dtolnay/rust-toolchain@1.93.1
-        with:
-          components: clippy
-      - name: Cache Rust dependencies and build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Shared with ci-cache.yml, which saves on dev so every pull request starts warm.
-          shared-key: windows-acceptance
-          cache-on-failure: true
-      - name: Test Rust workspace on Windows
-        run: cargo test --workspace --locked --no-fail-fast
-      - name: Lint Rust workspace on Windows
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Test and vet Go core on Windows
-        shell: powershell
-        run: |
-          go test ./core/...
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go vet ./core/...
-      - name: Test and vet protocol registry tools on Windows
-        shell: powershell
-        run: |
-          go -C tools/registrygen test ./... -count=1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go -C tools/registrygen vet ./...
-      - name: Test and vet local server Experiences on Windows
-        working-directory: tools/localserver
+      - id: plan
         env:
-          GOWORK: "off"
-        shell: powershell
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
         run: |
-          go test ./... -count=1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go vet ./...
+          full=false run=true
+          if [ "$EVENT" != pull_request ]; then full=true; fi
+          # A scheduled run is skipped only when a full run already passed on this commit, so failed
+          # or interrupted runs are retried.
+          if [ "$EVENT" = schedule ]; then
+            passed=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&status=success&per_page=50" \
+              --jq "[.workflow_runs[] | select(.id != $RUN_ID and .event != \"pull_request\")] | length")
+            if [ "$passed" -gt 0 ]; then run=false; fi
+          fi
+          if [ "$full" = true ]; then
+            os='["ubuntu-latest","windows-latest","macos-latest"]'
+          else
+            os='["ubuntu-latest"]'
+          fi
+          { echo "full=$full"; echo "run=$run"; echo "os=$os"; } >> "$GITHUB_OUTPUT"
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            packaging:
+              - .github/workflows/ci.yml
+              - .github/workflows/package.yml
+              - packaging/**
+            physics:
+              - .github/workflows/ci.yml
+              - Makefile
+              - assets/bedrock-target.json
+              - crates/assets/data/block-physics-*
+              - tools/registrygen/**
+            scripts:
+              - .github/workflows/ci.yml
+              - scripts/**
+              - assets/bedrock-target.json
+              - assets/vanilla-source.json
+              - core/go.mod
 
   verify:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
           components: rustfmt, clippy
-      - name: Cache Rust dependencies and build artifacts
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          # Shared with ci-cache.yml, which saves on dev so every pull request starts warm.
-          shared-key: verify
-          cache-on-failure: true
+          # ci-cache.yml alone saves the Linux cache on dev, so every pull request starts warm.
+          shared-key: ci
+          save-if: false
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+          cache: false
       - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libasound2-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
+      - name: Verify Linux window backends
+        run: |
+          cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
+          cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
+      - name: Enforce architecture boundaries
+        run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
+      # The checks below are independent, so each reports even when an earlier one fails.
+      - name: Check formatting
+        if: ${{ !cancelled() }}
+        run: cargo fmt --check
+      - name: Lint Rust workspace
+        if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Lint off-by-default features
+        if: ${{ !cancelled() }}
+        run: |
+          cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
+          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
+          cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
+      - name: Test local WASM mod and developer control adapters
+        if: ${{ !cancelled() }}
+        run: cargo test -p bedrock-client --features local-mods,developer-control --lib --locked -- modding developer_control
+      - name: Test acceptance dry run and protocol provenance
+        if: ${{ !cancelled() }}
+        run: bash scripts/tests/acceptance_test.sh
+
+  rust-tests:
+    name: Rust tests (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.changes.outputs.os) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          components: clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Full runs on dev save the Windows and macOS caches; ci-cache.yml saves Linux's.
+          shared-key: ci
+          save-if: ${{ github.ref == 'refs/heads/dev' && runner.os != 'Linux' }}
+          cache-on-failure: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          # One Go cache per OS, shared by every job here and by ci-cache.yml.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/chunkfix/go.sum
+            tools/localserver/go.sum
+            tools/bedsimtrace/go.sum
+            go.work.sum
+      - name: Install Linux desktop development libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
+      - name: Test Rust workspace
+        run: cargo nextest run --workspace --locked --no-fail-fast
+      - name: Test Rust doc examples
+        if: ${{ !cancelled() }}
+        run: cargo test --doc --workspace --locked
+      # Linux lints in `verify`.
+      - name: Lint Rust workspace
+        if: ${{ !cancelled() && runner.os != 'Linux' }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  go:
+    name: Go (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.changes.outputs.os) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/chunkfix/go.sum
+            tools/localserver/go.sum
+            tools/bedsimtrace/go.sum
+            go.work.sum
+      - name: Build release Go core
+        run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
+      - name: Test and vet Go core
+        run: |
+          go test ./core/...
+          go vet ./core/...
+      - name: Test and vet protocol registry tools
+        run: |
+          go -C tools/registrygen test ./... -count=1
+          go -C tools/registrygen vet ./...
+      - name: Test and vet local server Experiences
+        working-directory: tools/localserver
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...
+      - name: Test and vet pinned chunk fixture generator
+        if: runner.os == 'Linux'
+        working-directory: tools/chunkfix
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...
+      - name: Test and vet pinned bedsim movement trace generator
+        if: runner.os == 'Linux'
+        working-directory: tools/bedsimtrace
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...
+
+  # Pull requests only; full runs cover Windows and macOS through rust-tests and go.
+  platform:
+    name: Platform (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.full != 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # On the software (WARP) adapter this one GPU test runs for over 30 minutes; macOS PRs
+          # and full Windows runs still cover it.
+          - name: windows
+            os: windows-latest
+            crates: true
+            client: false
+            skip: test(=gpu_culling::direct::occlusion_cuts_submitted_terrain_only_while_the_view_holds_still)
+          - { name: windows client, os: windows-latest, crates: false, client: true }
+          - { name: macos, os: macos-latest, crates: true, client: true }
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Crates whose tests exercise OS-specific behaviour: cfg(windows)/cfg(target_os) code, paths
+      # and install layout, processes and IPC, GPU, input and windowing. Add a crate to opt it in.
+      PLATFORM_TEST_PACKAGES: >-
+        -p asset-compiler -p assets -p bridge -p chunk-pipeline -p developer-control
+        -p dist-local -p experience-runtime -p launcher -p mod-host -p pack-compiler
+        -p protocol -p render -p rich-presence -p semantic-input -p server-experience -p visualcoverage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+          save-if: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/chunkfix/go.sum
+            tools/localserver/go.sum
+            tools/bedsimtrace/go.sum
+            go.work.sum
+      - name: Check Rust workspace
+        if: matrix.crates
+        run: cargo check --workspace --all-targets --locked
+      - name: Build release Go core
+        if: matrix.crates
+        run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
+      - name: Test Go local transport and credential storage
+        if: matrix.crates
+        run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
+      - name: Test platform crates
+        if: matrix.crates
+        env:
+          SKIP: ${{ matrix.skip }}
+        run: |
+          filter=()
+          if [ -n "$SKIP" ]; then filter=(-E "not ($SKIP)"); fi
+          # shellcheck disable=SC2086 # one -p flag per word
+          cargo nextest run $PLATFORM_TEST_PACKAGES "${filter[@]}" --locked --no-fail-fast
+      # The client's asset-carrier integration tests skip without local carriers, so only its library runs.
+      - name: Test client library
+        if: ${{ !cancelled() && matrix.client }}
+        run: cargo nextest run -p bedrock-client --lib --locked --no-fail-fast
+
+  packaging:
+    name: Packaging tests
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.packaging == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
       - name: Test manual release preparation
         env:
           PYTHONDONTWRITEBYTECODE: 1
@@ -149,53 +333,10 @@ jobs:
       - name: Test MSI payload extraction
         shell: pwsh
         run: ./packaging/tests/extract-msi.Tests.ps1
-      - name: Verify Linux window backends
-        shell: bash
-        run: |
-          cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
-          cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
-      - name: Enforce architecture boundaries
-        run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
-      - run: cargo fmt --check
-      - run: cargo test --workspace --locked --no-fail-fast
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Lint off-by-default features
-        run: |
-          cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
-          cargo clippy -p bedrock-client --features enhanced,local-mods --locked -- -D warnings
-          cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
-      - name: Test local WASM mod adapters
-        run: cargo test -p bedrock-client --features local-mods --lib modding --locked
-      - run: bash scripts/tests/acceptance_test.sh
-      - run: go test ./core/...
-      - run: go vet ./core/...
-      - name: Test and vet protocol registry tools
-        run: |
-          go -C tools/registrygen test ./... -count=1
-          go -C tools/registrygen vet ./...
-      - name: Test and vet pinned chunk fixture generator
-        working-directory: tools/chunkfix
-        env:
-          GOWORK: "off"
-        run: |
-          go test ./... -count=1
-          go vet ./...
-      - name: Test and vet local server Experiences
-        working-directory: tools/localserver
-        env:
-          GOWORK: "off"
-        run: |
-          go test ./... -count=1
-          go vet ./...
-      - name: Test and vet pinned bedsim movement trace generator
-        working-directory: tools/bedsimtrace
-        env:
-          GOWORK: "off"
-        run: |
-          go test ./... -count=1
-          go vet ./...
 
   macos-physics-bootstrap:
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.physics == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -203,5 +344,47 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/chunkfix/go.sum
+            tools/localserver/go.sum
+            tools/bedsimtrace/go.sum
+            go.work.sum
       - name: Install and verify the manifest-owned physics carrier through Make
         run: make physics-assets
+
+  powershell-harness:
+    name: PowerShell harness
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && needs.changes.outputs.scripts == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+          cache: false
+      - name: Test Windows PowerShell 5.1 acceptance harness and dry-run contract
+        shell: powershell
+        run: .\scripts\tests\acceptance.Tests.ps1
+
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs:
+      - changes
+      - verify
+      - rust-tests
+      - go
+      - platform
+      - packaging
+      - macos-physics-bootstrap
+      - powershell-harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every job to pass or be skipped
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

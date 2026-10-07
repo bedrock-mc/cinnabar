@@ -432,20 +432,43 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
 }
 
 #[test]
-fn geometry_collection_over_thirty_two_members_keeps_the_default_geometry() {
-    let members = vec!["Geometry.default"; 33];
+fn geometry_selector_retains_all_forty_one_authored_choices() {
+    let members = (0..41)
+        .map(|index| {
+            if index % 2 == 0 {
+                "Geometry.alternate"
+            } else {
+                "Geometry.default"
+            }
+        })
+        .collect::<Vec<_>>();
     let pack = selectable_geometry_pack("query.modified_move_speed", &members);
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-    assert!(
-        compiled
-            .rig_geometries
+    let rig = compiled.rig_bindings[0];
+    let candidates = &compiled.rig_geometries[rig.first_geometry as usize
+        ..(rig.first_geometry + u32::from(rig.geometry_count)) as usize];
+    assert_eq!(candidates.len(), members.len() + 1);
+    assert_ne!(rig.fallback, assets::EntityRigFallback::GeometryOnly);
+    for (index, alias) in members.iter().enumerate() {
+        let selected = candidates[1..]
             .iter()
-            .all(|candidate| candidate.condition.is_none())
-    );
-    assert_eq!(
-        compiled.rig_bindings[0].fallback,
-        assets::EntityRigFallback::GeometryOnly
-    );
+            .filter(|candidate| {
+                evaluate_selection_expression(&compiled, candidate.condition.unwrap(), index as f32)
+                    != 0.0
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(selected.len(), 1, "selector index {index}");
+        assert_eq!(
+            compiled.geometries[selected[0].geometry as usize]
+                .identifier
+                .as_ref(),
+            if *alias == "Geometry.alternate" {
+                "geometry.b"
+            } else {
+                "geometry.a"
+            }
+        );
+    }
 }
 
 #[test]

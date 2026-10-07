@@ -157,6 +157,11 @@ impl VerifiedBundle {
 
     /// Moves the verified component to its helper without copying the payload.
     pub fn into_component(mut self) -> Option<Vec<u8>> {
+        self.take_component()
+    }
+
+    /// Moves the component out while keeping the other assets, such as media descriptors.
+    pub fn take_component(&mut self) -> Option<Vec<u8>> {
         self.manifest
             .component
             .as_deref()

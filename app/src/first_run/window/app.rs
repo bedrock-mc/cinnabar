@@ -151,7 +151,7 @@ impl SetupApp {
         match effect {
             Effect::None => {}
             Effect::StartWorker => self.start_worker(),
-            Effect::OpenEula => crate::local_worlds::open_url(EULA_URL),
+            Effect::OpenEula => crate::desktop::open_url(EULA_URL),
             Effect::Quit => self.finish(EXIT_QUIT, event_loop),
         }
     }

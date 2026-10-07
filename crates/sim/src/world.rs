@@ -6,6 +6,7 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
 use crate::{Aabb, Vec3};
 
+mod camera_collision;
 mod contracts;
 mod current;
 mod door;
@@ -21,7 +22,7 @@ mod raycast;
 pub use door::{DoorFacing, DoorState};
 mod validate;
 
-pub use raycast::BlockHit;
+pub use raycast::{BlockHit, CameraBlockHit};
 use validate::{validate_facts, validate_shapes};
 
 pub(crate) const DEFAULT_SURFACE_FRICTION: f64 = 0.6;
@@ -738,6 +739,10 @@ impl<'a> PaletteWorld<'a> {
 }
 
 impl CollisionWorld for PaletteWorld<'_> {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        self.registry.identity()
+    }
+
     fn liquid_current(
         &self,
         previous_pose: Aabb,
@@ -787,61 +792,31 @@ impl CollisionWorld for PaletteWorld<'_> {
         })
     }
 
-    /// Per-cell leniency: mirrors [`Self::collision_instances`]'s scan but skips
-    /// and tallies unloaded sub-chunks and unregistered runtime ids instead of
-    /// faulting, and computes no identity. A registered solid beside a skipped
-    /// cell still emits its box, so a real wall shortens the boom.
+    /// Collects the same borrowed camera scan for callers that need owned colliders.
     fn collision_boxes_camera_lenient(
         &self,
         query: Aabb,
     ) -> Result<LenientCollisionBoxes, WorldQueryError> {
-        validate_collision_query(query)?;
-        if query.min == query.max {
-            return Ok(LenientCollisionBoxes::default());
-        }
-        let grown = query.grown(1.0);
-        let min = block_floor(grown.min)?;
-        let max = block_ceil(grown.max)?;
         let mut value = Vec::new();
-        let mut skipped = LenientSkipCounts::default();
-        for x in min[0]..=max[0] {
-            for z in min[2]..=max[2] {
-                for y in min[1]..=max[1] {
-                    let block = [x, y, z];
-                    let block_offset = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
-                    let runtime_ids = match self.runtime_ids_at(block) {
-                        Ok(ids) => ids,
-                        Err(WorldQueryError::UnloadedChunk(_)) => {
-                            skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
-                            continue;
-                        }
-                        Err(other) => return Err(other),
-                    };
-                    for runtime_id in runtime_ids {
-                        let Some(physics) = self.registry.physics(runtime_id) else {
-                            skipped.unknown_runtime_id =
-                                skipped.unknown_runtime_id.saturating_add(1);
-                            continue;
-                        };
-                        let shapes = match self.block_collision_shapes(block, physics, query) {
-                            Ok(shapes) => shapes,
-                            Err(WorldQueryError::UnloadedChunk(_)) => {
-                                skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
-                                continue;
-                            }
-                            Err(other) => return Err(other),
-                        };
-                        for shape in shapes.iter().copied() {
-                            let shape = shape.translated(block_offset);
-                            if shape.intersects(query) {
-                                value.push(shape);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let skipped = self.visit_camera_colliders(query, &mut |shape| value.push(shape))?;
         Ok(LenientCollisionBoxes { value, skipped })
+    }
+
+    /// Borrows camera shapes and resolves paired doors on the stack.
+    fn visit_collision_boxes_camera_lenient(
+        &self,
+        query: Aabb,
+        visitor: &mut dyn FnMut(Aabb),
+    ) -> Result<LenientSkipCounts, WorldQueryError> {
+        self.visit_camera_colliders(query, visitor)
+    }
+
+    fn camera_segment_entry(
+        &self,
+        origin: Vec3,
+        delta: Vec3,
+    ) -> Result<(Option<f64>, LenientSkipCounts), WorldQueryError> {
+        self.camera_segment_entry_lenient(origin, delta)
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {

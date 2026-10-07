@@ -74,6 +74,10 @@ pub const MATERIAL_FLAG_TWO_SIDED: u32 = 1 << 14;
 pub const MATERIAL_FLAG_NATIVE_LEAF_COLOUR: u32 = 1 << 15;
 /// Applies the pack-authored positional quarter-turn to this world leaf face.
 pub const MATERIAL_FLAG_LEAF_ISOTROPIC: u32 = 1 << 16;
+/// Omits ambient occlusion while preserving solved block and sky light.
+pub const MATERIAL_FLAG_DISABLE_AO: u32 = 1 << 25;
+/// Omits the directional face coefficient while preserving the lightmap.
+pub const MATERIAL_FLAG_DISABLE_FACE_DIMMING: u32 = 1 << 26;
 /// Compact world-leaf AO exponent. Zero selects the native omitted default (1).
 pub const MATERIAL_LEAF_AO_EXPONENT_SHIFT: u32 = 17;
 pub const MATERIAL_LEAF_AO_EXPONENT_MAX: u32 = u8::MAX as u32;
@@ -105,7 +109,9 @@ pub const MATERIAL_FLAGS_MASK: u32 = MATERIAL_FLAG_UV_MASK
     | MATERIAL_FLAG_EXPOSED_FOLIAGE
     | MATERIAL_FLAG_TWO_SIDED
     | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
-    | MATERIAL_LEAF_METADATA_MASK;
+    | MATERIAL_LEAF_METADATA_MASK
+    | MATERIAL_FLAG_DISABLE_AO
+    | MATERIAL_FLAG_DISABLE_FACE_DIMMING;
 
 pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
     flags & !MATERIAL_FLAGS_MASK == 0

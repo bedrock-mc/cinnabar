@@ -1,7 +1,7 @@
 use super::*;
 
-pub(super) fn block_entity_y_is_valid(dimension: i32, y: i32) -> bool {
-    let Some(range) = vanilla_dimension_range(dimension) else {
+pub(super) fn block_entity_y_is_valid(range: Option<DimensionRange>, y: i32) -> bool {
+    let Some(range) = range else {
         return false;
     };
     let sub_chunk_y = y.div_euclid(16);
@@ -9,7 +9,7 @@ pub(super) fn block_entity_y_is_valid(dimension: i32, y: i32) -> bool {
         && sub_chunk_y
             < range.base_sub_chunk_y
                 + i32::try_from(range.sub_chunk_count)
-                    .expect("vanilla dimension subchunk counts fit i32")
+                    .expect("admitted dimension subchunk counts fit i32")
 }
 
 pub(super) fn distance_squared(key: SubChunkKey, camera: [f32; 3]) -> f32 {
@@ -133,11 +133,14 @@ pub(super) fn is_uniform_direct_sky(light: &SubChunkLight, direct: &DirectSkyMas
         && matches!(direct, DirectSkyMask::Uniform(true))
 }
 
-pub(super) fn deterministic_sub_chunk_key_hash(keys: &BTreeSet<SubChunkKey>) -> u64 {
+/// Hashes a unique sequence sorted by the public sub-chunk key order.
+pub(super) fn deterministic_sub_chunk_key_hash<'a>(
+    keys: impl IntoIterator<Item = &'a SubChunkKey>,
+) -> u64 {
     const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
-    keys.iter()
+    keys.into_iter()
         .flat_map(|key| [key.dimension, key.x, key.y, key.z])
         .flat_map(i32::to_le_bytes)
         .fold(FNV_OFFSET_BASIS, |hash, byte| {

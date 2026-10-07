@@ -173,7 +173,12 @@ pub(super) fn variant_shader(name: &str) -> bevy::prelude::Shader {
         _ => include_str!("post.wgsl"),
     };
     if matches!(name, "actor" | "actor_motion") {
-        crate::shader_safety::from_actor_wgsl(source, name, crate::actor::ACTOR_GPU_INSTANCE_WORDS)
+        crate::shader_safety::from_actor_wgsl(
+            source,
+            name,
+            crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+            render_model::ACTOR_RIG_VERTEX_WORDS,
+        )
     } else {
         crate::shader_safety::from_wgsl(crate::material_shader::source(source), name)
     }

@@ -1,11 +1,12 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail, ensure};
-use cinnabar_cxb::{bundle, fixtures, keys, seed_cache};
+use cinnabar_cxb::{bundle, fixtures, keys, media, seed_cache};
 use server_experience::crypto;
 
 const USAGE: &str = "usage: cinnabar-cxb keygen <seed-file>
-       cinnabar-cxb build --manifest <toml|json> --component <wasm> --publisher-seed <seed-file> --out <bundle.cxb>
+       cinnabar-cxb build --manifest <toml|json> --component <wasm> --publisher-seed <seed-file> --out <bundle.cxb> [--assets <dir>]
+       cinnabar-cxb media --webm <in.webm> --url <https url> --id <media id> --poster <bundle path> --out-webm <file> --out-descriptor <file>
        cinnabar-cxb seed-cache --cxb <bundle.cxb> --user-data <dir>
        cinnabar-cxb write-fixtures <dir>";
 
@@ -15,13 +16,29 @@ fn main() -> Result<()> {
     match args.as_slice() {
         ["keygen", path] => println!("public_key={}", keys::generate(Path::new(path))?),
         ["build", flags @ ..] => {
-            let [manifest, component, seed, out] = options(
-                flags,
-                ["--manifest", "--component", "--publisher-seed", "--out"],
-            )?;
+            const NAMES: [&str; 4] = ["--manifest", "--component", "--publisher-seed", "--out"];
+            let ([manifest, component, seed, out], assets) = if flags.len() == 2 * (NAMES.len() + 1)
+            {
+                let [manifest, component, seed, out, assets] = options(
+                    flags,
+                    [
+                        "--manifest",
+                        "--component",
+                        "--publisher-seed",
+                        "--out",
+                        "--assets",
+                    ],
+                )?;
+                (
+                    [manifest, component, seed, out],
+                    bundle::read_assets(Path::new(assets))?,
+                )
+            } else {
+                (options(flags, NAMES)?, Vec::new())
+            };
             let source = bundle::Source::read(Path::new(manifest))?;
             let wasm = std::fs::read(component).with_context(|| format!("reading {component}"))?;
-            let built = bundle::build(source, &wasm, &keys::read(Path::new(seed))?)?;
+            let built = bundle::build(source, &wasm, &assets, &keys::read(Path::new(seed))?)?;
             std::fs::write(out, &built.bytes).with_context(|| format!("writing {out}"))?;
             println!(
                 "sha256={}\nbytes={}",
@@ -33,6 +50,29 @@ fn main() -> Result<()> {
             let [cxb, user_data] = options(flags, ["--cxb", "--user-data"])?;
             let (digest, objects) = seed_cache(Path::new(cxb), Path::new(user_data))?;
             println!("sha256={digest}\nobjects={}", objects.display());
+        }
+        ["media", flags @ ..] => {
+            let [webm, url, id, poster, out_webm, out_descriptor] = options(
+                flags,
+                [
+                    "--webm",
+                    "--url",
+                    "--id",
+                    "--poster",
+                    "--out-webm",
+                    "--out-descriptor",
+                ],
+            )?;
+            let mut bytes = std::fs::read(webm).with_context(|| format!("reading {webm}"))?;
+            let voided = media::strip_tags(&mut bytes)?;
+            let descriptor = media::descriptor(&bytes, url, id, poster)?;
+            std::fs::write(out_webm, &bytes).with_context(|| format!("writing {out_webm}"))?;
+            std::fs::write(out_descriptor, serde_json::to_vec(&descriptor)?)
+                .with_context(|| format!("writing {out_descriptor}"))?;
+            println!(
+                "voided={voided}\nsha256={}\nbytes={}\nduration_us={}",
+                descriptor.sha256, descriptor.bytes, descriptor.duration_us
+            );
         }
         ["write-fixtures", dir] => fixtures::write(Path::new(dir))?,
         _ => bail!(USAGE),

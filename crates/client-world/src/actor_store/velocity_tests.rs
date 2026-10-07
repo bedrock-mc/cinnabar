@@ -24,6 +24,7 @@ fn movement(x: Option<f32>, tick: Option<u64>, teleported: bool) -> ActorEvent {
         teleported,
         player_mode: None,
         source_tick: tick,
+        interpolation: Default::default(),
     })
 }
 

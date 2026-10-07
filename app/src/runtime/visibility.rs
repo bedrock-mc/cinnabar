@@ -1,6 +1,9 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-use bevy::prelude::{Add, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With};
+use bevy::prelude::{
+    Add, Entity, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With,
+};
+use chunk_pipeline::{CaveVisibilityWork, CaveVisibleSet, WorldStream};
 use render::{ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler};
 use world::SubChunkKey;
 
@@ -10,16 +13,21 @@ use crate::{
 };
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
 
+#[cfg(feature = "developer-control")]
+mod telemetry;
+
 #[derive(Resource, Default)]
 pub(crate) struct CaveVisibilityCache {
     pub(crate) camera: Option<SubChunkKey>,
     pub(crate) graph_generation: Option<u64>,
-    pub(crate) visible: HashSet<SubChunkKey>,
-    next_visible: HashSet<SubChunkKey>,
+    pub(crate) visible: CaveVisibleSet,
+    next_visible: CaveVisibleSet,
     scratch: chunk_pipeline::CaveVisibilityScratch,
-    pub(crate) rendered: HashSet<SubChunkKey>,
+    pub(crate) rendered: HashMap<SubChunkKey, Entity>,
     pub(crate) visible_rendered: usize,
     pub(crate) initialized: bool,
+    #[cfg(feature = "developer-control")]
+    telemetry: telemetry::CaveFrameTrace,
 }
 
 impl CaveVisibilityCache {
@@ -27,8 +35,56 @@ impl CaveVisibilityCache {
         !self.initialized || self.visible.contains(&key)
     }
 
-    /// Whether the culler hides the box from `low` to `high` in `dimension`: as vanilla's
-    /// `isAABBVisible`, only when the cache matches graph `generation` and every sub-chunk the
+    /// Adopts `next_visible`, calling `set` only for rendered entities whose visibility flips.
+    fn publish_next(&mut self, mut set: impl FnMut(Entity, bool)) {
+        std::mem::swap(&mut self.visible, &mut self.next_visible);
+        if !std::mem::replace(&mut self.initialized, true) {
+            // Everything counted as visible until the first result.
+            self.visible_rendered = 0;
+            for (key, &entity) in &self.rendered {
+                let visible = self.visible.contains(key);
+                if !visible {
+                    set(entity, false);
+                }
+                self.visible_rendered += usize::from(visible);
+            }
+            return;
+        }
+        let (previous, current) = (&self.next_visible, &self.visible);
+        for (key, visible) in previous
+            .iter()
+            .filter(|key| !current.contains(key))
+            .map(|key| (key, false))
+            .chain(
+                current
+                    .iter()
+                    .filter(|key| !previous.contains(key))
+                    .map(|key| (key, true)),
+            )
+        {
+            if let Some(&entity) = self.rendered.get(&key) {
+                set(entity, visible);
+                if visible {
+                    self.visible_rendered += 1;
+                } else {
+                    self.visible_rendered = self.visible_rendered.saturating_sub(1);
+                }
+            }
+        }
+    }
+
+    /// Graph additions can only reveal entities, so publication visits just the added keys.
+    fn publish_additions(&mut self, mut set: impl FnMut(Entity, bool)) {
+        for key in self.scratch.added_visible() {
+            if let Some(&entity) = self.rendered.get(key) {
+                set(entity, true);
+                self.visible_rendered += 1;
+            }
+        }
+    }
+
+    /// Whether the culler hides the box from `low` to `high` in `dimension`: as in vanilla,
+    /// only when the cache matches graph `generation` and every sub-chunk the
     /// box overlaps is `known` to that graph without being visible.
     pub(crate) fn hides_box(
         &self,
@@ -72,38 +128,63 @@ pub(crate) fn refresh_cave_visibility(
     client_world: Res<ClientWorld>,
     camera: Query<&Transform, With<FlyCamera>>,
     mut cache: ResMut<CaveVisibilityCache>,
-    mut chunks: Query<(&ChunkRenderInstance, &mut Visibility)>,
+    mut chunks: Query<&mut Visibility, With<ChunkRenderInstance>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::CaveVisibility));
-    let (Some(stream), Ok(camera)) = (client_world.stream.as_ref(), camera.single()) else {
-        return;
+    #[cfg(feature = "developer-control")]
+    let started = std::time::Instant::now();
+    let work = match (client_world.stream.as_ref(), camera.single()) {
+        (Some(stream), Ok(camera)) => refresh_visible(
+            stream,
+            camera_sub_chunk_key(stream.current_dimension(), camera.translation),
+            &mut cache,
+            &mut chunks,
+        ),
+        _ => CaveVisibilityWork::default(),
     };
-    let camera_key = camera_sub_chunk_key(stream.current_dimension(), camera.translation);
+    #[cfg(feature = "developer-control")]
+    {
+        let camera = cache.camera;
+        cache.telemetry.record(camera, work, started.elapsed());
+    }
+    #[cfg(not(feature = "developer-control"))]
+    let _ = work;
+}
+
+/// Updates traversal and publishes only entities whose cave visibility changed.
+fn refresh_visible(
+    stream: &WorldStream,
+    camera_key: SubChunkKey,
+    cache: &mut CaveVisibilityCache,
+    chunks: &mut Query<&mut Visibility, With<ChunkRenderInstance>>,
+) -> CaveVisibilityWork {
     let generation = stream.connectivity_generation();
     if cache.camera == Some(camera_key)
         && cache.graph_generation == Some(generation)
         && cache.initialized
     {
-        return;
+        return CaveVisibilityWork::default();
     }
 
-    let cache = &mut *cache;
-    stream.cave_visible_sub_chunks_into(camera_key, &mut cache.scratch, &mut cache.next_visible);
+    let rebuilt = stream.update_cave_visible_sub_chunks(
+        camera_key,
+        &mut cache.scratch,
+        &mut cache.visible,
+        &mut cache.next_visible,
+    );
     cache.camera = Some(camera_key);
     cache.graph_generation = Some(generation);
-    if cache.initialized && cache.visible == cache.next_visible {
-        return;
+    if rebuilt && cache.initialized && cache.visible == cache.next_visible {
+        return cache.scratch.work();
     }
-    std::mem::swap(&mut cache.visible, &mut cache.next_visible);
-    cache.initialized = true;
-    cache.visible_rendered = 0;
-    for (instance, mut visibility) in &mut chunks {
-        let key = instance.key();
-        let is_visible = cache.visible.contains(&key);
-        let desired = if is_visible {
+    let set = |entity, visible| {
+        let Ok(mut visibility) = chunks.get_mut(entity) else {
+            return;
+        };
+        let desired = if visible {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -111,8 +192,13 @@ pub(crate) fn refresh_cave_visibility(
         if *visibility != desired {
             *visibility = desired;
         }
-        cache.visible_rendered += usize::from(is_visible);
+    };
+    if rebuilt {
+        cache.publish_next(set);
+    } else {
+        cache.publish_additions(set);
     }
+    cache.scratch.work()
 }
 
 pub(crate) fn apply_added_chunk_visibility(
@@ -130,7 +216,7 @@ pub(crate) fn apply_added_chunk_visibility(
     } else {
         Visibility::Hidden
     };
-    if cache.rendered.insert(key) && is_visible {
+    if cache.rendered.insert(key, add.entity).is_none() && is_visible {
         cache.visible_rendered += 1;
     }
 }
@@ -144,34 +230,14 @@ pub(crate) fn remove_chunk_visibility(
         return;
     };
     let key = instance.key();
-    if cache.rendered.remove(&key) && cache.is_visible(key) {
+    // A replacement entity at the same key may already own the slot.
+    if cache.rendered.get(&key) == Some(&remove.entity)
+        && cache.rendered.remove(&key).is_some()
+        && cache.is_visible(key)
+    {
         cache.visible_rendered = cache.visible_rendered.saturating_sub(1);
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// An actor is hidden only when every sub-chunk its box touches is known and not visible.
-    #[test]
-    fn a_box_is_hidden_only_when_all_its_known_sub_chunks_are_invisible() {
-        let key = |x, y, z| SubChunkKey::new(0, x, y, z);
-        let cache = CaveVisibilityCache {
-            camera: Some(key(0, 4, 0)),
-            graph_generation: Some(7),
-            visible: [key(1, 4, 0)].into_iter().collect(),
-            initialized: true,
-            ..CaveVisibilityCache::default()
-        };
-        let known = |key: SubChunkKey| key.y < 8;
-        let hides = |low, high| cache.hides_box(0, 7, known, low, high);
-        assert!(hides([-8.0, 64.0, 4.0], [-7.0, 66.0, 5.0]));
-        // Straddling into the visible neighbour, or reaching an unknown sub-chunk, draws it.
-        assert!(!hides([15.5, 64.0, 4.0], [16.5, 66.0, 5.0]));
-        assert!(!hides([-8.0, 127.0, 4.0], [-7.0, 129.0, 5.0]));
-        // A stale graph or another dimension never hides anything.
-        assert!(!cache.hides_box(0, 8, known, [-8.0, 64.0, 4.0], [-7.0, 66.0, 5.0]));
-        assert!(!cache.hides_box(1, 7, known, [-8.0, 64.0, 4.0], [-7.0, 66.0, 5.0]));
-    }
-}
+mod tests;

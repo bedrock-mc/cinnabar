@@ -73,3 +73,61 @@ fn render_distance_settings_send_is_session_fenced_and_retries_after_backpressur
     );
     network.send_settings_packet(42, packet()).unwrap();
 }
+
+#[test]
+fn boss_subscription_packets_use_the_session_fenced_fifo_and_retry_without_loss() {
+    let (mut network, _) = NetworkHandle::stub();
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    network.commands = sender;
+    network.session_generation = 42;
+    let event = protocol::BossEvent {
+        target_entity_id: -17,
+        action: protocol::BossAction::Show,
+        title: "Dragon".into(),
+        filtered_title: "Filtered dragon".into(),
+        progress: 0.75,
+        style: protocol::BossStyle {
+            color: protocol::BossColor::Purple,
+            overlay: protocol::BossOverlay::Progress,
+            darken_sky: None,
+            create_world_fog: None,
+        },
+    };
+    let show = protocol::boss_registration_response(&event).unwrap();
+    let hide = protocol::boss_registration_response(&protocol::BossEvent {
+        action: protocol::BossAction::Hide,
+        ..event
+    })
+    .unwrap();
+    assert!(matches!(
+        network.send_form_packet(41, show.clone()),
+        Err(PacketSendError::Closed(_))
+    ));
+    assert!(receiver.try_recv().is_err());
+    network.send_form_packet(42, show.clone()).unwrap();
+    assert!(matches!(
+        network.send_form_packet(42, hide.clone()),
+        Err(PacketSendError::Full(_))
+    ));
+    let NetworkCommand::Send {
+        packet: accepted, ..
+    } = receiver.try_recv().unwrap()
+    else {
+        panic!("boss subscription must submit a packet");
+    };
+    assert_eq!(accepted, show);
+    assert!(receiver.try_recv().is_err());
+    network.send_form_packet(42, hide.clone()).unwrap();
+    let NetworkCommand::Send {
+        packet: accepted, ..
+    } = receiver.try_recv().unwrap()
+    else {
+        panic!("boss removal must submit a packet");
+    };
+    assert_eq!(accepted, hide);
+    drop(receiver);
+    assert!(matches!(
+        network.send_form_packet(42, hide),
+        Err(PacketSendError::Closed(_))
+    ));
+}

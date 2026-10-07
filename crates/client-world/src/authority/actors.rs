@@ -1,6 +1,10 @@
 use super::*;
 
 impl WorldAuthority {
+    /// Changes only the actor visual after the corresponding terrain mesh is published.
+    pub fn apply_actor_block_sync(&mut self, sync: protocol::ActorBlockSyncMessage) -> bool {
+        self.actors.apply_terrain_sync(sync)
+    }
     /// Borrows remote players and their retained profile records.
     pub fn render_players(&self) -> Vec<(&ActorSnapshot, Option<&PlayerProfile>)> {
         self.actors
@@ -51,10 +55,25 @@ impl WorldAuthority {
     /// Advances simulation ticks with one visual evaluation per tick.
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
+        self.publish_actor_particles();
+        self.publish_actor_audio();
     }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
         self.actors.advance_interpolation_frame(ticks);
+        self.publish_actor_particles();
+        self.publish_actor_audio();
+    }
+
+    fn publish_actor_particles(&mut self) {
+        for event in self.actors.take_particle_effects() {
+            self.push_committed_particle(event);
+        }
+    }
+    fn publish_actor_audio(&mut self) {
+        for event in self.actors.take_synchronized_audio() {
+            self.push_committed_audio(event);
+        }
     }
     /// Drains decoded actor status events (hurt, death, taming, totem, ...) for particle and sound consumers.
     pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {
@@ -86,6 +105,17 @@ impl WorldAuthority {
     pub fn set_actor_fluids(&mut self, samples: &[(u64, bool, bool)]) {
         self.actors.set_fluids(samples);
     }
+    /// Records `(runtime_id, submerged)` breathing-point samples that hide entity shadows.
+    pub fn set_actor_breathing_liquids(&mut self, samples: &[(u64, bool)]) {
+        self.actors.set_breathing_liquids(samples);
+    }
+    /// Every actor's entity-shadow caster at `partial_tick`, local player included.
+    pub fn actor_shadow_casters(
+        &self,
+        partial_tick: f32,
+    ) -> impl Iterator<Item = crate::ActorShadowCaster> + '_ {
+        self.actors.shadow_casters(partial_tick)
+    }
     /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.actors.set_camera_rotation(rotation);
@@ -112,14 +142,60 @@ impl WorldAuthority {
             feed,
         );
     }
+
+    /// Replaces the local appearance while preserving the server's roster identity.
+    pub fn update_local_player_skin(&mut self, skin: protocol::PlayerSkin) -> bool {
+        let Some(actor) = self.actors.get(self.local_player_runtime_id) else {
+            return false;
+        };
+        let protocol::ActorKind::Player { uuid, .. } = &actor.kind else {
+            return false;
+        };
+        let uuid = *uuid;
+        self.actors.apply_skin_update(uuid, skin) == crate::actor_store::ActorApplyResult::Updated
+    }
     /// Starts the local player's arm swing, which the server never echoes back to its owner.
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
+    /// Binds the local Java torso to the current simulation; `None` restores actor-clock motion.
+    pub fn set_local_motion_authority(&mut self, authority: Option<(u64, u64)>) {
+        self.actors
+            .set_local_motion_authority(self.local_player_runtime_id, authority);
+    }
+    /// Applies completed local torso samples without advancing other actor motion or clocks.
+    pub fn sync_local_swing_motion(
+        &mut self,
+        authority: (u64, u64),
+        samples: impl IntoIterator<Item = crate::LocalSwingMotionSample>,
+    ) {
+        self.actors
+            .sync_local_swing_motion(self.local_player_runtime_id, authority, samples);
+    }
+    /// Uses committed local swing samples without re-admitting them on the remote actor clock.
+    pub fn sync_local_swing(&mut self, progress: crate::LocalSwingProgress) {
+        self.actors
+            .sync_local_swing(self.local_player_runtime_id, progress);
+    }
+    /// Drops the local player's Java equip progress to zero at its next tick.
+    pub fn reset_local_java_equip(&mut self) {
+        self.actors.reset_java_equip(self.local_player_runtime_id);
+    }
     /// Borrows the current actor with this runtime ID.
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)
+    }
+
+    /// Publishes the session's level mode before remote players are admitted.
+    pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
+        self.actors.apply_world_game_mode(mode);
+    }
+
+    /// Uses the native class or the server-advertised constructor for custom actor targets.
+    #[must_use]
+    pub fn camera_aim_assist_eligible(&self, actor: &ActorSnapshot) -> Option<bool> {
+        self.actors.camera_aim_assist_eligible(actor)
     }
     /// Unique id of the local player's actor.
     pub fn local_player_unique_id(&self) -> i64 {
@@ -149,9 +225,17 @@ impl WorldAuthority {
     pub fn block_entities(&self, partial_tick: f32) -> Vec<crate::BlockEntityView> {
         self.actors.block_entities(partial_tick)
     }
+    /// Retains pending block actors for visibility decisions in the terrain's render frame.
+    pub fn block_entity_candidates(&self, partial_tick: f32) -> Vec<crate::BlockEntityCandidate> {
+        self.actors.block_entity_candidates(partial_tick)
+    }
     /// End crystal beams with interpolated endpoints and actor animation age.
     pub fn crystal_beams(&self, partial_tick: f32) -> Vec<crate::CrystalBeamView> {
         self.actors.crystal_beams(partial_tick)
+    }
+    /// Dying dragon body centers and ray parameters at the supplied frame fraction.
+    pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
+        self.actors.dragon_death_rays(partial_tick)
     }
     /// Fishing lines and leads with interpolated endpoints.
     pub fn ropes(&self, partial_tick: f32) -> Vec<crate::RopeView> {
@@ -161,6 +245,10 @@ impl WorldAuthority {
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }
+    /// Render-controller values at the frame fraction, retaining completed tick poses.
+    pub fn actor_render_frame(&self, partial_tick: f32) -> crate::ActorRenderFrame<'_> {
+        self.actors.render_frame(partial_tick)
+    }
     /// Full-body pose for HUD rendering, independent of the local first-person hand pose.
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
@@ -169,9 +257,40 @@ impl WorldAuthority {
     pub fn actor_world_body_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_world_body(runtime_id)
     }
+    /// The rig's pose at the frame fraction with `targets` replacing their joints in model space;
+    /// other bones keep their animated offsets from their parents.
+    pub fn actor_retargeted_pose(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        targets: &[Option<crate::BoneTransform>],
+    ) -> Option<Vec<crate::BoneTransform>> {
+        self.actors
+            .actor_retargeted_pose(runtime_id, partial_tick, targets)
+    }
+    /// The animated skin layers at the frame fraction, each retargeted by the model-space
+    /// targets `targets` builds from its skeleton's bone names and rest pose.
+    pub fn actor_retargeted_layers(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        targets: impl Fn(
+            &[Box<str>],
+            &[crate::BoneTransform],
+        ) -> Option<Vec<Option<crate::BoneTransform>>>,
+    ) -> Option<Vec<crate::SkinRenderLayer>> {
+        self.actors
+            .actor_retargeted_layers(runtime_id, partial_tick, targets)
+    }
     /// Iterates the retained actor rigs for presentation.
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()
+    }
+    /// Borrows controller states that completed authored actor animation evaluation.
+    pub fn actor_particle_controllers(
+        &self,
+    ) -> impl Iterator<Item = crate::ActorParticleController<'_>> {
+        self.actors.actor_particle_controllers()
     }
     /// Returns counters from the authoritative actor animation runtime.
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {

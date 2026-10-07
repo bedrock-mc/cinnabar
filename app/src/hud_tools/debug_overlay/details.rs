@@ -113,7 +113,10 @@ impl DebugContext<'_, '_> {
                 .facts
                 .player_game_mode()
                 .map_or_else(|| "unknown".to_owned(), |mode| format!("{mode:?}"));
-            lines.left.push(format!("Game mode: {mode}"));
+            lines.left.push(format!(
+                "Game mode: {mode} | immobile: {}",
+                player.facts.is_immobile()
+            ));
         }
         if let Some(physics) = self.physics.as_deref()
             && let Some(state) = physics.state()
@@ -195,7 +198,12 @@ impl DebugContext<'_, '_> {
                 } else {
                     "unfocused"
                 },
-                if crate::camera::input_is_active(window, cursor) {
+                if crate::camera::mouse_input_active(
+                    window,
+                    cursor,
+                    self.focus.as_deref(),
+                    self.driven.is_some(),
+                ) {
                     "captured"
                 } else {
                     "released"

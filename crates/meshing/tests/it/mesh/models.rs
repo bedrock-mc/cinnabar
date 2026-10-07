@@ -6,7 +6,6 @@ use std::{
     sync::OnceLock,
 };
 
-use pack_compiler::compile_pack as compile_pack_with_lights;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets,
     DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
@@ -24,6 +23,7 @@ use meshing::{
     PackedQuadLighting, debug_color, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
     mesh_sub_chunk_with_lighting,
 };
+use pack_compiler::compile_pack as compile_pack_with_lights;
 use world::{MeshNeighbourhood, RawBlockIds, SubChunk};
 
 const AIR: u32 = 12_530;
@@ -116,94 +116,130 @@ fn runtime_assets() -> &'static RuntimeAssets {
             visuals[runtime_id].faces = [51; 6];
             visuals[runtime_id].flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
         }
-        visuals[53] = BlockVisual { support: assets::VisualSupport::Exact, faces: [61, 62, 63, 64, 65, 66],
-        flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
-        kind: VisualKind::Cube,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: NO_MODEL_TEMPLATE,
-        animation: NO_ANIMATION,
-        variant: 0, };
+        visuals[53] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [61, 62, 63, 64, 65, 66],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            kind: VisualKind::Cube,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
         // A non-full-cube record intentionally carries non-zero face IDs. The
         // mesher must still route it to the diagnostic material.
-        visuals[54] = BlockVisual { support: assets::VisualSupport::Diagnostic, faces: [66; 6],
-        flags: BlockFlags::empty(),
-        kind: VisualKind::Diagnostic,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: NO_MODEL_TEMPLATE,
-        animation: NO_ANIMATION,
-        variant: 0, };
-        visuals[LEAF_A as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [LEAF_A; 6],
-        flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
-        kind: VisualKind::Cube,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: NO_MODEL_TEMPLATE,
-        animation: NO_ANIMATION,
-        variant: 0, };
-        visuals[LEAF_B as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [LEAF_B; 6],
-        flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
-        kind: VisualKind::Cube,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: NO_MODEL_TEMPLATE,
-        animation: NO_ANIMATION,
-        variant: 0, };
-        visuals[CROSS as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [1; 6],
-        flags: BlockFlags::empty(),
-        kind: VisualKind::Cross,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: 0,
-        animation: NO_ANIMATION,
-        variant: 2, };
-        visuals[ZERO_QUAD_CROSS as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [1; 6],
-        flags: BlockFlags::empty(),
-        kind: VisualKind::Cross,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: 1,
-        animation: NO_ANIMATION,
-        variant: 0, };
-        for runtime_id in [LIQUID_A, LIQUID_B] {
-            visuals[runtime_id as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [DIAGNOSTIC_MATERIAL; 6],
+        visuals[54] = BlockVisual {
+            support: assets::VisualSupport::Diagnostic,
+            faces: [66; 6],
             flags: BlockFlags::empty(),
-            kind: VisualKind::Liquid,
+            kind: VisualKind::Diagnostic,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        visuals[LEAF_A as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [LEAF_A; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+            kind: VisualKind::Cube,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        visuals[LEAF_B as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [LEAF_B; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+            kind: VisualKind::Cube,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        visuals[CROSS as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Cross,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 0,
+            animation: NO_ANIMATION,
+            variant: 2,
+        };
+        visuals[ZERO_QUAD_CROSS as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Cross,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 1,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        for runtime_id in [LIQUID_A, LIQUID_B] {
+            visuals[runtime_id as usize] = BlockVisual {
+                support: assets::VisualSupport::Exact,
+                faces: [DIAGNOSTIC_MATERIAL; 6],
+                flags: BlockFlags::empty(),
+                kind: VisualKind::Liquid,
+                contributor_role: assets::ContributorRole::LiquidAdditional,
+                model_template: NO_MODEL_TEMPLATE,
+                animation: NO_ANIMATION,
+                variant: 0,
+            };
+        }
+        visuals[UNSUPPORTED_ADDITIONAL as usize] = BlockVisual {
+            support: assets::VisualSupport::Diagnostic,
+            faces: [DIAGNOSTIC_MATERIAL; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Diagnostic,
             contributor_role: assets::ContributorRole::LiquidAdditional,
             model_template: NO_MODEL_TEMPLATE,
             animation: NO_ANIMATION,
-            variant: 0, };
-        }
-        visuals[UNSUPPORTED_ADDITIONAL as usize] = BlockVisual { support: assets::VisualSupport::Diagnostic, faces: [DIAGNOSTIC_MATERIAL; 6],
-        flags: BlockFlags::empty(),
-        kind: VisualKind::Diagnostic,
-        contributor_role: assets::ContributorRole::LiquidAdditional,
-        model_template: NO_MODEL_TEMPLATE,
-        animation: NO_ANIMATION,
-        variant: 0, };
-        visuals[KELP as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [1; 6],
-        flags: BlockFlags::empty(),
-        kind: VisualKind::Model,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: 2,
-        animation: NO_ANIMATION,
-        variant: 0, };
-        visuals[MODEL_32 as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [1; 6],
-        flags: BlockFlags::empty(),
-        kind: VisualKind::Model,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: 3,
-        animation: NO_ANIMATION,
-        variant: 0, };
-        visuals[COMPOUND_40 as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [1; 6],
-        flags: BlockFlags::empty(),
-        kind: VisualKind::Model,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: 4,
-        animation: NO_ANIMATION,
-        variant: 0, };
-        visuals[MIXED_ALPHA_MODEL as usize] = BlockVisual { support: assets::VisualSupport::Exact, faces: [1; 6],
-        flags: BlockFlags::empty(),
-        kind: VisualKind::Model,
-        contributor_role: assets::ContributorRole::Primary,
-        model_template: 6,
-        animation: NO_ANIMATION,
-        variant: 0, };
+            variant: 0,
+        };
+        visuals[KELP as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 2,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        visuals[MODEL_32 as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 3,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        visuals[COMPOUND_40 as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 4,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        visuals[MIXED_ALPHA_MODEL as usize] = BlockVisual {
+            support: assets::VisualSupport::Exact,
+            faces: [1; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 6,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
 
         let textures = TextureArray {
             layers: 1,
@@ -351,7 +387,12 @@ fn runtime_assets() -> &'static RuntimeAssets {
             animation_frames: Box::new([]),
             texture_pages: vec![TexturePage::new(textures)].into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
-            provenance: assets::BlobProvenance { source_manifest_sha256: [0xA5; 32], block_registry_sha256: [0x5A; 32], light_registry_sha256: [0x33; 32], biome_registry_sha256: [0x3C; 32] },
+            provenance: assets::BlobProvenance {
+                source_manifest_sha256: [0xA5; 32],
+                block_registry_sha256: [0x5A; 32],
+                light_registry_sha256: [0x33; 32],
+                biome_registry_sha256: [0x3C; 32],
+            },
         };
         let blob = encode_blob(&compiled).expect("encode synthetic mesher assets");
         RuntimeAssets::decode(&blob).expect("decode synthetic mesher assets")
@@ -638,5 +679,82 @@ fn compound_model_emits_two_bounded_refs_with_contiguous_lighting_and_draws() {
             .map(|quad| [0, quad])
             .chain((0..16).map(|quad| [1, quad]))
             .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn compound_model_chain_meshes_every_visibility_part() {
+    let base = runtime_assets();
+    let id = base.visual_count() as u32;
+    let quad = ModelQuad {
+        positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
+        uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+        material: 0,
+        flags: MODEL_QUAD_FLAG_TWO_SIDED,
+    };
+    let overlay = assets::BlockOverlay {
+        visuals: vec![BlockVisual {
+            faces: [0; 6],
+            flags: BlockFlags::empty(),
+            kind: VisualKind::Model,
+            support: assets::VisualSupport::VanillaFallback,
+            contributor_role: assets::ContributorRole::Primary,
+            model_template: 0,
+            animation: NO_ANIMATION,
+            variant: 0,
+        }],
+        light_properties: vec![assets::LightProperties::default()],
+        materials: vec![Material {
+            texture: TextureRef::new(1, 0).unwrap(),
+            flags: 0,
+            animation: NO_ANIMATION,
+            ..Material::unvaried()
+        }],
+        model_templates: [32, 32, 26]
+            .into_iter()
+            .scan(0, |start, count| {
+                let part = ModelTemplate {
+                    quad_start: *start,
+                    quad_count: count,
+                    flags: if count == 26 {
+                        0
+                    } else {
+                        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+                    },
+                };
+                *start += count;
+                Some(part)
+            })
+            .collect(),
+        model_quads: vec![quad; 90],
+        texture: Some(base.texture_pages()[0].texture.clone()),
+        ..assets::BlockOverlay::default()
+    };
+    let assets = base.with_block_overlay(id, &overlay).unwrap();
+    let source = blocks(id, &[[1, 2, 3]]);
+    let mesh = mesh_sub_chunk(
+        &classifier(),
+        &assets,
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &source,
+    );
+    assert_eq!(mesh.model_refs().len(), 3);
+    assert_eq!(mesh.model_lighting().len(), 90);
+    assert_eq!(mesh.model_draw_refs().len(), 90);
+    assert_eq!(
+        mesh.model_refs()
+            .iter()
+            .map(|part| part.words()[2])
+            .collect::<Vec<_>>(),
+        [0, 32, 64]
+    );
+    assert!(
+        meshing::mesh_output_byte_len(&mesh, &meshing::PackedBiomeRecord::fallback())
+            <= meshing::MeshOutputBounds::new(&assets).for_sub_chunk(
+                &source,
+                &assets,
+                NetworkIdMode::Sequential
+            )
     );
 }

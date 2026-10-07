@@ -1,6 +1,5 @@
 //! Physical input and preference handoff for the native JSON-UI emote wheel.
 mod controls;
-
 use bevy::{
     ecs::system::SystemParam,
     input::{
@@ -15,7 +14,6 @@ use bevy::{
 };
 use client_ui::ui_runtime::presentation::forms::EmoteHit;
 use launcher::menu::settings_options::EMOTE_SLOT_COUNT;
-use semantic_input::Action;
 use ui::{UiAction, UiPoint};
 
 use crate::{
@@ -29,6 +27,7 @@ use crate::{
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
+use controls::{should_stop_emote, slot_key, wheel_key};
 type SlotPreferences = [Option<String>; EMOTE_SLOT_COUNT];
 
 #[derive(Default)]
@@ -59,6 +58,8 @@ pub(crate) struct EmoteInput<'w, 's> {
     presentation: Option<ResMut<'w, UiPresentationRuntime>>,
     observed: Local<'s, ObservedEmotes>,
     consumed: ResMut<'w, EmoteInputConsumed>,
+    focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<'w, crate::camera::DrivenInput>>,
 }
 
 /// Runs before chat/menu adapters and before semantic gameplay is finalized.
@@ -102,7 +103,6 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             .and_then(|id| stream.and_then(|stream| stream.authority().actor(id)))
             .is_some_and(|actor| actor.status.dead);
     let blocked = input.consent.as_ref().is_some_and(|consent| consent.0)
-        || !input.window.0.focused
         || input.menu.as_ref().is_some_and(|menu| menu.is_visible())
         || input.runtime.chat_focused()
         || input.runtime.inventory_open()
@@ -114,6 +114,22 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         input.keyboard.clear();
         input.runtime.emotes_mut().close();
         input.runtime.emotes_mut().stop();
+        if let Some(presentation) = input.presentation.as_deref_mut() {
+            presentation.set_emote_pointer(None);
+        }
+        return;
+    }
+    if input.driven.is_none()
+        && (!input.window.0.focused || input.focus.as_ref().is_some_and(|focus| !focus.available()))
+    {
+        input.keyboard.clear();
+        input.keys.reset_all();
+        input.mouse.reset_all();
+        input.motion.delta = Vec2::ZERO;
+        input.observed.pointer = None;
+        input.consumed.0 = owned;
+        input.window.1.grab_mode = CursorGrabMode::None;
+        input.window.1.visible = true;
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_pointer(None);
         }
@@ -132,6 +148,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     let gamepad_toggled =
         !navigating && binding_gamepad(input.menu.as_deref(), "key.emote", &input.pads);
     let toggled = mouse_toggled || gamepad_toggled;
+    let mut dismissed = false;
     if toggled {
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_input_mode(if gamepad_toggled {
@@ -140,7 +157,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                 json_ui::InputMode::Mouse
             });
         }
+        let was_open = input.runtime.emotes().is_open();
         toggle(&mut input.runtime);
+        dismissed |= was_open && !input.runtime.emotes().is_open();
         owned = true;
     }
     for event in input.keyboard.read() {
@@ -151,7 +170,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             if let Some(presentation) = input.presentation.as_deref_mut() {
                 presentation.set_emote_input_mode(json_ui::InputMode::Mouse);
             }
+            let was_open = input.runtime.emotes().is_open();
             toggle(&mut input.runtime);
+            dismissed |= was_open && !input.runtime.emotes().is_open();
             owned = true;
             continue;
         }
@@ -167,6 +188,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         } else if let Some(action) = wheel_key(event.key_code) {
             input.runtime.emotes_mut().handle_action(action, now);
         }
+        dismissed |= !input.runtime.emotes().is_open();
     }
     if input.runtime.emotes().is_open() {
         let hit = if let Some(presentation) = input.presentation.as_deref_mut() {
@@ -204,6 +226,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                 }
                 None => {}
             }
+            dismissed |= !input.runtime.emotes().is_open();
         }
         for pad in input.pads.iter().filter(|_| !toggled) {
             for (button, action) in [
@@ -221,7 +244,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                     if let Some(presentation) = input.presentation.as_deref_mut() {
                         presentation.set_emote_input_mode(json_ui::InputMode::Gamepad);
                     }
+                    let was_open = input.runtime.emotes().is_open();
                     input.runtime.emotes_mut().handle_action(action, now);
+                    dismissed |= was_open && !input.runtime.emotes().is_open();
                 }
             }
         }
@@ -234,6 +259,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     {
         menu.set_emote_slot_preferences(preferences.clone());
         input.observed.preferences = Some(Some(preferences));
+    }
+    if dismissed && let Some(focus) = input.focus.as_deref_mut() {
+        focus.authorize_screen_return();
     }
     if owned {
         input.consumed.0 = true;
@@ -264,35 +292,6 @@ fn toggle(runtime: &mut UiRuntime) {
         runtime.emotes_mut().close();
     } else {
         runtime.emotes_mut().open();
-    }
-}
-
-fn should_stop_emote(input: &SemanticInputSnapshot) -> bool {
-    input.raw_movement().iter().any(|axis| *axis != 0.0)
-        || [Action::Jump, Action::Attack, Action::Use, Action::Sneak]
-            .iter()
-            .any(|action| input.phase(*action).held)
-}
-
-fn slot_key(key: KeyCode) -> Option<usize> {
-    match key {
-        KeyCode::Digit1 | KeyCode::Numpad1 => Some(0),
-        KeyCode::Digit2 | KeyCode::Numpad2 => Some(1),
-        KeyCode::Digit3 | KeyCode::Numpad3 => Some(2),
-        KeyCode::Digit4 | KeyCode::Numpad4 => Some(3),
-        _ => None,
-    }
-}
-
-fn wheel_key(key: KeyCode) -> Option<UiAction> {
-    match key {
-        KeyCode::Escape => Some(UiAction::Cancel),
-        KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => Some(UiAction::Accept),
-        KeyCode::ArrowUp => Some(UiAction::Navigate([0, -1])),
-        KeyCode::ArrowRight => Some(UiAction::Navigate([1, 0])),
-        KeyCode::ArrowDown => Some(UiAction::Navigate([0, 1])),
-        KeyCode::ArrowLeft => Some(UiAction::Navigate([-1, 0])),
-        _ => None,
     }
 }
 

@@ -26,17 +26,18 @@
       "minecraft:shelf_mushroom",
       "minecraft:straw_bed"
     ],
-    "denied_count": 662,
-    "denied_fingerprint": "1cd78a1b522f4b305cdf0bd472be82f9aa53023a55facab5aff08a3f128cff71"
+    "denied_count": 498,
+    "denied_fingerprint": "aeeccfe0e227087889ad3d2f8bba5492c40335d76331d04ece290acb6399e1a0",
+    "education_states": 164
   },
   "output": {
     "format": "BREG1003",
     "path": "crates/assets/data/block-registry-v2193.bin",
-    "sha256": "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"
+    "sha256": "8faf1f3b8cfea2954ddf01b68edde076abf4cc0b1e9f9b099360250d7d42bb88"
   },
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2193.bin",
-    "sha256": "f189af342f9222374ff6d0ede4bc654cdb6f6e007b36536946f39de76b244bf9"
+    "sha256": "e05ef98925e897ae7db738214cfb805420d36b83ca9bb16e80f260829b6fc679"
   }
 }

@@ -16,18 +16,17 @@ import (
 )
 
 const (
-	cacheVersion   = 1
+	cacheVersion   = 2
 	listTTL        = 5 * time.Minute
-	homeTTL        = 15 * time.Minute // vanilla GatheringManager re-queues its /config/public refresh every 15 min
+	homeTTL        = 15 * time.Minute
 	refreshTimeout = 2 * time.Minute
 )
 
 // snapshot is the last good catalog, persisted as CacheFile.
 type snapshot struct {
-	Version    int                            `json:"version"`
-	Featured   feed[[]catalog.FeaturedServer] `json:"featured"`
-	Gatherings feed[[]catalog.Gathering]      `json:"gatherings"`
-	Home       feed[catalog.Home]             `json:"home"`
+	Version  int                            `json:"version"`
+	Featured feed[[]catalog.FeaturedServer] `json:"featured"`
+	Home     feed[catalog.Home]             `json:"home"`
 }
 
 type feed[T any] struct {
@@ -37,7 +36,6 @@ type feed[T any] struct {
 
 func (snap *snapshot) images() []*catalog.Image {
 	images := catalog.FeaturedImages(snap.Featured.Value)
-	images = append(images, catalog.GatheringImages(snap.Gatherings.Value)...)
 	return append(images, catalog.HomeImages(&snap.Home.Value)...)
 }
 
@@ -67,20 +65,8 @@ var featuredFeed = feedSpec[[]catalog.FeaturedServer]{
 	},
 }
 
-var gatheringsFeed = feedSpec[[]catalog.Gathering]{
-	name: "gatherings", index: 1, ttl: listTTL,
-	slot: func(snap *snapshot) *feed[[]catalog.Gathering] { return &snap.Gatherings },
-	fetch: func(s *Service, ctx context.Context, src *authcache.Account, _ *[]catalog.Gathering) ([]catalog.Gathering, error) {
-		gatherings, err := s.cfg.Gatherings(ctx, src)
-		if err == nil {
-			s.cacheArt(ctx, catalog.GatheringImages(gatherings))
-		}
-		return gatherings, err
-	},
-}
-
 var homeFeed = feedSpec[catalog.Home]{
-	name: "home", index: 2, ttl: homeTTL,
+	name: "home", index: 1, ttl: homeTTL,
 	slot: func(snap *snapshot) *feed[catalog.Home] { return &snap.Home },
 	fetch: func(s *Service, ctx context.Context, src *authcache.Account, previous *catalog.Home) (catalog.Home, error) {
 		home, err := s.cfg.Home(ctx, src, s.messaging, s.cfg.ArtworkDir)
@@ -184,7 +170,6 @@ func (s *Service) Prefetch() {
 		return
 	}
 	refresh(s, src, featuredFeed)
-	refresh(s, src, gatheringsFeed)
 	refresh(s, src, homeFeed)
 }
 

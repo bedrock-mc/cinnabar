@@ -19,7 +19,7 @@ fn origins(
 
 #[test]
 fn native_smoke_random_float_rounding_consumes_one_mt_word_per_coordinate() {
-    // Independently rounded witnesses for native Random::nextFloat's double
+    // Independently rounded witnesses for vanilla's random float's double
     // intermediate, rather than a float-first conversion or a 24-bit truncation.
     let mut random = AmbientRandom::new(5489);
     for expected in [

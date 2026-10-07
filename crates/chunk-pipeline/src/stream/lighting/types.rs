@@ -85,10 +85,19 @@ pub(in crate::stream) enum SnapshotBlock {
     Resident(Arc<SubChunk>),
 }
 
+impl SnapshotBlock {
+    pub(in crate::stream) fn is_known_air(&self, classifier: BlockClassifier) -> bool {
+        match self {
+            Self::KnownAir => true,
+            Self::Resident(sub_chunk) => classifier.is_sub_chunk_air(sub_chunk),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(in crate::stream) struct LightBlockSnapshot {
     pub(in crate::stream) dimension: i32,
-    pub(in crate::stream) blocks: BTreeMap<SubChunkKey, SnapshotBlock>,
+    pub(in crate::stream) blocks: SectionSnapshot<SnapshotBlock>,
     pub(in crate::stream) classifier: BlockClassifier,
     pub(in crate::stream) network_id_mode: NetworkIdMode,
     pub(in crate::stream) runtime_assets: Arc<RuntimeAssets>,
@@ -210,8 +219,8 @@ impl LightBlockAccess for LightBlockSnapshot {
 #[derive(Clone)]
 pub(in crate::stream) struct LightPriorSnapshot {
     pub(in crate::stream) light: LightStoreSnapshot,
-    pub(in crate::stream) direct_sky: BTreeMap<SubChunkKey, StoredDirectSky>,
-    pub(in crate::stream) trusted_boundaries: BTreeSet<SubChunkKey>,
+    pub(in crate::stream) direct_sky: SectionSnapshot<StoredDirectSky>,
+    pub(in crate::stream) trusted_boundaries: SectionSnapshot<()>,
 }
 
 impl LightReadAccess for LightPriorSnapshot {
@@ -240,7 +249,7 @@ impl LightReadAccess for LightPriorSnapshot {
         channel: LightChannel,
     ) -> BoundaryLightSample {
         let (key, [x, y, z]) = split_light_position(dimension, position);
-        if !self.trusted_boundaries.contains(&key) {
+        if !self.trusted_boundaries.contains_key(&key) {
             return if self.light.kind(key) == LightSubChunkKind::Unknown {
                 BoundaryLightSample::unknown()
             } else {
@@ -310,8 +319,18 @@ struct LightBatchTarget {
     old_direct: Option<StoredDirectSky>,
 }
 
+/// Solves one captured input with fresh scratch for isolated test callers.
+#[cfg(test)]
 pub(in crate::stream) fn solve_prepared_light_job(
+    job: PreparedLightJob,
+) -> Result<SolvedLightJob, LightJobError> {
+    solve_prepared_light_job_with_scratch(job, &mut world::LightSolverScratch::default())
+}
+
+/// Worker buffers remain private while the returned light and provenance own their data.
+fn solve_prepared_light_job_with_scratch(
     mut job: PreparedLightJob,
+    scratch: &mut world::LightSolverScratch,
 ) -> Result<SolvedLightJob, LightJobError> {
     let target = light_batch_target(&job);
     let (replacement, direct_sky, used_uniform_fast_path) =
@@ -320,13 +339,14 @@ pub(in crate::stream) fn solve_prepared_light_job(
         } else {
             job.blocks.resolve_palette_light();
             let profile = job.blocks.profile;
-            let output = solve_light(
+            let output = world::solve_light_with_scratch(
                 &job.blocks,
                 &job.prior,
                 job.bounds,
                 job.identity.revision,
                 profile,
                 LIGHT_SOLVE_LIMITS,
+                scratch,
             )
             .map_err(LightJobError::Solve)?;
             let light = output
@@ -345,8 +365,18 @@ pub(in crate::stream) fn solve_prepared_light_job(
     ))
 }
 
+/// Runs an isolated column batch without retaining scratch between test calls.
+#[cfg(test)]
 pub(in crate::stream) fn solve_prepared_light_batch(
     jobs: Vec<PreparedLightJob>,
+) -> Vec<SolvedLightBatchEntry> {
+    solve_prepared_light_batch_with_scratch(jobs, &mut world::LightSolverScratch::default())
+}
+
+/// Reuses worker buffers across all independent sections and the dense column remainder.
+pub(in crate::stream) fn solve_prepared_light_batch_with_scratch(
+    jobs: Vec<PreparedLightJob>,
+    scratch: &mut world::LightSolverScratch,
 ) -> Vec<SolvedLightBatchEntry> {
     if jobs.len() == 1 {
         return jobs
@@ -359,19 +389,13 @@ pub(in crate::stream) fn solve_prepared_light_batch(
                     key,
                     identity,
                     queued_at,
-                    result: solve_prepared_light_job(job),
+                    result: solve_prepared_light_job_with_scratch(job, scratch),
                 }
             })
             .collect();
     }
-    // Mixed columns must be solved together: a lower resident sub-chunk may
-    // illuminate air above it, including air that otherwise looks uniform.
-    let all_known_air = jobs.iter().all(|job| {
-        matches!(
-            job.blocks.blocks.get(&job.key),
-            Some(SnapshotBlock::KnownAir)
-        )
-    });
+    // Peel sections from the top only beyond every source the dense remainder could light them from.
+    let sources = super::prefix::PrefixSources::of(&jobs);
     let mut solved_prefix = Vec::new();
     let mut remaining = Vec::new();
     let mut solved_above = None::<(SubChunkKey, Arc<SubChunkLight>, Arc<DirectSkyMask>)>;
@@ -387,11 +411,16 @@ pub(in crate::stream) fn solve_prepared_light_batch(
                     mask: Arc::clone(direct_sky),
                 },
             );
-            job.prior.trusted_boundaries.insert(*key);
+            job.prior.trusted_boundaries.insert(*key, ());
         }
-        let uniform = all_known_air
+        // Maximal direct sky cannot rise further; dark air must be beyond skylight sources too.
+        let uniform = sources
+            .beyond_block_light(job.key)
             .then(|| uniform_known_air_light(&job))
-            .flatten();
+            .flatten()
+            .filter(|(_, direct)| {
+                matches!(direct, DirectSkyMask::Uniform(true)) || sources.beyond_sky_light(job.key)
+            });
         let Some((replacement, direct_sky)) = uniform else {
             remaining.push(job);
             remaining.extend(candidates);
@@ -427,7 +456,7 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             key,
             identity,
             queued_at,
-            result: solve_prepared_light_job(job),
+            result: solve_prepared_light_job_with_scratch(job, scratch),
         });
         return solved_prefix;
     }
@@ -474,13 +503,14 @@ pub(in crate::stream) fn solve_prepared_light_batch(
     blocks.resolve_palette_light();
     let profile = blocks.profile;
     let generation = targets[0].identity.revision;
-    let output = match solve_light(
+    let output = match world::solve_light_with_scratch(
         &blocks,
         &prior,
         bounds,
         generation,
         profile,
         LIGHT_COLUMN_SOLVE_LIMITS,
+        scratch,
     ) {
         Ok(output) => output,
         Err(error) => {
@@ -588,31 +618,23 @@ fn finish_solved_light_job(
 pub(in crate::stream) fn uniform_known_air_light(
     job: &PreparedLightJob,
 ) -> Option<(SubChunkLight, DirectSkyMask)> {
-    if !matches!(
-        job.blocks.blocks.get(&job.key),
-        Some(SnapshotBlock::KnownAir)
-    ) {
+    if !job
+        .blocks
+        .blocks
+        .get(&job.key)
+        .is_some_and(|block| block.is_known_air(job.blocks.classifier))
+    {
         return None;
     }
     let trusted_zero = BoundaryLightSample::trusted(0, false).ok()?;
+    let zero_or_unknown = |sample| {
+        sample == trusted_zero
+            || sample == BoundaryLightSample::unknown()
+            || sample == BoundaryLightSample::untrusted()
+    };
     for offset in LIGHT_NEIGHBOUR_OFFSETS {
-        let neighbour = offset_sub_chunk_key(job.key, offset)?;
-        if !job.prior.trusted_boundaries.contains(&neighbour) {
-            continue;
-        }
-        for a in 0_u8..16 {
-            for b in 0_u8..16 {
-                let position = light_boundary_position(job.key, offset, a, b)?;
-                let sample =
-                    job.prior
-                        .boundary_light(job.key.dimension, position, LightChannel::Block);
-                if sample != BoundaryLightSample::unknown()
-                    && sample != BoundaryLightSample::untrusted()
-                    && sample != trusted_zero
-                {
-                    return None;
-                }
-            }
+        if !boundary_face_accepts(job, offset, LightChannel::Block, zero_or_unknown)? {
+            return None;
         }
     }
 
@@ -624,40 +646,16 @@ pub(in crate::stream) fn uniform_known_air_light(
             (15, true)
         }
         DimensionLightProfile::Overworld { .. } => {
-            let direct_above = (0_u8..16).all(|x| {
-                (0_u8..16).all(|z| {
-                    let Some(position) = light_boundary_position(job.key, [0, 1, 0], x, z) else {
-                        return false;
-                    };
-                    job.prior
-                        .boundary_light(job.key.dimension, position, LightChannel::Sky)
-                        == BoundaryLightSample::trusted(15, true)
-                            .expect("constant sky nibble is valid")
-                })
-            });
+            let direct_above =
+                boundary_face_accepts(job, [0, 1, 0], LightChannel::Sky, |sample| {
+                    sample == BoundaryLightSample::trusted(15, true).unwrap()
+                })?;
             if direct_above {
                 (15, true)
             } else {
                 for offset in LIGHT_NEIGHBOUR_OFFSETS {
-                    let neighbour = offset_sub_chunk_key(job.key, offset)?;
-                    if !job.prior.trusted_boundaries.contains(&neighbour) {
-                        continue;
-                    }
-                    for a in 0_u8..16 {
-                        for b in 0_u8..16 {
-                            let position = light_boundary_position(job.key, offset, a, b)?;
-                            let sample = job.prior.boundary_light(
-                                job.key.dimension,
-                                position,
-                                LightChannel::Sky,
-                            );
-                            if sample != BoundaryLightSample::unknown()
-                                && sample != BoundaryLightSample::untrusted()
-                                && sample != trusted_zero
-                            {
-                                return None;
-                            }
-                        }
+                    if !boundary_face_accepts(job, offset, LightChannel::Sky, zero_or_unknown)? {
+                        return None;
                     }
                 }
                 (0, false)
@@ -669,6 +667,70 @@ pub(in crate::stream) fn uniform_known_air_light(
             .expect("constant light nibbles are valid"),
         DirectSkyMask::Uniform(direct),
     ))
+}
+
+fn boundary_face_accepts(
+    job: &PreparedLightJob,
+    offset: [i32; 3],
+    channel: LightChannel,
+    mut accepts: impl FnMut(BoundaryLightSample) -> bool,
+) -> Option<bool> {
+    let neighbour = offset_sub_chunk_key(job.key, offset)?;
+    if let Some(sample) = uniform_boundary_sample(&job.prior, neighbour, channel) {
+        if sample != BoundaryLightSample::unknown() && sample != BoundaryLightSample::untrusted() {
+            light_boundary_position(job.key, offset, 0, 0)?;
+            light_boundary_position(job.key, offset, 15, 15)?;
+        }
+        return Some(accepts(sample));
+    }
+    for a in 0_u8..16 {
+        for b in 0_u8..16 {
+            let position = light_boundary_position(job.key, offset, a, b)?;
+            if !accepts(
+                job.prior
+                    .boundary_light(job.key.dimension, position, channel),
+            ) {
+                return Some(false);
+            }
+        }
+    }
+    Some(true)
+}
+
+/// Proves a whole face from uniform storage; packed channels or provenance require sampling.
+pub(in crate::stream) fn uniform_boundary_sample(
+    prior: &LightPriorSnapshot,
+    key: SubChunkKey,
+    channel: LightChannel,
+) -> Option<BoundaryLightSample> {
+    if !prior.trusted_boundaries.contains_key(&key) {
+        return Some(if prior.light.kind(key) == LightSubChunkKind::Unknown {
+            BoundaryLightSample::unknown()
+        } else {
+            BoundaryLightSample::untrusted()
+        });
+    }
+    let Some(light) = prior.light.light(key) else {
+        return Some(BoundaryLightSample::unknown());
+    };
+    if !light.channel(channel).is_uniform() {
+        return None;
+    }
+    let direct = if channel == LightChannel::Sky {
+        match prior
+            .direct_sky
+            .get(&key)
+            .filter(|direct| direct.light_revision == light.generation())
+            .map(|direct| direct.mask.as_ref())
+        {
+            Some(DirectSkyMask::Packed(_)) => return None,
+            Some(DirectSkyMask::Uniform(direct)) => *direct,
+            None => false,
+        }
+    } else {
+        false
+    };
+    BoundaryLightSample::trusted(light.get(channel, 0, 0, 0)?, direct).ok()
 }
 
 pub(in crate::stream) fn light_boundary_position(

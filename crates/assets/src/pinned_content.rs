@@ -59,6 +59,20 @@ pub const fn pinned_block_registry_bytes() -> &'static [u8] {
     BLOCK_REGISTRY_BYTES
 }
 
+/// Resolves pinned identities when the optional world carrier is unavailable.
+pub fn pinned_block_sequential_id(network_hash: u32) -> Option<u32> {
+    static IDS: OnceLock<std::collections::HashMap<u32, u32>> = OnceLock::new();
+    IDS.get_or_init(|| {
+        crate::read_registry_for_protocol(BLOCK_REGISTRY_BYTES, active_content_registry_protocol())
+            .expect("validated pinned block registry")
+            .iter()
+            .map(|record| (record.network_hash, record.sequential_id))
+            .collect()
+    })
+    .get(&network_hash)
+    .copied()
+}
+
 /// The exact world-carrier identity this checkout pins: the canonical
 /// vanilla source manifest plus each consumed protocol-2193 registry input.
 #[must_use]

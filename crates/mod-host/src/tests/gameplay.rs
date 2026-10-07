@@ -30,6 +30,94 @@ fn grants() -> ModGrants {
     }
 }
 
+fn delay(value: u32, error: bool) -> String {
+    format!(
+        "i32.const {value} i32.const 256 call $delay i32.const 256 i32.load8_u i32.const {} i32.ne if unreachable end",
+        u8::from(error)
+    )
+}
+
+fn show_position(enabled: bool, error: bool) -> String {
+    format!(
+        "i32.const {} i32.const 256 call $show i32.const 256 i32.load8_u i32.const {} i32.ne if unreachable end",
+        u8::from(enabled),
+        u8::from(error)
+    )
+}
+
+#[test]
+fn real_position_visual_is_denied_by_default_retained_on_success_and_cleared_on_trap() {
+    let (_directory, mut denied) = load("", &show_position(true, true), ModGrants::default());
+    denied.frame(false).unwrap();
+    assert!(!denied.show_real_position());
+    let granted = ModGrants {
+        packet_delay: true,
+        ..Default::default()
+    };
+    let (_directory, mut enabled) = load(&show_position(true, false), "", granted.clone());
+    enabled.frame(false).unwrap();
+    assert!(enabled.show_real_position());
+    let (_directory, mut disabled) = load(
+        &show_position(true, false),
+        &show_position(false, false),
+        granted.clone(),
+    );
+    disabled.frame(false).unwrap();
+    assert!(!disabled.show_real_position());
+    let (_directory, mut trapped) = load(
+        &show_position(true, false),
+        &format!("{} unreachable", show_position(false, false)),
+        granted,
+    );
+    assert!(trapped.frame(false).is_err());
+    assert!(!trapped.show_real_position());
+}
+
+#[test]
+fn packet_delay_is_denied_by_default_and_bounded_without_a_gameplay_frame() {
+    let (_directory, mut denied) = load("", &delay(200, true), ModGrants::default());
+    denied.frame(false).unwrap();
+    assert_eq!(denied.packet_delay_ms(), 0);
+    let granted = ModGrants {
+        packet_delay: true,
+        ..Default::default()
+    };
+    let (_directory, mut invalid) = load(
+        "",
+        &delay(mod_api::MAX_PACKET_DELAY_MS + 1, true),
+        granted.clone(),
+    );
+    invalid.frame(false).unwrap();
+    assert_eq!(invalid.packet_delay_ms(), 0);
+    let (_directory, mut enabled) = load(&delay(mod_api::MAX_PACKET_DELAY_MS, false), "", granted);
+    assert_eq!(enabled.packet_delay_ms(), mod_api::MAX_PACKET_DELAY_MS);
+    enabled.frame(false).unwrap();
+    assert_eq!(enabled.packet_delay_ms(), mod_api::MAX_PACKET_DELAY_MS);
+}
+
+#[test]
+fn packet_delay_commits_on_success_and_clears_after_a_guest_trap() {
+    let granted = ModGrants {
+        packet_delay: true,
+        ..Default::default()
+    };
+    let (_directory, mut disabled) = load(&delay(200, false), &delay(0, false), granted.clone());
+    assert_eq!(disabled.packet_delay_ms(), 200);
+    disabled.frame(false).unwrap();
+    assert_eq!(disabled.packet_delay_ms(), 0);
+    let (_directory, mut trapped) = load(
+        &delay(200, false),
+        &format!("{} unreachable", delay(500, false)),
+        granted,
+    );
+    assert_eq!(trapped.packet_delay_ms(), 200);
+    assert!(trapped.frame(false).is_err());
+    assert!(!trapped.is_active());
+    assert_eq!(trapped.packet_delay_ms(), 0);
+    trapped.frame(false).unwrap();
+    assert_eq!(trapped.packet_delay_ms(), 0);
+}
+
 fn snapshot() -> GameplaySnapshot {
     GameplaySnapshot {
         session: 42,
@@ -124,7 +212,7 @@ fn capabilities_are_independent_and_denied_by_default() {
             read(!permissions.players, true),
             rotate(0.1, 0.0, !permissions.camera)
         );
-        let (_dir, mut host) = load("", &frame, permissions);
+        let (_dir, mut host) = load("", &frame, permissions.clone());
         host.frame_with_gameplay(false, Some(snapshot())).unwrap();
         assert_eq!(host.take_camera_delta().is_some(), permissions.camera);
         assert!(host.is_active());

@@ -19,7 +19,7 @@ bitflags! {
         const CUBE_GEOMETRY = 1 << 1;
         const OCCLUDES_FULL_FACE = 1 << 2;
         const LEAF_MODEL = 1 << 3;
-        /// Native BlockReplaceableComponent admission used by the seasonal scan.
+        /// Vanilla's replaceable-block admission used by the seasonal scan.
         /// This is not inferred from crossed geometry or lack of collision.
         const SEASONAL_REPLACEABLE = 1 << 4;
         /// Effective Vanilla catch chance is nonzero.

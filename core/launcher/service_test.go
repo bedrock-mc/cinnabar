@@ -205,12 +205,12 @@ func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 		t.Fatalf("profile = %+v, err = %v", profile, err)
 	}
 	offline := New(Config{})
-	if _, err := offline.Gatherings(context.Background()); !errors.Is(err, control.ErrSignedOut) {
-		t.Fatalf("offline gatherings err = %v", err)
+	if _, err := offline.FeaturedServers(context.Background()); !errors.Is(err, control.ErrSignedOut) {
+		t.Fatalf("offline featured servers err = %v", err)
 	}
 }
 
-func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
+func TestHomeCachesMessageArtwork(t *testing.T) {
 	service := New(Config{
 		Account: testAccount(), ArtworkDir: "/art",
 		Home: func(context.Context, *authcache.Account, *catalog.MessagingSession, string) (catalog.Home, error) {
@@ -218,7 +218,6 @@ func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
 				Messages: []catalog.Message{{ID: "m", Images: []catalog.MessageImage{
 					{ID: "tile", Image: catalog.Image{URL: "https://a.test/t.png"}},
 				}}},
-				LiveEvents: []catalog.LiveEvent{{ID: "g", Badge: catalog.Image{URL: "https://a.test/b.png"}}},
 			}, nil
 		},
 		CacheArt: func(_ context.Context, directory string, images []*catalog.Image) {
@@ -230,7 +229,7 @@ func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
 		},
 	})
 	home, err := service.Home(context.Background())
-	if err != nil || home.Messages[0].Images[0].Path != "/art/cached" || home.LiveEvents[0].Badge.Path != "/art/cached" {
+	if err != nil || home.Messages[0].Images[0].Path != "/art/cached" {
 		t.Fatalf("home = %+v, err = %v", home, err)
 	}
 }

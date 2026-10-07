@@ -81,6 +81,7 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
             WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0; 3],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -91,6 +92,7 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
             WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                 dimension: 0,
                 position: [0.0; 3],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -170,6 +172,7 @@ fn sequenced_play(origin_stream_session_id: u64, sequence: u64, name: &str) -> S
         origin_stream_session_id,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         sequence,
         event: AudioEvent::Play(PlayAudioEvent {
             name: Arc::from(name),
@@ -188,6 +191,7 @@ fn sequenced_stop(origin_stream_session_id: u64, sequence: u64) -> SequencedAudi
         origin_stream_session_id,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         sequence,
         event: AudioEvent::Stop(StopAudioEvent {
             name: Arc::from("random.orb"),

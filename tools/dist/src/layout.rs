@@ -2,15 +2,10 @@ use std::path::PathBuf;
 
 use crate::{Options, Platform};
 
-pub(crate) const ASSET_FILES: &[&str] = &[
-    "ui-cinnangles-sans-v1.mcbefont",
-    "vanilla-v1.mcbeatm",
-    "vanilla-v1.mcbeent",
-    "vanilla-v1.mcbehud",
-    "vanilla-v1.mcbeico",
-    "vanilla-v1.mcbelang",
-    "vanilla-v2193.mcbea",
-];
+/// The carriers a bundle ships: every one packaged startup requires.
+pub(crate) fn asset_files() -> impl Iterator<Item = &'static str> {
+    assets::carriers::required().map(|carrier| carrier.output)
+}
 
 pub(crate) fn input_files(options: &Options) -> Vec<(PathBuf, String)> {
     let (binary_root, resource_root, client_name, core_name) = match options.platform {
@@ -49,9 +44,7 @@ pub(crate) fn input_files(options: &Options) -> Vec<(PathBuf, String)> {
         ),
     ];
     files.extend(
-        ASSET_FILES
-            .iter()
-            .map(|name| (options.assets.join(name), format!("{resource_root}/{name}"))),
+        asset_files().map(|name| (options.assets.join(name), format!("{resource_root}/{name}"))),
     );
     files
 }

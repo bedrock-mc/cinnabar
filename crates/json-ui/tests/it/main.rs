@@ -10,6 +10,7 @@ mod fixtures;
 mod focus;
 mod forms;
 mod hud;
+mod incremental_bind;
 mod incremental_layout;
 mod input;
 mod interaction;

@@ -1,18 +1,28 @@
 //! The play route's Servers tab (classic layout): the side menu in four of
-//! twelve columns (Add server, featured experiences then other servers) and
+//! twelve columns (Add server, featured experiences then custom servers) and
 //! the selected server's details in eight (10:3 banner with ping and players,
 //! name with the hero Play button, then description, activities and news for
 //! an experience, or edit and remove for a saved server).
 
 use std::collections::HashMap;
 
+mod details;
+pub(super) mod drag;
+mod list;
+use details::{details, saved_details};
+
+#[cfg(test)]
+mod catalog_tests;
+#[cfg(test)]
+mod list_tests;
+
 use super::super::super::{IconRef, UiPresentationError};
 use super::super::play_screen::play_featured;
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
-use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, SECTION_HEADER, TEXT, TEXT_DIMMER};
-use super::widgets::{Variant, button, divider, row, row_text, section_label, side_menu};
-use crate::menu::{MenuAction, MenuServerCard, MenuView, PingInfo};
+use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, TEXT, TEXT_DIMMER};
+use super::widgets::{Variant, button, divider, side_menu};
+use crate::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -21,13 +31,15 @@ pub(super) fn draw(
     body: Bounds,
     images: &HashMap<String, IconRef>,
 ) -> Result<(), UiPresentationError> {
+    canvas.settings_scrollbars = true;
     let (menu_span, details_span) = if grid.narrow {
         ((0, 3), (3, 5))
     } else {
         ((0, 4), (4, 8))
     };
     let [menu_left, menu_right] = grid.span(menu_span.0, menu_span.1);
-    side_menu(canvas, [menu_left, body[1], menu_right, body[3]])?;
+    let row_right = menu_right - canvas.r(1.6);
+    side_menu(canvas, [menu_left, body[1], row_right, body[3]])?;
     let pad = canvas.r(1.6);
     let list = canvas.begin_scroll(
         "servers.side_menu",
@@ -36,113 +48,169 @@ pub(super) fn draw(
     let top = body[1] - list.offset;
     let mut y = top + space(canvas, 2);
     let add_height = canvas.r(4.4);
-    button(
+    add_server(
         canvas,
         view,
-        [menu_left + pad, y, menu_right - pad, y + add_height],
-        Variant::Secondary,
-        "Add server",
-        Some(MenuAction::PlayAddServer),
+        [menu_left + pad, y, row_right - pad, y + add_height],
     )?;
     y += add_height;
-    let featured: Vec<&MenuServerCard> =
-        view.featured.iter().chain(view.gatherings.iter()).collect();
-    y = section_label(
-        canvas,
-        &format!("Featured experiences ({})", featured.len()),
-        [menu_left, menu_right],
-        y,
-    )?;
-    let item_height = canvas.r(4.8);
-    let selection = selection(view, featured.len());
-    // Only rows the viewport shows are built; the rest just advance the offset.
-    let shown = |y: f32| y + item_height > body[1] && y < body[3];
-    for (index, server) in featured.iter().enumerate() {
-        if !shown(y) {
-            y += item_height;
-            continue;
-        }
-        let selected = selection == Some(Selection::Featured(index));
-        let bounds = [
-            menu_left + canvas.r(0.2),
-            y,
-            menu_right - canvas.r(0.2),
-            y + item_height,
-        ];
-        row(
-            canvas,
-            view,
-            bounds,
-            selected,
-            Some(MenuAction::SelectFeatured(index)),
-        )?;
-        let logo = canvas.r(4.0);
-        let logo_bounds = [
-            bounds[0] + pad,
-            y + canvas.r(0.4),
-            bounds[0] + pad + logo,
-            y + canvas.r(0.4) + logo,
-        ];
-        match images.get(&server.image_path) {
-            Some(icon) => canvas.icon_ref(*icon, logo_bounds)?,
-            None => canvas.fill(logo_bounds, NEUTRAL100)?,
-        }
-        let text_left = logo_bounds[2] + canvas.r(0.8);
-        let text_width = bounds[2] - pad - text_left;
-        row_text(
-            canvas,
-            [text_left, y],
-            text_width,
-            &server.name,
-            &server.caption,
-        )?;
-        y += item_height;
+    let selected = selection(view, view.featured.len());
+    if let Some(transitions) = canvas.transitions.as_deref_mut() {
+        transitions.begin_servers(match selected {
+            Some(Selection::Featured(index)) => Some(index),
+            _ => None,
+        });
     }
-    y = section_label(
+    y = list::draw(
         canvas,
-        &format!("Other Server ({})", view.servers.len()),
-        [menu_left, menu_right],
+        view,
+        [menu_left, row_right],
+        [body[1], body[3]],
         y,
+        selected,
+        images,
     )?;
-    for (index, server) in view.servers.iter().enumerate() {
-        if !shown(y) {
-            y += item_height;
-            continue;
-        }
-        let bounds = [
-            menu_left + canvas.r(0.2),
-            y,
-            menu_right - canvas.r(0.2),
-            y + item_height,
-        ];
-        row(
-            canvas,
-            view,
-            bounds,
-            selection == Some(Selection::Saved(index)),
-            Some(MenuAction::SelectSaved(index)),
-        )?;
-        let text_width = bounds[2] - bounds[0] - pad * 2.0;
-        row_text(
-            canvas,
-            [bounds[0] + pad, y],
-            text_width,
-            &server.name,
-            &server.address,
-        )?;
-        y += item_height;
-    }
     canvas.end_scroll(list, y + space(canvas, 2) - top)?;
-
     let [left, right] = grid.span(details_span.0, details_span.1);
     let panel = [left, body[1], right, body[3]];
-    match selection {
+    let entrance = selected
+        .map(|selection| match selection {
+            Selection::Featured(index) => super::motion::Surface::ServerDetails(index, false),
+            Selection::Saved(index) => super::motion::Surface::ServerDetails(index, true),
+        })
+        .map(|surface| canvas.begin_entrance(surface));
+    match selected {
         Some(Selection::Featured(index)) => {
-            details(canvas, view, featured[index], index, panel, images)
+            details(canvas, view, &view.featured[index], index, panel, images)?
         }
-        Some(Selection::Saved(index)) => saved_details(canvas, view, index, panel),
-        None => Ok(()),
+        Some(Selection::Saved(index)) => saved_details(canvas, view, index, panel)?,
+        None => {}
     }
+    if let Some(entrance) = entrance {
+        canvas.end_entrance(entrance, [body[2], body[3]])?;
+    }
+    Ok(())
+}
+
+fn add_server(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+) -> Result<(), UiPresentationError> {
+    let action = Some(MenuAction::PlayAddServer);
+    button(canvas, view, b, Variant::Secondary, "", action)?;
+    let state = canvas.interaction(view, action);
+    let motion = canvas.feedback(state, true, false, super::motion::Kind::Button);
+    let side = canvas.r(2.4);
+    let width = canvas.measure("Add server", BODY)?;
+    let start = (b[0] + b[2] - width - side - canvas.r(0.4)) * 0.5;
+    let top = b[1] + canvas.r(0.4) * motion.press;
+    let bottom = b[3] - canvas.r(0.4) * (1.0 - motion.press);
+    let icon_top = (top + bottom - side) * 0.5;
+    let icon = [start, icon_top, start + side, icon_top + side];
+    let text = canvas.role(super::theme::SECONDARY).text;
+    if !canvas.masked_sprite(
+        crate::ui_runtime::oreui_assets::SERVER_ADD_IMAGE,
+        icon,
+        text,
+    )? {
+        canvas.text_centred("+", icon, BODY, text, false)?;
+    }
+    canvas.text_line_vertically_centred(
+        "Add server",
+        [
+            start + side + canvas.r(0.4),
+            top,
+            start + side + canvas.r(0.4) + width + 1.0,
+            bottom,
+        ],
+        BODY,
+        text,
+    )
+}
+
+fn group_entries(view: &MenuView, group: &str) -> Vec<usize> {
+    view.featured
+        .iter()
+        .enumerate()
+        .filter_map(|(index, server)| {
+            let creator = view
+                .feeds
+                .details
+                .get(&server.address)
+                .is_some_and(|d| d.group == "creator");
+            (creator == (group == "creator")).then_some(index)
+        })
+        .collect()
+}
+
+fn server_caption(view: &MenuView, server: &MenuServerCard) -> String {
+    let text = view
+        .feeds
+        .pings
+        .get(&server.address)
+        .filter(|p| !p.motd.is_empty())
+        .map_or(server.caption.as_str(), |p| p.motd.as_str());
+    let mut chars = text.chars();
+    let mut clean = String::with_capacity(text.len());
+    while let Some(c) = chars.next() {
+        if c == '§' {
+            chars.next();
+        } else if c == '\n' || c == '\r' {
+            clean.push(' ');
+        } else {
+            clean.push(c);
+        }
+    }
+    clean
+}
+
+fn server_row(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+    selected: bool,
+    action: MenuAction,
+) -> Result<(), UiPresentationError> {
+    let mut state = canvas.interaction(view, Some(action));
+    state.pressed &= state.hovered;
+    let motion = canvas.feedback(state, true, selected, super::motion::Kind::Surface);
+    super::sidebar::transparent_background(canvas, b, motion)?;
+    if motion.focus > 0.0 {
+        canvas.frame(
+            b,
+            super::theme::EDGE,
+            super::motion::opacity(super::theme::OUTLINE, motion.focus),
+        )?;
+    }
+    canvas.hit(action, b)?;
+    Ok(())
+}
+
+fn server_text(
+    canvas: &mut Canvas<'_>,
+    b: Bounds,
+    title: &str,
+    caption: &str,
+) -> Result<(), UiPresentationError> {
+    let height = canvas.r(BODY.line
+        + if caption.is_empty() {
+            0.0
+        } else {
+            CAPTION.line
+        });
+    let y = (b[1] + b[3] - height) * 0.5;
+    canvas.text_line(title, [b[0], y], b[2] - b[0], BODY, TEXT)?;
+    if !caption.is_empty() {
+        canvas.text_line(
+            caption,
+            [b[0], y + canvas.r(BODY.line)],
+            b[2] - b[0],
+            CAPTION,
+            TEXT_DIMMER,
+        )?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -163,266 +231,12 @@ fn selection(view: &MenuView, featured: usize) -> Option<Selection> {
     }
 }
 
-/// The banner's bottom strip: ping on the left, players on the right.
-fn ping_strip(
-    canvas: &mut Canvas<'_>,
-    banner: Bounds,
-    ping: Option<&PingInfo>,
-) -> Result<(), UiPresentationError> {
-    let overlay = [banner[0], banner[3] - canvas.r(6.0), banner[2], banner[3]];
-    canvas.fill(overlay, [0, 0, 0, 179])?;
-    let pad = canvas.r(2.4);
-    let line_top = overlay[1] + (overlay[3] - overlay[1] - canvas.r(BODY.line)) * 0.5;
-    canvas.text(
-        ping_label(ping),
-        [overlay[0] + pad, line_top],
-        (overlay[2] - overlay[0]) * 0.5,
-        BODY,
-        TEXT_DIMMER,
-        false,
-    )?;
-    if let Some(ping) = ping.filter(|ping| ping.online) {
-        let players = format!("{}/{}", ping.players, ping.max_players);
-        let width = canvas.measure(&players, BODY)?;
-        canvas.text(
-            &players,
-            [overlay[2] - pad - width, line_top],
-            width + 1.0,
-            BODY,
-            TEXT_DIMMER,
-            false,
-        )?;
-    }
-    Ok(())
-}
-
-/// A saved server: ping and players, name and address, Play, Edit and Remove.
-fn saved_details(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    index: usize,
-    b: Bounds,
-) -> Result<(), UiPresentationError> {
-    let server = &view.servers[index];
-    let edge = canvas.r(0.2);
-    canvas.fill(b, NEUTRAL80.fill)?;
-    canvas.frame(b, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
-    let inner = [b[0] + edge, b[1] + edge, b[2] - edge, b[3]];
-    let banner = [
-        inner[0],
-        inner[1],
-        inner[2],
-        inner[1] + (inner[2] - inner[0]) * 0.3,
-    ];
-    canvas.fill(banner, NEUTRAL100)?;
-    ping_strip(canvas, banner, view.feeds.pings.get(&server.address))?;
-    let pad = canvas.r(2.4);
-    let mut y = banner[3] + space(canvas, 3);
-    let play_width = canvas.r(32.0).min((inner[2] - inner[0]) * 0.45);
-    let play_height = canvas.r(4.4);
-    let text_width = inner[2] - inner[0] - pad * 3.0 - play_width;
-    canvas.text(
-        &server.name,
-        [inner[0] + pad, y],
-        text_width,
-        BODY,
-        TEXT,
-        false,
-    )?;
-    canvas.text(
-        &server.address,
-        [inner[0] + pad, y + canvas.r(2.4)],
-        text_width,
-        CAPTION,
-        TEXT_DIMMER,
-        false,
-    )?;
-    let play_left = inner[2] - pad - play_width;
-    button(
-        canvas,
-        view,
-        [play_left, y, inner[2] - pad, y + play_height],
-        Variant::Hero,
-        "Play",
-        Some(MenuAction::PlaySaved(index)),
-    )?;
-    y += play_height + space(canvas, 2);
-    let half = (play_width - space(canvas, 2)) * 0.5;
-    button(
-        canvas,
-        view,
-        [play_left, y, play_left + half, y + play_height],
-        Variant::Secondary,
-        "Edit",
-        Some(MenuAction::EditSaved(index)),
-    )?;
-    button(
-        canvas,
-        view,
-        [inner[2] - pad - half, y, inner[2] - pad, y + play_height],
-        Variant::Secondary,
-        "Remove",
-        Some(MenuAction::RemoveSavedDialog(index)),
-    )
-}
-
-fn details(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    server: &MenuServerCard,
-    index: usize,
-    b: Bounds,
-    images: &HashMap<String, IconRef>,
-) -> Result<(), UiPresentationError> {
-    let edge = canvas.r(0.2);
-    canvas.fill(b, NEUTRAL80.fill)?;
-    canvas.frame(b, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
-    let inner = [b[0] + edge, b[1] + edge, b[2] - edge, b[3]];
-    let scroll = canvas.begin_scroll(&format!("servers.details.{index}"), inner)?;
-    let top = inner[1] - scroll.offset;
-    let bottom = details_content(
-        canvas,
-        view,
-        server,
-        index,
-        [inner[0], top, inner[2]],
-        images,
-    )?;
-    canvas.end_scroll(scroll, bottom - top)
-}
-
-/// The details from `top` down; returns the bottom edge.
-fn details_content(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    server: &MenuServerCard,
-    index: usize,
-    [left, top, right]: [f32; 3],
-    images: &HashMap<String, IconRef>,
-) -> Result<f32, UiPresentationError> {
-    let inner = [left, top, right];
-    let details = view.feeds.details.get(&server.address);
-    // Banner: the first screenshot, else the logo.
-    let banner = [left, top, right, top + (right - left) * 0.3];
-    let art = details
-        .and_then(|details| details.screenshots.first())
-        .and_then(|path| images.get(path))
-        .or_else(|| images.get(&server.image_path));
-    match art {
-        Some(icon) => canvas.icon_ref(*icon, banner)?,
-        None => canvas.fill(banner, NEUTRAL100)?,
-    }
-    ping_strip(canvas, banner, view.feeds.pings.get(&server.address))?;
-    let pad = canvas.r(2.4);
-    // Name row with the hero Play button.
-    let mut y = banner[3] + space(canvas, 3);
-    let play_width = canvas.r(32.0).min((inner[2] - inner[0]) * 0.45);
-    let play_height = canvas.r(4.4);
-    canvas.text(
-        &server.name,
-        [inner[0] + pad, y + canvas.r(1.2)],
-        inner[2] - inner[0] - pad * 3.0 - play_width,
-        BODY,
-        TEXT,
-        false,
-    )?;
-    button(
-        canvas,
-        view,
-        [
-            inner[2] - pad - play_width,
-            y,
-            inner[2] - pad,
-            y + play_height,
-        ],
-        Variant::Hero,
-        "Play",
-        play_featured(view, index),
-    )?;
-    y += play_height + space(canvas, 3);
-    let Some(details) = details else {
-        return Ok(y);
-    };
-    let text_width = inner[2] - inner[0] - pad * 2.0;
-    let news = if details.news_title.is_empty() {
-        "News"
-    } else {
-        details.news_title.as_str()
-    };
-    for (title, text) in [
-        ("Description", details.description.as_str()),
-        (news, details.news.as_str()),
-    ] {
-        if text.is_empty() {
-            continue;
-        }
-        divider(canvas, inner[0], inner[2], y)?;
-        y += space(canvas, 3);
-        y += canvas.text(
-            title,
-            [inner[0] + pad, y],
-            text_width,
-            SECTION_HEADER,
-            TEXT,
-            false,
-        )? + space(canvas, 2);
-        y += canvas.text(
-            text,
-            [inner[0] + pad, y],
-            text_width,
-            CAPTION,
-            TEXT_DIMMER,
-            false,
-        )? + space(canvas, 3);
-    }
-    if !details.games.is_empty() {
-        divider(canvas, inner[0], inner[2], y)?;
-        y += space(canvas, 3);
-        y += canvas.text(
-            "Activities",
-            [inner[0] + pad, y],
-            text_width,
-            SECTION_HEADER,
-            TEXT,
-            false,
-        )? + space(canvas, 2);
-        let image = canvas.r(15.2).min(text_width * 0.3);
-        for game in &details.games {
-            let frame = [inner[0] + pad, y, inner[0] + pad + image, y + image];
-            match images.get(&game.image_path) {
-                Some(icon) => canvas.icon_ref(*icon, frame)?,
-                None => canvas.fill(frame, NEUTRAL100)?,
-            }
-            let text_left = frame[2] + space(canvas, 3);
-            let width = inner[2] - pad - text_left;
-            let mut line = y;
-            line += canvas.text(&game.title, [text_left, line], width, BODY, TEXT, false)?;
-            line += canvas.text(
-                &game.subtitle,
-                [text_left, line],
-                width,
-                CAPTION,
-                TEXT_DIMMER,
-                false,
-            )?;
-            line += space(canvas, 2);
-            line += canvas.text(
-                &game.description,
-                [text_left, line],
-                width,
-                CAPTION,
-                TEXT_DIMMER,
-                false,
-            )?;
-            y = (y + image).max(line) + space(canvas, 3);
-        }
-    }
-    Ok(y)
-}
-
 /// Vanilla's ping tiers: under 80 ms good, under 160 medium, else high; no
 /// pong is offline.
-fn ping_label(ping: Option<&PingInfo>) -> &'static str {
+fn ping_label(ping: Option<&PingInfo>, exact: bool) -> std::borrow::Cow<'static, str> {
+    if let Some(ping) = ping.filter(|p| p.online && exact) {
+        return format!("{} ms", ping.ping_ms).into();
+    }
     match ping {
         None => "Loading ping",
         Some(ping) if !ping.online => "Offline",
@@ -430,6 +244,7 @@ fn ping_label(ping: Option<&PingInfo>) -> &'static str {
         Some(ping) if ping.ping_ms < 160 => "Medium ping",
         Some(_) => "High ping",
     }
+    .into()
 }
 
 #[cfg(test)]
@@ -456,16 +271,22 @@ mod tests {
     #[test]
     fn ping_labels_follow_the_round_trip() {
         let pong = |ping_ms| PingInfo {
+            motd: String::new(),
             online: true,
             players: 1,
             max_players: 2,
             ping_ms,
         };
-        assert_eq!(ping_label(None), "Loading ping");
-        assert_eq!(ping_label(Some(&PingInfo::default())), "Offline");
-        assert_eq!(ping_label(Some(&pong(20))), "Low ping");
-        assert_eq!(ping_label(Some(&pong(120))), "Medium ping");
-        assert_eq!(ping_label(Some(&pong(500))), "High ping");
+        assert_eq!(ping_label(None, false), "Loading ping");
+        assert_eq!(ping_label(Some(&PingInfo::default()), false), "Offline");
+        assert_eq!(ping_label(Some(&pong(20)), false), "Low ping");
+        assert_eq!(ping_label(Some(&pong(120)), false), "Medium ping");
+        assert_eq!(ping_label(Some(&pong(500)), false), "High ping");
+        assert_eq!(ping_label(Some(&pong(20)), true), "20 ms");
+        assert_eq!(ping_label(Some(&pong(120)), true), "120 ms");
+        assert_eq!(ping_label(Some(&pong(500)), true), "500 ms");
+        assert_eq!(ping_label(None, true), "Loading ping");
+        assert_eq!(ping_label(Some(&PingInfo::default()), true), "Offline");
     }
 }
 
@@ -505,7 +326,7 @@ mod review_tests {
             Some(2),
         );
         let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
-        let bottom = details_content(
+        let bottom = details::details_content(
             &mut canvas,
             &view,
             &server,

@@ -23,8 +23,12 @@ fn crystal_alpha_test_keeps_the_actor_and_bakes_native_half_alpha_coverage() {
         );
         let entities =
             encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
-        let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entities).unwrap();
-        assert_eq!(catalog.textures()[0].rgba8[3], coverage);
+        let catalog = RuntimeActorCatalog::decode(
+            &compiled.bytes,
+            &assets::RuntimeEntityAssets::decode(&entities).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(catalog.textures()[0].rgba8[PROBE_ALPHA], coverage);
     }
 }
 
@@ -64,9 +68,11 @@ fn installed_crystal_art_compiles_with_its_nested_frames_base_and_animation() {
         "{:?}",
         compiled.report.fallbacks
     );
-    let catalog =
-        RuntimeActorCatalog::decode(&compiled.bytes, &encode_entity_blob(&entities).unwrap())
-            .unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&encode_entity_blob(&entities).unwrap()).unwrap(),
+    )
+    .unwrap();
     let geometry = &entities.geometries[catalog.bindings()[0].geometry as usize];
     assert_eq!(geometry.bones.len(), 4);
     assert_eq!(geometry.bones[1].parent.as_deref(), Some("outerglass"));

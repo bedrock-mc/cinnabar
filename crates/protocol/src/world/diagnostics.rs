@@ -1,17 +1,34 @@
-//! Compact wire facts retained for lighting diagnostics, without changing world behavior.
+//! Compact dimension definitions and wire facts retained for lighting diagnostics.
+
+use std::sync::Arc;
 
 use valentine::bedrock::version::v1_26_51::{
-    EnumsSubChunkPacketPayloadHeightMapDataType as HeightmapType,
+    EnumsGeneratorType, EnumsSubChunkPacketPayloadHeightMapDataType as HeightmapType,
     SubChunkPacketPayloadHeightmapDataRenderHeightMapType as RenderHeightmapType,
     SubChunkPacketPayloadSubChunkPacketData,
 };
 
 /// Vertical bounds advertised separately from StartGame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DimensionHeightDiagnostic {
+    pub name: Arc<str>,
     pub dimension: i32,
     pub minimum_y: i32,
     pub height_range: i32,
+    pub generator: i32,
+}
+
+pub(super) const fn dimension_generator_id(generator: EnumsGeneratorType) -> i32 {
+    match generator {
+        EnumsGeneratorType::Legacy => 0,
+        EnumsGeneratorType::Overworld => 1,
+        EnumsGeneratorType::Flat => 2,
+        EnumsGeneratorType::Nether => 3,
+        EnumsGeneratorType::Theend => 4,
+        EnumsGeneratorType::Void => 5,
+        EnumsGeneratorType::Undefined => 6,
+        EnumsGeneratorType::Unknown(id) => id,
+    }
 }
 
 /// A bounded summary of one server heightmap, including an explicitly absent payload.

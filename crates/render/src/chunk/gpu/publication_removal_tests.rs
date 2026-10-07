@@ -7,6 +7,7 @@ fn cube_instance(x: i32, one_quad: bool) -> ChunkRenderInstance {
     let key = SubChunkKey::new(0, x, 0, 0);
     ChunkRenderInstance {
         light_emitters: Arc::from([]),
+        cube_layout: CubeQuadLayout::default(),
         key,
         cube_quads: Arc::from(&mesh.quads()[..count]),
         cube_lighting: Arc::from(&mesh.cube_lighting()[..count]),

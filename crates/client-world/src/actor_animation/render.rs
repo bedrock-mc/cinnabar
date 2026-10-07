@@ -1,14 +1,20 @@
 use super::{
     evaluation::Evaluator,
-    pose::{LocalDelta, compose_pose, sample_clips},
+    pose::{compose_pose, sample_clips},
     *,
 };
+use assets::entity_render_pattern_matches as pattern_matches;
 
 /// One texture layer a rig draws this tick, from its render controllers in controller order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderTextureLayer {
+    pub material: assets::EntityRenderMaterial,
+    pub material_state: Option<assets::EntityRenderMaterialState>,
     /// Entity-catalog source index of the raster.
     pub source: u32,
+    /// Position among its controller layer's textures; a material samples later slots in the
+    /// first slot's draw.
+    pub texture_slot: u16,
     /// Additional samplers of the witnessed native three-texture material, not extra draws.
     pub multitexture: Option<[u32; 2]>,
     /// Multiplies the texture; white when the controller sets no colour.
@@ -22,10 +28,13 @@ pub struct RenderTextureLayer {
     /// Catalog geometry this layer draws when its controller picks another than the rig's;
     /// `hidden_bones` and the poses then index that geometry's bones.
     pub geometry: Option<u32>,
+    /// Empty for the tick-owned body; populated for alternate geometry or a frame-sampled body.
     pub previous_pose: Arc<[BoneTransform]>,
     pub pose: Arc<[BoneTransform]>,
     /// The controller draws unlit.
     pub ignore_lighting: bool,
+    /// Multiplies light RGB after world-light admission; defaults to one.
+    pub light_color_multiplier: f32,
 }
 
 /// Bones of a geometry a render controller draws beside the rig's own.
@@ -76,7 +85,8 @@ pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut Ac
 }
 
 /// Poses each layer drawing its own geometry: the actor's clips, recompiled for that geometry,
-/// bind to its bones by name as vanilla animates every controller's model.
+/// bind to its bones by name as vanilla animates every controller's model. Layers sharing a
+/// geometry share one sampled pose.
 pub(super) fn pose_layers(
     evaluator: &Evaluator<'_>,
     variables: &MolangVariables,
@@ -85,32 +95,58 @@ pub(super) fn pose_layers(
     layers: &mut [RenderTextureLayer],
     budget: &mut EvalBudget<'_>,
 ) {
-    let assets = evaluator.assets;
-    for layer in layers.iter_mut() {
-        let Some(geometry) = layer.geometry else {
+    for index in 0..layers.len() {
+        let Some(geometry) = layers[index].geometry else {
             continue;
         };
         let Some(Some(skeleton)) = skeletons.get(&geometry) else {
             continue;
         };
-        let mapped: Vec<_> = clips
+        let pose = match layers[..index]
             .iter()
-            .filter_map(|weighted| {
-                let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
-                Some(super::tick::WeightedClip {
-                    clip: assets.clip_for_geometry(symbol, geometry)? as usize,
-                    ..*weighted
-                })
-            })
-            .collect();
-        // Keyframe scripts already ran for the rig; a scratch copy keeps them from running twice.
-        let mut scratch = variables.clone();
-        let local = sample_clips(evaluator, &mut scratch, &skeleton.bones, &mapped, budget)
-            .unwrap_or_else(|_| vec![LocalDelta::default(); skeleton.bones.len()]);
-        if let Some(pose) = compose_pose(&skeleton.bones, &local) {
-            layer.pose = pose.into();
+            .find(|earlier| earlier.geometry == Some(geometry))
+        {
+            Some(earlier) => Some(Arc::clone(&earlier.pose)),
+            None => sample_layer_pose(evaluator, variables, skeletons, clips, geometry, budget)
+                .ok()
+                .or_else(|| compose_pose(&skeleton.bones, &[]).map(Arc::from)),
+        };
+        if let Some(pose) = pose {
+            layers[index].pose = pose;
         }
     }
+}
+
+/// Samples a selected geometry without mutating the rig's variables or masking a failed pose.
+pub(super) fn sample_layer_pose(
+    evaluator: &Evaluator<'_>,
+    variables: &MolangVariables,
+    skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
+    clips: &[super::tick::WeightedClip],
+    geometry: u32,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Arc<[BoneTransform]>, EvalError> {
+    let skeleton = skeletons
+        .get(&geometry)
+        .and_then(Option::as_ref)
+        .ok_or(EvalError::Invalid)?;
+    let assets = evaluator.assets;
+    let mapped: Vec<_> = clips
+        .iter()
+        .filter_map(|weighted| {
+            let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
+            Some(super::tick::WeightedClip {
+                clip: assets.clip_for_geometry(symbol, geometry)? as usize,
+                ..*weighted
+            })
+        })
+        .collect();
+    // Keyframe scripts already ran for the rig; scratch variables keep their writes isolated.
+    let mut scratch = variables.clone();
+    let local = sample_clips(evaluator, &mut scratch, &skeleton.bones, &mapped, budget)?;
+    compose_pose(&skeleton.bones, &local)
+        .map(Arc::from)
+        .ok_or(EvalError::Invalid)
 }
 
 /// The pose of a layer that draws the rig's own geometry, shared by every such layer.
@@ -121,11 +157,12 @@ fn empty_pose() -> Arc<[BoneTransform]> {
 }
 
 /// Gives each layer the pose it drew last tick as its previous pose, so layers interpolate, and
-/// keeps last tick's hidden-bone list when unchanged so its derived poses stay cached.
+/// retains prior endpoints on a view refresh and keeps unchanged hidden-bone lists cached.
 pub(super) fn carry_layer_poses(
     old: &[RenderTextureLayer],
     new: &mut [RenderTextureLayer],
     reset: bool,
+    advance_history: bool,
 ) {
     for (index, layer) in new.iter_mut().enumerate() {
         if let Some(previous) = old.get(index)
@@ -139,7 +176,11 @@ pub(super) fn carry_layer_poses(
                     && previous.geometry == layer.geometry
                     && previous.pose.len() == layer.pose.len() =>
             {
-                Arc::clone(&previous.pose)
+                Arc::clone(if advance_history {
+                    &previous.pose
+                } else {
+                    &previous.previous_pose
+                })
             }
             _ => Arc::clone(&layer.pose),
         };
@@ -148,30 +189,6 @@ pub(super) fn carry_layer_poses(
 
 /// The `uv_anim` value of a controller without one.
 const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
-
-/// `pattern` is lowercase with an optional leading and/or trailing `*`; bone names match
-/// ignoring ASCII case. Runs per rule, bone and actor every tick, so it never allocates.
-fn pattern_matches(pattern: &str, name: &str) -> bool {
-    let (leading, rest) = match pattern.strip_prefix('*') {
-        Some(rest) => (true, rest),
-        None => (false, pattern),
-    };
-    let (trailing, core) = match rest.strip_suffix('*') {
-        Some(core) => (true, core),
-        None => (false, rest),
-    };
-    let (name, core) = (name.as_bytes(), core.as_bytes());
-    let at = |start: usize| {
-        name.get(start..start + core.len())
-            .is_some_and(|window| window.eq_ignore_ascii_case(core))
-    };
-    match (leading, trailing) {
-        (true, true) => (0..=name.len().saturating_sub(core.len())).any(at),
-        (true, false) => name.len() >= core.len() && at(name.len() - core.len()),
-        (false, true) => at(0),
-        (false, false) => name.eq_ignore_ascii_case(core),
-    }
-}
 
 fn color(
     evaluator: &Evaluator<'_>,
@@ -184,8 +201,8 @@ fn color(
         return Ok(default);
     };
     let mut value = [0.0; 4];
-    for (slot, expression) in value.iter_mut().zip(components) {
-        let number = evaluator.number(expression as usize, variables, 0.0, budget)?;
+    for ((slot, expression), this) in value.iter_mut().zip(components).zip(default) {
+        let number = evaluator.number(expression as usize, variables, this, budget)?;
         *slot = if number.is_finite() { number } else { 0.0 };
     }
     Ok(value)
@@ -266,6 +283,7 @@ pub(super) fn evaluate_render(
             .collect();
         let tint = color(evaluator, variables, layer.color, [1.0; 4], budget)?;
         let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
+        let overlay = color(evaluator, variables, layer.hurt_color, overlay, budget)?;
         let uv_anim = color(
             evaluator,
             variables,
@@ -273,6 +291,13 @@ pub(super) fn evaluate_render(
             IDENTITY_UV_ANIM,
             budget,
         )?;
+        let light_color_multiplier = match layer.light_color_multiplier {
+            None => 1.0,
+            Some(expression) => {
+                let value = evaluator.number(expression as usize, variables, 1.0, budget)?;
+                if value.is_finite() { value } else { 1.0 }
+            }
+        };
         let slots = render
             .slots
             .get(
@@ -316,9 +341,12 @@ pub(super) fn evaluate_render(
         } else {
             selected_sources.len()
         };
-        for &source in selected_sources.iter().take(count) {
+        for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
             output.push(RenderTextureLayer {
+                material: layer.material,
+                material_state: layer.material_state,
                 source,
+                texture_slot: texture_slot as u16,
                 multitexture: grouped,
                 color: tint,
                 overlay,
@@ -328,6 +356,7 @@ pub(super) fn evaluate_render(
                 previous_pose: empty_pose(),
                 pose: empty_pose(),
                 ignore_lighting: layer.ignore_lighting,
+                light_color_multiplier,
             });
         }
     }

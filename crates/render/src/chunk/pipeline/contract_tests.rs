@@ -179,3 +179,68 @@ fn world_bindings_are_visible_to_the_stages_that_use_them() {
         );
     }
 }
+
+/// Whether `function` or anything it calls can discard.
+fn discards(module: &naga::Module, block: &naga::Block) -> bool {
+    block.iter().any(|statement| match statement {
+        naga::Statement::Kill => true,
+        naga::Statement::Block(inner) => discards(module, inner),
+        naga::Statement::If { accept, reject, .. } => {
+            discards(module, accept) || discards(module, reject)
+        }
+        naga::Statement::Switch { cases, .. } => {
+            cases.iter().any(|case| discards(module, &case.body))
+        }
+        naga::Statement::Loop {
+            body, continuing, ..
+        } => discards(module, body) || discards(module, continuing),
+        naga::Statement::Call { function, .. } => {
+            discards(module, &module.functions[*function].body)
+        }
+        _ => false,
+    })
+}
+
+#[test]
+fn solid_cube_pipeline_culls_back_faces_without_fragment_discards() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
+    let mut pipelines = ChunkPipeline::from_world(&mut World::new());
+    let source = crate::shader_source::standalone(include_str!("../../chunk.wgsl"), &[]);
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    let entry = |name: &str| {
+        let entry = module.entry_points.iter().find(|entry| entry.name == name);
+        &entry.expect("fragment entry exists").function.body
+    };
+    assert!(
+        discards(&module, entry("fragment")),
+        "cutout keeps its gates"
+    );
+    assert!(!discards(&module, entry("fragment_solid")));
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        for hdr in [false, true] {
+            let key = ChunkPipelineKey {
+                msaa,
+                hdr,
+                enhanced: false,
+            };
+            let solid = pipelines.solid_variants.specialize(&cache, key).unwrap();
+            let solid = crate::queue_review_support::queued_descriptor(&mut cache, solid).clone();
+            let cutout = pipelines.variants.specialize(&cache, key).unwrap();
+            let cutout = crate::queue_review_support::queued_descriptor(&mut cache, cutout);
+            assert_eq!(
+                solid.primitive.cull_mode,
+                Some(bevy::render::render_resource::Face::Back)
+            );
+            assert_eq!(cutout.primitive.cull_mode, None);
+            let fragment = solid.fragment.as_ref().unwrap();
+            assert_eq!(fragment.entry_point.as_deref(), Some("fragment_solid"));
+            // Everything except culling and the fragment entry matches the cutout pipeline.
+            let mut expected = cutout.clone();
+            expected.label = solid.label.clone();
+            expected.primitive.cull_mode = solid.primitive.cull_mode;
+            expected.fragment.as_mut().unwrap().entry_point = fragment.entry_point.clone();
+            assert_eq!(format!("{solid:?}"), format!("{expected:?}"));
+        }
+    }
+}

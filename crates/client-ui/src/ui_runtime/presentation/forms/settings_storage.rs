@@ -104,7 +104,7 @@ pub(super) fn action(region: &HitRegion) -> Option<MenuAction> {
     Some(MenuAction::SettingsStorage(action))
 }
 
-/// Uses the binary megabyte and gigabyte units identified in Util::getFilesizeString.
+/// Uses vanilla's binary megabyte and gigabyte units.
 fn size_text(bytes: u64, translate: &dyn Fn(&str) -> String) -> String {
     let (divisor, key) = if bytes >= 1 << 30 {
         (1_u64 << 30, "playscreen.fileSize.GB")

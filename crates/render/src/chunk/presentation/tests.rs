@@ -889,6 +889,7 @@ fn accepted_tracked_queue_changes_maintain_the_expected_generation_manifest() {
 fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() {
     let allocations = [
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             key: SubChunkKey::new(0, 0, 0, 0),
             generation: 1,
             tint_identity: ChunkBiomeTintIdentity::default(),
@@ -906,6 +907,7 @@ fn indexed_indirect_commands_preserve_order_and_encode_quad_and_origin_ranges() 
             metadata_index: 4,
         },
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             key: SubChunkKey::new(0, 1, 0, 0),
             generation: 2,
             tint_identity: ChunkBiomeTintIdentity::default(),
@@ -1107,5 +1109,12 @@ fn explicit_present_mode_evidence_comes_from_surface_capabilities() {
     assert_eq!(
         resolve_surface_present_mode(WindowPresentMode::Fifo, &[WgpuPresentMode::Fifo]),
         Some(WgpuPresentMode::Fifo)
+    );
+    assert_eq!(
+        resolve_surface_present_mode(
+            WindowPresentMode::AutoNoVsync,
+            &[WgpuPresentMode::Fifo, WgpuPresentMode::Mailbox],
+        ),
+        Some(WgpuPresentMode::Mailbox)
     );
 }

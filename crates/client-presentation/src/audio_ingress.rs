@@ -10,10 +10,11 @@ pub struct SequencedAudioEvent {
     pub sequence: u64,
     pub dimension: i32,
     pub dimension_epoch: u64,
+    pub actor_synchronization: Option<client_world::ActorLifetimeId>,
     pub event: protocol::AudioEvent,
 }
 
-/// Forwards each committed audio envelope once, preserving its stream and FIFO identity.
+/// Forwards each committed audio envelope once, preserving its origin and transport identity.
 pub fn drain_committed_audio(
     stream: &mut WorldStream,
     mut forward: impl FnMut(SequencedAudioEvent),
@@ -25,6 +26,7 @@ pub fn drain_committed_audio(
             sequence: committed.sequence,
             dimension: committed.dimension,
             dimension_epoch: committed.dimension_epoch,
+            actor_synchronization: committed.actor_synchronization,
             event: committed.event,
         });
     }

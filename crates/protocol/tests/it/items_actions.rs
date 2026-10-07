@@ -91,7 +91,7 @@ fn item_registry_and_add_player_held_item_are_vendor_neutral() {
         carried_item: stack_item(),
         ..Default::default()
     };
-    let WorldEvent::Actor(ActorEvent::Spawn(spawn)) =
+    let WorldEvent::Actor(ActorEvent::PlayerSpawn { spawn, .. }) =
         into_world_event(player.into(), 0).unwrap().unwrap()
     else {
         panic!("expected player spawn")
@@ -331,7 +331,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
         },
         ..Default::default()
     };
-    let WorldEvent::Actor(ActorEvent::Spawn(spawn)) =
+    let WorldEvent::Actor(ActorEvent::PlayerSpawn { spawn, .. }) =
         into_world_event(signed_wire_fields.into(), 0)
             .unwrap()
             .unwrap()

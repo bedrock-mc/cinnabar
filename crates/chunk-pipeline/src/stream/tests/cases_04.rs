@@ -142,6 +142,45 @@ fn respawn_commits_as_a_local_position_authority_change() {
 }
 
 #[test]
+fn respawn_search_and_unknown_phases_keep_live_position_authority() {
+    let position = [3.5, 70.0, -4.5];
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: position,
+        world_spawn_position: [3, 70, -5],
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    for (sequence, state) in [(1, 0), (2, 2), (3, u8::MAX)] {
+        let respawn = RespawnEvent {
+            position: [300.5, 32_767.0, 400.5],
+            state,
+            runtime_entity_id: 0,
+        };
+        stream
+            .submit(sequence, WorldEvent::Respawn(respawn))
+            .unwrap();
+        assert_eq!(stream.resolved_server_position().position, position);
+        let controls = stream.take_committed_controls();
+        let [
+            CommittedControlEvent::Respawn {
+                respawn: observed,
+                resolved,
+                ..
+            },
+        ] = controls.as_slice()
+        else {
+            panic!("ordered phase control");
+        };
+        assert_eq!(*observed, respawn);
+        assert_eq!(resolved.position, position);
+        assert_eq!(resolved.surface_anchor, None);
+    }
+}
+
+#[test]
 fn older_movement_correction_tick_cannot_rewind_newer_correction() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
@@ -464,6 +503,7 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: Duration::ZERO,
         urgent: false,
     });
@@ -536,6 +576,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: Duration::ZERO,
         urgent: false,
     });
@@ -608,6 +649,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: Duration::ZERO,
         urgent: false,
     });
@@ -675,6 +717,7 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: std::time::Duration::from_millis(5),
         urgent: false,
     });
@@ -750,7 +793,10 @@ fn publication_stage_queue_wait_excludes_worker_duration_and_maxima_do_not_shrin
     stats.observe_decode_queue_wait(super::queue_wait(queued_at, started_at));
     stats.observe_decode_queue_wait(std::time::Duration::from_millis(3));
     stats.observe_light_queue_wait(std::time::Duration::from_millis(11));
-    stats.observe_mesh_queue_wait(std::time::Duration::from_millis(13));
+    stats.observe_mesh_queue_wait(
+        std::time::Duration::from_millis(13),
+        std::time::Duration::ZERO,
+    );
     stats.max_decode_duration = stats
         .max_decode_duration
         .max(finished_at.saturating_duration_since(started_at));

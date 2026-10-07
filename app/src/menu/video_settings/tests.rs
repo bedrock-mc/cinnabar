@@ -25,7 +25,7 @@ impl ConfigRoot {
     }
 
     fn menu(&self) -> MenuRuntime {
-        let mut layout = crate::install_layout::InstallLayout::discover().unwrap();
+        let mut layout = crate::install_layout::checkout();
         layout.user_config_root = self.0.clone();
         let skin = crate::player_skin::LocalPlayerSkin::generated_default("Steve");
         MenuRuntime::new_with_layout(true, Some(2), "Steve".to_owned(), layout, skin)
@@ -70,7 +70,12 @@ fn changed_values_persist_without_saving_viewport_clamps_or_cli_overrides() {
     save(&root.0, expected).unwrap();
     let mut menu = root.menu();
     menu.set_gui_scale_preference(Some(4));
-    menu.sync_gui_scale(-1, vec![-1, 0]);
+    menu.sync_gui_scale(
+        -1,
+        ui::DesktopGuiScale::for_window([1280, 720])
+            .choices()
+            .collect(),
+    );
     let mut app = App::new();
     app.insert_resource(menu)
         .add_systems(Update, persist_video_settings);

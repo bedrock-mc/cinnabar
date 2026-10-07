@@ -24,7 +24,7 @@ pub struct SavedServer {
 pub struct LocalWorldCard {
     pub name: String,
     pub game_mode: String,
-    /// The owner's world type label (Normal (BDS) or Flat (Dragonfly)).
+    /// The saved world generator label.
     pub world_type: String,
     pub date: String,
     pub size: String,
@@ -64,10 +64,23 @@ pub struct MenuRealmCard {
     pub member: bool,
 }
 
+/// Marks a featured address as an experience's ID, joined when selected.
+pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
+
+/// Whether the server at `address` can be pinged; an experience has no server until joined.
+pub fn pingable(address: &str) -> bool {
+    !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
+}
+
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {
+    pub group: String,
+    /// Live experience count; only positive values are shown in its details panel.
+    pub player_count: Option<i64>,
     pub description: String,
+    /// The details banner; empty uses the first screenshot.
+    pub banner: String,
     pub news_title: String,
     pub news: String,
     pub screenshots: Vec<String>,
@@ -154,6 +167,19 @@ pub struct MenuFeeds {
     pub home: MenuHome,
     /// The join the progress screen reports while connecting.
     pub join: JoinProgress,
+    /// The join's pending question whether to trust a NetherNet server.
+    pub server_trust: Option<ServerTrustPrompt>,
+    /// The player's answer to that question, until it is sent to the core that asked.
+    pub server_trust_answer: Option<(ServerTrustPrompt, bool)>,
+}
+
+/// The core asks whether to trust the NetherNet server at `url` before the join goes on.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ServerTrustPrompt {
+    pub id: u64,
+    pub url: String,
+    /// Asked by a per-session core rather than the launcher core; ids are per core.
+    pub from_session_core: bool,
 }
 
 /// Which kind of join is under way; picks vanilla's connect title and progress screen.
@@ -301,8 +327,9 @@ impl MenuFeeds {
 }
 
 /// One server's pong: `online` is false when it did not answer.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PingInfo {
+    pub motd: String,
     pub online: bool,
     pub players: u32,
     pub max_players: u32,
@@ -326,6 +353,9 @@ pub struct MenuView {
     pub focused_action: Option<MenuAction>,
     pub hovered: Option<MenuAction>,
     pub pressed: Option<MenuAction>,
+    /// Keyboard and gamepad focus draws an outline; pointer focus still navigates.
+    pub navigation_focus_visible: bool,
+    pub gamepad_input: bool,
     pub server_tab: MenuServerTab,
     pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
@@ -337,17 +367,17 @@ pub struct MenuView {
     pub port: String,
     pub message: Option<String>,
     pub gui_scale_offset: i8,
-    pub gui_scale_choices: Vec<i8>,
+    pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
     pub render_mode: ui::RenderMode,
+    /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
+    pub vsync_override: Option<bool>,
     pub display_name: String,
     pub servers: Vec<SavedServer>,
     pub featured: Vec<MenuServerCard>,
-    pub gatherings: Vec<MenuServerCard>,
     pub realms: Vec<MenuRealmCard>,
     pub friends: Vec<MenuFriendCard>,
     pub featured_icon: Option<IconRef>,
-    pub gathering_icon: Option<IconRef>,
     pub realm_icon: Option<IconRef>,
     pub friend_icon: Option<IconRef>,
     pub saved_icon: Option<IconRef>,
@@ -357,6 +387,9 @@ pub struct MenuView {
     pub auth_state: AuthState,
     pub connecting: bool,
     pub settings_section: u8,
+    pub dressing_room: std::sync::Arc<crate::dressing_room::DressingRoomView>,
+    pub player_skin: Option<protocol::StandardSkin>,
+    pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
@@ -368,12 +401,56 @@ pub struct MenuView {
     pub settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
     pub storage: std::sync::Arc<super::settings_storage::StorageView>,
     pub settings_dropdown: Option<u16>,
+    pub settings_scale_picker: bool,
+    /// Last interactive settings activation and its monotonic input revision.
+    pub settings_control_activation: Option<(MenuAction, u64)>,
+    pub settings_control_activation_navigation: bool,
+    /// Continuous pointer position remains independent of the persisted slider step.
+    pub settings_slider_pointer: Option<SettingsSliderPointer>,
+    pub settings_slider_hovered: Option<u16>,
+    pub settings_slider_selected: Option<u16>,
     pub key_remap: Option<u16>,
     pub settings_advanced_graphics: bool,
     pub language_choices: std::sync::Arc<[(String, String)]>,
     pub feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.
     pub store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+}
+
+/// An active settings slider retains the unrounded pointer fraction.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsSliderPointer {
+    pub option: u16,
+    pub fraction: f32,
+    pub mouse_input: bool,
+}
+
+/// A control's complete layout bounds, retained even outside a scroll viewport.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsFocusTarget {
+    pub action: MenuAction,
+    pub bounds: ui::UiRect,
+    pub landmark: Option<u16>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SettingsFocusAxis {
+    Horizontal,
+    Vertical,
+}
+
+/// Directional navigation enters a landmark through its remembered or delegated control.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsFocusLandmark {
+    pub id: u16,
+    pub parent: Option<u16>,
+    pub bounds: ui::UiRect,
+    pub scroll_axis: Option<SettingsFocusAxis>,
+    pub delegate: Option<MenuAction>,
+    pub delegate_landmark: Option<u16>,
+    pub remember: bool,
+    pub trap: bool,
+    pub focus_control_disabled: bool,
 }
 
 /// The focused text field's caret.
@@ -393,8 +470,6 @@ pub struct MenuCaret {
 pub struct CatalogFile {
     #[serde(default)]
     pub featured: Vec<MenuServerCard>,
-    #[serde(default)]
-    pub gatherings: Vec<MenuServerCard>,
     #[serde(default)]
     pub realms: Vec<MenuRealmCard>,
     #[serde(default)]
@@ -429,6 +504,18 @@ impl From<CatalogFriend> for MenuFriendCard {
 }
 
 impl MenuView {
+    /// The join's pending trust question, which draws as a popup over the join screen.
+    pub fn server_trust_prompt(&self) -> Option<&ServerTrustPrompt> {
+        self.feeds.server_trust.as_ref().filter(|_| self.connecting)
+    }
+
+    /// Whether a popup draws over the screen and takes its input.
+    pub fn popup_open(&self) -> bool {
+        self.dialog.is_some()
+            || self.server_trust_prompt().is_some()
+            || self.dressing_room.editor.is_some()
+    }
+
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
     pub fn auth_state_awaiting_code(&self) -> bool {
         matches!(self.auth_state, AuthState::AwaitingCode { .. })
@@ -443,6 +530,8 @@ impl MenuView {
             focused_action: Some(MenuAction::Navigate(MenuScreen::Home)),
             hovered: None,
             pressed: None,
+            navigation_focus_visible: true,
+            gamepad_input: false,
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,
@@ -456,17 +545,16 @@ impl MenuView {
             port: String::new(),
             message: None,
             gui_scale_offset: 0,
-            gui_scale_choices: vec![0],
+            gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
+            vsync_override: None,
             display_name,
             servers: Vec::new(),
             featured: Vec::new(),
-            gatherings: Vec::new(),
             realms: Vec::new(),
             friends: Vec::new(),
             featured_icon: None,
-            gathering_icon: None,
             realm_icon: None,
             friend_icon: None,
             saved_icon: None,
@@ -476,6 +564,9 @@ impl MenuView {
             auth_state: AuthState::SignedOut,
             connecting: false,
             settings_section: 0,
+            dressing_room: Default::default(),
+            player_skin: None,
+            player_skin_model: Default::default(),
             global_resources: Default::default(),
             disconnect_message: None,
             editing: None,
@@ -484,6 +575,12 @@ impl MenuView {
             settings_options: Default::default(),
             storage: Default::default(),
             settings_dropdown: None,
+            settings_scale_picker: false,
+            settings_control_activation: None,
+            settings_control_activation_navigation: false,
+            settings_slider_pointer: None,
+            settings_slider_hovered: None,
+            settings_slider_selected: None,
             key_remap: None,
             settings_advanced_graphics: false,
             language_choices: Default::default(),

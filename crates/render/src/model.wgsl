@@ -7,7 +7,7 @@
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
-#import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_material, waved_position, enhanced_physical_atmosphere, enhanced_light_direction, enhanced_materials_enabled}
 #import cinnabar::enhanced_radiance::{block_illumination, untextured_material_mer}
@@ -68,9 +68,12 @@ struct VertexOutput {
     @location(13) world_position: vec3<f32>,
 #ifdef ENHANCED_MOTION
     @location(14) previous_clip: vec4<f32>,
-#endif
+#else
 #ifdef ENHANCED
     @location(14) @interpolate(flat) surface_class: u32,
+#else
+    @location(14) @interpolate(flat) tint_gamma: vec3<f32>,
+#endif
 #endif
 }
 
@@ -92,10 +95,15 @@ fn invisible_vertex() -> VertexOutput {
 #ifdef ENHANCED
     invisible.sky_light = 0.0;
     invisible.ambient_occlusion = 0.0;
+#ifndef ENHANCED_MOTION
     invisible.surface_class = 0u;
+#endif
 #else
     invisible.native_light_levels = vec2(0.0);
     invisible.native_ao_face = 0.0;
+#ifndef ENHANCED_MOTION
+    invisible.tint_gamma = vec3(1.0);
+#endif
 #endif
     invisible.two_sided = 0u;
     invisible.world_origin = vec3(0.0);
@@ -265,12 +273,14 @@ fn vertex(
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
-    let terrain_shade = select(light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u), pad_shade, is_lily_pad);
+    let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
+    let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
+    let terrain_shade = select(ao * dimming, pad_shade, is_lily_pad);
     out.lighting = light_colour(light_sample) * terrain_shade;
 #ifdef ENHANCED
     out.lighting = block_illumination(light_sample);
     out.sky_light = sky_illumination(light_sample);
-    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+    out.ambient_occlusion = ao;
 #else
     out.native_light_levels = terrain_light_levels(light_sample);
     out.native_ao_face = terrain_shade;
@@ -278,11 +288,27 @@ fn vertex(
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
     out.world_origin = vec3<f32>(origin.value.xyz);
+#ifndef ENHANCED
+#ifndef ENHANCED_MOTION
+    out.tint_gamma = vec3(1.0);
+#ifndef ENHANCED_SHADOW
+#ifndef OPAQUE_OVERDRAW
+    // Every corner belongs to the same block; keep its exact tint flat across the model.
+    let tint_kind = material.flags & 0x30u;
+    if (tint_kind != 0u) {
+        out.tint_gamma = blended_biome_tint_gamma(tint_kind, material.flags, out.biome_record, block_position, out.world_origin).rgb;
+    }
+#endif
+#endif
+#endif
+#endif
 #ifdef ENHANCED
+#ifndef ENHANCED_MOTION
     out.surface_class = material_class(material_id);
     out.world_position = waved_position(world, out.surface_class, clamp(template_position.y, 0.0, 1.0));
     out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
     out.normal = template_quad_normal(template_quad_base, packed_transform >> 12u);
+#endif
 #endif
     return out;
 }
@@ -318,14 +344,15 @@ fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>, worl
     return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);
 }
 
-fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+// Samples alpha before colour conversion or lighting work.
+fn sample_raw_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
 #ifdef ENHANCED
     return sample_enhanced_colour(texture_ref, uv, dx, dy);
 #else
 #ifdef ENHANCED_SHADOW
     return sample_enhanced_colour(texture_ref, uv, dx, dy);
 #else
-    return tint_to_gamma(sample_enhanced_fallback(texture_ref, uv, dx, dy));
+    return sample_enhanced_fallback(texture_ref, uv, dx, dy);
 #endif
 #endif
 }
@@ -353,6 +380,24 @@ fn sample_enhanced_fallback(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: 
         sampled = textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
     }
     return sampled;
+}
+
+// Decode each animation frame before interpolation to retain native gamma blending.
+fn decode_sample(sampled: vec4<f32>) -> vec4<f32> {
+#ifdef ENHANCED
+    return sampled;
+#else
+#ifdef ENHANCED_SHADOW
+    return sampled;
+#else
+    return tint_to_gamma(sampled);
+#endif
+#endif
+}
+
+// Translucent models retain their complete colour and alpha sample.
+fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+    return decode_sample(sample_raw_ref(texture_ref, uv, dx, dy));
 }
 
 // ENHANCED_PBR_SAMPLING
@@ -392,18 +437,14 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
 #endif
 }
 
+#ifndef ENHANCED_MOTION
 #ifndef ENHANCED
 // Current TopSnow tessellator -> ordinary terrain ->
 // AO/flat lighting. A bounded world model is not an entity material:
 // RenderChunk multiplies atlas/palette, vertex AO and lightmap in gamma RGB.
 // Encode only at our existing Bevy sRGB framebuffer boundary.
 fn ordinary_world_model_gamma_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> vec4<f32> {
-    var tint_gamma = vec3(1.0);
-    let tint_kind = in.material_flags & 0x30u;
-    if (tint_kind != 0u) {
-        tint_gamma = blended_biome_tint_gamma(tint_kind, in.material_flags, in.biome_record, in.local_position, in.world_origin).rgb;
-    }
-    let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
+    let lit_gamma = ((sampled_gamma.rgb * in.tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
     return vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a);
 }
@@ -418,6 +459,8 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
+    if (in.visible == 0u) { discard; }
+    if (!front_facing && in.two_sided == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
     var material_uv=in.uv;
@@ -426,13 +469,21 @@ fn fragment(
     material_uv=parallax_material_uv(in.current_texture,in.uv,dx,dy,normalize(view.world_position-in.world_position),basis,
         distance(view.world_position,in.world_position),enhanced_materials_enabled() && (in.material_flags&(1u<<8u))==0u && in.two_sided==0u && (in.surface_class&48u)==0u && in.frame_blend==0.0);
 #endif
-    if (in.visible == 0u) { discard; }
-    if (!front_facing && in.two_sided == 0u) { discard; }
-    var sampled = sample_ref(in.current_texture, material_uv, dx, dy);
+    let current = sample_raw_ref(in.current_texture, material_uv, dx, dy);
+    var next = current;
+    var alpha = current.a;
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_ref(in.next_texture, material_uv, dx, dy), in.frame_blend);
+        next = sample_raw_ref(in.next_texture, material_uv, dx, dy);
+        alpha = mix(current.a, next.a, in.frame_blend);
     }
-    if (sampled.a < 0.5) { discard; }
+    if (alpha < 0.5) { discard; }
+#ifdef OPAQUE_OVERDRAW
+    return vec4(1.0);
+#else
+    var sampled = decode_sample(current);
+    if (in.frame_blend > 0.0) {
+        sampled = mix(sampled, decode_sample(next), in.frame_blend);
+    }
 #ifdef ENHANCED
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     var material_normal_sample=sample_pbr_texture(true,in.current_texture,material_uv,dx,dy);
@@ -459,6 +510,7 @@ fn fragment(
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
     return ordinary_world_model_colour(in, sampled);
+#endif
 #endif
 }
 
@@ -509,6 +561,7 @@ fn fragment_blend(
 #endif
 #endif
 }
+#endif
 #ifdef ENHANCED_SHADOW
 
 // Alpha-tested terrain depth; opaque texels cast independently of baked light.

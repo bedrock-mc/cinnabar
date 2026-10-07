@@ -103,6 +103,14 @@ impl ChunkStore {
         self.chunks.get(&key)
     }
 
+    /// Includes authoritative all-air columns that allocate no sparse storage.
+    #[must_use]
+    pub fn contains_column(&self, key: ChunkKey) -> bool {
+        self.loaded_chunks.contains(&key)
+            || self.chunks.contains_key(&key)
+            || self.authoritative_sub_chunks.contains_key(&key)
+    }
+
     /// Returns whether a complete LevelChunk for this column has been
     /// committed and not subsequently evicted.
     ///
@@ -165,6 +173,13 @@ impl ChunkStore {
             .insert(key.y);
         self.set_collision_revision(key.chunk(), revision);
         Ok(true)
+    }
+
+    /// Checks residency without acquiring a reference-counted section handle.
+    pub fn contains_sub_chunk(&self, key: SubChunkKey) -> bool {
+        self.chunks
+            .get(&key.chunk())
+            .is_some_and(|chunk| chunk.sub_chunks.contains_key(&key.y))
     }
 
     /// Returns an `Arc` snapshot suitable for handing to a mesh worker.

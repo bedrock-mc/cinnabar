@@ -195,7 +195,7 @@ pub(in crate::compiler) fn chiseled_bookshelf_inventory_is_exact(
             return false;
         };
         let index = (books * 4 + direction) as usize;
-        if record.sequential_id != 1605 + index as u32 || seen[index] {
+        if seen[index] {
             return false;
         }
         seen[index] = true;

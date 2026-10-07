@@ -43,7 +43,7 @@ fn mineral_cube_records() -> Vec<RegistryRecord> {
         .collect()
 }
 
-fn write_mineral_pack(root: &Path) {
+pub(super) fn write_mineral_pack(root: &Path) {
     write_pack(
         root,
         r#"{

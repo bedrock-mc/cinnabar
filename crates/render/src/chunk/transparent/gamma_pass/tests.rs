@@ -2,11 +2,11 @@ use super::*;
 
 #[test]
 fn gamma_target_admission_is_narrow() {
-    assert!(target::admitted(false, Msaa::Off, false));
-    assert!(!target::admitted(true, Msaa::Off, false));
-    assert!(!target::admitted(false, Msaa::Sample4, false));
+    assert!(admitted(false, Msaa::Off, false));
+    assert!(!admitted(true, Msaa::Off, false));
+    assert!(!admitted(false, Msaa::Sample4, false));
     assert_eq!(
-        target::admitted(false, Msaa::Off, true),
+        admitted(false, Msaa::Off, true),
         !render_model::ENHANCED_RENDERING_ENABLED
     );
 }
@@ -47,6 +47,33 @@ fn scratch_and_scene_formats_are_raw_copy_compatible() {
     let scratch = scene.remove_srgb_suffix();
     assert_ne!(scene, scratch);
     assert_eq!(scene.remove_srgb_suffix(), scratch.remove_srgb_suffix());
+}
+
+#[test]
+fn nametag_draws_enter_the_encoded_phase_without_reordering() {
+    use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
+    use bevy::{app::SubApp, render::render_phase::AddRenderCommand};
+
+    let mut app = App::new();
+    app.init_resource::<Assets<Shader>>();
+    let mut render = SubApp::new();
+    render
+        .init_resource::<DrawFunctions<Transparent3d>>()
+        .add_render_command::<Transparent3d, DrawTransparentLiquidCommands>()
+        .add_render_command::<Transparent3d, DrawTransparentLiquidIndirectCommands>()
+        .add_render_command::<Transparent3d, DrawTransparentModelCommands>()
+        .add_render_command::<Transparent3d, DrawMixedTerrainCommands>();
+    app.insert_sub_app(RenderApp, render);
+    crate::nametag_render::install_nametag_render(&mut app);
+    let world = app.sub_app(RenderApp).world();
+    let tag = crate::nametag_render::draw_function(world).unwrap();
+    let families = native_draws(world);
+    assert!(families.contains(&Some(tag)));
+    let items = [tag, tag];
+    assert_eq!(
+        contiguous_ranges(&items, |id| families.contains(&Some(*id))).collect::<Vec<_>>(),
+        vec![(0..2, true)]
+    );
 }
 
 #[test]

@@ -5,7 +5,7 @@ use anyhow::{Result, ensure};
 use mod_host::helper::{Dispatch, Helper};
 use server_experience::{
     bundle::VerifiedBundle,
-    manifest::implemented_permissions,
+    manifest::developer_permissions,
     negotiation::Grant,
     policy::*,
     runtime::{Budget, CALLBACK_INTERVAL_MS, Capabilities, Command, Contributions, Principal},
@@ -28,6 +28,11 @@ struct Instance<H> {
 
 pub(super) struct Live<H = Helper> {
     grant: Grant,
+    media: super::media::Media,
+    screens: Vec<render::MediaScreen>,
+    /// Scene and frame revisions `screens` was built from.
+    screens_built: Option<(u64, u64)>,
+    scene_revision: u64,
     instances: BTreeMap<String, Instance<H>>,
     executable: PathBuf,
     pending_sends: VecDeque<Vec<u8>>,
@@ -49,6 +54,7 @@ impl<H: Worker> Live<H> {
         epoch: u64,
         now_ms: u64,
         executable: &Path,
+        media_helper: &Path,
     ) -> Result<Self> {
         ensure!(
             bundles
@@ -61,7 +67,8 @@ impl<H: Worker> Live<H> {
         let mut budget = Budget::default();
         budget.begin_slice();
         let mut instances = BTreeMap::new();
-        for bundle in bundles {
+        let mut media = super::media::Media::new(grant.clone(), epoch, media_helper.to_owned());
+        for mut bundle in bundles {
             let owner = Principal {
                 session: grant.session.clone(),
                 bundle: bundle.manifest.id.clone(),
@@ -71,7 +78,7 @@ impl<H: Worker> Live<H> {
             scope.permissions = bundle.manifest.permissions.clone();
             scope
                 .permissions
-                .retain(|permission| implemented_permissions().contains(permission));
+                .retain(|permission| developer_permissions().contains(permission));
             let count = grant.offer.offer.packages.len() as u64;
             scope.memory_bytes = (scope.memory_bytes / count).min(MAX_GUEST_MEMORY);
             scope.gpu_bytes /= count;
@@ -86,7 +93,8 @@ impl<H: Worker> Live<H> {
                 capabilities.scope.memory_bytes,
                 capabilities.scope.gpu_bytes,
             )?;
-            let component = bundle.into_component();
+            let component = bundle.take_component();
+            media.register(bundle);
             let busy = component.is_some();
             instances.insert(
                 owner.bundle.clone(),
@@ -102,6 +110,10 @@ impl<H: Worker> Live<H> {
         }
         let mut live = Self {
             grant,
+            media,
+            screens: Vec::new(),
+            screens_built: None,
+            scene_revision: 0,
             instances,
             executable: executable.to_owned(),
             pending_sends: VecDeque::new(),
@@ -143,9 +155,11 @@ impl<H: Worker> Live<H> {
                 Err(error) => {
                     self.budget.quarantine(&instance.owner);
                     instance.contributions = Contributions::default();
+                    self.scene_revision += 1;
                     return Err(error);
                 }
             };
+            self.scene_revision += 1;
             instance.contributions.apply(
                 &transaction,
                 &instance.owner,
@@ -153,7 +167,15 @@ impl<H: Worker> Live<H> {
                 &instance.capabilities,
             )?;
             for command in transaction.commands {
-                if let Command::Send {
+                if let Command::Media {
+                    id,
+                    operation,
+                    position_ms,
+                } = command
+                {
+                    self.media
+                        .queue(&instance.owner, id, operation, position_ms)?;
+                } else if let Command::Send {
                     channel,
                     schema,
                     record,
@@ -217,6 +239,25 @@ impl<H: Worker> Live<H> {
                 self.egress.charge(bytes.len(), now_ms)?;
                 packets.push(bytes);
             }
+            while let Some((bundle, record)) = self.media.next_event() {
+                let Some(instance) = self.instances.get_mut(&bundle) else {
+                    continue;
+                };
+                if instance.busy || !self.budget.can_dispatch(&instance.owner) {
+                    self.media.defer_event((bundle, record));
+                    break;
+                }
+                self.budget.dispatch(&instance.owner)?;
+                if let Some(helper) = &mut instance.helper {
+                    helper.dispatch(Dispatch {
+                        channel: super::media::EVENT_CHANNEL.into(),
+                        record,
+                        actions: BTreeSet::new(),
+                        epoch,
+                    })?;
+                    instance.busy = true;
+                }
+            }
             while let Some(message) = self.ingress.peek(u64::MAX, epoch) {
                 let instance = self
                     .instances
@@ -267,6 +308,43 @@ impl<H: Worker> Live<H> {
         self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
             instances.get(id).map(|instance| &instance.capabilities)
         })
+    }
+
+    pub(super) fn media_mut(&mut self) -> &mut super::media::Media {
+        &mut self.media
+    }
+
+    /// Media screens (each bundle's own scene quads whose texture names a playing descriptor),
+    /// rebuilt only when the scene or a frame changed; None when unchanged since the last call.
+    pub(super) fn changed_screens(&mut self) -> Option<&[render::MediaScreen]> {
+        let built = (self.scene_revision, self.media.frames_revision());
+        if self.screens_built == Some(built) {
+            return None;
+        }
+        self.screens_built = Some(built);
+        self.screens.clear();
+        'instances: for (index, instance) in self.instances.values().enumerate() {
+            for (id, object) in &instance.contributions.scene {
+                if self.screens.len() == render::MAX_MEDIA_SCREENS {
+                    break 'instances;
+                }
+                let Some((texture, mut screen)) =
+                    super::media::screen((index as u64) << 32 | u64::from(*id), object)
+                else {
+                    continue;
+                };
+                if let Some(frame) = self.media.frame(&instance.owner.bundle, texture) {
+                    screen.frame = frame;
+                    self.screens.push(screen);
+                }
+            }
+        }
+        Some(&self.screens)
+    }
+
+    /// Texture bytes the signed scope lets media screens allocate.
+    pub(super) fn gpu_budget_bytes(&self) -> u64 {
+        self.grant.offer.offer.scope.gpu_bytes.min(MAX_GPU_BYTES)
     }
 
     /// Uses only host-owned status text in the persistent execution indicator.

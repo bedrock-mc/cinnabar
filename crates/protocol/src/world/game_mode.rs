@@ -144,9 +144,8 @@ impl PlayerGameMode {
     /// StartGame's world default mode, retained so a later level-default
     /// sentinel (SetPlayerGameType 5) or SetDefaultGameType can resolve.
     #[must_use]
-    pub fn world_default_from_game_data(game_data: &GameData) -> Self {
-        Self::from_game_type(game_data.start_game.settings.game_type.into())
-            .unwrap_or(Self::Unknown)
+    pub fn world_default_update_from_game_data(game_data: &GameData) -> crate::GameModeUpdate {
+        Self::update_from_game_type(game_data.start_game.settings.game_type.into())
     }
 
     /// Whether StartGame bound the player to the level default rather than an
@@ -175,6 +174,12 @@ impl PlayerGameMode {
     }
 
     fn update_from_game_type(mode: GameTypeValue) -> crate::GameModeUpdate {
+        if matches!(
+            mode,
+            GameTypeValue::Other(SURVIVAL_VIEWER_GAME_TYPE | CREATIVE_VIEWER_GAME_TYPE)
+        ) {
+            return crate::GameModeUpdate::LegacyViewer;
+        }
         match Self::from_game_type(mode) {
             Some(resolved) => crate::GameModeUpdate::Explicit(resolved),
             None => match mode {
@@ -224,6 +229,11 @@ mod player_game_mode_tests {
                 PlayerGameMode::from_game_type(GameTypeValue::Other(value)),
                 Some(PlayerGameMode::Spectator)
             );
+            let update = PlayerGameMode::update_from_game_mode(
+                valentine::bedrock::version::v1_26_51::EnumsGameType::Unknown(value),
+            );
+            assert_eq!(update, crate::GameModeUpdate::LegacyViewer);
+            assert_eq!(update.hud_mode(), Some(PlayerGameMode::Spectator));
         }
     }
 }

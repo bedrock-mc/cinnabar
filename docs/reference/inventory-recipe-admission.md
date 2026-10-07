@@ -9,7 +9,7 @@ recipe-discovery metadata. It does not declare those recipes unlocked.
   `behavior_pack/recipes/oak_planks.json`, declares a shaped one-cell oak-log
   recipe producing four oak planks, with oak log as an unlock ingredient.
 - Unlocked-recipe state is consulted only behind game-rule conditions. Without
-  those conditions, the state pointer remains null and candidate recipes still
+  those conditions, no unlocked state is consulted and candidate recipes still
   match/assemble the manual grid. Recipe discovery is not blanket admission.
 - Advertised shaped/shapeless recipes are registered even when they carry
   discovery requirements; the crafting controller checks unlocked state conditionally.

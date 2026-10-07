@@ -1,10 +1,15 @@
 //! Draws the menu panorama as one full-screen triangle that ray-casts into the
 //! six-face cube array, so the view is an exact perspective cube.
+//!
+//! It is opaque and draws in the main opaque pass: world passes queue nothing
+//! while it shows, so the menu's scene is one pass and FXAA is off.
 use crate::panorama::PanoramaScene;
 use bevy::{
+    anti_alias::fxaa::Fxaa,
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
+    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     ecs::{
+        change_detection::Tick,
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
     },
@@ -13,18 +18,19 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
+            RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass,
+            ViewBinnedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
-            BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
-            BufferBindingType, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
-            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
-            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
-            SpecializerKey, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
-            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
+            BufferInitDescriptor, BufferSize, BufferUsages, Canonical, ColorTargetState,
+            ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState,
+            PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, Texture,
+            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
@@ -63,6 +69,10 @@ struct Installed;
 
 fn install(app: &mut App) {
     app.init_resource::<PanoramaScene>();
+    if !app.world().contains_resource::<Installed>() {
+        app.insert_resource(Installed)
+            .add_systems(PostUpdate, sync_scene_antialiasing);
+    }
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -76,10 +86,11 @@ fn install(app: &mut App) {
         "panorama.wgsl",
         crate::shader_safety::from_wgsl
     );
+    crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
         .init_resource::<PanoramaPipeline>()
-        .add_render_command::<Transparent3d, DrawPanoramaCommands>()
+        .add_render_command::<Opaque3d, DrawPanoramaCommands>()
         .add_systems(RenderStartup, init_gpu)
         .add_systems(
             Render,
@@ -89,6 +100,16 @@ fn install(app: &mut App) {
                 queue_panorama.in_set(RenderSystems::Queue),
             ),
         );
+}
+
+/// FXAA only smooths 3D edges; with no world under the UI it would only soften the panorama.
+fn sync_scene_antialiasing(scene: Res<PanoramaScene>, mut cameras: Query<&mut Fxaa>) {
+    let enabled = scene.game_visible();
+    for mut fxaa in &mut cameras {
+        if fxaa.enabled != enabled {
+            fxaa.enabled = enabled;
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -242,9 +263,10 @@ impl FromWorld for PanoramaPipeline {
             fragment: Some(FragmentState {
                 shader: PANORAMA_SHADER_HANDLE,
                 entry_point: Some("panorama_fragment".into()),
+                // Every fragment writes alpha 1, so blending would only cost bandwidth.
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
-                    blend: Some(BlendState::ALPHA_BLENDING),
+                    blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
                 ..default()
@@ -325,9 +347,10 @@ fn queue_panorama(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<PanoramaPipeline>,
     scene: Res<PanoramaScene>,
-    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
-    draw_functions: Res<DrawFunctions<Transparent3d>>,
+    mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
+    draw_functions: Res<DrawFunctions<Opaque3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+    mut next_tick: Local<Tick>,
 ) {
     if scene.view.is_none() || scene.faces.is_none() {
         return;
@@ -346,20 +369,32 @@ fn queue_panorama(
         ) else {
             continue;
         };
-        phase.add(Transparent3d {
-            entity: (view_entity, *main_entity),
-            pipeline: pipeline_id,
-            draw_function,
-            // Sorts before every other transparent item: it is the backdrop.
-            distance: f32::MIN,
-            batch_range: 0..1,
-            extra_index: PhaseItemExtraIndex::None,
-            indexed: false,
-        });
+        let this_tick = next_tick.get() + 1;
+        next_tick.set(this_tick);
+        phase.add(
+            Opaque3dBatchSetKey {
+                draw_function,
+                pipeline: pipeline_id,
+                material_bind_group_index: None,
+                lightmap_slab: None,
+                vertex_slab: default(),
+                index_slab: None,
+            },
+            Opaque3dBinKey {
+                asset_id: AssetId::<Mesh>::invalid().untyped(),
+            },
+            (view_entity, *main_entity),
+            InputUniformIndex::default(),
+            BinnedRenderPhaseType::NonMesh,
+            *next_tick,
+        );
     }
 }
 
-type DrawPanoramaCommands = (SetItemPipeline, SetPanoramaBindGroup, DrawPanorama);
+type DrawPanoramaCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuPanorama as usize },
+    (SetItemPipeline, SetPanoramaBindGroup, DrawPanorama),
+>;
 
 struct SetPanoramaBindGroup;
 
@@ -419,13 +454,28 @@ mod tests {
 mod review_tests {
     use super::*;
     use crate::queue_review_support as fixture;
-    use bevy::ecs::system::RunSystemOnce;
+    use bevy::{
+        ecs::system::RunSystemOnce, render::batching::gpu_preprocessing::GpuPreprocessingMode,
+    };
+
+    fn opaque_items(app: &App, view: bevy::render::view::RetainedViewEntity) -> usize {
+        app.world().resource::<ViewBinnedRenderPhases<Opaque3d>>()[&view]
+            .non_mesh_items
+            .len()
+    }
+
+    /// The menu scene is one opaque draw: no transparent pass and no sky under it.
     #[test]
     fn review_render_panorama_queue_uses_current_visibility() {
         let (mut app, view) = fixture::app();
         app.init_resource::<PanoramaScene>()
             .init_resource::<PanoramaPipeline>()
-            .add_render_command::<Transparent3d, DrawPanoramaCommands>();
+            .init_resource::<DrawFunctions<Opaque3d>>()
+            .init_resource::<ViewBinnedRenderPhases<Opaque3d>>()
+            .add_render_command::<Opaque3d, DrawPanoramaCommands>();
+        app.world_mut()
+            .resource_mut::<ViewBinnedRenderPhases<Opaque3d>>()
+            .prepare_for_new_frame(view, GpuPreprocessingMode::None);
         app.world_mut()
             .resource_mut::<PanoramaScene>()
             .set_faces(Some(std::sync::Arc::new(
@@ -442,11 +492,68 @@ mod review_tests {
                 tint: [0.0; 4],
             }));
         app.world_mut().run_system_once(queue_panorama).unwrap();
-        assert_eq!(fixture::items(&app, view).len(), 1);
-        fixture::clear(&mut app, view);
+        assert_eq!(opaque_items(&app, view), 1);
+        assert!(fixture::items(&app, view).is_empty());
+        assert!(!app.world().resource::<PanoramaScene>().game_visible());
+        let mut phases = app
+            .world_mut()
+            .resource_mut::<ViewBinnedRenderPhases<Opaque3d>>();
+        phases.clear();
+        phases.prepare_for_new_frame(view, GpuPreprocessingMode::None);
         app.world_mut().resource_mut::<PanoramaGpu>().visible = true;
         app.world_mut().resource_mut::<PanoramaScene>().show(None);
         app.world_mut().run_system_once(queue_panorama).unwrap();
-        assert!(fixture::items(&app, view).is_empty());
+        assert_eq!(opaque_items(&app, view), 0);
+    }
+
+    #[test]
+    fn panorama_draws_without_blending() {
+        let (mut app, _) = fixture::app();
+        let mut pipeline = PanoramaPipeline::from_world(app.world_mut());
+        let mut cache = app.world_mut().resource_mut::<PipelineCache>();
+        let id = pipeline
+            .variants
+            .specialize(
+                &cache,
+                PanoramaPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                },
+            )
+            .unwrap();
+        let descriptor = fixture::queued_descriptor(&mut cache, id);
+        let target = descriptor.fragment.as_ref().unwrap().targets[0].as_ref();
+        assert_eq!(target.unwrap().blend, None);
+    }
+
+    /// FXAA follows whether a 3D scene is under the UI.
+    #[test]
+    fn fxaa_is_off_while_no_world_is_drawn() {
+        let mut app = App::new();
+        app.init_resource::<PanoramaScene>()
+            .add_systems(Update, sync_scene_antialiasing);
+        let camera = app.world_mut().spawn(Fxaa::default()).id();
+        let enabled = |app: &App| app.world().get::<Fxaa>(camera).unwrap().enabled;
+        app.update();
+        assert!(enabled(&app));
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .set_game_visible(false);
+        app.update();
+        assert!(!enabled(&app));
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .set_game_visible(true);
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .show(Some(render_model::PanoramaView {
+                yaw_radians: 0.0,
+                pitch_radians: 0.0,
+                vertical_fov_radians: 1.0,
+                aspect: 1.0,
+                tint: [0.0; 4],
+            }));
+        app.update();
+        assert!(!enabled(&app));
     }
 }

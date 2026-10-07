@@ -1,28 +1,71 @@
-//! Dev-only local-originals mode: with `CINNABAR_OREUI_LOCAL_ASSETS` set, the
-//! OreUI sprite atlases are read at runtime from the developer's own Minecraft
-//! install and packed into one UI page, so the drawn look can be compared with
-//! the originals. The images are Mojang's: never copied, packed or shipped.
+//! Installed OreUI artwork is read once at runtime; no vanilla images are shipped.
+
+mod catalog;
+pub(crate) mod dimensions;
+mod packing;
 
 use std::{
     collections::HashMap,
     fs::File,
     io::{Cursor, Read},
     path::{Path, PathBuf},
+    sync::{Arc, OnceLock},
 };
 
-use image::{AnimationDecoder, ImageDecoder, ImageFormat, ImageReader, Limits};
+use image::{AnimationDecoder, ImageDecoder, ImageReader, Limits};
 use serde::Deserialize;
 
 /// Side of the packed OreUI page.
 pub const OREUI_PAGE_SIDE: u32 = 3072;
 const MAX_ATLAS_JSON_BYTES: u64 = 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
-const MAX_IMAGE_SIDE: u32 = 1024;
-const GUTTER: u32 = 1;
-const MAX_ANIMATION_FRAMES: usize = 32;
-const MAX_ANIMATION_PIXELS_BYTES: usize = 1024 * 1024;
+const MAX_IMAGE_SIDE: u32 = render_model::MAX_UI_TEXTURE_SIDE;
+const MAX_ANIMATION_FRAMES: usize = 256;
+const MAX_ANIMATION_PIXELS_BYTES: usize = 64 * 1024 * 1024;
+const MAX_BUNDLE_FILES: usize = 4096;
+/// Create-world artwork resolves from the installed native bundle.
+pub(crate) const WORLD_PREVIEW: &str = "assets/world-preview-default-d0210bba13d939ca9e72.jpg";
+pub(crate) const WORLD_CATEGORY_ICONS: [&str; 7] = [
+    "assets/general-icon-8ce31666e00cf3491940.png",
+    "assets/advanced-icon-1b6c5b572a777772a78e.png",
+    "assets/multiplayer-icon-d7d04b2a5d3ae87f5ed5.png",
+    "assets/cheats-icon-33f132756175c43752b8.png",
+    "assets/resource-packs-icon-e08f710fbdadb2f3a5a5.png",
+    "assets/behaviour-packs-icon-2f4af74c62b42f1fb412.png",
+    "assets/experimental-features-icon-dca93f83a503a8e269eb.png",
+];
+pub(crate) const HARDCORE_ICON: &str = "assets/hardcore-heart-engraved-75556ce94d9bfdecca12.png";
 /// The pixelated loading animation selected by OreUI `ep`.
 pub(crate) const LOADING_ANIMATION: &str = "assets/animation-074ed0ba8c16bb30e36c.gif";
+pub(crate) const SWITCH_ON_IMAGE: &str = "assets/onImage-b40d0be137ba09eb7464.png";
+pub(crate) const SWITCH_OFF_IMAGE: &str = "assets/offImage-cc9095b148d166ec7212.png";
+pub(crate) const CHEVRON_LEFT_IMAGE: &str =
+    "assets/chevron-left@0.5x.icon-bd82feed3671c96ec201568975cb9b29.png";
+pub(crate) const CHEVRON_UP_IMAGE: &str =
+    "assets/chevron-up@0.5x.icon-bb53390a6964767e019a190f32bf1661.png";
+pub(crate) const CHEVRON_DOWN_IMAGE: &str =
+    "assets/chevron-down@0.5x.icon-0034ec5c85502861a7fba88e1f17681e.png";
+pub(crate) const BASE_PACK_IMAGE: &str = "assets/minecraft-texture-pack-4c96be5bfdd5a55edf09.png";
+pub(crate) const MISSING_PACK_IMAGE: &str = "assets/missing-pack-icon-010c87c773e1a21c8ac7.png";
+pub(crate) const OVERWORLD_BLOCK_IMAGE: &str = "assets/grass_block-fbea7d7f754c51b4ea00.png";
+pub(crate) const SETTINGS_ICON_HIGHLIGHT_IMAGE: &str =
+    "assets/icon-highlight-spritesheet-87ec62988bf89f63558d.png";
+/// Servers status artwork: low, medium, high and pending ping.
+pub(crate) const SERVER_PING_IMAGES: [&str; 4] = [
+    "assets/pingGreen-7f77ca04def817211b2a.png",
+    "assets/pingYellow-62e787f8117760a86807.png",
+    "assets/pingRed-9496c1bbb587d63e1dbe.png",
+    "assets/pingAnimation-4d7a029e5f864843c958.png",
+];
+pub(crate) const SERVER_PLAYERS_IMAGE: &str = "assets/player-online-icon-b63b81863545d7c6a444.png";
+pub(crate) const SERVER_ADD_IMAGE: &str =
+    "assets/plus@1x.icon-bb0896fb794b5ac908344f0de1cc54f0.png";
+/// Play-tab artwork in Worlds, Realms, Servers order.
+pub(crate) const PLAY_TAB_ICONS: [&str; 3] = [
+    "assets/UI_Menu_WorldsTab-dfd408c83c4cf07814b8.png",
+    "assets/UI_Menu_RealmsTab-c7419af9abd527149fcc.png",
+    "assets/UI_Menu_ServerTab-e7c3c035b7d6ba5a414b.png",
+];
 /// Standalone category images from the installed OreUI bundle, in sidebar order.
 pub const INBOX_ICONS: [&str; 5] = [
     "assets/News-f81489154ff3c38f5b5f.png",
@@ -30,6 +73,33 @@ pub const INBOX_ICONS: [&str; 5] = [
     "assets/Invites-6a62211ac071c98b2994.png",
     "assets/MarketplacePass-8eb08ee1dd714dd15307.png",
     "assets/Feedback-ecfce4d670046c25d3df.png",
+];
+
+/// Empty-message illustrations, in the same order as the category icons.
+pub(crate) const INBOX_EMPTY_IMAGES: [&str; 5] = [
+    "assets/Inbox_NoNews-c959e7726f6bab89cf50.png",
+    "assets/Inbox_NoRealmsNews-714f9275b786d6ffa804.png",
+    "assets/Inbox_NoInvites-d82f3107d60a8e227c18.png",
+    "assets/Inbox_NoMarketplacePass-a2fc4019bcd55acf2183.png",
+    "assets/Inbox_NoFeedback-85b4273f92f8e5f1b44a.png",
+];
+
+/// Settings category art, read only from the optional installed bundle.
+pub(crate) const SETTINGS_ICONS: [&str; 14] = [
+    "assets/accessibility-41a033eee6f8f8726f5e.png",
+    "assets/keyboard-mouse-58d767999df54b704830.png",
+    "assets/controls-5b4a0c8bc7ac0539b349.png",
+    "assets/touch-e5c085e0d79f26deb0c9.png",
+    "assets/party-cc4b74f40b6ecac45aaf.png",
+    "assets/work-bench-e18a3804944464e2d854.png",
+    "assets/painting-c9fe53a4df86136c1e14.png",
+    "assets/sound-block-0abbefc33b0871e358ac.png",
+    "assets/account-46c198f87391d9c79cf7.png",
+    "assets/subscriptions-ad5676c80eb176fff46a.png",
+    "assets/chest-67b965a3181be3553287.png",
+    "assets/storage-101411b344fe42108e57.png",
+    "assets/language-47127a2e274f540f09de.png",
+    "assets/command-block-0c312a997f65ebda04a3.png",
 ];
 
 /// Standalone Profile assets named by the version-matched OreUI components.
@@ -65,37 +135,95 @@ pub(crate) const PROFILE_SUMMARY_ICONS: [&str; 4] = [
 ];
 /// Gamerscore art shared by Overview and achievement cards.
 pub(crate) const PROFILE_GAMERSCORE: &str = "assets/gamerscore_icon-53b10130cb6f6c0271cb.png";
-/// All standalone Profile images to pack alongside the atlases.
-const PROFILE_IMAGES: [&str; 20] = [
-    PROFILE_STAT_ICONS[0],
-    PROFILE_STAT_ICONS[1],
-    PROFILE_STAT_ICONS[2],
-    PROFILE_STAT_ICONS[3],
-    PROFILE_BANNERS[0],
-    PROFILE_BANNERS[1],
-    PROFILE_BANNERS[2],
-    PROFILE_BANNERS[3],
-    PROFILE_BANNERS[4],
-    PROFILE_BANNERS[5],
-    PROFILE_BANNERS[6],
-    PROFILE_BANNERS[7],
-    PROFILE_ERRORS[0],
-    PROFILE_ERRORS[1],
-    PROFILE_ERRORS[2],
-    PROFILE_SUMMARY_ICONS[0],
-    PROFILE_SUMMARY_ICONS[1],
-    PROFILE_SUMMARY_ICONS[2],
-    PROFILE_SUMMARY_ICONS[3],
-    PROFILE_GAMERSCORE,
-];
+/// A sprite keeps its original pixel rectangle on one packed page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OreUiSprite {
+    pub page: u16,
+    pub bounds: [u16; 4],
+}
 
-/// The packed OreUI page: RGBA8 pixels (premultiplied) and each bundle image's
-/// pixel rect `[x0, y0, x1, y1]`, keyed by its bundle path (`assets/<name>.png`).
+/// Original pixels and bundle paths are shared by every presentation instance.
+#[derive(Clone)]
 pub struct OreUiImages {
-    pub rgba: Vec<u8>,
-    pub sprites: HashMap<String, [u16; 4]>,
+    pub pages: Vec<OreUiPage>,
+    pub sprites: Arc<HashMap<String, OreUiSprite>>,
     /// Sprite keys and frame durations in milliseconds, in playback order.
-    pub loading_frames: Vec<(String, u32)>,
+    pub loading_frames: Arc<Vec<(String, u32)>>,
+    pub animations: Arc<HashMap<String, Vec<(String, u32)>>>,
+    pub source: Option<Arc<catalog::SourceCatalog>>,
+}
+
+#[derive(Clone)]
+pub struct OreUiPage {
+    pub dimensions: [u32; 2],
+    pub pixels: Arc<[u8]>,
+}
+
+impl OreUiImages {
+    /// Finds both prepared artwork and every discoverable native raster.
+    pub fn contains(&self, key: &str) -> bool {
+        self.sprites.contains_key(key)
+            || self
+                .source
+                .as_ref()
+                .is_some_and(|source| source.contains(key))
+    }
+
+    /// Prepares a screen's additional artwork without changing source resolution.
+    pub fn with_artwork(&self, keys: &[&str]) -> Result<Self, String> {
+        self.with_artwork_budget(keys, render_model::MAX_UI_TEXTURE_BYTES)
+    }
+
+    pub(crate) fn with_artwork_budget(
+        &self,
+        keys: &[&str],
+        byte_limit: usize,
+    ) -> Result<Self, String> {
+        let mut missing: Vec<_> = keys
+            .iter()
+            .filter(|key| !self.sprites.contains_key(**key))
+            .map(|key| (*key).to_owned())
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        if missing.is_empty() {
+            return Ok(self.clone());
+        }
+        let source = self
+            .source
+            .as_ref()
+            .ok_or("OreUI source artwork is unavailable")?;
+        let resident = self
+            .pages
+            .iter()
+            .map(|page| page.pixels.len())
+            .sum::<usize>();
+        let available = byte_limit
+            .checked_sub(resident)
+            .ok_or("OreUI resident artwork exceeds the texture budget")?;
+        let prepared = source.prepare(&missing, available)?;
+        let offset = u16::try_from(self.pages.len()).map_err(|_| "OreUI texture page overflow")?;
+        let mut sprites = (*self.sprites).clone();
+        for (key, sprite) in &prepared.sprites {
+            let mut sprite = *sprite;
+            sprite.page = sprite
+                .page
+                .checked_add(offset)
+                .ok_or("OreUI texture page overflow")?;
+            sprites.insert(key.clone(), sprite);
+        }
+        let mut pages = self.pages.clone();
+        pages.extend(prepared.pages.iter().cloned());
+        let mut animations = (*self.animations).clone();
+        animations.extend(prepared.animations.clone());
+        Ok(Self {
+            pages,
+            sprites: Arc::new(sprites),
+            animations: Arc::new(animations),
+            loading_frames: self.loading_frames.clone(),
+            source: self.source.clone(),
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -114,144 +242,282 @@ struct AtlasRect {
     height: u32,
 }
 
-/// The bundle named by `CINNABAR_OREUI_LOCAL_ASSETS`: an install root or its
-/// `data/gui/dist/hbui`. Dev-only; nothing is read without it.
-fn bundle_dir() -> Option<PathBuf> {
-    let root = PathBuf::from(std::env::var_os("CINNABAR_OREUI_LOCAL_ASSETS")?);
-    [root.clone(), root.join("data/gui/dist/hbui")]
-        .into_iter()
-        .find(|dir| dir.join("atlas.json").is_file())
-}
-
-/// The packed originals when the dev mode names a usable bundle.
-pub fn load_optional_oreui_images() -> Option<OreUiImages> {
-    let Some(dir) = bundle_dir() else {
-        if std::env::var_os("CINNABAR_OREUI_LOCAL_ASSETS").is_some() {
-            eprintln!(
-                "CINNABAR_OREUI_LOCAL_ASSETS has no OreUI bundle; OreUI screens use the drawn look"
-            );
-        }
-        return None;
-    };
-    match load(&dir) {
-        Ok(images) => {
-            eprintln!(
-                "OreUI local-originals mode: {} ({} sprites)",
-                dir.display(),
-                images.sprites.len()
-            );
-            Some(images)
-        }
-        Err(reason) => {
-            eprintln!(
-                "OreUI bundle at {} unusable ({reason}); OreUI screens use the drawn look",
-                dir.display()
-            );
-            None
+/// Finds the installed bundle, with an explicit path taking precedence.
+pub fn bundle_dir() -> Option<PathBuf> {
+    if let Some(root) = std::env::var_os("CINNABAR_OREUI_LOCAL_ASSETS") {
+        return bundle_at(Path::new(&root));
+    }
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        roots.push(home.join(
+            "Library/Containers/io.playcover.PlayCover/Applications/com.mojang.minecraftpe.app",
+        ));
+        roots.push(home.join("Applications/Minecraft.app"));
+    }
+    roots.push(PathBuf::from("/Applications/Minecraft.app"));
+    roots.push(PathBuf::from(".local/assets/oreui"));
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        let packages = PathBuf::from(program_files).join("WindowsApps");
+        if let Ok(entries) = std::fs::read_dir(packages) {
+            roots.extend(entries.take(256).flatten().filter_map(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .filter(|name| name.starts_with("Microsoft.MinecraftUWP_"))
+                    .map(|_| entry.path())
+            }));
         }
     }
+    roots.into_iter().find_map(|root| bundle_at(&root))
+}
+
+fn bundle_at(root: &Path) -> Option<PathBuf> {
+    [
+        root.to_path_buf(),
+        root.join("data/gui/dist/hbui"),
+        root.join("gui/dist/hbui"),
+    ]
+    .into_iter()
+    .find(|dir| dir.join("atlas.json").is_file())
+}
+
+/// Decodes an installed bundle once; subsequent hosts share the original pixels.
+pub fn load_optional_oreui_images() -> Option<OreUiImages> {
+    static IMAGES: OnceLock<Option<OreUiImages>> = OnceLock::new();
+    IMAGES
+        .get_or_init(|| {
+            let native = bundle_dir().and_then(|dir| match load(&dir) {
+                Ok(images) => {
+                    eprintln!(
+                        "OreUI installed assets: {} ({} sprites, {} pages)",
+                        dir.display(),
+                        images.sprites.len(),
+                        images.pages.len()
+                    );
+                    Some(images)
+                }
+                Err(reason) => {
+                    eprintln!("OreUI bundle at {} unusable ({reason})", dir.display());
+                    None
+                }
+            });
+            let mut images = native.unwrap_or_else(|| OreUiImages {
+                pages: Vec::new(),
+                sprites: Default::default(),
+                loading_frames: Default::default(),
+                animations: Default::default(),
+                source: None,
+            });
+            dimensions::install(&mut images);
+            (!images.pages.is_empty()).then_some(images)
+        })
+        .clone()
 }
 
 fn load(dir: &Path) -> Result<OreUiImages, String> {
     let json = read_bounded(&dir.join("atlas.json"), MAX_ATLAS_JSON_BYTES)?;
     let atlases: Vec<AtlasFile> =
         serde_json::from_slice(&json).map_err(|error| format!("atlas.json: {error}"))?;
-    let side = OREUI_PAGE_SIDE as usize;
-    let mut rgba = vec![0u8; side * side * 4];
+    let mut pack = packing::Pages::default();
     let mut sprites = HashMap::new();
-    let (mut x, mut y, mut shelf) = (0u32, 0u32, 0u32);
+    let mut masks = Vec::new();
     for atlas in &atlases {
-        let (width, height, pixels) = decode(&dir.join(&atlas.name))?;
+        let (width, height, pixels) = decode(&bundle_path(dir, &atlas.name)?)?;
         if width != atlas.width || height != atlas.height {
             return Err(format!("{} does not match atlas.json", atlas.name));
         }
-        if x + width > OREUI_PAGE_SIDE {
-            x = 0;
-            y += shelf + GUTTER;
-            shelf = 0;
-        }
-        if y + height > OREUI_PAGE_SIDE {
-            return Err("atlases do not fit one page".to_owned());
-        }
-        blit(&mut rgba, side, x, y, &pixels, width, height);
+        let sprite = pack.insert(&pixels, width, height)?;
         for (path, rect) in &atlas.coordinates {
-            if rect.x + rect.width > width || rect.y + rect.height > height {
+            if rect
+                .x
+                .checked_add(rect.width)
+                .is_none_or(|right| right > width)
+                || rect
+                    .y
+                    .checked_add(rect.height)
+                    .is_none_or(|bottom| bottom > height)
+                || rect.width == 0
+                || rect.height == 0
+            {
                 continue;
             }
-            let (left, top) = ((x + rect.x) as u16, (y + rect.y) as u16);
+            let [left, top, _, _] = sprite.bounds;
             sprites.insert(
                 path.clone(),
-                [
-                    left,
-                    top,
-                    left + rect.width as u16,
-                    top + rect.height as u16,
-                ],
+                OreUiSprite {
+                    page: sprite.page,
+                    bounds: [
+                        left + rect.x as u16,
+                        top + rect.y as u16,
+                        left + (rect.x + rect.width) as u16,
+                        top + (rect.y + rect.height) as u16,
+                    ],
+                },
             );
+            if is_mask(path) {
+                let mut cropped = Vec::with_capacity((rect.width * rect.height * 4) as usize);
+                for y in rect.y..rect.y + rect.height {
+                    let start = ((y * width + rect.x) * 4) as usize;
+                    cropped.extend_from_slice(&pixels[start..start + rect.width as usize * 4]);
+                }
+                masks.push((path.clone(), rect.width, rect.height, alpha_mask(&cropped)));
+            }
         }
-        x += width + GUTTER;
-        shelf = shelf.max(height);
     }
-    for key in INBOX_ICONS.into_iter().chain(PROFILE_IMAGES) {
-        if !dir.join(key).is_file() {
+    let mut files = Vec::new();
+    collect_rasters(dir, &dir.join("assets"), &mut files)?;
+    let source = Arc::new(catalog::SourceCatalog::new(files.iter().cloned().collect()));
+    let mut dimensions = Vec::new();
+    for (key, path) in files {
+        if sprites.contains_key(&key) {
             continue;
         }
-        let (width, height, pixels) = decode(&dir.join(key))?;
-        if x + width > OREUI_PAGE_SIDE {
-            x = 0;
-            y += shelf + GUTTER;
-            shelf = 0;
+        let reader = image_reader(&path)?;
+        let (width, height) = reader
+            .into_dimensions()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let animated = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"));
+        let required = if animated {
+            key == LOADING_ANIMATION || key.starts_with("assets/sleep_")
+        } else {
+            width <= 256 && height <= 256
+                || PROFILE_BANNERS.contains(&key.as_str())
+                || key == WORLD_PREVIEW
+        };
+        if required {
+            dimensions.push((width, height, key, path));
         }
-        if y + height > OREUI_PAGE_SIDE {
-            return Err("OreUI images do not fit one page".into());
-        }
-        blit(&mut rgba, side, x, y, &pixels, width, height);
-        sprites.insert(
-            key.into(),
-            [x as u16, y as u16, (x + width) as u16, (y + height) as u16],
-        );
-        x += width + GUTTER;
-        shelf = shelf.max(height);
     }
-    let mut loading_frames = Vec::new();
-    if dir.join(LOADING_ANIMATION).is_file() {
-        for (index, (width, height, pixels, millis)) in decode_animation(&read_bounded(
-            &dir.join(LOADING_ANIMATION),
-            MAX_IMAGE_BYTES,
-        )?)?
-        .into_iter()
-        .enumerate()
+    dimensions.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)).then(a.2.cmp(&b.2)));
+    let mut animations = HashMap::new();
+    for (_, _, key, path) in dimensions {
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"))
         {
-            if x + width > OREUI_PAGE_SIDE {
-                x = 0;
-                y += shelf + GUTTER;
-                shelf = 0;
+            let frames = decode_animation(&read_bounded(&path, MAX_IMAGE_BYTES)?)?;
+            let mut animation = Vec::new();
+            for (index, (width, height, pixels, millis)) in frames.into_iter().enumerate() {
+                let sprite = pack.insert(&pixels, width, height)?;
+                if index == 0 {
+                    sprites.insert(key.clone(), sprite);
+                }
+                let frame = format!("{key}#{index}");
+                sprites.insert(frame.clone(), sprite);
+                animation.push((frame, millis));
             }
-            if y + height > OREUI_PAGE_SIDE {
-                return Err("OreUI animation does not fit one page".into());
+            animations.insert(key, animation);
+        } else {
+            let (width, height, pixels) = decode(&path)?;
+            let sprite = pack.insert(&pixels, width, height)?;
+            if is_mask(&key) {
+                let mask = alpha_mask(&pixels);
+                sprites.insert(format!("@mask/{key}"), pack.insert(&mask, width, height)?);
             }
-            blit(&mut rgba, side, x, y, &pixels, width, height);
-            let key = format!("{LOADING_ANIMATION}#{index}");
-            sprites.insert(
-                key.clone(),
-                [x as u16, y as u16, (x + width) as u16, (y + height) as u16],
-            );
-            loading_frames.push((key, millis));
-            x += width + GUTTER;
-            shelf = shelf.max(height);
+            sprites.insert(key, sprite);
         }
     }
+    masks.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)).then(a.0.cmp(&b.0)));
+    for (key, width, height, pixels) in masks {
+        sprites.insert(format!("@mask/{key}"), pack.insert(&pixels, width, height)?);
+    }
+    let loading_frames = animations
+        .get(LOADING_ANIMATION)
+        .cloned()
+        .unwrap_or_default();
     Ok(OreUiImages {
-        rgba,
-        sprites,
-        loading_frames,
+        pages: pack.finish(),
+        sprites: Arc::new(sprites),
+        loading_frames: Arc::new(loading_frames),
+        animations: Arc::new(animations),
+        source: Some(source),
     })
 }
 
-/// A decoded GIF frame: width, height, premultiplied RGBA8 pixels and duration in milliseconds.
+fn bundle_path(dir: &Path, key: &str) -> Result<PathBuf, String> {
+    let path = Path::new(key);
+    if path
+        .components()
+        .any(|part| !matches!(part, std::path::Component::Normal(_)))
+    {
+        return Err(format!("invalid OreUI asset path: {key}"));
+    }
+    Ok(dir.join(path))
+}
+
+fn collect_rasters(
+    dir: &Path,
+    at: &Path,
+    files: &mut Vec<(String, PathBuf)>,
+) -> Result<(), String> {
+    let Ok(entries) = std::fs::read_dir(at) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let kind = entry.file_type().map_err(|error| error.to_string())?;
+        if kind.is_dir() {
+            collect_rasters(dir, &entry.path(), files)?;
+        } else if kind.is_file()
+            && entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| {
+                    matches!(
+                        ext.to_ascii_lowercase().as_str(),
+                        "png" | "jpg" | "jpeg" | "gif" | "webp"
+                    )
+                })
+        {
+            if files.len() >= MAX_BUNDLE_FILES {
+                return Err("OreUI bundle has too many raster assets".into());
+            }
+            let path = entry.path();
+            let key = path
+                .strip_prefix(dir)
+                .map_err(|error| error.to_string())?
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.push((key, path));
+        }
+    }
+    Ok(())
+}
+
+fn image_reader(path: &Path) -> Result<ImageReader<Cursor<Vec<u8>>>, String> {
+    let bytes = read_bounded(path, MAX_IMAGE_BYTES)?;
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_IMAGE_SIDE);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    Ok(reader)
+}
+
+fn is_mask(key: &str) -> bool {
+    key.contains(".icon-") || key == SWITCH_ON_IMAGE || key == SWITCH_OFF_IMAGE
+}
+
+fn alpha_mask(pixels: &[u8]) -> Vec<u8> {
+    pixels
+        .chunks_exact(4)
+        .flat_map(|pixel| [255, 255, 255, pixel[3]])
+        .collect()
+}
+
+/// A decoded GIF frame: width, height, straight RGBA8 pixels and duration in milliseconds.
 type AnimationFrame = (u32, u32, Vec<u8>, u32);
 
-/// Decodes bounded GIF frames with their own timing and premultiplied pixels.
+/// Decodes bounded GIF frames with their own timing and original pixels.
 fn decode_animation(bytes: &[u8]) -> Result<Vec<AnimationFrame>, String> {
     let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes))
         .map_err(|error| error.to_string())?;
@@ -273,28 +539,14 @@ fn decode_animation(bytes: &[u8]) -> Result<Vec<AnimationFrame>, String> {
         let millis = numerator.div_ceil(denominator).max(1);
         let buffer = frame.into_buffer();
         let (width, height) = buffer.dimensions();
-        let mut pixels = buffer.into_raw();
+        let pixels = buffer.into_raw();
         decoded_bytes += pixels.len();
         if decoded_bytes > MAX_ANIMATION_PIXELS_BYTES {
             return Err("OreUI animation pixels are too large".into());
         }
-        for pixel in pixels.chunks_exact_mut(4) {
-            let alpha = u16::from(pixel[3]);
-            for channel in &mut pixel[..3] {
-                *channel = ((u16::from(*channel) * alpha + 127) / 255) as u8;
-            }
-        }
         frames.push((width, height, pixels, millis));
     }
     Ok(frames)
-}
-
-fn blit(target: &mut [u8], side: usize, x: u32, y: u32, source: &[u8], width: u32, height: u32) {
-    let row = width as usize * 4;
-    for line in 0..height as usize {
-        let start = ((y as usize + line) * side + x as usize) * 4;
-        target[start..start + row].copy_from_slice(&source[line * row..(line + 1) * row]);
-    }
 }
 
 fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
@@ -309,32 +561,15 @@ fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// A PNG as premultiplied RGBA8, matching the UI pipeline's blending.
+/// The shader applies alpha, so uploaded pixels retain straight source RGB.
 fn decode(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
-    let bytes = read_bounded(path, MAX_IMAGE_BYTES)?;
-    let format = if path.extension().is_some_and(|ext| ext == "jpg") {
-        ImageFormat::Jpeg
-    } else {
-        ImageFormat::Png
-    };
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_IMAGE_SIDE);
-    limits.max_image_height = Some(MAX_IMAGE_SIDE);
-    reader.limits(limits);
+    let reader = image_reader(path)?;
     let image = reader
         .decode()
         .map_err(|error| format!("{}: {error}", path.display()))?
         .into_rgba8();
     let (width, height) = image.dimensions();
-    let mut pixels = image.into_raw();
-    for pixel in pixels.chunks_exact_mut(4) {
-        let alpha = u16::from(pixel[3]);
-        for channel in &mut pixel[..3] {
-            *channel = ((u16::from(*channel) * alpha + 127) / 255) as u8;
-        }
-    }
-    Ok((width, height, pixels))
+    Ok((width, height, image.into_raw()))
 }
 
 #[cfg(test)]
@@ -394,7 +629,7 @@ mod tests {
         }
         let images = load(&dir).unwrap();
         for name in PROFILE_BANNERS {
-            let [left, top, right, bottom] = images.sprites[name];
+            let [left, top, right, bottom] = images.sprites[name].bounds;
             assert_eq!((right - left, bottom - top), (960, 540));
         }
         std::fs::remove_dir_all(&dir).unwrap();
@@ -417,12 +652,105 @@ mod tests {
         )
         .unwrap();
         let images = load(&dir).unwrap();
-        assert_eq!(images.sprites["assets/x.png"], [1, 0, 3, 2]);
-        assert_eq!(images.sprites["assets/y.png"], [5, 0, 7, 2]);
+        assert_eq!(images.sprites["assets/x.png"].bounds, [1, 0, 3, 2]);
+        assert_eq!(images.sprites["assets/y.png"].bounds, [5, 0, 7, 2]);
         assert!(!images.sprites.contains_key("assets/bad.png"));
-        // Premultiplied: half-alpha green halves its channel.
+        // The shader applies alpha once, after sampling the original RGB.
         let pixel = (5 * 4) as usize;
-        assert_eq!(&images.rgba[pixel..pixel + 4], &[0, 128, 0, 128]);
+        assert_eq!(&images.pages[0].pixels[pixel..pixel + 4], &[0, 255, 0, 128]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn standalone_art_masks_and_demand_pages_keep_source_pixels_and_reuse_cache() {
+        let dir = std::env::temp_dir().join(format!("oreui-catalog-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("atlas.json"), "[]").unwrap();
+        let icon = "assets/unlisted.icon-example.png";
+        let background = "assets/unlisted-background.png";
+        let animation = "assets/unlisted-animation.gif";
+        image::RgbaImage::from_pixel(13, 7, image::Rgba([19, 22, 24, 128]))
+            .save(dir.join(icon))
+            .unwrap();
+        image::RgbaImage::from_pixel(3840, 1, image::Rgba([40, 70, 90, 128]))
+            .save(dir.join(background))
+            .unwrap();
+        std::fs::write(dir.join(animation), synthetic_animation(2)).unwrap();
+        let core = load(&dir).unwrap();
+        assert!(core.contains(background) && core.contains(animation));
+        assert!(!core.sprites.contains_key(background));
+        assert!(!core.sprites.contains_key(animation));
+        let texel = |images: &OreUiImages, key: &str| {
+            let sprite = images.sprites[key];
+            let page = &images.pages[usize::from(sprite.page)];
+            let start = (usize::from(sprite.bounds[1]) * page.dimensions[0] as usize
+                + usize::from(sprite.bounds[0]))
+                * 4;
+            <[u8; 4]>::try_from(&page.pixels[start..start + 4]).unwrap()
+        };
+        assert_eq!(texel(&core, icon), [19, 22, 24, 128]);
+        assert_eq!(texel(&core, &format!("@mask/{icon}")), [255, 255, 255, 128]);
+        image::RgbaImage::from_pixel(3840, 1, image::Rgba([100, 70, 90, 128]))
+            .save(dir.join(background))
+            .unwrap();
+        let first = core.with_artwork(&[background, animation]).unwrap();
+        assert_eq!(texel(&first, background), [100, 70, 90, 128]);
+        assert_eq!(
+            first.pages[usize::from(first.sprites[background].page)].dimensions,
+            [3840, 1]
+        );
+        assert_eq!(first.animations[animation].len(), 2);
+        std::fs::remove_file(dir.join(background)).unwrap();
+        std::fs::remove_file(dir.join(animation)).unwrap();
+        let second = core
+            .with_artwork(&[animation, background, background])
+            .unwrap();
+        assert!(
+            first
+                .pages
+                .iter()
+                .zip(&second.pages)
+                .all(|(a, b)| Arc::ptr_eq(&a.pixels, &b.pixels))
+        );
+        assert!(core.with_artwork(&["../outside.png"]).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn installed_core_has_native_settings_art_within_texture_budget() {
+        let Some(dir) = bundle_dir() else {
+            eprintln!(
+                "skipping installed_core_has_native_settings_art_within_texture_budget: installed OreUI bundle unavailable"
+            );
+            return;
+        };
+        let images = load(&dir).unwrap();
+        for key in SETTINGS_ICONS.into_iter().chain([
+            OVERWORLD_BLOCK_IMAGE,
+            SETTINGS_ICON_HIGHLIGHT_IMAGE,
+            SWITCH_ON_IMAGE,
+            SWITCH_OFF_IMAGE,
+            CHEVRON_LEFT_IMAGE,
+        ]) {
+            assert!(
+                images.sprites.contains_key(key),
+                "missing native settings art: {key}"
+            );
+        }
+        for key in [SWITCH_ON_IMAGE, SWITCH_OFF_IMAGE, CHEVRON_LEFT_IMAGE] {
+            assert!(images.sprites.contains_key(&format!("@mask/{key}")));
+        }
+        let mut files = Vec::new();
+        collect_rasters(&dir, &dir.join("assets"), &mut files).unwrap();
+        assert!(files.iter().all(|(key, _)| images.contains(key)));
+        assert_eq!(images.source.as_ref().unwrap().len(), files.len());
+        assert!(
+            images
+                .pages
+                .iter()
+                .map(|page| page.pixels.len())
+                .sum::<usize>()
+                < render_model::MAX_UI_TEXTURE_BYTES / 2
+        );
     }
 }

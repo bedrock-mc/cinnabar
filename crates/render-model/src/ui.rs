@@ -12,8 +12,11 @@ pub const MAX_UI_BATCHES: usize = 8_192;
 pub const MAX_UI_DRAW_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_UI_TEXTURE_SIDE: u32 = 4_096;
 pub const MAX_UI_TEXTURE_LAYERS: u32 = 256;
-/// Fits the CJK-fallback font pages plus the JSON-UI atlas beside the HUD and icon pages.
-pub const MAX_UI_TEXTURE_BYTES: usize = 128 * 1024 * 1024;
+/// Keeps the ordinary UI budget available beside the reserved Unicode fallback pages.
+pub const MAX_UI_TEXTURE_BYTES: usize = 128 * 1024 * 1024
+    + assets::FONT_FALLBACK_ATLAS_SIDE as usize
+        * assets::FONT_FALLBACK_ATLAS_SIDE as usize
+        * assets::MAX_FONT_FALLBACK_PAGES;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
@@ -58,8 +61,32 @@ impl UiScissor {
 pub const UI_BLEND_ALPHA: u32 = 0;
 /// Wire value for the crosshair invert blend (src*(1-dst) + dst*(1-src)).
 pub const UI_BLEND_INVERT: u32 = 1;
+/// Animated item glint; the only vertex style that changes pixels without a new revision.
+pub const UI_STYLE_GLINT: u32 = 1 << 1;
 /// Reject sampled texture alpha below one half before multiplying vertex alpha.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
+/// Texture alpha weights dye color; every surviving sampled texel is opaque.
+pub const UI_STYLE_COLOR_MASK: u32 = 1 << 7;
+
+#[cfg(test)]
+mod style_tests {
+    use super::*;
+
+    #[test]
+    fn font_coverage_never_enables_opaque_model_color_masks() {
+        for rendering in [
+            assets::FontRendering::Coverage,
+            assets::FontRendering::NativeCoverage,
+            assets::FontRendering::NativeSdf,
+        ] {
+            assert_eq!(
+                u32::from(rendering.style_flags()) & UI_STYLE_COLOR_MASK,
+                0,
+                "text coverage must remain transparent outside glyphs"
+            );
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UiRenderBatch {
@@ -194,6 +221,17 @@ impl UiRenderInput {
         validate_batches(self)?;
         Ok(())
     }
+
+    /// Same revision, viewport and safe area over the very same buffers.
+    fn shares_buffers(&self, other: &Self) -> bool {
+        self.revision == other.revision
+            && self.viewport_size == other.viewport_size
+            && self.safe_area == other.safe_area
+            && Arc::ptr_eq(&self.vertices, &other.vertices)
+            && Arc::ptr_eq(&self.indices, &other.indices)
+            && Arc::ptr_eq(&self.batches, &other.batches)
+            && Arc::ptr_eq(&self.textures, &other.textures)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -257,6 +295,15 @@ impl UiRenderScene {
         input: UiRenderInput,
         stats: &UiRenderStats,
     ) -> Result<(), UiRenderReject> {
+        // The UI republishes its last frame unchanged most of the time; the admitted copy
+        // was already validated, so identical buffers need no per-vertex work.
+        if self
+            .input
+            .as_deref()
+            .is_some_and(|current| current.shares_buffers(&input))
+        {
+            return Ok(());
+        }
         let revision = input.revision;
         let result = input.validate().and_then(|()| {
             if revision < self.revision

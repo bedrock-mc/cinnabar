@@ -75,7 +75,7 @@ pub(super) fn compile(
     let routes = parse_block_item_routes()?;
     let bindings = item_bindings::reviewed()?;
     let legacy = legacy_icons::reviewed()?;
-    // Vanilla draws an item as its block only when it is that block's own BlockItem: an item
+    // Vanilla draws an item as its block only when it is that block's own block item: an item
     // the retail client gives a legacy icon, or one placing a differently named block, keeps
     // its sprite.
     let sprite_first = legacy
@@ -86,8 +86,12 @@ pub(super) fn compile(
         })
         .chain(routes.placers.iter().cloned())
         .collect::<BTreeSet<_>>();
-    let block_wins =
-        |key: &ItemVisualKey| routes.routes.contains_key(key) && !sprite_first.contains(key);
+    // Banner models replace their legacy sign fallback; beds keep their dye-selected sprites.
+    let block_wins = |key: &ItemVisualKey| {
+        routes.routes.contains_key(key)
+            && (key.identifier.as_ref() == "minecraft:banner"
+                || (!sprite_first.contains(key) && key.identifier.as_ref() != "minecraft:bed"))
+    };
     let binding_source = *source_indices
         .get(item_bindings::SOURCE_PATH)
         .ok_or_else(|| invalid("reviewed default sprite binding source is absent"))?;
@@ -143,11 +147,11 @@ pub(super) fn compile(
                 if block_wins(&key) {
                     continue;
                 }
-                let route = source_indices.get(variant.source_path.as_ref()).map_or(
+                let route = texture_source_index(&source_indices, &variant.source_path).map_or(
                     ItemVisualDefinitionRoute::Missing,
                     |source| ItemVisualDefinitionRoute::Sprite {
                         texture: ItemTextureReference {
-                            source: *source,
+                            source,
                             variant: variant.variant,
                         },
                     },
@@ -195,11 +199,11 @@ pub(super) fn compile(
                     ));
                 }
             }
-            let route = source_indices.get(variant.source_path.as_ref()).map_or(
+            let route = texture_source_index(&source_indices, &variant.source_path).map_or(
                 ItemVisualDefinitionRoute::Missing,
                 |source| ItemVisualDefinitionRoute::Sprite {
                     texture: ItemTextureReference {
-                        source: *source,
+                        source,
                         variant: variant.variant,
                     },
                 },
@@ -223,6 +227,9 @@ pub(super) fn compile(
                 identifier: legacy.identifier.into(),
                 metadata: legacy.metadata,
             };
+            if block_wins(&key) {
+                continue;
+            }
             // Exact atlas keys stay authoritative; a legacy icon replaces a block route.
             let exact_sprite = definitions.get(&key).is_some_and(|(_, route)| {
                 !matches!(route, ItemVisualDefinitionRoute::BlockItem { .. })
@@ -237,11 +244,11 @@ pub(super) fn compile(
             let Some(variant) = variants.get(legacy.variant) else {
                 continue;
             };
-            let route = source_indices.get(variant.source_path.as_ref()).map_or(
+            let route = texture_source_index(&source_indices, &variant.source_path).map_or(
                 ItemVisualDefinitionRoute::Missing,
                 |source| ItemVisualDefinitionRoute::Sprite {
                     texture: ItemTextureReference {
-                        source: *source,
+                        source,
                         variant: variant.variant,
                     },
                 },
@@ -338,7 +345,7 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
 }
 
 /// Retail items named after a registry block the reviewed table omits (saplings, mushrooms,
-/// torchflower) are that block's `BlockItem`, drawn from its first canonical state.
+/// torchflower) are that block's block item, drawn from its first canonical state.
 fn add_retail_block_items(
     routes: &mut BTreeMap<ItemVisualKey, BlockVisualId>,
     reviewed_blocks: &BTreeSet<Box<str>>,
@@ -417,6 +424,14 @@ fn parse_texture_variants(definition: &Value) -> Result<Vec<TextureVariant>, Ass
         .collect()
 }
 
+/// Atlas stems prefer PNG and fall back to TGA, matching terrain texture resolution.
+fn texture_source_index(sources: &BTreeMap<&str, u32>, path: &str) -> Option<u32> {
+    sources.get(path).copied().or_else(|| {
+        let stem = path.strip_suffix(".png")?;
+        sources.get(format!("{stem}.tga").as_str()).copied()
+    })
+}
+
 fn canonical_texture_path(texture: &str) -> String {
     if texture.ends_with(".png") || texture.ends_with(".tga") {
         texture.replace('\\', "/")
@@ -448,6 +463,24 @@ fn read_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atlas_stems_resolve_tga_sources_and_prefer_an_existing_png() {
+        let mut sources = BTreeMap::from([("textures/items/leather_helmet.tga", 4)]);
+        assert_eq!(
+            texture_source_index(&sources, "textures/items/leather_helmet.png"),
+            Some(4)
+        );
+        sources.insert("textures/items/leather_helmet.png", 9);
+        assert_eq!(
+            texture_source_index(&sources, "textures/items/leather_helmet.png"),
+            Some(9)
+        );
+        assert_eq!(
+            texture_source_index(&sources, "textures/items/absent.png"),
+            None
+        );
+    }
 
     #[test]
     fn reviewed_routes_require_the_exact_dragonfly_version_and_module_sum() {

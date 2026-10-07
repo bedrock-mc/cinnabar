@@ -1,4 +1,4 @@
-//! Connection-state collision boxes from FenceBlock and ThinFenceBlock.
+//! Connection-state collision boxes for fences and thin panes/bars.
 
 use assets::RegistryRecord;
 use sim::{Aabb, Vec3};

@@ -33,6 +33,7 @@ fn reference_matrices(
 /// Creates a complete actor submission without any equipment or asset dependency.
 fn submission(runtime_id: u64, bones: usize) -> ActorRigSubmission {
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -81,6 +82,24 @@ fn append_preserves_existing_matrices_and_reuses_the_final_arena_allocation() {
 }
 
 #[test]
+fn draw_light_multiplier_keeps_finite_values_and_defaults_non_finite_inputs() {
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    assert_eq!(ActorGpuInstance::default().light_color_multiplier, 1.0);
+    for value in [-0.25, 0.5, 1.8, f32::NAN, f32::INFINITY] {
+        let mut input = submission(1, 1);
+        input.material.light_color_multiplier = value;
+        let frame = builder.build(0.5, None, [input]);
+        assert_eq!(frame.instances.len(), 1);
+        assert_eq!(
+            frame.instances[0].light_color_multiplier,
+            if value.is_finite() { value } else { 1.0 }
+        );
+    }
+}
+
+#[test]
 fn invalid_late_bones_roll_back_the_entire_pose_without_touching_the_prefix() {
     for invalid in [
         RenderBoneTransform {
@@ -123,6 +142,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
         current_bones.extend(reference_matrices(&input.input.current_bones, &pivots).unwrap());
         let instance_index = instances.len() as u32;
         instances.push(ActorGpuInstance {
+            glint: input.material.glint.parameters(),
             world_from_actor: input.world_from_actor,
             previous_bone_base: base,
             current_bone_base: base,
@@ -135,6 +155,9 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             light: input.light,
             overlay_rgba8: input.overlay_rgba8,
             multitexture_layers: [u32::MAX; 2],
+            material: input.material.kind as u32,
+            dissolve_multiplier: input.material.dissolve_multiplier,
+            light_color_multiplier: input.material.light_color_multiplier,
         });
         manifest.push(ActorDrawManifestEntry {
             identity: input.input.identity,
@@ -345,4 +368,41 @@ fn review_render_pose_cache_accounts_for_changed_bone_pivots() {
     assert!(cache.append(&mut actual, &pose, EntityRigId(3), &pivots));
     assert_eq!(actual, expected);
     assert_ne!(actual, old);
+}
+
+#[test]
+fn draw_readiness_shares_rejections_without_changing_frame_or_cache_state() {
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let good = submission(1, 1);
+    assert!(builder.can_draw_submission(&good));
+    assert_eq!(builder.frame_generation, 0);
+    assert!(builder.matrices.entries.is_empty());
+    assert_eq!(builder.build(0.0, None, [good.clone()]).instances.len(), 1);
+    for change in 0..5 {
+        let generation = builder.frame_generation;
+        let cached = builder.matrices.entries.len();
+        let mut bad = good.clone();
+        match change {
+            0 => bad.route = ActorRigRoute::NoDraw,
+            1 => bad.input.rig = EntityRigId(u32::MAX),
+            2 => bad.input.reset_generation = u64::MAX,
+            3 => bad.world_from_actor[0][0] = f32::NAN,
+            _ => {
+                let mut bone = bone(0);
+                bone.rotation = [0.0; 4];
+                bad.input.current_bones = Arc::from([bone]);
+            }
+        }
+        let allocated = crate::alloc_count::thread_allocations();
+        assert!(!builder.can_draw_submission(&bad));
+        assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+        assert_eq!(builder.frame_generation, generation);
+        assert_eq!(builder.matrices.entries.len(), cached);
+        assert!(builder.build(0.0, None, [bad]).instances.is_empty());
+    }
+    builder.frame_generation = u64::MAX;
+    assert!(!builder.can_draw_submission(&good));
+    assert!(builder.build(0.0, None, [good]).instances.is_empty());
 }

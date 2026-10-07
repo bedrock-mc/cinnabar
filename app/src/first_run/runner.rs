@@ -1,21 +1,25 @@
-//! Executes the preparation plan and publishes the finished carriers.
+//! Runs the bundled `assetc prepare` and publishes the finished carriers.
 
 use std::{
+    ffi::OsString,
     fs::{self, File},
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     time::Duration,
 };
 
 use anyhow::{Context, Result, anyhow};
-
-use super::plan::{Action, Step};
+use assets::carriers;
+use serde::Deserialize;
 
 const CANCEL_POLL: Duration = Duration::from_millis(100);
 
-/// The user stopped setup; running steps are killed and nothing is published.
+/// The user stopped setup; the compiler is killed and nothing is published.
 #[derive(Debug)]
 pub(super) struct Cancelled;
 
@@ -27,49 +31,210 @@ impl std::fmt::Display for Cancelled {
 
 impl std::error::Error for Cancelled {}
 
-/// Runs `steps` in order; a failed required step aborts, a failed optional step is returned as skipped.
-pub(super) fn execute_steps(
-    steps: &[Step],
-    mut exec: impl FnMut(&Step) -> Result<()>,
-    mut progress: impl FnMut(usize, &Step),
-) -> Result<Vec<&'static str>> {
-    let mut skipped = Vec::new();
-    for (index, step) in steps.iter().enumerate() {
-        progress(index, step);
-        if let Err(error) = exec(step) {
-            if error.is::<Cancelled>() {
-                return Err(error);
+/// What `assetc prepare --check` found stale.
+#[derive(Debug, Deserialize)]
+pub(super) struct Selection {
+    pub stale: Vec<String>,
+    pub needs_pack: bool,
+}
+
+impl Selection {
+    pub(super) fn is_current(&self) -> bool {
+        self.stale.is_empty()
+    }
+}
+
+/// One progress line from `assetc prepare --json`.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub(super) enum Event {
+    Plan {
+        stale: Vec<String>,
+    },
+    Start {
+        name: String,
+        label: String,
+    },
+    Done {
+        name: String,
+    },
+    Failed {
+        name: String,
+        label: String,
+        required: bool,
+        error: String,
+    },
+}
+
+/// The bundled compiler, run against the kit's inputs with the pack below `workspace`.
+pub(super) struct Compiler<'a> {
+    pub kit: PathBuf,
+    pub workspace: PathBuf,
+    /// Receives both output streams; `None` discards them.
+    pub log: Option<File>,
+    /// Set to stop the running compiler and the run.
+    pub cancel: &'a AtomicBool,
+}
+
+impl Compiler<'_> {
+    fn prepare_args(&self, out: &Path) -> Vec<OsString> {
+        vec![
+            "prepare".into(),
+            "--kit".into(),
+            self.kit.clone().into(),
+            "--workspace".into(),
+            self.workspace.clone().into(),
+            "--out".into(),
+            out.into(),
+        ]
+    }
+
+    /// The carriers in `out` that the kit's pins make stale.
+    pub(super) fn check(&self, out: &Path) -> Result<Selection> {
+        let mut args = self.prepare_args(out);
+        args.push("--check".into());
+        let mut selection = None;
+        self.run(&args, |line| {
+            if let Ok(found) = serde_json::from_str(line) {
+                selection = Some(found);
             }
-            if step.required {
-                return Err(error.context(step.label));
+        })?;
+        selection.context("the asset compiler reported no preparation plan")
+    }
+
+    /// Rebuilds the stale carriers in `out`, handing each progress event to `progress`.
+    pub(super) fn prepare(&self, out: &Path, progress: impl FnMut(&Event)) -> Result<()> {
+        let mut args = self.prepare_args(out);
+        args.push("--json".into());
+        self.prepare_with(&args, progress)
+    }
+
+    /// A required carrier's failure surfaces as its label and error, which the dialog shows.
+    fn prepare_with(&self, args: &[OsString], mut progress: impl FnMut(&Event)) -> Result<()> {
+        let mut required_failure = None;
+        let result = self.run(args, |line| {
+            let Ok(event) = serde_json::from_str::<Event>(line) else {
+                return;
+            };
+            if let Event::Failed {
+                label,
+                required: true,
+                error,
+                ..
+            } = &event
+            {
+                required_failure.get_or_insert_with(|| anyhow!("{label}: {error}"));
             }
-            skipped.push(step.label);
+            progress(&event);
+        });
+        match (result, required_failure) {
+            (Err(error), _) if error.is::<Cancelled>() => Err(error),
+            (Err(_), Some(failure)) => Err(failure),
+            (result, _) => result,
         }
     }
-    Ok(skipped)
-}
 
-/// Kit directories and the repo-relative workspace paths they stage to.
-const KIT_LAYOUT: [(&str, &str); 2] = [("assets", "assets"), ("data", "crates/assets/data")];
-
-/// Copies the bundled manifests and registries into the workspace at repo-relative paths.
-pub(super) fn stage_kit(kit: &Path, workspace: &Path) -> Result<()> {
-    for (from, to) in KIT_LAYOUT {
-        copy_tree(&kit.join(from), &workspace.join(to))?;
+    fn log_writer(&self) -> Result<Box<dyn Write + Send>> {
+        Ok(match &self.log {
+            Some(log) => Box::new(log.try_clone()?),
+            None => Box::new(std::io::sink()),
+        })
     }
-    Ok(())
+
+    /// Runs the compiler, passing each stdout line to `line` and keeping both streams in the log;
+    /// a failure carries the last stderr line.
+    fn run(&self, args: &[OsString], mut line: impl FnMut(&str)) -> Result<()> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(Cancelled.into());
+        }
+        let mut command = Command::new(carriers::kit_compiler(&self.kit));
+        command.args(args);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        command
+            .current_dir(&self.workspace)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        fs::create_dir_all(&self.workspace)?;
+        let mut child = command.spawn().context("start the asset compiler")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("capture asset compiler output")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("capture asset compiler errors")?;
+        let (lines, received) = mpsc::channel();
+        let out_log = self.log_writer()?;
+        let out = std::thread::spawn(move || {
+            copy_lines(stdout, out_log, |text| {
+                let _ = lines.send(text.to_owned());
+            })
+        });
+        let err_log = self.log_writer()?;
+        let tail = std::thread::spawn(move || copy_lines(stderr, err_log, |_| {}));
+        let status = loop {
+            while let Ok(text) = received.try_recv() {
+                line(&text);
+            }
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if self.cancel.load(Ordering::Relaxed) {
+                cancel_child(&mut child);
+                return Err(Cancelled.into());
+            }
+            if let Ok(text) = received.recv_timeout(CANCEL_POLL) {
+                line(&text);
+            }
+        };
+        let _ = out.join();
+        for text in received.try_iter() {
+            line(&text);
+        }
+        let last_line = tail.join().ok().flatten();
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(Cancelled.into());
+        }
+        if status.success() {
+            return Ok(());
+        }
+        Err(match last_line {
+            Some(line) => anyhow!("{line} ({status})"),
+            None => anyhow!("the asset compiler exited with {status}"),
+        })
+    }
 }
 
-/// The kit file a workspace-relative path stages from, if the kit ships one.
-pub(super) fn kit_file(kit: &Path, relative: &str) -> Option<PathBuf> {
-    KIT_LAYOUT.iter().find_map(|(from, to)| {
-        let rest = relative.strip_prefix(to)?.strip_prefix('/')?;
-        let path = kit.join(from).join(rest);
-        path.is_file().then_some(path)
-    })
+/// Copies `output` into `log` line by line, hands each line to `each`, and returns the last
+/// non-blank one.
+fn copy_lines(
+    output: impl Read,
+    mut log: impl Write,
+    mut each: impl FnMut(&str),
+) -> Option<String> {
+    let mut last = None;
+    for line in BufReader::new(output).split(b'\n') {
+        let Ok(line) = line else {
+            break;
+        };
+        let _ = log.write_all(&line);
+        let _ = log.write_all(b"\n");
+        let text = String::from_utf8_lossy(&line).trim().to_owned();
+        each(&text);
+        if !text.is_empty() {
+            last = Some(text);
+        }
+    }
+    last
 }
 
-/// Copies the published carriers into `staged` so steps that are still current keep them.
+/// Copies the published carriers into `staged` so carriers that are still current carry over.
 pub(super) fn seed(prepared: &Path, staged: &Path) -> Result<()> {
     if prepared.is_dir() {
         copy_tree(prepared, staged)?;
@@ -139,106 +304,6 @@ pub(super) fn recover(final_dir: &Path) {
     }
 }
 
-/// Deletes a step's earlier outputs so a failed optional rerun cannot leave a stale carrier.
-pub(super) fn clear_output(staged: &Path, name: &str) {
-    let path = staged.join(name);
-    let _ = if path.is_dir() {
-        fs::remove_dir_all(&path)
-    } else {
-        fs::remove_file(&path)
-    };
-}
-
-pub(super) struct StepExec<'a> {
-    pub workspace: PathBuf,
-    pub kit: PathBuf,
-    pub log: File,
-    /// Set to stop the running step and the run.
-    pub cancel: &'a AtomicBool,
-}
-
-impl StepExec<'_> {
-    pub(super) fn run(&self, step: &Step) -> Result<()> {
-        if self.cancel.load(Ordering::Relaxed) {
-            return Err(Cancelled.into());
-        }
-        match &step.action {
-            Action::UnpackPack => super::download::unpack(&self.workspace, self.cancel),
-            Action::Assetc(args) => self.compile(args),
-        }
-    }
-
-    /// Runs the bundled compiler; a failure carries its last stderr line, which the log also keeps.
-    fn compile(&self, args: &[String]) -> Result<()> {
-        let mut command = Command::new(self.kit.join("bin").join(assetc_name()));
-        command.args(args);
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
-        command
-            .current_dir(&self.workspace)
-            .stdin(Stdio::null())
-            .stdout(self.log.try_clone()?)
-            .stderr(Stdio::piped());
-        let mut child = command.spawn().context("start the asset compiler")?;
-        let stderr = child
-            .stderr
-            .take()
-            .context("capture asset compiler output")?;
-        let log = self.log.try_clone()?;
-        let tail = std::thread::spawn(move || copy_and_keep_last_line(stderr, log));
-        let status = loop {
-            if let Some(status) = child.try_wait()? {
-                break status;
-            }
-            if self.cancel.load(Ordering::Relaxed) {
-                cancel_child(&mut child);
-                return Err(Cancelled.into());
-            }
-            std::thread::sleep(CANCEL_POLL);
-        };
-        let last_line = tail.join().ok().flatten();
-        if self.cancel.load(Ordering::Relaxed) {
-            return Err(Cancelled.into());
-        }
-        if status.success() {
-            return Ok(());
-        }
-        Err(match last_line {
-            Some(line) => anyhow!("{line} ({status})"),
-            None => anyhow!("the asset compiler exited with {status}"),
-        })
-    }
-}
-
-/// Copies `output` into `log` and returns its last non-blank line.
-fn copy_and_keep_last_line(output: impl Read, mut log: impl Write) -> Option<String> {
-    let mut last = None;
-    for line in BufReader::new(output).split(b'\n') {
-        let Ok(line) = line else {
-            break;
-        };
-        let _ = log.write_all(&line);
-        let _ = log.write_all(b"\n");
-        let text = String::from_utf8_lossy(&line).trim().to_owned();
-        if !text.is_empty() {
-            last = Some(text);
-        }
-    }
-    last
-}
-
-/// The bundled compiler executable name for this platform.
-pub(super) const fn assetc_name() -> &'static str {
-    if cfg!(windows) {
-        "assetc.exe"
-    } else {
-        "assetc"
-    }
-}
-
 /// Stops the isolated setup process tree and reaps its immediate child.
 fn cancel_child(child: &mut std::process::Child) {
     #[cfg(unix)]
@@ -261,39 +326,26 @@ fn cancel_child(child: &mut std::process::Child) {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::bail;
-
     use super::*;
     use crate::first_run::test_support::Dir;
 
-    fn step(label: &'static str, required: bool) -> Step {
-        Step {
-            label,
-            action: Action::UnpackPack,
-            required,
-        }
-    }
-
-    /// A compiler step that runs `script` through `/bin/sh` standing in for the bundled compiler.
+    /// A compiler whose kit binary is `/bin/sh`, so tests drive it with `-c <script>`.
     #[cfg(unix)]
-    fn shell_compiler(kit: &Path, script: &str) -> Step {
-        fs::create_dir_all(kit.join("bin")).unwrap();
-        std::os::unix::fs::symlink("/bin/sh", kit.join("bin").join(assetc_name())).unwrap();
-        Step {
-            label: "Compiling test assets",
-            action: Action::Assetc(vec!["-c".into(), script.into()]),
-            required: true,
-        }
-    }
-
-    #[cfg(unix)]
-    fn exec_in<'a>(dir: &Path, cancel: &'a AtomicBool) -> StepExec<'a> {
-        StepExec {
-            workspace: dir.into(),
+    fn shell_compiler<'a>(dir: &Path, cancel: &'a AtomicBool) -> Compiler<'a> {
+        let compiler = carriers::kit_compiler(dir);
+        fs::create_dir_all(compiler.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink("/bin/sh", compiler).unwrap();
+        Compiler {
             kit: dir.into(),
-            log: File::create(dir.join("log")).unwrap(),
+            workspace: dir.into(),
+            log: Some(File::create(dir.join("log")).unwrap()),
             cancel,
         }
+    }
+
+    #[cfg(unix)]
+    fn script(text: &str) -> Vec<OsString> {
+        vec!["-c".into(), text.into()]
     }
 
     #[test]
@@ -311,13 +363,13 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn review_cancellation_stops_step_descendants() {
+    fn review_cancellation_stops_compiler_descendants() {
         let dir = Dir::new("cancel-descendants");
-        let step = shell_compiler(dir.path(), "sleep 30 & echo $! > descendant; wait");
         let cancel = AtomicBool::new(false);
-        let exec = exec_in(dir.path(), &cancel);
+        let compiler = shell_compiler(dir.path(), &cancel);
+        let args = script("sleep 30 & echo $! > descendant; wait");
         let pid = std::thread::scope(|scope| {
-            let running = scope.spawn(|| exec.run(&step));
+            let running = scope.spawn(|| compiler.run(&args, |_| {}));
             let path = dir.path().join("descendant");
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
             while !path.exists() && std::time::Instant::now() < deadline {
@@ -345,19 +397,13 @@ mod tests {
     #[test]
     fn a_failing_compiler_reports_its_last_stderr_line() {
         let dir = Dir::new("compiler-stderr");
-        let step = shell_compiler(
-            dir.path(),
+        let cancel = AtomicBool::new(false);
+        let compiler = shell_compiler(dir.path(), &cancel);
+        let args = script(
             "echo progress; echo 'warning: slow' >&2; echo 'missing texture atlas' >&2; echo >&2; exit 3",
         );
-        let cancel = AtomicBool::new(false);
-        let exec = exec_in(dir.path(), &cancel);
-        let error =
-            execute_steps(std::slice::from_ref(&step), |s| exec.run(s), |_, _| {}).unwrap_err();
-        let message = format!("{error:#}");
-        assert!(
-            message.starts_with("Compiling test assets: missing texture atlas ("),
-            "{message}"
-        );
+        let message = format!("{:#}", compiler.run(&args, |_| {}).unwrap_err());
+        assert!(message.starts_with("missing texture atlas ("), "{message}");
         let log = fs::read_to_string(dir.path().join("log")).unwrap();
         assert!(
             log.contains("progress") && log.contains("warning: slow"),
@@ -365,75 +411,42 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn cancelling_an_optional_step_stops_the_run() {
-        let steps = [step("a", false), step("b", true)];
-        let mut ran = Vec::new();
-        let error = execute_steps(
-            &steps,
-            |s| {
-                ran.push(s.label);
-                Err(Cancelled.into())
-            },
-            |_, _| {},
-        )
-        .unwrap_err();
-        assert!(error.is::<Cancelled>());
-        assert_eq!(ran, ["a"]);
+    fn a_required_carrier_failure_surfaces_its_label_and_error() {
+        let dir = Dir::new("compiler-required");
+        let cancel = AtomicBool::new(false);
+        let compiler = shell_compiler(dir.path(), &cancel);
+        let failed = r#"{"event":"failed","name":"hud","label":"Compiling HUD sprites","required":true,"error":"missing atlas"}"#;
+        let optional = r#"{"event":"failed","name":"weather","label":"Compiling weather textures","required":false,"error":"no rain"}"#;
+        let args = script(&format!(
+            "echo '{optional}'; echo '{failed}'; echo boom >&2; exit 1"
+        ));
+        let mut seen = Vec::new();
+        let error = compiler
+            .prepare_with(&args, |event| seen.push(event.clone()))
+            .unwrap_err();
+        assert_eq!(format!("{error:#}"), "Compiling HUD sprites: missing atlas");
+        assert_eq!(seen.len(), 2);
     }
 
     #[test]
-    fn required_failure_aborts_and_optional_failure_is_skipped() {
-        let steps = [step("a", true), step("b", false), step("c", true)];
-        let skipped = execute_steps(
-            &steps,
-            |s| if s.label == "b" { bail!("no") } else { Ok(()) },
-            |_, _| {},
+    fn progress_lines_decode_into_events() {
+        let start: Event = serde_json::from_str(
+            r#"{"event":"start","name":"world","label":"Compiling world assets"}"#,
         )
         .unwrap();
-        assert_eq!(skipped, ["b"]);
-
-        let mut ran = Vec::new();
-        let error = execute_steps(
-            &steps,
-            |s| {
-                ran.push(s.label);
-                if s.label == "a" {
-                    bail!("boom")
-                } else {
-                    Ok(())
-                }
-            },
-            |_, _| {},
-        )
-        .unwrap_err();
-        assert_eq!(ran, ["a"]);
-        assert!(format!("{error:#}").contains("boom"));
-    }
-
-    #[test]
-    fn progress_reports_each_step_index_in_order() {
-        let steps = [step("a", true), step("b", true)];
-        let mut seen = Vec::new();
-        execute_steps(&steps, |_| Ok(()), |index, s| seen.push((index, s.label))).unwrap();
-        assert_eq!(seen, [(0, "a"), (1, "b")]);
-    }
-
-    #[test]
-    fn stage_kit_maps_data_under_the_registry_path() {
-        let dir = Dir::new("kit");
-        let kit = dir.path().join("kit");
-        for sub in ["assets", "data"] {
-            fs::create_dir_all(kit.join(sub)).unwrap();
-            fs::write(kit.join(sub).join("f"), sub).unwrap();
-        }
-        let workspace = dir.path().join("ws");
-        stage_kit(&kit, &workspace).unwrap();
         assert_eq!(
-            fs::read(workspace.join("crates/assets/data/f")).unwrap(),
-            b"data"
+            start,
+            Event::Start {
+                name: "world".into(),
+                label: "Compiling world assets".into()
+            }
         );
-        assert!(workspace.join("assets/f").is_file());
+        let check: Selection =
+            serde_json::from_str(r#"{"current":false,"stale":["font"],"needs_pack":false}"#)
+                .unwrap();
+        assert!(!check.is_current() && !check.needs_pack);
     }
 
     #[test]
@@ -449,19 +462,6 @@ mod tests {
         fs::create_dir_all(previous(&final_dir)).unwrap();
         recover(&final_dir);
         assert!(final_dir.join("old").is_file());
-    }
-
-    #[test]
-    fn kit_files_resolve_through_the_staging_layout() {
-        let dir = Dir::new("kit-file");
-        fs::create_dir_all(dir.path().join("data")).unwrap();
-        fs::write(dir.path().join("data/reg.bin"), b"r").unwrap();
-        assert_eq!(
-            kit_file(dir.path(), "crates/assets/data/reg.bin"),
-            Some(dir.path().join("data/reg.bin"))
-        );
-        assert_eq!(kit_file(dir.path(), "crates/assets/data/missing.bin"), None);
-        assert_eq!(kit_file(dir.path(), ".local/assets/compiled/x"), None);
     }
 
     #[test]

@@ -1,15 +1,20 @@
 //! Creative rows remain immutable until the catalog, selected groups or icons change.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use json_ui::{CollectionItem, DataSource};
 use protocol::{CreativeContentEvent, PlayerGameMode};
 
-use super::{COLLECTION, HudFrame, IconRef, SEARCH_TAB, UiRuntime};
+use super::{COLLECTION, HudFrame, IconRef, UiRuntime};
 
 pub(in super::super) struct BookCache {
     catalog: CreativeContentEvent,
     tab: u8,
+    search: String,
+    registry: Option<Arc<BTreeMap<i32, protocol::ItemRegistryEntry>>>,
     expanded: BTreeSet<u32>,
     source_icons: Vec<Option<IconRef>>,
     first_icon: usize,
@@ -18,16 +23,13 @@ pub(in super::super) struct BookCache {
 }
 
 impl BookCache {
-    /// Search names depend on the item registry; keep that path uncached.
     fn eligible<'a>(
         player_runtime: &'a player_state::PlayerState,
         runtime: &UiRuntime,
     ) -> Option<&'a CreativeContentEvent> {
-        let state = runtime.screen_state();
-        (player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative)
-            && (state.creative_tab != SEARCH_TAB || state.search.is_empty()))
-        .then(|| runtime.inventory_ledger(player_runtime).creative_catalog())
-        .flatten()
+        (player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative))
+            .then(|| runtime.inventory_ledger(player_runtime).creative_catalog())
+            .flatten()
     }
 
     /// Publish the same row allocation when all row inputs still match.
@@ -46,6 +48,13 @@ impl BookCache {
         if !Arc::ptr_eq(&cache.catalog.items, &catalog.items)
             || !Arc::ptr_eq(&cache.catalog.groups, &catalog.groups)
             || cache.tab != state.creative_tab
+            || cache.search != state.search
+            || !same_registry(
+                cache.registry.as_ref(),
+                runtime
+                    .inventory_ledger(player_runtime)
+                    .item_registry_snapshot(),
+            )
             || cache.expanded != state.creative_expanded
             || cache.source_icons != frame.window_icons.book_entries
             || cache.first_icon != icons.len()
@@ -71,6 +80,11 @@ impl BookCache {
         Some(Self {
             catalog: catalog.clone(),
             tab: state.creative_tab,
+            search: state.search.clone(),
+            registry: runtime
+                .inventory_ledger(player_runtime)
+                .item_registry_snapshot()
+                .cloned(),
             expanded: state.creative_expanded.clone(),
             source_icons: frame.window_icons.book_entries.clone(),
             first_icon,
@@ -80,9 +94,22 @@ impl BookCache {
     }
 }
 
+/// Compares registry identity without scanning its item definitions.
+fn same_registry(
+    previous: Option<&Arc<BTreeMap<i32, protocol::ItemRegistryEntry>>>,
+    current: Option<&Arc<BTreeMap<i32, protocol::ItemRegistryEntry>>>,
+) -> bool {
+    match (previous, current) {
+        (Some(previous), Some(current)) => Arc::ptr_eq(previous, current),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui_runtime::presentation::screens::SEARCH_TAB;
 
     /// Scroll and pointer changes reuse rows; tab, group, catalog and icon changes invalidate them.
     #[test]
@@ -90,6 +117,8 @@ mod tests {
         let mut player_runtime = player_state::PlayerState::new(1);
 
         let mut runtime = UiRuntime::new(1);
+        runtime.screen_state_mut().creative_tab = SEARCH_TAB;
+        runtime.screen_state_mut().search = "stone".into();
         player_runtime
             .facts
             .publish_player_game_mode(PlayerGameMode::Creative);
@@ -120,6 +149,10 @@ mod tests {
             .container_scroll
             .insert("grid".into(), 60.0);
         assert!(reuse(&player_runtime, &runtime, &frame));
+        runtime.screen_state_mut().search.push('s');
+        assert!(!reuse(&player_runtime, &runtime, &frame));
+        runtime.screen_state_mut().search.pop();
+        assert!(reuse(&player_runtime, &runtime, &frame));
         runtime.screen_state_mut().creative_expanded.insert(1);
         assert!(!reuse(&player_runtime, &runtime, &frame));
         runtime.screen_state_mut().creative_expanded.clear();
@@ -129,6 +162,12 @@ mod tests {
         let mut other_frame = frame.clone();
         other_frame.window_icons.book_entries.push(None);
         assert!(!reuse(&player_runtime, &runtime, &other_frame));
+        runtime
+            .inventory_ledger_mut(&mut player_runtime)
+            .apply_registry(&protocol::ItemRegistryEvent {
+                entries: Arc::from([]),
+            });
+        assert!(!reuse(&player_runtime, &runtime, &frame));
         runtime.inventory_ledger_mut(&mut player_runtime).apply(
             &protocol::InventoryEvent::Creative(CreativeContentEvent {
                 items: Arc::from([protocol::CreativeItem {

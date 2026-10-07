@@ -410,6 +410,8 @@ fn ordinary_long_travel_prunes_evicted_required_history() {
             )
             .expect("commit ordinary long-distance movement");
         sequence += 1;
+        stream.take_committed_controls();
+        assert!(stream.retain_local([destination_x, 43.62, 0.5]));
 
         assert!(!stream.loaded_columns.contains(&previous));
         assert!(!stream.required_columns().contains(&previous));

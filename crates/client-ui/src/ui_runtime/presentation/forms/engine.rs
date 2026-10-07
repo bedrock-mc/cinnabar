@@ -18,16 +18,21 @@ use ui::{SafeArea, TextLayoutCache, TextShadow, UiNode, UiNodeId, UiVisual};
 use super::super::player_preview::PreviewView;
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
+pub(super) mod credits_renderer;
 mod fill_renderers;
 mod formatting_colors;
 pub mod hud_renderers;
 mod item_renderer;
 mod menu_renderers;
+mod menu_title;
+#[cfg(test)]
+mod ownership_tests;
 mod pack_catalog;
 mod rounded;
+mod vector_icons;
 pub(super) use pack_catalog::layer_pack_catalog;
 pub(super) mod host_edit;
-pub(super) mod screen_cache;
+mod screen_cache;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
@@ -36,7 +41,7 @@ use crate::ui_runtime::{
     forms::{EditText, EngineFrame},
 };
 use text_paint::{Measure, TextPaint};
-pub(super) use text_paint::{UNWRAPPED_LOGICAL, active_codes, width_64};
+pub(super) use text_paint::{UNWRAPPED_LOGICAL, active_codes, painted_label_request, width_64};
 
 pub struct FormEngine {
     assets: Arc<RuntimeUiAssets>,
@@ -53,12 +58,14 @@ pub struct FormEngine {
     pub(super) server_pages: Vec<render_model::UiTexturePage>,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
+    menu_title_source: menu_title::TitleSource,
     /// The last form's bound tree and laid-out output, reused while unchanged.
     pub(super) cache: Option<FormCache>,
     /// Resolve+bind and layout passes run, for cache tests and profiling.
     pub(super) passes: [usize; 2],
     /// The title splash, picked once per launch.
     splash: std::sync::OnceLock<Option<String>>,
+    credits: std::sync::OnceLock<Arc<super::credits_content::Content>>,
     screens: screen_cache::ScreenCache,
     /// Animation state of every drawn control, keyed by layout key.
     animator: std::sync::Mutex<json_ui::Animator>,
@@ -107,23 +114,27 @@ pub(super) struct EngineInputs<'a> {
 impl FormEngine {
     pub(super) fn new(assets: Arc<RuntimeUiAssets>, mut catalog: Catalog, first_page: u16) -> Self {
         super::global_resources::extend_catalog(&mut catalog);
-        super::accounts::extend_catalog(&mut catalog);
+        super::credits_screen::extend_catalog(&mut catalog);
         let vanilla = Arc::new(catalog);
-        let base = Arc::new(hud_renderers::with_java_hud(&vanilla, &Default::default()));
+        let base = Arc::new(hud_renderers::with_java_hud(&vanilla));
+        let context = super::menu_screens::retail_context();
+        let menu_title_source = menu_title::TitleSource::new(&base, &context);
         Self {
-            textures: TextureSet::new(first_page),
+            textures: TextureSet::new(first_page).with_carrier(Arc::clone(&assets)),
             assets,
             catalog: Arc::clone(&base),
             formatting_palette: formatting_colors::from_catalog(&base),
             screens: screen_cache::ScreenCache::default(),
             vanilla,
             base,
-            context: super::menu_screens::retail_context(),
+            context,
+            menu_title_source,
             server_pages: Vec::new(),
             server_source: None,
             cache: None,
             passes: [0; 2],
             splash: std::sync::OnceLock::new(),
+            credits: std::sync::OnceLock::new(),
             animator: std::sync::Mutex::default(),
         }
     }
@@ -152,6 +163,9 @@ impl FormEngine {
             _ => false,
         };
         self.server_source = pack.cloned();
+        if !same {
+            self.credits = std::sync::OnceLock::new();
+        }
         !same
     }
 
@@ -230,6 +244,7 @@ impl FormEngine {
 
     /// Publishes a worker-resolved catalog and retires caches holding the previous one.
     pub(super) fn install_pack_catalog(&mut self, catalog: Arc<Catalog>) {
+        self.menu_title_source = menu_title::TitleSource::new(&catalog, &self.context);
         self.formatting_palette = formatting_colors::from_catalog(&catalog);
         self.catalog = catalog;
         self.cache = None;
@@ -322,11 +337,6 @@ impl FormEngine {
         &self.assets
     }
 
-    /// Lay `screen` out off-thread; false keeps the previous screen visible until ready.
-    pub(super) fn prepare(&self, screen: screen_cache::Prepared) -> bool {
-        self.screens.prepare(screen, self)
-    }
-
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
         self.splash
             .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
@@ -335,6 +345,24 @@ impl FormEngine {
 
     pub(super) fn catalog(&self) -> &Arc<Catalog> {
         &self.catalog
+    }
+
+    /// Chat retains the built-in presentation while other screens use the pack stack.
+    pub(super) fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {
+        if reference == super::chat_screen::CHAT_SCREEN {
+            &self.base
+        } else {
+            &self.catalog
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::ui_runtime::presentation) fn set_native_chat_fixture(&mut self, native: bool) {
+        self.base = if native {
+            Arc::clone(&self.vanilla)
+        } else {
+            Arc::new(hud_renderers::with_java_hud(&self.vanilla))
+        };
     }
 
     pub(super) fn context(&self) -> &Context {
@@ -430,10 +458,14 @@ fn render_with<R: Borrow<FormRender>>(
         .nodes
         .iter()
         .chain(out.overlay)
+        .filter(|node| !art.omits(node))
         .filter_map(|node| match &node.draw {
             Draw::Sprite { texture, .. } => Some(texture.as_str()),
             Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
                 Some(tooltip::BACKGROUND_TEXTURE)
+            }
+            Draw::Custom { renderer, .. } if renderer == credits_renderer::RENDERER => {
+                Some(credits_renderer::TITLE_TEXTURE)
             }
             _ => None,
         })
@@ -477,7 +509,7 @@ fn render_with<R: Borrow<FormRender>>(
     };
     let view = art.view;
     for node in render.nodes.iter().chain(out.overlay) {
-        if view.is_none_or(|view| node.shown(view)) {
+        if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
             painter.paint(node)?;
         }
     }
@@ -518,6 +550,8 @@ fn edit_texts(hits: &[HitRegion], nodes: &[DrawNode], left: f32, px: f32) -> Vec
 /// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
+    /// Native replacements retain the pack's backdrop while omitting the replaced controls.
+    pub(super) omit_controls: &'a [&'a str],
     pub(super) icons: &'a [IconRef],
     /// Icons an `#item_id_aux` renderer names, by that value.
     pub(super) id_aux: &'a [(i64, IconRef)],
@@ -527,6 +561,10 @@ pub(super) struct ScreenArt<'a> {
     pub(super) tooltip: Option<&'a str>,
     /// Where a drawn player renderer records how it wants the model posed.
     pub(super) preview_view: Option<&'a std::cell::Cell<Option<PreviewView>>>,
+    pub(super) preview_control: Option<
+        &'a std::cell::Cell<Option<super::super::player_preview::controller::PreviewControl>>,
+    >,
+    pub(super) preview_rotation: f32,
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) now: f64,
@@ -536,7 +574,18 @@ pub(super) struct ScreenArt<'a> {
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,
+    pub(super) credits: Option<&'a super::credits_screen::CreditsPaint>,
     pub(super) edit: Option<host_edit::Feedback>,
+}
+
+impl ScreenArt<'_> {
+    fn omits(&self, node: &DrawNode) -> bool {
+        self.omit_controls.iter().any(|name| {
+            node.key
+                .split('/')
+                .any(|part| part.split(['[', '~']).next() == Some(*name))
+        })
+    }
 }
 
 /// Where a render writes its retained nodes, plus caller nodes painted on top (the held stack).
@@ -613,8 +662,13 @@ impl Painter<'_> {
             return None;
         }
         match renderer {
+            "cinnabar_vector_icon" => Some((self.vector_icon(data, dest, &alpha)?, dest)),
             "cinnabar_rounded_rectangle" => {
                 Some((self.rounded_rectangle(data, dest, &alpha)?, dest))
+            }
+            credits_renderer::RENDERER => {
+                self.credits(dest, &alpha);
+                None
             }
             "inventory_item_renderer" => {
                 let icon = item_renderer::icon(data, self.art.icons, self.art.id_aux)?;
@@ -659,7 +713,7 @@ impl Painter<'_> {
         filter: json_ui::SpriteFilter,
     ) -> Option<UiVisual> {
         let Some((page, [x, y, w, h])) = self.textures.sprite(path) else {
-            // An unresolved texture draws `mce::TexturePtr`'s default white texture.
+            // An unresolved texture draws vanilla's default white texture.
             return self.textures.missing(path).then_some(UiVisual::Solid {
                 texture_page: self.solid_page,
                 color,
@@ -722,6 +776,23 @@ impl Painter<'_> {
     }
 
     fn paint(&mut self, node: &DrawNode) -> Result<(), UiPresentationError> {
+        if let Draw::Sprite { texture, .. } = &node.draw
+            && node
+                .anim
+                .as_ref()
+                .and_then(|anim| anim.own.as_ref())
+                .is_some_and(|own| {
+                    own.graph.nodes.iter().any(|anim| {
+                        matches!(
+                            anim.kind,
+                            json_ui::AnimKind::FlipBook | json_ui::AnimKind::Aseprite
+                        )
+                    })
+                })
+            && self.textures.animation_sprite(texture).is_none()
+        {
+            return Ok(());
+        }
         let drawn = node.animate(
             &mut self.animator,
             self.art.now,

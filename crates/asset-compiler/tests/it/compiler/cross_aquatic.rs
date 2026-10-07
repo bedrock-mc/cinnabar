@@ -12,7 +12,8 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
             "sapling":{"textures":"sapling"},
             "wheat":{"textures":"wheat"},
             "carrots":{"textures":"carrots"},
-            "melon_stem":{"textures":"melon_stem"}
+            "melon_stem":{"textures":"melon_stem"},
+            "bush":{"textures":"bush"}
         }"#,
         r#"{"texture_data":{
             "short_grass":{"textures":"textures/blocks/short_grass"},
@@ -31,7 +32,8 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
             ]},
             "melon_stem":{"textures":[
                 "textures/blocks/melon_disconnected","textures/blocks/melon_connected"
-            ]}
+            ]},
+            "bush":{"textures":"textures/blocks/bush"}
         }}"#,
         "[]",
     );
@@ -55,6 +57,7 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
         "carrots3",
         "melon_disconnected",
         "melon_connected",
+        "bush",
     ]
     .into_iter()
     .enumerate()
@@ -113,6 +116,7 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
             r#"{"facing_direction":{"type":"int","value":2},"growth":{"type":"int","value":7}}"#,
             ModelFamily::Crop,
         ),
+        model_record(9, 109, "minecraft:bush", "{}", ModelFamily::Cross),
     ];
 
     let compiled = compile_pack(directory.path(), &records).expect("compile crossed plants");
@@ -127,7 +131,7 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
             .iter()
             .map(|visual| visual.variant)
             .collect::<Vec<_>>(),
-        [0, 0, 0, 0, 0, 7, 2, 0, 1]
+        [0, 0, 0, 0, 0, 7, 2, 0, 1, 0]
     );
     for (index, visual) in compiled.visuals[..records.len()].iter().enumerate() {
         let template = compiled.model_templates[visual.model_template as usize];
@@ -152,16 +156,16 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
             compiled.materials[quad.material as usize].flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0
         }));
     }
-    for index in [0_usize, 1] {
+    for index in [0_usize, 1, 9] {
         let template = compiled.model_templates[compiled.visuals[index].model_template as usize];
         let material = compiled.model_quads[template.quad_start as usize].material as usize;
         assert_eq!(
             compiled.materials[material].flags & MATERIAL_FLAG_TINT_MASK,
             MATERIAL_FLAG_GRASS_TINT,
-            "grass and fern must use the biome grass tint class"
+            "grass, fern and bush must use the biome grass tint class"
         );
     }
-    for index in 2..records.len() {
+    for index in 2..9 {
         let template = compiled.model_templates[compiled.visuals[index].model_template as usize];
         let material = compiled.model_quads[template.quad_start as usize].material as usize;
         assert_eq!(

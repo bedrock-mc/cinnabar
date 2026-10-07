@@ -1,0 +1,284 @@
+use super::*;
+
+#[derive(SystemParam)]
+pub(super) struct QueueActorParams<'w, 's> {
+    pipeline: Res<'w, ActorPipeline>,
+    gpu: Res<'w, ActorGpu>,
+    phases: ResMut<'w, ViewBinnedRenderPhases<Opaque3d>>,
+    draw_functions: Res<'w, DrawFunctions<Opaque3d>>,
+    transparent_phases: ResMut<'w, ViewSortedRenderPhases<Transparent3d>>,
+    transparent_functions: Res<'w, DrawFunctions<Transparent3d>>,
+    views: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static MainEntity,
+            &'static ExtractedView,
+            &'static Msaa,
+            Option<&'static crate::EnhancedRendering>,
+        ),
+    >,
+    draw_tracker: Res<'w, ActorDrawTracker>,
+    witness: Res<'w, ActorRuntimeWitness>,
+}
+
+pub(super) fn queue_actors(
+    mut params: QueueActorParams<'_, '_>,
+    mut next_tick: Local<Tick>,
+    mut next_draw_generation: Local<u64>,
+) {
+    params.draw_tracker.clear();
+    params
+        .gpu
+        .executed_instances
+        .store(0, std::sync::atomic::Ordering::Relaxed);
+    let view_count = params.views.iter().count();
+    if params.gpu.instance_count == 0 || params.gpu.main_spans.is_empty() {
+        params.witness.observe_queue(ActorQueueWitness {
+            prepared_instances: params.gpu.instance_count,
+            bind_group: params.gpu.bind_group.is_some(),
+            view_count,
+            queued: false,
+        });
+        return;
+    }
+    let draw_function = params.draw_functions.read().id::<DrawActorCommands>();
+    let transparent_draw = params
+        .transparent_functions
+        .read()
+        .id::<DrawTransparentActorCommands>();
+    let mut queued = false;
+    let mut intended_view = None;
+    for (view_entity, main_entity, view, msaa, enhanced) in &params.views {
+        let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
+            continue;
+        };
+        let Some(pipeline_id) = params.pipeline.draw_variant(
+            *msaa,
+            view.hdr,
+            enhanced.is_some(),
+            assets::EntityRenderMaterial::Default as u32,
+        ) else {
+            continue;
+        };
+        let this_tick = next_tick.get() + 1;
+        next_tick.set(this_tick);
+        let mut view_queued = false;
+        if params
+            .gpu
+            .main_spans
+            .iter()
+            .any(|span| !blended(span.material))
+        {
+            phase.add(
+                Opaque3dBatchSetKey {
+                    draw_function,
+                    pipeline: pipeline_id,
+                    material_bind_group_index: None,
+                    lightmap_slab: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                },
+                Opaque3dBinKey {
+                    asset_id: AssetId::<Shader>::invalid().untyped(),
+                },
+                (view_entity, *main_entity),
+                InputUniformIndex::default(),
+                BinnedRenderPhaseType::NonMesh,
+                *next_tick,
+            );
+            view_queued = true;
+        }
+        if let Some(transparent) = params
+            .transparent_phases
+            .get_mut(&view.retained_view_entity)
+        {
+            let rangefinder = view.rangefinder3d();
+            for (index, span) in params
+                .gpu
+                .main_spans
+                .iter()
+                .enumerate()
+                .filter(|(_, span)| blended(span.material))
+            {
+                let Some(instance) = params.gpu.instances.get(span.first as usize) else {
+                    continue;
+                };
+                let Some(pipeline) = params.pipeline.draw_variant(
+                    *msaa,
+                    view.hdr,
+                    enhanced.is_some(),
+                    span.material,
+                ) else {
+                    continue;
+                };
+                let position = Vec3::new(
+                    instance.world_from_actor[0][3],
+                    instance.world_from_actor[1][3],
+                    instance.world_from_actor[2][3],
+                );
+                transparent.add(Transparent3d {
+                    entity: (view_entity, *main_entity),
+                    pipeline,
+                    draw_function: transparent_draw,
+                    distance: rangefinder.distance(&position),
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                        range: index as u32..index as u32 + 1,
+                        batch_set_index: None,
+                    },
+                    indexed: false,
+                });
+                view_queued = true;
+            }
+        }
+        if !view_queued {
+            continue;
+        }
+        queued = true;
+        intended_view = Some(intended_view.map_or(view_entity.to_bits(), |current: u64| {
+            current.min(view_entity.to_bits())
+        }));
+    }
+    if queued {
+        let Some(draw_generation) = next_draw_generation.checked_add(1) else {
+            return;
+        };
+        *next_draw_generation = draw_generation;
+        let _ = params.draw_tracker.begin(
+            ActorDrawFrame {
+                artwork_identity: params.gpu.artwork_identity,
+                skin_revision: params.gpu.skin_revision,
+                geometry_revision: params.gpu.geometry_revision,
+                frame_generation: params.gpu.frame_generation,
+                draw_generation,
+                manifest: std::sync::Arc::clone(&params.gpu.main_manifest),
+            },
+            intended_view.expect("queued view exists"),
+            &params.gpu.main_spans,
+        );
+    }
+    params.witness.observe_queue(ActorQueueWitness {
+        prepared_instances: params.gpu.instance_count,
+        bind_group: params.gpu.bind_group.is_some(),
+        view_count,
+        queued,
+    });
+}
+
+pub(super) type DrawActorCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuActors as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawActors<false>,
+    ),
+>;
+
+pub(crate) type DrawTransparentActorCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuActors as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawActors<true>,
+    ),
+>;
+
+fn blended(material: u32) -> bool {
+    crate::actor::material::state(material).is_some_and(|state| state.blend)
+}
+
+pub(crate) struct DrawActors<const BLENDED: bool>;
+
+impl<P: PhaseItem, const BLENDED: bool> RenderCommand<P> for DrawActors<BLENDED> {
+    type Param = (
+        SRes<ActorGpu>,
+        SRes<ActorDrawTracker>,
+        SRes<ActorRuntimeWitness>,
+        SRes<ActorPipeline>,
+        SRes<PipelineCache>,
+    );
+    type ViewQuery = (
+        Entity,
+        Read<ViewUniformOffset>,
+        Read<Msaa>,
+        Read<ExtractedView>,
+        Option<Read<crate::EnhancedRendering>>,
+    );
+    type ItemQuery = ();
+
+    fn render<'w>(
+        item: &P,
+        view: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        params: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let (gpu, tracker, witness, pipeline, cache) = params;
+        let gpu = gpu.into_inner();
+        let tracker = tracker.into_inner();
+        let pipeline = pipeline.into_inner();
+        let cache = cache.into_inner();
+        let mut executed_instances = 0;
+        let mut bound_page = None;
+        let spans = if BLENDED {
+            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = item.extra_index()
+            else {
+                return RenderCommandResult::Skip;
+            };
+            let Some(spans) = gpu.main_spans.get(range.start as usize..range.end as usize) else {
+                return RenderCommandResult::Skip;
+            };
+            spans
+        } else {
+            gpu.main_spans.as_slice()
+        };
+        for span in spans
+            .iter()
+            .filter(|span| blended(span.material) == BLENDED)
+        {
+            if span.page != 0 && !gpu.artwork_current {
+                continue;
+            }
+            let Some(id) =
+                pipeline.draw_variant(*view.2, view.3.hdr, view.4.is_some(), span.material)
+            else {
+                continue;
+            };
+            let Some(variant) = cache.get_render_pipeline(id) else {
+                continue;
+            };
+            pass.set_render_pipeline(variant);
+            if bound_page != Some(span.page) {
+                let bind_group = if span.page == 0 {
+                    gpu.bind_group.as_ref()
+                } else {
+                    gpu.artwork
+                        .pages
+                        .get(usize::from(span.page) - 1)
+                        .and_then(|page| page.bind_group.as_ref())
+                };
+                let Some(bind_group) = bind_group else {
+                    continue;
+                };
+                pass.set_bind_group(0, bind_group, &[view.1.offset]);
+                bound_page = Some(span.page);
+            }
+            pass.draw(0..span.vertex_count, span.first..span.first + span.count);
+            tracker.record_draw(view.0.to_bits(), *span);
+            executed_instances += span.count;
+        }
+        witness.into_inner().observe_draw(ActorDrawWitness {
+            executed: executed_instances != 0,
+            instances: gpu
+                .executed_instances
+                .fetch_add(executed_instances, std::sync::atomic::Ordering::Relaxed)
+                + executed_instances,
+            maximum_vertices: gpu.maximum_vertex_count,
+        });
+        RenderCommandResult::Success
+    }
+}

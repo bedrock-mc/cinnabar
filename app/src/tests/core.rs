@@ -56,11 +56,10 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         height: 64,
         rgba8: vec![23; 64 * 64 * 4].into(),
     });
-    let actor = client_world::ActorSnapshot {
+    let mut actor = actor_snapshot(protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: 9,
         runtime_id: 77,
-        spawn_revision: 19,
-        movement_revision: 23,
         kind: ActorKind::Player {
             uuid: [7; 16],
             username: "remote".into(),
@@ -70,29 +69,21 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         pitch: 15.0,
         yaw: 45.0,
         head_yaw: 60.0,
-        previous_pose: client_world::ActorPose {
-            position: [8.0, 64.0, -3.0],
-            pitch: 10.0,
-            yaw: 40.0,
-            head_yaw: 55.0,
-        },
-        received_pose: client_world::ActorPose {
-            position: [10.0, 64.0, -3.0],
-            pitch: 15.0,
-            yaw: 45.0,
-            head_yaw: 60.0,
-        },
-        interpolation_ticks_remaining: 0,
         body_yaw: 45.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: None,
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    });
+    actor.spawn_revision = 19;
+    actor.movement_revision = 23;
+    actor.on_ground = Some(true);
+    actor.previous_pose = client_world::ActorPose {
+        position: [8.0, 64.0, -3.0],
+        pitch: 10.0,
+        yaw: 40.0,
+        head_yaw: 55.0,
     };
     let profile = client_world::PlayerProfile {
         unique_id: 9,

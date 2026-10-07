@@ -1,8 +1,8 @@
 use super::diagnostics::deterministic_chunk_key_hash;
 use super::*;
 
-// ClientLoadingProgressTickingSystem::mChunksNeededForLoadOffsets covers nine columns.
-const STARTUP_RADIUS: i32 = 1;
+// Vanilla's join loading waits on the nine columns around the player.
+pub(super) const STARTUP_RADIUS: i32 = 1;
 
 /// Server publisher scope, the view cohort committed from it, and the columns it requires.
 #[derive(Default)]
@@ -88,12 +88,7 @@ impl WorldStream {
     /// Mesh acknowledgements additionally prevent exposing unpresented local terrain.
     #[must_use]
     pub fn local_terrain_ready(&self) -> bool {
-        let position = self.authority.resolved_server_position().position;
-        let center = ChunkKey::new(
-            self.authority.current_dimension(),
-            floor_to_i32(position[0]).div_euclid(16),
-            floor_to_i32(position[2]).div_euclid(16),
-        );
+        let center = self.player_column();
         let nearby = |column: ChunkKey| {
             column.dimension == center.dimension
                 && column.x.abs_diff(center.x) <= STARTUP_RADIUS as u32
@@ -126,6 +121,38 @@ impl WorldStream {
 
     pub fn loaded_column_count(&self) -> usize {
         self.loaded_columns.len()
+    }
+
+    fn player_column(&self) -> ChunkKey {
+        self.column_at(self.authority.resolved_server_position().position)
+    }
+
+    fn column_at(&self, position: [f32; 3]) -> ChunkKey {
+        ChunkKey::new(
+            self.authority.current_dimension(),
+            floor_to_i32(position[0]).div_euclid(16),
+            floor_to_i32(position[2]).div_euclid(16),
+        )
+    }
+
+    /// Loaded columns in the current dimension's square `radius` columns around `position`,
+    /// and the square's size.
+    #[must_use]
+    pub fn loaded_columns_around(&self, position: [f32; 3], radius: u16) -> (usize, usize) {
+        let center = self.column_at(position);
+        let radius = i32::from(radius);
+        let loaded = (-radius..=radius)
+            .flat_map(|x| (-radius..=radius).map(move |z| (x, z)))
+            .filter(|&(x, z)| {
+                self.loaded_columns.contains(&ChunkKey::new(
+                    center.dimension,
+                    center.x.saturating_add(x),
+                    center.z.saturating_add(z),
+                ))
+            })
+            .count();
+        let side = usize::try_from(radius * 2 + 1).unwrap_or(0);
+        (loaded, side * side)
     }
     pub fn capture_source_columns(&mut self) {
         self.publisher.source_columns = self.tracked_columns();
@@ -189,7 +216,7 @@ impl WorldStream {
         let foreign_resident = self
             .resident
             .iter()
-            .chain(&self.known_air)
+            .chain(self.known_air.iter())
             .copied()
             .filter(|key| {
                 let chunk = key.chunk();
@@ -219,16 +246,16 @@ impl WorldStream {
             foreign_resident,
             source_leftover,
             resident_count: self.resident.len(),
-            resident_hash: deterministic_sub_chunk_key_hash(&self.resident),
+            resident_hash: self.resident.deterministic_hash(),
             known_air_count: self.known_air.len(),
-            known_air_hash: deterministic_sub_chunk_key_hash(&self.known_air),
+            known_air_hash: self.known_air.deterministic_hash(),
         }
     }
     pub fn remesh_all_resident(&mut self, now: Instant) -> ForcedRemeshManifest {
         let keys = self
             .resident
             .iter()
-            .chain(&self.known_air)
+            .chain(self.known_air.iter())
             .copied()
             .collect::<BTreeSet<_>>();
         let entries = keys
@@ -277,7 +304,7 @@ impl WorldStream {
         let current_keys = self
             .resident
             .iter()
-            .chain(&self.known_air)
+            .chain(self.known_air.iter())
             .copied()
             .collect::<BTreeSet<_>>();
         let manifest_keys = manifest

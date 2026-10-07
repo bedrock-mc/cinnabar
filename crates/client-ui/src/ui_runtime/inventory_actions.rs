@@ -87,7 +87,7 @@ pub fn recipe_book_entries<'a>(
         let items = visible_creative_entries(ledger, state);
         if state.creative_tab == super::presentation::screens::SEARCH_TAB {
             return items
-                .into_iter()
+                .iter()
                 .map(|item| BookEntry::Creative {
                     item,
                     grouped: false,
@@ -96,7 +96,7 @@ pub fn recipe_book_entries<'a>(
         }
         let mut entries = Vec::with_capacity(items.len());
         let mut open: Option<u32> = None;
-        for item in items {
+        for item in items.iter() {
             let group = catalog
                 .groups
                 .get(item.group as usize)
@@ -165,16 +165,59 @@ enum Clicked {
 pub fn visible_creative_entries<'a>(
     ledger: &'a PlayerInventoryLedger,
     state: &ScreenState,
-) -> Vec<&'a CreativeItem> {
-    let Some(catalog) = ledger.creative_catalog() else {
-        return Vec::new();
-    };
-    creative_entries(catalog, state.creative_tab, &state.search, |item| {
-        item_name(ledger, item)
-    })
+) -> super::screen_state::CreativeEntries<'a> {
+    state.matching_creative_entries(ledger, |item| item_name(ledger, item))
 }
 
 impl UiRuntime {
+    /// Drops the hovered catalog entry without moving it through the cursor.
+    pub(super) fn drop_creative_hit(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        hit: InventoryCellHit,
+        whole_stack: bool,
+    ) -> Option<Outcome> {
+        let id = match hit {
+            InventoryCellHit::CreativeGrid(index) => {
+                let entries = visible_creative_entries(
+                    self.inventory_ledger(player_runtime),
+                    self.screen_state(),
+                );
+                let position = self.screen_state().creative_row * GRID_COLUMNS + usize::from(index);
+                entries.get(position).map(|item| item.creative_network_id)
+            }
+            InventoryCellHit::RecipeBook(index) => {
+                match recipe_book_entries(player_runtime, self).get(usize::from(index))? {
+                    BookEntry::Creative { item, .. } => Some(item.creative_network_id),
+                    BookEntry::Group { index, group, .. } => self
+                        .inventory_ledger(player_runtime)
+                        .creative_catalog()?
+                        .items
+                        .iter()
+                        .find(|item| {
+                            item.group == *index
+                                && group.icon.as_ref().is_some_and(|icon| {
+                                    icon.network_id == item.stack.network_id
+                                        && icon.metadata == item.stack.metadata
+                                        && icon.block_runtime_id == item.stack.block_runtime_id
+                                        && icon.extra_data == item.stack.extra_data
+                                })
+                        })
+                        .map(|item| item.creative_network_id),
+                    BookEntry::Recipe(_) => return None,
+                }
+            }
+            _ => return None,
+        };
+        Some(
+            id.ok_or(InventoryGestureError::EmptyGesture)
+                .and_then(|id| {
+                    self.inventory_ledger_mut(player_runtime)
+                        .begin_creative_take(id, CreativeDestination::Drop { whole_stack })
+                }),
+        )
+    }
+
     /// Runs one pointer action; refusals are ordinary (a busy or resyncing
     /// ledger) and simply drop the gesture.
     pub fn perform_pointer_action(
@@ -258,7 +301,7 @@ impl UiRuntime {
     }
 
     /// Whether a click on crafter slot `slot` disables it: an empty, enabled
-    /// slot clicked with nothing held, as `CrafterScreenController::handleEvent`.
+    /// slot clicked with nothing held, as in vanilla's crafter screen.
     fn crafter_slot_disables(&self, player_runtime: &player_state::PlayerState, slot: u8) -> bool {
         let ledger = player_runtime.inventory.ledger();
         ledger.window_kind() == Some(WindowKind::Crafter)

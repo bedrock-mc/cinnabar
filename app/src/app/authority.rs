@@ -1,6 +1,6 @@
 //! Shared production commit-to-input authority registrations.
 use super::*;
-use crate::runtime::world::drain_committed_ui_before_authority;
+use crate::runtime::world::{advance_dimension_transfer, drain_committed_ui_before_authority};
 
 pub(crate) fn configure_client_frame_schedule(app: &mut App) {
     app.configure_sets(
@@ -17,6 +17,7 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
             ClientFrameSet::ActorPreparation,
             ClientFrameSet::UiPreparation,
             ClientFrameSet::NetworkSend,
+            ClientFrameSet::ActorFinalization,
             ClientFrameSet::ActorPublication,
             ClientFrameSet::UiPublication,
         )
@@ -83,6 +84,13 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 .after(receive_network_events)
                 .before(drain_committed_ui_before_authority)
                 .before(ClientFrameSet::UiAuthority)
+                .before(ClientFrameSet::Physics),
+        )
+        .add_systems(
+            Update,
+            advance_dimension_transfer
+                .after(reconcile_world_stream_before_physics)
+                .after(ClientFrameSet::UiAuthority)
                 .before(ClientFrameSet::Physics),
         )
         .add_systems(

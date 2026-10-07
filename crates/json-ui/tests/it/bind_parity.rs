@@ -1,5 +1,5 @@
 //! Binding lifecycle, scheduling, bags, views and collections against the
-//! client's `DataBindingComponent`, one case per audited behaviour.
+//! vanilla client, one case per audited behaviour.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -477,7 +477,7 @@ fn negative_collection_index_skips_the_binding() {
     assert_eq!(get(find(&bound, "child"), "text"), Some(&json!("seed")));
 }
 
-// B37: `ignoreCollectionItem` keeps a child out of the collection.
+// B37: a child opted out of the collection stays out of it.
 #[test]
 fn ignore_collection_item_reads_item_zero() {
     let root = ctrl(
@@ -777,7 +777,7 @@ fn binding_fields_evaluate_constant_expressions() {
 }
 
 // An edit box's `once` content binding re-reads the host's live text: the host owns
-// the text vanilla's TextEditComponent keeps, so typing shows as it happens. Vanilla's
+// the text vanilla's edit box keeps, so typing shows as it happens. Vanilla's
 // `common.text_edit_box` puts that binding on its child label (`ui_common.json`).
 #[test]
 fn edit_box_content_follows_the_host_text_despite_once() {

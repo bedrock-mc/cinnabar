@@ -5,6 +5,7 @@ use bevy::{
     prelude::Resource,
     render::extract_resource::ExtractResource,
 };
+use render_api::SkinRgba8;
 use render_model::{
     ActorRigGeometry, ActorRigGeometryError, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS,
     RenderBoneTransform, STANDARD_SKIN_BYTES, default_actor_skin_rgba8, normalize_actor_skin,
@@ -14,13 +15,21 @@ use render_model::{
 #[path = "actor/artwork.rs"]
 mod artwork;
 pub use artwork::{
-    ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
+    ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+#[path = "actor/glint.rs"]
+mod glint;
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
+pub(crate) mod material;
+pub use glint::ActorGlint;
+mod pipeline_readiness;
+pub use pipeline_readiness::ActorPipelineReadiness;
 #[path = "actor/rig.rs"]
 mod rig;
+#[path = "actor/skin_slots.rs"]
+mod skin_slots;
 #[path = "actor/witness.rs"]
 mod witness;
 
@@ -30,12 +39,14 @@ pub use gpu::{
 };
 pub use rig::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,
-    ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometrySpan,
-    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    ActorRigVertexSegments, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES,
+    ActorGpuInstance, ActorMaterial, ActorRenderIdentity, ActorRigFrameBuilder,
+    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, ActorRigVertexSegments, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES,
     MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible, actor_rig_submission_is_visible,
     pack_actor_light, pack_overlay_rgba8,
 };
+pub(crate) use skin_slots::PLAYER_SKIN_BUDGET_BYTES;
+pub use skin_slots::{ActorSkinResidency, ResidentSkin, SKIN_CLASS_SIDES, pack_skin_slot};
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
 };
@@ -43,7 +54,7 @@ pub use witness::{ActorMainWitness, ActorRuntimeWitness};
 
 pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
 /// Vanilla gathers non-player render candidates no farther than this from the camera on any
-/// axis (`LevelRendererCamera::queueRenderEntities`, `min(radius, 72)`); players are added apart.
+/// axis (`min(radius, 72)`); players are added apart.
 pub const ACTOR_CANDIDATE_RADIUS_BLOCKS: f32 = 72.0;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,19 +110,31 @@ pub struct ActorRenderInstance {
 #[derive(Debug, Clone, Resource, ExtractResource)]
 pub struct ActorRenderFrame {
     pub instances: Arc<[ActorRenderInstance]>,
-    pub skins_rgba8: Arc<[u8]>,
+    pub skins: Arc<ActorSkinResidency>,
     pub instance_revision: u64,
     pub skin_revision: u64,
     pub rig: ActorRigRenderFrame,
     pub(crate) artwork: Arc<ActorArtworkPages>,
-    pub(crate) instance_pages: Arc<[u8]>,
+    pub(crate) instance_pages: Arc<[ActorArtworkPageId]>,
 }
 
-#[cfg(feature = "publication-test-support")]
 impl ActorRenderFrame {
+    /// The standard raster a page-0 instance's texture layer samples.
+    #[must_use]
+    pub fn player_skin(&self, texture_layer: u32) -> Option<&SkinRgba8> {
+        self.skins
+            .resident(texture_layer)
+            .map(|resident| &resident.skin)
+    }
+
+    /// Texture bytes the player skin arrays allocate.
+    #[must_use]
+    pub fn skin_bytes(&self) -> usize {
+        self.skins.allocated_bytes()
+    }
     /// The artwork page each rig instance samples; 0 is the player-skin array.
     #[must_use]
-    pub fn instance_pages(&self) -> &[u8] {
+    pub fn instance_pages(&self) -> &[ActorArtworkPageId] {
         &self.instance_pages
     }
 
@@ -126,7 +149,7 @@ impl Default for ActorRenderFrame {
     fn default() -> Self {
         Self {
             instances: Arc::from([]),
-            skins_rgba8: Arc::from([]),
+            skins: Arc::default(),
             instance_revision: 0,
             skin_revision: 0,
             rig: ActorRigRenderFrame::default(),
@@ -174,6 +197,7 @@ impl Pose {
 pub struct ActorRenderScene {
     frame: ActorRenderFrame,
     rig_builder: ActorRigFrameBuilder,
+    skin_slots: skin_slots::SkinSlots,
 }
 
 impl Default for ActorRenderScene {
@@ -182,6 +206,7 @@ impl Default for ActorRenderScene {
             frame: ActorRenderFrame::default(),
             rig_builder: ActorRigFrameBuilder::new([])
                 .expect("authored diagnostic actor geometry is valid"),
+            skin_slots: Default::default(),
         }
     }
 }
@@ -197,6 +222,7 @@ impl ActorRenderScene {
         Ok(Self {
             frame: ActorRenderFrame::default(),
             rig_builder: ActorRigFrameBuilder::from_runtime_assets(assets)?,
+            skin_slots: Default::default(),
         })
     }
 
@@ -212,6 +238,7 @@ impl ActorRenderScene {
                 assets,
                 equipment_geometries,
             )?,
+            skin_slots: Default::default(),
         })
     }
 
@@ -299,10 +326,6 @@ impl ActorRenderScene {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from([]);
         }
-        if !self.frame.skins_rgba8.is_empty() {
-            self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
-            self.frame.skins_rgba8 = Arc::from([]);
-        }
         self.frame.rig = self.rig_builder.build(0.0, None, []);
     }
 
@@ -358,7 +381,7 @@ impl ActorRenderScene {
         }
 
         let mut instances = Vec::with_capacity(visible.len());
-        let mut skins = Vec::with_capacity(visible.len() * STANDARD_SKIN_BYTES);
+        let mut skins = Vec::with_capacity(visible.len());
         let mut rig_submissions = Vec::with_capacity(visible.len());
         for (source, pose) in visible {
             let skin_layer = u32::try_from(instances.len()).expect("bounded actor layer count");
@@ -393,6 +416,7 @@ impl ActorRenderScene {
             let yaw = wrap_degrees(pose.yaw_degrees).to_radians();
             let (sine, cosine) = yaw.sin_cos();
             rig_submissions.push(ActorRigSubmission {
+                material: Default::default(),
                 culling_bounds: Default::default(),
                 input: ActorRigRenderInput {
                     identity: ActorRenderIdentity {
@@ -424,17 +448,19 @@ impl ActorRenderScene {
                 light: 0,
                 overlay_rgba8: 0,
             });
-            skins.extend_from_slice(&normalize_skin(source.skin.as_ref()));
+            skins.push(normalize_skin(source.skin.as_ref()));
+        }
+        let slots = self.skin_slots.assign(&skins);
+        for (instance, submission) in instances.iter_mut().zip(&mut rig_submissions) {
+            instance.skin_layer = slots[instance.skin_layer as usize];
+            submission.texture_layer = instance.skin_layer;
         }
 
         if self.frame.instances.as_ref() != instances.as_slice() {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from(instances);
         }
-        if self.frame.skins_rgba8.as_ref() != skins.as_slice() {
-            self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
-            self.frame.skins_rgba8 = Arc::from(skins);
-        }
+        self.publish_skins();
         self.frame.rig = self.rig_builder.build(1.0, None, rig_submissions);
         self.frame.instance_pages = vec![0; self.frame.rig.instances.len()].into();
         &self.frame
@@ -445,13 +471,13 @@ impl ActorRenderScene {
         partial_tick: f32,
         view: Option<ActorCullView>,
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
-        skins_rgba8: Arc<[u8]>,
+        skins: &[SkinRgba8],
     ) -> &ActorRenderFrame {
         self.update_rigs_with_artwork(
             partial_tick,
             view,
             submissions,
-            skins_rgba8,
+            skins,
             &std::collections::HashMap::new(),
         )
     }
@@ -461,16 +487,24 @@ impl ActorRenderScene {
         partial_tick: f32,
         view: Option<ActorCullView>,
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
-        skins_rgba8: Arc<[u8]>,
+        skins: &[SkinRgba8],
         assignments: &std::collections::HashMap<ActorRenderIdentity, ActorArtworkLocation>,
     ) -> &ActorRenderFrame {
-        let skin_payload_is_aligned = skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES);
-        let skin_layer_count = skins_rgba8.len() / STANDARD_SKIN_BYTES;
+        let skins_are_valid = skins.len() <= MAX_RENDERED_PLAYERS
+            && skins.iter().all(|skin| skin.len() == STANDARD_SKIN_BYTES);
+        let skin_layer_count = skins.len();
+        if skins_are_valid {
+            // Frame-local skin indices become stable slots, so a visible-set change uploads nothing.
+            self.skin_slots.assign(skins);
+            self.publish_skins();
+        }
         let artwork = &self.frame.artwork;
         let mut invalid_references = 0u64;
-        let submissions = submissions.into_iter().filter(|submission| {
+        let slots = self.skin_slots.assigned();
+        let submissions = submissions.into_iter().filter_map(|mut submission| {
+            let artwork_location = assignments.get(&submission.input.identity);
             let valid = submission.route == ActorRigRoute::NoDraw
-                || if let Some(location) = assignments.get(&submission.input.identity) {
+                || if let Some(location) = artwork_location {
                     artwork.valid(submission.input.rig, *location)
                         && submission.texture_layer == location.layer
                 } else {
@@ -478,8 +512,15 @@ impl ActorRenderScene {
                 };
             if !valid {
                 invalid_references = invalid_references.saturating_add(1);
+                return None;
             }
-            valid
+            if skins_are_valid
+                && submission.route != ActorRigRoute::NoDraw
+                && artwork_location.is_none()
+            {
+                submission.texture_layer = slots[submission.texture_layer as usize];
+            }
+            Some(submission)
         });
         let mut rig = self
             .rig_builder
@@ -510,7 +551,7 @@ impl ActorRenderScene {
                     .map_or(0, |location| location.page)
             })
             .collect();
-        if !skin_payload_is_aligned || skin_layer_count > MAX_RENDERED_PLAYERS {
+        if !skins_are_valid {
             let rejects = rig.rejects;
             self.frame.rig = ActorRigRenderFrame {
                 geometry_revision: rig.geometry_revision,
@@ -525,16 +566,9 @@ impl ActorRenderScene {
             };
             self.frame.instances = Arc::from([]);
             self.frame.instance_pages = Arc::from([]);
-            self.frame.skins_rgba8 = Arc::from([]);
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
-            self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             return &self.frame;
         }
-        let skins_rgba8 = if rig.instances.is_empty() {
-            Arc::from([])
-        } else {
-            skins_rgba8
-        };
         let compatibility_instances = rig
             .instances
             .iter()
@@ -556,12 +590,6 @@ impl ActorRenderScene {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from(compatibility_instances);
         }
-        if !Arc::ptr_eq(&self.frame.skins_rgba8, &skins_rgba8)
-            && self.frame.skins_rgba8 != skins_rgba8
-        {
-            self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
-            self.frame.skins_rgba8 = skins_rgba8;
-        }
         self.frame.rig = rig;
         self.frame.instance_pages = instance_pages.into();
         &self.frame
@@ -570,6 +598,14 @@ impl ActorRenderScene {
     #[must_use]
     pub fn frame(&self) -> &ActorRenderFrame {
         &self.frame
+    }
+
+    fn publish_skins(&mut self) {
+        let residency = self.skin_slots.residency();
+        if !Arc::ptr_eq(&self.frame.skins, residency) {
+            self.frame.skins = Arc::clone(residency);
+            self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
+        }
     }
 }
 
@@ -636,10 +672,9 @@ fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
     ]
 }
 
-fn normalize_skin(skin: Option<&ActorSkinPixels>) -> Vec<u8> {
+fn normalize_skin(skin: Option<&ActorSkinPixels>) -> SkinRgba8 {
     skin.and_then(normalize_actor_skin)
         .unwrap_or_else(default_actor_skin_rgba8)
-        .to_vec()
 }
 
 #[cfg(test)]

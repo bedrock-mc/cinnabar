@@ -10,7 +10,9 @@ impl ActorStore {
         };
         if self.actors.values().any(|actor| {
             actor.unique_id == profile.unique_id
-                && matches!(&actor.kind, ActorKind::Player { uuid: actor_uuid, .. } if actor_uuid == uuid)
+                && matches!(&actor.kind, ActorKind::Player { uuid: actor_uuid, .. }
+                    if actor_uuid == uuid || (self.remote_state_excluded_runtime_id == Some(actor.runtime_id)
+                        && self.synthetic_local_uuid == Some(*actor_uuid)))
         }) {
             self.unlisted_players.insert(*uuid, profile);
         } else {
@@ -24,7 +26,9 @@ impl ActorStore {
         self.unlisted_players.retain(|uuid, profile| {
             let live = self.actors.values().any(|actor| {
                 actor.unique_id == profile.unique_id
-                    && matches!(&actor.kind, ActorKind::Player { uuid: actor_uuid, .. } if actor_uuid == uuid)
+                    && matches!(&actor.kind, ActorKind::Player { uuid: actor_uuid, .. }
+                    if actor_uuid == uuid || (self.remote_state_excluded_runtime_id == Some(actor.runtime_id)
+                        && self.synthetic_local_uuid == Some(*actor_uuid)))
             });
             if !live {
                 self.retained_player_skin_bytes = self.retained_player_skin_bytes

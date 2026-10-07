@@ -29,9 +29,25 @@ pub const KEY_BINDINGS: &[(Action, &str)] = &[
     (Action::Hotbar7, "key.hotbar.7"),
     (Action::Hotbar8, "key.hotbar.8"),
     (Action::Hotbar9, "key.hotbar.9"),
+    (Action::Freelook, "key.freelook"),
 ];
 
 impl SettingsOptions {
+    fn freelook_default_conflicts(&self) -> bool {
+        if self.keys.contains_key("key.freelook") {
+            return false;
+        }
+        let defaults = ControlSettings::default();
+        let default = defaults
+            .bindings()
+            .iter()
+            .find(|binding| binding.action == Action::Freelook)
+            .map(|binding| binding.chord.control);
+        self.keys.iter().any(|(name, code)| {
+            !name.starts_with("gamepad:")
+                && decode_control(*code).is_some_and(|control| Some(control) == default)
+        })
+    }
     /// Validates stored controls with the same device and collision rules as interactive remapping.
     pub fn stored_bindings_valid(&self) -> bool {
         self.controls().is_ok()
@@ -72,6 +88,9 @@ impl SettingsOptions {
     /// Reads the persisted device binding, falling back to the gameplay router's defaults.
     pub fn key_control(&self, index: usize) -> Option<PhysicalControl> {
         let (name, action, fallback) = self.binding(index)?;
+        if action == Some(Action::Freelook) && self.freelook_default_conflicts() {
+            return None;
+        }
         self.keys
             .get(&name)
             .and_then(|code| decode_control(*code))
@@ -108,7 +127,7 @@ impl SettingsOptions {
 
     /// Keeps vanilla secondary defaults until a remap replaces the complete key list.
     pub fn secondary_key_control(&self, name: &str) -> Option<PhysicalControl> {
-        // KeyboardRemappingLayout replaces the list with one captured key.
+        // Vanilla keyboard remapping replaces the list with one captured key.
         SECONDARY_KEYS
             .iter()
             .find(|(label, _)| *label == name && !self.keys.contains_key(name))
@@ -191,6 +210,9 @@ impl SettingsOptions {
     pub fn controls(&self) -> Result<ControlSettings, semantic_input::BindingError> {
         let original = ControlSettings::default();
         let mut bindings = original.bindings().to_vec();
+        if self.freelook_default_conflicts() {
+            bindings.retain(|binding| binding.action != Action::Freelook);
+        }
         for index in (0..KEY_BINDINGS.len())
             .chain((0..GAMEPAD_BINDINGS.len()).map(|index| GAMEPAD_OFFSET + index))
         {

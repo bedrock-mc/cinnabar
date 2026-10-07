@@ -15,6 +15,7 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
         data,
         translate,
     );
+    super::vsync_setting::bind(view, data);
     bind_visibility(view, data, translate);
 }
 

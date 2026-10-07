@@ -33,7 +33,7 @@ fn resin_clump_pixels() -> Vec<[u8; 4]> {
         .collect()
 }
 
-fn write_resin_clump_pack(root: &Path) -> Vec<[u8; 4]> {
+pub(super) fn write_resin_clump_pack(root: &Path) -> Vec<[u8; 4]> {
     write_pack(
         root,
         r#"{"resin_clump":{"carried_textures":"resin_clump_carried","textures":"resin_clump"}}"#,
@@ -182,9 +182,6 @@ fn compiler_resin_clump_admission_fails_closed_as_a_complete_family() {
     let mut missing = records.clone();
     missing.pop();
     families.push(("missing state", missing));
-    let mut wrong_id = records.clone();
-    wrong_id[0].sequential_id = 2929;
-    families.push(("wrong ID", wrong_id));
     let mut wrong_state = records.clone();
     wrong_state[0].canonical_state =
         r#"{"multi_face_direction_bits":{"type":"byte","value":0}}"#.into();

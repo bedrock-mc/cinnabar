@@ -1,0 +1,17 @@
+[package]
+name = "cinnabar-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "cinnabar-mcp"
+path = "src/main.rs"
+
+[dependencies]
+developer-control = { path = "../../crates/developer-control" }
+image.workspace = true
+mcp-stdio = { path = "../mcp-stdio" }
+serde = "1"
+serde_json = "1"

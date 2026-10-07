@@ -11,6 +11,22 @@ pub const MAX_RESOURCE_PACK_CHUNK_BYTES: u32 = 1024 * 1024;
 /// Maximum chunks accepted for one pack.
 pub const MAX_RESOURCE_PACK_CHUNKS: u32 = 4096;
 
+/// The offer identity a stored archive answers to: what ResourcePacksInfo advertises per pack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResourcePackIdentity<'a> {
+    pub pack_id: uuid::Uuid,
+    pub version: &'a str,
+    pub size: u64,
+}
+
+/// Keeps digest-verified server-pack archives across joins so negotiation can decline packs the
+/// client already holds. Archives are stored as received; content keys are never persisted.
+pub trait ResourcePackStore: Send + Sync + std::fmt::Debug {
+    /// Returns the archive stored under `identity`; a damaged entry is a miss.
+    fn load(&self, identity: ResourcePackIdentity<'_>) -> Option<Vec<u8>>;
+    fn store(&self, identity: ResourcePackIdentity<'_>, archive: &[u8]);
+}
+
 /// A secret retained only for the lifetime of an in-memory archive handoff.
 pub struct ResourcePackContentKey(Vec<u8>);
 

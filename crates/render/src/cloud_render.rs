@@ -90,6 +90,9 @@ pub(crate) fn install_cloud_render(app: &mut App) {
 pub(crate) struct CloudGpu {
     pub(crate) views: HashMap<Entity, CloudViewGpu>,
     colour_buffer: Buffer,
+    colour: [f32; 8],
+    #[cfg(test)]
+    colour_uploads: u64,
     #[cfg(test)]
     pub(crate) upload_count: u32,
 }
@@ -114,6 +117,9 @@ fn init_cloud_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             contents: bytemuck::cast_slice(&[0.0_f32; 8]),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         }),
+        colour: [0.0; 8],
+        #[cfg(test)]
+        colour_uploads: 0,
         #[cfg(test)]
         upload_count: 0,
     });
@@ -126,6 +132,10 @@ pub(crate) fn prepare_cloud_records(
     views: Query<(Entity, &ExtractedView, Option<&crate::EnhancedRendering>), With<Camera3d>>,
     mut gpu: ResMut<CloudGpu>,
 ) {
+    if !atmosphere.sky_kind().has_clouds() {
+        gpu.views.clear();
+        return;
+    }
     let Some(runtime) = requested.runtime() else {
         gpu.views.clear();
         return;
@@ -213,7 +223,7 @@ pub(crate) fn prepare_cloud_records(
 fn prepare_cloud_colour(
     atmosphere: Res<AtmosphereFrame>,
     view: Res<crate::AtmosphereViewInputs>,
-    gpu: Res<CloudGpu>,
+    mut gpu: ResMut<CloudGpu>,
     render_queue: Res<RenderQueue>,
 ) {
     let colour = atmosphere.cloud_colour_for_view(*view);
@@ -227,7 +237,15 @@ fn prepare_cloud_colour(
         CLOUD_TOP_Y,
         CLOUD_WORLD_PERIOD,
     ];
+    if gpu.colour == native {
+        return;
+    }
     render_queue.write_buffer(&gpu.colour_buffer, 0, bytemuck::cast_slice(&native));
+    gpu.colour = native;
+    #[cfg(test)]
+    {
+        gpu.colour_uploads += 1;
+    }
 }
 
 struct CloudPipelineSpecializer;
@@ -294,7 +312,7 @@ impl FromWorld for CloudPipeline {
                 buffers: Vec::new(),
                 ..default()
             },
-            // Native cloud PassState cull1 translates to BGFX CULL_CW:
+            // Vanilla's cloud material culls clockwise faces:
             // preserve the outward counter-clockwise texel faces.
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,
@@ -434,7 +452,7 @@ fn queue_clouds(
         Option<&crate::EnhancedRendering>,
     )>,
 ) {
-    if !visibility.0 {
+    if !visibility.0 || !atmosphere.sky_kind().has_clouds() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawCloudCommands>();
@@ -503,7 +521,10 @@ fn cloud_bounds_center(viewport: CloudViewport, scroll_blocks: f32) -> [f32; 3] 
     ]
 }
 
-type DrawCloudCommands = (SetItemPipeline, SetCloudBindGroup<0>, DrawClouds);
+type DrawCloudCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuSky as usize },
+    (SetItemPipeline, SetCloudBindGroup<0>, DrawClouds),
+>;
 
 struct SetCloudBindGroup<const I: usize>;
 

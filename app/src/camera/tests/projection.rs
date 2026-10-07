@@ -38,7 +38,7 @@ fn projection(app: &mut App) -> PerspectiveProjection {
 
 #[test]
 fn native_full_viewport_fov_sets_vertical_angle_and_aspect_only_scales_horizontal_axis() {
-    // Vanilla getFov uses normalized viewport fractions; bx::mtxProjRh
+    // Vanilla FOV uses normalized viewport fractions; bx::mtxProjRh
     // stores cot(FOV/2) on Y and cot(FOV/2)/aspect on X.
     for degrees in [30.0_f32, 60.0, 90.0, 110.0, 120.0] {
         for aspect in [4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 9.0 / 16.0] {
@@ -134,4 +134,24 @@ fn zero_height_window_preserves_fov_with_a_finite_projection() {
     assert!((perspective.fov - expected_fov).abs() < 1.0e-6);
     assert!(perspective.aspect_ratio.is_finite() && perspective.aspect_ratio > 0.0);
     assert!(perspective.get_clip_from_view().is_finite());
+}
+
+#[test]
+fn a_rig_committed_during_camera_input_changes_the_fov_in_the_same_frame() {
+    fn commit_rig(mut settings: ResMut<CameraSettingsAuthority>) {
+        settings.set_rig(Some(camera::CameraRig {
+            offset: Vec3::new(0.5, 0.5, 3.0),
+            roll_radians: 0.0,
+            fov_delta_degrees: 10.0,
+        }));
+    }
+    let (mut app, _) = camera_app(1280, 720);
+    let base = app
+        .world()
+        .resource::<CameraSettingsAuthority>()
+        .horizontal_fov_degrees();
+    app.add_systems(Update, commit_rig.in_set(camera::FlyCameraUpdateSet));
+    app.update();
+    let expected = camera::projection_fov_radians(base + 10.0);
+    assert!((projection(&mut app).fov - expected).abs() < 1.0e-6);
 }

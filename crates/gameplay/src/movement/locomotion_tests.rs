@@ -102,6 +102,18 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
             Duration::ZERO,
             input,
             PhysicsSampleContext {
+                input: super::TickInput {
+                    jump: semantic_input::ActionPhase {
+                        held: input.jumping,
+                        ..Default::default()
+                    },
+                    sneak: semantic_input::ActionPhase {
+                        held: input.sneaking,
+                        ..Default::default()
+                    },
+                    sneak_down: input.sneaking,
+                    ..Default::default()
+                },
                 mode_intent: intent,
                 ..Default::default()
             },
@@ -183,6 +195,18 @@ fn step(
         TICK,
         input,
         PhysicsSampleContext {
+            input: super::TickInput {
+                jump: semantic_input::ActionPhase {
+                    held: input.jumping,
+                    ..Default::default()
+                },
+                sneak: semantic_input::ActionPhase {
+                    held: input.sneaking,
+                    ..Default::default()
+                },
+                sneak_down: input.sneaking,
+                ..Default::default()
+            },
             mode_intent: intent,
             ..PhysicsSampleContext::default()
         },
@@ -246,9 +270,8 @@ fn flight_start_ascend_and_stop_edges_follow_the_simulated_mode() {
 
 #[test]
 fn keyboard_vertical_intents_reach_server_flight_controls() {
-    // Current SendPlayerInputPacket 0x070fcfd0 emits processed up/down as
-    // WantUp/WantDown. ServerMoveInputHandler 0x0998fe80 reconstructs them
-    // directly; raw JumpDown/Ascend alone do not populate these control lanes.
+    // Vanilla sends processed up/down as WantUp/WantDown and the server reads
+    // them directly; raw JumpDown/Ascend alone do not populate these control lanes.
     for (jumping, sneaking, expected) in [
         (false, false, 0),
         (true, false, 4),
@@ -393,7 +416,9 @@ fn a_ceiling_that_only_fits_a_sneak_forces_the_pose_and_persist_flag() {
     assert!(first.processed.forced_sneak && first.sneaking);
     let flags = input_flags(&first, HeldInput::default());
     assert!(has(flags, PlayerInputFlags::PERSIST_SNEAK));
-    assert!(has(flags, PlayerInputFlags::SNEAKING));
+    assert!(!has(flags, PlayerInputFlags::SNEAKING));
+    assert!(!has(flags, PlayerInputFlags::SNEAK_DOWN));
+    assert!(!has(flags, PlayerInputFlags::WANT_DOWN));
     assert_eq!(first.processed.mode, MovementMode::Walking);
 }
 
@@ -479,7 +504,7 @@ fn holding_right_sends_negative_wire_x_and_moves_right_of_facing() {
     ticker.set_source(super::MovementSource::Physics);
     // Yaw 0 faces +z, so the player's right is -x.
     let input = super::physics_movement_input([1.0, 0.0], 0.0, true, false, false, false, None);
-    let sample = step(
+    let mut sample = step(
         &mut physics,
         input,
         ModeIntent::default(),
@@ -489,6 +514,7 @@ fn holding_right_sends_negative_wire_x_and_moves_right_of_facing() {
         sample.position[0] < 0.0,
         "strafing right moves toward -x at yaw 0"
     );
+    sample.input.movement_buttons.right = true;
     ticker.enqueue_completed_physics(sample).unwrap();
     let snapshot = ticker.pop_pending().unwrap().snapshot;
     assert!(snapshot.move_vector[0] < 0.0, "wire x is left-positive");
@@ -609,7 +635,7 @@ fn leaving_water_defers_held_ground_jump_until_native_swim_blend_finishes() {
     }
     assert_eq!(physics.state().unwrap().swim_amount, 1.0);
     world.0.set(false);
-    // CurrentSwimAmount precedes SwimTrigger. The first dry tick still advances
+    // The swim-amount blend runs before the swim trigger. The first dry tick still advances
     // the previous swimming flag; decay starts on the following tick.
     let stopped = step(
         &mut physics,

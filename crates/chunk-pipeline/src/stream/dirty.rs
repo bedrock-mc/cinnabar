@@ -151,7 +151,8 @@ impl WorldStream {
         self.cancel_mesh_job(key);
         let revision = self.revisions.mark_dirty(key, now);
         let since = self.revisions.dirty(key).map_or(now, |dirty| dirty.since);
-        self.mesh_jobs.enqueue(
+        let startup = self.is_startup_dependency(key);
+        self.mesh_jobs.enqueue_prioritized(
             key,
             PendingMesh {
                 revision,
@@ -159,6 +160,7 @@ impl WorldStream {
                 queued_at: now,
                 urgent,
             },
+            startup,
         );
         revision
     }

@@ -11,12 +11,16 @@ use super::{
 /// Level events at or above this bit carry a legacy particle type in the low bits.
 pub const LEVEL_EVENT_PARTICLE_FLAG: i32 = 0x4000;
 
-/// Default destruction count from vanilla BlockDestructionParticlesComponent.
+/// Vanilla's default block destruction particle count.
 pub const BLOCK_BREAK_PARTICLES: f32 = 100.0;
 /// One piece per vanilla hit-particle event.
 pub const BLOCK_CRACK_PARTICLES: f32 = 1.0;
+/// Default item crumb count for existing eating and icon-crack presentation.
+pub const ITEM_ICON_PARTICLES: u32 = 6;
 /// Vanilla keeps hits this far from the edge and outside the selected face.
 const CRACK_FACE_INSET: f32 = 0.1;
+/// Huge explosions use the finite emitter despite its dragon-specific name.
+const HUGE_EXPLOSION_EFFECT: &str = "dragon_death_explosion_emitter";
 
 /// Effect identifier for a legacy particle type (`LevelEventParticleLegacyEvent | type`).
 #[must_use]
@@ -33,9 +37,7 @@ pub fn legacy_particle_effect(particle_type: i32) -> Option<&'static str> {
         10 => "basic_smoke_particle",           // LargeSmoke
         11 => "redstone_wire_dust_particle",    // RedDust
         12 => "rising_border_dust_particle",    // RisingBorderDust
-        15 => "large_explosion",                // LargeExplode
-        16 => "huge_explosion_emitter",         // HugeExplosion
-        17 => "mobflame_single",                // MobFlame
+        16 | 17 => HUGE_EXPLOSION_EFFECT,       // Huge explosions
         18 => "heart_particle",                 // Heart
         20 => "mycelium_dust_particle",         // TownAura
         21 => "basic_portal_particle",          // Portal
@@ -129,7 +131,10 @@ pub enum LevelParticle {
     /// Item-icon pieces for an item network id and aux value (item break, food crumbs).
     ItemIcon { network_id: i32, aux: i32 },
     /// Item-icon pieces for a fixed item (snowball and slime impacts).
-    FixedItemIcon { identifier: &'static str },
+    FixedItemIcon {
+        identifier: &'static str,
+        count: u32,
+    },
 }
 
 fn argb(data: i32) -> [f32; 4] {
@@ -165,9 +170,15 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
             }),
             14 => Some(LevelParticle::FixedItemIcon {
                 identifier: "minecraft:snowball",
+                count: ITEM_ICON_PARTICLES,
+            }),
+            15 => Some(LevelParticle::FixedItemIcon {
+                identifier: "minecraft:snowball",
+                count: 1,
             }),
             36 => Some(LevelParticle::FixedItemIcon {
                 identifier: "minecraft:slime_ball",
+                count: ITEM_ICON_PARTICLES,
             }),
             32..=34 => Some(LevelParticle::Named {
                 effect: legacy_particle_effect(particle_type)?,
@@ -190,7 +201,11 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
         2004 => named("mob_block_spawn_emitter"),
         2005 => named("crop_growth_emitter"),
         2007 => named("death_explosion_emitter"),
-        2009 => named(legacy_particle_effect(data)?),
+        2009 if data & 0xffff == 15 => Some(LevelParticle::FixedItemIcon {
+            identifier: "minecraft:snowball",
+            count: 1,
+        }),
+        2009 => named(legacy_particle_effect(data & 0xffff)?),
         2012 => named("critical_hit_emitter"),
         2013 => named("mob_portal"),
         2015 => named("basic_bubble_particle"),
@@ -198,7 +213,7 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
         2018 | 2019 => named("egg_destroy_emitter"),
         2020 => named("water_evaporation_actor_emitter"),
         2022 => named("knockback_roar_particle"),
-        2025 | 2026 => named("huge_explosion_emitter"),
+        2025 => named(legacy_particle_effect(if data < 2 { 16 } else { 17 })?),
         2027 => named("vibration_signal"),
         2029 => named("misc_fire_vapor_particle"),
         2030 => named("wax_particle"),
@@ -340,7 +355,7 @@ pub fn item_icon_request(position: [f32; 3], tile: TileRequest, count: f32) -> S
         position,
         variables: variables(&[
             ("num_particles", count),
-            ("emitter_radius", 0.1),
+            ("emitter_radius", 0.25),
             ("size_modifier", 1.0),
             ("speed_modifier", 1.0),
         ]),

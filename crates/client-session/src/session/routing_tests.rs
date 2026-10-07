@@ -137,6 +137,7 @@ fn sequence_is_fifo_and_dimension_changes_apply_to_following_packets() {
     let change = sequencer.wrap(WorldEvent::ChangeDimension(ChangeDimensionEvent {
         dimension: 1,
         position: [0.0, 80.0, 0.0],
+        ..Default::default()
     }));
     assert_eq!(change.sequence, 2);
     assert_eq!(sequencer.current_dimension(), 1);

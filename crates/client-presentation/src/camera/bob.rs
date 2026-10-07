@@ -1,5 +1,5 @@
-//! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
-//! 26.30 reference's bobView and hand spring.
+//! Walk view-bob and first-person hand sway, expressed as view-space effects, following
+//! vanilla's view bob and hand spring.
 
 use std::f32::consts::PI;
 
@@ -178,7 +178,7 @@ impl HandSwayState {
     }
 }
 
-fn shortest_degrees(delta: f32) -> f32 {
+pub(super) fn shortest_degrees(delta: f32) -> f32 {
     (delta + 180.0).rem_euclid(360.0) - 180.0
 }
 

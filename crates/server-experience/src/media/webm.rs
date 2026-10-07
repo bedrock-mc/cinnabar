@@ -1,134 +1,31 @@
-//! Developer-only AV1/Opus pipeline. Native codecs need a restricted helper before release.
+//! Developer-only AV1/Opus decode, run only inside the memory-limited helper process.
 
 use super::{
+    ceiling::Contained,
     descriptor::Descriptor,
     faults::FaultReader,
     frames::{PcmBlock, VideoFrame, bt709_rgba},
-    ranges::RangeReader,
+    service::output::Output,
     *,
 };
 use anyhow::{Result, ensure};
 use dav1d::{Decoder, PixelLayout, PlanarImageComponent, Settings};
 use matroska_demuxer::{FlagInterlaced, Frame, MatroskaFile, TrackType};
-use std::{
-    collections::BTreeSet,
-    io::{Read, Seek},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc,
-    },
-};
+use std::io::{Read, Seek};
 
 const CICP_BT709: u8 = 1;
-static DECODER_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Decoder output carries no generation; the parent process assigns its own.
+const HELPER_GENERATION: u64 = 0;
 
-struct DecoderLease;
-
-impl Drop for DecoderLease {
-    /// Holds the process-wide decoder slot until the worker really exits.
-    fn drop(&mut self) {
-        DECODER_ACTIVE.store(false, Ordering::Release);
-    }
-}
-
-pub use super::service::output::Output;
-
-pub struct Worker {
-    cancelled: Arc<AtomicBool>,
-    output: Mutex<mpsc::Receiver<Result<Output>>>,
-}
-
-impl Worker {
-    /// Remains unavailable until decoding runs in a process with an enforced memory ceiling.
-    pub fn available() -> bool {
-        false
-    }
-
-    /// Starts fetching and decoding off-thread only under the explicit developer switch.
-    pub fn start(
-        descriptor: Descriptor,
-        origins: BTreeSet<String>,
-        generation: u64,
-        data_budget: Arc<AtomicU64>,
-        start_us: u64,
-    ) -> Result<Self> {
-        ensure!(
-            Self::available(),
-            "media decoding requires a memory-limited helper"
-        );
-        ensure!(
-            std::env::var(crate::policy::DEVELOPER_ENV).as_deref() == Ok("1"),
-            "native media requires a restricted production helper"
-        );
-        descriptor.validate(&origins)?;
-        ensure!(
-            DECODER_ACTIVE
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok(),
-            "media decoder already active"
-        );
-        let lease = DecoderLease;
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let stop = Arc::clone(&cancelled);
-        let (sender, output) = mpsc::sync_channel(MAX_FRAMES);
-        std::thread::Builder::new()
-            .name("experience-media".into())
-            .spawn(move || {
-                let _lease = lease;
-                let result = (|| -> Result<()> {
-                    let reader = RangeReader::new(
-                        descriptor.clone(),
-                        origins,
-                        Arc::clone(&stop),
-                        data_budget,
-                    )?;
-                    decode(reader, &descriptor, generation, &stop, |frame| {
-                        match &frame {
-                            Output::Video(frame) if frame.pts_us < start_us => return Ok(()),
-                            Output::Audio(block) if block.pts_us < start_us => return Ok(()),
-                            _ => {}
-                        }
-                        sender
-                            .send(Ok(frame))
-                            .map_err(|_| anyhow::anyhow!("media consumer closed"))
-                    })
-                })();
-                if let Err(error) = result {
-                    let _ = sender.send(Err(error));
-                }
-            })?;
-        Ok(Self {
-            cancelled,
-            output: Mutex::new(output),
-        })
-    }
-
-    /// Reads only completed output; frame validation is repeated by the consumer.
-    pub fn poll(&self) -> Option<Result<Output>> {
-        self.output.lock().ok()?.try_recv().ok()
-    }
-}
-
-impl Drop for Worker {
-    /// Cancels network reads; dropping the receiver also releases a blocked producer.
-    fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
-    }
-}
-
-/// Decodes one constrained rendition; seeking restarts this worker with a fresh generation.
-fn decode<R: Read + Seek>(
+/// Decodes one constrained rendition from the start, emitting output from `start_us` on.
+pub fn decode<R: Read + Seek>(
     reader: R,
     descriptor: &Descriptor,
-    generation: u64,
-    cancelled: &AtomicBool,
+    start_us: u64,
+    _contained: &Contained,
     mut emit: impl FnMut(Output) -> Result<()>,
 ) -> Result<()> {
-    ensure!(
-        Worker::available(),
-        "media decoding requires a memory-limited helper"
-    );
+    let generation = HELPER_GENERATION;
     let (reader, faults) = FaultReader::new(reader);
     let mut file = MatroskaFile::open(reader)?;
     faults.check()?;
@@ -201,7 +98,7 @@ fn decode<R: Read + Seek>(
     let audio_track = audio.track_number().get();
     let scale = file.info().timestamp_scale().get();
     let mut settings = Settings::new();
-    settings.set_n_threads(2);
+    settings.set_n_threads(4);
     settings.set_max_frame_delay(1);
     settings.set_frame_size_limit(MAX_WIDTH * MAX_HEIGHT);
     settings.set_strict_std_compliance(true);
@@ -217,7 +114,6 @@ fn decode<R: Read + Seek>(
     let mut last_video_us = None;
     while file.next_frame(&mut frame)? {
         faults.check()?;
-        ensure!(!cancelled.load(Ordering::Acquire), "media cancelled");
         ensure!(
             frame.data.len() <= MAX_SAMPLE_BYTES,
             "compressed sample too large"
@@ -250,14 +146,14 @@ fn decode<R: Read + Seek>(
                 match result {
                     Ok(()) => break,
                     Err(dav1d::Error::Again) => {
-                        drain(&mut av1, descriptor, generation, &mut emit)?;
+                        drain(&mut av1, descriptor, start_us, &mut emit)?;
                         result = av1.send_pending_data();
                     }
                     Err(error) => return Err(error.into()),
                 }
             }
             result?;
-            drain(&mut av1, descriptor, generation, &mut emit)?;
+            drain(&mut av1, descriptor, start_us, &mut emit)?;
         } else if frame.track == audio_track {
             let channels = usize::from(descriptor.audio_channels);
             let mut samples = vec![0.0; OPUS_PACKET_FRAMES * channels];
@@ -270,10 +166,11 @@ fn decode<R: Read + Seek>(
             samples.drain(..skipped * channels);
             let corrected = i128::from(pts_us) - i128::from(delay_ns / 1000)
                 + (skipped as i128 * 1_000_000 / i128::from(SAMPLE_RATE));
-            if !samples.is_empty() {
+            let pts_us = u64::try_from(corrected.max(0))?;
+            if !samples.is_empty() && pts_us >= start_us {
                 let block = PcmBlock {
                     generation,
-                    pts_us: u64::try_from(corrected.max(0))?,
+                    pts_us,
                     channels: descriptor.audio_channels,
                     samples,
                 };
@@ -285,16 +182,15 @@ fn decode<R: Read + Seek>(
         }
     }
     faults.check()?;
-    ensure!(!cancelled.load(Ordering::Acquire), "media cancelled");
-    drain(&mut av1, descriptor, generation, &mut emit)?;
+    drain(&mut av1, descriptor, start_us, &mut emit)?;
     emit(Output::End)
 }
 
-/// Copies validated dav1d planes into one bounded frame; invisible/reference frames stay internal.
+/// Copies validated dav1d planes into one bounded frame; frames before `start_us` skip conversion.
 fn drain(
     decoder: &mut Decoder,
     descriptor: &Descriptor,
-    generation: u64,
+    start_us: u64,
     emit: &mut impl FnMut(Output) -> Result<()>,
 ) -> Result<()> {
     for _ in 0..64 {
@@ -317,6 +213,14 @@ fn drain(
                 && picture.color_range() == dav1d::pixel::YUVRange::Limited,
             "unsupported decoded color profile"
         );
+        let pts_us = u64::try_from(
+            picture
+                .timestamp()
+                .ok_or_else(|| anyhow::anyhow!("missing video PTS"))?,
+        )?;
+        if pts_us < start_us {
+            continue;
+        }
         let components = [
             PlanarImageComponent::Y,
             PlanarImageComponent::U,
@@ -330,19 +234,14 @@ fn drain(
             [&planes[0], &planes[1], &planes[2]],
             strides,
         )?;
-        let pts_us = u64::try_from(
-            picture
-                .timestamp()
-                .ok_or_else(|| anyhow::anyhow!("missing video PTS"))?,
-        )?;
         let frame = VideoFrame {
-            generation,
+            generation: HELPER_GENERATION,
             pts_us,
             width: picture.width(),
             height: picture.height(),
             rgba,
         };
-        frame.validate(generation)?;
+        frame.validate(HELPER_GENERATION)?;
         emit(Output::Video(frame))?;
     }
     anyhow::bail!("too many decoded frames in one dispatch")
@@ -361,51 +260,149 @@ fn clamp_opus(samples: &mut [f32]) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// Supplies a small signed-profile descriptor without contacting its origin.
-    fn descriptor() -> Descriptor {
-        Descriptor {
-            id: "fixture.media".into(),
-            timeline: "fixture.timeline".into(),
-            profile: super::super::descriptor::Profile::WebmAv1OpusBt709,
-            url: "https://example.com/media.webm".into(),
-            bytes: 64 * 1024,
-            chunk_bytes: 64 * 1024,
-            chunk_hashes: vec![crate::crypto::hex(&[0; 32])],
-            sha256: crate::crypto::hex(&[0; 32]),
-            width: 2,
-            height: 2,
-            fps: 1,
-            duration_us: 1_000_000,
-            audio_channels: 1,
-            poster: "poster.png".into(),
-        }
+    const FIXTURE: &[u8] = include_bytes!("testdata/fixture.webm");
+
+    /// Decodes the committed 64x64, 10 fps, half-second AV1 + mono Opus test pattern.
+    fn decode_fixture(start_us: u64) -> Vec<Output> {
+        let descriptor = super::super::ranges::tests::descriptor_for(FIXTURE);
+        descriptor.validate_profile().unwrap();
+        let reader = super::super::ranges::RangeReader::new(
+            descriptor.clone(),
+            super::super::ranges::tests::MemoryChunks {
+                bytes: FIXTURE.to_vec(),
+                corrupt: None,
+                loads: 0,
+            },
+        );
+        let mut outputs = Vec::new();
+        decode(reader, &descriptor, start_us, &Contained(()), |output| {
+            outputs.push(output);
+            Ok(())
+        })
+        .unwrap();
+        outputs
     }
 
     #[test]
-    fn oversized_ebml_declarations_cannot_start_an_uncontained_demuxer() {
-        let descriptor = descriptor();
-        for id in [vec![0x42, 0x82], vec![0x63, 0xa2], vec![0xa3]] {
-            let mut bytes = id;
-            bytes.extend_from_slice(&[0x1f, 0xff, 0xff, 0xfe]);
-            let mut reader = std::io::Cursor::new(bytes);
-            let error = decode(&mut reader, &descriptor, 1, &AtomicBool::new(false), |_| {
-                panic!("uncontained decoder emitted output")
+    fn fixture_decodes_to_ordered_video_and_audio_then_end() {
+        let outputs = decode_fixture(0);
+        let frames: Vec<_> = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::Video(frame) => Some(frame),
+                _ => None,
             })
-            .unwrap_err();
-            assert!(error.to_string().contains("memory-limited helper"));
-            assert_eq!(reader.position(), 0);
-        }
-        assert!(!Worker::available());
-        let error = Worker::start(
-            descriptor,
-            BTreeSet::new(),
-            1,
-            Arc::new(AtomicU64::new(0)),
-            0,
+            .collect();
+        assert_eq!(frames.len(), 5);
+        assert!(
+            frames
+                .windows(2)
+                .all(|pair| pair[0].pts_us < pair[1].pts_us)
+        );
+        assert!(
+            frames
+                .iter()
+                .all(|frame| frame.width == 64 && frame.rgba.len() == 64 * 64 * 4)
+        );
+        assert!(
+            frames[0]
+                .rgba
+                .chunks(4)
+                .any(|pixel| pixel[..3] != [0, 0, 0])
+        );
+        let audio: usize = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::Audio(block) => Some(block.samples.len()),
+                _ => None,
+            })
+            .sum();
+        assert!(audio > SAMPLE_RATE as usize * 4 / 10, "{audio} samples");
+        assert!(matches!(outputs.last(), Some(Output::End)));
+    }
+
+    #[test]
+    fn decode_from_a_start_position_drops_earlier_output() {
+        let outputs = decode_fixture(250_000);
+        assert!(outputs.iter().all(|output| match output {
+            Output::Video(frame) => frame.pts_us >= 250_000,
+            Output::Audio(block) => block.pts_us >= 250_000,
+            Output::End => true,
+        }));
+        assert!(
+            outputs
+                .iter()
+                .any(|output| matches!(output, Output::Video(_)))
+        );
+    }
+
+    #[test]
+    fn helper_session_streams_the_fixture_through_ipc() {
+        use super::super::{ipc, worker::serve_child};
+        let descriptor = super::super::ranges::tests::descriptor_for(FIXTURE);
+        let (parent_read, mut child_write) = std::io::pipe().unwrap();
+        let (mut child_read, parent_write) = std::io::pipe().unwrap();
+        let child = std::thread::spawn(move || {
+            super::super::helper::serve_on(&mut child_read, &mut child_write, &Contained(()))
+        });
+        let (sender, receiver) = std::sync::mpsc::sync_channel(64);
+        let consumer = std::thread::spawn(move || receiver.into_iter().collect::<Vec<_>>());
+        serve_child(
+            parent_write,
+            parent_read,
+            &descriptor,
+            super::super::ranges::tests::MemoryChunks {
+                bytes: FIXTURE.to_vec(),
+                corrupt: None,
+                loads: 0,
+            },
+            ipc::Start {
+                descriptor: descriptor.clone(),
+                start_us: 0,
+            },
+            7,
+            &sender,
         )
-        .err()
-        .expect("worker must remain unavailable");
-        assert!(error.to_string().contains("memory-limited helper"));
+        .unwrap();
+        drop(sender);
+        child.join().unwrap().unwrap();
+        let outputs = consumer.join().unwrap();
+        assert!(outputs.iter().any(|output| matches!(
+            output,
+            Ok(Output::Video(frame)) if frame.generation == 7
+        )));
+        assert!(matches!(outputs.last(), Some(Ok(Output::End))));
+    }
+
+    #[test]
+    fn tampered_chunks_fail_the_session_instead_of_ending_cleanly() {
+        use super::super::{ipc, worker::serve_child};
+        let descriptor = super::super::ranges::tests::descriptor_for(FIXTURE);
+        let (parent_read, mut child_write) = std::io::pipe().unwrap();
+        let (mut child_read, parent_write) = std::io::pipe().unwrap();
+        let child = std::thread::spawn(move || {
+            super::super::helper::serve_on(&mut child_read, &mut child_write, &Contained(()))
+        });
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(64);
+        let result = serve_child(
+            parent_write,
+            parent_read,
+            &descriptor,
+            super::super::ranges::tests::MemoryChunks {
+                bytes: FIXTURE.to_vec(),
+                corrupt: Some(0),
+                loads: 0,
+            },
+            ipc::Start {
+                descriptor: descriptor.clone(),
+                start_us: 0,
+            },
+            1,
+            &sender,
+        );
+        assert!(result.unwrap_err().to_string().contains("hash mismatch"));
+        drop(_receiver);
+        let _ = child.join();
     }
 
     #[test]

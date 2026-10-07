@@ -147,8 +147,6 @@ fn start_game_free_camera_reset_discards_queued_physics_and_stays_suppressed() {
     assert_eq!(sent_packets, 0);
 }
 
-
-
 #[test]
 fn free_camera_authority_rejects_retry_enqueue() {
     let mut ticker = MovementTicker::default();
@@ -174,6 +172,20 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
     let mut pressed = completed_sample(42, [1.25, 64.0, 1.5]);
     pressed.velocity = [0.125, -0.0784, -0.25];
     pressed.move_vector = [-1.0, 1.0];
+    pressed.input = super::TickInput {
+        movement_buttons: semantic_input::MovementButtons {
+            forward: true,
+            left: true,
+            ..Default::default()
+        },
+        jump: semantic_input::ActionPhase {
+            held: true,
+            pressed: true,
+            released: false,
+        },
+        sprint_down: true,
+        ..Default::default()
+    };
     pressed.jumping = true;
     pressed.sprinting = true;
     // A real takeoff fixture: the simulator consumed a grounded jump request
@@ -197,7 +209,8 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
     );
     assert_eq!(first.position, pressed.position);
     assert_ne!(first.flags.bits() & PlayerInputFlags::UP.bits(), 0);
-    assert_ne!(first.flags.bits() & PlayerInputFlags::UP_LEFT.bits(), 0);
+    assert_ne!(first.flags.bits() & PlayerInputFlags::LEFT.bits(), 0);
+    assert_eq!(first.flags.bits() & PlayerInputFlags::UP_LEFT.bits(), 0);
     assert_ne!(
         first.flags.bits() & PlayerInputFlags::HORIZONTAL_COLLISION.bits(),
         0,
@@ -222,6 +235,7 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
     );
 
     pressed.tick = 43;
+    pressed.input.jump.pressed = false;
     // A held button without a new takeoff.
     pressed.processed.jump_initiated = false;
     ticker.enqueue_completed_physics(pressed.clone()).unwrap();
@@ -241,7 +255,8 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
         0
     );
 
-    let released = completed_sample(44, pressed.position);
+    let mut released = completed_sample(44, pressed.position);
+    released.input.jump.released = true;
     ticker.enqueue_completed_physics(released).unwrap();
     let released = ticker.pop_pending().unwrap().snapshot;
     assert_ne!(
@@ -255,16 +270,16 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
 }
 
 #[test]
-fn processed_diagonal_flags_require_exact_digital_diagonals() {
+fn movement_vectors_never_invent_digital_diagonal_buttons() {
     let diagonal_mask = PlayerInputFlags::UP_LEFT.bits()
         | PlayerInputFlags::UP_RIGHT.bits()
         | PlayerInputFlags::DOWN_LEFT.bits()
         | PlayerInputFlags::DOWN_RIGHT.bits();
     let cases = [
-        ([-1.0, 1.0], PlayerInputFlags::UP_LEFT.bits()),
-        ([1.0, 1.0], PlayerInputFlags::UP_RIGHT.bits()),
-        ([-1.0, -1.0], PlayerInputFlags::DOWN_LEFT.bits()),
-        ([1.0, -1.0], PlayerInputFlags::DOWN_RIGHT.bits()),
+        ([-1.0, 1.0], 0),
+        ([1.0, 1.0], 0),
+        ([-1.0, -1.0], 0),
+        ([1.0, -1.0], 0),
         ([0.0, 1.0], 0),
         ([1.0, 0.0], 0),
         ([-0.5, 0.75], 0),
@@ -377,11 +392,11 @@ fn retry_front_rejects_over_capacity_without_losing_the_snapshot() {
 }
 
 #[test]
-fn normalized_keyboard_diagonal_emits_the_processed_direction_flag() {
+fn normalized_keyboard_diagonal_retains_its_two_cardinal_buttons() {
     let component = std::f32::consts::FRAC_1_SQRT_2;
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
-    let frame = physics.advance(
+    let frame = physics.advance_with_context(
         Duration::from_millis(50),
         physics_movement_input(
             [component, component],
@@ -392,6 +407,17 @@ fn normalized_keyboard_diagonal_emits_the_processed_direction_flag() {
             false,
             None,
         ),
+        PhysicsSampleContext {
+            input: super::TickInput {
+                movement_buttons: semantic_input::MovementButtons {
+                    forward: true,
+                    right: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        },
         &Floor,
     );
     assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
@@ -408,7 +434,9 @@ fn normalized_keyboard_diagonal_emits_the_processed_direction_flag() {
 
     assert!((snapshot.move_vector[0] + component).abs() < 1e-6);
     assert!((snapshot.move_vector[1] - component).abs() < 1e-6);
-    assert_ne!(snapshot.flags.bits() & PlayerInputFlags::UP_RIGHT.bits(), 0);
+    assert_eq!(snapshot.flags.bits() & PlayerInputFlags::UP_RIGHT.bits(), 0);
+    let directions = PlayerInputFlags::UP | PlayerInputFlags::RIGHT;
+    assert_eq!(snapshot.flags.bits() & directions.bits(), directions.bits());
 }
 
 struct Floor;
@@ -429,6 +457,10 @@ impl CollisionWorld for Floor {
 pub(super) struct VersionedFloor(pub(super) u8);
 
 impl CollisionWorld for VersionedFloor {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        fixture_world_identity(self.0).registry
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(64.0, 1.0, 64.0));
         Ok(CollisionQuery {
@@ -632,4 +664,19 @@ fn review_invalid_correction_preserves_live_prediction_and_authority() {
     );
     assert!(ticker.physics_is_authorized());
     assert_eq!(physics.network_position(), before);
+}
+
+/// Placement cadence sees collision-resolved motion while the wire retains tick-end velocity.
+#[test]
+fn held_placement_motion_is_distinct_from_auth_input_velocity() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
+    let mut sample = completed_sample(1_001, [1.0, 64.0, 2.0]);
+    sample.movement = [0.0; 3];
+    sample.velocity = [0.1, -0.0784, 0.0];
+    ticker.enqueue_completed_physics(sample).unwrap();
+    let observed = ticker.newest_unsent_sample().unwrap();
+    assert_eq!(observed.displacement, [0.0; 3]);
+    assert_eq!(observed.delta, [0.1, -0.0784, 0.0]);
 }

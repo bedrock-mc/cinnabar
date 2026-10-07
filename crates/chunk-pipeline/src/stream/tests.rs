@@ -36,6 +36,16 @@ impl WorldStream {
     fn dispatch_mesh_jobs(&mut self, camera: [f32; 3], budget: usize) -> usize {
         self.dispatch_mesh_jobs_with_limits(camera, budget, budget)
     }
+
+    /// Publishes a local physics position with the stream's current ownership identity.
+    fn retain_local(&mut self, position: [f32; 3]) -> bool {
+        self.retain_for_local_player(
+            self.authority.actor_session_id(),
+            self.current_dimension(),
+            self.form_dimension_epoch(),
+            position,
+        )
+    }
 }
 
 /// Decode registries that keep every id, for fixtures committed straight to the store.
@@ -92,9 +102,15 @@ fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
     assert_eq!(payload.as_ptr(), pointer);
 }
 
+pub(crate) mod allocation_count;
 mod block_cracks;
+mod column_residency;
 mod commit_budget;
+mod dimension_ranges;
+mod dimension_transfer;
+mod job_snapshots;
 mod light_scheduler;
+mod local_retention;
 mod neighbour_deadlines;
 
 mod mesh_dependency;
@@ -571,6 +587,10 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
                     duration: std::time::Duration::ZERO,
                 },
             ),
+            job @ super::DecodeJob::SyncedBlockUpdates { .. } => {
+                let completion = job.run(Instant::now());
+                (completion.sequence, completion.event)
+            }
             super::DecodeJob::BlockEntityUpdate { sequence, event } => {
                 let key = BlockEntityKey::new(
                     event.dimension,
@@ -905,5 +925,6 @@ mod prediction;
 mod render_distance;
 mod streaming_harness;
 
+mod actor_block_sync;
 #[path = "tests/ordered_commits.rs"]
 mod ordered_commits;

@@ -55,7 +55,7 @@ pub(in crate::compiler) fn resin_clump_inventory_is_exact(records: &[RegistryRec
         let Some(connections) = exact_resin_clump_state(record) else {
             return false;
         };
-        if record.sequential_id != 2930 + connections || seen[connections as usize] {
+        if seen[connections as usize] {
             return false;
         }
         seen[connections as usize] = true;

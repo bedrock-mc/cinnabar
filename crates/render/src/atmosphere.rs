@@ -41,8 +41,6 @@ const PROVISIONAL_FLASH_COLOUR: [f32; 3] = [0.85, 0.87, 1.0];
 const BLINDNESS_FOG_END: f32 = 5.0;
 const DARKNESS_FOG_END_SCALE: f32 = 0.4;
 const NETHER_FOG_RGB8: u32 = 0x0033_0808;
-/// Provisional flat end sky until `end_sky.png` is carried; needs native calibration.
-const PROVISIONAL_END_SKY: [f32; 3] = [0.035, 0.028, 0.05];
 
 /// Which sky model the shader draws.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,6 +51,10 @@ pub enum SkyKind {
 }
 
 impl SkyKind {
+    pub(crate) const fn has_clouds(self) -> bool {
+        matches!(self, Self::Overworld)
+    }
+
     #[must_use]
     pub const fn from_dimension(dimension: i32) -> Self {
         match dimension {
@@ -148,7 +150,7 @@ pub fn cloud_face_shade(normal: [f32; 3]) -> f32 {
     meshing::cloud_face_shade(normal)
 }
 
-/// Cloud RGBA from `DimensionClientUtils::getCloudColor`: weather tint, day brightness,
+/// Vanilla cloud RGBA: weather tint, day brightness,
 /// the sunrise blend and the fixed alpha.
 #[must_use]
 pub fn cloud_colour(celestial_angle: f32, rain: f32, thunder: f32, sunrise: [f32; 4]) -> [f32; 4] {
@@ -166,7 +168,7 @@ pub fn cloud_colour(celestial_angle: f32, rain: f32, thunder: f32, sunrise: [f32
 }
 
 fn cloud_base_colour(angle: f32, rain: f32, thunder: f32) -> [f32; 3] {
-    // Current DimensionClientUtils, classic non-custom branch:
+    // Vanilla classic, non-custom cloud colour:
     // rain first, then day RGB multipliers, then thunder's luminance pull.
     let angle = if angle.is_finite() { angle } else { 0.0 };
     let rain = bounded_level(rain) * WEATHER_COLOUR_CONTRIBUTION;
@@ -325,7 +327,7 @@ impl AtmosphereFrame {
         self.sky_extra.x = 0.0;
         let colour = match kind {
             SkyKind::Nether => rgb8_to_linear(NETHER_FOG_RGB8),
-            SkyKind::End | SkyKind::Overworld => PROVISIONAL_END_SKY,
+            SkyKind::End | SkyKind::Overworld => [0.0; 3],
         };
         self.sky_zenith_rain = Vec4::new(colour[0], colour[1], colour[2], self.sky_zenith_rain.w);
         self.sky_horizon_thunder =
@@ -708,7 +710,7 @@ impl AtmosphereFrame {
         -self.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD as f32
     }
 
-    /// LevelRenderer::tick drives clouds even while daylight is paused.
+    /// Vanilla advances clouds even while daylight is paused.
     #[must_use]
     pub fn with_cloud_renderer_ticks(mut self, ticks: f64) -> Self {
         self.fog_end_time.z = if ticks.is_finite() {
@@ -764,8 +766,8 @@ fn overworld_zenith(angle: f32, temperature: f32, thunder: f32) -> [f32; 3] {
 }
 
 fn native_sky_colour(base: [f32; 3], thunder: f32) -> [f32; 3] {
-    // getInterpolatedSkyColor also mixes precipitation fog before thunder.
-    // That stage waits for Weather+0x4c/current-rain view inputs after profile resolution.
+    // Vanilla sky colour also mixes precipitation fog before thunder.
+    // That stage waits for current-rain view inputs after profile resolution.
     // with_camera_environment restores its equivalent ordering before camera glare.
     // Outdoor ambient is 1; native culler-list camera exposure is a separate gate.
     let thunder = celestial::storm_tint(base, 0.0, thunder);

@@ -1,5 +1,6 @@
 //! Shares actor geometry and skin coverage while keeping shadow-only bodies out of camera draws.
 
+#[cfg(feature = "enhanced")]
 use super::*;
 use crate::actor::gpu::ActorDrawSpan;
 
@@ -18,6 +19,7 @@ mod tests {
     #[test]
     fn camera_spans_exclude_shadow_tail_without_changing_geometry_coverage() {
         let span = ActorDrawSpan {
+            material: 0,
             page: 2,
             first: 3,
             count: 5,
@@ -31,11 +33,21 @@ mod tests {
     }
 }
 
+#[cfg(feature = "enhanced")]
 fn prepared_spans(
     gpu: &ActorGpu,
     shadows: bool,
 ) -> impl Iterator<Item = (ActorDrawSpan, &BindGroup)> {
     gpu.spans.iter().copied().filter_map(move |span| {
+        // Dissolve coverage comes from its depth pass; the color pass shares the same geometry.
+        if span.material & assets::EntityRenderMaterialState::KIND_MASK
+            == assets::EntityRenderMaterial::DissolveColor as u32
+            || (!shadows
+                && crate::actor::material::state(span.material)
+                    .is_some_and(|state| !state.depth_write))
+        {
+            return None;
+        }
         let span = if shadows {
             span
         } else {
@@ -56,6 +68,7 @@ fn prepared_spans(
     })
 }
 
+#[cfg(feature = "enhanced")]
 fn draw_prepared_actors<'w>(
     gpu: &'w ActorGpu,
     view_offset: u32,
@@ -127,44 +140,4 @@ pub(crate) fn draw_depth_actors<'w>(
     draw_prepared_actors(gpu, view_offset, pass, false, |span| {
         super::motion::record_coverage(world, span.first, span.count);
     });
-}
-
-pub(super) type DrawActorCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawActors,
-);
-
-pub(super) struct DrawActors;
-
-impl<P: PhaseItem> RenderCommand<P> for DrawActors {
-    type Param = (
-        SRes<ActorGpu>,
-        SRes<ActorDrawTracker>,
-        SRes<ActorRuntimeWitness>,
-    );
-    type ViewQuery = (Entity, Read<ViewUniformOffset>);
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        view: ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        params: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let (gpu, tracker, witness) = params;
-        let gpu = gpu.into_inner();
-        let tracker = tracker.into_inner();
-        let executed_instances = draw_prepared_actors(gpu, view.1.offset, pass, false, |span| {
-            tracker.record_draw(view.0.to_bits(), span);
-        });
-        witness.into_inner().observe_draw(ActorDrawWitness {
-            executed: executed_instances != 0,
-            instances: executed_instances,
-            maximum_vertices: gpu.maximum_vertex_count,
-        });
-        RenderCommandResult::Success
-    }
 }

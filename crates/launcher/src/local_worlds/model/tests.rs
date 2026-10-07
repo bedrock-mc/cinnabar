@@ -306,6 +306,28 @@ fn prompt(kind: PromptKind, blocking: PromptFor) -> Option<Prompt> {
     Some(Prompt { kind, blocking })
 }
 
+/// The core probes Docker after startup, so the menu keeps reading prefs until a verdict arrives.
+#[test]
+fn prefs_are_polled_until_docker_detection_settles() {
+    let mut menu = loaded(&["a"]);
+    let mut checking = status(WorldState::Idle, "");
+    checking.setup = Some(setup(SetupState::CheckingRuntime));
+    assert_eq!(
+        menu.apply(Event::Prefs(Prefs::default(), checking)),
+        vec![Effect::PollPrefs]
+    );
+    assert!(
+        menu.apply(Event::Prefs(
+            Prefs::default(),
+            with_reason(UnavailableReason::DockerNotRunning)
+        ))
+        .is_empty()
+    );
+    assert!(menu.update(Input::BeginCreate).is_empty());
+    assert_eq!(menu.screen(), Screen::Create);
+    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+}
+
 #[test]
 fn no_backend_reason_never_shows_the_docker_modal() {
     let mut menu = loaded(&["a"]);
@@ -315,87 +337,63 @@ fn no_backend_reason_never_shows_the_docker_modal() {
     assert_eq!(menu.create_form().generator, Generator::Normal);
 }
 
-/// Without Docker the way forward is a Flat world on the built-in server, or installing Docker.
 #[test]
-fn docker_missing_offers_a_flat_world_or_docker() {
-    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
-    assert!(menu.update(Input::BeginCreate).is_empty());
-    assert_eq!(
-        menu.prompt(),
-        prompt(PromptKind::DockerMissing, PromptFor::BeginCreate)
-    );
-    let buttons = menu.prompt().expect("prompt").buttons();
-    assert!(
-        buttons.contains(&PromptButton::CreateFlat) && buttons.contains(&PromptButton::GetDocker)
-    );
-    assert_eq!(
-        menu.update(Input::Prompt(PromptButton::GetDocker)),
-        vec![Effect::OpenUrl(DOCKER_URL)]
-    );
-    assert_eq!(menu.screen(), Screen::BackendPrompt);
-    assert!(
-        menu.update(Input::Prompt(PromptButton::CreateFlat))
-            .is_empty()
-    );
-    assert_eq!(menu.screen(), Screen::Create);
-    assert_eq!(menu.create_form().generator, Generator::Flat);
-
-    // Choosing the default world type anyway stops at the modal again, now blocking.
-    menu.update(Input::SetFlat(false));
-    assert_eq!(menu.create_form().generator, Generator::Normal);
-    assert!(menu.update(Input::SubmitCreate).is_empty());
-    assert_eq!(
-        menu.prompt(),
-        prompt(PromptKind::DockerMissing, PromptFor::CreateDefault)
-    );
-    menu.update(Input::Back);
-    assert_eq!(menu.screen(), Screen::Create, "cancel keeps the form");
-    menu.update(Input::SubmitCreate);
-    let effects = menu.update(Input::Prompt(PromptButton::CreateFlat));
-    let [Effect::Create(new_world)] = effects.as_slice() else {
-        panic!("expected a create, got {effects:?}");
-    };
-    assert_eq!(new_world.generator, Generator::Flat);
+fn missing_docker_blocks_only_bds_and_fallback_preserves_the_form() {
+    for generator in [Generator::Normal, Generator::Flat] {
+        let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+        menu.update(Input::BeginCreate);
+        menu.update(Input::SetName("My saved form".into()));
+        menu.update(Input::SetSeed("-7".into()));
+        menu.update(Input::SetFlat(generator == Generator::Flat));
+        menu.update(Input::SetBackend(Backend::Bds));
+        assert!(menu.update(Input::SubmitCreate).is_empty());
+        assert_eq!(
+            menu.prompt(),
+            prompt(PromptKind::DockerMissing, PromptFor::CreateBds)
+        );
+        assert_eq!(
+            menu.update(Input::Prompt(PromptButton::GetDocker)),
+            vec![Effect::OpenUrl(DOCKER_URL)]
+        );
+        menu.update(Input::Back);
+        assert_eq!(menu.screen(), Screen::Create);
+        assert_eq!(menu.create_form().backend, Backend::Bds);
+        menu.update(Input::SubmitCreate);
+        let effects = menu.update(Input::Prompt(PromptButton::UseDragonfly));
+        let [Effect::Create(spec)] = effects.as_slice() else {
+            panic!("missing create");
+        };
+        assert_eq!(spec.backend, Some(Backend::Dragonfly));
+        assert_eq!(spec.generator, generator);
+        assert_eq!(spec.name, "My saved form");
+        assert_eq!(spec.seed, Some(-7));
+    }
 }
 
 #[test]
-fn dont_show_again_persists_and_continues() {
-    let mut menu = docker_menu(UnavailableReason::DockerMissing, &["a"]);
+fn backend_selection_preserves_terrain_and_seed() {
+    let mut menu = loaded(&[]);
     menu.update(Input::BeginCreate);
-    let effects = menu.update(Input::Prompt(PromptButton::DontShowAgain));
-    assert_eq!(
-        effects,
-        vec![Effect::SetPrefs {
-            dismiss_docker_prompt: true,
-            redetect: false
-        }]
-    );
-    assert_eq!(menu.screen(), Screen::Create);
-    let mut fresh = loaded(&["a"]);
-    fresh.apply(Event::Prefs(
-        Prefs {
-            docker_prompt_dismissed: true,
-        },
-        with_reason(UnavailableReason::DockerMissing),
-    ));
-    fresh.update(Input::BeginCreate);
-    assert_eq!(fresh.screen(), Screen::Create);
-    fresh.update(Input::SetFlat(false));
-    fresh.update(Input::SubmitCreate);
-    assert_eq!(
-        fresh.screen(),
-        Screen::BackendPrompt,
-        "dismissal never hides the blocking modal"
-    );
+    menu.update(Input::SetSeed("42".into()));
+    menu.update(Input::SetFlat(true));
+    menu.update(Input::SetBackend(Backend::Bds));
+    assert_eq!(menu.create_form().generator, Generator::Flat);
+    menu.update(Input::SetFlat(false));
+    assert_eq!(menu.create_form().backend, Backend::Bds);
+    menu.update(Input::SetBackend(Backend::Dragonfly));
+    assert_eq!(menu.create_form().generator, Generator::Normal);
+    assert_eq!(menu.create_form().seed_text, "42");
 }
 
 #[test]
 fn retry_redetects_and_continues_once_docker_is_up() {
     let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &[]);
     menu.update(Input::BeginCreate);
+    menu.update(Input::SetBackend(Backend::Bds));
+    menu.update(Input::SubmitCreate);
     assert_eq!(
         menu.prompt(),
-        prompt(PromptKind::DockerNotRunning, PromptFor::BeginCreate)
+        prompt(PromptKind::DockerNotRunning, PromptFor::CreateBds)
     );
     assert_eq!(
         menu.update(Input::Prompt(PromptButton::Retry)),
@@ -413,6 +411,7 @@ fn retry_redetects_and_continues_once_docker_is_up() {
     menu.update(Input::Prompt(PromptButton::Retry));
     menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
     assert_eq!(menu.screen(), Screen::Create);
+    assert!(menu.busy());
 }
 
 #[test]
@@ -436,7 +435,7 @@ fn playing_a_dragonfly_world_skips_the_modal_but_a_bds_world_needs_docker() {
             .prompt()
             .expect("prompt")
             .buttons()
-            .contains(&PromptButton::CreateFlat),
+            .contains(&PromptButton::UseDragonfly),
         "a saved BDS world never falls back to another server"
     );
     menu.update(Input::Prompt(PromptButton::Retry));
@@ -496,17 +495,15 @@ fn accept_eula_outside_the_eula_screen_does_nothing() {
 }
 
 #[test]
-fn create_defaults_to_flat_only_where_the_dedicated_server_cannot_run() {
-    for (state, generator) in [
-        (SetupState::Ready, Generator::Normal),
-        (SetupState::Unsupported, Generator::Flat),
-    ] {
+fn create_defaults_to_dragonfly_and_normal_independent_of_bds_availability() {
+    for state in [SetupState::Ready, SetupState::Unsupported] {
         let mut menu = loaded(&[]);
         let mut idle = status(WorldState::Idle, "");
         idle.setup = Some(setup(state));
         menu.apply(Event::Prefs(Prefs::default(), idle));
         menu.update(Input::BeginCreate);
-        assert_eq!(menu.create_form().generator, generator, "{state:?}");
+        assert_eq!(menu.create_form().generator, Generator::Normal);
+        assert_eq!(menu.create_form().backend, Backend::Dragonfly);
     }
 }
 
@@ -601,4 +598,26 @@ fn review_cancelled_creation_updates_the_list_without_opening_it() {
     assert!(menu.apply(Event::Created(world("fresh", "new"))).is_empty());
     assert_eq!(menu.screen(), Screen::List);
     assert_eq!(menu.worlds()[0].id, "fresh");
+}
+
+#[test]
+fn template_create_action_opens_the_create_form() {
+    let mut menu = loaded(&[]);
+    menu.update(Input::OpenTemplates);
+    assert_eq!(menu.screen(), Screen::Templates);
+    assert!(menu.update(Input::BeginCreate).is_empty());
+    assert_eq!(menu.screen(), Screen::Create);
+}
+
+#[test]
+fn new_world_backend_defaults_to_dragonfly_without_a_docker_gate() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.screen(), Screen::Create);
+    let effects = menu.update(Input::SubmitCreate);
+    let [Effect::Create(spec)] = effects.as_slice() else {
+        panic!("Dragonfly creation must not be blocked by Docker");
+    };
+    assert_eq!(spec.backend, Some(Backend::Dragonfly));
+    assert_eq!(spec.generator, Generator::Normal);
 }

@@ -99,7 +99,9 @@ layer; transparent effects still rely on camera reprojection and radiance reacti
 so fast transparency or changing reflections may blur or lose history.
 
 GPU exposure trims the lowest/highest 10% of a 64-bin luminance histogram and
-adapts asymmetrically without CPU readback. A half-resolution GTAO/contact-shadow
+adapts asymmetrically without CPU readback. Meter history persists independently of TAA
+and image disocclusion, avoiding instantaneous brightness changes when reprojection rejects a frame.
+A half-resolution GTAO/contact-shadow
 and 24-step cloud pass uses depth-aware upsampling and world temporal history.
 An alpha-tested camera depth pass writes a private target before AO, preserving
 the main pass's independent clear and alpha coverage. Depth casters sample the
@@ -118,7 +120,8 @@ two sources can cast point shadows through six 256-square faces each. Residual
 propagated block light supplies a fallback. Source metadata, tile admission and
 point-shadow coverage are cached; unchanged input avoids rebuilds and buffer uploads.
 Finite emitter filtering crosses cube-face seams and widens with blocker separation.
-Half-resolution receiver visibility has a 45ms exponential response, with depth-aware
+Half-resolution receiver visibility has a 45ms exponential response for continuous casters;
+sampled foliage uses anchored 15Hz captures and a 133ms response, with depth-aware
 reprojection/upsampling. Camera jitter is removed from receiver motion; depth changes,
 moving receivers, source changes and camera cuts reject history even when TAA is disabled.
 Forward shading checks full-resolution receiver motion before accepting half-resolution
@@ -165,11 +168,8 @@ Additional technique references: [GTAO](https://www.iryoku.com/downloads/Practic
 [Bruneton scattering](https://ebruneton.github.io/precomputed_atmospheric_scattering/),
 [Guerrilla Nubis](https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine),
 [Filament exposure](https://google.github.io/filament/main/filament.html).
-The current revision passed 42 focused render regressions, 11 material importer regressions,
-13 client loading/mode regressions and the carrier-identity publication regression.
-Targeted checks compile the render, assets, importer and client tests. Native asynchronous
-compilation and bounded authored uploads passed the broader render run. Current native
-visual acceptance remains pending.
+Targeted checks compile the render, assets, importer and client tests. Native visual
+acceptance, including stationary flashes and streamed edits, remains pending.
 Approximate higher-order scattering, transparent reactivity,
 unshadowed probe lighting and full viewport support remain incomplete. Release
 frame-time and streaming acceptance remain open; see `plan.md`.
@@ -198,8 +198,10 @@ updates. Material, geometry, biome-tint, dimension and lighting changes invalida
 only the affected local state. Model occupancy is conservative 1m and secondary actor
 transport is incomplete. Toroidal storage preserves overlapping probes while the field scrolls;
 exposed cells update first and position/epoch guards reject departed aliases. Lighting refreshes
-interpolate radiance over 120ms, retaining current visibility moments. Geometry changes clear
-history immediately; teleports and newly exposed cells still require warmup.
+interpolate radiance over 120ms, retaining current visibility moments. Unchanged geometry and
+consumed skylight do not invalidate transport. Local geometry and tint changes retain valid
+world probes while a bounded refresh completes; current occupancy still gates wall visibility.
+Dimension, asset and nonoverlapping grid cuts reject history, and exposed cells still need warmup.
 
 Cloud noise is a persistent 64³ tileable Perlin/Worley volume, generated once on the GPU and
 box-filtered through 3D mips before any view samples it. Weather-dependent shapes, vertical

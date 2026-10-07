@@ -53,7 +53,7 @@ fn derive_base_frame(
     context: &EnvironmentContext,
 ) -> AtmosphereFrame {
     // Player's packet radius includes one extra chunk before the camera margin.
-    // Ordinary preRenderParameters supplies coefficient1; optional platform
+    // Vanilla's ordinary render parameters supply coefficient1; optional platform
     // caps need their own admission witness, not a quality multiplier.
     let adjusted_render_distance = context
         .render_distance_blocks
@@ -176,7 +176,10 @@ pub(crate) fn update_atmosphere_frame(
     atmosphere_assets: Res<render::AtmosphereTextureAssets>,
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
-    vision: Res<crate::camera::VisionEffects>,
+    vision: (
+        Res<crate::camera::VisionEffects>,
+        Option<Res<crate::camera::ServerCameraView>>,
+    ),
     outputs: AtmosphereOutputs,
     settings: Res<crate::settings_runtime::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
@@ -188,6 +191,10 @@ pub(crate) fn update_atmosphere_frame(
     cameras: Query<&Transform, With<crate::camera::FlyCamera>>,
 ) {
     let (time_override, debug_time_override) = time_overrides;
+    let vision = vision
+        .1
+        .as_deref()
+        .map_or(*vision.0, |camera| vision.0.for_camera(camera));
     let renderer_ticks = renderer_clock.advance(
         clock.server_time().map(|_| clock.session_generation),
         time.elapsed_secs_f64(),
@@ -262,8 +269,8 @@ pub(crate) fn update_atmosphere_frame(
         };
     }
     lighting.0 = render::LightmapInputs {
-        // Ordinary native renderer supplies flag1 to update.
-        // buildImage uses it for both ambient stages around gamma;
+        // Vanilla's ordinary renderer sets the lightmap's ambient flag, which
+        // applies both ambient stages around gamma;
         // omitting it crushes shaded terrain at night, despite matching gamma.
         ambient_adjustment: true,
         sky_darken: render::lightmap_sky_darken(

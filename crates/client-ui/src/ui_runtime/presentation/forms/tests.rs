@@ -298,6 +298,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     let pack = super::ServerUiPack {
+        screen_settings: None,
         catalog: None,
         ui_layers: vec![vec![(
             "ui/server_form.json".to_owned(),
@@ -453,7 +454,7 @@ fn pause_texts() -> Option<Vec<String>> {
     screen_texts(&view)
 }
 
-fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
+pub(super) fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
     let carrier = super::pack_harness::carrier()?;
     let catalog = json_ui::Catalog::from_files(
         carrier
@@ -764,18 +765,25 @@ fn oreui_texts(view: &crate::menu::MenuView) -> Vec<String> {
     let metrics = super::super::TextMetrics::for_viewport([1600, 900], dpi, None);
     let (mut nodes, mut next) = (Vec::new(), 1);
     presentation
-        .append_oreui_screen(view, &mut nodes, &mut next, metrics, [1600.0, 900.0], None)
+        .append_oreui_screen(
+            view,
+            &mut nodes,
+            &mut next,
+            metrics,
+            [1600.0, 900.0],
+            None,
+            &|_| None,
+        )
         .unwrap()
         .expect("an OreUI screen");
     super::pack_harness::drawn_texts(&nodes)
 }
 
-// The owner's world type labels show on the create form, the edit screen, the worlds list
-// and the no-Docker dialog's built-in option.
+// Generator labels survive every world view; the Docker prompt offers the alternate backend.
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
     use crate::local_worlds::{
-        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, Tab, WorldsMenu,
+        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
     };
     use protocol::world_control::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
@@ -853,9 +861,11 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         },
     ));
     menu.update(Input::BeginCreate);
+    menu.update(Input::SetBackend(Backend::Bds));
+    menu.update(Input::SubmitCreate);
     let dialog = oreui_texts(&base(&menu));
     assert!(
-        has(&dialog, &format!("Create {FLAT_WORLD_LABEL} world")),
+        has(&dialog, &PromptButton::UseDragonfly.label()),
         "no-Docker dialog: {dialog:?}"
     );
 }
@@ -892,7 +902,7 @@ fn review_failed_menu_modal_does_not_expose_underlying_actions() {
         )
         .unwrap();
     assert!(!presentation.menu_hit_targets.is_empty());
-    view.dialog = Some(MenuDialog::Exit);
+    view.dialog = Some(MenuDialog::SettingsResetBindings(false));
     presentation.set_menu_view(Some(view));
     presentation
         .build(
@@ -965,4 +975,77 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
             }
         }
     }
+}
+
+// The join's trust question draws vanilla's modal popup over everything, and only its answers take
+// presses, even with a launcher dialog open beneath it.
+#[test]
+fn server_trust_question_draws_the_vanilla_popup_and_owns_the_input() {
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping server_trust_question_draws_the_vanilla_popup_and_owns_the_input: missing local UI carrier; make assets"
+        );
+        return;
+    };
+    let player_runtime = player_state::PlayerState::new(1);
+    let mut view = crate::menu::MenuView::new(true, "Player".into());
+    view.connecting = true;
+    view.dialog = Some(crate::menu::MenuDialog::Exit);
+    view.feeds.server_trust = Some(crate::menu::ServerTrustPrompt {
+        id: 1,
+        url: "http://127.0.0.1:19132".into(),
+        from_session_core: false,
+    });
+    let actions = super::test_support::draw_menu_actions(&player_runtime, &mut presentation, &view);
+    let texts =
+        super::pack_harness::drawn_texts(super::pack_harness::menu_nodes(&presentation)).join(" ");
+    for expected in [
+        "Trust this server?",
+        "You are connecting to",
+        "http://127.0.0.1:19132",
+        "Trust and Join",
+        "Don't Trust",
+    ] {
+        assert!(
+            texts.contains(expected),
+            "missing {expected:?} in {texts:?}"
+        );
+    }
+    for answer in [true, false] {
+        assert!(
+            actions.contains(&crate::menu::MenuAction::ServerTrust(answer)),
+            "{actions:?}"
+        );
+    }
+    assert!(
+        actions
+            .iter()
+            .all(|action| matches!(action, crate::menu::MenuAction::ServerTrust(_))),
+        "{actions:?}"
+    );
+}
+
+// A language's translation of the question wins over vanilla's English and names the URL.
+#[test]
+fn server_trust_question_reads_the_active_language() {
+    let translate = |key: &str| {
+        (key == "permissions.servertrust.message").then(|| Arc::<str>::from("Vertrauen %1$s?"))
+    };
+    let json_ui::FormModel::Modal(modal) =
+        super::menu_screens::server_trust_model("http://a:1", &translate)
+    else {
+        panic!("the trust question is a modal popup");
+    };
+    assert_eq!(
+        (
+            modal.title.as_str(),
+            modal.body.as_str(),
+            modal.button1.as_str()
+        ),
+        (
+            "Trust this server?",
+            "Vertrauen http://a:1?",
+            "Trust and Join"
+        )
+    );
 }

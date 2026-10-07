@@ -53,7 +53,7 @@ fn accepted_successor_uses_live_seed_and_old_retirement_cannot_overwrite_it() {
         settings: true,
         ..Default::default()
     };
-    let mut previous = ModHost::load_with_grants(&path, grants).unwrap();
+    let mut previous = ModHost::load_with_grants(&path, grants.clone()).unwrap();
     previous.frame(false).unwrap();
     assert_eq!(previous.settings_snapshot(), Some("{\"cps\":30}"));
     std::fs::write(&companion, "{\"cps\":1}").unwrap();

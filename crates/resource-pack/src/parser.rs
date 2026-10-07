@@ -185,23 +185,16 @@ pub(crate) fn validate_archive_parts(
         .into_iter()
         .find(|path| rooted.contains_key(*path))
         .ok_or(AdmissionError::MissingManifest)?;
-    let files = logical_files(&rooted, sub_pack_name)?;
-    let mut file_order = files.keys().cloned().collect::<Vec<_>>();
-    file_order.sort_unstable();
-    let folded = files
-        .keys()
-        .map(|path| (path.to_ascii_lowercase().into_boxed_str(), path.clone()))
-        .collect();
-    let pack = ValidatedPack {
+    let mut pack = ValidatedPack {
         pack_id,
         version: version.into(),
         sub_pack_name: sub_pack_name.into(),
         archive_bytes,
         declared_bytes: declared,
         zip,
-        files,
-        folded,
-        file_order: file_order.into_boxed_slice(),
+        files: rooted,
+        folded: HashMap::new(),
+        file_order: Box::default(),
         keys: keys.into(),
         physical_entry_count: expected_entries,
         skipped_entries: skipped,
@@ -214,14 +207,21 @@ pub(crate) fn validate_archive_parts(
         })?
         .ok_or(AdmissionError::MissingManifest)?;
     let manifest = read_manifest(&manifest_bytes, pack_id, version)?;
-    if !sub_pack_name.is_empty()
-        && !manifest
-            .subpack_folders
-            .iter()
-            .any(|folder| folder.as_ref() == sub_pack_name)
-    {
-        return Err(AdmissionError::InvalidSubpack);
-    }
+    // An unavailable server selection uses root resources, even when its name is nonempty.
+    let selected = manifest
+        .subpack_folders
+        .iter()
+        .find(|folder| folder.as_ref() == sub_pack_name)
+        .map_or("", AsRef::as_ref);
+    pack.files = logical_files(&pack.files, selected)?;
+    pack.folded = pack
+        .files
+        .keys()
+        .map(|path| (path.to_ascii_lowercase().into_boxed_str(), path.clone()))
+        .collect();
+    let mut file_order = pack.files.keys().cloned().collect::<Vec<_>>();
+    file_order.sort_unstable();
+    pack.file_order = file_order.into_boxed_slice();
     Ok((pack, declared))
 }
 

@@ -22,7 +22,7 @@ pub enum SupportAction {
 }
 
 impl SupportLink {
-    /// Fixed destinations from general_section.json and AppPlatform::getFeedbackHelpLink.
+    /// Fixed destinations from general_section.json and vanilla's feedback link.
     pub fn url(self) -> &'static str {
         match self {
             Self::Help => "https://aka.ms/MCHelp",

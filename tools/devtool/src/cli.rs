@@ -1,8 +1,12 @@
-use std::process::{Command, Stdio};
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+};
 
 use crate::{
-    CommandSpec, DevtoolError, Selection, TestRunner, packages_from_metadata, select_packages,
-    selection::normalize, verification_commands,
+    CommandSpec, DevtoolError, Selection, TestRunner, extra_commands, go_modules,
+    packages_from_metadata, select_extra_checks, select_packages, selection::normalize,
+    verification_commands,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,25 +62,31 @@ pub fn run(options: &Options) -> Result<(), DevtoolError> {
         "--locked",
     ]))?;
     let packages = packages_from_metadata(&metadata)?;
-    let mut changed = nul_paths(&capture(CommandSpec {
-        program: "git".into(),
-        args: vec![
+    let go_mod_paths = go_manifests(Path::new("."))?;
+    let go_work = std::fs::read_to_string("go.work").ok();
+    let go_modules = go_modules(
+        &go_mod_paths.iter().map(String::as_str).collect::<Vec<_>>(),
+        go_work.as_deref(),
+    );
+    let mut changed = nul_paths(&capture(CommandSpec::new(
+        "git",
+        vec![
             "diff".into(),
             "--name-only".into(),
             "-z".into(),
             options.base.clone(),
             "--".into(),
         ],
-    })?);
-    changed.extend(nul_paths(&capture(CommandSpec {
-        program: "git".into(),
-        args: vec![
+    ))?);
+    changed.extend(nul_paths(&capture(CommandSpec::new(
+        "git",
+        vec![
             "ls-files".into(),
             "--others".into(),
             "--exclude-standard".into(),
             "-z".into(),
         ],
-    })?));
+    ))?));
     changed.sort();
     changed.dedup();
     let changed_refs = changed.iter().map(String::as_str).collect::<Vec<_>>();
@@ -86,6 +96,18 @@ pub fn run(options: &Options) -> Result<(), DevtoolError> {
         Selection::Packages(packages) => println!("affected: {}", packages.join(", ")),
         Selection::NoPackages => println!("affected: no Rust packages"),
     }
+    let extra = select_extra_checks(&changed_refs, &go_modules);
+    if !extra.go_modules.is_empty() {
+        let dirs: Vec<_> = extra
+            .go_modules
+            .iter()
+            .map(|module| module.dir.as_str())
+            .collect();
+        println!("affected Go modules: {}", dirs.join(", "));
+    }
+    if extra.packaging {
+        println!("affected: packaging tests");
+    }
     let runner = detect_test_runner();
     match runner {
         TestRunner::Nextest => println!("test runner: cargo-nextest"),
@@ -93,13 +115,36 @@ pub fn run(options: &Options) -> Result<(), DevtoolError> {
             println!("test runner: cargo test (install cargo-nextest for faster local tests)");
         }
     }
-    for command in verification_commands(&selection, runner, &packages) {
+    let mut commands = verification_commands(&selection, runner, &packages);
+    commands.extend(extra_commands(&extra));
+    for command in commands {
         println!("$ {command}");
         if !options.dry_run {
             execute(command)?;
         }
     }
     Ok(())
+}
+
+/// Returns tracked and non-ignored untracked `go.mod` paths under `root`, sorted.
+fn go_manifests(root: &Path) -> Result<Vec<String>, DevtoolError> {
+    let mut paths = nul_paths(&capture(CommandSpec::new(
+        "git",
+        vec![
+            "-C".into(),
+            root.to_string_lossy().into_owned(),
+            "ls-files".into(),
+            "-z".into(),
+            "--cached".into(),
+            "--others".into(),
+            "--exclude-standard".into(),
+            "--".into(),
+            ":(glob)**/go.mod".into(),
+        ],
+    ))?);
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
 }
 
 fn detect_test_runner() -> TestRunner {
@@ -128,6 +173,7 @@ fn capture(command: CommandSpec) -> Result<String, DevtoolError> {
     let display = command.to_string();
     let output = Command::new(&command.program)
         .args(&command.args)
+        .envs(command.env.iter().map(|(key, value)| (key, value)))
         .output()
         .map_err(|source| DevtoolError::Spawn {
             command: display.clone(),
@@ -147,6 +193,7 @@ fn execute(command: CommandSpec) -> Result<(), DevtoolError> {
     let display = command.to_string();
     let status = Command::new(&command.program)
         .args(&command.args)
+        .envs(command.env.iter().map(|(key, value)| (key, value)))
         .status()
         .map_err(|source| DevtoolError::Spawn {
             command: display.clone(),
@@ -165,7 +212,34 @@ fn execute(command: CommandSpec) -> Result<(), DevtoolError> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_args;
+    use std::{fs, process::Command};
+
+    use super::{go_manifests, parse_args};
+
+    #[test]
+    fn go_manifests_include_untracked_modules_but_not_ignored_ones() {
+        let root =
+            std::env::temp_dir().join(format!("devtool-go-manifests-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for dir in ["core", "tools/new", "ignored"] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+            fs::write(root.join(dir).join("go.mod"), "module example\n").unwrap();
+        }
+        fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+        let git = |args: &[&str]| {
+            let status = Command::new("git")
+                .current_dir(&root)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&["init", "--quiet"]);
+        git(&["add", "core/go.mod"]);
+        let manifests = go_manifests(&root);
+        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(manifests.unwrap(), ["core/go.mod", "tools/new/go.mod"]);
+    }
 
     #[test]
     fn command_line_requires_an_explicit_base_and_supports_dry_run() {

@@ -1,6 +1,5 @@
-//! `SelectionWheelComponent`: pointer sectors and component-managed state children.
-//! Lens 26.30 `receive` (0x1024ea3d0), constructor (0x1024e9af0) and
-//! `_updateControlVisibility` (0x1024e9f30), corroborated by the pinned UI definitions.
+//! Selection wheel: pointer sectors and component-managed state children, matching
+//! vanilla 26.30 and the pinned UI definitions.
 
 use std::collections::VecDeque;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};

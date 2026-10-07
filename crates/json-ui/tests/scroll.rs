@@ -1,4 +1,4 @@
-//! Scroll views as vanilla's ScrollViewComponent runs them: the named viewport,
+//! Scroll views as vanilla runs them: the named viewport,
 //! track and panel, box sizing and axes, update requests, and the bag feedback.
 //! Kept out of tests/it: the process latches the wheel sensitivity of the first view scrolled.
 

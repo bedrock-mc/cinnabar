@@ -7,7 +7,7 @@ impl WorldStream {
     pub fn lighting_diagnostic(&self, positions: &[[f32; 3]]) -> String {
         let mut out = String::new();
         let dimension = self.current_dimension();
-        let range = vanilla_dimension_range(dimension);
+        let range = self.authority.dimension_range(dimension);
         let block_range = range.map(|r| {
             (
                 i64::from(r.base_sub_chunk_y) * 16,
@@ -133,7 +133,7 @@ impl WorldStream {
             .flatten()
             .and_then(|y| y.checked_mul(16)?.checked_add(15));
         let mut sections = BTreeSet::new();
-        if let Some(range) = vanilla_dimension_range(column.dimension) {
+        if let Some(range) = self.authority.dimension_range(column.dimension) {
             sections.extend((0..range.sub_chunk_count).map(|o| range.base_sub_chunk_y + o as i32));
         }
         sections.extend(self.light_column_sources(key).map(|k| k.y));

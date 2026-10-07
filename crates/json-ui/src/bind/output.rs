@@ -1,7 +1,7 @@
 //! Reuse bound properties while their bag, component values and template agree.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Weak};
 
 use serde_json::Value;
@@ -9,6 +9,7 @@ use serde_json::Value;
 use super::Node;
 use super::bag::Bag;
 use super::source::Patch;
+use crate::lru::Lru;
 use crate::tree::Properties;
 
 struct Entry {
@@ -23,7 +24,7 @@ struct Entry {
 const MAX_OUTPUTS: usize = 4096;
 
 thread_local! {
-    static CACHE: RefCell<HashMap<(usize, u64), Entry>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<Lru<(usize, u64), Entry>> = RefCell::new(Lru::new(MAX_OUTPUTS));
 }
 
 /// The prior output if every input to this control's property baking is unchanged.
@@ -45,10 +46,7 @@ pub(super) fn put(node: &Node, properties: Properties) {
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.len() >= MAX_OUTPUTS {
-            cache.retain(|_, entry| entry.owner.strong_count() != 0);
-            if cache.len() >= MAX_OUTPUTS {
-                cache.clear();
-            }
+            cache.retain(|entry| entry.owner.strong_count() != 0);
         }
         cache.insert(
             key,

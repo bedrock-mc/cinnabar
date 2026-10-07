@@ -43,6 +43,7 @@ impl Plugin for ChunkRenderPlugin {
     fn build(&self, app: &mut App) {
         install_atmosphere(app);
         app.init_resource::<ChunkRenderQueue>()
+            .init_resource::<crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>()
             .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<ChunkGpuRemovalQueue>()
             .init_resource::<PresentedFrameGate>()
@@ -125,11 +126,14 @@ impl Plugin for ChunkRenderPlugin {
             .insert_resource(visibility_diagnostics)
             .insert_resource(transparent_witness_evidence)
             .init_resource::<ChunkPipeline>()
+            .init_resource::<crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>(
+            )
             .init_resource::<ChunkGpuUploadStats>()
             .init_resource::<GpuUpdateFairness>()
             .init_resource::<ChunkGpuTextureAssets>()
             .init_resource::<ChunkGpuBiomeTints>()
             .init_resource::<ChunkTextureUploadStats>()
+            .init_resource::<pipeline::solid::ChunkSolidIndirectBatches>()
             .init_resource::<ChunkIndirectBatches>()
             .init_resource::<ChunkModelIndirectBatches>()
             .init_resource::<ChunkDepthLiquidIndirectBatches>()
@@ -175,6 +179,7 @@ impl Plugin for ChunkRenderPlugin {
                     prepare_chunk_biome_tints.in_set(ChunkPublicationStage::Attributes),
                     prepare_gpu_chunks
                         .in_set(ChunkPublicationStage::Geometry)
+                        .after(crate::dropped_item_render::terrain_items::TerrainItemSessionSet)
                         .after(prepare_chunk_texture_assets),
                     prepare_transparent_sorts.in_set(ChunkPublicationStage::LiquidSort),
                     prepare_transparent_model_sorts.in_set(ChunkPublicationStage::ModelSort),
@@ -194,5 +199,6 @@ impl Plugin for ChunkRenderPlugin {
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             transparent::gamma_pass::install_graph(render_app.world_mut());
         }
+        gpu_cull::install(app);
     }
 }

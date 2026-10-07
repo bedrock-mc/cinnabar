@@ -314,7 +314,9 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
 }
 
 pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
-    is_stained_glass_cube(record)
+    super::visuals::portal::is_record(record)
+        || super::visuals::end_portal_frame::is_record(record)
+        || is_stained_glass_cube(record)
         || is_copper_grate(record)
         || is_translucent_cube(record)
         || is_named_block(record)
@@ -408,7 +410,8 @@ pub(in crate::compiler) fn cutout_model_tint_flags(name: &str) -> u32 {
         "minecraft:short_grass"
         | "minecraft:tall_grass"
         | "minecraft:fern"
-        | "minecraft:large_fern" => MATERIAL_FLAG_GRASS_TINT,
+        | "minecraft:large_fern"
+        | "minecraft:bush" => MATERIAL_FLAG_GRASS_TINT,
         "minecraft:vine" => MATERIAL_FLAG_FOLIAGE_TINT,
         _ => 0,
     }

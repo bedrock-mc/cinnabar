@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::Arc};
+use std::{borrow::Cow, cell::Cell, sync::Arc};
 
 use serde::{
     Deserialize, Deserializer,
@@ -164,6 +164,14 @@ fn resolve_component(
                         .map(|argument| {
                             let mut nested = ResolvedRawText::default();
                             resolve_component(argument, resolver, &mut nested, depth + 1);
+                            if let Cow::Owned(localized) = crate::localize_parameter_prefix(
+                                &nested.text,
+                                resolver.translate,
+                                MAX_FORMATTED_PREFIX_BYTES,
+                            ) {
+                                nested.text.clear();
+                                push_bounded(&mut nested, &localized);
+                            }
                             resolved.unknown_translations = resolved
                                 .unknown_translations
                                 .saturating_add(nested.unknown_translations);

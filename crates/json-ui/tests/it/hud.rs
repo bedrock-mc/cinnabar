@@ -1,9 +1,8 @@
 //! The gameplay HUD against the real vanilla templates. The `.local` pack is
 //! gitignored, so reference tests explain missing fixtures and skip until the pack is fetched.
 
-#[path = "support/java_pack.rs"]
-mod java_pack;
 use crate::support;
+use crate::support::java_pack;
 
 use std::path::PathBuf;
 

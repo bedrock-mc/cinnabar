@@ -166,9 +166,9 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 		{localworld.ErrNotFound, codeWorldNotFound, "world not found"},
 		{fmt.Errorf("%w: x", localworld.ErrBusy), codeWorldBusy, "another world"},
 		{localworld.ErrInUse, codeWorldBusy, "world is open"},
+		{localworld.ErrRuntimePending, codeWorldBusy, "still checking"},
 		{localworld.ErrEULARequired, codeEULARequired, "EULA"},
 		{localworld.ErrBackendUnavailable, codeBackendAbsent, "not available"},
-		{localworld.ErrVanillaNeedsBDS, codeBackendAbsent, "superflat"},
 		{fmt.Errorf("%w: unknown value", localworld.ErrInvalid), -32602, "unknown value"},
 		{errors.New("open /Users/secret/worlds: denied"), codeWorldFailed, "world operation failed"},
 	} {

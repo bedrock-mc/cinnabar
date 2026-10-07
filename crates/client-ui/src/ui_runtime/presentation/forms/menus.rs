@@ -9,7 +9,7 @@ use ui::{UiNode, UiRect};
 use super::super::menu_scroll::ScrollArea;
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
 use super::{engine, menu_caret::TextSpot, menu_screens};
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use crate::menu::{MenuAction, MenuView};
 use crate::ui_runtime::{UiRuntime, forms::EngineFrame};
 
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
@@ -28,27 +28,35 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
-        self.gui_scale_drag_targets.clear();
+        self.menu_preview.begin_frame(
+            self.menu_view
+                .as_ref()
+                .filter(|view| view.visible)
+                .map(|view| view.screen),
+        );
+        if self
+            .menu_view
+            .as_ref()
+            .is_some_and(|view| view.popup_open())
+        {
+            self.menu_preview.revoke_capture();
+        }
+        self.settings_slider_drag_targets.clear();
+        self.form_presentation.menu_focus.clear();
+        self.form_presentation.menu_focus_geometry.clear();
+        self.form_presentation.menu_focus_landmarks.clear();
+        self.form_presentation.oreui_slider_tracks.clear();
+        self.form_presentation.oreui_settings_input = false;
         let Some(mut view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
         self.begin_menu_caret(&mut view);
-        let previous = self.form_presentation.ready_menu.take();
-        let pending = view.screen == MenuScreen::Settings
-            && previous
-                .as_ref()
-                .is_some_and(|view| matches!(view.screen, MenuScreen::Home | MenuScreen::Pause))
-            && !self.prepare_settings(runtime, &view, metrics, [width, height]);
-        let shown = if pending {
-            previous.as_ref().unwrap()
-        } else {
-            &view
-        };
+        let shown = &view;
         self.menu_scrolls.begin_frame(format!(
             "{:?}/{:?}/{:?}/{}",
             shown.screen, shown.server_tab, shown.profile_tab, shown.settings_section
         ));
-        self.menu_scrolls.set_areas(Vec::new());
+        self.menu_scrolls.clear_areas();
         let drawn = if shown.visible {
             self.append_engine_menu(runtime, shown, nodes, next, metrics, width, height)
         } else {
@@ -56,66 +64,55 @@ impl UiPresentationRuntime {
         };
         let result = match drawn {
             Ok(Some(hits)) => Ok(hits),
-            Ok(None) | Err(_) => menu::append_menu_nodes(
-                shown,
-                nodes,
-                next,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
-                width,
-                height,
-                self.safe_area,
-                &mut self.menu_scrolls,
-            ),
+            Ok(None) | Err(_) => {
+                let owned_dialog = matches!(
+                    shown.dialog,
+                    Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
+                );
+                let fallback = owned_dialog.then(|| {
+                    let mut view = shown.clone();
+                    view.dialog = None;
+                    view
+                });
+                menu::append_menu_nodes(
+                    fallback.as_ref().unwrap_or(shown),
+                    nodes,
+                    next,
+                    &mut self.layouts,
+                    &self.font,
+                    metrics,
+                    self.solid_texture_page,
+                    width,
+                    height,
+                    self.safe_area,
+                    &mut self.menu_scrolls,
+                )
+                .map(|hits| {
+                    if shown.server_trust_prompt().is_none() && !owned_dialog {
+                        return hits;
+                    }
+                    let state = ViewState::default();
+                    let popup = self.append_dialog(
+                        runtime,
+                        shown,
+                        &state,
+                        nodes,
+                        next,
+                        metrics,
+                        [width, height],
+                    );
+                    let (hits, keys) = popup.unwrap_or((hits, Vec::new()));
+                    self.form_presentation.menu_keys = keys;
+                    hits
+                })
+            }
         };
-        self.form_presentation.ready_menu = if pending
-            || previous
-                .as_ref()
-                .is_some_and(|previous| previous.screen == view.screen)
-        {
-            previous
-        } else {
-            Some(view.clone())
-        };
-        self.menu_view = Some(view);
-        if pending {
-            self.form_presentation.menu_keys.clear();
-            self.menu_scrolls.set_areas(Vec::new());
-            result.map(|_| Vec::new())
-        } else {
-            result
+        if shown.popup_open() {
+            self.menu_preview.control = None;
+            self.menu_preview.revoke_capture();
         }
-    }
-
-    /// Prepare Settings without blocking its opening frame; readiness includes all layout inputs.
-    fn prepare_settings(
-        &self,
-        runtime: &UiRuntime,
-        view: &MenuView,
-        metrics: TextMetrics,
-        [width, height]: [f32; 2],
-    ) -> bool {
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
-            return true;
-        };
-        let translate = |key: &str| runtime.translation(key);
-        let Some(prepared) = settings_preparation(view, &translate) else {
-            return true;
-        };
-        let px = metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
-        renderer.prepare(engine::screen_cache::Prepared {
-            reference: prepared.reference,
-            context: prepared.context,
-            data: prepared.data,
-            root: [f64::from(width / px), f64::from(height / px)],
-            px,
-            language: runtime.text_generation(),
-            font: std::sync::Arc::clone(&self.font),
-            metrics,
-            translator: runtime.translator(),
-        })
+        self.menu_view = Some(view);
+        result
     }
 
     /// `Ok(None)` when the engine has no screen for this state.
@@ -131,19 +128,28 @@ impl UiPresentationRuntime {
         height: f32,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
         // Without the UI carrier the programmatic launcher draws every screen.
-        if self.form_presentation.engine.is_none() {
+        if self.form_presentation.engine.is_none()
+            && view.screen != crate::menu::MenuScreen::DressingRoom
+        {
             return Ok(None);
         }
-        // Screens 26.30 draws with OreUI by default draw natively.
+        // OreUI routes draw through the native canvas.
         let portrait = [
             &view.feeds.profile.picture_path,
             &view.feeds.home.persona_head,
         ]
         .into_iter()
         .find_map(|path| self.menu_artwork.refs.get(path).copied());
-        if let Some(hits) =
-            self.append_oreui_screen(view, nodes, next, metrics, [width, height], portrait)?
-        {
+        if let Some(mut hits) = self.append_oreui_screen(
+            view,
+            nodes,
+            next,
+            metrics,
+            [width, height],
+            portrait,
+            &|key| runtime.translation(key),
+        )? {
+            let mut keys = Vec::new();
             let popup = self.append_dialog(
                 runtime,
                 view,
@@ -153,7 +159,20 @@ impl UiPresentationRuntime {
                 metrics,
                 [width, height],
             );
-            let (hits, keys) = popup.unwrap_or((hits, Vec::new()));
+            if let Some(popup) = popup {
+                (hits, keys) = popup;
+                self.form_presentation.oreui_slider_tracks.clear();
+                self.form_presentation.oreui_settings_input = false;
+                self.form_presentation.menu_focus_geometry.clear();
+                self.form_presentation.menu_focus_landmarks.clear();
+            }
+            if view.dialog.is_some() {
+                self.form_presentation.menu_focus.clear();
+                self.form_presentation.menu_focus_geometry.clear();
+                self.form_presentation.menu_focus_landmarks.clear();
+                self.form_presentation.oreui_slider_tracks.clear();
+                self.form_presentation.oreui_settings_input = false;
+            }
             self.form_presentation.menu_keys = keys;
             return Ok(Some(hits));
         }
@@ -164,9 +183,6 @@ impl UiPresentationRuntime {
         let Some(screen) = menu_screens::screen_data(view, &translate) else {
             return Ok(None);
         };
-        if matches!(view.screen, MenuScreen::Home | MenuScreen::Pause) {
-            self.prepare_settings(runtime, view, metrics, [width, height]);
-        }
         // Last frame's region keys carry the launcher's hover/press/focus.
         let key_of = |action: Option<MenuAction>| {
             let action = action?;
@@ -192,7 +208,9 @@ impl UiPresentationRuntime {
                     crate::menu::MenuField::Address => MenuAction::AddAddress,
                     crate::menu::MenuField::Port => MenuAction::AddPort,
                     // Drawn by the OreUI create and edit screens, not JSON-UI.
-                    crate::menu::MenuField::WorldName | crate::menu::MenuField::WorldSeed => {
+                    crate::menu::MenuField::WorldName
+                    | crate::menu::MenuField::WorldSeed
+                    | crate::menu::MenuField::SkinName => {
                         return None;
                     }
                 }))
@@ -210,11 +228,12 @@ impl UiPresentationRuntime {
         }
         let mut drawn = None;
         let preview_view = std::cell::Cell::new(None);
+        let preview_control = std::cell::Cell::new(None);
         let top = layers.len() - 1;
         for (index, layer) in layers.into_iter().enumerate() {
             if !renderer
                 .scene_settings(layer.reference, &layer.context)
-                .renders(index == top && view.dialog.is_none())
+                .renders(index == top && !view.popup_open())
             {
                 continue;
             }
@@ -238,7 +257,16 @@ impl UiPresentationRuntime {
                 edit,
                 preview: self.hud_frame.player_preview,
                 preview_view: Some(&preview_view),
-                pointer: None,
+                preview_control: Some(&preview_control),
+                preview_rotation: self.menu_preview.rotation(),
+                pointer: self.menu_preview.pointer.map(|point| {
+                    let gui_pixel =
+                        metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
+                    [
+                        (point.x() - self.safe_area.left()) / gui_pixel,
+                        (point.y() - self.safe_area.top()) / gui_pixel,
+                    ]
+                }),
                 images: Some(&self.menu_artwork.refs),
                 // The gamerpic, else the rendered persona head.
                 portrait: [
@@ -281,8 +309,43 @@ impl UiPresentationRuntime {
             }
             return Ok(None);
         };
+        if !view.popup_open()
+            && let Some(mut control) = preview_control.get()
+        {
+            let origin = [self.safe_area.left(), self.safe_area.top()];
+            control.bounds = rect(
+                control.bounds.min().x() + origin[0],
+                control.bounds.min().y() + origin[1],
+                control.bounds.max().x() + origin[0],
+                control.bounds.max().y() + origin[1],
+            )?;
+            if let Some(bounds) = frame.hits.iter().rev().find_map(|region| {
+                (region.enabled && region.widget.gesture.as_deref() == Some("button.turn_doll"))
+                    .then(|| window_rect(region, frame.scale, origin))
+                    .flatten()
+            }) {
+                control.bounds = bounds;
+            }
+            self.menu_preview.control = Some(control);
+        }
         let mut hits = Vec::new();
         let mut keys = Vec::new();
+        for region in json_ui::focus_order(&frame.hits) {
+            let actions = super::global_resources::slider_actions(view, region)
+                .or_else(|| menu_screens::slider_actions(view, region))
+                .unwrap_or_else(|| menu_screens::action_for(view, region).into_iter().collect());
+            self.form_presentation
+                .menu_focus
+                .extend(actions.iter().copied());
+            for action in actions {
+                keys.push((action, region.key.clone()));
+            }
+        }
+        let focused_key = keys.iter().find_map(|(action, key)| {
+            (Some(*action) == view.focused_action).then_some(key.as_str())
+        });
+        self.menu_scrolls
+            .reveal_engine_focus(view.focused_action, focused_key, &frame);
         let mut sounds = Vec::new();
         let mut spots = Vec::new();
         let origin = [self.safe_area.left(), self.safe_area.top()];
@@ -291,18 +354,18 @@ impl UiPresentationRuntime {
             if let Some(actions) = super::global_resources::slider_actions(view, region)
                 .or_else(|| menu_screens::slider_actions(view, region))
             {
-                if region.control_name.as_deref() == Some("gui_scale") {
-                    let mut track = region.clone();
-                    track.clip = track.rect;
-                    self.gui_scale_drag_targets.extend(
-                        segments(&track, actions.len(), frame.scale, origin)
-                            .into_iter()
-                            .map(|(step, bounds)| (actions[step], bounds)),
-                    );
-                }
+                let mut track = region.clone();
+                track.clip = track.rect;
+                self.settings_slider_drag_targets.extend(
+                    segments(&track, actions.len(), frame.scale, origin)
+                        .into_iter()
+                        .map(|(step, bounds)| (actions[step], bounds)),
+                );
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
-                    keys.push((actions[step], region.key.clone()));
+                    if !region.takes_focus() {
+                        keys.push((actions[step], region.key.clone()));
+                    }
                 }
                 continue;
             }
@@ -311,18 +374,21 @@ impl UiPresentationRuntime {
             };
             if let Some(bounds) = window_rect(region, frame.scale, origin) {
                 hits.push((action, bounds));
-                keys.push((action, region.key.clone()));
+                if !keys.iter().any(|(candidate, _)| *candidate == action) {
+                    keys.push((action, region.key.clone()));
+                }
                 sounds.extend(region.sound.clone().map(|sound| (action, sound)));
                 spots.extend(text_spot(&frame, region, action, bounds, metrics));
             }
         }
         self.add_menu_text_spots(spots);
         self.form_presentation.menu_sounds = sounds;
-        // A launcher dialog opens the vanilla popup and takes over the input.
+        // An owned dialog or the join's trust question takes all input over its screen.
         if let Some(popup) =
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
         {
             (hits, keys) = popup;
+            self.form_presentation.menu_focus = hits.iter().map(|(action, _)| *action).collect();
         }
         self.form_presentation.menu_keys = keys;
         Ok(Some(hits))
@@ -330,8 +396,7 @@ impl UiPresentationRuntime {
 }
 
 impl UiPresentationRuntime {
-    /// The vanilla popup for `view`'s open dialog, drawn over its screen, with
-    /// the only hit targets that then count.
+    /// Draws the open dialog over its screen and returns its exclusive hit targets.
     #[allow(clippy::too_many_arguments)]
     fn append_dialog(
         &mut self,
@@ -343,27 +408,56 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         [width, height]: [f32; 2],
     ) -> Option<MenuHits> {
-        let dialog = view.dialog?;
+        let trust = view.server_trust_prompt();
+        let dialog = if trust.is_some() {
+            None
+        } else {
+            Some(view.dialog?)
+        };
+        if matches!(
+            dialog,
+            Some(crate::menu::MenuDialog::Accounts | crate::menu::MenuDialog::Exit)
+        ) {
+            self.form_presentation.menu_sounds = Vec::new();
+            let rollback = (nodes.len(), *next);
+            let drawn = if dialog == Some(crate::menu::MenuDialog::Exit) {
+                self.append_oreui_exit(view, nodes, next, metrics, [width, height], &|key| {
+                    runtime.translation(key)
+                })
+            } else {
+                self.append_oreui_accounts(view, nodes, next, metrics, [width, height])
+            };
+            return Some(match drawn {
+                Ok(hits) => (hits, Vec::new()),
+                Err(_) => {
+                    nodes.truncate(rollback.0);
+                    *next = rollback.1;
+                    (Vec::new(), Vec::new())
+                }
+            });
+        }
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Some((Vec::new(), Vec::new()));
         };
         let rollback = (nodes.len(), *next);
         let translate = |key: &str| runtime.translation(key);
-        let accounts = dialog == crate::menu::MenuDialog::Accounts;
-        let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
-        let context = json_ui::form_context(&model, &menu_screens::retail_context());
-        let mut data = if accounts {
-            super::accounts::data(view)
-        } else {
-            json_ui::form_data_source(&model)
+        let (model, confirm, dismiss) = match (trust, dialog) {
+            (Some(prompt), _) => (
+                menu_screens::server_trust_model(&prompt.url, &translate),
+                MenuAction::ServerTrust(true),
+                MenuAction::ServerTrust(false),
+            ),
+            (None, dialog) => {
+                let (model, confirm) = menu_screens::dialog_model(view, dialog?, &translate);
+                (model, confirm, MenuAction::DismissDialog)
+            }
         };
-        let reference = if accounts {
-            super::accounts::SCREEN
-        } else if dialog
-            == crate::menu::MenuDialog::SettingsSupport(
+        let context = json_ui::form_context(&model, &menu_screens::retail_context());
+        let mut data = json_ui::form_data_source(&model);
+        let reference = if dialog
+            == Some(crate::menu::MenuDialog::SettingsSupport(
                 crate::menu::settings_support::SupportDialog::Help,
-            )
-        {
+            )) {
             super::settings_support::help_data(&mut data, &translate);
             "rating_prompt.rating_prompt_screen"
         } else {
@@ -412,22 +506,15 @@ impl UiPresentationRuntime {
         let mut keys = Vec::new();
         let mut sounds = Vec::new();
         for region in popup.hits.iter().filter(|region| region.enabled) {
-            let action = if accounts {
-                let Some(action) = super::accounts::action(view, region) else {
-                    continue;
-                };
-                action
-            } else {
-                match region.pressed.as_deref() {
-                    Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
-                    Some(
-                        "popup_dialog.rightcancel_button"
-                        | "popup_dialog.escape"
-                        | "button.menu_exit"
-                        | "button.rating_no_button",
-                    ) => MenuAction::DismissDialog,
-                    _ => continue,
-                }
+            let action = match region.pressed.as_deref() {
+                Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
+                Some(
+                    "popup_dialog.rightcancel_button"
+                    | "popup_dialog.escape"
+                    | "button.menu_exit"
+                    | "button.rating_no_button",
+                ) => dismiss,
+                _ => continue,
             };
             if let Some(bounds) = window_rect(region, popup.scale, origin) {
                 hits.push((action, bounds));
@@ -438,18 +525,6 @@ impl UiPresentationRuntime {
         self.form_presentation.menu_sounds = sounds;
         Some((hits, keys))
     }
-}
-
-/// Prepare only Settings; transient progress and error screens need live artwork.
-fn settings_preparation(
-    view: &MenuView,
-    translate: menu_screens::Translate<'_>,
-) -> Option<menu_screens::MenuScreenData> {
-    let mut settings = view.clone();
-    settings.screen = MenuScreen::Settings;
-    menu_screens::screen_data(&settings, translate).filter(|screen| {
-        Some(screen.reference) == menu_screens::menu_reference(MenuScreen::Settings)
-    })
 }
 
 /// A region's clipped rect in window-logical pixels.
@@ -484,6 +559,7 @@ fn text_spot(
         left: text.left,
         factor: text.scale,
         font: text.font.clone(),
+        letter_spacing_64: 0,
         metrics,
     })
 }
@@ -611,26 +687,6 @@ mod tests {
                 .find(|(_, bounds)| bounds.contains(point))
                 .map(|(step, _)| *step);
             assert_eq!(selected, Some(expected), "track position {track_x}");
-        }
-    }
-}
-
-#[cfg(test)]
-mod preparation_tests {
-    use super::*;
-
-    #[test]
-    fn progress_and_disconnect_views_never_prepare_without_artwork() {
-        let home = crate::menu::MenuView::new(true, "Steve".into());
-        assert!(settings_preparation(&home, &|_| None).is_some());
-        let mut connecting = home.clone();
-        connecting.connecting = true;
-        let mut local = home.clone();
-        local.local.progress = Some(crate::local_worlds::Progress::connecting("Home"));
-        let mut disconnected = home;
-        disconnected.disconnect_message = Some("Disconnected".into());
-        for view in [connecting, local, disconnected] {
-            assert!(settings_preparation(&view, &|_| None).is_none());
         }
     }
 }

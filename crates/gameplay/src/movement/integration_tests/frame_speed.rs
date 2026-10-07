@@ -7,6 +7,10 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         movement: [0.0, 1.0],
         raw_movement: [0.0, 1.0],
         analogue_movement: [0.0, 1.0],
+        movement_buttons: semantic_input::MovementButtons {
+            forward: true,
+            ..Default::default()
+        },
         yaw: 180.0,
         pitch: 0.0,
         camera_orientation: [0.0, 0.0, -1.0],
@@ -19,7 +23,60 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         toggle_sneak: false,
         facts: Default::default(),
         item_use_modifier: None,
+        hold: None,
     }
+}
+
+#[test]
+fn loading_and_spawn_search_share_stationary_ticks_but_differ_in_wire_admission() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let position = physics.network_position().unwrap();
+    let mut locals = super::LocomotionState::default();
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    ticker.begin_respawn_search();
+    for withhold_input in [true, false] {
+        let mut frame = speed_frame(semantic_input::ActionPhase {
+            pressed: true,
+            held: true,
+            released: false,
+        });
+        frame.jump = semantic_input::ActionPhase {
+            pressed: true,
+            held: true,
+            released: false,
+        };
+        frame.hold = Some(super::PhysicsFrameHold {
+            registry: sim::CollisionRegistry::new().identity(),
+            withhold_input,
+        });
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+        assert_eq!(physics.network_position(), Some(position));
+        assert_eq!(ticker.has_unsent_inputs(), !withhold_input);
+    }
+    assert_eq!(ticker.completed_tick(), 102);
+    let snapshots = ticker.pending_snapshots();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].tick, 102);
+    assert_eq!(snapshots[0].delta, [0.0; 3]);
+    assert_eq!(snapshots[0].move_vector, [0.0; 2]);
+    assert!(locals.advance(
+        speed_frame(Default::default()),
+        &mut physics,
+        &mut ticker,
+        &mut effects,
+        &mut speed,
+        &VersionedFloor(1),
+    ));
+    assert_eq!(ticker.completed_tick(), 103);
+    assert_ne!(physics.network_position(), Some(position));
 }
 
 #[test]
@@ -86,7 +143,7 @@ fn gameplay_frame_adopts_server_sprint_without_double_boosting() {
 }
 
 #[test]
-fn always_sprint_packets_follow_processed_movement_and_stop_when_idle() {
+fn always_sprint_keeps_request_flags_while_actor_sprint_is_gated() {
     let (mut physics, mut ticker) = walked_physics(0);
     let mut locals = super::LocomotionState::default();
     let mut effects = super::LocalMovementEffectTimeline::default();
@@ -95,7 +152,7 @@ fn always_sprint_packets_follow_processed_movement_and_stop_when_idle() {
         (1.0, false, false, true, true),
         (0.0, false, false, true, false),
         (1.0, false, false, true, true),
-        (1.0, true, false, true, false),
+        (1.0, true, false, true, true),
         (1.0, false, true, true, false),
         (1.0, false, false, true, true),
         (1.0, false, false, false, false),
@@ -123,11 +180,16 @@ fn always_sprint_packets_follow_processed_movement_and_stop_when_idle() {
         let packet = &ticker.outbox.back().unwrap().snapshot;
         assert_eq!(
             packet.flags.bits() & PlayerInputFlags::SPRINTING.bits() != 0,
-            expected,
+            enabled,
             "case {index}"
         );
         assert_eq!(
             packet.flags.bits() & PlayerInputFlags::SPRINT_DOWN.bits() != 0,
+            enabled,
+            "case {index}"
+        );
+        assert_eq!(
+            physics.sample_at(packet.tick).unwrap().processed.sprinting,
             expected,
             "case {index}"
         );

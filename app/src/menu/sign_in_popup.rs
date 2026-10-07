@@ -69,7 +69,7 @@ fn spawn_browser(program: &str, args: &[String]) -> bool {
 
 #[cfg(target_os = "linux")]
 fn launch(url: &str) -> bool {
-    let desktop = Command::new("xdg-settings")
+    let xdg_settings = Command::new("xdg-settings")
         .args(["get", "default-web-browser"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -77,13 +77,126 @@ fn launch(url: &str) -> bool {
         .ok()
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok());
+    let desktop = default_browser(xdg_settings, mimeapps_browser);
     let programs = linux_browsers(desktop.as_deref());
     for (program, browser) in programs {
         if spawn_browser(program, &popup_args(browser, url)) {
             return true;
         }
     }
-    spawn_browser("xdg-open", &[url.into()])
+    crate::desktop::open_with_default(url)
+}
+
+/// `xdg-settings` knows desktop-specific settings such as XFCE's helpers, so `mimeapps.list` is
+/// read only when it is missing or reports nothing.
+#[cfg(any(target_os = "linux", test))]
+fn default_browser(
+    xdg_settings: Option<String>,
+    mimeapps: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    xdg_settings
+        .map(|entry| entry.trim().to_owned())
+        .filter(|entry| !entry.is_empty())
+        .or_else(mimeapps)
+}
+
+/// The default browser's desktop entry from the `mimeapps.list` files.
+#[cfg(target_os = "linux")]
+fn mimeapps_browser() -> Option<String> {
+    mimeapps_paths(&XdgDirs::from_env())
+        .iter()
+        .find_map(|path| default_browser_entry(&std::fs::read_to_string(path).ok()?))
+}
+
+#[cfg(any(target_os = "linux", test))]
+struct XdgDirs {
+    config_home: std::path::PathBuf,
+    config_dirs: Vec<std::path::PathBuf>,
+    data_home: std::path::PathBuf,
+    data_dirs: Vec<std::path::PathBuf>,
+    /// Lowercased `XDG_CURRENT_DESKTOP` names, most specific first.
+    desktops: Vec<String>,
+}
+
+#[cfg(target_os = "linux")]
+impl XdgDirs {
+    fn from_env() -> Self {
+        use std::{env, path::PathBuf};
+        let var = |name| env::var(name).ok().filter(|value| !value.is_empty());
+        let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let list = |name, default: &str| {
+            var(name)
+                .unwrap_or_else(|| default.to_owned())
+                .split(':')
+                .filter(|dir| !dir.is_empty())
+                .map(PathBuf::from)
+                .collect()
+        };
+        Self {
+            config_home: var("XDG_CONFIG_HOME").map_or_else(|| home.join(".config"), PathBuf::from),
+            config_dirs: list("XDG_CONFIG_DIRS", "/etc/xdg"),
+            data_home: var("XDG_DATA_HOME")
+                .map_or_else(|| home.join(".local/share"), PathBuf::from),
+            data_dirs: list("XDG_DATA_DIRS", "/usr/local/share:/usr/share"),
+            desktops: var("XDG_CURRENT_DESKTOP")
+                .unwrap_or_default()
+                .split(':')
+                .filter(|name| !name.is_empty())
+                .map(str::to_ascii_lowercase)
+                .collect(),
+        }
+    }
+}
+
+/// `mimeapps.list` files in the XDG lookup order; earlier files win.
+#[cfg(any(target_os = "linux", test))]
+fn mimeapps_paths(dirs: &XdgDirs) -> Vec<std::path::PathBuf> {
+    let configs = std::iter::once(dirs.config_home.clone()).chain(dirs.config_dirs.clone());
+    let data = std::iter::once(&dirs.data_home)
+        .chain(&dirs.data_dirs)
+        .map(|dir| dir.join("applications"));
+    configs
+        .chain(data)
+        .flat_map(|dir| {
+            dirs.desktops
+                .iter()
+                .map(|desktop| format!("{desktop}-mimeapps.list"))
+                .chain(std::iter::once("mimeapps.list".to_owned()))
+                .map(move |name| dir.join(name))
+        })
+        .collect()
+}
+
+/// The default `http` handler in a `mimeapps.list`, falling back to `https`.
+#[cfg(any(target_os = "linux", test))]
+fn default_browser_entry(contents: &str) -> Option<String> {
+    let mut section = "";
+    let mut https = None;
+    for line in contents.lines().map(str::trim) {
+        if let Some(name) = line
+            .strip_prefix('[')
+            .and_then(|line| line.strip_suffix(']'))
+        {
+            section = name;
+            continue;
+        }
+        if section != "Default Applications" {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let entry = value
+            .split(';')
+            .map(str::trim)
+            .find(|entry| !entry.is_empty());
+        match key.trim() {
+            "x-scheme-handler/http" if entry.is_some() => return entry.map(str::to_owned),
+            "x-scheme-handler/https" if https.is_none() => https = entry.map(str::to_owned),
+            _ => {}
+        }
+    }
+    https
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -151,15 +264,12 @@ fn launch(url: &str) -> bool {
             }
         }
     }
-    spawn_browser(
-        "cmd",
-        &["/C".into(), "start".into(), String::new(), url.into()],
-    )
+    crate::desktop::open_with_default(url)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn launch(url: &str) -> bool {
-    spawn_browser("xdg-open", &[url.into()])
+    crate::desktop::open_with_default(url)
 }
 
 #[cfg(test)]
@@ -211,5 +321,66 @@ mod tests {
         ] {
             assert_eq!(linux_browsers(Some(desktop)).first().unwrap().0, executable);
         }
+    }
+
+    #[test]
+    fn xdg_settings_wins_and_mimeapps_only_fills_in() {
+        let mimeapps = || Some("firefox.desktop".to_owned());
+        assert_eq!(
+            default_browser(Some("xfce4-web-browser.desktop\n".into()), mimeapps).as_deref(),
+            Some("xfce4-web-browser.desktop")
+        );
+        assert_eq!(
+            default_browser(Some(" \n".into()), mimeapps).as_deref(),
+            Some("firefox.desktop")
+        );
+        assert_eq!(
+            default_browser(None, mimeapps).as_deref(),
+            Some("firefox.desktop")
+        );
+        assert_eq!(default_browser(None, || None), None);
+    }
+
+    #[test]
+    fn mimeapps_default_prefers_http_then_https_in_the_default_section() {
+        let contents = "[Added Associations]\nx-scheme-handler/http=other.desktop;\n\n\
+                        [Default Applications]\nx-scheme-handler/https=brave-browser.desktop\n\
+                        x-scheme-handler/http= ;firefox.desktop;chromium.desktop;\n";
+        assert_eq!(
+            default_browser_entry(contents).as_deref(),
+            Some("firefox.desktop")
+        );
+        let https_only = "[Default Applications]\nx-scheme-handler/https=brave-browser.desktop\n";
+        assert_eq!(
+            default_browser_entry(https_only).as_deref(),
+            Some("brave-browser.desktop")
+        );
+        assert_eq!(
+            default_browser_entry("[Default Applications]\ntext/html=a.desktop\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn mimeapps_lookup_puts_user_and_desktop_specific_files_first() {
+        let dirs = XdgDirs {
+            config_home: "/home/dev/.config".into(),
+            config_dirs: vec!["/etc/xdg".into()],
+            data_home: "/home/dev/.local/share".into(),
+            data_dirs: vec!["/usr/share".into()],
+            desktops: vec!["kde".into()],
+        };
+        let paths = mimeapps_paths(&dirs);
+        let expected = [
+            "/home/dev/.config/kde-mimeapps.list",
+            "/home/dev/.config/mimeapps.list",
+            "/etc/xdg/kde-mimeapps.list",
+            "/etc/xdg/mimeapps.list",
+            "/home/dev/.local/share/applications/kde-mimeapps.list",
+            "/home/dev/.local/share/applications/mimeapps.list",
+            "/usr/share/applications/kde-mimeapps.list",
+            "/usr/share/applications/mimeapps.list",
+        ];
+        assert_eq!(paths, expected.map(std::path::PathBuf::from).to_vec());
     }
 }

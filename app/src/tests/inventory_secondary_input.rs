@@ -521,7 +521,7 @@ fn menu_and_focus_loss_preempt_secondary_inventory_dispatch() {
         app.update();
 
         let runtime = app.world().resource::<UiRuntime>();
-        assert!(!runtime.inventory_open());
+        assert_eq!(runtime.inventory_open(), !menu_visible);
         assert_eq!(
             app.world()
                 .resource::<PlayerRuntime>()
@@ -976,7 +976,7 @@ fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
             true,
             &player_runtime,
         );
-        let mut layout = crate::install_layout::InstallLayout::discover().unwrap();
+        let mut layout = crate::install_layout::checkout();
         layout.user_config_root =
             std::env::temp_dir().join(format!("review-drop-{}-{control}", std::process::id()));
         app.insert_resource(MenuRuntime::new_with_layout(

@@ -1,4 +1,4 @@
-//! HoverTextRenderer receives its authored maximum width, not just # bindings.
+//! Hover text receives its authored maximum width, not just # bindings.
 use std::collections::BTreeMap;
 
 use json_ui::{

@@ -9,9 +9,7 @@ pub(super) struct GammaTarget {
     pub(super) srgb_view: TextureView,
 }
 
-pub(super) fn admitted(hdr: bool, msaa: Msaa, enhanced: bool) -> bool {
-    !hdr && msaa == Msaa::Off && !(render_model::ENHANCED_RENDERING_ENABLED && enhanced)
-}
+use super::admitted;
 
 type GammaTargetViews<'w, 's> = Query<
     'w,

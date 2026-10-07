@@ -60,7 +60,7 @@ impl UiPresentationRuntime {
         self.session_icons.generation
     }
 
-    /// Native CrossbowItem::getIcon routes nonzero animation frames to the pulling
+    /// Vanilla crossbows route nonzero animation frames to the pulling
     /// atlas. This identity is shared by inventory cells and actual dropped sprites.
     pub fn item_icon_key<'a>(
         identifier: &'a str,

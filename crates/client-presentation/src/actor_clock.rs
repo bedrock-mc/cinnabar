@@ -12,6 +12,7 @@ pub struct ActorFrameStep {
 pub fn publish_local_actor_visibility(
     avatar: &LocalAvatarPresentation,
     perspective: semantic_input::PerspectiveMode,
+    camera: Option<&crate::camera::ServerCameraView>,
     authoritative_subject_eye: Option<bevy::prelude::Vec3>,
     authoritative_subject_feet: Option<bevy::prelude::Vec3>,
     rotation: bevy::prelude::Quat,
@@ -26,7 +27,22 @@ pub fn publish_local_actor_visibility(
         carrier.clear();
         return;
     };
-    avatar.publish_view_visibility(perspective, subject_eye, subject_feet, rotation, carrier);
+    let first_person = perspective == semantic_input::PerspectiveMode::FirstPerson;
+    let first_person = camera.map_or(first_person, |camera| {
+        camera.renders_first_person(first_person)
+    });
+    let body_visibility = if first_person {
+        semantic_input::PerspectiveMode::FirstPerson
+    } else {
+        semantic_input::PerspectiveMode::ThirdPersonBack
+    };
+    avatar.publish_view_visibility(
+        body_visibility,
+        subject_eye,
+        subject_feet,
+        rotation,
+        carrier,
+    );
 }
 
 /// Chooses the finite predicted eye, falling back to the resolved server position.

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::bag::Bag;
+use super::spec::{Binding, Kind};
 use super::{Binder, Node, Scope, Src, with_index};
 use crate::predicate::Scalar;
 use crate::tree::{ControlRef, Factory, ResolvedControl};
@@ -159,11 +160,9 @@ impl<'a> Binder<'a> {
         let Some(factory) = &control.factory else {
             return Vec::new();
         };
-        let Some(collection) = collection_name(control) else {
-            return Vec::new();
-        };
-        let key = self.collection_key(collection, scope);
-        let supplied = self.data.collections.get(&key);
+        let collection = collection_name(control);
+        let key = collection.map(|collection| self.collection_key(collection, scope));
+        let supplied = key.as_ref().and_then(|key| self.data.collections.get(key));
         let roles: Vec<Option<String>> = match node.native.collection_length.as_ref() {
             // A bound count takes each instance's role from its supplied item.
             Some(length) => bound_roles(length, factory)
@@ -204,8 +203,14 @@ impl<'a> Binder<'a> {
                 ));
                 continue;
             };
-            let child_scope = inner.enter(collection, key.clone(), index);
-            nodes.push(self.build(with_index(Src::root(resolved), index), &child_scope, 0));
+            let child_scope = match (collection, &key) {
+                (Some(collection), Some(key)) => inner.enter(collection, key.clone(), index),
+                _ => inner,
+            };
+            let instance = Src::root(resolved).patched(|patch| {
+                patch.name = role.and_then(|role| factory.instance_names.get(role).cloned());
+            });
+            nodes.push(self.build(with_index(instance, index), &child_scope, 0));
         }
         nodes
     }
@@ -242,10 +247,7 @@ impl<'a> Binder<'a> {
             );
             vars
         };
-        let resolved = self
-            .lib
-            .resolve_with(reference, &cache_key.1, &vars)
-            .map(Arc::new);
+        let resolved = self.lib.resolve_shared(reference, &cache_key.1, &vars);
         self.resolved_with.insert(cache_key, resolved.clone());
         resolved
     }
@@ -307,7 +309,17 @@ pub(super) fn collection_name(control: &ResolvedControl) -> Option<&str> {
 }
 
 pub(super) fn is_collection_factory(control: &ResolvedControl) -> bool {
-    control.factory.is_some() && collection_name(control).is_some()
+    control.factory.is_some()
+        && (collection_name(control).is_some()
+            || control.control_type.as_deref() == Some("collection_panel"))
+}
+
+/// A collection factory whose roles must wait for a view's property-bag write.
+pub(super) fn factory_awaits_views(control: &ResolvedControl, bindings: &[Binding]) -> bool {
+    is_collection_factory(control)
+        && bindings.iter().any(|binding| {
+            matches!(&binding.kind, Kind::View { target, .. } if target == "#collection_length")
+        })
 }
 
 /// The control a collection item creates: the template, else its role's entry

@@ -166,3 +166,88 @@ fn session_reset_presents_no_hotbar_cells_from_either_store() {
         assert_eq!(player_runtime.presented_hotbar_stack(slot), None);
     }
 }
+
+#[test]
+fn resolved_hotbar_shortcut_swaps_both_cells_without_waiting_for_a_response() {
+    use crate::ui_runtime::interaction::dispatch_inventory_key;
+    use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = drained_inventory_runtime(&mut player);
+    let hit = Some(InventoryCellHit::Player(3));
+    assert!(
+        dispatch_inventory_key(
+            &mut player,
+            &mut runtime,
+            hit,
+            bevy::prelude::KeyCode::Digit1,
+            false,
+            None,
+            false
+        )
+        .is_none()
+    );
+    assert_eq!(player.presented_hotbar_stack(0).unwrap().network_id, 745);
+    dispatch_inventory_key(
+        &mut player,
+        &mut runtime,
+        hit,
+        bevy::prelude::KeyCode::KeyR,
+        false,
+        Some(0),
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(player.presented_hotbar_stack(0).unwrap().network_id, 846);
+    assert_eq!(player.presented_hotbar_stack(3).unwrap().network_id, 745);
+    assert_eq!(player.selected_hotbar_slot(), Some(0));
+    runtime.screen_state_mut().search_focused = true;
+    assert!(
+        crate::ui_runtime::interaction::dispatch_inventory_hotbar(
+            &mut player,
+            &mut runtime,
+            hit,
+            0
+        )
+        .is_none()
+    );
+    assert_eq!(player.presented_hotbar_stack(0).unwrap().network_id, 846);
+    runtime.screen_state_mut().search_focused = false;
+    assert!(
+        crate::ui_runtime::interaction::dispatch_inventory_hotbar(
+            &mut player,
+            &mut runtime,
+            hit,
+            protocol::HOTBAR_SLOT_COUNT
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn focused_inventory_text_does_not_dispatch_drop_requests() {
+    use crate::ui_runtime::interaction::dispatch_inventory_key;
+    use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = drained_inventory_runtime(&mut player);
+    runtime.screen_state_mut().search_focused = true;
+    let before = player.presented_hotbar_stack(3).unwrap().clone();
+    let pending = runtime.inventory_ledger(&player).pending_request_count();
+    assert!(
+        dispatch_inventory_key(
+            &mut player,
+            &mut runtime,
+            Some(InventoryCellHit::Player(3)),
+            bevy::prelude::KeyCode::KeyQ,
+            false,
+            None,
+            true,
+        )
+        .is_none()
+    );
+    assert_eq!(
+        runtime.inventory_ledger(&player).pending_request_count(),
+        pending
+    );
+    assert_eq!(player.presented_hotbar_stack(3), Some(&before));
+}

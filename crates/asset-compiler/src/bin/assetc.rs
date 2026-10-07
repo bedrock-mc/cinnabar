@@ -49,6 +49,10 @@ use output_bundle::write_output_bundle;
 mod output_validation;
 #[path = "assetc/particle_command.rs"]
 mod particle_command;
+#[path = "assetc/prepare.rs"]
+mod prepare;
+#[path = "assetc/prepare_plan.rs"]
+mod prepare_plan;
 #[path = "assetc/registry_version.rs"]
 mod registry_version;
 #[path = "assetc/ui_command.rs"]
@@ -430,6 +434,27 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 out.display()
             );
         }
+        Command::Prepare {
+            root,
+            kit,
+            workspace,
+            out,
+            only,
+            check,
+            json,
+            accept_eula,
+            clouds_override,
+        } => prepare::prepare(prepare::Options {
+            root,
+            kit,
+            workspace,
+            out,
+            only,
+            check,
+            json,
+            accept_eula,
+            clouds_override,
+        })?,
         Command::VanillaPack {
             source_manifest,
             accept_eula,
@@ -851,6 +876,9 @@ fn read_bounded_with_limit(
     Ok(bytes)
 }
 
+#[cfg(test)]
+#[path = "../../build_support/lockfile.rs"]
+mod lockfile;
 #[cfg(test)]
 #[path = "assetc/tests.rs"]
 mod tests;

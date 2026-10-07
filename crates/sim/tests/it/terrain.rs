@@ -363,7 +363,7 @@ fn compound_slab_step_and_head_collision_use_exact_shapes() {
     assert!(hit.movement.y < 0.8);
 }
 
-/// MaxAutoStepComponent starts at 0.5625, below this obstacle's top.
+/// Vanilla's maximum step height starts at 0.5625, below this obstacle's top.
 #[test]
 fn a_point_five_eight_step_is_too_high() {
     let mut world = TerrainWorld::floor(Vec3::new(-8.0, -1.0, -8.0), Vec3::new(8.0, 0.0, 8.0));

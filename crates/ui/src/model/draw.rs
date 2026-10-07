@@ -1,4 +1,4 @@
-use crate::{BedrockColor, GlyphQuad, UiLimits, UiPoint, UiRect};
+use crate::{BedrockColor, GlyphQuad, TEXT_BOLD_OFFSET_64, UiLimits, UiPoint, UiRect};
 
 use super::{
     TextEffects, TextShadow, UI_STYLE_BILINEAR, UiBlendMode, UiDrawBatch, UiError, UiVertex,
@@ -17,9 +17,6 @@ pub(super) struct DrawSpace<'a> {
 /// Design-pixel lean of an italic glyph's top edge, scaled by the layout
 /// scale. Native visual confirmation pending.
 const ITALIC_SHEAR_PX: f32 = 1.0;
-/// Design-pixel offset of bold's second, emboldening copy, scaled by the
-/// layout scale. Native visual confirmation pending.
-const BOLD_OFFSET_PX: f32 = 1.0;
 
 pub(super) fn emit_visual(
     visual: &UiVisual,
@@ -308,13 +305,17 @@ fn emit_text(
             } else {
                 0.0
             };
-            let bold_offset = glyph.style.bold.then_some(BOLD_OFFSET_PX * scale);
+            let bold_offset = glyph
+                .style
+                .bold
+                .then_some(TEXT_BOLD_OFFSET_64 as f32 / 64.0 * scale);
             emit_text_glyph(
                 glyph_bounds,
                 uv,
                 page,
                 glyph_color,
-                u8::from(layout.linear_sampling()) * UI_STYLE_BILINEAR,
+                (u8::from(glyph.linear_sampling) * UI_STYLE_BILINEAR)
+                    | glyph.rendering.style_flags(),
                 shear,
                 bold_offset,
                 rotation,

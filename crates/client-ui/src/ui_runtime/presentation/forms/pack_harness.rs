@@ -267,7 +267,8 @@ pub fn render(
 
 pub fn engine_presentation() -> Option<UiPresentationRuntime> {
     let carrier = carrier()?;
-    let mut presentation = UiPresentationRuntime::new(font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(Arc::new((*font()).clone().with_coverage_pages())).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
     let vanilla = local(&crate::install_layout::vanilla_pack_relative());
     let engine = presentation.form_presentation.engine.as_mut().unwrap();
@@ -506,6 +507,7 @@ fn large_server_pack_images_draw_at_full_resolution() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     presentation.set_server_ui_pack(&ServerUiPack {
+        screen_settings: None,
         ui_layers: Vec::new(),
         textures: vec![("textures/ui/big_logo.png".to_owned(), png)],
         catalog: None,

@@ -12,7 +12,7 @@ pub(crate) fn load_audio_pcm_assets(
     world_path: &Path,
     catalog: Option<&LoadedAudioAssets>,
 ) -> Result<Option<Arc<RuntimeAudioPcm>>, AssetStartupError> {
-    let path = world_path.with_file_name("vanilla-v1.mcbepcm");
+    let path = world_path.with_file_name(assets::carriers::AUDIO_PCM.output);
     let fail = |detail: String| AssetStartupError::AudioPcm {
         path: path.clone(),
         detail,

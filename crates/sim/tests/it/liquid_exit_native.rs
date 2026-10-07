@@ -1,5 +1,5 @@
-//! Current-client liquid exit regressions. The native system probes the actual
-//! resolved pose box in f32, for every liquid travel mode (0x09004df0).
+//! Vanilla liquid exit regressions. The exit probe uses the actual resolved pose
+//! box in f32, for every liquid travel mode.
 
 use std::cell::{Cell, RefCell};
 

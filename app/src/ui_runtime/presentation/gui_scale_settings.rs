@@ -20,7 +20,7 @@ pub(crate) fn apply_gui_scale_setting(
         |fixed| ui::gui_scale(physical, Some(fixed)) as u8,
     );
     let displayed_offset = scale as i8 - desktop.scale_for_offset(0) as i8;
-    menu.sync_gui_scale(displayed_offset, desktop.offsets().collect());
+    menu.sync_gui_scale(displayed_offset, desktop.choices().collect());
     let preference = Some(scale);
     if presentation.gui_scale_preference() != preference {
         presentation.set_gui_scale_preference(preference);

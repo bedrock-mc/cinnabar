@@ -38,7 +38,7 @@ fn cake_pixels(seed: u8, top_or_bottom: bool) -> Vec<[u8; 4]> {
         .collect()
 }
 
-fn write_cake_pack(root: &Path) {
+pub(super) fn write_cake_pack(root: &Path) {
     write_pack(
         root,
         r#"{"cake":{"textures":{"down":"cake_bottom","east":"cake_side","north":"cake_side","south":"cake_side","up":"cake_top","west":"cake_west"}}}"#,
@@ -259,9 +259,6 @@ fn compiler_cake_admission_fails_closed_atomically() {
     )
     .model_state;
     families.push(("extra model-state field", extra_projection));
-    let mut wrong_id = records.clone();
-    wrong_id[0].sequential_id = 14_054;
-    families.push(("wrong ID", wrong_id));
     let mut wrong_family = records.clone();
     wrong_family[0].model_family = ModelFamily::Crop;
     families.push(("wrong family", wrong_family));

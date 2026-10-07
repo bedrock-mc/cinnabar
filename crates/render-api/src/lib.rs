@@ -4,6 +4,7 @@
 //! rules. It has no dependencies and must not acquire game state or GPU types.
 
 mod actor_lighting;
+pub mod primitive_shapes;
 mod publication;
 mod skin;
 

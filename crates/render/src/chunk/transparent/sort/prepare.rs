@@ -1,38 +1,17 @@
+use super::groups::{build_transparent_group, spawn_transparent_sort};
 use super::state::{
     TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,
-    TransparentSortRequest, TransparentSortResult, TransparentSortRuntime, TransparentSortWork,
-    ViewSortKey, validate_transparent_sort_ref_count,
+    TransparentSortResult, TransparentSortRuntime, TransparentSortWork, ViewSortKey,
 };
 use super::{
-    MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef,
-    TRANSPARENT_REF_SLOT_BYTES, TransparentSortCandidate, transparent_indirect_args,
+    MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef, ensure_transparent_ref_capacity,
+    transparent_indirect_args, transparent_ref_offset,
 };
 use crate::chunk::*;
 use std::cell::RefCell;
 
 fn retains_transparent_sort(settings: Option<&crate::EnhancedRendering>) -> bool {
     settings.is_none_or(|settings| !settings.reflection_capture)
-}
-
-// Transparent ordering does not need a new CPU sort for sub-pixel camera
-// movement. Quantising only the cache key keeps the exact camera matrix in
-// `TransparentSortWork`, while allowing the newest committed order to be
-// reused through ordinary head motion and mouse jitter.
-const CAMERA_POSITION_SORT_QUANTUM: f32 = 1.0 / 64.0;
-const CAMERA_ORIENTATION_SORT_QUANTUM: f32 = 1.0 / 1024.0;
-
-fn quantize_camera_component(value: f32, quantum: f32) -> f32 {
-    (value / quantum).round() * quantum
-}
-
-/// Shares the sort cache quantization with invisible resource candidates.
-pub(in crate::chunk) fn quantized_camera_position(position: [f32; 3]) -> [f32; 3] {
-    position.map(|value| quantize_camera_component(value, CAMERA_POSITION_SORT_QUANTUM))
-}
-
-/// Shares the sort cache quantization with invisible resource candidates.
-pub(in crate::chunk) fn quantized_camera_orientation(orientation: [f32; 4]) -> [f32; 4] {
-    orientation.map(|value| quantize_camera_component(value, CAMERA_ORIENTATION_SORT_QUANTUM))
 }
 
 pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
@@ -86,75 +65,28 @@ pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
     })
 }
 
-pub(in crate::chunk) fn build_transparent_candidates(
-    visible_entities: &RenderVisibleEntities,
-    instances: &Query<&ChunkRenderInstance>,
-    allocations: &Query<&GpuChunkAllocation>,
-    biome_tints: &ChunkBiomeTints,
-) -> Result<(Vec<TransparentSortCandidate>, usize), TransparentSortError> {
-    let mut candidates = Vec::new();
-    let mut distinct_tint_colors = BTreeSet::new();
-    for &(entity, _) in visible_entities.get::<ChunkRenderInstance>() {
-        let (Ok(instance), Ok(allocation)) = (instances.get(entity), allocations.get(entity))
-        else {
-            continue;
-        };
-        if !transparent_allocation_matches(instance, allocation, biome_tints.table_identity()) {
-            continue;
-        }
-        let (Some(liquid_range), Some(_lighting_range)) = (
-            allocation.liquid_range.as_ref(),
-            allocation.liquid_lighting_range.as_ref(),
-        ) else {
-            continue;
-        };
-        let Some(record_start) = liquid_range.start.checked_div(4) else {
-            continue;
-        };
-        let subchunk_center = [
-            instance.origin[0] as f32 + 8.0,
-            instance.origin[1] as f32 + 8.0,
-            instance.origin[2] as f32 + 8.0,
-        ];
-        let transparent_end = instance
-            .depth_liquid_start
-            .map_or(instance.liquid_quads.len(), |start| start as usize);
-        for (local_index, &quad) in instance.liquid_quads[..transparent_end].iter().enumerate() {
-            let local_quad_index =
-                u32::try_from(local_index).map_err(|_| TransparentSortError::ReferenceCeiling {
-                    requested: candidates.len().saturating_add(1),
-                    ceiling: MAX_TRANSPARENT_DRAW_REFS,
-                })?;
-            if candidates.len() == MAX_TRANSPARENT_DRAW_REFS {
-                return Err(TransparentSortError::ReferenceCeiling {
-                    requested: candidates.len().saturating_add(1),
-                    ceiling: MAX_TRANSPARENT_DRAW_REFS,
-                });
-            }
-            let liquid_record_index = record_start.checked_add(local_quad_index).ok_or(
-                TransparentSortError::ReferenceCeiling {
-                    requested: candidates.len().saturating_add(1),
-                    ceiling: MAX_TRANSPARENT_DRAW_REFS,
-                },
-            )?;
-            let local = quad.origin();
-            if let Some(tint_index) = instance.biome.tint_index(local[0], local[1], local[2])
-                && let Some(tint) = biome_tints.entries().get(tint_index as usize)
-            {
-                distinct_tint_colors.insert(tint.water.map(f32::to_bits));
-            }
-            candidates.push(TransparentSortCandidate::new(
-                instance.key,
-                local_quad_index,
-                liquid_record_index,
-                allocation.metadata_index,
-                subchunk_center,
-                liquid_quad_centroid(instance.origin, quad),
-            ));
-        }
-    }
-    validate_transparent_sort_ref_count(candidates.len())?;
-    Ok((candidates, distinct_tint_colors.len()))
+fn write_transparent_refs(
+    render_queue: &RenderQueue,
+    arena: &ChunkGpuArena,
+    buffer_slot: u8,
+    first_ref: usize,
+    refs: &[PackedTransparentDrawRef],
+) -> u64 {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!(
+        "terrain.transparent_refs_write",
+        buffer_slot,
+        first_ref,
+        refs = refs.len(),
+        bytes = std::mem::size_of_val(refs),
+    )
+    .entered();
+    render_queue.write_buffer(
+        &arena.transparent_ref_buffer,
+        transparent_ref_offset(buffer_slot, arena.transparent_slot_refs, first_ref),
+        bytemuck::cast_slice(refs),
+    );
+    std::mem::size_of_val(refs) as u64
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -173,8 +105,8 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     allocations: Query<&GpuChunkAllocation>,
     texture_assets: Res<ChunkTextureAssets>,
     biome_tints: Res<ChunkBiomeTints>,
-    render_queue: Res<RenderQueue>,
-    arena: Res<ChunkGpuArena>,
+    (render_device, render_queue): (Res<RenderDevice>, Res<RenderQueue>),
+    mut arena: ResMut<ChunkGpuArena>,
     mut runtime: ResMut<TransparentSortRuntime>,
     metrics: Res<TransparentSortMetrics>,
     witness_request: Res<TransparentWitnessRequest>,
@@ -196,6 +128,10 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     };
     if let Some(result) = completed {
         let next = runtime.gate.complete(result.generation);
+        // A fresh order is valid for its allocation and class whether or not it commits.
+        for order in result.fresh {
+            runtime.group_orders.insert(order.identity.key, order);
+        }
         metrics.update(|snapshot| {
             snapshot.result_generation = result.generation.get();
             snapshot.cpu_duration = result.cpu_duration;
@@ -204,10 +140,35 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             Ok(refs) => {
                 let ref_bytes =
                     refs.len() as u64 * std::mem::size_of::<PackedTransparentDrawRef>() as u64;
-                let sort_result = TransparentSortResult::new(result.generation, result.key, refs)
-                    .expect("worker prevalidates the hard transparent reference ceiling");
+                let sort_result = TransparentSortResult::with_patch(
+                    result.generation,
+                    result.key,
+                    refs,
+                    result.patch,
+                )
+                .expect("worker prevalidates the hard transparent reference ceiling");
                 match runtime.state.complete(sort_result) {
                     Ok(true) => {
+                        let patch = runtime.state.take_patch();
+                        if let Some(snapshot) = runtime.state.committed()
+                            && !patch.is_empty()
+                        {
+                            let mut patched_bytes = 0;
+                            for span in patch {
+                                upload_budget.consume(span.len());
+                                patched_bytes += write_transparent_refs(
+                                    &render_queue,
+                                    &arena,
+                                    snapshot.buffer_slot(),
+                                    span.start,
+                                    &snapshot.refs()[span],
+                                );
+                            }
+                            metrics.update(|snapshot| {
+                                snapshot.upload_bytes =
+                                    snapshot.upload_bytes.saturating_add(patched_bytes);
+                            });
+                        }
                         runtime.committed_distinct_tint_count = result.distinct_tint_count;
                         let ref_count = runtime
                             .state
@@ -327,25 +288,19 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             ));
         }
     }
-    let world_from_view = view.world_from_view;
-    let (_, rotation, translation) = world_from_view.to_scale_rotation_translation();
+    let camera = view.world_from_view.translation();
     let texture_identity = texture_assets.identity();
     let tint_identity = biome_tints.table_identity();
-    let key = match ViewSortKey::try_new(
-        quantized_camera_position(translation.to_array()),
-        quantized_camera_orientation(rotation.to_array()),
-        manifest,
-        texture_identity,
-        tint_identity,
-    ) {
-        Ok(key) => key,
-        Err(error @ TransparentSortError::ConflictingAllocation { .. })
-        | Err(error @ TransparentSortError::InvalidCameraTransform) => {
-            fail_closed_transparent_sort_key_error(&mut runtime, &metrics, error);
-            return;
-        }
-        Err(TransparentSortError::ReferenceCeiling { .. }) => unreachable!(),
-    };
+    let key =
+        match ViewSortKey::try_new(camera.to_array(), manifest, texture_identity, tint_identity) {
+            Ok(key) => key,
+            Err(error @ TransparentSortError::ConflictingAllocation { .. })
+            | Err(error @ TransparentSortError::InvalidCameraTransform) => {
+                fail_closed_transparent_sort_key_error(&mut runtime, &metrics, error);
+                return;
+            }
+            Err(TransparentSortError::ReferenceCeiling { .. }) => unreachable!(),
+        };
     if witness_request.enabled() {
         let visible = visible_entities
             .get::<ChunkRenderInstance>()
@@ -445,27 +400,36 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
         metrics.update(|snapshot| snapshot.request_generation = generation.get());
         if runtime.generation_needs_sort_job(generation) {
             let requested_at = Instant::now();
-            match runtime.resolve_candidate_cache(&key, || {
-                build_transparent_candidates(
-                    visible_entities,
-                    &instances,
-                    &allocations,
-                    &biome_tints,
-                )
+            let mut entities = None;
+            match runtime.resolve_candidate_cache(&key, |identity| {
+                let entities = entities.get_or_insert_with(|| {
+                    visible_entities
+                        .get::<ChunkRenderInstance>()
+                        .iter()
+                        .filter_map(|&(entity, _)| Some((instances.get(entity).ok()?.key, entity)))
+                        .collect::<HashMap<_, _>>()
+                });
+                let instance = entities
+                    .get(&identity.key)
+                    .and_then(|&entity| instances.get(entity).ok())
+                    .ok_or(TransparentSortError::ConflictingAllocation { key: identity.key })?;
+                build_transparent_group(instance, identity.clone(), &biome_tints)
             }) {
-                Ok((candidates, distinct_tint_count)) => {
-                    let request = TransparentSortRequest {
+                Ok((groups, distinct_tint_count)) => {
+                    let cached = runtime.cached_group_orders(&groups);
+                    let base = runtime
+                        .state
+                        .committed()
+                        .filter(|snapshot| snapshot.key.address_identity_eq(&key))
+                        .map(|snapshot| Arc::clone(&snapshot.refs));
+                    let work = TransparentSortWork {
                         generation,
                         requested_at,
                         key,
-                        view_from_world: Mat4::from(world_from_view.affine().inverse()),
-                    };
-                    let work = TransparentSortWork {
-                        generation: request.generation,
-                        requested_at: request.requested_at,
-                        key: request.key,
-                        view_from_world: request.view_from_world,
-                        candidates,
+                        camera,
+                        groups,
+                        cached,
+                        base,
                         distinct_tint_count,
                     };
                     runtime.requested_at.insert(generation, requested_at);
@@ -496,6 +460,16 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     }
 
     let mut uploaded_bytes = 0_u64;
+    let staged_refs = runtime.state.staged_ref_count();
+    if ensure_transparent_ref_capacity(
+        &mut arena,
+        &render_device,
+        &render_queue,
+        staged_refs,
+        &runtime.state,
+    ) {
+        runtime.last_indirect_identity = None;
+    }
     if let Some(batch) = runtime.state.next_upload_batch() {
         if !upload_budget.consume(batch.refs().len()) {
             bevy::log::error!(
@@ -503,21 +477,13 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             );
             return;
         }
-        let offset = u64::try_from(batch.buffer_slot() as usize * TRANSPARENT_REF_SLOT_BYTES)
-            .unwrap()
-            .saturating_add(
-                u64::try_from(
-                    batch.ref_range().start * std::mem::size_of::<PackedTransparentDrawRef>(),
-                )
-                .unwrap(),
-            );
-        render_queue.write_buffer(
-            &arena.transparent_ref_buffer,
-            offset,
-            bytemuck::cast_slice(batch.refs()),
+        uploaded_bytes = write_transparent_refs(
+            &render_queue,
+            &arena,
+            batch.buffer_slot(),
+            batch.ref_range().start,
+            batch.refs(),
         );
-        uploaded_bytes =
-            batch.refs().len() as u64 * std::mem::size_of::<PackedTransparentDrawRef>() as u64;
     }
     if uploaded_bytes != 0 {
         let committed = runtime.state.acknowledge_upload();
@@ -557,10 +523,17 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     if let Some((identity, command)) = runtime.state.committed().and_then(|snapshot| {
         Some((
             (snapshot.buffer_slot(), snapshot.refs().len()),
-            transparent_indirect_args(snapshot)?,
+            transparent_indirect_args(snapshot, arena.transparent_slot_refs)?,
         ))
     }) && runtime.last_indirect_identity != Some(identity)
     {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "terrain.transparent_indirect_write",
+            buffer_slot = identity.0,
+            refs = identity.1
+        )
+        .entered();
         render_queue.write_buffer(
             &arena.transparent_indirect_buffer,
             0,

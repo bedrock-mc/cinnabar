@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
+use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 use ui::{
     BedrockColor, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, TextError, TextLayout,
@@ -393,7 +393,7 @@ fn font(source_manifest_sha256: [u8; 32]) -> CompiledFontCatalog {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let glyphs = [' ', 'A', 'B', 'C', 'e', 'h', 'l', 'o', '\u{fffd}']
         .into_iter()
@@ -418,7 +418,7 @@ fn font_with_glyph(source_manifest_sha256: [u8; 32], glyph: GlyphMetrics) -> Com
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 4,
         height: 1,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let replacement = GlyphMetrics {
         codepoint: '\u{fffd}',
@@ -444,7 +444,7 @@ fn explicit_line_pitch_ignores_a_tall_outlier_glyph_in_the_catalog() {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 40,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let glyphs = [
         GlyphMetrics {
@@ -576,7 +576,7 @@ fn a_single_row_reports_exactly_the_line_pitch() {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 4,
         height: 4,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     // 3 texels tall, sitting 3 above the baseline, like a real cap glyph.
     let glyphs = ['A', '\u{fffd}'].map(|codepoint| GlyphMetrics {

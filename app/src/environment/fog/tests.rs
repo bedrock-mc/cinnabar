@@ -1,6 +1,42 @@
 use super::*;
 use assets::TintSource;
 
+#[test]
+fn fog_samples_outside_nether_height_keep_the_dimension_biome() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let target: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("assets/bedrock-target.json")).unwrap())
+            .unwrap();
+    let path = root.join(target["artifacts"]["world_assets"].as_str().unwrap());
+    let Ok(bytes) = std::fs::read(&path) else {
+        eprintln!(
+            "SKIP fog_samples_outside_nether_height_keep_the_dimension_biome: missing {}",
+            path.display()
+        );
+        return;
+    };
+    let assets = RuntimeAssets::decode(&bytes).unwrap();
+    let stream = WorldStream::new(protocol::WorldBootstrap {
+        dimension: 1,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.5, 129.0, 0.5],
+        world_spawn_position: [0, 64, 0],
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    for height in [129.0, -1.0] {
+        let samples = fog_biome_samples(&stream, &assets, [0.5, height, 0.5]);
+        assert!(!samples.is_empty());
+        assert!(
+            samples
+                .iter()
+                .all(|name| name.as_deref() == Some("minecraft:hell")),
+            "missing biome cells must retain the dimension's default: {samples:?}"
+        );
+    }
+}
+
 fn rule(id: u32, name: &str, downfall: f32) -> BiomeRule {
     BiomeRule {
         id,

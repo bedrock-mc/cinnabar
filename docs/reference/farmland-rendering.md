@@ -12,56 +12,35 @@ registry, without a version-specific numeric formula. Farmland's geometry,
 materials, lighting, and renderer behavior retain their established contracts.
 
 The subsequent manual check confirmed the surface renders, but exposed wheat's
-incorrect generic diagonal cross. Wheat now uses the native four-row model,
+incorrect generic diagonal cross. Wheat now uses the vanilla four-row model,
 lowered by 1/16 block to meet the soil. Other plants retain their existing models.
 
-## Current Bedrock source evidence
+## Vanilla rules
 
-The local MCSRC reconstruction at revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e` was inspected for the current
-`1.26.50.26` client. Recovered names aid navigation; canonical function records
-and the matching executable establish identity. The executable SHA-256 is
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`.
-References below are RVAs under `current/1.26.50.26/`; source and executable
-payloads remain outside this repository.
+For the `1.26.50.26` client:
 
-- FarmBlock registration `09a5c0d0`, recovered in
-  `src/__recovered/BlockTypeRegistry.h`, calls constructor `08715fd0`.
-- Constructor `08715fd0`, canonical in `src/__unmapped/08.cpp`, copies the
-  visual shape `(0,0,0)..(1,15/16,1)`. Initializer `05efb820` sets those bounds;
-  its raw reconstruction was checked against the matching PE disassembly and
-  data, including the packed maximum Y/Z words.
-- Texture variant `08716d90`, canonical in `src/__unmapped/08.cpp`, returns
-  whether moisture is below one. The pinned pack binds dry to index one and
-  wet to index zero, so moisture zero is dry and all other states are wet.
-- Texture dispatch `06a0f630`, recovered in
-  `src/__recovered/BlockTessellator.cpp`, calls vtable slot `+0x330`.
-  The matching FarmBlock vtable points that slot at `08716d90`, confirming
-  that the selector is used during tessellation.
-- Final graphics initialization `069f5b60`, canonical in
-  `src/__unmapped/06.cpp`, builds graphics from pack names and registered
-  block types; it does not establish the legacy sequential-ID formula.
+- Farmland's visual shape is `(0,0,0)..(1,15/16,1)`.
+- The texture variant is whether moisture is below one. The pinned pack binds
+  dry to index one and wet to index zero, so moisture zero is dry and all other
+  states are wet. Tessellation uses this selector.
+- Graphics are built from pack names and registered block types; there is no
+  legacy sequential-ID formula.
 
-The older native gallery and UV limitations remain documented in
-`docs/evidence/phase-2-farmland-native-reference.md`. The current source confirms
-height and top selection; no new claim about calibrated source rows is made.
+The older gallery and UV limitations remain documented in
+`docs/evidence/phase-2-farmland-native-reference.md`. These rules confirm height
+and top selection; no new claim about calibrated source rows is made.
 
 ### Wheat above farmland
 
-The older named `BlockTessellator::tessellateRowInWorld` and
-`tessellateRowTexture` bodies identify the row path. The current canonical bodies
-and matching PE verify the coordinates and UV order:
+Wheat uses the row (crop) shape:
 
-- Shape dispatch to `06a21df0` leads to row helper `06a98c10`. The world entry
-  adds the float at VA `15014e720` to block Y; its verified value is `-0.0625`.
-  Disassembly `06a21ff5..06a2201b` confirms the offset is passed to the helper.
-- Helper `06a98c10` emits four axis-aligned full-width planes, with a reverse
-  side for each. PE constants at VAs `14fec3380`, `1500eb850`, `14feff2e0`,
-  `14ff1b150`, and `14fea4060` are respectively `0.5`, `-0.25`, `-0.5`,
-  `0.25`, and `1`. These yield rows at X/Z 1/4 and 3/4, spanning 0..1.
-  The resulting Y range is -1/16..15/16 relative to the wheat block.
+- The world entry offsets block Y by `-0.0625` before emitting rows.
+- It emits four axis-aligned full-width planes, with a reverse side for each,
+  using constants `0.5`, `-0.25`, `-0.5`, `0.25` and `1`. These yield rows at
+  X/Z 1/4 and 3/4, spanning 0..1. The resulting Y range is -1/16..15/16 relative
+  to the wheat block.
 - UVs bind the full sprite upright to each row, with opposing rows reversing
-  their world direction. Cinnabar represents the native reverse sides with its
+  their world direction. Cinnabar represents the reverse sides with its
   existing two-sided quad flag, rather than duplicate coincident quads.
 - The pinned pack's `blocks.json` binds wheat to the `wheat` texture key, whose
   terrain array contains `wheat_stage_0` through `wheat_stage_7`. The existing
@@ -102,7 +81,7 @@ LAN session as `RustMCBE` and rendered the world on macOS Metal. The user's
 October 4 screenshot and manual report confirm that the farmland surface renders;
 that screenshot also supplied the wheat reproduction above. No transport source
 changes were needed. The native live witness is PlayCover `1.26.51.01`, a
-near-version witness to the analyzed preview, rather than an exact-version gate.
+near-version witness to the target preview, rather than an exact-version gate.
 
 The wheat regression checks every active-registry growth state, both network
 identity modes, upright full-sprite UVs, quarter-position rows, unmodified source

@@ -135,7 +135,7 @@ fn wrapped_string_variables_unwrap() {
 }
 
 // A constant parenthesised property evaluates without any `$` reference; a
-// token parses as an int from its leading digits (`Util::toNumber<int>`), so
+// token parses as an int from its leading digits, so
 // `1.0` is 1 and only `.5` is a float.
 #[test]
 fn constant_property_expressions_fold() {
@@ -436,7 +436,7 @@ mod factories {
 
     const BIND: &str = r##""bindings":[{"binding_type":"collection","binding_collection_name":"rows","binding_name":"#t","binding_name_override":"#text"}],"text":"#text""##;
 
-    // An item index counts only under the collection's own panel; `ignoreCollectionItem` opts out.
+    // An item index counts only under the collection's own panel; an opted-out child is excluded.
     #[test]
     fn collection_items_are_direct_children_of_the_panel() {
         let nested = row_text(&format!(

@@ -1,4 +1,4 @@
-//! Incremental splitting, following ContainerManagerController::_handleSplitMultiple;
+//! Incremental splitting, following vanilla's multi-slot split;
 //! rebalance the contributions, never the pre-existing
 //! destination stacks, on entry into each new slot. The cursor keeps the remainder.
 

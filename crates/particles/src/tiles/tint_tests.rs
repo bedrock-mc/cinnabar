@@ -43,8 +43,8 @@ fn leaf_particle_gamma_colour_uses_each_shared_covered_and_exposed_species_colum
 
 #[test]
 fn cpu_particle_colour_clamps_the_world_palettes_overbright_channels_like_native() {
-    // SeasonsRenderer::getTintedColor clamps doubled palette RGB, whereas
-    // RenderChunk's seasonal shader multiplies it into the texture unclamped.
+    // Vanilla's CPU seasonal tint clamps doubled palette RGB, whereas
+    // its chunk seasonal shader multiplies it into the texture unclamped.
     let tints = CompiledBiomeAssets::diagnostic().resolve_live(&[]).unwrap();
     let mut record = tints.records[0];
     record.seasonal_foliage = [[3.5, 2.0, 1.25, 1.0]; assets::SEASONAL_FOLIAGE_COUNT];

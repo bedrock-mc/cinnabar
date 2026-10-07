@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 func TestSessionChecksAccountBeforeEveryCachedOperation(t *testing.T) {
@@ -24,7 +25,7 @@ func TestSessionChecksAccountBeforeEveryCachedOperation(t *testing.T) {
 	}
 	allowed = false
 	calls := []func() error{
-		func() error { _, err := session.Home(context.Background(), "store"); return err },
+		func() error { _, err := session.Home(context.Background(), marketplace.PageStoreRoot); return err },
 		func() error { _, err := session.Search(context.Background(), SearchQuery{}); return err },
 		func() error { _, err := session.Offer(context.Background(), ""); return err },
 		func() error { _, err := session.Balances(context.Background()); return err },

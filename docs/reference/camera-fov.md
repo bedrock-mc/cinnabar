@@ -1,17 +1,15 @@
 # Camera FOV projection
 
-`LevelRendererPlayer::getFov` and `getFovWithoutGameplay`
-scale the configured angle by
-`min(normalized_viewport.y / normalized_viewport.x, 1)`. `ClientInstance::getNormalizedViewportSize` divides each viewport dimension by the corresponding
-full-screen dimension from `GuiData::ScreenSizeData`. The values are `(1, 1)`
+Vanilla scales the configured angle, with and without gameplay modifiers, by
+`min(normalized_viewport.y / normalized_viewport.x, 1)`. The normalized viewport
+divides each viewport dimension by the corresponding full-screen dimension, so
+the values are `(1, 1)`
 for a full-window viewport at any display aspect ratio. This scale adjusts
 partial viewports, such as split screen; it is not pixel height divided by
 pixel width.
 
-`CameraAPI::tryGetFOV` converts that angle to radians.
-`dragon::rendering::Camera::createPerspective` supplies the
-viewport width/height separately to `bx::mtxProjRh`. That
-projection places `cot(FOV / 2)` on the vertical axis and divides it by aspect
+The camera converts that angle to radians and builds a right-handed perspective
+projection from the viewport width and height separately. That projection places `cot(FOV / 2)` on the vertical axis and divides it by aspect
 on the horizontal axis. The full-window setting therefore defines the
 vertical FOV. A setting of 110 degrees stays 110 degrees vertically, about
 137 degrees horizontally at 16:9.

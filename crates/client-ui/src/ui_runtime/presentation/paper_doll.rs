@@ -1,4 +1,4 @@
-//! HUD visibility follows HudPlayerRenderer::update.
+//! HUD paper doll visibility, as vanilla decides it.
 
 /// Observed state, independent of the user's visibility settings.
 #[derive(Clone, Copy, Debug, Default)]

@@ -2,7 +2,7 @@
 use super::SettingsOptions;
 
 const MAX_EMOTE_ID_BYTES: usize = 128;
-/// R: native EmoteWheelScreenController equipped top/right/bottom/left slots.
+/// Vanilla's emote wheel equips top/right/bottom/left slots.
 pub const EMOTE_SLOT_COUNT: usize = 4;
 
 impl SettingsOptions {

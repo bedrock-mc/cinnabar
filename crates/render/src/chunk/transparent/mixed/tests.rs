@@ -158,3 +158,74 @@ fn faces_in_the_same_packed_centroid_use_stable_stream_order() {
         ]
     );
 }
+
+fn ice_and_water(origin: Vec3, water_offset: u32) -> Vec<MixedFace> {
+    let (mut water, mut model) = (water_offset, 0);
+    (0..96_u32)
+        .map(|index| {
+            let local = Vec3::new(
+                (index % 8) as f32 + 0.5,
+                (index / 8) as f32 * 0.5 + 0.25,
+                ((index * 5) % 16) as f32,
+            );
+            let (stream, index) = if index % 3 == 0 {
+                water += 1;
+                (MixedStream::Water, water - 1)
+            } else {
+                model += 1;
+                (MixedStream::Model, model - 1)
+            };
+            MixedFace {
+                stream,
+                index,
+                centroid: origin + local,
+                stable: [index, 0],
+            }
+        })
+        .collect()
+}
+
+/// A far ice/water plan is reused across camera motion, so it must not depend on it.
+#[test]
+fn far_mixed_order_is_identical_for_every_camera_in_its_class() {
+    let key = SubChunkKey::new(0, 2, 0, -3);
+    let origin = Vec3::from_array(chunk_origin(key).map(|value| value as f32));
+    let cameras = [
+        Vec3::new(1.0, 2.0, 3.0),
+        Vec3::new(12.5, 9.0, 0.5),
+        Vec3::new(0.1, 15.9, 15.9),
+    ];
+    let class = TransparentFaceMetric::new(cameras[0]).class(key);
+    let expected = merge_faces(key, cameras[0], ice_and_water(origin, 0), usize::MAX).unwrap();
+    assert!(expected.len() > 2, "the scene interleaves both streams");
+    for camera in cameras {
+        assert_eq!(TransparentFaceMetric::new(camera).class(key), class);
+        assert_eq!(
+            merge_faces(key, camera, ice_and_water(origin, 0), usize::MAX).unwrap(),
+            expected
+        );
+    }
+}
+
+/// Group-relative water ranges draw exactly what snapshot-absolute ranges drew.
+#[test]
+fn group_relative_water_segments_match_absolute_ones() {
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let origin = Vec3::ZERO;
+    let camera = Vec3::new(4.3, 7.1, 9.8);
+    let relative = merge_faces(key, camera, ice_and_water(origin, 0), usize::MAX).unwrap();
+    let absolute = merge_faces(key, camera, ice_and_water(origin, 100), usize::MAX).unwrap();
+    assert_eq!(relative.len(), absolute.len());
+    for (relative, absolute) in relative.iter().zip(&absolute) {
+        let shift = if relative.stream == MixedStream::Water {
+            100
+        } else {
+            0
+        };
+        assert_eq!(relative.stream, absolute.stream);
+        assert_eq!(
+            relative.range.start + shift..relative.range.end + shift,
+            absolute.range
+        );
+    }
+}

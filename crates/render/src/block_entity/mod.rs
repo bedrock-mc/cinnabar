@@ -14,6 +14,7 @@ mod chest;
 mod conduit;
 mod crack;
 mod crystal_beam;
+mod dragon_death;
 mod frame;
 mod gpu;
 mod heads;
@@ -31,9 +32,7 @@ mod spawner;
 mod statue;
 
 pub use atlas::{AtlasRect, BlockEntityAtlas, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef};
-pub use banner::{
-    BannerLayer, BannerModel, BannerMount, MAX_BANNER_LAYERS, banner_color, pattern_texture,
-};
+pub use banner::{BannerLayer, BannerModel, BannerMount, MAX_BANNER_LAYERS, pattern_texture};
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
 pub use bell::{BellAttachment, BellModel, swing_degrees};
@@ -41,6 +40,7 @@ pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radian
 pub use conduit::ConduitModel;
 pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
 pub use crystal_beam::CrystalBeamModel;
+pub use dragon_death::{DRAGON_DEATH_BLEND, DragonDeathModel};
 pub use frame::{ItemFrameModel, item_frame_item_transform};
 pub use gpu::BlockEntityRenderPlugin;
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
@@ -54,8 +54,8 @@ pub use scene::{
     BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityLight, BlockEntityScene,
     BlockEntitySubmission, CrackInstance, SceneClock,
 };
-pub use selection::{BlockSelectionFrame, BlockSelectionTarget};
-pub use shulker::{ShulkerModel, shulker_color_from_block_name};
+pub use selection::{BLOCK_SELECTION_VERTICES_PER_EDGE, BlockSelectionFrame, BlockSelectionTarget};
+pub use shulker::ShulkerModel;
 pub use sign::{SignFace, SignModel, SignMount};
 pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees, skull_geometry};
 pub use spawner::SpawnerModel;

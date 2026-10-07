@@ -1,5 +1,5 @@
 //! CPU vertex emission for block-entity models: boxes with the entity-geometry UV
-//! unwrap, free quads, and the two draw layers.
+//! unwrap, free quads, and separate draw layers.
 
 use bevy::math::{Mat4, Vec3};
 use bytemuck::{Pod, Zeroable};
@@ -18,7 +18,7 @@ pub struct BlockEntityVertex {
     pub position: [f32; 3],
     /// Normalized atlas coordinates.
     pub uv: [f32; 2],
-    /// Tint and scalar-path face shade; native entity materials compose RGB in gamma.
+    /// Model tint or portal normal/depth encoding; actor materials compose lit RGB in gamma.
     pub color: [f32; 4],
     /// Outward world normal for native entity-material lighting.
     pub normal: [f32; 3],
@@ -35,8 +35,8 @@ pub enum Layer {
     Overlay,
     /// Multiplies the scene (twice source times destination) without writing depth.
     Crack,
-    /// Adds to the scene without writing depth.
-    Additive,
+    /// Native portal normal/depth encoding, composited in coplanar layer order.
+    Portal,
 }
 
 /// A box in entity-geometry authoring space: pixels, front toward -Z, +Y up.
@@ -67,23 +67,35 @@ impl BoxSpec {
     }
 }
 
+impl From<assets::block_entity_geometry::ModelBox> for BoxSpec {
+    fn from((origin, size, uv): assets::block_entity_geometry::ModelBox) -> Self {
+        Self::new(origin, size, uv)
+    }
+}
+
 // Directional face shade; needs native measurement against Bedrock entity lighting.
 const SHADE_UP: f32 = 1.0;
 const SHADE_DOWN: f32 = 0.5;
 const SHADE_Z: f32 = 0.8;
 const SHADE_X: f32 = 0.6;
 
+/// Directional brightness in the shared terrain face order.
+pub(super) const fn tile_face_shade(face: usize) -> f32 {
+    [SHADE_X, SHADE_X, SHADE_DOWN, SHADE_UP, SHADE_Z, SHADE_Z][face]
+}
+
 pub const WHITE: [f32; 4] = [1.0; 4];
 
-/// Accumulates vertices for both layers against one atlas.
+/// Accumulates each draw layer's vertices against one atlas.
 #[derive(Debug)]
 pub struct MeshBuilder {
     atlas_size: [f32; 2],
     pub solid: Vec<BlockEntityVertex>,
     pub overlay: Vec<BlockEntityVertex>,
     pub crack: Vec<BlockEntityVertex>,
+    pub portal: Vec<BlockEntityVertex>,
     pub additive: Vec<BlockEntityVertex>,
-    /// Multiplier applied to every emitted color; carries per-instance light.
+    /// Multiplier applied to model RGB; encoded portal planes bypass lighting.
     pub light: f32,
     pub(super) actor_light: u32,
     pub rejected_quads: u64,
@@ -97,6 +109,7 @@ impl MeshBuilder {
             solid: Vec::new(),
             overlay: Vec::new(),
             crack: Vec::new(),
+            portal: Vec::new(),
             additive: Vec::new(),
             light: 1.0,
             actor_light: 0,
@@ -113,49 +126,13 @@ impl MeshBuilder {
         spec: BoxSpec,
         tint: [f32; 4],
     ) {
-        let [ox, oy, oz] = spec.origin;
-        let [sx, sy, sz] = spec.size;
-        let inflate = spec.inflate;
-        let (x0, x1) = (ox - inflate, ox + sx + inflate);
-        let (y0, y1) = (oy - inflate, oy + sy + inflate);
-        let (z0, z1) = (oz - inflate, oz + sz + inflate);
-        let [u, v] = spec.uv;
-        // Corners are top-left, top-right, bottom-right, bottom-left seen from outside;
-        // texel rects are [u, v, width, height] of the box unwrap.
-        let faces: [([[f32; 3]; 4], [f32; 4], f32); 6] = [
-            (
-                [[x1, y1, z0], [x0, y1, z0], [x0, y0, z0], [x1, y0, z0]],
-                [u + sz, v + sz, sx, sy],
-                SHADE_Z,
-            ),
-            (
-                [[x0, y1, z1], [x1, y1, z1], [x1, y0, z1], [x0, y0, z1]],
-                [u + sz + sx + sz, v + sz, sx, sy],
-                SHADE_Z,
-            ),
-            (
-                [[x1, y1, z1], [x1, y1, z0], [x1, y0, z0], [x1, y0, z1]],
-                [u, v + sz, sz, sy],
-                SHADE_X,
-            ),
-            (
-                [[x0, y1, z0], [x0, y1, z1], [x0, y0, z1], [x0, y0, z0]],
-                [u + sz + sx, v + sz, sz, sy],
-                SHADE_X,
-            ),
-            (
-                [[x1, y1, z1], [x0, y1, z1], [x0, y1, z0], [x1, y1, z0]],
-                [u + sz, v, sx, sz],
-                SHADE_UP,
-            ),
-            (
-                [[x1, y0, z0], [x0, y0, z0], [x0, y0, z1], [x1, y0, z1]],
-                [u + sz + sx, v, sx, sz],
-                SHADE_DOWN,
-            ),
-        ];
-        for (corners, texels, shade) in faces {
-            if texels[2] <= 0.0 || texels[3] <= 0.0 {
+        let faces =
+            assets::block_entity_geometry::box_faces(spec.origin, spec.size, spec.uv, spec.inflate);
+        for ((corners, texels), shade) in faces
+            .into_iter()
+            .zip([SHADE_Z, SHADE_Z, SHADE_X, SHADE_X, SHADE_UP, SHADE_DOWN])
+        {
+            if texels[2] <= 0.0 || texels[3] == 0.0 {
                 continue;
             }
             let uv = texture.rect_uv(texels);
@@ -201,13 +178,18 @@ impl MeshBuilder {
             Layer::Solid => &mut self.solid,
             Layer::Overlay => &mut self.overlay,
             Layer::Crack => &mut self.crack,
-            Layer::Additive => &mut self.additive,
+            Layer::Portal => &mut self.portal,
         };
         if target.len() + 6 > MAX_BLOCK_ENTITY_VERTICES {
             self.rejected_quads = self.rejected_quads.saturating_add(1);
             return;
         }
-        let light = self.light;
+        // Portal RGB encodes the plane normal; lighting would corrupt the projector.
+        let light = if layer == Layer::Portal {
+            1.0
+        } else {
+            self.light
+        };
         let atlas_size = self.atlas_size;
         let normal = if self.actor_light == 0 {
             [0.0; 3]
@@ -248,35 +230,12 @@ impl MeshBuilder {
         rects: [AtlasRect; 6],
         tint: [f32; 4],
     ) {
-        let [x0, y0, z0] = min;
-        let [x1, y1, z1] = max;
-        let faces: [([[f32; 3]; 4], f32); 6] = [
-            (
-                [[x0, y1, z0], [x0, y1, z1], [x0, y0, z1], [x0, y0, z0]],
-                SHADE_X,
-            ),
-            (
-                [[x1, y1, z1], [x1, y1, z0], [x1, y0, z0], [x1, y0, z1]],
-                SHADE_X,
-            ),
-            (
-                [[x1, y0, z0], [x0, y0, z0], [x0, y0, z1], [x1, y0, z1]],
-                SHADE_DOWN,
-            ),
-            (
-                [[x1, y1, z1], [x0, y1, z1], [x0, y1, z0], [x1, y1, z0]],
-                SHADE_UP,
-            ),
-            (
-                [[x1, y1, z0], [x0, y1, z0], [x0, y0, z0], [x1, y0, z0]],
-                SHADE_Z,
-            ),
-            (
-                [[x0, y1, z1], [x1, y1, z1], [x1, y0, z1], [x0, y0, z1]],
-                SHADE_Z,
-            ),
-        ];
-        for ((corners, shade), rect) in faces.into_iter().zip(rects) {
+        let faces = assets::block_entity_geometry::tile_box_faces([min, max]);
+        for ((corners, shade), rect) in faces
+            .into_iter()
+            .zip((0..6).map(tile_face_shade))
+            .zip(rects)
+        {
             let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
             self.textured_quad(
                 layer,

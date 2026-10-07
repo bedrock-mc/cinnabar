@@ -2,6 +2,40 @@ use super::*;
 use client_world::ingestion::PLAYER_NETWORK_OFFSET;
 
 impl WorldStream {
+    /// Prioritizes the complete spawn columns and their light halo while entry is pending.
+    pub fn set_startup_priority(&mut self, enabled: bool) {
+        self.startup_priority = enabled;
+    }
+
+    /// Ends spawn priority once local terrain is ready; servers that stream only after
+    /// initialization keep it until terrain arrives. Returns whether priority is off.
+    pub fn finish_startup_priority(&mut self) -> bool {
+        if self.startup_priority && !self.local_terrain_ready() {
+            return false;
+        }
+        self.startup_priority = false;
+        true
+    }
+
+    pub(super) fn scheduler_view(&self, position: [f32; 3]) -> SchedulerView {
+        let player = self.authority.resolved_server_position().position;
+        SchedulerView {
+            position,
+            forward: self.view_forward,
+            startup_center: self.startup_priority.then(|| {
+                ChunkKey::new(
+                    self.authority.current_dimension(),
+                    floor_to_i32(player[0]).div_euclid(16),
+                    floor_to_i32(player[2]).div_euclid(16),
+                )
+            }),
+        }
+    }
+
+    pub(super) fn is_startup_dependency(&self, key: SubChunkKey) -> bool {
+        self.startup_priority && self.scheduler_view([0.0; 3]).startup_class(key) < 2
+    }
+
     /// Mutation-through frontier for inactive inventory projections after polling.
     /// A popped asynchronous block update is not committed until its decode applies.
     #[must_use]
@@ -32,6 +66,8 @@ impl WorldStream {
     }
 
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.poll").entered();
         if camera_position.iter().all(|value| value.is_finite()) {
             self.requests.last_player_chunk = Some(ChunkKey::new(
                 self.authority.current_dimension(),
@@ -40,10 +76,10 @@ impl WorldStream {
             ));
         }
         let now = Instant::now();
-        let frame_deadline = self.frame_deadline.take().unwrap_or_else(|| {
-            self.poll_deadline
-                .unwrap_or(now + commit_budget::WORLD_POLL_BUDGET)
-        });
+        let frame_deadline = self
+            .frame_deadline
+            .take()
+            .unwrap_or_else(|| self.poll_deadline.unwrap_or(now + self.poll_budget));
         let remaining = frame_deadline.saturating_duration_since(now);
         self.poll_deadline
             .get_or_insert(now + remaining - remaining / commit_budget::WORLD_SCHEDULING_SHARE);
@@ -238,7 +274,7 @@ impl WorldStream {
         Arc::clone(self.authority.resolved_biome_tints())
     }
     pub fn connectivity(&self, key: SubChunkKey) -> Option<FaceConnectivity> {
-        self.connectivity.get(&key).copied()
+        self.connectivity.get(&key)
     }
     pub fn surface_eye_position(&self, block_x: i32, block_z: i32) -> Option<[f32; 3]> {
         let block_y = self.top_non_air_block_y(block_x, block_z)?;
@@ -256,7 +292,9 @@ impl WorldStream {
     /// Y of the highest non-air block in a loaded column, or `None` when it is unloaded or empty.
     #[must_use]
     pub fn top_non_air_block_y(&self, block_x: i32, block_z: i32) -> Option<i32> {
-        let range = vanilla_dimension_range(self.authority.current_dimension())?;
+        let range = self
+            .authority
+            .dimension_range(self.authority.current_dimension())?;
         let chunk = ChunkKey::new(
             self.authority.current_dimension(),
             block_x.div_euclid(16),
@@ -304,6 +342,15 @@ impl WorldStream {
     #[must_use]
     pub const fn current_dimension(&self) -> i32 {
         self.authority.current_dimension()
+    }
+
+    #[must_use]
+    pub fn dimension_range(&self, dimension: i32) -> Option<DimensionRange> {
+        self.authority.dimension_range(dimension)
+    }
+
+    pub fn dimension_transfer_area_ready(&self, position: [f32; 3]) -> bool {
+        self.authority.dimension_transfer_area_ready(position)
     }
 
     /// The validated sequence of the last committed dimension transition.

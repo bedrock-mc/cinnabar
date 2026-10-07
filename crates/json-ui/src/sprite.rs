@@ -1,5 +1,4 @@
-//! The `image` control's sprite, following vanilla's `SpriteComponent` draw
-//! dispatch: nine-slice first, then a clipped, tiled, filled (cover), kept-ratio
+//! The `image` control's sprite, following vanilla's draw dispatch: nine-slice first, then a clipped, tiled, filled (cover), kept-ratio
 //! (contain) or stretched draw of the `uv`/`uv_size` source region. Source
 //! coordinates are texture pixels until normalised into a [`UvRect`].
 

@@ -294,7 +294,7 @@ fn bow_press_starts_a_use_and_button_up_releases_it() {
     assert!(runtime.step(&frame(131, false)).packets.is_empty());
 }
 
-/// A depleted use completes locally: the client sends nothing (`Player::completeUsingItem`).
+/// A depleted use completes locally: the client sends nothing.
 #[test]
 fn a_depleted_crossbow_charge_ends_without_a_packet() {
     let crossbow = |tick| UseFrame {
@@ -326,7 +326,7 @@ fn a_bow_without_arrows_sends_click_air_but_never_starts() {
     assert!(runtime.step(&frame(101, false)).packets.is_empty());
 }
 
-/// Server-owned lobby items still use `baseUseItem`, without a locally predicted hold.
+/// Server-owned lobby items still send the air use, without a locally predicted hold.
 #[test]
 fn an_unpredicted_item_sends_click_air_once_per_press_with_its_verified_stack() {
     for identifier in [
@@ -667,7 +667,7 @@ fn food_without_appetite_does_not_start() {
     assert!(!outcome.started && !runtime.is_using());
 }
 
-/// `TypedClientNetId::_generateNext` restarts at -4 once the counter leaves the negative range.
+/// Legacy request ids restart at -4 once the counter leaves the negative range.
 #[test]
 fn legacy_request_ids_step_down_by_two_and_wrap() {
     let mut runtime = ItemUseRuntime::default();

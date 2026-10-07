@@ -5,6 +5,7 @@ fn urgent_scheduler_work_preempts_nearer_ordinary_work() {
     let camera = super::SchedulerView {
         position: [0.0; 3],
         forward: None,
+        startup_center: None,
     };
     let near = SubChunkKey::new(0, 0, 0, 0);
     let far = SubChunkKey::new(0, 16, 0, 0);
@@ -1023,7 +1024,7 @@ fn light_snapshots_and_invalidation_exclude_diagonals() {
     stream.lighting.revisions.entries.clear();
 
     let snapshot = stream.light_block_snapshot(center);
-    assert_eq!(snapshot.blocks.len(), 2);
+    assert_eq!(snapshot.blocks.iter().count(), 2);
     assert!(snapshot.blocks.contains_key(&center));
     assert!(snapshot.blocks.contains_key(&face));
     assert!(!snapshot.blocks.contains_key(&diagonal));
@@ -1097,97 +1098,4 @@ fn worker_distinguishes_provenance_only_output_from_sampled_light_changes() {
     assert!(stream.lighting.direct_sky[&key].mask.get(0, 15, 0));
     assert_eq!(stream.stats().provenance_only_light_jobs, 1);
     assert_eq!(stream.stats().light_mesh_invalidations, 0);
-}
-
-#[test]
-fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
-    let mut stream = lit_stream(0);
-    let keys = (0..6)
-        .map(|x| SubChunkKey::new(0, x, 0, 0))
-        .collect::<Vec<_>>();
-    for key in &keys {
-        stream.record_known_air(*key);
-    }
-    stream.mark_light_changed_sources(keys.iter().copied());
-    let latest = stream.lighting.jobs.pending[&keys[5]].revision;
-    stream.mark_light_dirty_exact(keys[5]);
-    assert_eq!(stream.lighting.jobs.pending.len(), keys.len());
-    assert_ne!(stream.lighting.jobs.pending[&keys[5]].revision, latest);
-
-    let expected = effective_light_job_cap().min(3);
-    assert_eq!(
-        stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX),
-        expected
-    );
-    assert_eq!(stream.lighting.jobs.in_flight.len(), expected);
-    assert_eq!(
-        stream
-            .lighting
-            .jobs
-            .in_flight
-            .keys()
-            .copied()
-            .collect::<BTreeSet<_>>(),
-        [keys[0], keys[2], keys[4]]
-            .into_iter()
-            .take(expected)
-            .collect()
-    );
-}
-
-#[test]
-fn light_worker_cap_retains_dependency_progress_on_small_pools() {
-    assert_eq!(super::super::light_job_cap_for_threads(1), 2);
-    assert_eq!(super::super::light_job_cap_for_threads(4), 2);
-    assert_eq!(super::super::light_job_cap_for_threads(8), 2);
-    assert_eq!(super::super::light_job_cap_for_threads(12), 3);
-    assert_eq!(
-        super::super::light_job_cap_for_threads(usize::MAX),
-        super::super::MAX_IN_FLIGHT_LIGHT_JOBS
-    );
-}
-
-#[test]
-fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
-    let mut stream = lit_stream(1);
-    let capacity = super::super::effective_light_job_cap();
-    assert!((1..=super::super::MAX_IN_FLIGHT_LIGHT_JOBS).contains(&capacity));
-    let radius = super::super::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
-    let keys = (-radius..=radius)
-        .flat_map(|x| (-radius..=radius).map(move |z| (x, z)))
-        .filter(|(x, z)| (x + z).rem_euclid(2) == 0)
-        .map(|(x, z)| SubChunkKey::new(1, x, 0, z))
-        .take(capacity + 1)
-        .collect::<Vec<_>>();
-    assert_eq!(keys.len(), capacity + 1);
-    for key in &keys {
-        stream.record_known_air(*key);
-    }
-    stream.mark_light_changed_sources(keys.iter().copied());
-
-    assert_eq!(
-        stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX),
-        capacity
-    );
-    assert_eq!(stream.lighting.jobs.in_flight.len(), capacity);
-    assert_eq!(stream.lighting.jobs.pending.len(), 1);
-    assert_eq!(stream.dispatch_light_jobs([8.0, 8.0, 8.0], usize::MAX), 0);
-    assert_eq!(stream.lighting.jobs.in_flight.len(), capacity);
-    assert_eq!(stream.lighting.jobs.pending.len(), 1);
-    let completion = stream
-        .lighting
-        .rx
-        .recv_timeout(Duration::from_secs(5))
-        .expect("independent light completion");
-    stream.accept_light_completion(completion);
-    assert_eq!(stream.lighting.jobs.in_flight.len(), capacity - 1);
-    assert_eq!(stream.lighting.jobs.pending.len(), 1);
-    // Result delivery can precede the worker guard's final drop.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while stream.dispatch_light_jobs([8.0; 3], usize::MAX) == 0 {
-        assert!(Instant::now() < deadline, "pending light work stalled");
-        std::thread::yield_now();
-    }
-    assert_eq!(stream.lighting.jobs.in_flight.len(), capacity);
-    assert!(stream.lighting.jobs.pending.is_empty());
 }

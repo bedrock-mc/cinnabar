@@ -15,6 +15,22 @@ pub(crate) struct GeometryChunk {
     revision: u64,
 }
 
+fn same_stream<T: PartialEq>(previous: &Arc<[T]>, current: &Arc<[T]>) -> bool {
+    Arc::ptr_eq(previous, current) || previous.as_ref() == current.as_ref()
+}
+
+fn same_sky(
+    previous: &Arc<[meshing::PackedQuadLighting]>,
+    current: &Arc<[meshing::PackedQuadLighting]>,
+) -> bool {
+    Arc::ptr_eq(previous, current)
+        || previous.len() == current.len()
+            && previous
+                .iter()
+                .zip(current.iter())
+                .all(|(previous, current)| sky_access(Some(previous)) == sky_access(Some(current)))
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct IndirectGeometry {
     chunks: HashMap<Entity, GeometryChunk>,
@@ -32,6 +48,20 @@ pub(crate) fn collect_geometry(
     }
     for (entity, chunk) in &changed {
         let (cubes, models, cube_light, model_light) = chunk.indirect_geometry();
+        if let Some(previous) = resident.chunks.get_mut(&entity)
+            && previous.key == chunk.key()
+            && same_stream(&previous.cubes, &cubes)
+            && same_stream(&previous.models, &models)
+            && same_sky(&previous.cube_light, &cube_light)
+            && same_sky(&previous.model_light, &model_light)
+            && previous.biome == *chunk.biome_record()
+        {
+            previous.cubes = cubes;
+            previous.models = models;
+            previous.cube_light = cube_light;
+            previous.model_light = model_light;
+            continue;
+        }
         let revision = resident.revision.wrapping_add(1);
         resident.chunks.insert(
             entity,
@@ -281,14 +311,18 @@ fn surface(words: &mut [[u32; 4]], origin: IVec3, world: IVec3, material: Reflec
     }
     if let Some(i) = index(origin, world) {
         let previous = words[i];
-        // The strongest covering surface prevents translucent decoration opening opaque walls.
-        if material.opacity >= f32::from_bits(previous[2]) {
-            words[i] = [
-                3,
-                pack_color(material.rgb),
-                material.opacity.to_bits(),
-                material.sky.to_bits(),
-            ];
+        let candidate = [
+            3,
+            pack_color(material.rgb),
+            material.opacity.to_bits(),
+            material.sky.to_bits(),
+        ];
+        // Equal-strength overlaps use a stable tie break rather than chunk iteration order.
+        if material.opacity > f32::from_bits(previous[2])
+            || material.opacity == f32::from_bits(previous[2])
+                && (candidate[3], candidate[1]) < (previous[3], previous[1])
+        {
+            words[i] = candidate;
         }
     }
 }

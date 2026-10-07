@@ -22,13 +22,24 @@ mod access;
 mod actors;
 mod biomes;
 mod block_events;
+mod block_identities;
 mod commits;
 mod contracts;
+mod dimension_ranges;
+mod dimension_transfer;
+#[cfg(test)]
+mod local_movement_flags_tests;
+#[cfg(test)]
+mod local_skin_selection_tests;
 mod map_data;
 mod movement_attribute;
 mod particles;
+#[cfg(test)]
+mod primitive_shape_tests;
 mod queues;
 mod sign_edit;
+#[cfg(test)]
+mod synchronized_audio_tests;
 mod terrain;
 #[cfg(test)]
 mod tests;
@@ -62,6 +73,7 @@ pub struct WorldAuthority {
     air_block_id: u32,
     runtime_assets: Arc<RuntimeAssets>,
     custom_block_ids: std::ops::Range<u32>,
+    custom_block_identities: Arc<std::collections::HashMap<u32, u32>>,
     id_remap: Arc<assets::SequentialIdRemap>,
     decode_diagnostics: Arc<crate::ingestion::DecodeDiagnostics>,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
@@ -69,6 +81,9 @@ pub struct WorldAuthority {
     biome_tint_stream_id: u64,
     biome_tint_revision: u64,
     current_dimension: i32,
+    dimension_ranges: std::collections::BTreeMap<i32, (Arc<str>, DimensionRange)>,
+    frozen_dimension_ranges: BTreeSet<i32>,
+    dimension_range_skips: u64,
     form_dimension_epoch: u64,
     local_player_runtime_id: u64,
     local_player_unique_id: i64,
@@ -80,6 +95,7 @@ pub struct WorldAuthority {
     committed_ui: VecDeque<CommittedUiEvent>,
     committed_audio: VecDeque<CommittedAudioEvent>,
     committed_camera: VecDeque<CommittedCameraEvent>,
+    committed_primitive_shapes: VecDeque<PrimitiveShapesEvent>,
     committed_particles: VecDeque<CommittedParticleEvent>,
 }
 
@@ -136,6 +152,7 @@ impl WorldAuthority {
             air_block_id,
             runtime_assets,
             custom_block_ids: 0..0,
+            custom_block_identities: Arc::default(),
             id_remap: Arc::default(),
             decode_diagnostics: Arc::default(),
             biome_definitions: Arc::from([]),
@@ -143,6 +160,9 @@ impl WorldAuthority {
             biome_tint_stream_id,
             biome_tint_revision: 0,
             current_dimension: bootstrap.dimension,
+            dimension_ranges: std::collections::BTreeMap::new(),
+            frozen_dimension_ranges: BTreeSet::new(),
+            dimension_range_skips: 0,
             form_dimension_epoch: 0,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             local_player_unique_id: bootstrap.local_player_unique_id,
@@ -154,6 +174,7 @@ impl WorldAuthority {
             committed_ui: VecDeque::new(),
             committed_audio: VecDeque::new(),
             committed_camera: VecDeque::new(),
+            committed_primitive_shapes: VecDeque::new(),
             committed_particles: VecDeque::new(),
         }
     }

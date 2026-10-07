@@ -13,6 +13,7 @@ pub(crate) mod auth;
 mod construction;
 pub(crate) mod core_process;
 pub(crate) mod disconnect;
+mod dressing_room;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
@@ -23,6 +24,7 @@ mod launcher_core;
 mod navigation;
 #[cfg(test)]
 mod server_input_tests;
+pub(crate) mod server_trust;
 pub(crate) mod servers;
 #[cfg(test)]
 mod session_teardown_tests;
@@ -99,19 +101,22 @@ pub(crate) struct MenuRuntime {
     name: ui::ChatEditor,
     address: ui::ChatEditor,
     port: ui::ChatEditor,
+    skin_name: ui::ChatEditor,
     message: Option<String>,
     gui_scale_preference: Option<u8>,
     gui_scale_offset: i8,
     gui_scale_display_offset: i8,
-    gui_scale_choices: Vec<i8>,
+    gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     fullscreen: bool,
     fullscreen_change: Option<bool>,
     video_settings_writer: Option<video_settings::writer::Writer>,
     settings_focus: Vec<MenuAction>,
+    settings_focus_geometry: focus::SettingsFocusGeometry,
     last_saved_video_settings: video_settings::SavedVideoSettings,
     failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
+    vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
     servers: Vec<SavedServer>,
@@ -121,7 +126,6 @@ pub(crate) struct MenuRuntime {
     /// The session controller's last published state.
     session: SessionStatus,
     featured: Vec<MenuServerCard>,
-    gatherings: Vec<MenuServerCard>,
     realms: Vec<MenuRealmCard>,
     friends: Vec<MenuFriendCard>,
     catalog_message: Option<String>,
@@ -134,6 +138,11 @@ pub(crate) struct MenuRuntime {
     layout: InstallLayout,
     /// The client's own skin, cloned into every reconnection's `NetworkConfig`.
     player_skin: crate::player_skin::LocalPlayerSkin,
+    dressing_room: std::sync::Arc<launcher::dressing_room::DressingRoomView>,
+    dressing_room_worker: Option<dressing_room::Worker>,
+    skin_update_pending: bool,
+    skin_outbound: Option<(u64, protocol::Packet)>,
+    skin_packet_pending: Option<protocol::Packet>,
     editing: Option<usize>,
     settings_section: u8,
     disconnect_message: Option<String>,
@@ -157,14 +166,26 @@ pub(crate) struct MenuRuntime {
     settings_options: std::sync::Arc<settings_options::SettingsOptions>,
     storage: std::sync::Arc<settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
+    settings_scale_picker: bool,
     settings_dirty: bool,
     /// Failed writes wait until this deadline while retaining the newest edits.
     settings_retry_at: Option<std::time::Instant>,
     settings_apply: bool,
+    /// In-memory option overrides (index, persisted value) that saves never write.
+    session_overrides: Vec<(usize, i32)>,
+    /// A developer controller is driving: hotkey toggles stay in memory.
+    transient_toggles: bool,
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,
     settings_slider_drag: Option<u16>,
+    settings_slider_pointer: Option<launcher::menu::view::SettingsSliderPointer>,
+    settings_slider_hovered: Option<u16>,
+    settings_slider_selected: Option<u16>,
+    settings_control_activation: Option<(MenuAction, u64)>,
+    settings_control_activation_navigation: bool,
+    settings_input_revision: u64,
+    input_mode: input::MenuInputMode,
     key_remap: Option<u16>,
     settings_advanced_graphics: bool,
     /// The current or pending session is a local world, and whether it was live last frame.
@@ -190,6 +211,13 @@ impl MenuRuntime {
         }
     }
 
+    /// Shows the VSync toggle locked to a launch-flag override.
+    #[must_use]
+    pub(crate) const fn with_vsync_override(mut self, vsync: Option<bool>) -> Self {
+        self.vsync_override = vsync;
+        self
+    }
+
     /// Consume the pending Video-section change.
     pub(crate) fn take_render_mode_request(&mut self) -> Option<RenderMode> {
         self.render_mode_request.take()
@@ -204,9 +232,14 @@ impl MenuRuntime {
         self.visible
     }
 
-    /// Full-screen launcher backgrounds replace the world; pause and death keep it visible.
+    /// Settings retains the background of the launcher or world beneath it.
     pub(crate) fn uses_panorama(&self) -> bool {
-        self.visible && !matches!(self.screen, MenuScreen::Pause | MenuScreen::Death)
+        self.visible
+            && match self.screen {
+                MenuScreen::Pause | MenuScreen::Death => false,
+                MenuScreen::Settings | MenuScreen::DressingRoom => !self.over_world(),
+                _ => true,
+            }
     }
 
     pub(crate) fn screen(&self) -> MenuScreen {
@@ -242,6 +275,9 @@ impl MenuRuntime {
         self.visible = visible;
         if !visible {
             self.field = None;
+            self.settings_slider_selected = None;
+            self.settings_slider_pointer = None;
+            self.settings_slider_hovered = None;
             self.dialog = None;
         }
     }
@@ -269,6 +305,8 @@ impl MenuRuntime {
             focused_action: self.focus_actions().get(self.focused).copied(),
             hovered: self.hovered,
             pressed: self.pressed,
+            navigation_focus_visible: self.input_mode.navigation(),
+            gamepad_input: self.input_mode.gamepad(),
             server_tab: self.server_tab,
             profile_tab: self.profile_tab,
             dialog: self.dialog,
@@ -282,14 +320,13 @@ impl MenuRuntime {
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
+            vsync_override: self.vsync_override,
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
-            gatherings: self.gatherings.clone(),
             realms: self.realms.clone(),
             friends: self.friends.clone(),
             featured_icon: None,
-            gathering_icon: None,
             realm_icon: None,
             friend_icon: None,
             saved_icon: None,
@@ -299,6 +336,9 @@ impl MenuRuntime {
             auth_state,
             connecting: self.is_connecting(),
             settings_section: self.settings_section,
+            dressing_room: self.dressing_room.clone(),
+            player_skin: Some(self.player_skin.standard_skin()),
+            player_skin_model: self.player_skin.model(),
             disconnect_message: self.disconnect_message.clone(),
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
@@ -306,6 +346,12 @@ impl MenuRuntime {
             settings_options: std::sync::Arc::clone(&self.settings_options),
             storage: std::sync::Arc::clone(&self.storage),
             settings_dropdown: self.settings_dropdown,
+            settings_scale_picker: self.settings_scale_picker,
+            settings_control_activation: self.settings_control_activation,
+            settings_control_activation_navigation: self.settings_control_activation_navigation,
+            settings_slider_pointer: self.settings_slider_pointer,
+            settings_slider_hovered: self.settings_slider_hovered,
+            settings_slider_selected: self.settings_slider_selected,
             language_choices: std::sync::Arc::clone(&self.language_choices),
             key_remap: self.key_remap,
             settings_advanced_graphics: self.settings_advanced_graphics,
@@ -474,13 +520,32 @@ impl MenuRuntime {
         std::mem::take(&mut self.intents.exit)
     }
 
+    pub(crate) fn activate_from_input(&mut self, action: MenuAction) {
+        self.activate_control_input(action, false);
+    }
+
+    pub(crate) fn activate_from_navigation(&mut self, action: MenuAction) {
+        self.activate_control_input(action, true);
+    }
+
+    fn activate_control_input(&mut self, action: MenuAction, navigation: bool) {
+        if self.screen == MenuScreen::Settings {
+            self.settings_input_revision = self.settings_input_revision.wrapping_add(1);
+            self.settings_control_activation = Some((action, self.settings_input_revision));
+            self.settings_control_activation_navigation = navigation;
+        }
+        self.activate(action);
+    }
+
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        if self.skin_editor_blocks(action) {
+            return;
+        }
         if self.account_change_pending()
             && matches!(
                 action,
                 MenuAction::PlaySaved(_)
                     | MenuAction::PlayFeatured(_)
-                    | MenuAction::PlayGathering(_)
                     | MenuAction::PlayRealm(_)
                     | MenuAction::PlayFriend(_)
                     | MenuAction::PlayLocalWorld(_)
@@ -514,6 +579,9 @@ impl MenuRuntime {
             }
             MenuAction::Inbox(action) => self.activate_inbox(action),
             MenuAction::Navigate(screen) => {
+                if screen == MenuScreen::DressingRoom {
+                    self.ensure_dressing_room();
+                }
                 self.enter(screen);
             }
             MenuAction::OpenExitDialog => {
@@ -563,11 +631,6 @@ impl MenuRuntime {
             }
             MenuAction::PlayFeatured(index) => {
                 if let Some(server) = self.featured.get(index) {
-                    self.request_connect(server.address.clone());
-                }
-            }
-            MenuAction::PlayGathering(index) => {
-                if let Some(server) = self.gatherings.get(index) {
                     self.request_connect(server.address.clone());
                 }
             }
@@ -624,7 +687,10 @@ impl MenuRuntime {
                     }
                 }
             }
-            MenuAction::AddName | MenuAction::AddAddress | MenuAction::AddPort => {}
+            MenuAction::AddName
+            | MenuAction::AddAddress
+            | MenuAction::AddPort
+            | MenuAction::EditSkinName => {}
             MenuAction::AddSave => {
                 // Saving pops the form back to the tab that opened it.
                 if self.save_draft() {
@@ -670,6 +736,7 @@ impl MenuRuntime {
             MenuAction::SettingsStorage(action) => self.activate_storage(action),
             MenuAction::SettingsSupport(action) => self.activate_support(action),
             action @ (MenuAction::SettingsScale(_)
+            | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsSection(_)
             | MenuAction::SettingsOption(..)
@@ -690,10 +757,15 @@ impl MenuRuntime {
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SelectFeatured(index) => self.feeds.select(index),
             MenuAction::SelectSaved(index) => self.feeds.select_saved(index),
+            MenuAction::ServerList(action) => {
+                self.settings_dirty |=
+                    std::sync::Arc::make_mut(&mut self.settings_options).apply_server_list(action);
+            }
             MenuAction::SelectRealm(index) => self.feeds.selected_realm = Some(index),
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
+            MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
             MenuAction::Store(action) => {
                 if action == crate::store::StoreAction::Open {
                     self.enter(MenuScreen::Store);
@@ -706,6 +778,7 @@ impl MenuRuntime {
                 }
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
+            MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
         }
     }
 
@@ -822,14 +895,22 @@ pub(crate) fn drive_menu_services(
     mut commands: Commands,
     mut menu: ResMut<MenuRuntime>,
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
-    client_world: Res<ClientWorld>,
+    mut client_world: ResMut<ClientWorld>,
     mut runtime: ResMut<UiRuntime>,
     launcher: Option<ResMut<LauncherCoreSlot>>,
     launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
     mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
     settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
+    mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,
+    network: Option<Res<crate::runtime::network::NetworkHandle>>,
 ) {
+    menu.poll_dressing_room(
+        local_skin.as_deref_mut(),
+        &mut client_world,
+        network.as_deref(),
+        runtime.session_id(),
+    );
     menu.poll_catalog(launcher_account.is_some());
     menu.poll_saves();
     menu.poll_accounts();
@@ -855,11 +936,15 @@ pub(crate) fn drive_menu_services(
         );
     }
     if std::mem::take(&mut menu.accounts.skip_control) {
+        menu.forget_launcher_trust();
         return;
     }
     match launcher_account {
         Some(mut account) => menu.sync_account_control(&mut *account),
-        None => menu.sign_out_locally(),
+        None => {
+            menu.forget_launcher_trust();
+            menu.sign_out_locally();
+        }
     }
     if let Some(worlds) = local_worlds.as_deref_mut() {
         menu.sync_local_worlds(worlds, in_session);

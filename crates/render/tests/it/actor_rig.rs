@@ -6,6 +6,7 @@ use render::{
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, MAX_ACTOR_BONE_ARENA_BYTES,
     MAX_ACTOR_RENDER_INSTANCES, pack_overlay_rgba8,
 };
+use render_api::SkinRgba8;
 use render_model::{
     ActorRigGeometry, EntityRigId, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS,
     RenderBoneTransform, STANDARD_SKIN_BYTES,
@@ -51,6 +52,7 @@ fn geometry() -> ActorRigGeometry {
 
 fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
     ActorRigSubmission {
+        material: Default::default(),
         input: input(runtime_id, spawn_revision, 2),
         world_from_actor: [
             [1.0, 0.0, 0.0, 0.0],
@@ -88,6 +90,14 @@ fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
         MAX_ACTOR_BONE_ARENA_BYTES,
         MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * 48
     );
+}
+
+#[test]
+fn rig_catalog_rejects_unknown_surface_contract_words() {
+    let mut cube = geometry();
+    Arc::make_mut(&mut cube.vertices)[0].surface =
+        bytemuck::pod_read_unaligned(&2_u32.to_le_bytes());
+    assert!(ActorRigGeometry::new(cube.id, cube.vertices, cube.bone_pivots).is_err());
 }
 
 #[test]
@@ -313,12 +323,13 @@ fn skin_layer_outside_the_bounded_texture_array_rejects_only_that_actor() {
         0.5,
         None,
         [actor, diagnostic_submission(2, 1)],
-        Arc::clone(&pixels),
+        &[SkinRgba8::from(Arc::clone(&pixels))],
     );
 
     assert_eq!(frame.rig.instances.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 2);
-    assert!(Arc::ptr_eq(&frame.skins_rgba8, &pixels));
+    let drawn = frame.player_skin(frame.rig.instances[0].texture_layer);
+    assert!(Arc::ptr_eq(drawn.unwrap().pixels(), &pixels));
     assert_eq!(frame.rig.rejects.invalid_geometry, 1);
 }
 
@@ -330,17 +341,18 @@ fn multiple_drawable_actors_can_share_one_validated_skin_layer() {
         0.5,
         None,
         [diagnostic_submission(1, 1), diagnostic_submission(2, 1)],
-        Arc::from(vec![255_u8; STANDARD_SKIN_BYTES]),
+        &[SkinRgba8::from(vec![255_u8; STANDARD_SKIN_BYTES])],
     );
 
     assert_eq!(frame.rig.instances.len(), 2);
-    assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    let layer = frame.rig.instances[0].texture_layer;
+    assert!(frame.player_skin(layer).is_some());
     assert!(
         frame
             .rig
             .instances
             .iter()
-            .all(|actor| actor.texture_layer == 0)
+            .all(|actor| actor.texture_layer == layer)
     );
 }
 
@@ -444,13 +456,17 @@ fn review_render_invalid_skin_layer_skips_only_its_actor() {
         0.5,
         None,
         [valid, invalid],
-        vec![255; STANDARD_SKIN_BYTES].into(),
+        &[SkinRgba8::from(vec![255; STANDARD_SKIN_BYTES])],
     );
     assert_eq!(frame.rig.manifest.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 1);
     assert_eq!(frame.rig.rejects.invalid_geometry, 1);
     assert_eq!(frame.rig.instances.len(), 1);
-    assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    assert!(
+        frame
+            .player_skin(frame.rig.instances[0].texture_layer)
+            .is_some()
+    );
 }
 
 #[test]
@@ -489,13 +505,19 @@ fn rig_skin_revision_tracks_pixels_across_shared_and_independent_payloads() {
             0.0,
             None,
             [diagnostic_submission(1, 1)],
-            Arc::clone(&pixels),
+            &[SkinRgba8::from(Arc::clone(&pixels))],
         )
         .skin_revision;
     for next in [Arc::clone(&pixels), Arc::from(pixels.to_vec())] {
-        let frame = scene.update_rigs(0.0, None, [diagnostic_submission(1, 1)], next);
+        let frame = scene.update_rigs(
+            0.0,
+            None,
+            [diagnostic_submission(1, 1)],
+            &[SkinRgba8::from(next)],
+        );
         assert_eq!(frame.skin_revision, revision);
-        assert!(Arc::ptr_eq(&frame.skins_rgba8, &pixels));
+        let drawn = frame.player_skin(frame.rig.instances[0].texture_layer);
+        assert!(Arc::ptr_eq(drawn.unwrap().pixels(), &pixels));
     }
     let mut changed = pixels.to_vec();
     *changed.last_mut().unwrap() = 8;
@@ -504,8 +526,9 @@ fn rig_skin_revision_tracks_pixels_across_shared_and_independent_payloads() {
         0.0,
         None,
         [diagnostic_submission(1, 1)],
-        Arc::clone(&changed),
+        &[SkinRgba8::from(Arc::clone(&changed))],
     );
     assert_eq!(frame.skin_revision, revision.wrapping_add(1));
-    assert!(Arc::ptr_eq(&frame.skins_rgba8, &changed));
+    let drawn = frame.player_skin(frame.rig.instances[0].texture_layer);
+    assert!(Arc::ptr_eq(drawn.unwrap().pixels(), &changed));
 }

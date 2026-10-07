@@ -66,16 +66,7 @@ fn chunk_grid_retention_follows_player_and_ignores_publisher() {
 
     // Moving the local player recenters the grid on its chunk (20, 0). `near`
     // leaves the grid; `slack_edge` survives at exactly Chebyshev radius + 2.
-    stream
-        .submit(
-            3,
-            WorldEvent::MovePlayer(MovePlayerEvent {
-                runtime_id: 1,
-                position: [325.0, 70.0, 0.5],
-                ..Default::default()
-            }),
-        )
-        .unwrap();
+    assert!(stream.retain_local([325.0, 70.0, 0.5]));
     assert!(!stream.tracked_columns().contains(&near));
     assert!(stream.tracked_columns().contains(&slack_edge));
 }
@@ -104,49 +95,6 @@ fn shrinking_confirmed_radius_evicts_columns_that_leave_the_grid() {
     stream.submit(2, WorldEvent::ChunkRadiusUpdated(2)).unwrap();
     assert!(stream.tracked_columns().contains(&inner));
     assert!(!stream.tracked_columns().contains(&outer));
-}
-
-/// Cost of one full-world cohort witness at radius 16; ordinary frames no longer pay it.
-/// Run: `cargo test -p client-world --lib cohort_status_cost -- --ignored --nocapture`.
-#[test]
-#[ignore = "benchmark"]
-fn cohort_status_cost_at_radius_16() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.5, 70.0, 0.5],
-        world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    stream
-        .submit(
-            1,
-            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
-                center: [0, 70, 0],
-                radius_blocks: 256,
-            }),
-        )
-        .unwrap();
-    for x in -16..=16 {
-        for z in -16..=16 {
-            stream.loaded_columns.insert(ChunkKey::new(0, x, z));
-            for y in -4..20 {
-                stream.resident.insert(SubChunkKey::new(0, x, y, z));
-            }
-        }
-    }
-    let target = stream.committed_view_cohort().unwrap();
-    let frames = 200;
-    let started = Instant::now();
-    for _ in 0..frames {
-        std::hint::black_box(stream.cohort_status(target));
-    }
-    eprintln!(
-        "FRAME_COST cohort_status_radius_16: old={:.3}ms new=0.000ms (gated to acceptance/metrics runs)",
-        started.elapsed().as_secs_f64() * 1e3 / f64::from(frames)
-    );
 }
 
 /// A stationary dirty storm must not grow the mesh scan history without bound.

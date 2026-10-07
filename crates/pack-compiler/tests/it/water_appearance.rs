@@ -1,4 +1,4 @@
-//! WaterRenderAttributes retains its alpha when a biome only replaces RGB.
+//! Water render attributes retain their alpha when a biome only replaces RGB.
 use std::{fs, path::Path};
 
 use assets::{BiomeRegistryRecord, TINT_MAP_SIZE, TintMapId};
@@ -31,7 +31,7 @@ fn fixture(root: &Path, appearance: &str) {
 
 #[test]
 fn missing_water_opacity_keeps_native_alpha_not_opaque() {
-    // Current getWaterColor reads the default RGBA.
+    // Vanilla water colour reads the default RGBA.
     // Frozen river authors only RGB, exactly as in the reported ocean scene.
     for (appearance, expected) in [
         ("{}", 166.0 / 255.0),

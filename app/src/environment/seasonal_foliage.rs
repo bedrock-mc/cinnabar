@@ -5,7 +5,7 @@ use render::ChunkBiomeTints;
 
 use crate::runtime::world::ClientWorld;
 
-/// Bounded per-frame Weather::tick samples, previous/current rain in native order.
+/// Bounded per-frame weather tick samples, previous/current rain in vanilla order.
 #[derive(Debug, Default, Resource)]
 pub(crate) struct WeatherTickFrame {
     pub(super) rain: Vec<[f32; 2]>,

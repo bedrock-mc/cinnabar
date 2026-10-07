@@ -435,6 +435,26 @@ fn identity_transform() -> ItemDisplayTransform {
     ItemDisplayTransform::identity()
 }
 
+#[test]
+fn render_light_multiplier_preserves_legacy_carriers_and_validates_expression_indices() {
+    let mut compiled = carrier_v4_fixture();
+    let layer = compiled.render.layers[0];
+    let legacy = serde_json::to_value(layer).unwrap();
+    assert!(legacy.get("light_color_multiplier").is_none());
+    let restored: entity::EntityRenderLayer = serde_json::from_value(legacy).unwrap();
+    assert_eq!(restored.light_color_multiplier, None);
+    compiled.render.layers[0].light_color_multiplier = Some(0);
+    let encoded = encode_entity_blob(&compiled).unwrap();
+    let decoded = RuntimeEntityAssetsV4::decode(&encoded).unwrap();
+    assert_eq!(
+        decoded.render_data().layers[0].light_color_multiplier,
+        Some(0)
+    );
+    compiled.render.layers[0].light_color_multiplier =
+        Some(compiled.molang_expressions.len() as u32);
+    assert!(encode_entity_blob(&compiled).is_err());
+}
+
 pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
     let sources = [
         ("animation_controllers/allay.controller.json", 0x10),
@@ -598,6 +618,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             transition_count: 1,
             on_entry: Some(0),
             on_exit: None,
+            ..Default::default()
         }]
         .into_boxed_slice(),
         controller_animations: vec![EntityControllerAnimation {
@@ -669,6 +690,9 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         .into_boxed_slice(),
         render: entity::EntityRenderData {
             layers: Box::new([entity::EntityRenderLayer {
+                material: Default::default(),
+                material_state: None,
+                hurt_color: None,
                 rig: 0,
                 condition: None,
                 first_slot: 0,
@@ -682,6 +706,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 first_geometry: 0,
                 geometry_count: 0,
                 ignore_lighting: false,
+                light_color_multiplier: None,
             }]),
             slots: Box::new([entity::EntityRenderSlot {
                 first_candidate: 0,
@@ -1156,4 +1181,14 @@ fn admitted_geometry_parents_are_shared_and_match_the_decoded_catalog() {
         cloned.geometry_parents(),
         admitted.geometry_parents()
     ));
+}
+
+/// A compiled catalog and a decode of its carrier must be indistinguishable, identity included.
+#[test]
+fn encoded_admission_reports_the_identity_of_its_carrier() {
+    let (admitted, blob) =
+        RuntimeEntityAssets::from_compiled_encoded(inherited_geometry_fixture()).unwrap();
+    let decoded = RuntimeEntityAssets::decode(&blob.unwrap()).unwrap();
+    assert!(admitted.carrier_identity().is_some());
+    assert_eq!(format!("{admitted:?}"), format!("{decoded:?}"));
 }

@@ -1,18 +1,18 @@
 //! What each item does on an air use beyond the click-air transaction every item sends.
 
-/// `BowItem`/`TridentItem::getMaxUseDuration`.
+/// Bow and trident maximum use duration.
 const LONG_USE_TICKS: u32 = 72_000;
 const SPYGLASS_USE_TICKS: u32 = 1_200;
-/// `CrossbowItem::getMaxUseDuration`: 25 ticks less 5 per Quick Charge level.
+/// Crossbow charge: 25 ticks less 5 per Quick Charge level.
 const CROSSBOW_CHARGE_TICKS: u32 = 25;
 const QUICK_CHARGE_TICKS_PER_LEVEL: u32 = 5;
-/// Drink duration of `PotionItem` (and `OminousBottleItem`) and the milk `BucketItem`.
+/// Drink duration of potions, ominous bottles and milk buckets.
 const DRINK_TICKS: u32 = 32;
-/// `ItemUseSlowdownSystemImpl`'s factor for a use without `minecraft:use_modifiers`.
+/// Vanilla's movement factor for a use without `minecraft:use_modifiers`.
 const DEFAULT_USE_SLOWDOWN: f64 = 0.35;
 /// The vanilla spears' `use_modifiers.movement_modifier`.
 const SPEAR_USE_SLOWDOWN: f64 = 1.0;
-/// `EnderpearlItem::getCooldownDuration`.
+/// Ender pearl cooldown.
 const ENDER_PEARL_COOLDOWN: Cooldown = Cooldown {
     category: "ender_pearl",
     ticks: 20,
@@ -50,11 +50,11 @@ pub enum Needs {
     Arrow,
     /// Arrows anywhere, or a firework rocket in the offhand.
     ArrowOrOffhandRocket,
-    /// Food points below full, as `FoodItemComponent::use` requires.
+    /// Food points below full, as vanilla food requires.
     Appetite,
 }
 
-/// A use's shared cooldown, as `Player::startItemCooldown` records it.
+/// A use's shared cooldown category and length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cooldown {
     pub category: &'static str,
@@ -105,7 +105,7 @@ impl AirUse {
     }
 }
 
-/// Whether a vanilla hold use is eaten or drunk (`UseAnimation::Eat`/`Drink`), which the
+/// Whether a vanilla hold use is eaten or drunk (eat/drink use animation), which the
 /// first-person pass raises to the mouth.
 pub fn is_consumed(identifier: &str) -> bool {
     identifier.strip_prefix("minecraft:").is_some_and(|name| {

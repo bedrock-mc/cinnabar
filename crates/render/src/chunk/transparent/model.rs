@@ -1,7 +1,8 @@
+use super::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};
 use crate::chunk::*;
 
 mod orders;
-pub(in crate::chunk) use orders::{TransparentModelDrawOrders, camera_position_bits};
+pub(in crate::chunk) use orders::TransparentModelDrawOrders;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::chunk) struct TransparentModelAllocationIdentity {
@@ -22,7 +23,7 @@ pub(in crate::chunk) struct TransparentModelAddressIdentity {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::chunk) struct TransparentModelSortKey {
     pub(in crate::chunk) view_entity: Entity,
-    pub(in crate::chunk) camera_position_bits: [u32; 3],
+    pub(in crate::chunk) order_camera: FaceOrderCamera,
     pub(in crate::chunk) address: TransparentModelAddressIdentity,
 }
 
@@ -47,12 +48,14 @@ pub(in crate::chunk) struct TransparentModelSortWork {
     pub(in crate::chunk) generation: ViewSortGeneration,
     pub(in crate::chunk) key: TransparentModelSortKey,
     pub(in crate::chunk) camera_position: Vec3,
+    /// Every group of `key`; narrowed to the stale ones only when the job starts.
     pub(in crate::chunk) candidates: Arc<[TransparentModelSortCandidate]>,
 }
 
 #[derive(Debug, Clone)]
 pub(in crate::chunk) struct TransparentModelSortBatch {
     pub(in crate::chunk) draw_range: Range<u32>,
+    pub(in crate::chunk) class: FaceOrderClass,
     pub(in crate::chunk) words: Box<[[u32; 2]]>,
 }
 
@@ -144,6 +147,8 @@ impl Default for TransparentSortRuntime {
             committed_distinct_tint_count: 0,
             last_indirect_identity: None,
             candidate_cache: None,
+            group_inputs: HashMap::new(),
+            group_orders: HashMap::new(),
         }
     }
 }
@@ -186,29 +191,71 @@ impl TransparentSortRuntime {
             && !self.gate.contains_generation(generation)
     }
 
+    /// Reuses each visible group's input unless its allocation or tint table changed.
     pub(in crate::chunk) fn resolve_candidate_cache(
         &mut self,
         key: &ViewSortKey,
-        build: impl FnOnce() -> Result<(Vec<TransparentSortCandidate>, usize), TransparentSortError>,
-    ) -> Result<(Arc<[TransparentSortCandidate]>, usize), TransparentSortError> {
+        mut build: impl FnMut(
+            &TransparentAllocationIdentity,
+        ) -> Result<TransparentGroupInput, TransparentSortError>,
+    ) -> Result<(TransparentGroups, usize), TransparentSortError> {
         let address_identity = key.address_identity();
         if let Some(cache) = self
             .candidate_cache
             .as_ref()
             .filter(|cache| cache.address_identity == address_identity)
         {
-            return Ok((Arc::clone(&cache.candidates), cache.distinct_tint_count));
+            return Ok((Arc::clone(&cache.groups), cache.distinct_tint_count));
         }
         self.candidate_cache = None;
-        let (candidates, distinct_tint_count) = build()?;
-        validate_transparent_sort_ref_count(candidates.len())?;
-        let candidates = Arc::<[TransparentSortCandidate]>::from(candidates);
+        let mut total = 0_usize;
+        let groups = key
+            .visible_allocations
+            .iter()
+            .map(|identity| {
+                let group = match self.group_inputs.get(&identity.key).filter(|group| {
+                    &group.identity == identity && group.tint_identity == key.tint_identity
+                }) {
+                    Some(group) => Arc::clone(group),
+                    None => {
+                        let group = Arc::new(build(identity)?);
+                        self.group_inputs.insert(identity.key, Arc::clone(&group));
+                        group
+                    }
+                };
+                total = total.saturating_add(group.centroids.len());
+                Ok(group)
+            })
+            .collect::<Result<Vec<_>, TransparentSortError>>()?;
+        validate_transparent_sort_ref_count(total)?;
+        // Keep groups that briefly leave the view, but never more than a bounded multiple.
+        let retained = groups.len().saturating_mul(2).saturating_add(64);
+        if self.group_inputs.len() > retained || self.group_orders.len() > retained {
+            let live = groups
+                .iter()
+                .map(|group| group.identity.key)
+                .collect::<HashSet<_>>();
+            self.group_inputs.retain(|key, _| live.contains(key));
+            self.group_orders.retain(|key, _| live.contains(key));
+        }
+        let groups = Arc::<[Arc<TransparentGroupInput>]>::from(groups);
+        let distinct_tint_count = distinct_tint_count(&groups);
         self.candidate_cache = Some(TransparentCandidateCache {
             address_identity,
-            candidates: Arc::clone(&candidates),
+            groups: Arc::clone(&groups),
             distinct_tint_count,
         });
-        Ok((candidates, distinct_tint_count))
+        Ok((groups, distinct_tint_count))
+    }
+
+    pub(in crate::chunk) fn cached_group_orders(
+        &self,
+        groups: &[Arc<TransparentGroupInput>],
+    ) -> Vec<Option<TransparentGroupOrder>> {
+        groups
+            .iter()
+            .map(|group| self.group_orders.get(&group.identity.key).cloned())
+            .collect()
     }
 }
 
@@ -244,28 +291,6 @@ pub(in crate::chunk) fn fail_closed_transparent_sort_key_error(
         }
         TransparentSortError::ReferenceCeiling { .. } => {}
     }
-}
-
-pub(in crate::chunk) fn spawn_transparent_sort(
-    sender: SyncSender<TransparentWorkerResult>,
-    work: TransparentSortWork,
-    profiler: Option<RuntimeStageProfiler>,
-) {
-    rayon::spawn(move || {
-        let _timer = profiler
-            .as_ref()
-            .map(|profiler| profiler.time(RuntimeStage::TransparentWorker));
-        let started = Instant::now();
-        let refs = sort_transparent_candidates(work.view_from_world, work.candidates);
-        let _ = sender.try_send(TransparentWorkerResult {
-            generation: work.generation,
-            requested_at: work.requested_at,
-            key: work.key,
-            refs: Ok(refs),
-            cpu_duration: started.elapsed(),
-            distinct_tint_count: work.distinct_tint_count,
-        });
-    });
 }
 
 pub(in crate::chunk) fn transparent_model_subchunk_center(key: SubChunkKey) -> Vec3 {
@@ -330,7 +355,7 @@ pub(in crate::chunk) fn sort_transparent_model_candidates(
     camera_position: Vec3,
     candidates: Arc<[TransparentModelSortCandidate]>,
 ) -> Vec<TransparentModelSortBatch> {
-    let metric = super::face_metric::TransparentFaceMetric::new(camera_position);
+    let metric = TransparentFaceMetric::new(camera_position);
     let mut groups =
         HashMap::<Entity, (SubChunkKey, Range<u32>, Vec<TransparentModelSortCandidate>)>::new();
     for candidate in candidates.iter().cloned() {
@@ -344,6 +369,7 @@ pub(in crate::chunk) fn sort_transparent_model_candidates(
     groups
         .into_iter()
         .map(|(key, draw_range, mut candidates)| {
+            let class = metric.class(key);
             let metric = metric.for_chunk(key);
             candidates.sort_by(|left, right| {
                 metric
@@ -353,6 +379,7 @@ pub(in crate::chunk) fn sort_transparent_model_candidates(
             });
             TransparentModelSortBatch {
                 draw_range,
+                class,
                 words: candidates
                     .into_iter()
                     .map(|candidate| candidate.words)
@@ -381,6 +408,54 @@ pub(in crate::chunk) fn take_transparent_model_upload_batches(
         );
     }
     selected
+}
+
+/// Model entities in `key` whose order, once `pending` batches land, is not sorted for it.
+fn stale_model_entities(
+    orders: &TransparentModelDrawOrders,
+    pending: Option<&TransparentModelStagedSort>,
+    key: &TransparentModelSortKey,
+) -> HashSet<Entity> {
+    let pending = pending.filter(|staged| staged.key.address == key.address);
+    key.address
+        .allocations
+        .iter()
+        .filter(|identity| {
+            if identity.draw_range.is_empty() {
+                return false;
+            }
+            let pending = pending.and_then(|staged| {
+                staged
+                    .batches
+                    .iter()
+                    .find(|batch| batch.draw_range == identity.draw_range)
+            });
+            let class = pending.map_or_else(|| orders.class(identity), |batch| Some(batch.class));
+            class != Some(key.order_camera.class(identity.key))
+        })
+        .map(|identity| identity.entity)
+        .collect()
+}
+
+/// Sorts only the groups that are stale against the latest uploaded and pending orders.
+fn start_transparent_model_sort(
+    runtime: &TransparentModelSortRuntime,
+    mut work: TransparentModelSortWork,
+) {
+    let stale = stale_model_entities(&runtime.draw_orders, runtime.staged.as_ref(), &work.key);
+    if work
+        .candidates
+        .iter()
+        .any(|candidate| !stale.contains(&candidate.entity))
+    {
+        work.candidates = work
+            .candidates
+            .iter()
+            .filter(|candidate| stale.contains(&candidate.entity))
+            .cloned()
+            .collect();
+    }
+    spawn_transparent_model_sort(runtime.result_sender.clone(), work);
 }
 
 pub(in crate::chunk) fn spawn_transparent_model_sort(
@@ -421,9 +496,9 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         return;
     };
     let position = view.world_from_view.translation();
-    let Some(camera_position_bits) = orders::camera_position_bits(position) else {
+    if !position.is_finite() {
         return;
-    };
+    }
     let mut identities = Vec::new();
     let mut total_refs = 0_usize;
     for &(entity, _) in visible_entities.get::<ChunkRenderInstance>() {
@@ -472,9 +547,10 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         asset_identity: texture_assets.identity(),
         allocations: Arc::from(identities),
     };
+    let metric = TransparentFaceMetric::new(position);
     let key = TransparentModelSortKey {
         view_entity,
-        camera_position_bits,
+        order_camera: metric.order_camera(address.allocations.iter().map(|identity| identity.key)),
         address: address.clone(),
     };
 
@@ -496,13 +572,21 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
     if let Some(result) = completed {
         let next = runtime.gate.complete(result.generation);
         if result.key.view_entity == key.view_entity && result.key.address == key.address {
+            // An unchanged order needs only its new class, never a GPU write or new revision.
+            let mut batches = result.batches;
+            batches.retain(|batch| {
+                !runtime
+                    .draw_orders
+                    .reclassify_unchanged(&result.key.address, batch)
+            });
             runtime.staged = Some(TransparentModelStagedSort {
                 key: result.key,
-                batches: result.batches.into(),
+                batches: batches.into(),
             });
         }
+        // A queued job omits only groups that stay sorted for it once this result lands.
         if let Some((_generation, work)) = next {
-            spawn_transparent_model_sort(runtime.result_sender.clone(), work);
+            start_transparent_model_sort(&runtime, work);
         }
     }
     if let Some(mut staged) = runtime.staged.take() {
@@ -516,6 +600,9 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
             );
             return;
         }
+        if !batches.is_empty() {
+            runtime.committed = None;
+        }
         for batch in batches {
             write_geometry_stream_words(
                 &arena,
@@ -525,10 +612,17 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
             );
             runtime.draw_orders.publish(&staged.key.address, batch);
         }
-        if staged.batches.is_empty() {
-            runtime.committed = Some(staged.key);
-        } else {
+        if !staged.batches.is_empty() {
             runtime.staged = Some(staged);
+        } else if stale_model_entities(&runtime.draw_orders, None, &staged.key).is_empty() {
+            runtime.committed = Some(staged.key);
+        } else if runtime
+            .requested
+            .as_ref()
+            .is_some_and(|(_, requested)| requested == &staged.key)
+        {
+            // An overlapping result replaced groups this one omitted; schedule them again.
+            runtime.requested = None;
         }
     }
     if runtime.committed.as_ref() == Some(&key)
@@ -552,6 +646,11 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         return;
     }
 
+    if stale_model_entities(&runtime.draw_orders, None, &key).is_empty() {
+        runtime.requested = None;
+        runtime.committed = Some(key);
+        return;
+    }
     let candidates = if runtime
         .candidate_cache
         .as_ref()
@@ -622,6 +721,6 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
     };
     let (start, _) = runtime.gate.submit_with_replacement(generation, work);
     if let Some((_generation, work)) = start {
-        spawn_transparent_model_sort(runtime.result_sender.clone(), work);
+        start_transparent_model_sort(&runtime, work);
     }
 }

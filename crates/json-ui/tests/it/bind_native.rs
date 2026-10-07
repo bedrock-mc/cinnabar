@@ -1,5 +1,5 @@
 //! Bound `#targets` reaching the components they drive, through the client's
-//! typed readers (`_getDesiredValue`), one case per post-binding target.
+//! typed readers, one case per post-binding target.
 
 use std::collections::BTreeMap;
 
@@ -167,7 +167,7 @@ fn layout_targets() {
         .get("maximum_grid_items"),
         Some(&json!(1))
     );
-    // jsoncpp's `isInt` takes an integral real, as a controller count is.
+    // An integral real reads as an int, as a controller count is.
     assert_eq!(
         bound(
             "grid",

@@ -17,6 +17,9 @@ sends the client's stderr to `logs/client.log`, rotated to `client.log.1` per la
 | Windows setup EXE + MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
 
+All release targets build the client with `bedrock-client/local-mods`, enabling the local module
+loader used by companion apps such as Cinnaroids.
+
 Installers also ship the bundled Cinnangles Sans font at `<resources>/fonts/`, so first-run setup can
 draw before any download.
 
@@ -85,14 +88,17 @@ Linux users can install the latest stable release without root:
 
 ```sh
 curl -fsSL https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | sh
+# or, without curl:
+wget -qO- https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | sh
 ```
 
 The installer resolves a concrete release tag, verifies the AppImage against its release checksum,
 and adds a launcher, icon and application-menu entry. It uses the user's XDG data directory and
 `~/.local/bin` by default; `CINNABAR_BIN_DIR` overrides the launcher directory. Failed downloads,
-verification or extraction preserve the current installation. The launcher defaults to running
-without FUSE. Pass `--channel nightly` or `--version TAG` when invoking the script directly to test
-a particular release; these are explicit opt-ins to builds outside the stable channel.
+verification or extraction preserve the current installation. The AppImage is unpacked once, without
+FUSE or `/tmp`, into `<data>/cinnabar/app/<tag>-<digest>`; `app/current` names the build the
+launcher runs and `app/previous` the one it replaced; each install keeps only those two. Pass
+`--channel nightly` or `--version TAG` when invoking the script directly to test a particular release; these are explicit opt-ins to builds outside the stable channel.
 
 Windows users download the self-contained setup EXE. macOS users choose the native Apple silicon
 or Intel DMG. The website is deployed separately and links directly to GitHub's latest release.

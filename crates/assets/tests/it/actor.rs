@@ -190,7 +190,11 @@ fn entities() -> Box<[u8]> {
 fn empty_generic_catalog_is_explicit_and_bound_to_exact_parent_carrier() {
     let entities = entities();
     let bytes = encode_actor_catalog(&entities, &[], &[]).unwrap();
-    let runtime = RuntimeActorCatalog::decode(&bytes, &entities).unwrap();
+    let runtime = RuntimeActorCatalog::decode(
+        &bytes,
+        &assets::RuntimeEntityAssets::decode(&entities).unwrap(),
+    )
+    .unwrap();
     assert!(runtime.bindings().is_empty());
     assert!(runtime.textures().is_empty());
     assert_eq!(
@@ -204,6 +208,7 @@ fn empty_generic_catalog_is_explicit_and_bound_to_exact_parent_carrier() {
 fn malformed_rehashed_headers_cannot_bypass_carrier_policy_or_limits() {
     let entities = entities();
     let bytes = encode_actor_catalog(&entities, &[], &[]).unwrap();
+    let entities = assets::RuntimeEntityAssets::decode(&entities).unwrap();
     let mut old = bytes.clone();
     old[..8].copy_from_slice(b"MCBEACT1");
     old[8..12].copy_from_slice(&1u32.to_le_bytes());

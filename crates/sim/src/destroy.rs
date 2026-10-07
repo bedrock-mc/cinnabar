@@ -124,7 +124,7 @@ pub struct BlockDestroyInfo {
     sword_speed: Option<f32>,
 }
 
-/// `WeaponItem::getDestroySpeed` gives bamboo the harvest divisor as its speed,
+/// Vanilla swords give bamboo the harvest divisor as their destroy speed,
 /// so a sword clears one bamboo per tick.
 const SWORD_BAMBOO_SPEED: f32 = 30.0;
 

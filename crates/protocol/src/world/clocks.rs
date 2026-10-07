@@ -1,15 +1,13 @@
 use valentine::bedrock::version::v1_26_51::SyncWorldClocksPacketData;
 
-/// The vanilla clock consumed by Level::getTime and the atmosphere renderer.
+/// The vanilla clock behind the level time and the atmosphere renderer.
 ///
-/// The vanilla initializer constructs this exact
-/// name; Level::getTime uses the resulting hashed string.
+/// Vanilla constructs this exact name; the level time uses its hashed string.
 pub const OVERWORLD_CLOCK_NAME: &str = "minecraft:overworld";
 
-/// Native HashedString key for the built-in daylight clock. The current
-/// initializer assigns this key alongside OVERWORLD_CLOCK_NAME;
-/// registerWorldClock pre-registers it and Level::getTime's
-/// lookup searches that ID directly, not packet string names.
+/// Vanilla's hashed key for the built-in daylight clock, assigned alongside
+/// OVERWORLD_CLOCK_NAME. It is pre-registered, and the level-time lookup
+/// searches that ID directly, not packet string names.
 pub const OVERWORLD_CLOCK_ID: u64 = 0x63d7_ede7_3c38_f916;
 
 /// One server-authored clock registration. Preserve the transmitted ID;
@@ -31,7 +29,7 @@ pub struct WorldClockState {
 
 /// The SyncWorldClocks payloads used by the client clock consumer.
 ///
-/// Native RegistryClient initialization upserts registrations; it does not
+/// Vanilla clock initialization upserts registrations; it does not
 /// clear clocks omitted by a later initialization payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldClockUpdateEvent {

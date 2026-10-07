@@ -90,6 +90,22 @@ pub struct FormEngineState {
 }
 
 impl FormEngineState {
+    /// Drops transient input without changing the retained form or its draft.
+    pub fn cancel_pointer_input(&mut self) {
+        self.view.hovered = None;
+        self.view.pressed = None;
+        self.view.pointer = None;
+        self.drag = None;
+        self.scroll_touch = None;
+        self.scroll_clock = None;
+        for scroll in self.view.scroll_state.values_mut() {
+            scroll.motion = None;
+        }
+        // The dispatcher also retains slider tracks, gestures and button edges.
+        // Reset them without dispatching a release that could submit the form.
+        self.dispatcher = json_ui::Dispatcher::default();
+    }
+
     pub fn for_model(model: &ServerFormModel) -> Self {
         let values = match model {
             ServerFormModel::Custom(form) => form.elements.iter().map(initial_value).collect(),
@@ -169,5 +185,33 @@ mod tests {
                 CustomFormValue::Input("hi".into())
             ]
         );
+    }
+
+    #[test]
+    fn pointer_cancellation_preserves_form_values_focus_and_scroll_position() {
+        let mut state = FormEngineState {
+            values: vec![FormValue::Text("unsent draft".into())],
+            open_dropdown: Some(0),
+            ..Default::default()
+        };
+        state.view.focused = Some("editor".into());
+        state.view.hovered = Some("slider".into());
+        state.view.pressed = Some("slider".into());
+        state.view.pointer = Some([12.0, 13.0]);
+        state.view.scroll.insert("list".into(), 25.0);
+        state.drag = Some(FormDrag::Control {
+            key: "slider".into(),
+            last: [12.0, 13.0],
+        });
+        state.scroll_touch = Some(("list".into(), [12.0, 13.0]));
+        state.cancel_pointer_input();
+        assert_eq!(state.values, vec![FormValue::Text("unsent draft".into())]);
+        assert_eq!(state.open_dropdown, Some(0));
+        assert_eq!(state.view.focused.as_deref(), Some("editor"));
+        assert_eq!(state.view.scroll.get("list"), Some(&25.0));
+        assert!(state.drag.is_none() && state.scroll_touch.is_none());
+        assert!(state.view.pressed.is_none() && state.view.hovered.is_none());
+        assert!(state.view.pointer.is_none());
+        assert_eq!(state.dispatcher, json_ui::Dispatcher::default());
     }
 }

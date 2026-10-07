@@ -1,12 +1,15 @@
 use super::super::resource_sorts::ResourceView;
 use super::*;
-use crate::chunk::transparent::model::camera_position_bits;
+use crate::chunk::transparent::liquid::{
+    transparent_frame_draw_for_range, transparent_frame_draws,
+};
 use bevy::render::renderer::WgpuWrapper;
 
 /// A single transparent face exercises address preparation without external carriers.
 fn water(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {
     ChunkRenderInstance {
         light_emitters: Arc::from([]),
+        cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         origin: [0; 3],
         generation: 1,
@@ -149,7 +152,7 @@ fn review_render_stale_resource_geometry_preserves_active_arena() {
     .unwrap();
     candidate.models.committed = Some(TransparentModelSortKey {
         view_entity: view,
-        camera_position_bits: camera_position_bits(Vec3::ZERO).unwrap(),
+        order_camera: TransparentFaceMetric::new(Vec3::ZERO).order_camera([instance.key]),
         address: TransparentModelAddressIdentity {
             asset_identity: ChunkTextureAssets::default().identity(),
             allocations: Arc::from([TransparentModelAllocationIdentity {
@@ -247,7 +250,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     let device = RenderDevice::from(device);
     let mut app = App::new();
     let mut arena = ChunkGpuArena::new(&device);
-    arena.geometry_stream_buffer = create_storage_buffer(&device, "test model stream", 64);
+    arena.geometry_stream_buffer = create_storage_buffer(&device, "test model stream", 1024);
     app.insert_resource(arena)
         .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
         .init_resource::<ChunkTextureAssets>()
@@ -261,6 +264,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     instance.transparent_model_draw_refs = Arc::from([PackedModelDrawRef::new(0, 0)]);
     let entity = app.world_mut().spawn(instance.clone()).id();
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: instance.key,
         generation: instance.generation,
         tint_identity: instance.tint_identity,
@@ -315,7 +319,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
         .view_entity = Some(view);
     let key = TransparentModelSortKey {
         view_entity: view,
-        camera_position_bits: camera_position_bits(Vec3::ZERO).unwrap(),
+        order_camera: TransparentFaceMetric::new(Vec3::ZERO).order_camera([instance.key]),
         address: TransparentModelAddressIdentity {
             asset_identity: app.world().resource::<ChunkTextureAssets>().identity(),
             allocations: Arc::from([TransparentModelAllocationIdentity {
@@ -346,6 +350,7 @@ fn review_render_model_result_survives_camera_rotation() {
                 key: key.clone(),
                 batches: vec![TransparentModelSortBatch {
                     draw_range: 4..6,
+                    class: key.order_camera.class(key.address.allocations[0].key),
                     words: Box::new([[0, 0]]),
                 }],
             })
@@ -401,6 +406,7 @@ fn review_render_model_staged_upload_survives_camera_rotation() {
         key: key.clone(),
         batches: VecDeque::from([TransparentModelSortBatch {
             draw_range: 4..6,
+            class: key.order_camera.class(key.address.allocations[0].key),
             words: Box::new([[0, 0]]),
         }]),
     });
@@ -437,4 +443,364 @@ fn review_render_model_view_loss_clears_abandoned_request() {
             .requested
             .is_none()
     );
+}
+
+/// A far model order already uploaded for its class commits without a sort or upload.
+#[test]
+fn far_model_order_in_its_class_commits_without_a_sort_job() {
+    let (mut app, view, key) = model_sort_app();
+    let identity = key.address.allocations[0].clone();
+    let gpu = app
+        .world()
+        .get::<GpuChunkAllocation>(identity.entity)
+        .unwrap()
+        .clone();
+    app.world_mut()
+        .resource_mut::<ChunkGpuArena>()
+        .allocations
+        .insert(
+            identity.entity,
+            ArenaAllocation {
+                generation: gpu.generation,
+                tint_identity: gpu.tint_identity,
+                cube_range: None,
+                cube_lighting_range: None,
+                model_range: gpu.model_range.clone(),
+                model_lighting_range: gpu.model_lighting_range.clone(),
+                model_draw_range: None,
+                transparent_model_draw_range: gpu.transparent_model_draw_range.clone(),
+                liquid_range: None,
+                liquid_lighting_range: None,
+                quad_capacity: 0,
+                geometry_stream_range: Some(0..8),
+                geometry_stream_capacity: 8,
+                biome_range: 0..0,
+                biome_capacity: 0,
+                gpu,
+            },
+        );
+    let camera = Vec3::new(200.0, 0.0, 0.0);
+    app.world_mut()
+        .get_mut::<ExtractedView>(view)
+        .unwrap()
+        .world_from_view = GlobalTransform::from_translation(camera);
+    let class = TransparentFaceMetric::new(camera).class(identity.key);
+    app.world_mut()
+        .resource_mut::<TransparentModelSortRuntime>()
+        .draw_orders
+        .publish(
+            &key.address,
+            TransparentModelSortBatch {
+                draw_range: identity.draw_range.clone(),
+                class,
+                words: Box::new([[0, 0]]),
+            },
+        );
+    for step in 0..3 {
+        app.world_mut()
+            .get_mut::<ExtractedView>(view)
+            .unwrap()
+            .world_from_view =
+            GlobalTransform::from_translation(camera + Vec3::splat(step as f32 * 0.4));
+        app.world_mut()
+            .run_system_once(prepare_transparent_model_sorts)
+            .unwrap();
+        let runtime = app.world().resource::<TransparentModelSortRuntime>();
+        assert!(runtime.committed.is_some());
+        assert!(runtime.requested.is_none());
+        assert_eq!(runtime.next_generation, 0, "no sort job was submitted");
+    }
+}
+
+/// Resident transparent-model groups with `refs` draw refs each, all visible to one view.
+fn model_groups_app(
+    groups: &[(SubChunkKey, u32)],
+) -> (App, Entity, Vec<TransparentModelAllocationIdentity>) {
+    use bevy::render::sync_world::MainEntity;
+    let (mut app, view, _) = model_sort_app();
+    let mut identities = Vec::new();
+    let mut visible = Vec::new();
+    for (index, &(key, refs)) in groups.iter().enumerate() {
+        let base = index as u32 * 32;
+        let mut instance = water(ChunkBiomeTintIdentity::default());
+        instance.key = key;
+        instance.origin = chunk_origin(key);
+        instance.liquid_quads = Arc::from([]);
+        instance.liquid_lighting = Arc::from([]);
+        instance.has_transparent_liquid = false;
+        instance.model_refs = Arc::from([PackedModelRef::new(0, 0, 0, 1)]);
+        instance.model_lighting = Arc::from([PackedQuadLighting::new([0; 4])]);
+        instance.transparent_model_draw_refs = (0..refs)
+            .map(|quad| PackedModelDrawRef::new(0, quad))
+            .collect();
+        let identity_range = base + 4..base + 4 + 2 * refs;
+        let gpu = GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
+            key,
+            generation: instance.generation,
+            tint_identity: instance.tint_identity,
+            quad_range: 0..0,
+            cube_lighting_range: None,
+            model_range: Some(base..base + 4),
+            model_lighting_range: Some(base + 24..base + 26),
+            model_draw_range: None,
+            transparent_model_draw_range: Some(identity_range.clone()),
+            liquid_range: None,
+            liquid_lighting_range: None,
+            has_depth_liquid: false,
+            has_transparent_liquid: false,
+            depth_liquid_range: None,
+            metadata_index: index as u32,
+        };
+        let entity = app.world_mut().spawn((instance, gpu.clone())).id();
+        app.world_mut()
+            .resource_mut::<ChunkGpuArena>()
+            .allocations
+            .insert(
+                entity,
+                ArenaAllocation {
+                    generation: gpu.generation,
+                    tint_identity: gpu.tint_identity,
+                    cube_range: None,
+                    cube_lighting_range: None,
+                    model_range: gpu.model_range.clone(),
+                    model_lighting_range: gpu.model_lighting_range.clone(),
+                    model_draw_range: None,
+                    transparent_model_draw_range: Some(identity_range.clone()),
+                    liquid_range: None,
+                    liquid_lighting_range: None,
+                    quad_capacity: 0,
+                    geometry_stream_range: Some(base..base + 32),
+                    geometry_stream_capacity: 32,
+                    biome_range: 0..0,
+                    biome_capacity: 0,
+                    gpu,
+                },
+            );
+        visible.push((entity, MainEntity::from(entity)));
+        identities.push(TransparentModelAllocationIdentity {
+            entity,
+            key,
+            generation: 1,
+            model_range: base..base + 4,
+            draw_range: identity_range,
+        });
+    }
+    app.world_mut()
+        .get_mut::<RenderVisibleEntities>(view)
+        .unwrap()
+        .entities
+        .insert(std::any::TypeId::of::<ChunkRenderInstance>(), visible);
+    identities.sort_by_key(|identity| (identity.key, identity.draw_range.start));
+    (app, view, identities)
+}
+
+/// A queued model job that omitted a group must not commit after an older result re-sorts it.
+#[test]
+fn queued_model_job_revalidates_groups_an_in_flight_result_overwrites() {
+    let moved = SubChunkKey::new(0, 3, 0, 0);
+    let stale = SubChunkKey::new(0, -3, 0, 0);
+    let (mut app, view, identities) = model_groups_app(&[(moved, 2), (stale, 1)]);
+    let (camera_a, camera_b) = (Vec3::new(8.0, 8.0, 8.0), Vec3::new(90.0, 8.0, 8.0));
+    let address = TransparentModelAddressIdentity {
+        asset_identity: app.world().resource::<ChunkTextureAssets>().identity(),
+        allocations: identities.clone().into(),
+    };
+    let key = |camera: Vec3| TransparentModelSortKey {
+        view_entity: view,
+        order_camera: TransparentFaceMetric::new(camera).order_camera([moved, stale]),
+        address: address.clone(),
+    };
+    let class = |camera: Vec3| TransparentFaceMetric::new(camera).class(moved);
+    assert_ne!(class(camera_a), class(camera_b));
+    let moved_identity = identities
+        .iter()
+        .find(|identity| identity.key == moved)
+        .unwrap();
+    let candidates = identities
+        .iter()
+        .flat_map(|identity| {
+            let refs = (identity.draw_range.end - identity.draw_range.start) / 2;
+            (0..refs).map(move |quad| TransparentModelSortCandidate {
+                entity: identity.entity,
+                key: identity.key,
+                draw_range: identity.draw_range.clone(),
+                stable_index: quad,
+                centroid: Vec3::from_array(chunk_origin(identity.key).map(|value| value as f32))
+                    + Vec3::new(quad as f32 * 4.0 + 1.0, 1.0, 1.0),
+                words: [identity.model_range.start / 4, quad],
+            })
+        })
+        .collect::<Arc<[_]>>();
+    app.world_mut()
+        .get_mut::<ExtractedView>(view)
+        .unwrap()
+        .world_from_view = GlobalTransform::from_translation(camera_b);
+    {
+        let mut runtime = app
+            .world_mut()
+            .resource_mut::<TransparentModelSortRuntime>();
+        // B's order for the moved group is already uploaded, so B omitted it when queued.
+        runtime.draw_orders.publish(
+            &address,
+            TransparentModelSortBatch {
+                draw_range: moved_identity.draw_range.clone(),
+                class: class(camera_b),
+                words: Box::new([[0, 1], [0, 0]]),
+            },
+        );
+        runtime.candidate_cache = Some(TransparentModelCandidateCache {
+            address: address.clone(),
+            candidates: Arc::clone(&candidates),
+        });
+        let (a, b) = (ViewSortGeneration(1), ViewSortGeneration(2));
+        runtime.next_generation = 2;
+        runtime.gate.in_flight = Some(a);
+        runtime.gate.pending = Some((
+            b,
+            TransparentModelSortWork {
+                generation: b,
+                key: key(camera_b),
+                camera_position: camera_b,
+                candidates,
+            },
+        ));
+        runtime.requested = Some((b, key(camera_b)));
+        // A, sorted for the old camera, lands first and rewrites the moved group.
+        runtime
+            .result_sender
+            .send(TransparentModelWorkerResult {
+                generation: a,
+                key: key(camera_a),
+                batches: vec![TransparentModelSortBatch {
+                    draw_range: moved_identity.draw_range.clone(),
+                    class: class(camera_a),
+                    words: Box::new([[0, 0], [0, 1]]),
+                }],
+            })
+            .unwrap();
+    }
+    for _ in 0..4 {
+        app.world_mut()
+            .run_system_once(prepare_transparent_model_sorts)
+            .unwrap();
+        let runtime = app.world().resource::<TransparentModelSortRuntime>();
+        if runtime.committed.as_ref() == Some(&key(camera_b)) {
+            break;
+        }
+        // Hand the worker's result to the next frame, as a real frame interval would.
+        if runtime.gate.in_flight_generation().is_some() {
+            let result = runtime.result_receiver.lock().unwrap().recv().unwrap();
+            runtime.result_sender.send(result).unwrap();
+        }
+    }
+    let runtime = app.world().resource::<TransparentModelSortRuntime>();
+    assert_eq!(runtime.committed.as_ref(), Some(&key(camera_b)));
+    for identity in &identities {
+        assert_eq!(
+            runtime
+                .draw_orders
+                .get(identity)
+                .and_then(|order| order.class),
+            Some(TransparentFaceMetric::new(camera_b).class(identity.key)),
+            "{:?} is sorted for the current camera",
+            identity.key
+        );
+    }
+}
+
+/// Runs model-sort frames, handing each worker result to the next frame, until `key` commits.
+fn run_model_sorts_until_committed(app: &mut App, key: &TransparentModelSortKey) -> bool {
+    for _ in 0..6 {
+        app.world_mut()
+            .run_system_once(prepare_transparent_model_sorts)
+            .unwrap();
+        let runtime = app.world().resource::<TransparentModelSortRuntime>();
+        if runtime.committed.as_ref() == Some(key) {
+            return true;
+        }
+        if runtime.gate.in_flight_generation().is_some() {
+            let result = runtime.result_receiver.lock().unwrap().recv().unwrap();
+            runtime.result_sender.send(result).unwrap();
+        }
+    }
+    false
+}
+
+/// The witness ceiling limits CPU order copies, never which allocations re-sort.
+#[test]
+fn unwitnessed_model_order_resorts_when_its_class_changes() {
+    let group = SubChunkKey::new(0, 3, 0, 0);
+    let (mut app, view, identities) = model_groups_app(&[(group, 2)]);
+    let identity = identities[0].clone();
+    // A resident witness holding every allowed ref leaves no room for the group's copy.
+    let filler = TransparentModelAllocationIdentity {
+        entity: app.world_mut().spawn_empty().id(),
+        key: SubChunkKey::new(0, 40, 0, 0),
+        generation: 1,
+        model_range: 0..4,
+        draw_range: 0..2 * MAX_TRANSPARENT_DRAW_REFS as u32,
+    };
+    let mut filler_allocation =
+        app.world().resource::<ChunkGpuArena>().allocations[&identity.entity].clone();
+    filler_allocation.gpu.key = filler.key;
+    filler_allocation.gpu.model_range = Some(filler.model_range.clone());
+    filler_allocation.gpu.transparent_model_draw_range = Some(filler.draw_range.clone());
+    app.world_mut()
+        .resource_mut::<ChunkGpuArena>()
+        .allocations
+        .insert(filler.entity, filler_allocation);
+    let asset_identity = app.world().resource::<ChunkTextureAssets>().identity();
+    let address = TransparentModelAddressIdentity {
+        asset_identity,
+        allocations: Arc::from([identity.clone()]),
+    };
+    {
+        let mut runtime = app
+            .world_mut()
+            .resource_mut::<TransparentModelSortRuntime>();
+        runtime.draw_orders.publish(
+            &TransparentModelAddressIdentity {
+                asset_identity,
+                allocations: Arc::from([filler.clone()]),
+            },
+            TransparentModelSortBatch {
+                draw_range: filler.draw_range.clone(),
+                class: FaceOrderClass::Far([1, 0, 0]),
+                words: vec![[0, 0]; MAX_TRANSPARENT_DRAW_REFS].into_boxed_slice(),
+            },
+        );
+        runtime.candidate_cache = Some(TransparentModelCandidateCache {
+            address: address.clone(),
+            candidates: (0..2)
+                .map(|quad| TransparentModelSortCandidate {
+                    entity: identity.entity,
+                    key: group,
+                    draw_range: identity.draw_range.clone(),
+                    stable_index: quad,
+                    centroid: Vec3::new(48.0 + quad as f32 * 4.0 + 1.0, 1.0, 1.0),
+                    words: [0, quad],
+                })
+                .collect(),
+        });
+    }
+    for camera in [Vec3::new(8.0, 8.0, 8.0), Vec3::new(90.0, 8.0, 8.0)] {
+        app.world_mut()
+            .get_mut::<ExtractedView>(view)
+            .unwrap()
+            .world_from_view = GlobalTransform::from_translation(camera);
+        let metric = TransparentFaceMetric::new(camera);
+        let key = TransparentModelSortKey {
+            view_entity: view,
+            order_camera: metric.order_camera([group]),
+            address: address.clone(),
+        };
+        assert!(run_model_sorts_until_committed(&mut app, &key));
+        let orders = &app
+            .world()
+            .resource::<TransparentModelSortRuntime>()
+            .draw_orders;
+        assert!(orders.get(&identity).is_none(), "the group has no CPU copy");
+        assert_eq!(orders.class(&identity), Some(metric.class(group)));
+    }
 }

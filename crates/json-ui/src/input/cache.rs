@@ -1,13 +1,14 @@
 //! Input declarations are pure in the control's immutable property map.
 
 use std::cell::{OnceCell, RefCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Weak;
 
 use serde_json::Value;
 
 use super::{FocusMeta, InputComponent};
+use crate::lru::Lru;
 use crate::tree::Properties;
 
 pub(super) struct Entry {
@@ -21,7 +22,7 @@ pub(super) struct Entry {
 const MAX_INPUT_MAPS: usize = 4096;
 
 thread_local! {
-    static CACHE: RefCell<HashMap<usize, Rc<Entry>>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<Lru<usize, Rc<Entry>>> = RefCell::new(Lru::new(MAX_INPUT_MAPS));
 }
 
 /// Share parsed metadata until copy-on-write replaces the property map.
@@ -33,10 +34,7 @@ pub(super) fn entry(properties: &Properties) -> Rc<Entry> {
             return Rc::clone(entry);
         }
         if cache.len() >= MAX_INPUT_MAPS {
-            cache.retain(|_, entry| entry.owner.strong_count() != 0);
-            if cache.len() >= MAX_INPUT_MAPS {
-                cache.clear();
-            }
+            cache.retain(|entry| entry.owner.strong_count() != 0);
         }
         let entry = Rc::new(Entry {
             owner: properties.weak(),

@@ -370,6 +370,7 @@ fn media_grant_binds_the_exact_signed_archive_revision() {
         1,
         1000,
         Arc::new(AtomicU64::new(0)),
+        std::path::PathBuf::from("/nonexistent/mod-host"),
     )
     .unwrap();
     let result = media::service::Player::prepare(
@@ -379,6 +380,7 @@ fn media_grant_binds_the_exact_signed_archive_revision() {
         1,
         1000,
         Arc::new(AtomicU64::new(0)),
+        std::path::PathBuf::from("/nonexistent/mod-host"),
     );
     assert!(result.err().unwrap().to_string().contains("foreign bundle"));
 }
@@ -394,6 +396,7 @@ fn delayed_probes_survive_polling_and_unsolicited_replies() {
         1,
         1000,
         Arc::new(AtomicU64::new(0)),
+        std::path::PathBuf::from("/nonexistent/mod-host"),
     )
     .unwrap();
     let (id, c0) = player.ping(1_000_000).unwrap();

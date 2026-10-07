@@ -188,7 +188,7 @@ fn fraction_from_damage(maximum: u32, damage: u32) -> Option<f32> {
     Some(remaining as f32 / maximum as f32)
 }
 
-/// Whether a stack glints as `Item::isGlint` decides: an `ench` list, the item's glint
+/// Whether a stack glints as in vanilla: an `ench` list, the item's glint
 /// component, or a vanilla item that always glints.
 #[must_use]
 pub fn is_glint(
@@ -208,7 +208,7 @@ pub fn is_glint(
         )
 }
 
-/// The format code and colour `Item::getHoverTextColor` gives a component item's name: its
+/// The format code and colour vanilla gives a component item's name: its
 /// `hover_text_color`, else its rarity's (uncommon yellow, rare aqua, epic light purple).
 #[must_use]
 pub fn name_format(components: &ItemComponents) -> Option<(char, [u8; 3])> {

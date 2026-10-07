@@ -116,6 +116,7 @@ pub(crate) struct LocalShadowHistory {
     binding_key: Option<(TextureViewId, TextureViewId, TextureViewId, BufferId)>,
     group: Option<BindGroup>,
     source: Option<u64>,
+    response_seconds: f32,
     submitted: AtomicBool,
 }
 
@@ -160,8 +161,18 @@ impl LocalShadowHistory {
             binding_key: None,
             group: None,
             source: None,
+            response_seconds: RESPONSE_SECONDS,
             submitted: AtomicBool::new(false),
         }
+    }
+
+    /// Spans two sampled caster updates while retaining the short response for continuous captures.
+    pub fn set_caster_interval(&mut self, seconds: f32) {
+        self.response_seconds = if seconds.is_finite() {
+            RESPONSE_SECONDS.max(seconds * 2.0)
+        } else {
+            RESPONSE_SECONDS
+        };
     }
 
     pub fn prepare(&mut self, queue: &RenderQueue, camera_valid: bool, source: u64, delta: f32) {
@@ -169,7 +180,12 @@ impl LocalShadowHistory {
             && camera_valid
             && self.source == Some(source);
         self.source = Some(source);
-        let parameters = [f32::from(u8::from(valid)), update_weight(delta), 0.0, 0.0];
+        let parameters = [
+            f32::from(u8::from(valid)),
+            update_weight(delta * RESPONSE_SECONDS / self.response_seconds),
+            0.0,
+            0.0,
+        ];
         if self.uploaded_parameters != Some(parameters) {
             queue.write_buffer(&self.parameters, 0, bytemuck::bytes_of(&parameters));
             self.uploaded_parameters = Some(parameters);

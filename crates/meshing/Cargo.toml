@@ -11,7 +11,12 @@ bytemuck = { version = "1", features = ["derive"] }
 world = { path = "../world" }
 
 [dev-dependencies]
+criterion.workspace = true
 pack-compiler = { path = "../pack-compiler" }
 image.workspace = true
 serde_json = "1"
 tempfile = "3"
+
+[[bench]]
+name = "chunk_costs"
+harness = false

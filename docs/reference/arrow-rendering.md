@@ -1,4 +1,4 @@
-# Native arrow entity rendering
+# Arrow entity rendering
 
 The runtime pack is selected by `assets/vanilla-source.json`.
 
@@ -6,14 +6,14 @@ The runtime pack is selected by `assets/vanilla-source.json`.
 
 The pack's `geometry.arrow` has two crossed, zero-width shaft planes and one
 zero-depth cap. Their per-face UV objects deliberately omit `uv_size`.
-Native geometry parsing starts with the supplied
+Vanilla geometry parsing starts with the supplied
 face dimensions, then overrides them only when `uv_size` is present. The face mapping is: north/south use X/Y, east/west use Z/Y, up/down use X/Z.
 These per-face defaults retain fractional dimensions; the separate box-UV
 layout's truncation is not applicable.
 
 The former one-by-one default sampled a single texel-sized region of the
 arrow's sixteen-by-five shaft and five-by-five cap. Runtime geometry now
-uses the native face-size defaults for all entities, with explicit signed
+uses the vanilla face-size defaults for all entities, with explicit signed
 `uv_size` remaining authoritative. No arrow dimensions are hardcoded in
 production geometry.
 
@@ -28,7 +28,7 @@ not cull it.
 
 The current entity carrier does not retain render-controller material
 selection. Pending a general material carrier, geometry logically bound to
-`minecraft:arrow` receives this exact native two-sided contract. The lookup
+`minecraft:arrow` receives this exact vanilla two-sided contract. The lookup
 checks every geometry binding, including alternate render-controller
 geometries, rather than assuming a fixed geometry name or first binding.
 Explicit separately authored reverse-face UVs remain untouched. This narrow
@@ -36,12 +36,10 @@ classification does not establish custom/server material parity.
 
 ## Actor rotation
 
-`ExpressionQueries::getTargetYRotationBase`
-special-cases the arrow actor type: `target_y_rotation` is absolute actor
-rotation yaw, interpolated by the native frame alpha, not a mob's clamped
+The `target_y_rotation` query special-cases the arrow actor type: `target_y_rotation` is absolute actor
+rotation yaw, interpolated by the frame alpha, not a mob's clamped
 head-minus-body yaw.
-`Actor::getInterpolatedBodyYaw` returns zero for
-the base actor; the data-driven renderer uses that value for
+The interpolated body yaw is zero for a non-mob actor; the data-driven renderer uses that value for
 its actor-root orientation. Arrow orientation is consequently supplied by
 the pack's body animation, not duplicated by the mob body-turn heuristic.
 
@@ -51,7 +49,7 @@ pitch, yaw and crossed-plane rotations remain pack data.
 
 ## Impact shake state
 
-Native actor event handling, case `0x27`, assigns
+Actor event 39 (`0x27`) assigns
 the packet's signed extra data directly to the actor's shake counter.
 Actor base tick decrements it once only when positive;
 nonpositive values remain unchanged. The Molang query wrapper converts that signed counter to float. Runtime now retains
@@ -61,7 +59,7 @@ default seven-tick duration or narrowing to an unsigned byte.
 The pack's `arrow.entity.json` computes shake power from
 `query.shake_time - query.frame_alpha`; the body animation consumes that
 power. At actor-animation ticks the existing engine samples frame alpha
-zero and interpolates bone poses for display. Exact native per-render-frame
+zero and interpolates bone poses for display. Exact vanilla per-render-frame
 reevaluation of this nonlinear expression remains incomplete.
 
 ## Verification and incomplete work
@@ -74,7 +72,7 @@ roundtrips and rejection of every truncated packet-body prefix; the retained
 shake countdown and query regressions also passed. Changes are local and
 uncommitted. The owner manually tested and accepted arrow rendering on the
 macOS/Metal client. This validates the reported appearance problem, not a
-version-matched native flight/embedded-arrow comparison.
+version-matched vanilla flight/embedded-arrow comparison.
 
 Incomplete: the general render-controller material carrier and exact
 render-time frame-alpha query evaluation, including nonlinear impact shake.

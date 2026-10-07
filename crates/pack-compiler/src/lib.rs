@@ -55,17 +55,19 @@ pub use compiler::{
     inspect_animation_inventory,
 };
 pub use entity::{
-    CompileReferenceOutcome, EntityAssetCompilation, EntityPackCompilation, EntityPackSkips,
-    FallbackReason, MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES, RejectReason,
-    compile_entity_assets, compile_entity_assets_with_report, compile_entity_pack,
-    compile_equipment_textures, compile_equipment_textures_for_assets,
-    compile_equipment_textures_for_assets_with, compile_equipment_textures_with,
-    compile_item_use_durations, compile_vanilla_entity_refs,
+    BlockMolang, BlockStateValue, CompileReferenceOutcome, EntityAssetCompilation,
+    EntityPackCompilation, EntityPackSkips, FallbackReason, MAX_PACK_ENTITY_BYTES,
+    MAX_PACK_ENTITY_SOURCES, RejectReason, compile_entity_assets,
+    compile_entity_assets_with_report, compile_entity_pack, compile_equipment_textures,
+    compile_equipment_textures_for_assets, compile_equipment_textures_for_assets_with,
+    compile_equipment_textures_with, compile_item_use_durations, compile_vanilla_entity_refs,
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{
-    CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, OutlineFontConfig,
-    compile_fonts, compile_outline_font, compile_outline_font_with_fallback,
+    CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, NATIVE_SDF_EM_PIXELS,
+    NATIVE_SDF_MIN_PIXELS, OutlineFontConfig, compile_fonts, compile_native_fallback_fonts,
+    compile_native_outline_font, compile_native_outline_font_sizes, compile_outline_font,
+    compile_outline_font_with_fallback, compile_runtime_outline_font,
 };
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
 pub use hud_extras::compile_hud_extras_to_file;

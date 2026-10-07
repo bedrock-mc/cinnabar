@@ -78,7 +78,7 @@ impl PlayerInventoryLedger {
                         deadline_millis,
                         ..
                     } => {
-                        // Native LegacyClientNetworkHandler::handle routes a response to the screen manager
+                        // Vanilla routes a response to the screen manager
                         // without inspecting its container id or type. Those
                         // payload fields are not acknowledgement correlation.
                         if !close.server_initiated && deadline_millis.is_some() {

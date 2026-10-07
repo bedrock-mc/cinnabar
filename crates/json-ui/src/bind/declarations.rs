@@ -1,10 +1,10 @@
 //! Binding declarations belong to immutable templates, not data refreshes.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
 use super::{Binding, Src, bag, spec};
+use crate::lru::Lru;
 use crate::tree::ResolvedControl;
 
 /// Parsed bindings and creation diagnostics shared by template instances.
@@ -26,7 +26,7 @@ struct Entry {
 const MAX_DECLARATIONS: usize = 4096;
 
 thread_local! {
-    static CACHE: RefCell<HashMap<usize, Entry>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<Lru<usize, Entry>> = RefCell::new(Lru::new(MAX_DECLARATIONS));
 }
 
 /// Parse a template once while its owning immutable tree stays alive.
@@ -60,10 +60,7 @@ pub(super) fn get(src: &Src) -> Arc<Declaration> {
         });
         let mut cache = cache.borrow_mut();
         if cache.len() >= MAX_DECLARATIONS {
-            cache.retain(|_, entry| entry.owner.strong_count() != 0);
-            if cache.len() >= MAX_DECLARATIONS {
-                cache.clear();
-            }
+            cache.retain(|entry| entry.owner.strong_count() != 0);
         }
         cache.insert(
             key,

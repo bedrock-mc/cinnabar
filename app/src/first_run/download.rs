@@ -12,6 +12,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use assets::{
     VanillaSource,
+    carriers::{Sources, VANILLA_MANIFEST},
     vanilla_pack::{self, PackPaths, UnpackError, UnpackLimits, sha256_file},
 };
 use reqwest::{StatusCode, header::RANGE};
@@ -20,8 +21,10 @@ use super::runner::Cancelled;
 
 const REPORT_INTERVAL: Duration = Duration::from_millis(100);
 
-fn pack_paths(workspace: &Path) -> Result<(VanillaSource, PackPaths)> {
-    let source = VanillaSource::read(&workspace.join(super::plan::VANILLA_MANIFEST))?;
+/// The kit's pinned pack, unpacked below `workspace`.
+fn pack_paths(kit: &Path, workspace: &Path) -> Result<(VanillaSource, PackPaths)> {
+    let manifest = Sources::Kit(kit.to_path_buf()).resolve(VANILLA_MANIFEST);
+    let source = VanillaSource::read(&manifest)?;
     let paths = source.local_paths(workspace)?;
     Ok((source, paths))
 }
@@ -29,11 +32,12 @@ fn pack_paths(workspace: &Path) -> Result<(VanillaSource, PackPaths)> {
 /// Leaves the verified archive where [`unpack`] reads it; `progress` receives (bytes received,
 /// bytes expected).
 pub(super) fn fetch_archive(
+    kit: &Path,
     workspace: &Path,
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<()> {
-    let (source, paths) = pack_paths(workspace)?;
+    let (source, paths) = pack_paths(kit, workspace)?;
     if !source.url.starts_with("https://") {
         bail!("sample pack URL is not HTTPS: {}", source.url);
     }
@@ -72,8 +76,8 @@ pub(super) fn fetch_archive(
 }
 
 /// Extracts the archive [`fetch_archive`] verified into the manifest's cache directory.
-pub(super) fn unpack(workspace: &Path, cancel: &AtomicBool) -> Result<()> {
-    let (_, paths) = pack_paths(workspace)?;
+pub(super) fn unpack(kit: &Path, workspace: &Path, cancel: &AtomicBool) -> Result<()> {
+    let (_, paths) = pack_paths(kit, workspace)?;
     match vanilla_pack::unpack(&paths, &UnpackLimits::PINNED, &|| {
         cancel.load(Ordering::Relaxed)
     }) {
@@ -84,8 +88,10 @@ pub(super) fn unpack(workspace: &Path, cancel: &AtomicBool) -> Result<()> {
 }
 
 /// Deletes every download except the current pin's verified archive.
-pub(super) fn prune(workspace: &Path) {
-    let keep = pack_paths(workspace).ok().map(|(source, _)| source.archive);
+pub(super) fn prune(kit: &Path, workspace: &Path) {
+    let keep = pack_paths(kit, workspace)
+        .ok()
+        .map(|(source, _)| source.archive);
     let Ok(entries) = fs::read_dir(workspace.join(vanilla_pack::DOWNLOAD_DIR)) else {
         return;
     };
@@ -248,7 +254,7 @@ mod tests {
         for name in ["old.zip", "new.zip", "new.zip.partial"] {
             fs::write(downloads.join(name), b"x").unwrap();
         }
-        prune(dir.path());
+        prune(dir.path(), dir.path());
         let left: Vec<_> = fs::read_dir(&downloads)
             .unwrap()
             .flatten()
@@ -262,11 +268,11 @@ mod tests {
         let dir = Dir::new("download-reuse");
         let sha = format!("{:x}", Sha256::digest(BODY));
         write_vanilla_manifest(dir.path(), "https://127.0.0.1:9/none", &sha, "pack.zip");
-        let archive = pack_paths(dir.path()).unwrap().1.archive;
+        let archive = pack_paths(dir.path(), dir.path()).unwrap().1.archive;
         fs::create_dir_all(archive.parent().unwrap()).unwrap();
         fs::write(&archive, BODY).unwrap();
         let mut seen = None;
-        fetch_archive(dir.path(), &AtomicBool::new(false), |r, t| {
+        fetch_archive(dir.path(), dir.path(), &AtomicBool::new(false), |r, t| {
             seen = Some((r, t))
         })
         .unwrap();

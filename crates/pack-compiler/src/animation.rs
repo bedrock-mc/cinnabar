@@ -185,14 +185,16 @@ pub(crate) fn compile_animation_plan(
     decoded_images: &[DecodedImage],
     limits: AnimationLimits,
 ) -> Result<AnimationPlan, AssetError> {
-    compile_animation_plan_selected(pack, decoded_images, limits, None)
+    compile_animation_plan_selected(pack, decoded_images, limits, None, &BTreeSet::new())
 }
 
+/// `overlay_mask_sources` are sampled with alpha as a tint weight rather than coverage.
 pub(crate) fn compile_animation_plan_selected(
     pack: &PackSources,
     decoded_images: &[DecodedImage],
     limits: AnimationLimits,
     selected_atlas_tiles: Option<&BTreeSet<Box<str>>>,
+    overlay_mask_sources: &BTreeSet<Box<str>>,
 ) -> Result<AnimationPlan, AssetError> {
     let limits = limits.validate()?;
     let mut decoded = BTreeMap::<Box<str>, &DecodedImage>::new();
@@ -251,7 +253,8 @@ pub(crate) fn compile_animation_plan_selected(
         }
         static_sources += 1;
         let base = normalize_texture_tile(image.rgba8.clone(), image.width, source_path)?;
-        let texture = layers.add(build_texture_mip_chain(base)?)?;
+        let overlay_mask = overlay_mask_sources.contains(source_path);
+        let texture = layers.add(source_mips(base, overlay_mask)?)?;
         static_refs.insert(texture);
         static_refs_by_source.insert(source_path.clone(), texture);
     }
@@ -264,6 +267,7 @@ pub(crate) fn compile_animation_plan_selected(
             .get(source_path)
             .expect("animation source presence checked above");
         let frames = slice_frames(image)?;
+        let overlay_mask = overlay_mask_sources.contains(source_path);
         physical_animation_frames = physical_animation_frames
             .checked_add(
                 u32::try_from(frames.len()).map_err(|_| AssetError::BlobSizeOverflow {
@@ -275,7 +279,7 @@ pub(crate) fn compile_animation_plan_selected(
             })?;
         let mut refs = Vec::with_capacity(frames.len());
         for frame in frames {
-            let texture = layers.add(build_texture_mip_chain(frame)?)?;
+            let texture = layers.add(source_mips(frame, overlay_mask)?)?;
             animation_refs.insert(texture);
             refs.push(texture);
         }
@@ -390,6 +394,16 @@ pub(crate) fn compile_animation_plan_selected(
         inventory,
         limits,
     })
+}
+
+/// A tint mask keeps opaque RGB under alpha zero, so it takes vanilla's unassociated atlas mips;
+/// alpha-weighted mips would turn that RGB black at distance.
+fn source_mips(base: Box<[u8]>, overlay_mask: bool) -> Result<Box<[TextureMip]>, AssetError> {
+    if overlay_mask {
+        assets::build_legacy_terrain_mip_chain(&base, assets::TILE_SIZE)
+    } else {
+        build_texture_mip_chain(base)
+    }
 }
 
 fn descriptor(source: &FlipbookSource, frame_start: u32, frame_count: u32) -> AnimationDescriptor {

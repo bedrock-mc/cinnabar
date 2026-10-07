@@ -58,6 +58,7 @@ const CHUNK_RENDERER_SOURCE: &str = concat!(
     include_str!("../../src/chunk/biome_tints.rs"),
     include_str!("../../src/chunk/textures.rs"),
     include_str!("../../src/chunk/api.rs"),
+    include_str!("../../src/chunk/instance.rs"),
     include_str!("../../src/chunk/presentation/frame_probe.rs"),
     include_str!("../../src/chunk/queue.rs"),
     include_str!("../../src/chunk/plugin.rs"),

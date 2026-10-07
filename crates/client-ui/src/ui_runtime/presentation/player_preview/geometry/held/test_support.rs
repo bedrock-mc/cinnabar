@@ -98,11 +98,10 @@ pub fn assert_installed_shield(
             translation_scale: [0.0, 0.0, 0.0, 1.0],
             axis_scale: render_model::UNIT_AXIS_SCALE,
         };
-        PreviewHeldPlacement::authored(
-            attach(identity, *pivot, channels).unwrap(),
-            *pivot,
-            root.binding.is_some(),
-        )
+        PreviewHeldPlacement::Authored {
+            bone: attach(identity, *pivot, channels, root.binding.is_some()).unwrap(),
+            pivot: *pivot,
+        }
     });
     let shield = PreviewHeldModel {
         source: super::super::super::IconRef {

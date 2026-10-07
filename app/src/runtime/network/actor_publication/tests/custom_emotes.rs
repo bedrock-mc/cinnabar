@@ -143,6 +143,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
     world.insert_resource(crate::player_skin::LocalPlayerSkin::generated_default(
         "emote fixture",
     ));
+    world.init_resource::<client_presentation::actor_publication::ActorFrameState>();
     world.init_resource::<ActorFramePartialTick>();
     world.insert_resource(UiRuntime::new(1));
     let camera =
@@ -172,6 +173,9 @@ fn prepare(world: &mut World, millis: u64) {
     world
         .resource_mut::<Time<Real>>()
         .advance_by(Duration::from_millis(millis));
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
 }
 
@@ -189,6 +193,18 @@ fn body(world: &World, id: u64) -> render::ActorRigSubmission {
         .clone()
 }
 
+/// Java's player pose resamples its idle arm sway every frame, so an unaffected body is compared
+/// with a world that never emotes at the same frame time.
+fn assert_unaffected(world: &World, plain: &World, id: u64) {
+    // Each fixture opens its own session, so identities differ by session id alone.
+    let [body, plain] = [world, plain].map(|world| body(world, id).input);
+    assert_eq!(
+        (&body.rig, &body.previous_bones, &body.current_bones),
+        (&plain.rig, &plain.previous_bones, &plain.current_bones),
+        "player {id} never receives the local overlay"
+    );
+}
+
 fn native_pose(world: &World) -> (u64, Vec<client_world::BoneTransform>) {
     let stream = world.resource::<ClientWorld>().stream.as_ref().unwrap();
     let rig = stream.authority().actor_rig(1).unwrap();
@@ -197,18 +213,20 @@ fn native_pose(world: &World) -> (u64, Vec<client_world::BoneTransform>) {
 
 #[test]
 fn custom_emote_knees_use_matching_mesh_and_retire_with_playback() {
-    let mut world = fixture_with_skin(true);
-    perspective(&mut world, PerspectiveMode::ThirdPersonBack, 1);
-    prepare(&mut world, 100);
+    let (mut world, mut plain) = (fixture_with_skin(true), fixture_with_skin(true));
+    for world in [&mut world, &mut plain] {
+        perspective(world, PerspectiveMode::ThirdPersonBack, 1);
+        prepare(world, 100);
+    }
     let native = native_pose(&world);
     let ordinary = body(&world, 1);
-    let remote = body(&world, 2);
     {
         let mut ui = world.resource_mut::<UiRuntime>();
         ui.emotes_mut().open();
         ui.emotes_mut().activate_slot(0, 100);
     }
     prepare(&mut world, 10);
+    prepare(&mut plain, 10);
     let dance = body(&world, 1);
     assert_ne!(dance.input.rig, ordinary.input.rig);
     assert_eq!(
@@ -216,20 +234,22 @@ fn custom_emote_knees_use_matching_mesh_and_retire_with_playback() {
         ordinary.input.current_bones.len() + 4
     );
     assert_eq!(native_pose(&world), native);
-    assert_eq!(body(&world, 2).input, remote.input);
+    assert_unaffected(&world, &plain, 2);
     world.resource_mut::<UiRuntime>().emotes_mut().stop();
     prepare(&mut world, 0);
-    let restored = body(&world, 1);
-    assert_eq!(restored.input.rig, ordinary.input.rig);
-    assert_eq!(restored.input.current_bones, ordinary.input.current_bones);
+    prepare(&mut plain, 0);
+    assert_eq!(body(&world, 1).input.rig, ordinary.input.rig);
+    assert_unaffected(&world, &plain, 1);
     assert_eq!(native_pose(&world), native);
 }
 
 #[test]
 fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_or_remote_pose() {
-    let mut world = fixture();
-    perspective(&mut world, PerspectiveMode::ThirdPersonBack, 1);
-    prepare(&mut world, 100);
+    let (mut world, mut plain) = (fixture(), fixture());
+    for world in [&mut world, &mut plain] {
+        perspective(world, PerspectiveMode::ThirdPersonBack, 1);
+        prepare(world, 100);
+    }
     let native = native_pose(&world);
     let rest = body(&world, 1);
     {
@@ -241,11 +261,13 @@ fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_
         );
     }
     prepare(&mut world, 10);
+    prepare(&mut plain, 10);
     let first = body(&world, 1);
-    let remote = body(&world, 2);
+    assert_unaffected(&world, &plain, 2);
     assert_ne!(first.input.current_bones, rest.input.current_bones);
     assert_eq!(first.input.previous_bones, first.input.current_bones);
     prepare(&mut world, 10);
+    prepare(&mut plain, 10);
     let second = body(&world, 1);
     assert_eq!(
         native_pose(&world),
@@ -256,15 +278,13 @@ fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_
         first.input.current_bones, second.input.current_bones,
         "a held actor tick must not freeze the dance"
     );
-    assert_eq!(
-        body(&world, 2).input,
-        remote.input,
-        "remote rig never receives the local overlay"
-    );
+    assert_unaffected(&world, &plain, 2);
     assert_eq!(first.input.rig, second.input.rig);
     assert_eq!(first.world_from_actor, second.world_from_actor);
-    perspective(&mut world, PerspectiveMode::FirstPerson, 2);
-    prepare(&mut world, 0);
+    for world in [&mut world, &mut plain] {
+        perspective(world, PerspectiveMode::FirstPerson, 2);
+        prepare(world, 0);
+    }
     assert!(
         world.resource::<render::HandRigScene>().is_active(),
         "native hand still publishes during playback"
@@ -281,7 +301,222 @@ fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_
     );
     world.resource_mut::<UiRuntime>().emotes_mut().stop();
     prepare(&mut world, 0);
+    prepare(&mut plain, 0);
     assert!(world.resource::<render::HandRigScene>().is_active());
     assert_eq!(native_pose(&world), native);
-    assert_eq!(body(&world, 2).input, remote.input);
+    assert_unaffected(&world, &plain, 2);
 }
+
+/// The Java toggle leaves both native emote postures and local emote playback unchanged.
+#[test]
+fn emotes_keep_vanilla_bones_with_java_enabled() {
+    for custom in [false, true] {
+        let mut worlds = [fixture_with_skin(true), fixture_with_skin(true)];
+        for (world, java) in worlds.iter_mut().zip([false, true]) {
+            let mut settings = ui::UserSettings::default();
+            settings.gameplay.default_perspective = PerspectiveMode::ThirdPersonBack;
+            settings.video.java_animations = java;
+            world
+                .resource_mut::<crate::camera::CameraSettingsAuthority>()
+                .replace(1, &settings)
+                .unwrap();
+            if custom {
+                world.resource_mut::<UiRuntime>().emotes_mut().open();
+                world
+                    .resource_mut::<UiRuntime>()
+                    .emotes_mut()
+                    .activate_slot(0, 0);
+            } else {
+                let stream = world
+                    .resource_mut::<ClientWorld>()
+                    .into_inner()
+                    .stream
+                    .as_mut()
+                    .unwrap();
+                stream
+                    .submit(
+                        4,
+                        WorldEvent::Actor(ActorEvent::Metadata(
+                            protocol::ActorMetadataUpdateEvent {
+                                dimension: 0,
+                                runtime_id: 2,
+                                metadata: Arc::from([protocol::ActorMetadata {
+                                    key: 92,
+                                    value: protocol::ActorMetadataValue::FlagsExtended(
+                                        1 << (92 - 64),
+                                    ),
+                                }]),
+                                properties: Arc::from([]),
+                                tick: 0,
+                            },
+                        )),
+                    )
+                    .unwrap();
+            }
+        }
+        for millis in [50, 10, 10, 30] {
+            for world in &mut worlds {
+                prepare(world, millis);
+            }
+            assert_unaffected(&worlds[1], &worlds[0], if custom { 1 } else { 2 });
+        }
+    }
+}
+
+/// Models the committed-tick admission used by the four production interaction owners.
+fn admit_frame_swing(
+    movement: Res<crate::movement::MovementTicker>,
+    effects: Res<crate::movement::LocalMovementEffectTimeline>,
+    mut swings: ResMut<crate::melee::SwingTracker>,
+    mut accepted: ResMut<SwingAdmission>,
+) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &effects,
+    );
+    accepted.0 = swings.try_swing(
+        movement.completed_tick(),
+        gameplay::melee::swing_duration(effects.mining_effects()),
+    );
+}
+
+#[derive(Resource, Default)]
+struct SwingAdmission(bool);
+
+#[test]
+fn production_actor_preparation_preserves_same_frame_swing_admission() {
+    let mut app = App::new();
+    crate::app::configure_client_frame_schedule(&mut app);
+    crate::app::configure_actor_render_systems(&mut app);
+    app.add_systems(
+        Update,
+        admit_frame_swing.in_set(crate::app::ClientFrameSet::NetworkSend),
+    );
+    let mut schedule = app
+        .world_mut()
+        .resource_mut::<bevy::ecs::schedule::Schedules>()
+        .remove(Update)
+        .unwrap();
+    let mut world = fixture();
+    let mut movement = crate::movement::MovementTicker::default();
+    *movement = gameplay::test_support::survival_mining::ticker_with_ticks(1);
+    world.insert_resource(movement);
+    world.init_resource::<crate::movement::LocalMovementEffectTimeline>();
+    world.init_resource::<crate::melee::SwingTracker>();
+    world.init_resource::<SwingAdmission>();
+    world.init_resource::<render::ActorRenderFrame>();
+    world.init_resource::<render::ActorRuntimeWitness>();
+    let states = [
+        (true, [0.0, 0.0]),
+        (false, [0.0, 1.0 / client_world::ACTOR_SWING_TICKS as f32]),
+        (
+            false,
+            [
+                1.0 / client_world::ACTOR_SWING_TICKS as f32,
+                2.0 / client_world::ACTOR_SWING_TICKS as f32,
+            ],
+        ),
+        (
+            false,
+            [
+                2.0 / client_world::ACTOR_SWING_TICKS as f32,
+                3.0 / client_world::ACTOR_SWING_TICKS as f32,
+            ],
+        ),
+        (true, [3.0 / client_world::ACTOR_SWING_TICKS as f32, 0.0]),
+        (false, [0.0, 1.0 / client_world::ACTOR_SWING_TICKS as f32]),
+    ];
+    for (index, (admitted, expected)) in states.into_iter().enumerate() {
+        *world.resource_mut::<crate::movement::MovementTicker>() = {
+            let mut movement = crate::movement::MovementTicker::default();
+            *movement =
+                gameplay::test_support::survival_mining::ticker_with_ticks(index as u64 + 1);
+            movement
+        };
+        let before = world
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .authority()
+            .actor_rig(2)
+            .unwrap()
+            .completed_tick;
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(50));
+        schedule.run(&mut world);
+        assert_eq!(
+            world.resource::<SwingAdmission>().0,
+            admitted,
+            "the current committed tick must admit before publication at frame {index}"
+        );
+        let stream = world.resource::<ClientWorld>().stream.as_ref().unwrap();
+        let local = stream.authority().actor_rig(1).unwrap();
+        assert_eq!(
+            local.java.swing, expected,
+            "same-frame Java samples at frame {index}"
+        );
+        assert_eq!(
+            local.hand.map(|hand| hand.attack_time),
+            expected,
+            "same-frame Bedrock samples at frame {index}"
+        );
+        assert_eq!(
+            stream.authority().actor_rig(2).unwrap().completed_tick,
+            before + 1,
+            "final pose refresh must not advance remote ticks"
+        );
+    }
+}
+
+/// Observes the exact current-frame hand readiness consumed by the UI owner.
+fn observe_hand_readiness(
+    actor: Res<client_presentation::actor_publication::ActorFrameState>,
+    mut readiness: ResMut<HandReadiness>,
+) {
+    readiness.0 = actor.hand_is_active();
+}
+
+#[derive(Resource, Default)]
+struct HandReadiness(bool);
+
+#[test]
+fn production_early_ui_readiness_matches_the_current_hand_source() {
+    let mut app = App::new();
+    crate::app::configure_client_frame_schedule(&mut app);
+    crate::app::configure_actor_render_systems(&mut app);
+    app.add_systems(
+        Update,
+        observe_hand_readiness.in_set(crate::app::ClientFrameSet::UiPreparation),
+    );
+    let mut schedule = app
+        .world_mut()
+        .resource_mut::<bevy::ecs::schedule::Schedules>()
+        .remove(Update)
+        .unwrap();
+    let mut world = fixture_with_skin(true);
+    world.init_resource::<HandReadiness>();
+    world.init_resource::<render::ActorRenderFrame>();
+    world.init_resource::<render::ActorRuntimeWitness>();
+    for (index, (mode, active)) in [
+        (PerspectiveMode::FirstPerson, true),
+        (PerspectiveMode::ThirdPersonBack, false),
+        (PerspectiveMode::FirstPerson, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        perspective(&mut world, mode, index as u64 + 1);
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(50));
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<HandReadiness>().0, active);
+        assert_eq!(world.resource::<render::HandRigScene>().is_active(), active);
+    }
+}
+
+#[path = "custom_emotes/local_torso.rs"]
+mod local_torso;

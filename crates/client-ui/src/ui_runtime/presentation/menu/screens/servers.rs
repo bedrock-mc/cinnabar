@@ -34,7 +34,7 @@ pub(super) fn append(
         metrics,
         solid_page,
         "Servers",
-        "Official discovery, Gatherings, favorites, recent, and saved servers",
+        "Official discovery, favorites, recent, and saved servers",
         [area.left, area.top],
         area.width - 170.0,
     )?;
@@ -193,7 +193,7 @@ fn featured_servers(
     _height: f32,
     compact: bool,
 ) -> Result<(), UiPresentationError> {
-    if view.featured.is_empty() && view.gatherings.is_empty() {
+    if view.featured.is_empty() {
         return empty_state(
             nodes,
             next_id,
@@ -215,26 +215,14 @@ fn featured_servers(
     let columns = if compact || width < 700.0 { 1 } else { 2 };
     let gap = SPACE_SM;
     let card_width = (width - gap * (columns - 1) as f32) / columns as f32;
-    let entries = view
-        .featured
-        .iter()
-        .enumerate()
-        .map(|(index, server)| {
-            (
-                MenuAction::PlayFeatured(index),
-                server,
-                view.featured_icon,
-                "Featured",
-            )
-        })
-        .chain(view.gatherings.iter().enumerate().map(|(index, server)| {
-            (
-                MenuAction::PlayGathering(index),
-                server,
-                view.gathering_icon,
-                "Gathering",
-            )
-        }));
+    let entries = view.featured.iter().enumerate().map(|(index, server)| {
+        (
+            MenuAction::PlayFeatured(index),
+            server,
+            view.featured_icon,
+            "Featured",
+        )
+    });
     for (display_index, (action, server, fallback, category)) in entries.enumerate() {
         let column = display_index % columns;
         let row = display_index / columns;

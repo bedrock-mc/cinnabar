@@ -15,6 +15,10 @@ use render_model::{
 
 mod admission;
 pub use admission::within_actor_candidate_cube;
+mod tick_cache;
+pub use tick_cache::PoseConversions;
+use tick_cache::TickKey;
+pub(crate) use tick_cache::convert_bones;
 
 /// Damage tint blended over a hurt or dying actor.
 const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
@@ -35,47 +39,38 @@ pub struct ActorRigPresentation {
 #[derive(Debug)]
 pub struct ActorPresentationBatch {
     pub submissions: Vec<ActorRigSubmission>,
-    /// One standard-size RGBA8 layer per texture layer index.
+    /// One standard-size RGBA8 skin per frame-local texture layer index.
     pub skin_layers: Vec<SkinRgba8>,
     pub artwork: HashMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
-/// The packed skin payload, rebuilt only when the layer list changes so an
-/// unchanged frame neither copies nor compares the whole payload.
-#[derive(Debug, Default)]
-pub struct SkinLayerPack {
-    layers: Vec<SkinRgba8>,
-    packed: Arc<[u8]>,
-    rebuilds: u64,
-}
-
-impl SkinLayerPack {
-    pub fn pack(&mut self, layers: Vec<SkinRgba8>) -> Arc<[u8]> {
-        if layers != self.layers {
-            self.packed = layers
-                .iter()
-                .map(|layer| &**layer)
-                .collect::<Vec<_>>()
-                .concat()
-                .into();
-            self.rebuilds += 1;
+impl PoseConversions {
+    /// Replaces a presentation's tick pose with a cached world-body pose.
+    pub fn apply_pose(
+        &mut self,
+        presentation: &mut ActorRigPresentation,
+        rig: &ActorRigSnapshot<'_>,
+    ) -> bool {
+        let Some((previous, current)) = self.convert(rig) else {
+            return false;
+        };
+        if current.len() != presentation.submission.input.current_bones.len() {
+            return false;
         }
-        self.layers = layers;
-        Arc::clone(&self.packed)
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub const fn rebuilds(&self) -> u64 {
-        self.rebuilds
+        presentation.submission.input.previous_bones = previous;
+        presentation.submission.input.current_bones = current;
+        presentation.submission.input.completed_tick = rig.completed_tick;
+        presentation.submission.input.reset_generation = rig.reset_generation;
+        true
     }
 }
 
-pub fn update_actor_rig_scene<'a>(
-    scene: &'a mut ActorRenderScene,
+/// Publishes `batch`; its frame-local skin indices become the scene's stable skin slots.
+pub fn update_actor_rig_scene(
+    scene: &mut ActorRenderScene,
     partial_tick: f32,
     batch: ActorPresentationBatch,
-    skins: &mut SkinLayerPack,
-) -> &'a ActorRenderFrame {
+) -> &ActorRenderFrame {
     // The app adapter has already applied the renderer's exact culling helper
     // to remotes before enforcing capacity. Passing no second cull view keeps
     // Phase 3's visible local reservation unconditional in both third-person
@@ -84,7 +79,7 @@ pub fn update_actor_rig_scene<'a>(
         partial_tick,
         None,
         batch.submissions,
-        skins.pack(batch.skin_layers),
+        &batch.skin_layers,
         &batch.artwork,
     )
 }
@@ -134,7 +129,8 @@ pub fn entity_rig_presentation(
     entity_rig_presentation_cached(rig, actor, artwork, partial_tick, None)
 }
 
-/// [`entity_rig_presentation`] converting poses through `poses`, so frames of one tick share them.
+/// [`entity_rig_presentation`] reusing each rig's tick through `poses`, so frames of one tick
+/// only re-place it.
 pub fn entity_rig_presentation_cached(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
@@ -142,23 +138,14 @@ pub fn entity_rig_presentation_cached(
     partial_tick: f32,
     poses: Option<&mut PoseConversions>,
 ) -> Option<ActorRigPresentation> {
+    if !partial_tick.is_finite() {
+        return None;
+    }
     let location = matches!(actor.kind, ActorKind::Entity { .. })
         .then(|| artwork.route(EntityRigId(rig.rig.0)))
         .flatten();
     let rest_mode =
         location.is_some_and(|location| location.pose_mode() == assets::ActorPoseMode::RestPose);
-    let bad_rest = rest_mode
-        && (rig.rest.is_empty()
-            || rig.rest.len() != rig.previous.len()
-            || rig.rest.len() != rig.current.len()
-            || !rig.rest.iter().all(|bone| {
-                RenderBoneTransform::from_model_space_scaled(
-                    bone.rotation,
-                    bone.translation_scale,
-                    bone.axis_scale,
-                )
-                .is_some()
-            }));
     let selected = if rest_mode {
         ActorRigSnapshot {
             previous: rig.rest,
@@ -170,28 +157,49 @@ pub fn entity_rig_presentation_cached(
     } else {
         *rig
     };
-    let mut presentation =
-        actor_rig_presentation_inner(&selected, actor, None, partial_tick, bad_rest, poses)?;
-    if matches!(actor.kind, ActorKind::Entity { .. })
-        && let Some(location) = location
-    {
-        presentation.submission.route = match rig.fallback {
-            EntityRigFallback::Skip => ActorRigRoute::Compiled,
-            EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
-            EntityRigFallback::Diagnostic => ActorRigRoute::NoDraw,
-        };
-        if rest_mode {
-            presentation.submission.route =
-                if bad_rest || rig.fallback == EntityRigFallback::Diagnostic {
+    let build = |poses: Option<&mut PoseConversions>| {
+        let bad_rest = rest_mode
+            && (rig.rest.is_empty()
+                || rig.rest.len() != rig.previous.len()
+                || rig.rest.len() != rig.current.len()
+                || !rig.rest.iter().all(|bone| {
+                    RenderBoneTransform::from_model_space_scaled(
+                        bone.rotation,
+                        bone.translation_scale,
+                        bone.axis_scale,
+                    )
+                    .is_some()
+                }));
+        let mut tick = tick_presentation(&selected, actor, None, bad_rest, poses)?;
+        if matches!(actor.kind, ActorKind::Entity { .. })
+            && let Some(location) = location
+        {
+            let submission = &mut tick.presentation.submission;
+            submission.route = match rig.fallback {
+                EntityRigFallback::Skip => ActorRigRoute::Compiled,
+                EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
+                EntityRigFallback::Diagnostic => ActorRigRoute::NoDraw,
+            };
+            if rest_mode {
+                submission.route = if bad_rest || rig.fallback == EntityRigFallback::Diagnostic {
                     ActorRigRoute::NoDraw
                 } else {
                     ActorRigRoute::StaticFallback
                 };
+            }
+            submission.texture_layer = location.layer();
+            tick.presentation.artwork = Some(location);
         }
-        presentation.submission.texture_layer = location.layer();
-        presentation.artwork = Some(location);
-    }
-    Some(presentation)
+        Some(tick)
+    };
+    let tick = match poses {
+        Some(poses) => {
+            let key = TickKey::new(&selected, rig, actor, None, location);
+            poses.tick_presentation(key, |poses| build(Some(poses)))
+        }
+        None => build(None),
+    }?;
+    place(tick, &selected, actor, partial_tick)
 }
 
 /// Converts a transient render-time pose without retaining its allocation address.
@@ -201,10 +209,14 @@ pub fn actor_rig_presentation(
     profile: Option<&PlayerProfile>,
     partial_tick: f32,
 ) -> Option<ActorRigPresentation> {
-    actor_rig_presentation_inner(rig, actor, profile, partial_tick, false, None)
+    if !partial_tick.is_finite() {
+        return None;
+    }
+    let tick = tick_presentation(rig, actor, profile, false, None)?;
+    place(tick, rig, actor, partial_tick)
 }
 
-/// [`actor_rig_presentation`] converting poses through `poses`.
+/// [`actor_rig_presentation`] reusing each rig's tick through `poses`.
 pub fn actor_rig_presentation_cached(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
@@ -212,17 +224,32 @@ pub fn actor_rig_presentation_cached(
     partial_tick: f32,
     poses: &mut PoseConversions,
 ) -> Option<ActorRigPresentation> {
-    actor_rig_presentation_inner(rig, actor, profile, partial_tick, false, Some(poses))
+    if !partial_tick.is_finite() {
+        return None;
+    }
+    let key = TickKey::new(rig, rig, actor, profile, None);
+    let tick = poses.tick_presentation(key, |poses| {
+        tick_presentation(rig, actor, profile, false, Some(poses))
+    })?;
+    place(tick, rig, actor, partial_tick)
 }
 
-fn actor_rig_presentation_inner(
+/// A presentation's parts that hold for a whole tick, before its per-frame placement.
+#[derive(Clone, Debug)]
+struct TickPresentation {
+    presentation: ActorRigPresentation,
+    /// Projectile and orb bones carry their own facing, so the body yaw stays 0.
+    billboard: bool,
+}
+
+/// Validates the tick's pose and builds everything but the frame placement.
+fn tick_presentation(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     profile: Option<&PlayerProfile>,
-    partial_tick: f32,
     rejected_pose: bool,
     poses: Option<&mut PoseConversions>,
-) -> Option<ActorRigPresentation> {
+) -> Option<TickPresentation> {
     if rig.actor.runtime_id != actor.runtime_id
         || rig.actor.spawn_revision != actor.spawn_revision
         || rig.actor.session_id == 0
@@ -231,7 +258,6 @@ fn actor_rig_presentation_inner(
         || rig.completed_tick == 0
         || rig.reset_generation == 0
         || (!rejected_pose && (rig.previous.is_empty() || rig.previous.len() != rig.current.len()))
-        || !partial_tick.is_finite()
     {
         return None;
     }
@@ -245,64 +271,90 @@ fn actor_rig_presentation_inner(
     } else {
         (convert_bones(rig.previous)?, convert_bones(rig.current)?)
     };
+    let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
+    Some(TickPresentation {
+        presentation: ActorRigPresentation {
+            submission: ActorRigSubmission {
+                material: Default::default(),
+                culling_bounds: rig.culling_bounds(),
+                input: ActorRigRenderInput {
+                    identity: ActorRenderIdentity {
+                        session_id: rig.actor.session_id,
+                        dimension: rig.actor.dimension,
+                        runtime_id: rig.actor.runtime_id,
+                        spawn_revision: rig.actor.spawn_revision,
+                        // Movement fields belong to the frame; `place` fills them.
+                        ingress_sequence: 0,
+                        source_tick: None,
+                        movement_revision: 0,
+                        pose_generation: rig.completed_tick,
+                        layer: render::ACTOR_LAYER_BODY,
+                    },
+                    rig: EntityRigId(rig.rig.0),
+                    previous_bones,
+                    current_bones,
+                    completed_tick: rig.completed_tick,
+                    reset_generation: rig.reset_generation,
+                },
+                world_from_actor: [[0.0; 4]; 3],
+                texture_layer: u32::MAX,
+                route,
+                tint: 0,
+                uv_anim: render::IDENTITY_UV_ANIM,
+                light: 0,
+                overlay_rgba8: 0,
+            },
+            skin_rgba8,
+            artwork: None,
+            authored_scale: rig.scale,
+            world_yaw_degrees: 0.0,
+            head_over_body: 0.0,
+        },
+        billboard: is_billboard(actor),
+    })
+}
+
+/// Places a tick's presentation at the frame's interpolated feet, facing, scale and overlay.
+fn place(
+    tick: TickPresentation,
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    partial_tick: f32,
+) -> Option<ActorRigPresentation> {
     let alpha = partial_tick.clamp(0.0, 1.0);
     let position = interpolated_position(actor, alpha)?;
-    let yaw = actor_world_yaw(actor, rig, alpha);
+    let yaw = if tick.billboard || actor.target_rotation_is_absolute() {
+        0.0
+    } else {
+        lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
+    };
     // The model's authored scale times the server's metadata scale, as vanilla renders it.
     let scale = rig.scale * actor.render_scale();
     if !yaw.is_finite() || !scale.is_finite() || scale <= 0.0 {
         return None;
     }
-    let identity = ActorRenderIdentity {
-        session_id: rig.actor.session_id,
-        dimension: rig.actor.dimension,
-        runtime_id: rig.actor.runtime_id,
-        spawn_revision: rig.actor.spawn_revision,
-        ingress_sequence: actor.spawn_revision.max(actor.movement_revision),
-        source_tick: actor.source_tick,
-        movement_revision: actor.movement_revision,
-        pose_generation: rig.completed_tick,
-        layer: render::ACTOR_LAYER_BODY,
-    };
+    let mut presentation = tick.presentation;
+    let submission = &mut presentation.submission;
+    let identity = &mut submission.input.identity;
+    identity.ingress_sequence = actor.spawn_revision.max(actor.movement_revision);
+    identity.source_tick = actor.source_tick;
+    identity.movement_revision = actor.movement_revision;
     if !identity.is_exact() {
         return None;
     }
-
-    let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
-    Some(ActorRigPresentation {
-        submission: ActorRigSubmission {
-            culling_bounds: rig.culling_bounds(),
-            input: ActorRigRenderInput {
-                identity,
-                rig: EntityRigId(rig.rig.0),
-                previous_bones,
-                current_bones,
-                completed_tick: rig.completed_tick,
-                reset_generation: rig.reset_generation,
-            },
-            world_from_actor: death_tilted(
-                scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
-                actor.status.death_progress(alpha),
-            ),
-            texture_layer: u32::MAX,
-            route,
-            tint: 0,
-            uv_anim: render::IDENTITY_UV_ANIM,
-            light: 0,
-            overlay_rgba8: if actor.status.overlay_active() {
-                pack_overlay_rgba8(HURT_OVERLAY_RGBA)
-            } else {
-                0
-            },
-        },
-        skin_rgba8,
-        artwork: None,
-        authored_scale: rig.scale,
-        world_yaw_degrees: yaw,
-        head_over_body: wrap_degrees(
-            lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw,
-        ),
-    })
+    submission.world_from_actor = death_tilted(
+        scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
+        actor.death_rotation_progress(alpha),
+    );
+    submission.overlay_rgba8 = if actor.hurt_overlay_active() {
+        pack_overlay_rgba8(HURT_OVERLAY_RGBA)
+    } else {
+        0
+    };
+    presentation.world_yaw_degrees = yaw;
+    presentation.head_over_body =
+        wrap_degrees(lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw);
+    Some(presentation)
 }
 
 pub fn local_diagnostic_presentation(
@@ -340,6 +392,7 @@ pub fn local_diagnostic_presentation(
     bones[0].rotation = head_rotation;
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
@@ -541,6 +594,24 @@ pub fn select_actor_presentations_for_shadow_view(
     }
 }
 
+/// Appends the layers `layers_for` builds on each body already in the batch, reading the bodies
+/// in place rather than from a copy.
+pub fn attach_layers(
+    batch: &mut ActorPresentationBatch,
+    mut layers_for: impl FnMut(
+        &ActorRigSubmission,
+    ) -> Vec<crate::presentation::equipment::EquipmentPresentation>,
+) {
+    for index in 0..batch.submissions.len() {
+        for layer in layers_for(&batch.submissions[index]) {
+            batch
+                .artwork
+                .insert(layer.submission.input.identity, layer.location);
+            batch.submissions.push(layer.submission);
+        }
+    }
+}
+
 /// Lights each body at the reference body-height point; a body without solved light yet
 /// keeps drawing unlit rather than black.
 pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline::WorldStream) {
@@ -554,125 +625,6 @@ pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline:
             submission.light = render::pack_actor_light(block, sky);
         }
     }
-}
-
-/// Render-space poses of each rig's latest tick, kept across frames: every frame of a tick shares
-/// one conversion, and an unchanged pose keeps its allocation so its bone matrices are reused.
-#[derive(Debug, Default)]
-pub struct PoseConversions {
-    entries: std::collections::HashMap<u64, PoseEntry>,
-    scratch: Vec<RenderBoneTransform>,
-    frame: u64,
-}
-
-#[derive(Debug)]
-struct PoseEntry {
-    /// Spawn revision, completed tick, reset generation and pose storage of the conversion.
-    stamp: (u64, u64, u64, usize, usize),
-    previous: Arc<[RenderBoneTransform]>,
-    current: Arc<[RenderBoneTransform]>,
-    used: u64,
-}
-
-type RenderPose = Arc<[RenderBoneTransform]>;
-
-/// Frames a rig may go undrawn before its conversions are released.
-const POSE_RETENTION_FRAMES: u64 = 120;
-
-impl PoseConversions {
-    pub fn begin_frame(&mut self) {
-        self.frame += 1;
-        let frame = self.frame;
-        self.entries
-            .retain(|_, entry| entry.used + POSE_RETENTION_FRAMES >= frame);
-    }
-
-    pub fn apply_pose(
-        &mut self,
-        presentation: &mut ActorRigPresentation,
-        rig: &ActorRigSnapshot<'_>,
-    ) -> bool {
-        let Some((previous, current)) = self.convert(rig) else {
-            return false;
-        };
-        if current.len() != presentation.submission.input.current_bones.len() {
-            return false;
-        }
-        presentation.submission.input.previous_bones = previous;
-        presentation.submission.input.current_bones = current;
-        presentation.submission.input.completed_tick = rig.completed_tick;
-        presentation.submission.input.reset_generation = rig.reset_generation;
-        true
-    }
-
-    fn convert(&mut self, rig: &ActorRigSnapshot<'_>) -> Option<(RenderPose, RenderPose)> {
-        let stamp = (
-            rig.actor.spawn_revision,
-            rig.completed_tick,
-            rig.reset_generation,
-            rig.previous.as_ptr() as usize,
-            rig.current.as_ptr() as usize,
-        );
-        let frame = self.frame;
-        if let Some(entry) = self.entries.get_mut(&rig.actor.runtime_id)
-            && entry.stamp == stamp
-        {
-            entry.used = frame;
-            return Some((Arc::clone(&entry.previous), Arc::clone(&entry.current)));
-        }
-        let old = self
-            .entries
-            .get(&rig.actor.runtime_id)
-            .map(|entry| (Arc::clone(&entry.previous), Arc::clone(&entry.current)));
-        let mut reuse = |bones: &[client_world::BoneTransform]| {
-            self.scratch.clear();
-            for bone in bones {
-                self.scratch
-                    .push(RenderBoneTransform::from_model_space_scaled(
-                        bone.rotation,
-                        bone.translation_scale,
-                        bone.axis_scale,
-                    )?);
-            }
-            // The new tick's previous pose is usually the last tick's current one.
-            Some(
-                old.iter()
-                    .flat_map(|(previous, current)| [current, previous])
-                    .find(|pose| ***pose == *self.scratch)
-                    .map_or_else(|| Arc::from(self.scratch.as_slice()), Arc::clone),
-            )
-        };
-        let previous = reuse(rig.previous)?;
-        let current = if rig.current == rig.previous {
-            Arc::clone(&previous)
-        } else {
-            reuse(rig.current)?
-        };
-        self.entries.insert(
-            rig.actor.runtime_id,
-            PoseEntry {
-                stamp,
-                previous: Arc::clone(&previous),
-                current: Arc::clone(&current),
-                used: frame,
-            },
-        );
-        Some((previous, current))
-    }
-}
-
-fn convert_bones(bones: &[client_world::BoneTransform]) -> Option<Arc<[RenderBoneTransform]>> {
-    bones
-        .iter()
-        .map(|bone| {
-            RenderBoneTransform::from_model_space_scaled(
-                bone.rotation,
-                bone.translation_scale,
-                bone.axis_scale,
-            )
-        })
-        .collect::<Option<Vec<_>>>()
-        .map(Arc::from)
 }
 
 /// Places a rig-frame model, which faces -Z with its right side at +X, so it faces the
@@ -715,28 +667,21 @@ fn interpolated_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<[f3
     actor.interpolated_position(partial_tick)
 }
 
-fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
+pub(crate) fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
     wrap_degrees(start + wrap_degrees(end - start) * alpha)
 }
 
-fn wrap_degrees(degrees: f32) -> f32 {
+pub(crate) fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
 /// Projectile bones carry absolute rotation; billboard bones carry the camera's rotation.
-fn actor_world_yaw(actor: &ActorSnapshot, rig: &ActorRigSnapshot<'_>, alpha: f32) -> f32 {
-    let billboard = matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+fn is_billboard(actor: &ActorSnapshot) -> bool {
+    matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
         "minecraft:xp_bottle" | "minecraft:ender_pearl" | "minecraft:xp_orb"
         | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
         | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
-        | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"));
-    if billboard {
-        180.0
-    } else if actor.target_rotation_is_absolute() {
-        0.0
-    } else {
-        lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
-    }
+        | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"))
 }
 
 fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
@@ -865,5 +810,35 @@ mod skin_dedupe_tests {
         for (layer, value) in batch.skin_layers.iter().zip([1, 2, 3]) {
             assert_eq!(&**layer, texels(value).as_slice());
         }
+    }
+}
+
+#[cfg(test)]
+mod layer_pass_tests {
+    use super::*;
+
+    /// Layer builders read the batch's own bodies: a copied body would hold a second reference
+    /// to its bone allocations.
+    #[test]
+    fn attach_layers_never_copies_a_body() {
+        let mut batch = select_actor_presentations(
+            99,
+            false,
+            None,
+            (1..=3).map(|runtime_id| {
+                local_diagnostic_presentation(7, 0, runtime_id, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
+                    .expect("finite carrier converts")
+            }),
+        );
+        let mut visited = Vec::new();
+        attach_layers(&mut batch, |body| {
+            visited.push((
+                body.input.identity.runtime_id,
+                Arc::strong_count(&body.input.previous_bones),
+                Arc::strong_count(&body.input.current_bones),
+            ));
+            Vec::new()
+        });
+        assert_eq!(visited, [(1, 1, 1), (2, 1, 1), (3, 1, 1)]);
     }
 }

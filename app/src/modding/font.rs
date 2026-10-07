@@ -2,7 +2,9 @@
 
 use std::{fs::File, io::Read, path::Path};
 
-use assets::{CellGlyph, FontTexturePage, RuntimeFontCatalog, encode_font_catalog, pack_cells};
+use assets::{
+    CellGlyph, FontPixels, FontTexturePage, RuntimeFontCatalog, encode_font_catalog, pack_cells,
+};
 use sha2::{Digest, Sha256};
 
 pub(super) const FONT_ENV: &str = "CINNABAR_MOD_FONT";
@@ -113,7 +115,7 @@ fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, S
             pixels_sha256: Sha256::digest(&pixels).into(),
             width: ATLAS_SIDE,
             height: ATLAS_SIDE,
-            rgba8: pixels,
+            pixels: FontPixels::Rgba8(pixels),
         })
         .collect::<Vec<_>>();
     let glyphs = atlas
@@ -180,7 +182,7 @@ mod tests {
             [1; 2]
         );
         let texel = (usize::from(space.uv[1]) * ATLAS_SIDE as usize + usize::from(space.uv[0])) * 4;
-        assert_eq!(font.pages()[0].rgba8[texel + 3], 0);
+        assert_eq!(font.pages()[0].pixels.bytes()[texel + 3], 0);
         let attached = font
             .with_named_font(ui::mod_panel::FONT_NAME, &font)
             .unwrap();
@@ -195,7 +197,8 @@ mod tests {
         );
         assert!(
             font.pages()[0]
-                .rgba8
+                .pixels
+                .bytes()
                 .chunks_exact(4)
                 .any(|pixel| (1..255).contains(&pixel[3]))
         );

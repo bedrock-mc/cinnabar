@@ -30,6 +30,9 @@ shared-codec and Jolyne transport hardening.
 
 ## Local source patches
 
+Jolyne's classic-skin login resource patch selects the slim geometry when the supplied
+upload has slim arms, keeping reconnects consistent with the selected local model.
+
 `DisconnectPacket` is hand-patched after generation to read
 `hide_disconnection_screen` and skip both message strings when it is set, as
 gophertunnel's `Disconnect.Marshal` does; the manifest still lacks that
@@ -41,6 +44,9 @@ keeping the server's reason and message texts for the disconnect screen.
 Jolyne hands off required resource packs instead of refusing them: either
 required bit makes stack selection strict and is carried as
 `ResourcePackHandoff::required`, so the client refuses a join it cannot fully apply.
+
+Jolyne's client requests only offered packs its `ResourcePackStore` cannot supply, answering
+HaveAllPacks when nothing is missing, as the vanilla client does for its pack cache.
 
 The self-signed login's client data reports `DeviceOS` 8 (Win32, the GDK Windows client) with a
 lowercase-hex `DeviceId` instead of upstream's Win10 and UUID; BDS 1.26.52 closes logins claiming Win10.

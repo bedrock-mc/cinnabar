@@ -32,7 +32,7 @@ impl UiModelDepths {
         layer: &super::composite::UiLayerTexture,
         device: &RenderDevice,
     ) {
-        let color = &layer.0.texture;
+        let color = &layer.texture;
         let size = color.size();
         let samples = color.sample_count();
         self.ensure_surface(owner, size, samples, device);
@@ -79,7 +79,7 @@ impl UiModelDepths {
         owner: Entity,
         layer: &super::composite::UiLayerTexture,
     ) -> Option<&UiModelDepth> {
-        let color = &layer.0.texture;
+        let color = &layer.texture;
         self.views
             .get(&owner)
             .filter(|depth| depth.size == color.size() && depth.samples == color.sample_count())
@@ -180,10 +180,7 @@ mod tests {
                 view_formats: &[],
             });
             let default_view = texture.create_view(&TextureViewDescriptor::default());
-            super::super::composite::UiLayerTexture(bevy::render::texture::CachedTexture {
-                texture,
-                default_view,
-            })
+            super::super::composite::UiLayerTexture::detached(texture, default_view)
         };
         let original = layer(64);
         let resized = layer(128);

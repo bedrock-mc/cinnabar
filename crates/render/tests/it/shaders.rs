@@ -8,12 +8,40 @@ use crate::ui_shader;
 
 /// Resolve the vanilla shader for standalone validation.
 fn standalone(source: &str) -> String {
-    let shader =
-        shader_safety::from_actor_wgsl(source, "standalone.wgsl", render::ACTOR_GPU_INSTANCE_WORDS);
+    let shader = shader_safety::from_actor_wgsl(
+        source,
+        "standalone.wgsl",
+        render::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
+    );
     let bevy::shader::Source::Wgsl(source) = shader.source else {
         panic!("checked constructor must produce WGSL");
     };
     shader_source::standalone(&source, &[])
+}
+
+#[test]
+fn dragon_dissolve_passes_preserve_identical_vertex_depths() {
+    let module = naga::front::wgsl::parse_str(&standalone(include_str!("../../src/actor.wgsl")))
+        .expect("production actor shader parses");
+    let vertex = module
+        .entry_points
+        .iter()
+        .find(|entry| entry.stage == naga::ShaderStage::Vertex)
+        .expect("actor vertex entry point");
+    let result = vertex.function.result.as_ref().expect("vertex output");
+    let naga::TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
+        panic!("actor vertex output is a struct");
+    };
+    let position = members.iter().find_map(|member| match member.binding {
+        Some(naga::Binding::BuiltIn(naga::BuiltIn::Position { invariant })) => Some(invariant),
+        _ => None,
+    });
+    assert_eq!(
+        position,
+        Some(true),
+        "the Equal-depth dissolve color pass requires invariant vertex positions"
+    );
 }
 
 #[test]
@@ -51,6 +79,7 @@ fn every_shader_parses_and_validates() {
                 &raw,
                 path.to_string_lossy(),
                 render::ACTOR_GPU_INSTANCE_WORDS,
+                render_model::ACTOR_RIG_VERTEX_WORDS,
             );
             let bevy::shader::Source::Wgsl(source) = shader.source else {
                 panic!("packed actor constructor must produce WGSL");

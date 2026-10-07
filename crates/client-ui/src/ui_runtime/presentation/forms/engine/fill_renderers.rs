@@ -1,5 +1,5 @@
 //! Custom renderers vanilla draws as flat fills: `progress_bar_renderer`
-//! (1.26.50 `ProgressBarRenderer`) and `gradient_renderer` (`GradientRenderer`).
+//! and `gradient_renderer`, as 1.26.50 draws them.
 
 use std::collections::BTreeMap;
 

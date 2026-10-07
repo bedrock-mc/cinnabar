@@ -1,8 +1,8 @@
 use crate::gpu_snapshot;
 use crate::shader_source;
 
-/// Current 1.26.50.26 buildSkyMesh stores a black centre and white
-/// decagon rim. renderSky translates it to Y256 and scales it by2000.
+/// The 1.26.50.26 sky mesh stores a black centre and white
+/// decagon rim. Vanilla translates it to Y256 and scales it by2000.
 /// The native Sky vertex shader uses that red channel to interpolate sky→fog.
 #[test]
 #[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
@@ -227,7 +227,7 @@ fn native_sky_gamma_interpolation_and_addition_survive_the_srgb_target() {
     }
 }
 
-/// Current renderSunAndMoon admits orbital phase through 105/255.
+/// Vanilla admits orbital phase through 105/255.
 /// Probe on either side, including the moon's180 offset, in the real shader.
 #[test]
 #[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]

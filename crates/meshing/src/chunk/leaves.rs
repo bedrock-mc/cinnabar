@@ -1,7 +1,6 @@
 //! Native leaf render-layer and shared-plane selection, using primary storage.
 //!
-//! LeavesBlock::_isDeep tests six neighbours;
-//! BlockOccluder::_updateRenderFace retains only one of the
+//! Vanilla leaves test six neighbours for depth and keep only one of the
 //! two coincident non-deep leaf faces, whose material disables backface culling.
 
 use std::cell::Cell;
@@ -59,8 +58,8 @@ impl<'assets, 'chunks> LeafOcclusion<'assets, 'chunks> {
         if self.known[word].get() & bit != 0 {
             return self.deep[word].get() & bit != 0;
         }
-        // Both native leaf types use this predicate; only ordinary LeavesBlock
-        // adds the seasonal colour material flag.
+        // Both native leaf types use this predicate; only ordinary leaves
+        // add the seasonal colour material flag.
         let deep = self.primary(coordinate).variant
             & (BLOCK_VISUAL_VARIANT_SEASONAL_LEAF | BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF)
             != 0

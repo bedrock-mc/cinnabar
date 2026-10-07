@@ -1,4 +1,4 @@
-//! The shield GUI ModelPart path, not the first-person attachable animation.
+//! The shield GUI model-part path, not the first-person attachable animation.
 
 use std::sync::Arc;
 

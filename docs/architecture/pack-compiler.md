@@ -17,8 +17,9 @@ The extraction preserves compiler entry points, input bounds, deterministic
 ordering, source identities, malformed-file skips and all existing fallback
 rules. The tracked legacy fallback table moved with the compiler without changing
 its bytes; its provenance records and registry rekey tools point to its new path.
-`make assets` tracks both the reusable compiler and the CLI sources so edits to
-either invalidate generated carriers.
+`make assets` runs `assetc prepare`, whose per-carrier fingerprint includes a
+digest of every source the compiler links, so edits to either invalidate the
+generated carriers.
 
 Unit tests and independent library integration suites moved with the compiler.
 Suites that exercise `assetc` alongside library calls remain in `asset-compiler`

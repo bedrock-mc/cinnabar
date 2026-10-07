@@ -79,8 +79,7 @@ const LARGE_CHEST: ContainerKind = kind(
     "container.chestDouble",
     &[("container_items", &CHEST_54)],
 );
-// Native ChestContainerManagerModel::_postInit
-// uses the container helper's size, rather than requiring exactly 27 or 54.
+// Vanilla chest screens use the container's size, rather than requiring exactly 27 or 54.
 // Server-authored chest layouts may display any of these bounded row counts.
 const MENU_CHESTS: [ContainerKind; 4] = [
     kind(

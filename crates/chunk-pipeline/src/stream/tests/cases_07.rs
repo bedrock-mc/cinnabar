@@ -389,6 +389,7 @@ fn publisher_identity_and_dimension_changes_reset_required_membership_epoch() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();

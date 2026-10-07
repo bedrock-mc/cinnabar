@@ -102,13 +102,8 @@ impl UiPresentationRuntime {
             policy.render_game_behind &= next.render_game_behind;
             policy.render_only_when_topmost = next.render_only_when_topmost;
         }
-        if view.dialog.is_some() {
-            let reference = if view.dialog == Some(crate::menu::MenuDialog::Accounts) {
-                super::accounts::SCREEN
-            } else {
-                "popup_dialog.modal_dialog_popup"
-            };
-            let popup = engine.scene_settings(reference, &screen.context);
+        if view.popup_open() {
+            let popup = engine.scene_settings("popup_dialog.modal_dialog_popup", &screen.context);
             policy.absorbs_input |= popup.absorbs_input;
             policy.render_game_behind &= popup.render_game_behind;
         }

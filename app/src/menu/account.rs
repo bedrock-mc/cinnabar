@@ -126,7 +126,6 @@ impl MenuRuntime {
 
     fn apply_catalog(&mut self, catalog: CatalogFile) {
         self.featured = catalog.featured;
-        self.gatherings = catalog.gatherings;
         self.realms = catalog.realms;
         self.friends = catalog.friends.into_iter().map(Into::into).collect();
         // Service errors may contain URLs, response bodies, or account material.
@@ -271,6 +270,7 @@ mod tests {
             Platform::Linux,
             &InstallEnvironment {
                 executable: PathBuf::from("/opt/Cinnabar Client/bin/bedrock-client"),
+                user_root: None,
                 home: Some(PathBuf::from("/home/Player One")),
                 local_app_data: None,
                 xdg_config_home: Some(PathBuf::from("/cfg/Player One")),
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn only_validated_authentication_selects_the_cache_for_a_connection() {
-        let layout = InstallLayout::discover().unwrap();
+        let layout = crate::install_layout::checkout();
         assert_eq!(validated_auth_cache(&layout, None), None);
         assert_eq!(
             validated_auth_cache(&layout, Some(&AuthState::SignedOut)),
@@ -377,6 +377,7 @@ mod tests {
         assert_eq!(
             offline_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -413,6 +414,7 @@ mod tests {
         assert_eq!(
             authenticated_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -444,6 +446,7 @@ mod tests {
         assert_eq!(
             enabled_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),

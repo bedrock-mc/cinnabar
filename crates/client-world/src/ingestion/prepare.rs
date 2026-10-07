@@ -12,6 +12,22 @@ use super::{
 
 /// Prepares packed mutations and the same light comparison used by direct predictions.
 pub fn prepare_block_mutations(
+    mut batches: Vec<BlockMutationBatch>,
+    ids: &DecodeIds,
+) -> Result<PreparedBlockMutations, MutationError> {
+    resolve_block_mutations(&mut batches, ids);
+    prepare_resolved_block_mutations(batches, ids)
+}
+
+pub(super) fn resolve_block_mutations(batches: &mut [BlockMutationBatch], ids: &DecodeIds) {
+    for batch in batches {
+        for update in &mut batch.updates {
+            update.runtime_id = BlockIds::resolve(ids, update.runtime_id);
+        }
+    }
+}
+
+pub(super) fn prepare_resolved_block_mutations(
     batches: Vec<BlockMutationBatch>,
     ids: &DecodeIds,
 ) -> Result<PreparedBlockMutations, MutationError> {
@@ -19,10 +35,7 @@ pub fn prepare_block_mutations(
         mutations: Vec::with_capacity(batches.len()),
         relight: BTreeSet::new(),
     };
-    for mut batch in batches {
-        for update in &mut batch.updates {
-            update.runtime_id = BlockIds::resolve(ids, update.runtime_id);
-        }
+    for batch in batches {
         let mutation = ChunkStore::prepare_sub_chunk_blocks(
             batch.key,
             batch.previous.as_deref(),

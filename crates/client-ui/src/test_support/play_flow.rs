@@ -84,12 +84,6 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
             art(dir, "cubecraft", [256, 256], [30, 110, 200]),
         ),
     ];
-    view.gatherings = vec![server(
-        "Minecraft Live",
-        "live.example.net:19132",
-        "Live event",
-        art(dir, "live", [256, 256], [140, 60, 200]),
-    )];
     view.realms = vec![
         realm("Steve's Realm", "open", false, 21, false),
         realm("Build Club", "closed", false, 3, false),
@@ -138,6 +132,7 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
         },
     ];
     let pong = |players, max_players, ping_ms| PingInfo {
+        motd: String::new(),
         online: true,
         players,
         max_players,
@@ -158,9 +153,12 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
     view.feeds.details.insert(
         "geo.hivebedrock.network:19132".to_owned(),
         ServerDetails {
+            group: String::new(),
+            player_count: None,
             description: "Minigames with friends, every day.".to_owned(),
             news_title: "Season 5".to_owned(),
             news: "A new season of Treasure Wars is live.".to_owned(),
+            banner: String::new(),
             screenshots: vec![art(dir, "hive_banner", [512, 154], [180, 120, 30])],
             games: vec![MenuGameCard {
                 title: "Treasure Wars".to_owned(),

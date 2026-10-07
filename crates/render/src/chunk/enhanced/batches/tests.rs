@@ -19,6 +19,7 @@ fn allocation(x: i32, index: u32) -> ArenaAllocation {
     let lighting_start = model_start + model_words;
     let draw_start = lighting_start + lighting_words;
     let gpu = GpuChunkAllocation {
+        cube_layout: Default::default(),
         key: SubChunkKey::new(0, x, 0, 0),
         generation: 1,
         tint_identity: Default::default(),

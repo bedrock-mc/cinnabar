@@ -7,29 +7,23 @@ the cubes; rotating the animated bones instead would also displace the head and
 legs. `animation.fox.setup` clears the body's animated X angle through Molang
 `this`, and cannot restore a missing cube bind.
 
-## Current client evidence
+## Vanilla rules
 
-MCSRC's verified current export is preview 1.26.50.26. Its matching executable
-SHA-256 is `7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`.
-The named 26.30 reference supplies navigation; the contracts below were checked
-against current canonical bodies or the matching executable.
+For the 1.26.50.26 client:
 
-- `01e59760` retains the geometry JSON hierarchy and passes it to `06ae8580`.
-- `06ae8580` dispatches bone parsing to `06ae88a0`. That parser's current
-  reconstructed body is unavailable, so its bind-field read was verified by
-  disassembly of the matching executable. VA `146aea6c5` loads
-  `bind_pose_rotation`; `146aea71e` calls hierarchy getter `00b95650`.
-  `146aea7d8` requires three array entries. `146aea841` through `146aea84b`
-  store the converted bind radians separately at node offsets `0x38..0x40`.
-- Canonical `00b95650` walks retained hierarchy nodes, continuing into older
-  nodes when a field is absent from a replacement. A missing bind in a modern
-  replacement therefore retains the base model's bind.
-- `01e61dd0` copies ordinary node rotation at `+0x20` into bone defaults and
-  passes bind rotation at `+0x38` separately to `01e62d50`. The latter combines
-  cube and bind Euler angles and rotates the cube pivot about the part pivot.
-  Children retain their authored pivots and animation frames.
+- Geometry parsing retains the JSON hierarchy of base and replacement models.
+- Each bone reads `bind_pose_rotation` through that hierarchy, requires three
+  entries, and stores the converted bind radians separately from the ordinary
+  rotation.
+- The hierarchy lookup continues into older nodes when a field is absent from a
+  replacement. A missing bind in a modern replacement therefore retains the base
+  model's bind.
+- Ordinary rotation becomes the bone default, while bind rotation is applied
+  separately to cubes: cube and bind Euler angles combine, and the cube pivot
+  rotates about the part pivot. Children retain their authored pivots and
+  animation frames.
 
-## Native resource witness
+## Vanilla resource witness
 
 The installed iOS vanilla pack is 1.26.51, a near-version resource witness,
 not an identical-version executable acceptance artifact. Base model archive
@@ -74,7 +68,7 @@ Rebuilding the entity, actor and equipment carriers from the pinned source
 restored the adults' horizontal bodies and elevated tails. The user inspected
 the corrected live gallery and accepted the foxes, including the adult tails.
 Standing appearance was accepted; extended pose/transition and exact-version
-native side-by-side acceptance were not performed.
+vanilla side-by-side acceptance were not performed.
 
 Before the final publication request, the pinned compiler regression passed,
 and the carrier-to-mesh regression failed against the uncorrected carrier then

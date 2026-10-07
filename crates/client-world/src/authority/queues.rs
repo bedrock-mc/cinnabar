@@ -7,7 +7,9 @@ impl WorldAuthority {
             .len()
             .saturating_add(self.committed_ui.len())
             .saturating_add(self.committed_audio.len())
+            .saturating_add(self.actors.synchronized_audio_count())
             .saturating_add(self.committed_camera.len())
+            .saturating_add(self.committed_primitive_shapes.len())
     }
 
     /// Returns undelivered controls to the front without changing their order.
@@ -19,6 +21,17 @@ impl WorldAuthority {
             assert!(self.committed_controls.len() < COMMITTED_CONTROL_CAPACITY);
             self.committed_controls.push_front(control);
         }
+    }
+
+    /// True while a committed teleport, correction, dimension change or spawn awaits local physics.
+    pub fn has_pending_spatial_control(&self) -> bool {
+        self.committed_controls.iter().any(|control| match control {
+            CommittedControlEvent::MovePlayer { .. }
+            | CommittedControlEvent::PlayerMovementCorrection { .. }
+            | CommittedControlEvent::ChangeDimension { .. } => true,
+            CommittedControlEvent::Respawn { respawn, .. } => respawn.ready_to_spawn(),
+            _ => false,
+        })
     }
 
     /// Drains committed control events in their original order.
@@ -37,6 +50,11 @@ impl WorldAuthority {
     pub fn take_committed_particles(&mut self) -> Vec<CommittedParticleEvent> {
         self.committed_particles.drain(..).collect()
     }
+    /// Removes the next shape packet without allocating a per-frame collection.
+    pub fn pop_primitive_shapes(&mut self) -> Option<PrimitiveShapesEvent> {
+        self.committed_primitive_shapes.pop_front()
+    }
+
     /// Drains committed camera events in their original order.
     pub fn take_committed_camera(&mut self) -> Vec<CommittedCameraEvent> {
         self.committed_camera.drain(..).collect()

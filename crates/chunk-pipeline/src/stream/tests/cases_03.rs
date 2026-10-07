@@ -271,7 +271,6 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
         .unwrap();
 
     assert!(stream.publisher.source_columns.contains(&source));
-    assert!(!stream.tracked_columns().contains(&source));
     assert!(matches!(
         stream.take_committed_controls().as_slice(),
         [super::CommittedControlEvent::MovePlayer {
@@ -280,6 +279,9 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
             ..
         }] if *cohort == source_cohort
     ));
+    assert!(stream.retain_local([1_040.5, 70.0, 1_040.5]));
+    assert!(!stream.tracked_columns().contains(&source));
+    assert!(stream.publisher.source_columns.contains(&source));
 }
 
 #[test]
@@ -424,6 +426,7 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [8.0, 80.0, 9.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -603,6 +606,7 @@ fn newer_subchunk_is_validated_after_fifo_blocked_dimension_change_commits() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [1_600.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -967,6 +971,7 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -1027,164 +1032,5 @@ fn subchunk_admission_requires_the_exact_expected_dimension_column_and_y() {
             .copied()
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([-4])
-    );
-}
-
-#[test]
-fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_order() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    let movement = MovePlayerEvent {
-        runtime_id: 1,
-        position: [4.0, 70.0, 5.0],
-        pitch: 7.0,
-        yaw: 9.0,
-        ..Default::default()
-    };
-    let change = ChangeDimensionEvent {
-        dimension: 1,
-        position: [8.0, 80.0, 9.0],
-    };
-    stream.submit(1, inline_air_event(0)).unwrap();
-    stream.submit(2, WorldEvent::MovePlayer(movement)).unwrap();
-    stream
-        .submit(3, WorldEvent::ChangeDimension(change))
-        .unwrap();
-
-    assert_eq!(stream.current_dimension(), 0);
-    assert!(stream.take_committed_controls().is_empty());
-
-    let super::DecodeJob::InlineLevelChunk {
-        event,
-        payload,
-        slots,
-        count,
-        ids,
-        ..
-    } = stream.pending_decode.pop_front().unwrap().job
-    else {
-        panic!("expected inline decode job")
-    };
-    let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-    let decoded = DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
-    stream
-        .order
-        .insert_ready(
-            1,
-            super::PreparedWorldEvent::InlineLevelChunk {
-                event,
-                decoded,
-                duration: std::time::Duration::ZERO,
-            },
-        )
-        .unwrap();
-    // Force one FIFO event per poll slice. A heavy commit can spend the normal frame
-    // budget, so controls need later slices even though all three events are ready.
-    stream.poll_deadline = Some(Instant::now());
-    stream.polling = true;
-    stream.apply_ready();
-    assert_eq!(stream.order.next_sequence(), 2);
-    assert_eq!(stream.current_dimension(), 0);
-    assert!(stream.take_committed_controls().is_empty());
-
-    stream.apply_ready();
-    assert_eq!(stream.order.next_sequence(), 3);
-    assert_eq!(stream.current_dimension(), 0);
-    stream.apply_ready();
-    assert_eq!(stream.order.next_sequence(), 4);
-    assert_eq!(stream.current_dimension(), 1);
-    assert_eq!(
-        stream.take_committed_controls(),
-        vec![
-            super::CommittedControlEvent::MovePlayer {
-                sequence: 2,
-                movement,
-                resolved: super::server_position::ResolvedServerPosition {
-                    position: movement.position,
-                    surface_anchor: None,
-                },
-                source_cohort: None,
-            },
-            super::CommittedControlEvent::ChangeDimension {
-                change,
-                resolved: super::server_position::ResolvedServerPosition {
-                    position: change.position,
-                    surface_anchor: None,
-                },
-            },
-        ]
-    );
-}
-
-#[test]
-fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    let correction = PlayerMovementCorrectionEvent {
-        position: [27.5, 111.0, 91.5],
-        delta: [0.25, -0.5, 0.75],
-        pitch: -12.0,
-        yaw: 143.0,
-        subject: MovementCorrectionSubject::Player,
-        on_ground: true,
-        tick: 4_096,
-    };
-    stream.submit(1, inline_air_event(0)).unwrap();
-    stream
-        .submit(2, WorldEvent::PlayerMovementCorrection(correction))
-        .unwrap();
-
-    assert!(stream.take_committed_controls().is_empty());
-
-    let super::DecodeJob::InlineLevelChunk {
-        event,
-        payload,
-        slots,
-        count,
-        ids,
-        ..
-    } = stream.pending_decode.pop_front().unwrap().job
-    else {
-        panic!("expected inline decode job")
-    };
-    let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-    let decoded = DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
-    stream
-        .order
-        .insert_ready(
-            1,
-            super::PreparedWorldEvent::InlineLevelChunk {
-                event,
-                decoded,
-                duration: std::time::Duration::ZERO,
-            },
-        )
-        .unwrap();
-    stream.apply_ready();
-
-    assert_eq!(
-        stream.take_committed_controls(),
-        vec![super::CommittedControlEvent::PlayerMovementCorrection {
-            sequence: 2,
-            correction,
-            resolved: super::server_position::ResolvedServerPosition {
-                position: correction.position,
-                surface_anchor: None,
-            },
-        }]
     );
 }

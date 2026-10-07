@@ -1,7 +1,6 @@
 use std::{fs, path::Path};
 
 use assets::{NetworkIdMode, RegistryRecord, RuntimeAssets, TOP_SNOW_LAYER_COUNT};
-use bevy::math::Vec3;
 use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape, crack_shape_from_template};
 
 fn fixture() -> (Vec<RegistryRecord>, RuntimeAssets) {
@@ -140,10 +139,10 @@ fn current_stair_selection_surface_uses_authoritative_corner_rotation_and_half()
                 shape,
             };
             let mut frame = BlockSelectionFrame::default();
-            frame.update(Some(&target), Vec3::splat(3.0), Vec3::NEG_Z, true);
-            // Named native StairBlock::getOutline deliberately uses one full box.
-            assert_eq!(frame.outline.len(), 12 * 6);
-            frame.update(Some(&target), Vec3::splat(3.0), Vec3::NEG_Z, false);
+            frame.update(Some(&target), true);
+            // Vanilla stair outlines deliberately use one full box.
+            assert_eq!(frame.outline.len(), 12 * 2);
+            frame.update(Some(&target), false);
             assert_eq!(frame.highlight.len(), quad_count * 6);
         }
     }
@@ -169,7 +168,7 @@ fn every_partial_native_snow_highlight_top_survives_above_the_surface() {
             shape,
         };
         let mut frame = BlockSelectionFrame::default();
-        frame.update(Some(&target), Vec3::new(0.5, 2.0, 0.5), Vec3::NEG_Y, false);
+        frame.update(Some(&target), false);
         let top = frame
             .highlight
             .iter()
@@ -180,7 +179,7 @@ fn every_partial_native_snow_highlight_top_survives_above_the_surface() {
             "{} top must be pushed outside snow, never inside",
             record.canonical_state
         );
-        frame.update(Some(&target), Vec3::new(0.5, 2.0, 0.5), Vec3::NEG_Y, true);
-        assert_eq!(frame.outline.len(), 12 * 6);
+        frame.update(Some(&target), true);
+        assert_eq!(frame.outline.len(), 12 * 2);
     }
 }

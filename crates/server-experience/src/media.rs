@@ -1,20 +1,26 @@
 //! Host media contracts and a constrained, opt-in WebM decoder.
 
+pub mod ceiling;
 pub mod clock;
 pub mod descriptor;
 #[cfg(any(feature = "developer-media", test))]
 mod faults;
 pub mod frames;
+pub mod helper;
+pub mod ipc;
 pub mod ranges;
 pub mod service;
 pub mod timeline;
 #[cfg(feature = "developer-media")]
 pub mod webm;
+pub mod worker;
+
+pub use service::output::Output;
 
 pub const MAX_WIDTH: u32 = 1280;
 pub const MAX_HEIGHT: u32 = 720;
 pub const MAX_FPS: u32 = 30;
-pub const MAX_FRAMES: usize = 3;
+pub const MAX_FRAMES: usize = 6;
 pub const MAX_COMPRESSED_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_SAMPLE_BYTES: usize = 2 * 1024 * 1024;
 pub const SAMPLE_RATE: u32 = 48_000;

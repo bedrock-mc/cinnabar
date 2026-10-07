@@ -1,5 +1,6 @@
 use assets::{
-    FontTexturePage, GlyphMetrics, RuntimeFontCatalog, RuntimeHudCatalog, encode_font_catalog,
+    FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, RuntimeHudCatalog,
+    encode_font_catalog,
 };
 use protocol::{
     BossAction as ProtocolBossAction, BossColor as ProtocolBossColor, BossEvent,
@@ -17,6 +18,7 @@ use crate::ui_runtime::SequencedUiEvent;
 mod bed_screen_tests;
 mod chat_screen_tests;
 mod container_screen_tests;
+mod credits_screen_tests;
 mod debug_overlay_tests;
 pub mod engine_hud_tests;
 mod forms_tests;
@@ -165,7 +167,7 @@ fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
                 pixels_sha256: Sha256::digest(&pixels).into(),
                 width: 1,
                 height: 1,
-                rgba8: pixels,
+                pixels: FontPixels::Rgba8(pixels),
             }
         })
         .collect::<Vec<_>>();

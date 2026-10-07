@@ -389,7 +389,7 @@ fn each_render_controller_draws_its_own_geometry() {
         0.5,
         None,
         layered.submissions.clone(),
-        Arc::from([]),
+        &[],
         &layered.artwork,
     );
     assert_eq!(frame.rig.instances.len(), 2, "{:?}", frame.rig.rejects);

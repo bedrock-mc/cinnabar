@@ -53,11 +53,13 @@ type Cache struct {
 
 var imageExtensions = map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/bmp": ".bmp"}
 
-// publicTransport shares bounded idle connections across catalog and store downloads.
+// publicTransport shares bounded idle connections across catalog and store downloads. A custom dialer
+// turns HTTP/2 off unless forced; parallel thumbnails from one CDN host then share its connection.
 var publicTransport = &http.Transport{
 	DialContext:         publicDialer(net.DefaultResolver.LookupIPAddr, (&net.Dialer{}).DialContext),
+	ForceAttemptHTTP2:   true,
 	TLSHandshakeTimeout: 10 * time.Second,
-	IdleConnTimeout:     90 * time.Second, MaxIdleConns: 100,
+	IdleConnTimeout:     90 * time.Second, MaxIdleConns: 100, MaxIdleConnsPerHost: 16,
 }
 
 // New returns a cache rooted at dir, created on first use.

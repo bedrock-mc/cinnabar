@@ -29,7 +29,8 @@ fn font_carrier_is_deterministic_and_bounded() {
     assert_eq!(runtime.pages().len(), 2);
     assert!(
         runtime.pages()[0]
-            .rgba8
+            .pixels
+            .bytes()
             .chunks_exact(4)
             .all(|pixel| pixel == [0x7f; 4])
     );

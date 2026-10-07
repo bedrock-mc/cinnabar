@@ -158,7 +158,7 @@ pub(super) fn profile(
             "{} Realms  •  {} joinable friends  •  {} catalog destinations",
             view.realms.len(),
             view.friends.len(),
-            view.featured.len() + view.gatherings.len()
+            view.featured.len()
         ),
         [area.left + SPACE_LG, top + 238.0],
         identity_width - SPACE_LG * 2.0,
@@ -250,7 +250,8 @@ pub(super) fn settings(
     let gap = SPACE_SM;
     let count = view.gui_scale_choices.len().max(1) as f32;
     let button_width = ((area.width - SPACE_LG * 2.0 - gap * (count - 1.0)) / count).max(1.0);
-    for (index, offset) in view.gui_scale_choices.iter().copied().enumerate() {
+    for (index, choice) in view.gui_scale_choices.iter().enumerate() {
+        let offset = choice.offset;
         let label = if view.gui_scale_offset == offset {
             format!("{offset}  Selected")
         } else {

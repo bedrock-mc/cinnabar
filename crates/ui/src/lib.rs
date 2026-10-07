@@ -21,7 +21,8 @@ pub use chat::{
     MAX_CHAT_INPUT_BYTES, MAX_CHAT_MESSAGES, MAX_CHAT_RETAINED_BYTES, MAX_PENDING_CHAT_SENDS,
 };
 pub use geometry::{
-    DesktopGuiScale, DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale, gui_scale,
+    DesktopGuiScale, DesktopGuiScaleChoice, DpiScale, GeometryError, SafeArea, UiPoint, UiRect,
+    UiScale, gui_scale,
 };
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
@@ -50,7 +51,7 @@ pub use settings::{
 pub use text::{
     BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, FormattingPalette,
     GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, ObfuscationGlyphs,
-    TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextError, TextLayout,
-    TextLayoutCache, TextLayoutKey, TextLayoutRequest, TextLineAlign, TextSpan, TextSpans,
-    TextStyle, TextWrap, WordChop, parse_bedrock_text,
+    TEXT_BASELINE_64, TEXT_BOLD_OFFSET_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextError,
+    TextLayout, TextLayoutCache, TextLayoutKey, TextLayoutRequest, TextLineAlign, TextSpan,
+    TextSpans, TextStyle, TextWrap, WordChop, parse_bedrock_text,
 };

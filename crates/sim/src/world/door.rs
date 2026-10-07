@@ -40,7 +40,7 @@ impl PaletteWorld<'_> {
         physics: &'a BlockPhysics,
         query: Aabb,
     ) -> Result<Cow<'a, [Aabb]>, WorldQueryError> {
-        let Some(door) = &physics.door else {
+        let Some(_) = &physics.door else {
             return Ok(Cow::Borrowed(&physics.shapes));
         };
         let offset = Vec3::new(position[0] as f64, position[1] as f64, position[2] as f64);
@@ -50,6 +50,21 @@ impl PaletteWorld<'_> {
         {
             return Ok(Cow::Borrowed(&[]));
         }
+        Ok(Cow::Owned(vec![
+            self.resolved_door_shape(position, physics)?
+                .expect("door physics has one resolved shape"),
+        ]))
+    }
+
+    /// Resolves the paired door plane on the stack for frequent visibility queries.
+    pub(super) fn resolved_door_shape(
+        &self,
+        position: [i32; 3],
+        physics: &BlockPhysics,
+    ) -> Result<Option<Aabb>, WorldQueryError> {
+        let Some(door) = &physics.door else {
+            return Ok(None);
+        };
         let mut neighbor = position;
         neighbor[1] = neighbor[1]
             .checked_add(if door.upper { -1 } else { 1 })
@@ -68,7 +83,7 @@ impl PaletteWorld<'_> {
             };
             (lower.facing, lower.open, upper.hinge_right)
         });
-        Ok(Cow::Owned(vec![door_box(facing, open, hinge)]))
+        Ok(Some(door_box(facing, open, hinge)))
     }
 }
 

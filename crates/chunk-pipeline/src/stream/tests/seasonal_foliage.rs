@@ -75,8 +75,14 @@ fn seasonal_snapshot_captures_higher_palette_sources_without_replacing_the_ao_ha
         stream.authority.terrain().sub_chunk(leaf).unwrap(),
         MeshLightHalo::default(),
     );
-    assert_eq!(snapshot.column_above.len(), 1);
-    assert_eq!(snapshot.column_above[0].0, 3);
+    assert_eq!(
+        snapshot
+            .neighbourhood()
+            .seasonal_column()
+            .map(|(y, _)| y)
+            .collect::<Vec<_>>(),
+        [0, 1, 3]
+    );
     assert!(snapshot.neighbourhood().sub_chunk([0, 1, 0]).is_some());
     assert_eq!(snapshot.neighbourhood().seasonal_column().count(), 3);
 }

@@ -135,31 +135,12 @@ impl LocalWorlds {
     fn dispatch(&self, effects: Vec<Effect>) {
         for effect in effects {
             if let Effect::OpenUrl(url) = effect {
-                open_url(url);
+                crate::desktop::open_url(url);
             } else if let Some(client) = &self.client {
                 client.send(effect);
             }
         }
     }
-}
-
-/// Opens a fixed https URL in the system browser; failures are ignored.
-pub(crate) fn open_url(url: &str) {
-    let mut command = if cfg!(target_os = "macos") {
-        std::process::Command::new("open")
-    } else if cfg!(target_os = "windows") {
-        let mut command = std::process::Command::new("cmd");
-        command.args(["/C", "start", ""]);
-        command
-    } else {
-        std::process::Command::new("xdg-open")
-    };
-    let _ = command
-        .arg(url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
 }
 
 fn pump_local_worlds(mut worlds: ResMut<LocalWorlds>) {
@@ -171,13 +152,20 @@ fn pause_on_focus(
     mut focus: MessageReader<WindowFocused>,
     mut worlds: ResMut<LocalWorlds>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
+    desktop_focus: Option<Res<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
     if let Some(menu) = menu {
         worlds.pause_on_unfocus = menu.settings_snapshot().0.value("pause_menu_on_focus_lost") != 0;
         worlds.sync_pause();
     }
-    for message in focus.read() {
-        worlds.focus_changed(message.focused);
+    if let Some(desktop_focus) = desktop_focus {
+        focus.clear();
+        worlds.focus_changed(driven.is_some() || desktop_focus.available());
+    } else {
+        for message in focus.read() {
+            worlds.focus_changed(message.focused);
+        }
     }
 }
 

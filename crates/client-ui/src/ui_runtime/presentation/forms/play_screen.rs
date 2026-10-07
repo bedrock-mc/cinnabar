@@ -1,11 +1,13 @@
 //! The vanilla play screen's bindings: Worlds (local worlds and Realms), Friends
 //! (joinable friend worlds and member Realms) and Servers (saved servers, and
-//! the featured list of servers then gatherings with the selected one's info
-//! panel), plus how its world and server presses map back to menu actions.
+//! the featured list of servers with the selected one's info panel), plus how
+//! its world and server presses map back to menu actions.
 
 use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
-use crate::menu::{MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo};
+use crate::menu::{
+    MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo, pingable,
+};
 
 const FEATURED: &str = "third_party_server_network_worlds";
 const PERSONAL_REALMS: &str = "personal_realms";
@@ -24,11 +26,30 @@ fn ping_texture(ping: Option<&PingInfo>) -> &'static str {
     }
 }
 
+/// A featured row's ping icon; an experience, having no server to ping, shows none.
+fn featured_ping_texture(pingable: bool, ping: Option<&PingInfo>) -> &'static str {
+    if pingable { ping_texture(ping) } else { "" }
+}
+
+/// Server pongs include capacity; missing or offline pongs leave the label empty.
 fn player_count(ping: Option<&PingInfo>) -> String {
     match ping {
         Some(ping) if ping.online => format!("{}/{}", ping.players, ping.max_players),
         _ => String::new(),
     }
+}
+
+/// Experience details show positive service counts as plain decimal numbers, without capacity.
+fn featured_player_count(view: &MenuView, address: &str) -> String {
+    if pingable(address) {
+        return player_count(view.feeds.pings.get(address));
+    }
+    view.feeds
+        .details
+        .get(address)
+        .and_then(|details| details.player_count)
+        .filter(|count| *count > 0)
+        .map_or_else(String::new, |count| count.to_string())
 }
 
 fn text(value: impl Into<String>) -> Scalar {
@@ -39,9 +60,9 @@ fn flag(data: &mut DataSource, name: &str, on: bool) {
     data.set_global(name, Scalar::Bool(on));
 }
 
-/// Featured servers followed by gatherings, as the Servers tab lists them.
+/// The featured servers, as the Servers tab lists them.
 fn featured(view: &MenuView) -> impl Iterator<Item = &MenuServerCard> {
-    view.featured.iter().chain(view.gatherings.iter())
+    view.featured.iter()
 }
 
 pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
@@ -126,13 +147,14 @@ fn featured_servers(view: &MenuView, data: &mut DataSource) {
         .enumerate()
         .map(|(index, server)| {
             let ping = view.feeds.pings.get(&server.address);
+            let pingable = pingable(&server.address);
             CollectionItem::default()
                 .with("#third_party_toggle_index", Scalar::Num(index as f64))
                 .with("#server_player_count", text(player_count(ping)))
-                .with("#texture_name", text(ping_texture(ping)))
+                .with("#texture_name", text(featured_ping_texture(pingable, ping)))
                 .with(
                     "#is_network_available_and_ping_not_loading",
-                    Scalar::Bool(ping.is_some()),
+                    Scalar::Bool(ping.is_some() || !pingable),
                 )
                 .with("#third_party_server_name", text(server.name.clone()))
                 .with("#third_party_server_message", text(server.caption.clone()))
@@ -156,12 +178,16 @@ fn featured_servers(view: &MenuView, data: &mut DataSource) {
         data.select_radio("server_navigation_toggle", index);
     }
     let ping = view.feeds.pings.get(&server.address);
-    flag(data, "#ping_ready_thirdparty", ping.is_some());
+    let pingable = pingable(&server.address);
+    flag(data, "#ping_ready_thirdparty", ping.is_some() || !pingable);
     data.set_global(
         "#info_third_party_server_player_count",
-        text(player_count(ping)),
+        text(featured_player_count(view, &server.address)),
     );
-    data.set_global("#info_ping_texture_name", text(ping_texture(ping)));
+    data.set_global(
+        "#info_ping_texture_name",
+        text(featured_ping_texture(pingable, ping)),
+    );
     data.set_global(
         "#info_server_ping",
         text(
@@ -284,13 +310,9 @@ fn realms(view: &MenuView, data: &mut DataSource) {
     data.set_collection(FRIEND_REALMS, friends);
 }
 
-/// Joining the featured-list entry at `index` (servers, then gatherings).
+/// Joining the featured-list entry at `index`.
 pub(super) fn play_featured(view: &MenuView, index: usize) -> Option<MenuAction> {
-    if index < view.featured.len() {
-        return Some(MenuAction::PlayFeatured(index));
-    }
-    let gathering = index - view.featured.len();
-    (gathering < view.gatherings.len()).then_some(MenuAction::PlayGathering(gathering))
+    (index < view.featured.len()).then_some(MenuAction::PlayFeatured(index))
 }
 
 /// The action for a press on the Servers tab's featured list or info panel.
@@ -324,6 +346,138 @@ mod tests {
     use json_ui::{HitKind, RectOut};
 
     use super::*;
+
+    /// Reads the selected server's count through the same global binding as the installed label.
+    fn bound_featured_count(view: &MenuView) -> serde_json::Value {
+        let name = "#info_third_party_server_player_count";
+        let label = json_ui::ResolvedControl {
+            name: "count".into(),
+            control_type: Some("label".into()),
+            base: None,
+            unresolved_base: None,
+            properties: [
+                ("text".into(), serde_json::json!(name)),
+                (
+                    "bindings".into(),
+                    serde_json::json!([{ "binding_name": name }]),
+                ),
+            ]
+            .into(),
+            children: Vec::new(),
+            factory: None,
+        };
+        let mut data = DataSource::new();
+        bind(view, &mut data);
+        json_ui::bind(&label, &data, &json_ui::EmptyLibrary).properties["text"].clone()
+    }
+
+    #[test]
+    fn selected_experience_player_count_reaches_existing_detail_binding() {
+        use crate::menu::ServerDetails;
+
+        let mut view = MenuView::new(true, "Steve".to_owned());
+        let address = format!("{}example", crate::menu::EXPERIENCE_ADDRESS_PREFIX);
+        view.featured.push(MenuServerCard {
+            address: address.clone(),
+            ..card("experience")
+        });
+        view.feeds.selected_featured = Some(0);
+        for (count, expected) in [(Some(12_345), "12345"), (Some(0), ""), (None, "")] {
+            view.feeds.details.insert(
+                address.clone(),
+                ServerDetails {
+                    player_count: count,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(bound_featured_count(&view), expected);
+        }
+    }
+
+    /// An experience has no server to ping, so its row shows no ping icon instead of a stale one.
+    #[test]
+    fn experiences_show_no_ping_icon() {
+        let pong = PingInfo {
+            motd: String::new(),
+            online: true,
+            players: 1,
+            max_players: 10,
+            ping_ms: 20,
+        };
+        assert!(!pingable("gathering/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"));
+        assert_eq!(featured_ping_texture(false, None), "");
+        assert_eq!(
+            featured_ping_texture(true, Some(&pong)),
+            "textures/ui/Ping_Green"
+        );
+        assert_eq!(
+            featured_ping_texture(true, None),
+            "textures/ui/Ping_Offline_Red"
+        );
+    }
+
+    #[test]
+    fn experience_player_counts_use_details_and_hide_unavailable_values() {
+        use crate::menu::ServerDetails;
+
+        let mut view = MenuView::new(true, "Steve".to_owned());
+        let address = format!("{}example", crate::menu::EXPERIENCE_ADDRESS_PREFIX);
+        view.feeds.pings.insert(
+            address.clone(),
+            PingInfo {
+                motd: String::new(),
+                online: true,
+                players: 2,
+                max_players: 10,
+                ping_ms: 20,
+            },
+        );
+        assert_eq!(featured_player_count(&view, &address), "");
+        for (count, expected) in [
+            (None, ""),
+            (Some(0), ""),
+            (Some(-1), ""),
+            (Some(1), "1"),
+            (Some(12_345), "12345"),
+            (Some(i64::MAX), "9223372036854775807"),
+        ] {
+            view.feeds.details.insert(
+                address.clone(),
+                ServerDetails {
+                    player_count: count,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(featured_player_count(&view, &address), expected);
+        }
+    }
+
+    #[test]
+    fn pingable_featured_servers_keep_pong_counts_and_capacity() {
+        use crate::menu::ServerDetails;
+
+        let mut view = MenuView::new(true, "Steve".to_owned());
+        let address = "server.test:19132";
+        view.feeds.details.insert(
+            address.to_owned(),
+            ServerDetails {
+                player_count: Some(12_345),
+                ..Default::default()
+            },
+        );
+        assert_eq!(featured_player_count(&view, address), "");
+        view.feeds.pings.insert(
+            address.to_owned(),
+            PingInfo {
+                motd: String::new(),
+                online: true,
+                players: 3,
+                max_players: 20,
+                ping_ms: 40,
+            },
+        );
+        assert_eq!(featured_player_count(&view, address), "3/20");
+    }
 
     fn card(name: &str) -> MenuServerCard {
         MenuServerCard {
@@ -385,24 +539,24 @@ mod tests {
     }
 
     #[test]
-    fn the_featured_list_runs_servers_then_gatherings() {
+    fn the_featured_list_joins_the_pressed_or_selected_server() {
         let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
-        view.featured = vec![card("a")];
-        view.gatherings = vec![card("g")];
+        view.featured = vec![card("a"), card("g")];
         assert_eq!(play_featured(&view, 0), Some(MenuAction::PlayFeatured(0)));
-        assert_eq!(play_featured(&view, 1), Some(MenuAction::PlayGathering(0)));
+        assert_eq!(play_featured(&view, 1), Some(MenuAction::PlayFeatured(1)));
         assert_eq!(play_featured(&view, 2), None);
         // The info panel's join button joins the selected entry.
         view.feeds.selected_featured = Some(1);
         assert_eq!(
             featured_action(&view, &press(None, None)),
-            Some(MenuAction::PlayGathering(0))
+            Some(MenuAction::PlayFeatured(1))
         );
     }
 
     #[test]
     fn pongs_pick_the_ping_icon_and_player_count() {
         let pong = |ping_ms| PingInfo {
+            motd: String::new(),
             online: true,
             players: 3,
             max_players: 20,

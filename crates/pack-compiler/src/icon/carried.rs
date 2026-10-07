@@ -42,9 +42,9 @@ pub(super) fn tile(
 }
 
 fn overlay_rgb(source: &str) -> Option<[u8; 3]> {
-    // Matched 26.50 TextureJSONParser keeps the low RGB bytes
-    // of the hexadecimal value and forces opacity to one. The matching
-    // TextureAtlas::updateTextureAtUVs mixes original/tinted RGB
+    // 26.50's texture JSON parsing keeps the low RGB bytes
+    // of the hexadecimal value and forces opacity to one. Vanilla atlas
+    // tinting mixes original/tinted RGB
     // by sample alpha and forces positive-overlay alpha to one.
     // Malformed pack extensions remain unresolved instead of guessed.
     let hex = source.strip_prefix('#')?;

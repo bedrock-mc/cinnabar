@@ -1,50 +1,40 @@
-//! Server-driven camera shake (positional and rotational); presentation-only.
-//! Amplitude scales, frequencies and fade shape need native measurement.
+//! Queued positional and rotational camera shake with independent intensity envelopes.
 
-use bevy::prelude::{EulerRot, Quat, Vec3};
+mod noise;
+
+use bevy::prelude::{EulerRot, Quat, Transform, Vec2, Vec3};
 
 const MAX_INTENSITY: f32 = 4.0;
-const MAX_DURATION_SECONDS: f32 = 3600.0;
-const POSITION_BLOCKS_PER_INTENSITY: f32 = 0.02;
-const ROTATION_DEGREES_PER_INTENSITY: f32 = 0.5;
-const FREQUENCIES_HZ: [f32; 3] = [17.0, 23.0, 29.0];
+const MAX_QUEUED_SHAKES: usize = 4096;
+const DECAY_PER_SECOND: f32 = 1.0;
+const FREQUENCY: f32 = 10.0;
+const AMPLITUDE_RADIANS: f32 = 5.0 * std::f32::consts::PI / 180.0;
+const NOISE_MULTIPLIER: f32 = 4.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct ActiveShake {
+struct ShakeEvent {
     intensity: f32,
-    duration: f32,
-    elapsed: f32,
+    remaining: f32,
 }
 
-impl ActiveShake {
-    fn new(intensity: f32, duration_seconds: f32) -> Option<Self> {
-        if !(intensity.is_finite() && duration_seconds.is_finite()) || duration_seconds <= 0.0 {
-            return None;
+#[derive(Debug, Default, Clone, PartialEq)]
+struct ShakeQueue {
+    events: Vec<ShakeEvent>,
+    intensity: f32,
+}
+
+impl ShakeQueue {
+    /// Active events add together; the previous peak decays as their combined floor falls.
+    fn advance(&mut self, delta: f32) {
+        let total = self
+            .events
+            .iter()
+            .fold(0.0, |sum, event| sum + event.intensity);
+        self.intensity = (self.intensity - DECAY_PER_SECOND * delta).max(total.min(MAX_INTENSITY));
+        for event in &mut self.events {
+            event.remaining -= delta;
         }
-        Some(Self {
-            intensity: intensity.clamp(0.0, MAX_INTENSITY),
-            duration: duration_seconds.min(MAX_DURATION_SECONDS),
-            elapsed: 0.0,
-        })
-    }
-
-    fn amplitude(&self) -> f32 {
-        self.intensity * (1.0 - self.elapsed / self.duration).clamp(0.0, 1.0)
-    }
-
-    fn sample(&self) -> Vec3 {
-        let t = self.elapsed;
-        let axis = |phase: f32| {
-            FREQUENCIES_HZ
-                .iter()
-                .enumerate()
-                .map(|(index, hz)| {
-                    ((t * hz + phase + index as f32 * 1.7) * std::f32::consts::TAU).sin()
-                })
-                .sum::<f32>()
-                / FREQUENCIES_HZ.len() as f32
-        };
-        Vec3::new(axis(0.0), axis(0.31), axis(0.67)) * self.amplitude()
+        self.events.retain(|event| event.remaining > 0.0);
     }
 }
 
@@ -55,134 +45,107 @@ pub enum ShakeKind {
     Rotational,
 }
 
-/// Camera-local offset produced by the active shakes.
+/// World-space translation and Euler pitch/yaw perturbations produced by active shakes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShakeOffset {
     pub translation: Vec3,
-    pub rotation: Quat,
+    pub rotation_radians: Option<Vec2>,
 }
 
 impl ShakeOffset {
     pub const NONE: Self = Self {
         translation: Vec3::ZERO,
-        rotation: Quat::IDENTITY,
+        rotation_radians: None,
     };
+
+    /// Adds positional noise in world axes and rotational noise in the camera's Euler axes.
+    pub fn apply(self, pose: &mut Transform) {
+        pose.translation += self.translation;
+        if let Some(shake) = self.rotation_radians {
+            let (yaw, pitch, _) = pose.rotation.to_euler(EulerRot::YXZ);
+            pose.rotation = Quat::from_euler(EulerRot::YXZ, yaw - shake.y, pitch - shake.x, 0.0);
+        }
+    }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct ShakeState {
-    positional: Option<ActiveShake>,
-    rotational: Option<ActiveShake>,
+    positional: ShakeQueue,
+    rotational: ShakeQueue,
+    noise: Option<noise::Noise>,
+    elapsed: f32,
 }
 
 impl ShakeState {
-    /// Starts a shake of `kind`, replacing one in flight; returns whether it was accepted.
+    /// Queues a positive finite shake without replacing earlier commands of the same kind.
     pub fn add(&mut self, kind: ShakeKind, intensity: f32, duration_seconds: f32) -> bool {
-        let shake = ActiveShake::new(intensity, duration_seconds);
-        match kind {
-            ShakeKind::Positional => self.positional = shake,
-            ShakeKind::Rotational => self.rotational = shake,
+        if !intensity.is_finite()
+            || !duration_seconds.is_finite()
+            || intensity <= 0.0
+            || duration_seconds <= 0.0
+        {
+            return false;
         }
-        shake.is_some()
+        let queue = match kind {
+            ShakeKind::Positional => &mut self.positional,
+            ShakeKind::Rotational => &mut self.rotational,
+        };
+        if queue.events.len() == MAX_QUEUED_SHAKES {
+            return false;
+        }
+        queue.events.push(ShakeEvent {
+            intensity,
+            remaining: duration_seconds,
+        });
+        self.noise.get_or_insert_with(noise::Noise::default);
+        true
     }
 
+    /// Removes both queue types immediately while retaining their allocated buffers.
     pub fn stop_all(&mut self) {
-        *self = Self::default();
+        for queue in [&mut self.positional, &mut self.rotational] {
+            queue.events.clear();
+            queue.intensity = 0.0;
+        }
+        self.elapsed = 0.0;
+        self.noise = None;
     }
 
+    /// Reports queued events independently of their current sampled intensity.
     #[must_use]
     pub fn is_active(&self) -> bool {
-        self.positional.is_some() || self.rotational.is_some()
+        !self.positional.events.is_empty() || !self.rotational.events.is_empty()
     }
 
+    /// Advances both envelopes without allocating; final expiry removes the whole effect.
     pub fn advance(&mut self, delta_seconds: f32) {
-        if !(delta_seconds.is_finite() && delta_seconds > 0.0) {
+        if !(delta_seconds.is_finite() && delta_seconds > 0.0 && self.is_active()) {
             return;
         }
-        for slot in [&mut self.positional, &mut self.rotational] {
-            if let Some(shake) = slot.as_mut() {
-                shake.elapsed += delta_seconds;
-                if shake.elapsed >= shake.duration {
-                    *slot = None;
-                }
-            }
+        self.positional.advance(delta_seconds);
+        self.rotational.advance(delta_seconds);
+        self.elapsed += delta_seconds;
+        if !self.is_active() {
+            self.stop_all();
         }
     }
 
+    /// Samples the shared noise fields with independent positional and rotational intensities.
     #[must_use]
     pub fn offset(&self) -> ShakeOffset {
-        let translation = self.positional.map_or(Vec3::ZERO, |shake| {
-            shake.sample() * POSITION_BLOCKS_PER_INTENSITY
-        });
-        let rotation = self.rotational.map_or(Quat::IDENTITY, |shake| {
-            let degrees = shake.sample() * ROTATION_DEGREES_PER_INTENSITY;
-            Quat::from_euler(
-                EulerRot::XYZ,
-                degrees.x.to_radians(),
-                degrees.y.to_radians(),
-                degrees.z.to_radians(),
-            )
-        });
+        let Some(noise) = &self.noise else {
+            return ShakeOffset::NONE;
+        };
+        let noise = noise.sample(self.elapsed * NOISE_MULTIPLIER, FREQUENCY)
+            * AMPLITUDE_RADIANS
+            * NOISE_MULTIPLIER;
         ShakeOffset {
-            translation,
-            rotation,
+            translation: noise * self.positional.intensity,
+            rotation_radians: (self.rotational.intensity > 0.0)
+                .then_some(noise.truncate() * self.rotational.intensity),
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn expires_after_its_duration_and_fades_out() {
-        let mut state = ShakeState::default();
-        assert!(state.add(ShakeKind::Positional, 2.0, 1.0));
-        let peak = |state: &mut ShakeState, steps: usize| {
-            let mut peak = 0.0_f32;
-            for _ in 0..steps {
-                state.advance(0.01);
-                peak = peak.max(state.offset().translation.length());
-            }
-            peak
-        };
-        let early = peak(&mut state, 30);
-        peak(&mut state, 40);
-        let late = peak(&mut state, 25);
-        assert!(early > 0.0 && late < early);
-        state.advance(0.1);
-        assert!(!state.is_active());
-        assert_eq!(state.offset(), ShakeOffset::NONE);
-    }
-
-    #[test]
-    fn kinds_are_independent_and_stop_clears_both() {
-        let mut state = ShakeState::default();
-        state.add(ShakeKind::Rotational, 1.0, 5.0);
-        state.advance(0.1);
-        assert_eq!(state.offset().translation, Vec3::ZERO);
-        assert_ne!(state.offset().rotation, Quat::IDENTITY);
-        state.add(ShakeKind::Positional, 1.0, 5.0);
-        state.stop_all();
-        assert!(!state.is_active());
-    }
-
-    #[test]
-    fn malformed_shakes_are_rejected() {
-        let mut state = ShakeState::default();
-        assert!(!state.add(ShakeKind::Positional, f32::NAN, 1.0));
-        assert!(!state.add(ShakeKind::Positional, 1.0, 0.0));
-        assert!(!state.is_active());
-    }
-
-    #[test]
-    fn intensity_is_clamped() {
-        let mut state = ShakeState::default();
-        state.add(ShakeKind::Positional, 1000.0, 10.0);
-        state.advance(0.01);
-        assert!(
-            state.offset().translation.length()
-                <= MAX_INTENSITY * POSITION_BLOCKS_PER_INTENSITY * 2.0
-        );
-    }
-}
+mod tests;

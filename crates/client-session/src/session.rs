@@ -36,6 +36,8 @@ pub struct NetworkConfig {
     pub client_blob_cache: ClientBlobCache,
     /// The client's own skin, uploaded in the ClientData login payload.
     pub player_skin: protocol::ClientSkin,
+    /// Server-pack archives kept across joins; `None` downloads every offered pack.
+    pub resource_pack_store: Option<Arc<dyn protocol::ResourcePackStore>>,
 }
 
 /// Which transport leg or lifecycle stage produced a session failure.
@@ -71,7 +73,7 @@ pub enum NetworkControlEvent<P = ()> {
         inventory: InventoryEvent,
         item_registry: Option<ItemRegistryEvent>,
         player_game_mode: PlayerGameMode,
-        world_default_game_mode: PlayerGameMode,
+        world_default_game_mode: protocol::GameModeUpdate,
         player_game_mode_uses_world_default: bool,
         server_authoritative_block_breaking: bool,
         /// StartGame `RewindHistorySize`, raw.
@@ -433,6 +435,11 @@ impl<P> NetworkHandle<P> {
 
     /// Queues an unguarded movement-side packet such as a prediction sync.
     pub fn send_movement_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
+    }
+
+    /// Queues a transfer acknowledgement without invalidating it on a physics reanchor.
+    pub fn send_dimension_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
         self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 

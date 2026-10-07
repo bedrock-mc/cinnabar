@@ -50,11 +50,14 @@ pub(crate) fn apply_window_settings(
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
-    window.mode = if user.video.fullscreen {
-        bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current)
-    } else {
-        bevy::window::WindowMode::Windowed
-    };
+    // A hidden capture window keeps its requested size instead of taking over a display.
+    if window.visible {
+        window.mode = if user.video.fullscreen {
+            bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current)
+        } else {
+            bevy::window::WindowMode::Windowed
+        };
+    }
     if previous_cap.as_ref() != Some(&user.video.frame_cap)
         && (*observed != 0 || user.video.frame_cap.is_some())
         && let Some(mut pacing) = pacing

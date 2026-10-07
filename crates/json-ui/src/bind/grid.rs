@@ -94,6 +94,8 @@ impl Binder<'_> {
             children,
             deferred: None,
             retained: false,
+            scope: Scope::default(),
+            track: super::reuse::Track::built(Default::default(), false, None, None),
         })
     }
 }

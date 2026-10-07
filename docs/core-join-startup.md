@@ -11,7 +11,7 @@ This documents control flow, not a captured retail wire trace.
 | --- | --- |
 | Radius first | StartGame directly requests and sends the chunk radius. |
 | Loading transitions | Scheduled loading-screen transitions queue start/end packets. Start follows the direct radius request; end follows closing the screen. |
-| Initialization | Send the local runtime ID once after loading state `0x10`, stable dimension state `0`, and `isInWorldAndNotShowingAnyMenuScreens` are satisfied. This is local readiness after the screen closes, rather than a direct PlayerSpawn response. |
+| Initialization | Send the local runtime ID once terrain loading has completed, the dimension is stable, and the player is in the world with no menu screen showing. This is local readiness after the screen closes, rather than a direct PlayerSpawn response. |
 | Pack acquisition and selection | Check compatibility and the required bit of the selected stack; incompatible required content is fatal. Acquisition separately handles required and optional downloads. |
 | Transfer | Pass the packet's address and port to the server-transfer initiator to build the destination connection. This does not establish a bridge shutdown algorithm or spawn prerequisite. |
 
@@ -37,11 +37,11 @@ server received 0 chunks before initialized and 637 in the 8 s after. Jolyne the
 whether a publisher update, level chunk or sub-chunk preceded spawn. When none did, the startup
 view is empty until the server publishes one, so the gate releases once received work drains.
 **Provisional:** vanilla must also complete loading without terrain here (it joins Dragonfly),
-but the path that does so remains unresolved. Loading state 4 completes (0x10) only
-once loaded chunks reach the needed count or, after a deadline, every
-`_mChunksNeededForLoadOffsets` chunk is loaded, and a position check passes.
-State 0x200 completes directly unless the view's `bool` argument is set;
-`stopLoading` sets 0x10 directly, through callers not resolved here.
+but the path that does so remains unresolved. Vanilla's terrain loading step
+completes only once loaded chunks reach the needed count or, after a deadline,
+every chunk in its fixed nine-column load set is loaded, and a position check
+passes. The following loading step normally completes directly; an explicit stop
+also completes terrain loading, through callers not resolved here.
 
 `offline_core_preserves_spawn_order_and_startup_transfer` starts the production Go relay
 against a local scripted upstream and runs the actual Rust socket login. The upstream

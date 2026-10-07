@@ -1,7 +1,7 @@
 //! Formatting colors loaded from the active JSON-UI global variables.
 //!
-//! Vanilla UIDefRepository::_applyGlobalColorFormat reads RGB triples and updates
-//! ColorFormat's shared table.
+//! Vanilla reads RGB triples from the global colour definitions into its shared
+//! format-code colour table.
 
 use super::BedrockColor;
 

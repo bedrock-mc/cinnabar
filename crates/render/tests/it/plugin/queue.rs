@@ -398,7 +398,7 @@ fn packed_chunk_shader_parses_and_validates() {
     );
     assert!(shader.contains("material_flags & (1u << 8u)"));
     assert!(shader.contains("sampled.a < 0.5"));
-    assert_eq!(shader.matches("discard").count(), 2);
+    assert_eq!(shader.matches("discard;").count(), 2);
     assert!(shader.contains("material_flags & 0x30u"));
     assert!(shader.contains("fn material_uses_overlay_mask(flags: u32)"));
     assert!(shader.contains("return (flags & OVERLAY_MASK) != 0u;"));

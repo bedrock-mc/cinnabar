@@ -1,7 +1,7 @@
 //! Immutable startup artwork pages. Pixel decoding and hashing never run per frame.
 use assets::RuntimeActorCatalog;
 use bevy::prelude::Resource;
-use render_model::{EntityRigId, MAX_RENDERED_PLAYERS, STANDARD_SKIN_BYTES};
+use render_model::EntityRigId;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -13,10 +13,14 @@ use std::{
 mod color_mask_tests;
 #[path = "artwork/multitexture.rs"]
 mod multitexture;
+#[cfg(test)]
+#[path = "artwork/page_capacity_tests.rs"]
+mod page_capacity_tests;
 
-/// Every page a `u8` page id names: the player page plus 255 generic pages. Vanilla startup
-/// art takes 15 generic pages; a large server pack adds one per distinct texture size.
-pub const MAX_ACTOR_TEXTURE_PAGES: usize = u8::MAX as usize + 1;
+/// CPU draw routing selects an artwork page independently of the shader's texture layer.
+pub type ActorArtworkPageId = u16;
+/// Player skins occupy page zero; generic artwork occupies the remaining page IDs.
+pub const MAX_ACTOR_TEXTURE_PAGES: usize = ActorArtworkPageId::MAX as usize + 1;
 /// Layers per generic entity page, within every backend's array-layer limit.
 const MAX_ACTOR_PAGE_LAYERS: usize = 256;
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
@@ -41,7 +45,7 @@ fn push_page(
     pages: &mut Vec<ActorTexturePage>,
     gpu_bytes: &mut usize,
     page: ActorTexturePage,
-) -> Option<u8> {
+) -> Option<ActorArtworkPageId> {
     let mut page = page;
     while !within_page_budget(pages.len() + 1, gpu_bytes.saturating_add(page.rgba8.len())) {
         let longest = u32::from(page.width.max(page.height));
@@ -52,7 +56,7 @@ fn push_page(
     }
     *gpu_bytes += page.rgba8.len();
     pages.push(page);
-    u8::try_from(pages.len()).ok()
+    ActorArtworkPageId::try_from(pages.len()).ok()
 }
 
 /// Copies ordered texture layers into one allocation without a per-byte iterator.
@@ -64,13 +68,13 @@ fn concatenate_layers<'a>(layers: impl Iterator<Item = &'a [u8]> + Clone) -> Vec
     pixels
 }
 
-fn player_page_bytes() -> usize {
-    MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES
+const fn player_page_bytes() -> usize {
+    super::PLAYER_SKIN_BUDGET_BYTES
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ActorArtworkLocation {
-    pub(crate) page: u8,
+    pub(crate) page: ActorArtworkPageId,
     pub(crate) layer: u32,
     pub(crate) pose_mode: assets::ActorPoseMode,
     pub(crate) multitexture: Option<[u32; 2]>,
@@ -79,7 +83,7 @@ impl ActorArtworkLocation {
     pub fn pose_mode(self) -> assets::ActorPoseMode {
         self.pose_mode
     }
-    pub fn page(self) -> u8 {
+    pub fn page(self) -> ActorArtworkPageId {
         self.page
     }
     pub fn layer(self) -> u32 {
@@ -154,20 +158,40 @@ impl ActorTexturePage {
 pub struct ActorArtworkPages {
     pub(crate) identity: [u8; 32],
     pub(crate) entity_identity: [u8; 32],
+    pub(crate) actor_glint: Option<EquipmentRaster>,
     pub(crate) pages: Arc<[ActorTexturePage]>,
     routes: Arc<BTreeMap<EntityRigId, ActorArtworkLocation>>,
     /// Location of every catalog texture by entity-catalog source index.
     source_locations: Arc<BTreeMap<u32, ActorArtworkLocation>>,
     /// `(page, layer)` of every catalog texture; any entity rig may draw these variants.
-    entity_locations: Arc<BTreeSet<(u8, u32)>>,
+    entity_locations: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
     /// `(page, layer)` of every equipment raster; equipment rigs are not entity routes.
-    equipment: Arc<BTreeSet<(u8, u32)>>,
+    equipment: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
     /// Session pack textures by pack-catalog source index, a separate index space.
     pack_source_locations: Arc<BTreeMap<u32, ActorArtworkLocation>>,
-    pack_locations: Arc<BTreeSet<(u8, u32)>>,
+    pack_locations: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
     rejected_bindings: usize,
 }
 impl ActorArtworkPages {
+    /// Installs the shared actor glint image once, independently of skin and armor pages.
+    #[must_use]
+    pub fn with_actor_glint(mut self, raster: EquipmentRaster) -> Self {
+        if raster.width == 0
+            || raster.height == 0
+            || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
+        {
+            return self;
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(self.identity);
+        hasher.update(raster.width.to_le_bytes());
+        hasher.update(raster.height.to_le_bytes());
+        hasher.update(&raster.rgba8);
+        self.identity = hasher.finalize().into();
+        self.actor_glint = Some(raster);
+        self
+    }
+
     pub fn new(catalog: &RuntimeActorCatalog) -> Self {
         let dimensions = multitexture::page_dimensions(catalog);
         let mut groups = BTreeMap::<(u16, u16, bool, bool), Vec<usize>>::new();
@@ -241,7 +265,7 @@ impl ActorArtworkPages {
                 Some((texture.source, locations.get(&(index as u32)).copied()?))
             })
             .collect();
-        let entity_locations: BTreeSet<(u8, u32)> = source_locations
+        let entity_locations: BTreeSet<(ActorArtworkPageId, u32)> = source_locations
             .values()
             .map(|location| (location.page, location.layer))
             .collect();
@@ -250,6 +274,7 @@ impl ActorArtworkPages {
             entity_locations: Arc::new(entity_locations),
             identity: catalog.identity(),
             entity_identity: catalog.entity_identity(),
+            actor_glint: None,
             pages: pages.into(),
             routes: Arc::new(routes),
             equipment: Arc::new(BTreeSet::new()),
@@ -338,9 +363,8 @@ impl ActorArtworkPages {
         }
         (self, locations)
     }
-    /// Appends pages for a session pack's artwork and routes its bindings under pack rig ids;
-    /// a page over the byte budget is dropped and its bindings counted as rejected. Replaces
-    /// any earlier pack's variant table, so call it on the startup pages each session.
+    /// Appends session artwork under pack rig IDs, replacing its previous variant table.
+    /// Call on startup pages so removed packs release their routes and pixel budget.
     #[must_use]
     pub fn with_pack_artwork(
         mut self,
@@ -491,6 +515,9 @@ impl ActorArtworkPages {
     pub fn identity(&self) -> [u8; 32] {
         self.identity
     }
+    pub fn actor_glint(&self) -> Option<&EquipmentRaster> {
+        self.actor_glint.as_ref()
+    }
 
     /// Recognizes clones of the exact artwork snapshot without scanning pixels or routes.
     pub fn shares_storage_with(&self, other: &Self) -> bool {
@@ -539,6 +566,7 @@ impl ActorArtworkPages {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_model::MAX_RENDERED_PLAYERS;
 
     /// Route-only changes can retain the pixel identity but must invalidate prepared artwork.
     #[test]

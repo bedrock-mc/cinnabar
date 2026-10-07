@@ -33,6 +33,13 @@ pub enum Profile {
 impl Descriptor {
     /// Checks the complete signed chunk index and declared decoder allocation budget.
     pub fn validate(&self, origins: &BTreeSet<String>) -> Result<()> {
+        self.validate_profile()?;
+        crate::fetch::approved_url(&self.url, origins)?;
+        Ok(())
+    }
+
+    /// Everything but origin approval, which only the fetching parent can check.
+    pub fn validate_profile(&self) -> Result<()> {
         ensure!(
             crate::manifest::identifier(&self.id) && crate::manifest::identifier(&self.timeline),
             "invalid media identity"
@@ -72,7 +79,6 @@ impl Descriptor {
         for hash in &self.chunk_hashes {
             crate::crypto::fixed_hex::<32>(hash)?;
         }
-        crate::fetch::approved_url(&self.url, origins)?;
         Ok(())
     }
 }

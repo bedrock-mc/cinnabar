@@ -1,12 +1,13 @@
 //! CPU witnesses for the exact model-reference order already uploaded to the GPU.
 use super::*;
-use crate::chunk::transparent::sort::quantized_camera_position;
 
 #[derive(Debug)]
 pub(in crate::chunk) struct TransparentModelDrawOrder {
     pub(in crate::chunk) identity: TransparentModelAllocationIdentity,
     pub(in crate::chunk) revision: u64,
     pub(in crate::chunk) words: Arc<[[u32; 2]]>,
+    /// Class the uploaded order was sorted for; `None` for the mesher's unsorted order.
+    pub(in crate::chunk) class: Option<FaceOrderClass>,
 }
 
 #[derive(Debug, Default)]
@@ -16,15 +17,8 @@ pub(in crate::chunk) struct TransparentModelDrawOrders {
     retained_refs: usize,
     // A successful GPU sort with no room for its CPU witness must never be
     // mistaken for a newly uploaded, naturally ordered allocation next frame.
-    unwitnessed: HashMap<Entity, TransparentModelAllocationIdentity>,
-}
-
-pub(in crate::chunk) fn camera_position_bits(position: Vec3) -> Option<[u32; 3]> {
-    let values = quantized_camera_position(position.to_array());
-    values
-        .iter()
-        .all(|value| value.is_finite())
-        .then(|| values.map(|value| if value == 0.0 { 0 } else { value.to_bits() }))
+    // Its class is still kept, so a camera move re-sorts it like any witnessed order.
+    unwitnessed: HashMap<Entity, (TransparentModelAllocationIdentity, Option<FaceOrderClass>)>,
 }
 
 impl TransparentModelDrawOrders {
@@ -41,10 +35,10 @@ impl TransparentModelDrawOrders {
         self.unwitnessed = self
             .unwitnessed
             .drain()
-            .filter_map(|(_, mut identity)| {
+            .filter_map(|(_, (mut identity, class))| {
                 let &entity = residents.get(&identity.key)?;
                 identity.entity = entity;
-                Some((entity, identity))
+                Some((entity, (identity, class)))
             })
             .collect();
         self.retained_refs = self.entries.values().map(|order| order.words.len()).sum();
@@ -59,7 +53,28 @@ impl TransparentModelDrawOrders {
             .filter(|entry| &entry.identity == identity)
     }
 
-    fn insert(&mut self, identity: TransparentModelAllocationIdentity, words: Arc<[[u32; 2]]>) {
+    /// Class the uploaded order of `identity` was sorted for, witnessed or not.
+    pub(in crate::chunk) fn class(
+        &self,
+        identity: &TransparentModelAllocationIdentity,
+    ) -> Option<FaceOrderClass> {
+        self.get(identity).map_or_else(
+            || {
+                self.unwitnessed
+                    .get(&identity.entity)
+                    .filter(|(unwitnessed, _)| unwitnessed == identity)
+                    .and_then(|(_, class)| *class)
+            },
+            |order| order.class,
+        )
+    }
+
+    fn insert(
+        &mut self,
+        identity: TransparentModelAllocationIdentity,
+        words: Arc<[[u32; 2]]>,
+        class: Option<FaceOrderClass>,
+    ) {
         let replaced = self
             .entries
             .get(&identity.entity)
@@ -71,7 +86,7 @@ impl TransparentModelDrawOrders {
         if retained > MAX_TRANSPARENT_DRAW_REFS {
             // Never leave a stale witness after a successful GPU write.
             self.entries.remove(&identity.entity);
-            self.unwitnessed.insert(identity.entity, identity);
+            self.unwitnessed.insert(identity.entity, (identity, class));
             self.retained_refs = self.retained_refs.saturating_sub(replaced);
             return;
         }
@@ -83,6 +98,7 @@ impl TransparentModelDrawOrders {
                 identity,
                 revision: self.next_revision,
                 words,
+                class,
             },
         );
         self.retained_refs = retained;
@@ -109,7 +125,31 @@ impl TransparentModelDrawOrders {
         {
             return;
         }
-        self.insert(identity.clone(), Arc::from(batch.words));
+        self.insert(identity.clone(), Arc::from(batch.words), Some(batch.class));
+    }
+
+    /// Records `batch`'s class without a new revision when its order is already uploaded.
+    pub(in crate::chunk) fn reclassify_unchanged(
+        &mut self,
+        address: &TransparentModelAddressIdentity,
+        batch: &TransparentModelSortBatch,
+    ) -> bool {
+        let Some(identity) = address
+            .allocations
+            .iter()
+            .find(|identity| identity.draw_range == batch.draw_range)
+        else {
+            return false;
+        };
+        let Some(entry) = self
+            .entries
+            .get_mut(&identity.entity)
+            .filter(|entry| &entry.identity == identity && *entry.words == *batch.words)
+        else {
+            return false;
+        };
+        entry.class = Some(batch.class);
+        true
     }
 
     pub(in crate::chunk) fn refresh(
@@ -117,7 +157,7 @@ impl TransparentModelDrawOrders {
         arena: &ChunkGpuArena,
         instances: &Query<&ChunkRenderInstance>,
     ) {
-        self.unwitnessed.retain(|entity, identity| {
+        self.unwitnessed.retain(|entity, (identity, _)| {
             arena.allocations.get(entity).is_some_and(|resident| {
                 let gpu = &resident.gpu;
                 gpu.generation == identity.generation
@@ -189,6 +229,7 @@ impl TransparentModelDrawOrders {
                     draw_range: draw_range.clone(),
                 },
                 words.into(),
+                None,
             );
         }
     }
@@ -216,12 +257,13 @@ mod tests {
             allocations: Arc::from([identity.clone()]),
         };
         let mut orders = TransparentModelDrawOrders::default();
-        orders.insert(identity.clone(), Arc::from([[0, 0], [0, 1]]));
+        orders.insert(identity.clone(), Arc::from([[0, 0], [0, 1]]), None);
         let initial_revision = orders.get(&identity).unwrap().revision;
         orders.publish(
             &address,
             TransparentModelSortBatch {
                 draw_range: identity.draw_range.clone(),
+                class: FaceOrderClass::Far([0, 0, 1]),
                 words: vec![[0, 1], [0, 0]].into_boxed_slice(),
             },
         );
@@ -241,24 +283,13 @@ mod tests {
             retained_refs: MAX_TRANSPARENT_DRAW_REFS,
             ..default()
         };
-        orders.insert(identity.clone(), Arc::from([[0, 1], [0, 0]]));
+        orders.insert(identity.clone(), Arc::from([[0, 1], [0, 0]]), None);
         assert!(orders.get(&identity).is_none());
-        assert_eq!(orders.unwitnessed.get(&identity.entity), Some(&identity));
-        assert_eq!(orders.retained_refs, MAX_TRANSPARENT_DRAW_REFS);
-    }
-
-    #[test]
-    fn model_camera_key_tracks_position_canonicalizes_zero_and_refuses_nonfinite() {
         assert_eq!(
-            camera_position_bits(Vec3::ZERO),
-            camera_position_bits(Vec3::splat(-0.0))
+            orders.unwitnessed.get(&identity.entity),
+            Some(&(identity.clone(), None))
         );
-        assert_ne!(
-            camera_position_bits(Vec3::ZERO),
-            camera_position_bits(Vec3::Z)
-        );
-        assert!(camera_position_bits(Vec3::splat(f32::INFINITY)).is_none());
-        assert!(camera_position_bits(Vec3::splat(f32::NAN)).is_none());
+        assert_eq!(orders.retained_refs, MAX_TRANSPARENT_DRAW_REFS);
     }
 
     #[test]
@@ -268,8 +299,10 @@ mod tests {
         unknown.entity = Entity::from_bits(2);
         unknown.key.x += 1;
         let mut orders = TransparentModelDrawOrders::default();
-        orders.insert(temporary.clone(), Arc::from([[0, 1], [0, 0]]));
-        orders.unwitnessed.insert(unknown.entity, unknown.clone());
+        orders.insert(temporary.clone(), Arc::from([[0, 1], [0, 0]]), None);
+        orders
+            .unwitnessed
+            .insert(unknown.entity, (unknown.clone(), None));
         let resident = Entity::from_bits(20);
         let unknown_resident = Entity::from_bits(21);
         let revision = orders.get(&temporary).unwrap().revision;
@@ -285,6 +318,9 @@ mod tests {
         assert_eq!(witness.revision, revision);
         assert_eq!(orders.retained_refs, witness.words.len());
         unknown.entity = unknown_resident;
-        assert_eq!(orders.unwitnessed.get(&unknown_resident), Some(&unknown));
+        assert_eq!(
+            orders.unwitnessed.get(&unknown_resident),
+            Some(&(unknown, None))
+        );
     }
 }

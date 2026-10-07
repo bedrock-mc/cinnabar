@@ -2,8 +2,8 @@
 //!
 //! This bounded crosswalk adds canonical inventory keys to the existing atlas
 //! routes. It establishes neither auxiliary icon states nor metadata policy.
-//! Current Item::initClient reads components.minecraft:icon;
-//! the table records native packaged seed components omitted from the sample pack.
+//! Vanilla reads components.minecraft:icon;
+//! the table records native packaged food and seed components omitted from the sample pack.
 
 use std::collections::BTreeSet;
 
@@ -20,7 +20,7 @@ pub(super) const RETAIL_ITEMS: &[u8] =
     include_bytes!("../../../protocol/data/retail_items_1_26_50.tsv");
 const RETAIL_SHA256: &str = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821";
 const ATLAS_SHA256: &str = "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a";
-const ROUTE_COUNT: usize = 33;
+const ROUTE_COUNT: usize = 43;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

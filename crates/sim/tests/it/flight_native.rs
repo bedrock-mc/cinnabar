@@ -1,5 +1,5 @@
-//! Frozen float regressions from identified current-client flight controls and
-//! PE constants. These are source-derived cases, not captured live trajectories.
+//! Frozen float regressions for vanilla flight controls and constants. These are
+//! derived cases, not captured live trajectories.
 
 use sim::{
     Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
@@ -86,8 +86,8 @@ impl CollisionWorld for FlightSurface {
 
 #[test]
 fn flight_ground_friction_uses_start_contact_and_native_support_probe() {
-    // DefaultMoveSystems flying wrapper 0x099cce30 calls horizontalMovement
-    // 0x099cc8b0, which samples starting feet minus 0.1 before collision.
+    // Flying horizontal movement samples friction at the starting feet minus
+    // 0.1 before collision.
     let moving = MovementInput {
         forward: 1.0,
         fly_speed: Some(0.0),
@@ -193,8 +193,8 @@ fn flight_ground_friction_uses_start_contact_and_native_support_probe() {
 
 #[test]
 fn vertical_controls_and_hover_precede_movement_with_independent_drag() {
-    // VerticalFlySpeedControl 0x02c452b0 precedes movement; FlyDrag
-    // 0x03217940 retains y independently. Each pair is (movement, velocity).
+    // Vertical fly input precedes movement; fly drag retains y independently.
+    // Each pair is (movement, velocity).
     let cases = [
         (
             "creative idle",
@@ -310,8 +310,8 @@ fn horizontal_hover_friction_does_not_modify_vertical_flight_drag() {
 
 #[test]
 fn horizontal_ability_speed_and_sprint_scale_without_flight_sneak_slowdown() {
-    // HorizontalFlySpeedControl 0x03235360 reads float ability 6 and its
-    // sprint table. Flying descent does not slow the processed horizontal axis.
+    // Horizontal fly speed reads float ability 6 and the sprint multiplier.
+    // Flying descent does not slow the processed horizontal axis.
     let cases = [
         (None, false, false, [0x3d48_b43a, 0x3d36_a402]),
         (None, false, true, [0x3d48_b43a, 0x3d36_a402]),

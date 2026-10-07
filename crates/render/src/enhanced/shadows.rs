@@ -157,7 +157,10 @@ impl ViewNode for EnhancedShadowNode {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    world,
+                    crate::RuntimeStage::GpuShadows,
+                ),
                 occlusion_query_set: None,
             });
             pass.set_bind_group(2, casters, &[(index as u64 * CASTER_SLOT_BYTES) as u32]);

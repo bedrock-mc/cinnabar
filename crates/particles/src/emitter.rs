@@ -14,6 +14,9 @@ use super::{
 
 mod manual;
 
+#[cfg(test)]
+mod lifetime_tests;
+
 /// Pixels for one dynamic terrain tile.
 #[derive(Clone, Debug)]
 pub struct TileRequest {
@@ -59,7 +62,6 @@ pub struct Outputs {
 
 pub const MAX_SPAWN_DEPTH: u8 = 4;
 const MAX_PARTICLES_PER_BURST: f32 = 512.0;
-const MAX_EMITTER_AGE: f32 = 600.0;
 
 pub struct Emitter {
     pub id: u64,
@@ -201,20 +203,11 @@ impl Emitter {
                 let cycle = (self.age / period) as u64;
                 (self.age - cycle as f32 * period <= self.active_time, cycle)
             }
-            Lifetime::Expression {
-                activation,
-                expiration,
-            } => {
-                if self.eval(expiration) != 0.0 {
-                    self.done = true;
-                }
+            Lifetime::Expression { activation, .. } => {
                 let active = !self.done && self.eval(activation) != 0.0;
                 (active, 0)
             }
         };
-        if self.age > MAX_EMITTER_AGE {
-            self.done = true;
-        }
         let active = active && !self.done;
         let starting = active && (!self.was_active || cycle != self.cycle);
         if starting {
@@ -255,6 +248,13 @@ impl Emitter {
         let count = (to_spawn as usize).min(live_budget.max(1));
         for _ in 0..count {
             self.spawn_particle(output);
+        }
+        // Expression expiration follows the active instant burst, including
+        // portal emitters that expire immediately.
+        if let Lifetime::Expression { expiration, .. } = &def.emitter.lifetime
+            && self.eval(expiration) != 0.0
+        {
+            self.done = true;
         }
         if self.age > self.active_time
             && !matches!(def.emitter.lifetime, Lifetime::Looping { .. })
@@ -572,6 +572,35 @@ mod tests {
         assert_eq!(e.particles.len(), 5);
         e.advance(0.05, &mut out, 1000);
         assert_eq!(e.particles.len(), 5);
+    }
+
+    #[test]
+    fn immediate_expression_expiration_emits_its_instant_burst_and_preserves_live_particles() {
+        let json = INSTANT.replace(
+            r#""minecraft:emitter_lifetime_once":{"active_time":1}"#,
+            r#""minecraft:emitter_lifetime_expression":{"expiration_expression":1}"#,
+        );
+        let mut e = emitter(&json, 3);
+        let mut out = Outputs::default();
+        e.advance(0.05, &mut out, 1000);
+        assert_eq!(e.particles.len(), 5);
+        assert!(e.done);
+        assert!(!e.is_finished());
+        e.advance(0.05, &mut out, 1000);
+        assert_eq!(e.particles.len(), 5);
+    }
+
+    #[test]
+    fn immediate_expiration_does_not_override_an_inactive_emitter() {
+        let json = INSTANT.replace(
+            r#""minecraft:emitter_lifetime_once":{"active_time":1}"#,
+            r#""minecraft:emitter_lifetime_expression":{"activation_expression":0,"expiration_expression":1}"#,
+        );
+        let mut e = emitter(&json, 3);
+        e.advance(0.05, &mut Outputs::default(), 1000);
+        assert!(e.done);
+        assert!(e.is_finished());
+        assert!(e.particles.is_empty());
     }
 
     #[test]

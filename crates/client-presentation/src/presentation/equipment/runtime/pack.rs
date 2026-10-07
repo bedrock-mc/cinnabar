@@ -35,6 +35,19 @@ impl EquipmentRuntime {
             .collect()
     }
 
+    /// The catalog's shared enchantment raster, which binds apart from equipment pages.
+    pub fn actor_glint(catalog: &RuntimeEquipmentCatalog) -> Option<EquipmentRaster> {
+        catalog
+            .textures()
+            .iter()
+            .find(|texture| texture.identifier.as_ref() == assets::ACTOR_GLINT_TEXTURE_IDENTIFIER)
+            .map(|texture| EquipmentRaster {
+                width: texture.width,
+                height: texture.height,
+                rgba8: Arc::clone(&texture.rgba8),
+            })
+    }
+
     /// Geometries the actor scene must register for the pack's attachables, under pack
     /// equipment rig ids.
     pub fn pack_geometries(
@@ -64,14 +77,20 @@ impl EquipmentRuntime {
     /// Installs the session's pack layer, or removes it. `locations` parallel the catalog's
     /// textures (the pages `pack_rasters` produced).
     pub fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
+        self.java_rasters.retain(|(from_pack, _, _), _| !from_pack);
         self.attachable_meshes.retain(|(from_pack, _, _), rig| {
             if *from_pack {
                 self.free_meshes.push(*rig);
             }
             !from_pack
         });
-        self.pending
-            .retain(|geometry| !self.free_meshes.contains(&geometry.id));
+        // Pack equipment ids name the replaced pack's geometry indices.
+        self.pending.retain(|geometry| {
+            !self.free_meshes.contains(&geometry.id)
+                && !render_model::is_pack_equipment_rig_id(geometry.id)
+        });
+        self.selected_geometries
+            .retain(|rig| !render_model::is_pack_equipment_rig_id(*rig));
         self.armor_maps
             .retain(|(_, geometry), _| !geometry.starts_with(ARMOR_CACHE_PREFIX));
         self.pack = layer.map(|(assets, catalog, locations)| PackEquipment {
@@ -132,6 +151,10 @@ impl EquipmentRuntime {
                 rig: render_model::pack_equipment_rig_id(index),
                 names: geometry_bone_names(&pack.assets, index as usize)?,
                 pivots: geometry_bone_pivots(&pack.assets, index as usize)?,
+                binding_expressions: geometry_bone_binding_expressions(
+                    &pack.assets,
+                    index as usize,
+                )?,
             }))
         });
         let entry = from_pack.or_else(|| {
@@ -140,6 +163,10 @@ impl EquipmentRuntime {
                     rig: equipment_rig_id(index),
                     names: geometry_bone_names(vanilla, index as usize)?,
                     pivots: geometry_bone_pivots(vanilla, index as usize)?,
+                    binding_expressions: geometry_bone_binding_expressions(
+                        vanilla,
+                        index as usize,
+                    )?,
                 }))
             })
         });

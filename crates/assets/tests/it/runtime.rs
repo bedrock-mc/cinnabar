@@ -605,12 +605,16 @@ fn decode_rejects_mip_length_mismatches_and_allocation_limits() {
 }
 
 #[test]
-fn decode_rejects_page_payload_hash_reserved_bits_and_noncanonical_ranges() {
-    let mut bad_page_hash = valid_blob();
-    let pages_offset = read_u64(&bad_page_hash, 248) as usize;
-    bad_page_hash[pages_offset + 32] ^= 1;
-    reseal(&mut bad_page_hash);
-    assert_rejected(&bad_page_hash, "page payload hash mismatch");
+fn page_digests_are_encoded_and_reserved_bits_and_noncanonical_ranges_are_rejected() {
+    // The envelope seals page payloads at decode; the encoder owns their digests.
+    let blob = valid_blob();
+    let pages_offset = read_u64(&blob, 248) as usize;
+    let texture_offset = read_u64(&blob, pages_offset + 16) as usize;
+    let texture_length = read_u64(&blob, pages_offset + 24) as usize;
+    assert_eq!(
+        &blob[pages_offset + 32..pages_offset + 64],
+        Sha256::digest(&blob[texture_offset..texture_offset + texture_length]).as_slice()
+    );
 
     let mut bad_page_reserved = valid_blob();
     let pages_offset = read_u64(&bad_page_reserved, 248) as usize;

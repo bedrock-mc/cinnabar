@@ -2,7 +2,8 @@ use crate::{AssetError, TextureArray};
 
 pub const MAX_TEXTURE_PAGES: usize = 2;
 pub const MAX_MODEL_TEMPLATES: usize = 65_536;
-pub const MAX_MODEL_QUADS: usize = MAX_MODEL_TEMPLATES * 32;
+pub const MAX_MODEL_TEMPLATE_QUADS: usize = u32::BITS as usize;
+pub const MAX_MODEL_QUADS: usize = MAX_MODEL_TEMPLATES * MAX_MODEL_TEMPLATE_QUADS;
 pub const MAX_ANIMATIONS: usize = 65_536;
 pub const MAX_ANIMATION_FRAMES: usize = 1_048_576;
 pub const NO_MODEL_TEMPLATE: u32 = u32::MAX;
@@ -24,7 +25,7 @@ pub const BLOCK_VISUAL_VARIANT_SEASONAL_LEAF: u32 = 1 << 28;
 pub const SEASONAL_LEAF_EXPOSED_OFFSET: u32 = crate::BlockFace::ALL.len() as u32;
 pub const SEASONAL_LEAF_DEEP_OFFSET: u32 = SEASONAL_LEAF_EXPOSED_OFFSET * 2;
 pub const SEASONAL_LEAF_MATERIAL_COUNT: u32 = SEASONAL_LEAF_DEEP_OFFSET * 2;
-/// SeasonsAgnosticLeaves uses the same cutout/deep group layout, without a
+/// Season-agnostic leaves use the same cutout/deep group layout, without a
 /// seasonal colour selector. Its carried face table is unchanged.
 pub const BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF: u32 = 1 << 27;
 pub const BLOCK_VISUAL_VARIANT_MATERIAL_MASK: u32 = crate::MAX_MATERIALS as u32 - 1;
@@ -72,8 +73,8 @@ pub(crate) fn covered_grass_variant_is_valid(
 pub const MODEL_TEMPLATE_FLAG_KELP: u32 = 1 << 0;
 /// Template belongs to a contiguous five-shape stair topology group.
 pub const MODEL_TEMPLATE_FLAG_STAIR: u32 = 1 << 1;
-/// Template is the first half of a bounded two-template compound model. The
-/// immediately following plain template is its sole continuation.
+/// Template continues into the immediately following part. A plain part ends
+/// the chain, and each part retains one bounded visibility mask.
 pub const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT: u32 = 1 << 2;
 /// Template belongs to a contiguous sixteen-mask thin-pane topology group.
 pub const MODEL_TEMPLATE_FLAG_PANE: u32 = 1 << 3;
@@ -95,6 +96,20 @@ pub const MODEL_TEMPLATE_FLAG_SNOW_LAYER: u32 = 1 << 10;
 pub const MODEL_TEMPLATE_FLAG_LILY_PAD: u32 = 1 << 11;
 /// Template belongs to the supported/attached native fire topology group.
 pub const MODEL_TEMPLATE_FLAG_FIRE: u32 = 1 << 12;
+/// Nether portal cuboids; legacy unknown-axis visuals select between a Z/X pair.
+pub const MODEL_TEMPLATE_FLAG_NETHER_PORTAL: u32 = 1 << 13;
+/// Neighbor-selected portal axis. The low two model-transform bits stay zero.
+pub const BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN: u32 = 1 << 2;
+pub const NETHER_PORTAL_IDENTIFIER: &str = "minecraft:portal";
+
+/// The End portal surface is drawn by the block-entity renderer.
+pub const END_PORTAL_IDENTIFIER: &str = "minecraft:end_portal";
+
+/// The End gateway uses the same animated surface family.
+pub const END_GATEWAY_IDENTIFIER: &str = "minecraft:end_gateway";
+
+/// End portal frame state identity shared by compilation and presentation.
+pub const END_PORTAL_FRAME_IDENTIFIER: &str = "minecraft:end_portal_frame";
 
 pub(crate) fn transparent_cube_quad_geometry_is_valid(
     index: usize,
@@ -127,6 +142,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_SNOW_LAYER
             | MODEL_TEMPLATE_FLAG_LILY_PAD
             | MODEL_TEMPLATE_FLAG_FIRE
+            | MODEL_TEMPLATE_FLAG_NETHER_PORTAL
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }
@@ -242,6 +258,20 @@ pub struct ModelTemplate {
     pub quad_start: u32,
     pub quad_count: u32,
     pub flags: u32,
+}
+
+/// Returns the contiguous parts of one admitted compound model without allocating.
+#[must_use]
+pub fn model_template_parts(templates: &[ModelTemplate], first: u32) -> Option<&[ModelTemplate]> {
+    let first = first as usize;
+    let mut end = first;
+    loop {
+        let part = templates.get(end)?;
+        end += 1;
+        if part.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
+            return templates.get(first..end);
+        }
+    }
 }
 
 /// Fixed-point template quad. Position coordinates use 1/256 block units.

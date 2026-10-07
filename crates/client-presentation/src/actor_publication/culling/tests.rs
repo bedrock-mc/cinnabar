@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 use crate::presentation::actors::{
     local_diagnostic_presentation, select_actor_presentations_for_shadow_view,
@@ -123,6 +125,8 @@ fn rig() -> ActorRigSnapshot<'static> {
         item_animation: [client_world::ItemAnimationState::default(); 2],
         off_hand_animation: [client_world::ItemAnimationState::default(); 2],
         animation_variables: client_world::ActorAnimationVariables::default(),
+        java: client_world::JavaMotion::default(),
+        java_equipped: None,
     }
 }
 
@@ -134,43 +138,56 @@ fn voxel_hidden_actor_can_cast_without_bypassing_vanilla_occlusion() {
         yaw: 0.0,
         head_yaw: 0.0,
     };
-    let actor = client_world::ActorSnapshot {
-        unique_id: 1,
-        runtime_id: 1,
-        spawn_revision: 1,
-        movement_revision: 1,
-        kind: protocol::ActorKind::Entity {
-            identifier: "minecraft:pig".into(),
+    let mut world = client_world::WorldAuthority::new(
+        protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 999,
+            local_player_unique_id: 999,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
         },
-        position: pose.position,
-        velocity: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        head_yaw: 0.0,
-        previous_pose: pose,
-        received_pose: pose,
-        interpolation_ticks_remaining: 0,
-        body_yaw: 0.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: None,
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
-    };
+        Arc::new(assets::RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    world
+        .apply_ordered_event(
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 1,
+                kind: protocol::ActorKind::Entity {
+                    identifier: "minecraft:pig".into(),
+                },
+                position: pose.position,
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+            Some(1),
+        )
+        .unwrap();
+    let actor = world.actor(1).unwrap();
     assert!(!rig_may_be_published(
         &rig(),
-        &actor,
+        actor,
         0.0,
         Some(views(false)),
         |_, _| true
     ));
     assert!(rig_may_be_published(
         &rig(),
-        &actor,
+        actor,
         0.0,
         Some(views(true)),
         |_, _| { panic!("sun caster admission must not query main-camera voxel visibility") }

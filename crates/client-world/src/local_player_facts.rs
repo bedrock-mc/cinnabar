@@ -24,6 +24,7 @@ pub struct LocalPlayerFacts {
     server_authoritative_block_breaking: Option<bool>,
     hunger: Option<LocalPlayerStat>,
     mount_unique_id: Option<i64>,
+    immobile: bool,
 }
 
 impl LocalPlayerFacts {
@@ -98,6 +99,9 @@ impl LocalPlayerFacts {
                 self.player_mode_from_default = false;
                 true
             }
+            GameModeUpdate::LegacyViewer => {
+                self.apply_game_mode_update(GameModeUpdate::Explicit(PlayerGameMode::Spectator))
+            }
             GameModeUpdate::WorldDefault => match self.world_default_game_mode {
                 Some(default) => {
                     self.player_game_mode = Some(default);
@@ -120,6 +124,9 @@ impl LocalPlayerFacts {
                 }
                 true
             }
+            GameModeUpdate::LegacyViewer => self.apply_default_game_mode_update(
+                GameModeUpdate::Explicit(PlayerGameMode::Spectator),
+            ),
             GameModeUpdate::WorldDefault | GameModeUpdate::Unknown(_) => false,
         }
     }
@@ -170,6 +177,27 @@ impl LocalPlayerFacts {
     #[must_use]
     pub const fn mount_unique_id(&self) -> Option<i64> {
         self.mount_unique_id
+    }
+
+    /// Applies FIFO-committed local flags for this session; omitted fields retain their state.
+    pub fn apply_local_movement_flags(
+        &mut self,
+        session_id: u64,
+        flags: crate::MovementFlagUpdate,
+    ) -> bool {
+        if self.session_id != session_id {
+            return false;
+        }
+        if let Some(immobile) = flags.immobile {
+            self.immobile = immobile;
+        }
+        true
+    }
+
+    /// Server immobility prevents travel without locking camera or raw input.
+    #[must_use]
+    pub const fn is_immobile(&self) -> bool {
+        self.immobile
     }
 }
 

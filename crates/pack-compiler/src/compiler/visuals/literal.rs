@@ -2,7 +2,7 @@
 //! texture map, and blocks vanilla draws nothing for.
 //!
 //! Anything that needs geometry the pack does not carry (hopper, brewing stand, campfire,
-//! lantern, candle, cauldron, end rod, ...) stays diagnostic until measured.
+//! candle, cauldron, end rod, ...) stays diagnostic until measured.
 
 use super::super::*;
 use super::context::{RuleInputs, diagnostic_visual};
@@ -29,6 +29,8 @@ pub(in crate::compiler) fn is_literal_cube(record: &RegistryRecord) -> bool {
                 | "minecraft:budding_amethyst"
                 | "minecraft:crimson_nylium"
                 | "minecraft:warped_nylium"
+                | "minecraft:allow"
+                | "minecraft:deny"
         )
 }
 

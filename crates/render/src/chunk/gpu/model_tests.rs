@@ -231,6 +231,7 @@ fn model_mdi_batch_emits_one_command_per_eligible_allocation() {
         (
             entity,
             GpuChunkAllocation {
+                cube_layout: CubeQuadLayout::default(),
                 key: SubChunkKey::new(0, start as i32, 0, 0),
                 generation: 1,
                 tint_identity: tint,
@@ -315,6 +316,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
     let tint = ChunkBiomeTintIdentity::new(4, 5);
     let instance = ChunkRenderInstance {
         light_emitters: Arc::from([]),
+        cube_layout: CubeQuadLayout::default(),
         key,
         cube_quads: Arc::from([]),
         cube_lighting: Arc::from([]),
@@ -345,6 +347,7 @@ fn transparent_refs_require_exact_instance_identity_and_aligned_stream_ranges() 
         origin: [16, 32, 48],
     };
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key,
         generation: 6,
         tint_identity: tint,
@@ -399,6 +402,7 @@ fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
     let key = SubChunkKey::new(0, 1, 2, 3);
     let instance = ChunkRenderInstance {
         light_emitters: Arc::from([]),
+        cube_layout: CubeQuadLayout::default(),
         key,
         cube_quads: Arc::from([]),
         cube_lighting: Arc::from([]),
@@ -420,6 +424,7 @@ fn transparent_model_refs_require_the_exact_gpu_generation_and_stream_ranges() {
         origin: [16, 32, 48],
     };
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key,
         generation: 6,
         tint_identity: instance.tint_identity,

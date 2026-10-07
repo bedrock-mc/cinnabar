@@ -73,6 +73,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<RainSplashQueue>();
     app.init_resource::<crate::PrecipitationMix>();
     app.init_resource::<crate::LightningScene>();
+    app.init_resource::<crate::MediaScreenScene>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -90,6 +91,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
         ExtractResourcePlugin::<PrecipitationScene>::default(),
         ExtractResourcePlugin::<WeatherTextureAssets>::default(),
         ExtractResourcePlugin::<crate::LightningScene>::default(),
+        ExtractResourcePlugin::<crate::MediaScreenScene>::default(),
     ));
     load_internal_asset!(
         app,
@@ -101,6 +103,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     install_cloud_render(app);
     install_weather_render(app);
     install_lightning_render(app);
+    crate::media_screen::install_media_screen_render(app);
 
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -597,7 +600,10 @@ fn queue_atmosphere(
     }
 }
 
-type DrawAtmosphereCommands = (SetItemPipeline, SetAtmosphereBindGroup<0>, DrawAtmosphere);
+type DrawAtmosphereCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuSky as usize },
+    (SetItemPipeline, SetAtmosphereBindGroup<0>, DrawAtmosphere),
+>;
 
 struct SetAtmosphereBindGroup<const I: usize>;
 

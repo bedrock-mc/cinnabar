@@ -29,6 +29,8 @@ interface input {
         gameplay: bool,
         panel-open: bool,
         keys-pressed: list<string>,
+        /// Physical keys held this frame, including reserved ones.
+        keys-held: list<string>,
         events: list<event>,
     }
     /// True only for the current frame's host-assigned action edge.
@@ -42,9 +44,11 @@ interface input {
 interface environment {
     /// Fixes visual time to 0–23999 ticks; none restores the tracked server clock.
     set-time-override: func(ticks: option<u32>) -> result<_, string>;
+    /// Retained local lighting override; requires the separate fullbright grant.
+    set-fullbright: func(enabled: bool) -> result<_, string>;
 }
 
-/// Explicit local gameplay capabilities; no world mutation or packet access.
+/// Explicit local gameplay capabilities; no raw packet access.
 interface gameplay {
     record vector3 { x: f32, y: f32, z: f32 }
     /// Remote player feet in world coordinates, without names or network access.
@@ -68,6 +72,84 @@ interface gameplay {
     set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
     /// One attack-press edge, only while the physical attack control is held.
     pulse-attack: func() -> result<_, string>;
+    /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
+    /// Delays post-login application packets in both directions, without raw packet access.
+    /// Retained only after a successful callback; no current gameplay frame required.
+    set-packet-delay: func(delay-ms: u32) -> result<_, string>;
+    /// Requires packet-delay authority; opts into the host's last-relayed position witness.
+    set-show-real-position: func(enabled: bool) -> result<_, string>;
+
+    /// A nearby non-player actor; health comes from its replicated health attribute.
+    record mob {
+        runtime-id: u64,
+        unique-id: s64,
+        type-id: string,
+        position: vector3,
+        health: option<f32>,
+        max-health: option<f32>,
+    }
+    /// Requires the entities grant and a current frame; nearest first, bounded by count and range.
+    read-mobs: func() -> result<list<mob>, string>;
+
+    /// Camera-local blocks (x right, y up, z back), roll in radians, FOV change in degrees.
+    record camera-rig { offset: vector3, roll: f32, fov-delta: f32 }
+    /// Retained third-person rig, swept against blocks; none restores the player's own view.
+    set-camera-rig: func(rig: option<camera-rig>) -> result<_, string>;
+
+    /// Sent as a player command request after frame returns; the command must be granted by name.
+    request-command: func(command: string) -> result<_, string>;
+}
+
+/// Local presentation cues shared by loaded mods; they carry no authority.
+interface events {
+    record cue { name: string, values: list<f32> }
+    /// Published to the host and every loaded mod after frame returns.
+    emit: func(name: string, values: list<f32>) -> result<_, string>;
+    /// Cues loaded mods committed last frame; the same bounded list for every call in a callback.
+    poll: func() -> list<cue>;
+}
+
+/// Local custom rendering: sandboxed WGSL post-process passes and bounded world-space primitives.
+interface render {
+    use gameplay.{vector3};
+    /// Linear colour; alpha scales coverage.
+    record rgba { r: f32, g: f32, b: f32, a: f32 }
+    /// Procedural ground styles animated by `progress` in 0–1.
+    enum decal-style { telegraph, disc, crater, shockwave, dust }
+    record decal { center: vector3, radius: f32, color: rgba, progress: f32, style: decal-style }
+    /// Camera-facing strip that tapers and fades from the first point (head) to the last.
+    record ribbon { points: list<vector3>, width: f32, color: rgba }
+    /// Glowing animated strip from start to end; intensity scales its white-hot core.
+    record beam { start: vector3, end: vector3, width: f32, color: rgba, intensity: f32 }
+    enum billboard-pattern { solid, soft-disc, ring, spark, silhouette, sphere, aura }
+    /// Camera-facing quad; upright quads keep their vertical axis.
+    record billboard {
+        position: vector3,
+        width: f32,
+        height: f32,
+        color: rgba,
+        pattern: billboard-pattern,
+        upright: bool,
+    }
+    /// Retained full-block highlights for matching blocks already loaded by the host.
+    record block-highlight-spec { identifiers: list<string>, range: f32, color: rgba }
+    /// Requires block-highlights authority; none clears this instance's selection.
+    set-block-highlights: func(spec: option<block-highlight-spec>) -> result<_, string>;
+    record primitives {
+        decals: list<decal>,
+        ribbons: list<ribbon>,
+        beams: list<beam>,
+        billboards: list<billboard>,
+    }
+    /// `source` defines `fn effect(uv: vec2<f32>) -> vec3<f32>`, the new scene colour, against the host prelude.
+    record pass-spec { name: string, order: s32, source: string, depth: bool }
+    /// Validates a pass; passes run after the scene and before the HUD, by order then name.
+    register-pass: func(spec: pass-spec) -> result<_, string>;
+    remove-pass: func(name: string) -> result<_, string>;
+    /// Retained enable flag and up to 16 floats exposed to the shader as `param(i)`.
+    update-pass: func(name: string, enabled: bool, params: list<f32>) -> result<_, string>;
+    /// Appends to this callback's primitives; each successful callback replaces the drawn set.
+    draw: func(primitives: primitives) -> result<_, string>;
 }
 
 /// Experimental developer contract; no WASI or ambient operating-system access.
@@ -76,8 +158,10 @@ world extension {
     import input;
     import environment;
     import gameplay;
+    import events;
     import panel;
     import settings;
+    import render;
     /// Creates the initial retained UI state.
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.

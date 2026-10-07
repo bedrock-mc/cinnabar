@@ -172,12 +172,12 @@ fn focus_loss_drops_held_modifiers_and_discards_unfocused_events() {
         .unwrap()
         .focused = false;
     h.release(KeyCode::ControlLeft);
+    assert!(h.app.world().resource::<UiRuntime>().chat_focused());
     h.app
         .world_mut()
         .get_mut::<Window>(h.window)
         .unwrap()
         .focused = true;
-    h.press(KeyCode::KeyT, Some("t"));
     h.press(KeyCode::KeyV, Some("v"));
     assert_eq!(h.text(), "v");
     assert_eq!(h.reads.load(Ordering::Relaxed), 0);

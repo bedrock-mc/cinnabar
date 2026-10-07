@@ -16,7 +16,7 @@ const SERVER_FORM_SCREEN: &str = "server_form.third_party_server_screen";
 /// A screen the host can have up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
-    /// The world and its in-world overlays: the native `InGamePlayScreen`.
+    /// The world and its in-world overlays: vanilla's in-game play screen.
     Gameplay,
     /// The crosshair overlay, which stays drawn under other screens.
     Crosshair,
@@ -31,6 +31,7 @@ pub enum Scene {
     Menu(MenuScreen),
     /// The server settings form, which opens over the settings menu.
     ServerSettingsForm,
+    Credits,
 }
 
 impl Scene {
@@ -108,7 +109,7 @@ impl ScreenSettingsTable {
     }
 }
 
-/// `InGamePlayScreen`'s overrides of `BaseScreen`: it passes input through (the
+/// The in-game play screen's overrides of the base screen: it passes input through (the
 /// base default), is not a menu, captures the mouse and always renders.
 const fn gameplay_settings() -> ScreenSettings {
     ScreenSettings {
@@ -225,6 +226,9 @@ impl UiRuntime {
         if let Some(entry) = form.filter(|_| settings_form) {
             stack.push(Scene::ServerSettingsForm, json(Some(form_screen(entry))));
         }
+        if self.credits().owns_input() {
+            stack.push(Scene::Credits, json(Some(super::credits::CREDITS_SCREEN)));
+        }
         stack
     }
 
@@ -243,7 +247,7 @@ impl UiRuntime {
             .all(|scene| !scene.settings.absorbs_input)
     }
 
-    /// Whether the top scene captures the mouse (`currentScreenShouldStealMouse`);
+    /// Whether the top scene captures the mouse;
     /// with nothing up, the game underneath does.
     pub fn steals_mouse(
         &self,

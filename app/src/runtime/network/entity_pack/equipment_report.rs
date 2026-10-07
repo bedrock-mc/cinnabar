@@ -25,6 +25,7 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
     };
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| rest).collect();
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -89,7 +90,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
         let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
             continue;
         };
-        let files = super::collect::collect_files(&view, refs.as_ref());
+        let files = super::collect::collect_files(&view, refs.as_ref(), None);
         let Ok(Some(compiled)) = pack_compiler::compile_actor_pack(files) else {
             continue;
         };
@@ -170,11 +171,13 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             input.armor[slot as usize] = Some(WornItem {
                 identifier: Arc::from(item.as_ref()),
                 metadata: 0,
+                damage: None,
                 kind: HeldKind::Other,
                 dye_rgb: None,
+                enchanted: false,
             });
             checked += 1;
-            let ok = runtime.layers_for(&body, &input).len() == 1;
+            let ok = runtime.layers_for(&body, &input, None).len() == 1;
             if !ok {
                 eprintln!("undrawn: {} {item} {slot:?}", path.display());
             }

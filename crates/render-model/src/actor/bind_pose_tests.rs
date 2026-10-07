@@ -1,4 +1,4 @@
-//! Cube-local bind poses from native ModelPart cube setup, not hierarchical bone rotations.
+//! Cube-local bind poses from vanilla model-part cube setup, not hierarchical bone rotations.
 use super::*;
 use assets::EntityGeometryScalar;
 

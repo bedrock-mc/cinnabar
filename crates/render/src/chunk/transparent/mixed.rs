@@ -20,26 +20,30 @@ use plan::{MixedTerrainSegment, merge_faces};
 const MAX_MIXED_TERRAIN_SEGMENTS_PER_FRAME: usize = DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME;
 const DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Everything a merged order depends on except the water order itself, compared separately.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MixedPlanIdentity {
     asset_identity: ChunkTextureAssetIdentity,
     tint_identity: ChunkBiomeTintIdentity,
     model: TransparentModelAllocationIdentity,
     model_revision: u64,
-    water_generation: ViewSortGeneration,
-    water_range: Range<u32>,
-    camera_position_bits: [u32; 3],
+    water: TransparentAllocationIdentity,
+    class: FaceOrderClass,
 }
 
 struct CachedMixedPlan {
     identity: MixedPlanIdentity,
+    water_refs: Box<[PackedTransparentDrawRef]>,
     segments: Arc<[MixedTerrainSegment]>,
 }
 
 struct MixedTerrainDraw {
     identity: MixedPlanIdentity,
     view_entity: Entity,
+    water_generation: ViewSortGeneration,
     water_slot: u8,
+    /// Water segment ranges are relative to this snapshot range.
+    water_range: Range<u32>,
     water_pipeline: CachedRenderPipelineId,
     model_pipeline: CachedRenderPipelineId,
     segments: Arc<[MixedTerrainSegment]>,
@@ -156,11 +160,11 @@ impl MixedTerrainRuntime {
         water_pipeline: CachedRenderPipelineId,
         model_pipeline: CachedRenderPipelineId,
     ) -> Option<u32> {
-        let water = snapshot
-            .key
-            .visible_allocations
-            .iter()
-            .find(|water| water.key == group.key)?;
+        let visible = &snapshot.key.visible_allocations;
+        let water = visible
+            .binary_search_by(|water| water.key.cmp(&group.key))
+            .ok()
+            .map(|index| &visible[index])?;
         if water.mesh_generation != allocation.generation
             || water.metadata_index != allocation.metadata_index
             || !transparent_model_allocation_matches(instance, allocation)
@@ -177,23 +181,24 @@ impl MixedTerrainRuntime {
             draw_range: allocation.transparent_model_draw_range.clone()?,
         };
         let order = models.draw_orders.get(&model)?;
+        camera.is_finite().then_some(())?;
         let identity = MixedPlanIdentity {
             asset_identity: assets.identity(),
             tint_identity: snapshot.key.tint_identity,
             model,
             model_revision: order.revision,
-            water_generation: snapshot.generation(),
-            water_range: group.ref_range.clone(),
-            camera_position_bits: super::model::camera_position_bits(camera)?,
+            water: water.clone(),
+            class: TransparentFaceMetric::new(camera).class(group.key),
         };
-        let refs = order
-            .words
-            .len()
-            .checked_add(group.ref_range.end.checked_sub(group.ref_range.start)? as usize)?;
+        let water_refs = snapshot
+            .refs()
+            .get(group.ref_range.start as usize..group.ref_range.end as usize)?;
+        let refs = order.words.len().checked_add(water_refs.len())?;
+        // A far plan survives camera motion within its class; only changed inputs merge again.
         let segments = if let Some(cache) = self
             .cache
             .get(&group.key)
-            .filter(|cache| cache.identity == identity)
+            .filter(|cache| cache.identity == identity && *cache.water_refs == *water_refs)
         {
             Arc::clone(&cache.segments)
         } else {
@@ -203,7 +208,7 @@ impl MixedTerrainRuntime {
             }
             self.planned_refs += refs;
             let faces =
-                plan::collect_faces(instance, allocation, &order.words, assets, snapshot, group)?;
+                plan::collect_faces(instance, allocation, &order.words, assets, water_refs)?;
             let Some(segments) = merge_faces(
                 group.key,
                 camera,
@@ -218,6 +223,7 @@ impl MixedTerrainRuntime {
                 group.key,
                 CachedMixedPlan {
                     identity: identity.clone(),
+                    water_refs: water_refs.into(),
                     segments: Arc::clone(&segments),
                 },
             );
@@ -235,7 +241,9 @@ impl MixedTerrainRuntime {
         self.frame.push(MixedTerrainDraw {
             identity,
             view_entity,
+            water_generation: snapshot.generation(),
             water_slot: snapshot.buffer_slot(),
+            water_range: group.ref_range.clone(),
             water_pipeline,
             model_pipeline,
             segments,

@@ -1,5 +1,5 @@
 //! Length expressions for `size`/`offset`/`max_size`/`min_size`, parsed the way
-//! the client's `parseLayoutAxis` does: a lower-cased token stream of numbers,
+//! the vanilla client does: a lower-cased token stream of numbers,
 //! units and signs, where a sign holds until the next one and a number without a
 //! unit is dropped. The concrete pixels of each unit come from an
 //! [`AxisContext`] the layout solver fills. `fill` and `default` are whole-string

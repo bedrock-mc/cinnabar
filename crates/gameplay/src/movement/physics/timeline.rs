@@ -48,7 +48,7 @@ impl LocalPhysicsController {
     /// Zero-stamped motion only replaces live velocity; it is not replay input.
     /// Stamped motion replaces velocity before the tick after its stamp.
     /// Live ticks replace velocity now; stale ticks clamp to the oldest retained
-    /// frame as `ReplayStateComponent::applyFrameCorrection` does. Non-finite
+    /// frame as vanilla's frame correction does. Non-finite
     /// motion is ignored; when inactive there is no timeline to enter.
     pub fn queue_server_motion(&mut self, motion: [f32; 3], tick: u64) -> Option<u64> {
         if !motion.into_iter().all(f32::is_finite) {
@@ -84,6 +84,8 @@ impl LocalPhysicsController {
             }
         };
         let oldest = self.history.oldest_tick().unwrap_or(state.tick);
+        self.deferred_corrections
+            .replace_motion(applies_before, motion);
         self.server_motions.retain(|overlay| overlay.tick > oldest);
         if self.server_motions.len() >= self.history_capacity {
             self.server_motions.pop_front();
@@ -157,7 +159,7 @@ impl LocalPhysicsController {
     ///
     /// A retained tick rewrites only the client's unchanged run after it, so a
     /// later client transition still wins; stale ticks clamp to the oldest
-    /// frame as `applyFrameCorrection` does. Modes are only ended, never
+    /// frame as vanilla's frame correction does. Modes are only ended, never
     /// started: entry needs environment predicates the flag does not carry.
     pub fn apply_server_movement_flags(
         &mut self,
@@ -177,6 +179,14 @@ impl LocalPhysicsController {
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
         let mut changed = false;
+        if let Some(immobile) = flags.immobile.filter(|value| *value != anchor.immobile) {
+            let (edited, _) = rewrite_run(
+                self.history.retained_inputs_after_mut(tick),
+                |input| input.immobile == anchor.immobile,
+                |input| input.immobile = immobile,
+            );
+            changed |= edited;
+        }
         if let Some(sprinting) = flags.sprinting.filter(|value| *value != anchor.sprinting) {
             let (edited, reached) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),

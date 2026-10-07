@@ -62,10 +62,17 @@ impl Process {
     /// Publishes a launched child only if cancellation has not revoked the pending helper.
     fn launch(&self, executable: PathBuf) -> Result<(ChildStdin, ChildStdout)> {
         ensure!(!self.0.lock().unwrap().revoked, "helper startup revoked");
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .arg("server-helper")
             .env_clear()
-            .env(DEVELOPER_ENV, "1")
+            .env(DEVELOPER_ENV, "1");
+        // The granted scope may name the developer loopback media origin, which validates only
+        // with its CA variable present.
+        if let Some(ca) = std::env::var_os(server_experience::fetch::DEVELOPER_MEDIA_CA_ENV) {
+            command.env(server_experience::fetch::DEVELOPER_MEDIA_CA_ENV, ca);
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

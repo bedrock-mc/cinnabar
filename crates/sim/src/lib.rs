@@ -20,18 +20,19 @@ pub use destroy::{
     destroy_progress_per_tick,
 };
 pub use fluid::sample_actor_liquids;
-pub use math::{Vec3, view_direction};
+pub use math::{Vec3, minecraft_cos, minecraft_sin, view_direction};
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
     AxisCollisions, ControlledTickResult, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
-    MovementEffects, MovementEnvironment, MovementInput, MovementMode, PlayerState,
+    MovementEffects, MovementEnvironment, MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState,
     ProcessedControls, SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, TICKS_PER_SECOND,
-    TickResult, pose_fits, sample_water_head,
+    TickResult, pose_fits, sample_liquid_submersion, sample_water_head,
 };
 pub use world::{
-    BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,
-    CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionSnapshot,
-    CollisionWorld, DoorFacing, DoorState, FlowBlockFacts, LenientCollisionBoxes,
-    LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld,
-    ProvenancedCollider, RegistryError, SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
+    BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CameraBlockHit,
+    CollisionIdSpace, CollisionQuery, CollisionRegistry, CollisionRegistryIdentity,
+    CollisionSnapshot, CollisionWorld, DoorFacing, DoorState, FlowBlockFacts,
+    LenientCollisionBoxes, LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS,
+    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider, RegistryError, SurfaceResponse,
+    WorldCollisionIdentity, WorldQueryError,
 };

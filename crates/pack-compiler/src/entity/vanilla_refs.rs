@@ -38,20 +38,25 @@ pub fn compile_vanilla_entity_refs(root: &Path) -> Result<VanillaEntityRefs, Ass
     }
     let mut files = Vec::new();
     collect_optional_family(root, "models/entity", &["json"], &mut files)?;
+    collect_optional_file(root, assets::LEGACY_ENTITY_GEOMETRY_PATH, &mut files)?;
     for (relative, absolute) in files {
         let bytes = read_bounded_source(root, &absolute)?;
         if bytes.len() > MAX_GEOMETRY_TEXT_BYTES {
             continue;
         }
-        let Ok(value) = parse_semantic_json(&absolute, &bytes) else {
+        let Ok(mut value) = parse_semantic_json(&absolute, &bytes) else {
             continue;
         };
-        let Some(text) = std::str::from_utf8(&bytes)
+        let Some(mut text) = std::str::from_utf8(&bytes)
             .ok()
             .map(|text| text.trim_start_matches('\u{feff}').to_owned())
         else {
             continue;
         };
+        if relative.as_ref() == assets::LEGACY_ENTITY_GEOMETRY_PATH {
+            value = legacy_block_geometry::select(&value);
+            text = value.to_string();
+        }
         let mut identifiers = Vec::new();
         if let Some(Value::Array(entries)) = value.get("minecraft:geometry") {
             for entry in entries {

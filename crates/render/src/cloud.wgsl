@@ -69,7 +69,7 @@ fn face_corner_uv(face: u32, corner_index: u32) -> vec2<f32> {
         vec2(0.0, 0.0), vec2(1.0, 0.0),
         vec2(1.0, 1.0), vec2(0.0, 1.0),
     )[quad_vertex];
-    // TextureTessellator's exact face sequences preserve both outward
+    // Vanilla's exact face sequences preserve both outward
     // winding and the diagonal over which native vertex fade interpolates.
     if (face == FACE_DOWN) {
         return vec2(1.0 - corner.y, corner.x);

@@ -75,13 +75,19 @@ impl CameraHurtState {
         self.remaining_seconds > 0.0
     }
 
+    /// Tilt time left over its duration, `0..=1`.
+    #[must_use]
+    pub fn progress(&self) -> f32 {
+        (self.remaining_seconds / HURT_DURATION_SECONDS).clamp(0.0, 1.0)
+    }
+
     /// View-space rotation for the current tilt at the given view yaw (radians).
     #[must_use]
     pub fn view_matrix(&self, view_yaw: f32) -> Mat4 {
         if !self.is_active() {
             return Mat4::IDENTITY;
         }
-        let progress = (self.remaining_seconds / HURT_DURATION_SECONDS).clamp(0.0, 1.0);
+        let progress = self.progress();
         let tilt = (progress.powi(4) * PI).sin() * HURT_TILT_DEGREES.to_radians();
         let relative = match (self.relative_degrees, self.source_direction) {
             (Some(degrees), _) => degrees.to_radians(),

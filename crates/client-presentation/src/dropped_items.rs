@@ -14,15 +14,16 @@ use client_world::{BlockEntityKind, RopeKind};
 use render::{
     ChunkTextureAssets, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,
     DroppedItemSpawnPose, ItemMeshVertex, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
-    StaticItemPlacements, dropped_item_transform, native_dropped_item_transform,
-    pack_overlay_rgba8, rope_color, rope_ribbon,
+    StaticItemPlacements, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
+    native_dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
 };
-use render_model::{DroppedItemCube, DroppedItemSprite};
+use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
+mod lighting;
+
 // Provisional world sizes and colours; each needs independent measurement.
-const FALLING_BLOCK_SCALE: f32 = 0.98;
 const TNT_FLASH_OVERLAY: [f32; 4] = [1.0, 1.0, 1.0, 0.8];
 const FISHING_SEGMENTS: usize = 16;
 const FISHING_SAG_FRACTION: f32 = 0.1;
@@ -81,6 +82,7 @@ impl ModelCache {
     fn insert(&mut self, key: ModelKey, model: Option<DroppedItemModel>) -> Option<u32> {
         let cost = match &model {
             Some(DroppedItemModel::Cube(_)) => 6,
+            Some(DroppedItemModel::Block(block)) => block.materials.len(),
             Some(DroppedItemModel::Sprite(_) | DroppedItemModel::NativeSprite(_)) => 1,
             None => 0,
         };
@@ -136,7 +138,7 @@ fn entity_block_id(
         BlockEntityKind::Falling { block_runtime_id } => Some((
             stream.network_id_mode(),
             stream.resolve_block_network_id(u32::from_ne_bytes(block_runtime_id.to_ne_bytes())),
-            FALLING_BLOCK_SCALE,
+            1.0,
         )),
         BlockEntityKind::PrimedTnt { visual } => match visual {
             ItemVisualRoute::BlockItem(id) => Some((NetworkIdMode::Sequential, id.0, 1.0)),
@@ -176,6 +178,68 @@ fn block_cube(assets: &RuntimeAssets, mode: NetworkIdMode, id: u32) -> Option<Dr
     })
 }
 
+fn block_template(
+    assets: &RuntimeAssets,
+    mode: NetworkIdMode,
+    id: u32,
+) -> Option<DroppedItemBlock> {
+    let block = assets.resolve(mode, id);
+    if !block.is_known() || !matches!(block.kind(), VisualKind::Model | VisualKind::Cross) {
+        return None;
+    }
+    let mut template_id = block.model_template()?;
+    let mut quads = Vec::new();
+    let mut materials = Vec::new();
+    let mut material_indices = HashMap::new();
+    loop {
+        let template = assets.model_templates().get(template_id as usize)?;
+        let first = template.quad_start as usize;
+        for quad in assets
+            .model_quads()
+            .get(first..first + template.quad_count as usize)?
+        {
+            let mut quad = *quad;
+            let material_index = if let Some(index) = material_indices.get(&quad.material) {
+                *index
+            } else {
+                let material = assets.material(quad.material);
+                let page = assets
+                    .texture_pages()
+                    .get(material.texture.page() as usize)?;
+                let mip = page.texture.mips.first()?;
+                let size = mip.size;
+                if size == 0 || size > MAX_ITEM_SPRITE_SIDE {
+                    return None;
+                }
+                let bytes = (size * size * 4) as usize;
+                let first = material.texture.layer() as usize * bytes;
+                let index = materials.len() as u32;
+                materials.push((
+                    DroppedItemSprite {
+                        width: size,
+                        height: size,
+                        rgba8: Arc::from(mip.rgba8.get(first..first + bytes)?),
+                    },
+                    tint_rgba(material.flags),
+                ));
+                material_indices.insert(quad.material, index);
+                index
+            };
+            quad.material = material_index;
+            quads.push(quad);
+        }
+        if template.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
+            break;
+        }
+        template_id = template_id.checked_add(1)?;
+    }
+    Some(DroppedItemBlock {
+        materials: materials.into(),
+        quads: quads.into(),
+        rotation: block.variant() & 3,
+    })
+}
+
 impl DroppedItemPublisher<'_, '_> {
     fn block_model(
         cache: &mut ModelCache,
@@ -190,7 +254,9 @@ impl DroppedItemPublisher<'_, '_> {
         if let Some(cached) = cache.index.get(&key) {
             return *cached;
         }
-        let model = block_cube(assets, mode, id).map(DroppedItemModel::Cube);
+        let model = block_cube(assets, mode, id)
+            .map(DroppedItemModel::Cube)
+            .or_else(|| block_template(assets, mode, id).map(DroppedItemModel::Block));
         cache.insert(key, model)
     }
 
@@ -249,6 +315,7 @@ impl DroppedItemPublisher<'_, '_> {
     pub(super) fn publish(
         &mut self,
         stream: Option<&WorldStream>,
+        collisions: Option<&dyn crate::observations::CollisionLookup>,
         camera: Option<([f32; 3], f32)>,
         partial_tick: f32,
     ) {
@@ -267,6 +334,7 @@ impl DroppedItemPublisher<'_, '_> {
         );
         let assets = self.textures.as_ref().map(|textures| textures.assets());
         let mut instances = Vec::new();
+        let mut terrain_instances = Vec::new();
 
         let dropped = stream.authority().dropped_items(partial_tick);
         let live = dropped
@@ -366,15 +434,33 @@ impl DroppedItemPublisher<'_, '_> {
         }
 
         if let Some(assets) = assets {
-            for view in stream.authority().block_entities(partial_tick) {
+            let mut transitions: HashMap<i64, Vec<TerrainItemTransition>> = HashMap::new();
+            for fence in stream.actor_block_sync_fences() {
+                transitions
+                    .entry(fence.sync.actor_unique_id)
+                    .or_default()
+                    .push(TerrainItemTransition {
+                        key: fence.key,
+                        generation: fence.generation,
+                        visible: fence.sync.message == 1,
+                    });
+            }
+            for candidate in stream.authority().block_entity_candidates(partial_tick) {
+                let view = candidate.view;
                 let Some((id_mode, id, base_scale)) = entity_block_id(stream, &view.kind) else {
                     continue;
                 };
                 let Some(model) = Self::block_model(cache, assets, id_mode, id) else {
                     continue;
                 };
-                let (block_level, sky_level) = stream.light_level_at(view.center);
-                instances.push(DroppedItemInstance {
+                let light_position = lighting::block_entity_light_position(
+                    stream,
+                    collisions,
+                    &view.kind,
+                    view.center,
+                );
+                let (block_level, sky_level) = stream.light_level_at(light_position);
+                let instance = DroppedItemInstance {
                     model,
                     world_from_item: dropped_item_transform(
                         view.center,
@@ -388,7 +474,18 @@ impl DroppedItemPublisher<'_, '_> {
                     } else {
                         0
                     },
-                });
+                };
+                if matches!(view.kind, BlockEntityKind::Falling { .. }) {
+                    terrain_instances.push(TerrainItemInstance {
+                        instance,
+                        visible: candidate.visible,
+                        transitions: Arc::from(
+                            transitions.remove(&candidate.unique_id).unwrap_or_default(),
+                        ),
+                    });
+                } else if candidate.visible {
+                    instances.push(instance);
+                }
             }
         }
 
@@ -428,6 +525,7 @@ impl DroppedItemPublisher<'_, '_> {
             &lines,
             DAYLIGHT,
         );
+        scene.publish_terrain_instances(stream.authority().actor_session_id(), &terrain_instances);
     }
 }
 

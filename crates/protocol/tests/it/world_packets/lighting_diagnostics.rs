@@ -86,7 +86,35 @@ fn bounds_advertised_dimension_heights_without_rejecting_custom_ranges() {
     };
     assert_eq!(heights.len(), 64);
     assert_eq!(heights[0].dimension, 0);
+    assert_eq!(heights[0].name.as_ref(), "custom:0");
     assert_eq!(heights[0].minimum_y, -128);
     assert_eq!(heights[0].height_range, 1024);
     assert_eq!(heights.last().unwrap().dimension, 63);
+}
+
+#[test]
+fn retains_named_overworld_definition_with_a_distinct_numeric_type() {
+    let packet = DimensionDataPacket {
+        definitions: vec![DimensionDataPacketDefinitionsItem {
+            key: "minecraft:overworld".into(),
+            value: DimensionDefinitionGroupDimensionDefinition {
+                minimum_y: 0,
+                height_range: 256,
+                dimension_type: DimensionType { value: 3 },
+                generator_type:
+                    valentine::bedrock::version::v1_26_51::EnumsGeneratorType::Overworld,
+                ..Default::default()
+            },
+        }],
+    };
+    let WorldEvent::DimensionHeights(heights) =
+        into_world_event(packet.into(), 0).unwrap().unwrap()
+    else {
+        panic!("expected dimension definitions");
+    };
+    assert_eq!(heights[0].name.as_ref(), "minecraft:overworld");
+    assert_eq!(heights[0].dimension, 3);
+    assert_eq!(heights[0].minimum_y, 0);
+    assert_eq!(heights[0].height_range, 256);
+    assert_eq!(heights[0].generator, 1);
 }

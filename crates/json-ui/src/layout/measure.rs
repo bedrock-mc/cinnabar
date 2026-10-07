@@ -17,6 +17,27 @@ pub(super) type Sizes = std::sync::Arc<[[f64; 2]]>;
 /// Memo maps keyed by control addresses and small integers, hashed cheaply.
 pub(super) type Memo<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<AddressHasher>>;
 
+type Addresses = HashSet<usize, std::hash::BuildHasherDefault<AddressHasher>>;
+
+/// Addresses of controls an update changed, with their ancestors, and of those
+/// it removed.
+#[derive(Default)]
+pub(super) struct Dirty {
+    changed: Addresses,
+    removed: Addresses,
+}
+
+impl Dirty {
+    pub(super) fn changed(&mut self, address: usize) {
+        self.changed.insert(address);
+    }
+
+    pub(super) fn removed(&mut self, address: usize) {
+        self.changed.insert(address);
+        self.removed.insert(address);
+    }
+}
+
 /// A multiply-rotate hasher for address keys; SipHash dominated layout time.
 #[derive(Default)]
 pub(super) struct AddressHasher(u64);
@@ -203,15 +224,40 @@ pub struct MeasureCache {
     roles: super::scroll::RoleMemo,
     /// The root's address last layout; a moved root's entries go stale.
     root: usize,
+    /// The last layout's placements and output, for splicing unchanged subtrees.
+    pub(super) placements: super::reuse::Placements,
 }
 
 impl MeasureCache {
     /// Replace changed controls in place and retain measurements of untouched subtrees.
     pub fn update_tree(&mut self, tree: &mut ResolvedControl, next: ResolvedControl) {
-        let mut dirty = HashSet::new();
-        if !super::refresh::update(tree, next, &mut dirty) {
-            return;
+        let mut dirty = Dirty::default();
+        if super::refresh::update(tree, next, &mut dirty) {
+            self.forget(dirty);
         }
+    }
+
+    /// Controls the last layout placed rather than reused unchanged.
+    pub fn placed(&self) -> usize {
+        self.placements.placed_count()
+    }
+
+    /// [`Self::update_tree`] from a binder patch against `tree`.
+    pub(crate) fn apply_patch(&mut self, tree: &mut ResolvedControl, patch: crate::bind::Patch) {
+        let mut dirty = Dirty::default();
+        if super::refresh::apply(tree, patch, &mut dirty) {
+            self.forget(dirty);
+        }
+    }
+
+    /// Drop measurements of the `dirty` control addresses.
+    fn forget(
+        &mut self,
+        Dirty {
+            changed: mut dirty,
+            removed,
+        }: Dirty,
+    ) {
         // The root moves into the render call; its cached address differs from `tree`.
         dirty.insert(self.root);
         if !self.suppressed.is_empty() {
@@ -227,6 +273,11 @@ impl MeasureCache {
         self.targets.retain(|key, _| !dirty.contains(&key.0));
         self.styles.retain(|key, _| !dirty.contains(key));
         self.roles.clear();
+        // Every change reaches the root, which the placements key apart from its address.
+        self.placements.forget(super::reuse::ROOT, false);
+        for address in dirty {
+            self.placements.forget(address, removed.contains(&address));
+        }
     }
 
     fn swap(&mut self) {

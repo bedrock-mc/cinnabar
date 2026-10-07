@@ -1,4 +1,4 @@
-# Native actor animation clocks
+# Actor animation clocks
 
 The mob walking fix preserves the pack's authored `anim_time_update` expression and
 uses its result as the clip clock. The compiler previously discarded this field, so
@@ -7,7 +7,7 @@ procedural quadruped and chicken leg rotations read elapsed seconds through
 clock-input mismatch, independent of packet velocity or a leg-rotation constant.
 
 This fixes that identified movement desynchronization. It does **not** close the
-broader native actor-animation parity gate: ordinary actors still evaluate Molang
+broader vanilla actor-animation parity gate: ordinary actors still evaluate Molang
 on fixed simulation ticks and interpolate completed bone poses. Vanilla instead
 samples interpolated motion queries while applying the animation at render time.
 These procedures differ for nonlinear bone expressions, including the cosine used
@@ -27,7 +27,7 @@ specialized motion multipliers also remain incomplete; see [plan.md](../../plan.
 
 ## Time assignment and lifecycle
 
-The definition constructor compiles the default expression
+The default time expression is
 `query.anim_time + query.delta_time`. During pose application, vanilla places the
 player's previous stored clip time in `query.anim_time`, evaluates the time
 expression, and **assigns its result** to the stored time. It does not add that
@@ -62,7 +62,7 @@ once before sampling the main and additional model geometries, and supplies the
 same resulting time to their bone queries. Dormant zero-weight clocks persist.
 Actor resets discard prior clocks before controller finished-condition checks,
 and controller reentry uses the new entry tick. The current key of clip plus entry
-tick still does not represent every independent native animation-player instance.
+tick still does not represent every independent vanilla animation-player instance.
 Clips without an authored update retain the existing elapsed-tick timing path;
 their complete pause/render-time behavior is not claimed as newly verified parity.
 
@@ -89,7 +89,7 @@ speed and stop accumulating modified distance. Hurt/fire states can multiply the
 base by `1.5`; jumping multiplies it by `0.35`. These specialized conditions are
 not all implemented in Cinnabar's current motion model.
 
-The native query getters use render interpolation fraction `alpha`:
+The vanilla query getters use render interpolation fraction `alpha`:
 
 ```text
 modified_distance_moved = D - (1 - alpha) * s
@@ -100,8 +100,8 @@ The speed getter applies an additional factor of `1.5` for baby actors. Its
 interpolation fraction is distinct from clip animation time and frame delta.
 Current Cinnabar ordinary-actor queries use tick motion values before the renderer
 interpolates poses; replacing the missing authored clock therefore repairs the
-phase input but does not implement these native render-time getters. No teleport distance cutoff
-or teleport-specific native animation reset was established by this investigation.
+phase input but does not implement these vanilla render-time getters. No teleport distance cutoff
+or teleport-specific vanilla animation reset was established by this investigation.
 
 ## Pack witnesses and carrier rebuilds
 

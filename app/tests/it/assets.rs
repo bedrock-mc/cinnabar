@@ -4,17 +4,16 @@ use std::{
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
-    process::Command,
     sync::Arc,
-    time::{Duration, SystemTime},
 };
 
 use ::assets::{
     AtmosphereRole, AtmosphereTexture, BlobProvenance, BlockFlags, BlockVisual, CompiledAssets,
     CompiledAtmosphereAssets, CompiledBiomeAssets, CompiledEntityAssets, EntityAssetKind,
-    EntityAssetSource, EntityAssetSymbol, FontTexturePage, GlyphMetrics, Material, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef,
-    VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob, encode_font_catalog,
+    EntityAssetSource, EntityAssetSymbol, FontPixels, FontTexturePage, GlyphMetrics, Material,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage,
+    TextureRef, VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob,
+    encode_font_catalog,
 };
 use bedrock_client::args::{ClientArgs, ParseOutcome};
 use bedrock_client::asset_startup::{
@@ -214,7 +213,7 @@ fn synthetic_font_blob_with_manifest(seed: u8, manifest_sha256: [u8; 32]) -> Box
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let glyphs = [GlyphMetrics {
         codepoint: '\u{fffd}',
@@ -321,7 +320,7 @@ fn missing_blob_starts_with_diagnostic_assets_and_exact_local_commands() {
     let notice = loaded.notice.as_deref().unwrap();
     assert!(notice.contains(&path.display().to_string()));
     assert!(notice.contains(FETCH_COMMAND));
-    assert!(notice.contains(COMPILE_COMMAND.as_str()));
+    assert!(notice.contains(COMPILE_COMMAND));
     assert!(
         loaded
             .runtime
@@ -345,7 +344,7 @@ fn malformed_blob_failure_names_the_exact_selected_path() {
     assert!(message.contains(&path.display().to_string()), "{message}");
     assert!(message.contains("decode"), "{message}");
     assert!(message.contains("rebuild"), "{message}");
-    assert!(message.contains(COMPILE_COMMAND.as_str()), "{message}");
+    assert!(message.contains(COMPILE_COMMAND), "{message}");
 
     fs::remove_dir_all(directory).unwrap();
 }
@@ -545,18 +544,7 @@ fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
 #[test]
 fn documented_commands_target_only_ignored_local_asset_paths() {
     assert_eq!(FETCH_COMMAND, "make vanilla-assets");
-    assert_eq!(
-        COMPILE_COMMAND.as_str(),
-        format!(
-            "cargo run -p asset-compiler --bin assetc -- compile --pack {} \
-             --source-manifest assets/vanilla-source.json \
-             --registry crates/assets/data/block-registry-v2193.bin \
-             --light-registry crates/assets/data/block-light-registry-v2193.bin \
-             --biome-registry crates/assets/data/biome-registry-v2193.bin \
-             --out .local/assets/compiled/vanilla-v2193.mcbea",
-            ::assets::vanilla_source().resource_pack_dir()
-        )
-    );
+    assert_eq!(COMPILE_COMMAND, "make world-assets");
     assert!(Path::new(DEFAULT_ASSET_PATH).starts_with(".local/assets"));
     assert_eq!(ATMOSPHERE_FILENAME, "vanilla-v1.mcbeatm");
     assert_eq!(ATMOSPHERE_COMPILE_COMMAND, "make atmosphere-assets");
@@ -825,5 +813,4 @@ fn startup_hands_the_single_decoded_atmosphere_identity_to_the_renderer() {
     );
 }
 
-include!("assets/make_targets.rs");
 include!("assets/provenance_tests.rs");

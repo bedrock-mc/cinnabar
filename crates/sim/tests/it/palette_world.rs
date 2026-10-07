@@ -164,6 +164,26 @@ fn camera_lenient_query_keeps_real_walls_while_skipping_unknown_cells() {
     );
     assert!(lenient.skipped.unknown_runtime_id >= 1);
     assert_eq!(lenient.skipped.unloaded_chunk, 0);
+    let mut visited = [None; 4];
+    let mut count = 0;
+    let (skipped, allocations) = crate::allocation_count::measure(|| {
+        world
+            .visit_collision_boxes_camera_lenient(query, &mut |shape| {
+                visited[count] = Some(shape);
+                count += 1;
+            })
+            .unwrap()
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(skipped, lenient.skipped);
+    assert_eq!(
+        visited[..count]
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>(),
+        lenient.value
+    );
 
     // The strict authority surface is untouched: it still fails closed.
     assert_eq!(
@@ -779,4 +799,59 @@ fn primitive_registration_rejects_contradictory_physics_facts() {
             Err(RegistryError::ContradictoryFacts { runtime_id: rejected }) if rejected == runtime_id
         ));
     }
+}
+
+#[test]
+fn camera_segment_stops_at_the_first_collider_including_shapes_rising_from_the_cell_below() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let mut store = loaded_uniform_store(chunk, 0);
+    let sub = SubChunkKey::from_chunk(chunk, 0);
+    store
+        .update_block(sub, BlockUpdate::new(5, 1, 3, 0, 1), 0)
+        .unwrap();
+    store
+        .update_block(sub, BlockUpdate::new(2, 0, 3, 0, 2), 0)
+        .unwrap();
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    registry
+        .register(1, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    registry
+        .register(2, [Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.5, 1.0))])
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+
+    let (wall, skipped) = world
+        .camera_segment_entry(Vec3::new(0.5, 1.75, 3.5), Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    assert_eq!(wall, Some(0.45));
+    assert_eq!(skipped, sim::LenientSkipCounts::default());
+    let (fence, _) = world
+        .camera_segment_entry(Vec3::new(0.5, 1.25, 3.5), Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    assert_eq!(fence, Some(0.15));
+}
+
+#[test]
+fn camera_segment_cost_is_linear_in_length_even_through_unloaded_space() {
+    let store = ChunkStore::new();
+    let mut registry = CollisionRegistry::new();
+    registry
+        .register(2, [Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.5, 1.0))])
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+    let (origin, delta) = (Vec3::new(0.3, 64.7, 0.45), Vec3::new(100.0, 30.0, 70.0));
+
+    let ((entry, skipped), allocations) =
+        crate::allocation_count::measure(|| world.camera_segment_entry(origin, delta).unwrap());
+    assert_eq!(entry, None);
+    assert_eq!(allocations, 0);
+    // One cell per boundary crossing plus the start, each with its one-cell-tall halo.
+    let crossings = 100 + 30 + 70;
+    assert!(
+        skipped.unloaded_chunk <= 2 * (crossings + 1),
+        "inspected {} cells",
+        skipped.unloaded_chunk
+    );
 }

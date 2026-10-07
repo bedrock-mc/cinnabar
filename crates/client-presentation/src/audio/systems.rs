@@ -8,7 +8,9 @@ use crate::{
 
 use std::collections::HashSet;
 
-use bevy::prelude::{Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Vec3};
+use bevy::prelude::{
+    Local, Message, MessageReader, NonSendMut, Query, Res, ResMut, Time, Transform, With,
+};
 use render::{ParticleSimulation, PrecipitationMix};
 use sim::PaletteWorld;
 
@@ -18,7 +20,7 @@ use super::{
         music_key,
     },
     echo::{EchoOrigin, EchoSubject},
-    engine::{AudioEngine, Listener, LoopSpec, SoundRequest},
+    engine::{AudioEngine, LoopSpec, SoundRequest},
     local::{LocalCue, LocalMotion, MotionSample},
     route,
     settings::{AudioCategory, AudioSettings},
@@ -28,12 +30,10 @@ const PLAYER: &str = "minecraft:player";
 const FEET_PROBE_BELOW: f64 = 0.2;
 const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
-const UI_CLICK: &str = "random.click";
-
-pub use client_ui::sound_requests::{ui_click, ui_control_sound, ui_sound};
+pub use client_ui::sound_requests::{ui_control_sound, ui_sound};
 
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
-/// calling [`ui_click`].
+/// using the named interface sound queue.
 #[derive(Debug, Clone, PartialEq, Message)]
 pub struct UiSoundCue(pub &'static str);
 
@@ -135,14 +135,24 @@ impl IngestState {
         self.start_record(level.position, request, engine);
     }
 
-    /// Whether `event` belongs to the bound session and current dimension, in order.
-    fn admits(&mut self, event: &SequencedAudioEvent, dimension: i32) -> bool {
+    /// Admits ordinary transport order and released sounds from live actor lifetimes.
+    fn admits(
+        &mut self,
+        event: &SequencedAudioEvent,
+        dimension: i32,
+        synchronized_actor_alive: bool,
+    ) -> bool {
         let fresh = event.origin_stream_session_id == self.stream
             && event.dimension == dimension
             && event.dimension_epoch == self.epoch
-            && event.sequence > self.last_sequence;
+            && if event.actor_synchronization.is_some() {
+                synchronized_actor_alive
+                    && matches!(&event.event, protocol::AudioEvent::Level(level) if level.fire_at_position.is_some())
+            } else {
+                event.sequence > self.last_sequence
+            };
         if fresh {
-            self.last_sequence = event.sequence;
+            self.last_sequence = self.last_sequence.max(event.sequence);
         }
         fresh
     }
@@ -169,10 +179,9 @@ pub fn ingest_audio_events(
     mut state: Local<IngestState>,
 ) {
     for cue in cues.read() {
-        engine.enqueue(SoundRequest::new(cue.0));
-    }
-    if client_ui::sound_requests::take_click() {
-        engine.enqueue(SoundRequest::new(UI_CLICK));
+        if client_ui::sound_requests::interface_sound_enabled(cue.0) {
+            engine.enqueue(SoundRequest::new(cue.0));
+        }
     }
     let sounds = client_ui::sound_requests::take_sounds();
     for (name, volume, pitch) in sounds {
@@ -193,10 +202,17 @@ pub fn ingest_audio_events(
         stream.form_dimension_epoch(),
         &mut engine,
     );
-    let dimension = stream.current_dimension();
     let lookup = network_block_lookup(collisions, stream);
     for event in messages.read() {
-        if !state.admits(event, dimension) {
+        let synchronized_actor_alive = event.actor_synchronization.is_some_and(|owner| {
+            owner.session_id == stream.authority().actor_session_id()
+                && owner.dimension == stream.current_dimension()
+                && stream
+                    .authority()
+                    .actor(owner.runtime_id)
+                    .is_some_and(|actor| actor.spawn_revision == owner.spawn_revision)
+        });
+        if !state.admits(event, stream.current_dimension(), synchronized_actor_alive) {
             engine.stats.stale += 1;
             continue;
         }
@@ -299,64 +315,86 @@ pub fn drive_local_motion(
     if *last_tick == Some(state.tick) || !engine.has_bank() {
         return;
     }
-    *last_tick = Some(state.tick);
+    if last_tick.is_some_and(|tick| tick > state.tick) {
+        motion.reset();
+        *last_tick = None;
+    }
     let mode = stream.network_id_mode();
     let palette = PaletteWorld::new(
         stream.collision_store(),
         collisions.registry(mode),
         stream.current_dimension(),
     );
-    let position = [state.position.x, state.position.y, state.position.z];
-    let cell = |dy: f64| {
-        [
-            position[0].floor() as i32,
-            (position[1] + dy).floor() as i32,
-            position[2].floor() as i32,
-        ]
-    };
-    let in_water = is_water(identifier_at(&palette, collisions, mode, cell(0.5)).as_deref());
-    let below = identifier_at(&palette, collisions, mode, cell(-FEET_PROBE_BELOW));
-    let sneaking = physics
-        .latest_sneak_sprint()
-        .is_some_and(|(sneak, _)| sneak);
-    let cues = motion.advance(MotionSample {
-        position,
-        velocity_y: state.velocity.y,
-        on_ground: state.on_ground,
-        sneaking,
-        in_water,
+    let after = *last_tick;
+    physics.visit_motion_ticks(after, &mut |tick, sample| {
+        if last_tick.is_some_and(|previous| tick != previous + 1) {
+            motion.reset();
+        }
+        *last_tick = Some(tick);
+        let position = sample.position;
+        let below = identifier_at(
+            &palette,
+            collisions,
+            mode,
+            [
+                position[0].floor() as i32,
+                (position[1] - FEET_PROBE_BELOW).floor() as i32,
+                position[2].floor() as i32,
+            ],
+        );
+        let cues = motion.advance(sample);
+        for cue in cues {
+            let request = {
+                let Some(bank) = engine.bank() else { return };
+                let tables = bank.tables();
+                let material = below.as_deref().and_then(|name| tables.material_of(name));
+                let (route, volume) = match cue {
+                    LocalCue::Step => (
+                        material.and_then(|material| tables.interactive(PLAYER, "step", material)),
+                        None,
+                    ),
+                    LocalCue::Jump => (
+                        material.and_then(|material| tables.interactive(PLAYER, "jump", material)),
+                        None,
+                    ),
+                    LocalCue::Land { .. } => (
+                        material.and_then(|material| tables.interactive(PLAYER, "land", material)),
+                        None,
+                    ),
+                    LocalCue::Swim { volume } => {
+                        (tables.entity(PLAYER, "swim", None), Some(volume))
+                    }
+                    LocalCue::Splash { volume } => {
+                        (tables.entity(PLAYER, "splash", None), Some(volume))
+                    }
+                };
+                route.map(|route| {
+                    let volume = volume.map_or(route.volume, |value| assets::FloatRange {
+                        min: value,
+                        max: value,
+                    });
+                    SoundRequest::new(route.sound)
+                        .with_ranges(volume, route.pitch)
+                        .at(local_cue_position(cue, sample))
+                })
+            };
+            if let Some(request) = request {
+                engine.enqueue(request);
+            }
+        }
     });
-    let feet = [position[0] as f32, position[1] as f32, position[2] as f32];
-    let requests: Vec<SoundRequest> = {
-        let Some(bank) = engine.bank() else { return };
-        let tables = bank.tables();
-        let material = below.as_deref().and_then(|name| tables.material_of(name));
-        let interactive = |event: &str| {
-            tables
-                .interactive(PLAYER, event, material?)
-                .map(|route| (route.sound, route.volume, route.pitch))
+}
+
+/// Splashes originate at water sensing before travel; other cues use the completed position.
+fn local_cue_position(cue: LocalCue, sample: MotionSample) -> [f32; 3] {
+    std::array::from_fn(|axis| {
+        let previous = if matches!(cue, LocalCue::Splash { .. }) {
+            f64::from(sample.movement[axis])
+        } else {
+            0.0
         };
-        let entity = |event: &str| {
-            tables
-                .entity(PLAYER, event, None)
-                .map(|route| (route.sound, route.volume, route.pitch))
-        };
-        cues.iter()
-            .filter_map(|cue| match cue {
-                LocalCue::Step => interactive("step"),
-                LocalCue::Jump => interactive("jump"),
-                LocalCue::Land { .. } => interactive("land"),
-                LocalCue::Swim => entity("swim"),
-                LocalCue::Splash => entity("splash"),
-            })
-            .map(|(sound, volume, pitch)| {
-                SoundRequest::new(sound).with_ranges(volume, pitch).at(feet)
-            })
-            .collect()
-    };
-    for request in requests {
-        engine.enqueue(request);
-    }
+        (sample.position[axis] - previous) as f32
+    })
 }
 
 pub struct AmbientState {
@@ -409,6 +447,7 @@ pub fn drive_ambience(
     collisions: Option<&dyn crate::observations::CollisionLookup>,
     view: Res<LocalViewPose>,
     player_runtime: Option<&player_state::PlayerState>,
+    credits_active: bool,
     mut engine: ResMut<AudioEngine>,
     mut state: Local<AmbientState>,
 ) {
@@ -490,21 +529,8 @@ pub fn drive_ambience(
         engine.enqueue(SoundRequest::new(format!("{prefix}.additions")));
     }
 
-    let key = music_key(stream.is_some(), dimension, creative);
-    let entry = engine
-        .bank()
-        .and_then(|bank| bank.music(key))
-        .map(|entry| (entry.event_name.clone(), (entry.min_delay, entry.max_delay)));
-    if let Some((event_name, delay)) = entry {
-        let playing = engine.is_playing_category(AudioCategory::Music);
-        let mut rolls = [engine.unit(), engine.unit()].into_iter();
-        let start = state
-            .music
-            .update(key, delay, playing, dt, || rolls.next().unwrap_or(0.5));
-        if start {
-            engine.enqueue(SoundRequest::new(&*event_name));
-        }
-    }
+    let key = music_key(stream.is_some(), dimension, creative, credits_active);
+    super::music::drive_music(&mut engine, &mut state.music, key, dt);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -618,17 +644,21 @@ fn enqueue_destroy_sound(engine: &mut AudioEngine, position: [f32; 3], request: 
 pub fn pump_audio(
     time: Res<Time>,
     view: Res<LocalViewPose>,
+    camera: Query<&Transform, With<crate::camera::FlyCamera>>,
+    server_camera: Option<Res<crate::camera::ServerCameraView>>,
     settings: Res<AudioSettings>,
     mut engine: ResMut<AudioEngine>,
     mut device: Option<NonSendMut<AudioDevice>>,
 ) {
     engine.poll_server();
-    let eye = view.eye_translation();
-    let right = view.rotation() * Vec3::X;
-    let listener = Listener {
-        position: [eye.x, eye.y, eye.z],
-        right: [right.x, right.y, right.z],
-    };
+    let listener = super::listener::camera_listener(
+        &view,
+        camera.single().ok(),
+        server_camera
+            .as_deref()
+            .and_then(|camera| camera.active_listener())
+            == Some(1),
+    );
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
     let Some(device) = device.as_mut() else {
         return;
@@ -643,6 +673,7 @@ pub fn pump_audio(
 
 #[cfg(test)]
 mod tests {
+    use super::super::engine::Listener;
     use super::*;
     use std::sync::Arc;
 
@@ -664,6 +695,31 @@ mod tests {
                 7 | 0x8000_0007 => Some("minecraft:stone"),
                 _ => None,
             }
+        }
+    }
+
+    #[test]
+    fn splash_position_precedes_water_travel_and_other_cues_use_completed_feet() {
+        let sample = MotionSample {
+            position: [3.0, -2.0, 5.0],
+            velocity_y: -1.6,
+            entry_velocity: [0.0, -2.0, 0.0],
+            movement: [0.5, -1.5, 0.25],
+            on_ground: false,
+            sneaking: false,
+            in_water: true,
+        };
+        assert_eq!(
+            local_cue_position(LocalCue::Splash { volume: 0.4 }, sample),
+            [2.5, -0.5, 4.75]
+        );
+        for cue in [
+            LocalCue::Step,
+            LocalCue::Jump,
+            LocalCue::Land { speed: 2.0 },
+            LocalCue::Swim { volume: 0.4 },
+        ] {
+            assert_eq!(local_cue_position(cue, sample), [3.0, -2.0, 5.0]);
         }
     }
 
@@ -712,6 +768,7 @@ mod tests {
 
     fn event(sequence: u64, dimension: i32, dimension_epoch: u64) -> SequencedAudioEvent {
         SequencedAudioEvent {
+            actor_synchronization: None,
             origin_stream_session_id: 1,
             sequence,
             dimension,
@@ -795,11 +852,50 @@ mod tests {
         let mut state = IngestState::default();
         state.bind(1, 4, &mut engine);
         state.records.insert([0, 64, 0]);
-        assert!(!state.admits(&event(10, 0, 2), 0));
-        assert!(state.admits(&event(11, 0, 4), 0));
+        assert!(!state.admits(&event(10, 0, 2), 0, false));
+        assert!(state.admits(&event(11, 0, 4), 0, false));
         state.bind(1, 9, &mut engine);
         assert!(state.records.is_empty(), "dimension-owned records reset");
-        assert!(!state.admits(&event(12, 0, 4), 0));
-        assert!(state.admits(&event(13, 0, 9), 0));
+        assert!(!state.admits(&event(12, 0, 4), 0, false));
+        assert!(state.admits(&event(13, 0, 9), 0, false));
+    }
+
+    #[test]
+    fn synchronized_actor_audio_retains_lifetime_and_epoch_fences_after_newer_packets() {
+        let mut state = IngestState::default();
+        state.bind(1, 4, &mut AudioEngine::default());
+        assert!(state.admits(&event(20, 0, 4), 0, false));
+        let mut delayed = event(2, 0, 4);
+        delayed.actor_synchronization = Some(client_world::ActorLifetimeId {
+            session_id: 1,
+            dimension: 0,
+            runtime_id: 7,
+            spawn_revision: 1,
+        });
+        delayed.event = protocol::AudioEvent::Level(protocol::LevelAudioEvent {
+            sound_event: "death".into(),
+            position: [1.0, 2.0, 3.0],
+            data: -1,
+            actor_identifier: "minecraft:ender_dragon".into(),
+            is_baby: false,
+            is_global: false,
+            actor_unique_id: 17,
+            fire_at_position: Some([1.0, 2.0, 3.0]),
+        });
+        assert!(state.admits(&delayed, 0, true));
+        assert_eq!(
+            state.last_sequence, 20,
+            "delayed delivery preserves transport order"
+        );
+        assert!(
+            !state.admits(&delayed, 0, false),
+            "the actor was removed or replaced"
+        );
+        assert!(!state.admits(&delayed, 1, true), "the dimension changed");
+        state.bind(1, 9, &mut AudioEngine::default());
+        assert!(
+            !state.admits(&delayed, 0, true),
+            "a return visit has a new epoch"
+        );
     }
 }

@@ -67,7 +67,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
         camera_orientation: [0.0, 0.0, 1.0],
         jumping: false,
         sneaking: false,
-        sneak_button: false,
+        input: Default::default(),
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,
@@ -148,6 +148,7 @@ include!("integration_tests/simulation.rs");
 include!("integration_tests/vector_carriers.rs");
 include!("integration_tests/timeline.rs");
 include!("integration_tests/frame_speed.rs");
+include!("integration_tests/immobile.rs");
 include!("integration_tests/connected_shapes.rs");
 
 /// Reads the checked-in protocol target used to stamp synthetic physics registries.

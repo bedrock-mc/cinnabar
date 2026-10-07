@@ -4,6 +4,7 @@ mod account;
 mod endpoint;
 mod error;
 mod framed;
+mod packet_delay;
 mod status;
 mod store;
 mod worlds;
@@ -12,14 +13,18 @@ use std::path::Path;
 
 pub use account::{
     Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,
-    FeaturedGame, FeaturedServer, Friend, Gathering, Home, Inbox, LiveEvent, Message,
-    MessageButton, MessageEvent, MessageImage, Profile, ProfileAchievement, ProfileAchievements,
-    ProfileStatistics, Realm, ServerDisconnect, ServerPing, account_status, connect_target, home,
-    list_featured_servers, list_friends, list_gatherings, list_realms, ping_servers, poll_events,
+    FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
+    MessageEvent, MessageImage, Profile, ProfileAchievement, ProfileAchievements,
+    ProfileStatistics, Realm, ServerDisconnect, ServerPing, ServerTrustPrompt, account_status,
+    answer_server_trust, connect_target, home, list_featured_servers,
+    list_featured_servers_with_counts, list_friends, list_realms, ping_servers, poll_events,
     profile, report_message_event, sign_out,
 };
 pub use error::BridgeError;
 pub use framed::FramedStream;
+pub use packet_delay::{
+    PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
+};
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
     StatusV1, TransferPending, read_status, report_pack_application,

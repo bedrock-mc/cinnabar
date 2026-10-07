@@ -1,7 +1,6 @@
 //! Sizing: a control's `[w, h]` from its `size`, `min_size` and `max_size`
 //! rules, solved in the order their own-axis references (`%x`, `%y`) need and
-//! clamped before anything reads them, as the client's `LayoutVariable::satisfy`
-//! does.
+//! clamped before anything reads them, as the vanilla client does.
 
 use serde_json::Value;
 
@@ -204,8 +203,7 @@ pub(super) fn flags(control: &ResolvedControl) -> Flags {
     // An omitted panel height already has a parent-relative rule. It can
     // satisfy width's own-Y bounds just like an explicit `100%` height.
     // Natural label height and ratio-image height still need resolved width.
-    // Native `LayoutVariable::isSatisfiable` (26.30, 0x1027946f0) includes
-    // min/max dependencies before `satisfy` clamps the ordinary size rule.
+    // Vanilla counts min/max dependencies before clamping the ordinary size rule.
     let independent_height = height.terms
         || (height.default && !crate::label::is_label(control) && !scales_to_ratio(control));
     let flags = Flags {

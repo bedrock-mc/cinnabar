@@ -8,16 +8,17 @@ use bevy::{
     prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
-use protocol::PlayerInputMode;
 use semantic_input::Action;
 
+mod crosshair;
+use crosshair::resolve_crosshair;
+
 #[cfg(feature = "local-mods")]
-use crate::modding::interaction::{ModInteraction, block_pick_reach, effective_reach};
+use crate::modding::interaction::{ModInteraction, effective_reach};
 use crate::{
-    interaction_authority::{BlockRayUnavailable, observe_block_ray, ray_is_current},
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
-    mining::{creative_reach, hand_interaction_selection, protocol_input_mode, survival_reach},
+    mining::{hand_interaction_selection, protocol_input_mode},
     movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
     runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
@@ -74,6 +75,8 @@ pub(crate) struct MeleeContext<'w, 's> {
     effects: Res<'w, LocalMovementEffectTimeline>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
+    aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
+    camera: Res<'w, crate::camera::ServerCameraView>,
     #[cfg(feature = "local-mods")]
     mod_interaction: Option<Res<'w, ModInteraction>>,
 }
@@ -90,7 +93,14 @@ pub(crate) fn produce_melee(
     mut runtime: ResMut<MeleeRuntime>,
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
+    mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     runtime.synchronize(movement.interaction_authority_identity());
     let attack = context.input.phase(Action::Attack);
     let drop = |reason| {
@@ -144,8 +154,14 @@ pub(crate) fn produce_melee(
         return;
     };
     runtime.observe_crosshair(crosshair);
-    // Frames between physics ticks have no unsent tick; the press waits for one.
-    let Some(sample) = movement.newest_unsent_sample() else {
+    // Fresh block presses wait for a tick committed in this frame.
+    let sample = runtime.press_sample(
+        crosshair,
+        &movement,
+        context.effects.recent_tick_count(),
+        input.frame_sequence,
+    );
+    let Some(sample) = sample else {
         return;
     };
     let press = PressContext {
@@ -154,100 +170,65 @@ pub(crate) fn produce_melee(
         input_mode,
         local_runtime_id: stream.local_player_runtime_id(),
         selection: hand_interaction_selection(&player_runtime),
-        swing_duration: swing_duration(context.effects.mining_effects()),
+        swing_duration: swing_duration(
+            context
+                .effects
+                .mining_tick(sample.tick, movement.completed_tick())
+                .0,
+        ),
         now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
     };
+    let mut rotate_action = false;
     let missed_swing = resolve_and_send(
         &mut runtime,
         &mut swings,
         crosshair,
         &press,
         input.frame_sequence,
-        |packets| context.network.send_inventory_packets(packets),
+        |packets| {
+            let packet_count = packets.len();
+            let packet_kinds = [
+                packets.first().map(|packet| packet.header.id),
+                packets.last().map(|packet| packet.header.id),
+            ];
+            let rotates = packets.iter().any(protocol::is_aim_assist_rotation_action);
+            let result = context.network.send_inventory_packets(packets);
+            rotate_action = rotates && result.is_ok();
+            let actor = match crosshair {
+                Crosshair::Actor(hit) => stream.authority().actor(hit.runtime_id),
+                _ => None,
+            };
+            bevy::log::info!(
+                target: "cinnabar::interaction",
+                ?crosshair,
+                actor_kind = ?actor.map(|actor| &actor.kind),
+                actor_bounds = ?actor.and_then(|actor| actor.bounding_box()),
+                actor_scale = ?actor.map(|actor| actor.render_scale()),
+                hand_available = press.selection.is_some(),
+                packet_count,
+                ?packet_kinds,
+                ?result,
+                "attack batch submitted"
+            );
+            result
+        },
     );
+    if rotate_action {
+        crate::camera::aim_assist::rotate_for_action(
+            &context.aim,
+            &context.camera,
+            &mut view,
+            &mut movement,
+            sample.tick,
+        );
+    }
     if missed_swing {
         movement.mark_missed_swing(sample.tick);
     }
 }
 
-fn resolve_crosshair(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
-    context: &MeleeContext,
-    input_mode: PlayerInputMode,
-    attack_reach: f64,
-    creative_pick_reach: bool,
-    input_authority: (std::num::NonZeroU64, u64),
-    position_authority_generation: u64,
-) -> Option<Crosshair> {
-    let ray = context.origin.outbound_ray()?;
-    let stream = context.client_world.stream.as_ref()?;
-    if !ray_is_current(ray, context.ui.session_id(), stream) {
-        return None;
-    }
-    let reach = if creative_pick_reach {
-        creative_reach(input_mode)
-    } else {
-        survival_reach(input_mode)
-    };
-    #[cfg(feature = "local-mods")]
-    let actor_reach = effective_reach(reach, context.mod_interaction.as_deref());
-    #[cfg(not(feature = "local-mods"))]
-    let actor_reach = reach;
-    #[cfg(feature = "local-mods")]
-    let reach = block_pick_reach(reach, actor_reach);
-    let origin = ray.origin().to_array();
-    // Vanilla picks against the world it holds, where unreadable space is empty; an
-    // unreadable block ray therefore neither blocks the swing nor occludes a target.
-    let observed = hand_interaction_selection(player_runtime).and_then(|selection| {
-        match observe_block_ray(
-            &context.origin,
-            &context.ui,
-            &context.client_world,
-            &context.collisions,
-            selection,
-            (
-                input_mode,
-                reach,
-                input_authority,
-                position_authority_generation,
-            ),
-        ) {
-            Ok(observed) => observed,
-            Err(BlockRayUnavailable) => {
-                crate::movement::note_click_drop("attack", "block_ray_unreadable_treated_as_clear");
-                None
-            }
-        }
-    });
-    let block_distance = observed.map(|observed| {
-        let hit = observed.target.position;
-        let offset = observed.target.relative_hit;
-        (0..3)
-            .map(|axis| {
-                (f64::from(hit[axis]) + f64::from(offset[axis]) - f64::from(origin[axis])).powi(2)
-            })
-            .sum::<f64>()
-            .sqrt()
-    });
-    let actor = pick_actor(
-        stream.authority().remote_actors(),
-        context.ui.gameplay_hud().mount_unique_id(),
-        origin,
-        ray.direction().to_array(),
-        actor_reach,
-    );
-    Some(classify(actor, block_distance, attack_reach))
-}
-
 #[cfg(test)]
 mod session_tests;
-
-impl SwingTracker {
-    /// Supplies the existing actor-publication adapter with the accepted swing duration.
-    pub(crate) fn take_started(&mut self) -> Option<i32> {
-        self.0.take_started()
-    }
-}
 
 #[cfg(test)]
 pub(crate) use gameplay::melee::ActorHit;

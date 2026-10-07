@@ -1,7 +1,9 @@
 //! Immutable decode work admitted by the ordered world owner.
 
 use bytes::Bytes;
-use protocol::{BlockEntityUpdateEvent, LevelChunkEvent, SubChunkBatchEvent};
+use protocol::{
+    BlockEntityUpdateEvent, LevelChunkEvent, SubChunkBatchEvent, SyncedBlockUpdateEvent,
+};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -53,6 +55,12 @@ pub enum DecodeJob {
     BlockEntityUpdate {
         sequence: u64,
         event: BlockEntityUpdateEvent,
+    },
+    SyncedBlockUpdates {
+        sequence: u64,
+        batches: Vec<BlockMutationBatch>,
+        events: Vec<SyncedBlockUpdateEvent>,
+        ids: DecodeIds,
     },
 }
 

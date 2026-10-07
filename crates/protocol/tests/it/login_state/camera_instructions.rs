@@ -69,7 +69,7 @@ async fn play_ingress_preserves_wire_order_across_interleaved_camera_families() 
     assert_eq!(shake_index + 1, switch_index);
 
     let clear_instruction = match &events[instruction_index] {
-        WorldEvent::Camera(CameraEvent::Instruction(event)) => event.clone(),
+        WorldEvent::Camera(CameraEvent::Instruction(event)) => (**event).clone(),
         other => panic!("expected instruction event, got {other:?}"),
     };
     assert_eq!(
@@ -98,7 +98,7 @@ async fn play_ingress_preserves_wire_order_across_interleaved_camera_families() 
 }
 
 #[tokio::test]
-async fn unsupported_camera_instruction_is_counted_and_session_survives() {
+async fn invalid_camera_instruction_is_counted_and_session_survives() {
     let transport = scripted_camera_transport(PlayEpilogue::OddCameraInstruction);
     let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
         .await

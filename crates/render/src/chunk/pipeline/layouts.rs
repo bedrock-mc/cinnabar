@@ -30,6 +30,7 @@ pub(in crate::chunk) struct ChunkPipelineSpecializer;
 #[derive(Resource)]
 pub(in crate::chunk) struct ChunkPipeline {
     pub(in crate::chunk) variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
+    pub(in crate::chunk) solid_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) model_variants: Variants<RenderPipeline, ChunkPipelineSpecializer>,
     pub(in crate::chunk) transparent_model_variants:
         Variants<RenderPipeline, ChunkPipelineSpecializer>,
@@ -51,6 +52,7 @@ impl FromWorld for ChunkPipeline {
             },
             fragment: Some(FragmentState {
                 shader: CHUNK_SHADER_HANDLE,
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: None,
@@ -87,6 +89,15 @@ impl FromWorld for ChunkPipeline {
             .expect("model fragment")
             .entry_point = Some("fragment".into());
         model_descriptor.primitive.cull_mode = None;
+        // Single-sided opaque cube runs: hardware culling replaces both fragment discards.
+        let mut solid_descriptor = descriptor.clone();
+        solid_descriptor.label = Some("packed solid chunk pipeline".into());
+        solid_descriptor.primitive.cull_mode = Some(bevy::render::render_resource::Face::Back);
+        solid_descriptor
+            .fragment
+            .as_mut()
+            .expect("solid fragment")
+            .entry_point = Some("fragment_solid".into());
         let mut transparent_model_descriptor = model_descriptor.clone();
         transparent_model_descriptor.label = Some("packed transparent model pipeline".into());
         let transparent_model_fragment = transparent_model_descriptor
@@ -126,6 +137,7 @@ impl FromWorld for ChunkPipeline {
         depth_liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
         Self {
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
+            solid_variants: Variants::new(ChunkPipelineSpecializer, solid_descriptor),
             model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),
             transparent_model_variants: Variants::new(
                 ChunkPipelineSpecializer,

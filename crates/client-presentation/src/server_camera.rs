@@ -10,16 +10,8 @@ use client_world::CommittedCameraEvent;
 /// broken server flooding the queue between render frames.
 pub const MAX_SERVER_CAMERA_INSTRUCTIONS: usize = 256;
 
-/// Bounded ordered admission state for server-authored camera instructions.
-///
-/// This resource preserves packet order and nothing else: no system applies
-/// these instructions to the view camera in this tranche. A future renderer
-/// consumer reads the retained sequence and owns all application semantics.
-///
-/// A session-generation change or a dimension change clears the retained
-/// instructions whenever that identity mismatch is next observed, including
-/// idle drains with no incoming camera traffic; lifetime counters survive so
-/// overflow evidence is never lost.
+/// Bounded ordered camera events consumed independently by camera and aim-assist presentation.
+/// Session or dimension changes reset pending events while lifetime counters remain available.
 #[derive(Debug, Default, Resource)]
 pub struct ServerCameraInstructions {
     entries: VecDeque<CommittedCameraEvent>,

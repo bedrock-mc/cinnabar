@@ -24,6 +24,7 @@ mod grid;
 mod measure;
 mod place;
 mod refresh;
+mod reuse;
 mod scroll;
 mod size;
 mod stack;
@@ -31,6 +32,7 @@ mod style;
 
 pub(crate) use grid::TEMPLATE_KEY as GRID_TEMPLATE_KEY;
 pub use measure::MeasureCache;
+pub(crate) use reuse::Output;
 
 pub(crate) use place::draggable_axes;
 use place::{control_anims, place_by_anchor};
@@ -144,6 +146,8 @@ pub struct LaidOut<'a> {
     pub children: Vec<LaidOut<'a>>,
     /// Bound-tree state masks reused by the gated emit pass.
     pub(crate) state_targets: Option<measure::Targets>,
+    /// The subtree's output from the last layout, spliced instead of placed.
+    pub(crate) reused: Option<reuse::Reused>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -166,21 +170,32 @@ pub fn layout_with<'a>(
     state: &ViewState,
 ) -> (LaidOut<'a>, LayoutReport) {
     measure::reset();
-    lay_out(root, root_size, env, state, false)
+    lay_out(root, root_size, env, state, false, None)
 }
 
-/// Lay out a stable bound tree using retained measurements, with ordinary visibility.
-pub(crate) fn layout_cached<'a>(
-    root: &'a ResolvedControl,
+/// Lay out a stable bound tree over retained measurements, splicing the last
+/// layout's output for unchanged subtrees; emits draws, hit regions and the
+/// cancel and `root_panel` lookups.
+pub(crate) fn layout_reusing(
+    root: &ResolvedControl,
     root_size: [f64; 2],
     env: &LayoutEnv,
     state: &ViewState,
     cache: &mut MeasureCache,
-) -> (LaidOut<'a>, LayoutReport) {
+) -> (Output, LayoutReport) {
     cache.enter(root);
-    let laid = lay_out(root, root_size, env, state, false);
+    let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
+    cache.placements.begin(state, false, screen);
+    let (laid, report) = lay_out(
+        root,
+        root_size,
+        env,
+        state,
+        false,
+        Some(&mut cache.placements),
+    );
     cache.leave();
-    laid
+    (reuse::output(&laid, env, &mut cache.placements), report)
 }
 
 /// [`layout_with`] over `cache`'s measurements that omits hidden controls'
@@ -194,7 +209,7 @@ pub(crate) fn layout_culled<'a>(
     cache: &mut MeasureCache,
 ) -> (LaidOut<'a>, LayoutReport) {
     cache.enter(root);
-    let laid = lay_out(root, root_size, env, state, true);
+    let laid = lay_out(root, root_size, env, state, true, None);
     cache.leave();
     laid
 }
@@ -206,6 +221,7 @@ fn lay_out<'a>(
     env: &LayoutEnv,
     state: &ViewState,
     cull: bool,
+    placements: Option<&mut reuse::Placements>,
 ) -> (LaidOut<'a>, LayoutReport) {
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
     let own = size::resolve_size(root, [Some(screen.w), Some(screen.h)], [0.0; 2], env);
@@ -222,6 +238,15 @@ fn lay_out<'a>(
         disabled: 0,
         hidden_names: Vec::new(),
         screen,
+        reuse: placements.map(|placements| Reuse {
+            placements,
+            address: Some(reuse::ROOT),
+            old: None,
+            hits: Default::default(),
+            emitting: true,
+            taint: 0,
+            inspected: 0,
+        }),
     };
     let key = child_key("", root, 0);
     let laid = place_subtree(
@@ -255,6 +280,32 @@ struct PlaceCtx<'tree, 'e, 'x> {
     hidden_names: Vec<String>,
     /// What a control that opts out of clipping draws within.
     screen: Rect,
+    /// The last layout's records, when unchanged subtrees may be spliced.
+    reuse: Option<Reuse<'e>>,
+}
+
+impl PlaceCtx<'_, '_, '_> {
+    /// Note a read of context outside the current controls' inputs.
+    fn taint(&mut self) {
+        if let Some(reuse) = &mut self.reuse {
+            reuse.taint += 1;
+        }
+    }
+}
+
+/// Placement state for splicing: what the next placed control inherits.
+struct Reuse<'e> {
+    placements: &'e mut reuse::Placements,
+    /// The next control's record key, when it is not its address (the root).
+    address: Option<usize>,
+    /// Where the next control's parent sat in the last layout.
+    old: Option<reuse::Old>,
+    hits: std::sync::Arc<crate::input::HitScope>,
+    emitting: bool,
+    /// Context reads outside a control's inputs so far.
+    taint: usize,
+    /// Enclosing edit boxes, whose input metadata reads their laid-out descendants.
+    inspected: usize,
 }
 
 /// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
@@ -315,6 +366,65 @@ fn place_subtree<'a>(
     inherited: &Inherited,
     ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
+    // Only context a control's inputs capture lets a later layout splice it.
+    let free = ctx.scrolls.is_empty()
+        && ctx.sliders.is_empty()
+        && ctx.overrides.is_empty()
+        && ctx.hidden_names.is_empty()
+        && ctx.reuse.as_ref().is_some_and(|reuse| reuse.inspected == 0);
+    let parent_rect = ctx
+        .ancestors
+        .last()
+        .map_or(parent_clip, |(_, parent, _)| *parent);
+    let enabled_above = ctx.disabled == 0;
+    let entry = ctx.reuse.as_mut().map(|reuse| {
+        let address = reuse
+            .address
+            .take()
+            .unwrap_or_else(|| std::ptr::from_ref(control).addr());
+        let old = reuse.placements.old(address, reuse.old.take());
+        let inputs = reuse::Inputs {
+            key: key.clone(),
+            rect,
+            parent_clip,
+            parent_rect,
+            layer: parent_layer,
+            shown,
+            packed,
+            allows: parent_allows,
+            enabled: enabled_above,
+            emitting: reuse.emitting,
+            inherited: inherited.clone(),
+            hits: std::sync::Arc::clone(&reuse.hits),
+        };
+        let reused = old
+            .filter(|_| free)
+            .and_then(|old| reuse.placements.reuse(address, old, &inputs));
+        (address, old, inputs, reuse.taint, reused)
+    });
+    let (entry, reused) = match entry {
+        Some((address, old, inputs, taint, reused)) => {
+            (Some((address, old, inputs, taint)), reused)
+        }
+        None => (None, None),
+    };
+    if let Some(reused) = reused {
+        return LaidOut {
+            control,
+            key,
+            rect,
+            clip: parent_clip,
+            layer: parent_layer,
+            alpha: 1.0,
+            anim: None,
+            visible: shown,
+            enabled: enabled_above,
+            clip_ratio: None,
+            children: Vec::new(),
+            state_targets: None,
+            reused: Some(reused),
+        };
+    }
     // A state control a stateful ancestor shows or hides overrides its own `visible`.
     let forced = ctx
         .overrides
@@ -345,10 +455,6 @@ fn place_subtree<'a>(
     if !enabled {
         ctx.disabled += 1;
     }
-    let parent_rect = ctx
-        .ancestors
-        .last()
-        .map_or(parent_clip, |(_, parent, _)| *parent);
     let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
     let (own_alpha, anim, inherit) =
         inherited.apply(control, style.alpha, own_anims, clips, |node| {
@@ -372,6 +478,11 @@ fn place_subtree<'a>(
     if let Some(entry) = slider {
         ctx.sliders.push(entry);
     }
+    let placeholder = widgets::hidden_placeholder(control);
+    let dropdown = widgets::dropdown_area(control);
+    if opened_scroll || opened_slider || placeholder.is_some() || dropdown.is_some() {
+        ctx.taint();
+    }
     let overrides_len = ctx.overrides.len();
     let bits = widgets::state_index(ctx.state, &key);
     let state_targets = measure::state_targets(control, !enabled);
@@ -381,11 +492,9 @@ fn place_subtree<'a>(
             .flat_map(|targets| targets.iter())
             .map(|&(target, mask)| (target, mask & (1 << bits) != 0, mask)),
     );
-    let placeholder = widgets::hidden_placeholder(control);
     if let Some(name) = placeholder {
         ctx.hidden_names.push(name.to_owned());
     }
-    let dropdown = widgets::dropdown_area(control);
     ctx.ancestors.push((&control.name, rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
     let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
@@ -432,6 +541,21 @@ fn place_subtree<'a>(
     } else {
         Vec::new()
     };
+    // What the children's records read: this control's hit scope, whether it
+    // emits, and where it sat in the last layout.
+    let inherit_reuse = ctx.reuse.as_ref().map(|reuse| {
+        let hits = match reuse.hits.inner(control, &key, rect).0 {
+            std::borrow::Cow::Borrowed(_) => std::sync::Arc::clone(&reuse.hits),
+            std::borrow::Cow::Owned(inner) => std::sync::Arc::new(inner),
+        };
+        let parent = (std::sync::Arc::clone(&reuse.hits), reuse.emitting);
+        (hits, reuse.emitting && shown && own_visible, parent)
+    });
+    let old = entry.as_ref().and_then(|(_, old, _, _)| *old);
+    let inspects = control.control_type.as_deref() == Some("edit_box");
+    if let Some(reuse) = ctx.reuse.as_mut().filter(|_| inspects) {
+        reuse.inspected += 1;
+    }
     for (child, mut child_rect) in placed {
         let child_shown = !ctx.hidden_names.contains(&child.name)
             && !priority
@@ -473,6 +597,7 @@ fn place_subtree<'a>(
         if !packs {
             if place::follows_pointer(child) {
                 ctx.report.tracks_pointer = true;
+                ctx.taint();
             }
             let dragged = ctx.state.drags.get(&next_key).copied();
             if let Some(moved) =
@@ -501,6 +626,11 @@ fn place_subtree<'a>(
         {
             continue;
         }
+        if let (Some(reuse), Some((hits, emitting, _))) = (ctx.reuse.as_mut(), &inherit_reuse) {
+            reuse.old = old;
+            reuse.hits = std::sync::Arc::clone(hits);
+            reuse.emitting = *emitting;
+        }
         let mut laid = place_subtree(
             child,
             next_key,
@@ -512,11 +642,17 @@ fn place_subtree<'a>(
         );
         // A fading touch box dims its children, as vanilla writes their alpha.
         if let Some(fade) = box_fade {
+            ctx.taint();
             for child in &mut laid.children {
                 child.alpha *= fade;
             }
         }
         children.push(laid);
+    }
+    if let (Some(reuse), Some((_, _, (hits, emitting)))) = (ctx.reuse.as_mut(), inherit_reuse) {
+        reuse.hits = hits;
+        reuse.emitting = emitting;
+        reuse.inspected -= usize::from(inspects);
     }
     ctx.ancestors.pop();
     ctx.overrides.truncate(overrides_len);
@@ -544,6 +680,11 @@ fn place_subtree<'a>(
         ctx.report
             .clip_states
             .insert(key.clone(), (event.to_owned(), clipped_out(rect, own_clip)));
+        ctx.taint();
+    }
+    if let (Some(reuse), Some((address, _, inputs, taint))) = (ctx.reuse.as_mut(), entry) {
+        let cacheable = free && reuse.taint == taint;
+        reuse.placements.placed(address, inputs, cacheable);
     }
     LaidOut {
         control,
@@ -558,6 +699,7 @@ fn place_subtree<'a>(
         enabled,
         children,
         state_targets,
+        reused: None,
     }
 }
 

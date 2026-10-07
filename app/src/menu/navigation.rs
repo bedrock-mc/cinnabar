@@ -1,7 +1,7 @@
 //! Menu screen navigation over a screen history, as vanilla's scene stack
 //! pushes and pops screens, and how the menu sits in the scene stack.
 
-use super::{LocalWorldAction, MenuRuntime, MenuScreen};
+use super::{LocalWorldAction, MenuAction, MenuRuntime, MenuScreen};
 
 impl MenuRuntime {
     /// Whether a visible menu opened over the session's world (its history
@@ -51,6 +51,12 @@ impl MenuRuntime {
             self.store_snapshot = None;
         }
         self.screen = screen;
+        if screen != MenuScreen::DressingRoom && self.dressing_room.editor.is_some() {
+            std::sync::Arc::make_mut(&mut self.dressing_room).editor = None;
+        }
+        self.settings_focus_geometry = super::focus::SettingsFocusGeometry::default();
+        self.settings_slider_selected = None;
+        self.settings_focus.clear();
         if screen == MenuScreen::Profile {
             self.feeds.profile_refresh_requested = true;
         }
@@ -64,6 +70,12 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
+        if self.dressing_room.editor.is_some() {
+            self.activate(super::MenuAction::DressingRoom(
+                launcher::dressing_room::Action::Cancel,
+            ));
+            return;
+        }
         if self.screen == MenuScreen::Settings && self.global_resources.settings.is_some() {
             self.global_resource_actions
                 .push(crate::global_resources::Action::CloseSettings);
@@ -73,8 +85,23 @@ impl MenuRuntime {
             self.dismiss_accounts();
             return;
         }
+        if self.screen == MenuScreen::Settings && self.settings_scale_picker {
+            self.activate(MenuAction::SettingsScalePicker);
+            return;
+        }
+        if self.screen == MenuScreen::Settings
+            && let Some(index) = self.settings_dropdown
+        {
+            self.activate(MenuAction::SettingsDropdown(index));
+            return;
+        }
         if self.local_screen_open() {
             self.queue_local_action(LocalWorldAction::Back);
+            return;
+        }
+        // Back on the server trust question declines it.
+        if self.is_connecting() && self.feeds.server_trust.is_some() {
+            self.answer_server_trust(false);
             return;
         }
         // Back on the join progress screen is its cancel button, where vanilla offers one.

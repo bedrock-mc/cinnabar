@@ -1,15 +1,14 @@
-# Native animated held items
+# Animated held items
 
 The runtime pack is selected by `assets/vanilla-source.json`.
 
 ## Modern attachable route
 
-`ItemInHandRenderer` skips its legacy icon placement
-when an active attachable is present. First-person rendering evaluates the owner’s
+The in-hand renderer skips its legacy icon placement when an active attachable
+is present. First-person rendering evaluates the owner’s
 skeleton first. The attachable's scripts, controllers,
 render controllers and animations then select its own geometry, texture and pose.
-`setupAttachableNoChecks` composes the parent's matrix before the
-item's channels. Treating this as the third-person sprite grip was the bow bug.
+Attachable setup composes the parent's matrix before the item's channels. Treating this as the third-person sprite grip was the bow bug.
 
 The compiler now retains attachable scripts/controllers, bone bindings and
 `texture_meshes`, plus all referenced texture frames. Runtime evaluation reuses
@@ -17,7 +16,7 @@ the actor animation engine with explicit first-person context, owner-variable
 inheritance by name, owner lifetime and frame interpolation. Item duration queries
 are ticks in this context; ordinary actor query units are unchanged. The parent
 hand is interpolated once, and the already sampled item pose is not sampled again.
-The owner-skeleton camera root also retains the native post-scale 1/128-model-unit
+The owner-skeleton camera root also retains the vanilla post-scale 1/128-model-unit
 vertical lift; the ordinary camera-space sprite/block path does not inherit it.
 `c.item_slot` remains a string (`main_hand` or `off_hand`), not a boolean or
 number. Binding setup converts an authored bound-root Y pivot to pivot minus 24 model units. This
@@ -26,21 +25,21 @@ an item-specific screen offset would hide the underlying bound-root error.
 
 ## Texture-mesh frame
 
-Native `TextureTessellator` admits pixels with alpha at least 2.
+Sprite extrusion admits pixels with alpha at least 2.
 Its raster points are `[column, depth, row]`: the image is in the X/Z plane, not
 the ordinary sprite's X/Y plane. Depth is `max(image width, image height) / 16`
 when `use_pixel_depth` is enabled, otherwise 1. Both sides sample the pixel-center
 UV; there is no UV-row reversal.
 
-`compileQuads` composes position minus the authored bone pivot, Z/Y/X Euler
-rotation, negative local pivot, and texture/model scale, in that order. The loader performs the bone-pivot subtraction. Native model Y is converted
+Texture-mesh quads compose position minus the authored bone pivot, Z/Y/X Euler
+rotation, negative local pivot, and texture/model scale, in that order. The loader performs the bone-pivot subtraction. Vanilla model Y is converted
 to our upward-Y rig together with the existing X mirror. This conversion belongs
 to the texture mesh, not a new global mirror for all held items. The serialized mesh includes scale and a default-enabled pixel-depth field.
 
 ## Bow and crossbow timing
 
 Bow construction identifies use animation 4, not legacy branch 5.
-Its animation frame comes from `RangedWeaponItem`: for elapsed
+Its animation frame follows the ranged-weapon rule: for elapsed
 use seconds `s`, power is `min((s*s + 2*s)/3, 1)`. While using, the frame is
 `truncate(3 * power * 0.99) + 1`; otherwise it is zero. The transitions occur at
 elapsed ticks 9 and 15. This differs from the bow pack's ten-tick pose-charge
@@ -77,7 +76,7 @@ input were inspected; the expected bow geometry remained visible through the seq
 Native capture used ScreenCaptureKit; native input's `window_not_focused` error
 required a PID-scoped input helper, with fresh captures verifying each result.
 This is a functional rendering/input pass, not a controlled version-matched
-native frame comparison or a complete visual parity gate.
+vanilla frame comparison or a complete visual parity gate.
 
 Incomplete: multi-layer/enchantment materials, custom binding-expression parents,
 offhand submission in the application, and nonuniform parent/child shear.
@@ -89,11 +88,9 @@ modern bow correction. No claim that every held-item edge case is complete.
 
 ## Session item registry initialization
 
-The packet handler calls the `ItemRegistryRef` wrapper, which invokes
-`ItemRegistry::matchServerItemIds`.
-Its initialization state at offset `0x331` gates execution: state 3 returns
-without changing the registry, and successful initialization finishes in state 3.
-Repeated packets are not runtime registry replacements.
+The vanilla client matches server item IDs into its registry once: after a
+successful initialization, later item-registry packets return without changing
+the registry. Repeated packets are not runtime registry replacements.
 
 Dragonfly sends the full item table during StartGame and then a custom-only
 registry after spawning; with no custom items the repeat is empty. Keeping that

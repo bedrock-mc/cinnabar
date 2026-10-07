@@ -65,6 +65,8 @@ pub struct FeaturedGame {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct FeaturedServer {
     #[serde(default)]
+    pub group: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub address: String,
@@ -79,30 +81,14 @@ pub struct FeaturedServer {
     #[serde(default)]
     pub logo: Artwork,
     #[serde(default)]
+    pub background: Artwork,
+    #[serde(default)]
     pub screenshots: Vec<Artwork>,
     #[serde(default)]
     pub games: Vec<FeaturedGame>,
-}
-
-/// A community gathering; the core joins it by `id` only when the player connects.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct Gathering {
+    /// The experience's service count, absent until it is available.
     #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub caption: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub creator: String,
-    #[serde(default)]
-    pub image: Artwork,
-    #[serde(default)]
-    pub start_unix: i64,
-    #[serde(default)]
-    pub end_unix: i64,
+    pub player_count: Option<i64>,
 }
 
 /// The signed-in account as the start and profile screens show it.
@@ -139,7 +125,7 @@ pub struct Profile {
     pub achievements: Option<ProfileAchievements>,
 }
 
-/// The four Xbox title statistics requested by vanilla's PlayerStatisticsFacet.
+/// The four Xbox title statistics vanilla requests for a player profile.
 /// Numeric strings preserve the service's precision; absent values are unavailable.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct ProfileStatistics {
@@ -365,7 +351,7 @@ pub enum ConnectTarget {
     Realm(String),
     /// A friend's XUID from [`Friend::xuid`].
     Friend(String),
-    /// A gathering's experience ID from [`Gathering::id`].
+    /// A featured experience's ID, from a `gathering/<id>` featured server address.
     Gathering(String),
 }
 
@@ -433,6 +419,16 @@ pub struct Events {
     /// Live while the core prepares a join; gone once it hands the session to the client.
     #[serde(default)]
     pub connect: Option<ConnectProgress>,
+    /// The join's pending question whether to trust a NetherNet server.
+    #[serde(default)]
+    pub server_trust: Option<ServerTrustPrompt>,
+}
+
+/// Asks whether to trust the NetherNet server at `url`, answered with [`answer_server_trust`].
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct ServerTrustPrompt {
+    pub id: u64,
+    pub url: String,
 }
 
 /// The core's stage of preparing a join, and its pack download counts.
@@ -519,12 +515,6 @@ struct FeaturedBody {
 }
 
 #[derive(Deserialize)]
-struct GatheringsBody {
-    #[serde(default)]
-    gatherings: Vec<Gathering>,
-}
-
-#[derive(Deserialize)]
 struct ProfileBody {
     #[serde(default)]
     profile: Profile,
@@ -605,14 +595,34 @@ pub async fn poll_events(socket_dir: &Path) -> Result<Events, BridgeError> {
 
 /// Lists the featured servers.
 pub async fn list_featured_servers(socket_dir: &Path) -> Result<Vec<FeaturedServer>, BridgeError> {
-    let body: FeaturedBody = call::<_, ()>(socket_dir, "featured_servers.v1", None).await?;
-    Ok(body.servers)
+    featured_servers(socket_dir, None).await
 }
 
-/// Lists the community gatherings.
-pub async fn list_gatherings(socket_dir: &Path) -> Result<Vec<Gathering>, BridgeError> {
-    let body: GatheringsBody = call::<_, ()>(socket_dir, "gatherings.v1", None).await?;
-    Ok(body.gatherings)
+#[derive(Serialize)]
+struct FeaturedParams {
+    include_player_counts: bool,
+}
+
+/// Reads featured details with live counts while an experience's details are visible.
+pub async fn list_featured_servers_with_counts(
+    socket_dir: &Path,
+) -> Result<Vec<FeaturedServer>, BridgeError> {
+    featured_servers(
+        socket_dir,
+        Some(FeaturedParams {
+            include_player_counts: true,
+        }),
+    )
+    .await
+}
+
+/// Uses the existing featured feed with an optional request for experience counts.
+async fn featured_servers(
+    socket_dir: &Path,
+    params: Option<FeaturedParams>,
+) -> Result<Vec<FeaturedServer>, BridgeError> {
+    let body: FeaturedBody = call(socket_dir, "featured_servers.v1", params).await?;
+    Ok(body.servers)
 }
 
 /// Addresses one `ping.v1` request may carry (the core's `catalog.MaxPingTargets`);
@@ -637,6 +647,28 @@ pub async fn ping_servers(
 pub async fn home(socket_dir: &Path) -> Result<Home, BridgeError> {
     let body: HomeBody = call::<_, ()>(socket_dir, "home.v1", None).await?;
     Ok(body.home)
+}
+
+#[derive(Serialize)]
+struct ServerTrustAnswer {
+    id: u64,
+    trusted: bool,
+}
+
+#[derive(Deserialize)]
+struct ServerTrustBody {
+    answered: bool,
+}
+
+/// Answers trust prompt `id`; `false` when it was no longer pending.
+pub async fn answer_server_trust(
+    socket_dir: &Path,
+    id: u64,
+    trusted: bool,
+) -> Result<bool, BridgeError> {
+    let params = ServerTrustAnswer { id, trusted };
+    let body: ServerTrustBody = call(socket_dir, "server_trust_answer.v1", Some(params)).await?;
+    Ok(body.answered)
 }
 
 /// Reports one messaging event (impression, click, dismiss, ...).
@@ -728,7 +760,27 @@ mod tests {
         let quiet: Events = parse_response(quiet).expect("quiet");
         assert_eq!(quiet.auth.state, AuthState::Offline);
         assert!(quiet.disconnect.is_none() && quiet.transfer.is_none());
-        assert!(quiet.connect.is_none());
+        assert!(quiet.connect.is_none() && quiet.server_trust.is_none());
+    }
+
+    #[test]
+    fn parses_a_pending_server_trust_prompt() {
+        let events = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "auth":{"state":"signed_in"},"server_trust":{"id":3,"url":"http://127.0.0.1:19132"}}}"#;
+        let events: Events = parse_response(events).expect("events");
+        assert_eq!(
+            events.server_trust,
+            Some(ServerTrustPrompt {
+                id: 3,
+                url: "http://127.0.0.1:19132".into()
+            })
+        );
+        let answer = serde_json::to_value(ServerTrustAnswer {
+            id: 3,
+            trusted: true,
+        })
+        .expect("answer");
+        assert_eq!(answer, serde_json::json!({"id": 3, "trusted": true}));
     }
 
     // Omitted counts read as zero and an unknown stage reads as connecting.
@@ -772,21 +824,30 @@ mod tests {
     }
 
     #[test]
+    fn featured_player_counts_preserve_missing_zero_and_signed_values() {
+        for (payload, expected) in [
+            (r#"{}"#, None),
+            (r#"{"player_count":null}"#, None),
+            (r#"{"player_count":0}"#, Some(0)),
+            (r#"{"player_count":-1}"#, Some(-1)),
+            (r#"{"player_count":12345}"#, Some(12_345)),
+        ] {
+            let server: FeaturedServer = serde_json::from_str(payload).expect("featured server");
+            assert_eq!(server.player_count, expected);
+        }
+    }
+
+    #[test]
     fn screen_feeds_parse_leniently() {
         let featured = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
             {"name":"S","address":"a.test:19132","logo":{"url":"https://a.test/l.png"},
+             "background":{"path":"/art/bg.img"},
              "games":[{"title":"Skywars"}],"future":true},{}]}}"#;
         let body: FeaturedBody = parse_response(featured).expect("featured");
         assert_eq!(body.servers.len(), 2);
         assert_eq!(body.servers[0].logo.url, "https://a.test/l.png");
+        assert_eq!(body.servers[0].background.path, "/art/bg.img");
         assert_eq!(body.servers[0].games[0].title, "Skywars");
-        let gatherings = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1}}"#;
-        assert!(
-            parse_response::<GatheringsBody>(gatherings)
-                .expect("gatherings")
-                .gatherings
-                .is_empty()
-        );
         let profile = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
             "profile":{"gamertag":"Steve","xuid":"1","gamerpic":{"path":"/art/p.img"}}}}"#;
         let body: ProfileBody = parse_response(profile).expect("profile");

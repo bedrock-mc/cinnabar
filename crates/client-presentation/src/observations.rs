@@ -18,10 +18,22 @@ pub trait PhysicsObservation {
     fn state(&self) -> Option<&PlayerState>;
     /// Returns the sneak and sprint flags of the last completed tick.
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)>;
+    /// Returns the pose selected by the completed simulation tick.
+    fn mode(&self) -> sim::MovementMode;
     /// Returns the collision identity used by the completed tick.
     fn last_world_identity(&self) -> Option<&WorldCollisionIdentity>;
     /// Reports whether gameplay currently owns player translation.
     fn is_active(&self) -> bool;
+    /// Visits completed motion ticks after the cursor, or only the latest tick to prime a new observer.
+    fn visit_motion_ticks(
+        &self,
+        after: Option<u64>,
+        visit: &mut dyn FnMut(u64, crate::audio::local::MotionSample),
+    );
+    /// How far the frame sits between the last two completed ticks.
+    fn tick_alpha(&self) -> f32 {
+        1.0
+    }
 }
 
 /// Collision facts used by camera obstruction and sound material queries.
@@ -91,7 +103,11 @@ impl SessionObservation {
 /// The UI authority's current cursor policy.
 #[derive(Clone, Copy)]
 pub struct CursorPolicy {
+    /// Focus ownership authorizes capture only after an explicit gameplay return.
+    pub capture_allowed: bool,
     pub consent: bool,
     pub absorbs_input: bool,
     pub steals_mouse: Option<bool>,
+    /// A developer controller owns input: leave the OS cursor and held input alone.
+    pub driven: bool,
 }

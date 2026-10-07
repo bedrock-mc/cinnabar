@@ -1,5 +1,6 @@
 use super::*;
 use crate::chunk::gpu::upload::validate_local_model_streams;
+use crate::chunk::transparent::liquid::transparent_liquid_phase_distance;
 
 #[test]
 fn chunk_sampler_keeps_native_texels_crisp_without_discarding_minification_mips() {
@@ -252,6 +253,7 @@ fn aligned_shared_geometry_is_transparent_validator_eligible() {
     .expect("aligned streams fit exactly");
     let instance = ChunkRenderInstance {
         light_emitters: Arc::from([]),
+        cube_layout: CubeQuadLayout::default(),
         key,
         cube_quads: Arc::from([]),
         cube_lighting: Arc::from([]),
@@ -282,6 +284,7 @@ fn aligned_shared_geometry_is_transparent_validator_eligible() {
         origin: [0; 3],
     };
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key,
         generation: 9,
         tint_identity: tint,
@@ -376,6 +379,7 @@ fn realizable_packed_model_upload_addresses_are_identical_for_direct_and_mdi() {
     let model_draw_range =
         checked_geometry_range(plan.model_draw_start, required.model_draw * 2).unwrap();
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         generation: 1,
         tint_identity: ChunkBiomeTintIdentity::default(),
@@ -441,22 +445,27 @@ fn realizable_packed_model_upload_addresses_are_identical_for_direct_and_mdi() {
 
     for malformed in [
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             model_range: None,
             ..allocation.clone()
         },
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             model_lighting_range: None,
             ..allocation.clone()
         },
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             model_draw_range: None,
             ..allocation.clone()
         },
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             model_draw_range: Some(model_draw_range.start + 2..model_draw_range.end + 2),
             ..allocation.clone()
         },
         GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             model_draw_range: Some(model_draw_range.start + 1..model_draw_range.end),
             ..allocation.clone()
         },
@@ -566,6 +575,7 @@ fn transparent_model_draw_uses_only_its_exact_partitioned_range() {
     let transparent_range = plan.transparent_model_draw_start
         ..plan.transparent_model_draw_start + required.transparent_model_draw * 2;
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         generation: 1,
         tint_identity: ChunkBiomeTintIdentity::default(),
@@ -591,6 +601,7 @@ fn transparent_model_draw_uses_only_its_exact_partitioned_range() {
     assert_eq!(draw.base_vertex, 12);
     assert!(
         transparent_model_direct_draw_command(&GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             transparent_model_draw_range: None,
             ..allocation
         })
@@ -620,7 +631,6 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
     let far = TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 2), 2, 0..8, 20..24, 20);
     let key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![near.clone(), far.clone()],
         ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
@@ -664,7 +674,11 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
             > transparent_liquid_phase_distance(&rangefinder, groups[1].key)
     );
     assert_eq!(
-        transparent_draw_range_args(snapshot.buffer_slot(), groups[0].ref_range.clone()),
+        transparent_draw_range_args(
+            snapshot.buffer_slot(),
+            INITIAL_TRANSPARENT_SLOT_REFS,
+            groups[0].ref_range.clone()
+        ),
         Some(TransparentDrawArgs {
             index_count: 6,
             instance_count: 2,
@@ -681,7 +695,19 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
         PackedTransparentDrawRef::new(1, far.metadata_index),
     ]);
     assert!(transparent_liquid_phase_groups(&non_contiguous).is_none());
-    assert!(transparent_draw_range_args(0, 0..MAX_TRANSPARENT_DRAW_REFS as u32 + 1).is_none());
+    assert!(
+        transparent_draw_range_args(
+            0,
+            MAX_TRANSPARENT_DRAW_REFS,
+            0..MAX_TRANSPARENT_DRAW_REFS as u32 + 1
+        )
+        .is_none()
+    );
+    assert!(transparent_draw_range_args(0, 4, 0..5).is_none());
+    assert_eq!(
+        transparent_draw_range_args(1, 4, 1..3).map(|args| args.first_instance),
+        Some(5)
+    );
 }
 
 #[test]
@@ -753,10 +779,12 @@ fn transparent_model_upload_batches_respect_cap_without_splitting_subchunks() {
     let mut batches = VecDeque::from([
         TransparentModelSortBatch {
             draw_range: 0..6,
+            class: FaceOrderClass::Far([0, 0, 1]),
             words: vec![[0, 0]; 3].into_boxed_slice(),
         },
         TransparentModelSortBatch {
             draw_range: 6..14,
+            class: FaceOrderClass::Far([0, 0, 1]),
             words: vec![[1, 0]; 4].into_boxed_slice(),
         },
     ]);
@@ -819,6 +847,7 @@ fn cube_lighting_layout_rejects_overflow_and_origin_abi_carries_both_bases() {
 #[test]
 fn direct_and_mdi_cube_lighting_addresses_resolve_identical_sentinels() {
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         generation: 1,
         tint_identity: ChunkBiomeTintIdentity::default(),
@@ -879,6 +908,7 @@ fn direct_and_mdi_cube_lighting_addresses_resolve_identical_sentinels() {
 #[test]
 fn cube_draws_reject_missing_odd_mismatched_and_overlapping_lighting_ranges() {
     let valid = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         generation: 1,
         tint_identity: ChunkBiomeTintIdentity::default(),
@@ -895,23 +925,23 @@ fn cube_draws_reject_missing_odd_mismatched_and_overlapping_lighting_ranges() {
         depth_liquid_range: None,
         metadata_index: 4,
     };
-    assert!(indexed_indirect_command(&valid).is_some());
+    assert!(cutout_indirect_command(&valid).is_some());
 
     let mut missing = valid.clone();
     missing.cube_lighting_range = None;
-    assert!(indexed_indirect_command(&missing).is_none());
+    assert!(cutout_indirect_command(&missing).is_none());
 
     let mut odd = valid.clone();
     odd.cube_lighting_range = Some(25..29);
-    assert!(indexed_indirect_command(&odd).is_none());
+    assert!(cutout_indirect_command(&odd).is_none());
 
     let mut mismatched = valid.clone();
     mismatched.cube_lighting_range = Some(24..26);
-    assert!(indexed_indirect_command(&mismatched).is_none());
+    assert!(cutout_indirect_command(&mismatched).is_none());
 
     let mut overlapping = valid;
     overlapping.model_range = Some(26..30);
-    assert!(indexed_indirect_command(&overlapping).is_none());
+    assert!(cutout_indirect_command(&overlapping).is_none());
 }
 
 #[test]

@@ -7,13 +7,20 @@ use sim::{
 };
 use thiserror::Error;
 
+mod aim_pose;
 mod controller_frame;
 mod correction;
+mod dimension_wait;
+mod prediction_corrections;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
+mod fixed_ticks;
+mod motion_ticks;
 mod timeline;
+mod visual_correction;
 
+pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
 
 use super::anchor_probe::BeforeTick;
@@ -58,10 +65,8 @@ pub fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
 
 /// Converts app right/forward axes into bedsim's left-positive strafe input.
 ///
-/// The held sprint request is narrowed into processed sprint state here so the
-/// simulator and the outbound `PlayerAuthInput` flags always agree: vanilla
-/// sprints only while moving forward, so a request held during backward,
-/// strafe-only, or stationary input is not an active sprint.
+/// Actor sprint requests require forward movement; physical packet buttons
+/// remain independent in the accompanying sample context.
 #[must_use]
 pub fn physics_movement_input(
     right_forward: [f32; 2],
@@ -107,8 +112,7 @@ pub struct PhysicsSampleContext {
     /// Analog-axis sample of the controlling device.
     pub analogue_move_vector: [f32; 2],
     pub mode_intent: ModeIntent,
-    /// Physical sneak button, carried to the raw sneak flags.
-    pub sneak_button: bool,
+    pub input: super::TickInput,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,7 +121,7 @@ pub struct PhysicsMovementSample {
     pub position: [f32; 3],
     /// This tick's resolved displacement, used by local movement evidence.
     pub movement: [f32; 3],
-    /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
+    /// End-of-tick velocity sent as PlayerAuthInput.PosDelta.
     pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
     /// Pre-normalization device sample used for the digital raw-input fallback.
@@ -130,8 +134,7 @@ pub struct PhysicsMovementSample {
     pub camera_orientation: [f32; 3],
     pub jumping: bool,
     pub sneaking: bool,
-    /// Physical sneak button, unlike toggle/forced/processed `sneaking`.
-    pub sneak_button: bool,
+    pub input: super::TickInput,
     pub sprinting: bool,
     pub input_mode: PlayerInputMode,
     pub grounded_before_tick: bool,
@@ -213,10 +216,12 @@ pub struct LocalPhysicsController {
     state: Option<PlayerState>,
     previous_position: Vec3,
     eye_offset: eye::LocalEyeOffset,
+    visual_correction: visual_correction::VisualCorrection,
     accumulated_seconds: f64,
     discard_next_elapsed: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
+    input_edges: super::input_state::PendingInputEdges,
     fly_toggle_pending: bool,
     /// Open processed-jump-arc fold state carried across ticks. Reset with the
     /// rest of prediction state; rebuilt across correction replays.
@@ -225,8 +230,11 @@ pub struct LocalPhysicsController {
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
     controller_history: VecDeque<ControllerFrame>,
+    motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
+    motion_anchor: Option<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
+    deferred_corrections: prediction_corrections::DeferredPredictionCorrections,
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
     server_control_flags: Option<ServerControlFlags>,
@@ -237,6 +245,7 @@ pub struct LocalPhysicsController {
     /// Locomotion mode selector and the previous tick's sampled environment it reads.
     modes: ModeTracker,
     last_environment: sim::MovementEnvironment,
+    dimension_waiting: bool,
     pub(super) prediction_sync: super::prediction_sync::PredictionSyncCountdown,
 }
 
@@ -249,22 +258,28 @@ impl Default for LocalPhysicsController {
             state: None,
             previous_position: Vec3::ZERO,
             eye_offset: eye::LocalEyeOffset::default(),
+            visual_correction: visual_correction::VisualCorrection::default(),
             accumulated_seconds: 0.0,
             discard_next_elapsed: false,
             previous_jump_held: false,
             jump_edge_pending: false,
+            input_edges: Default::default(),
             fly_toggle_pending: false,
             processed_jump_arc_active: false,
             dropped_tick_count: 0,
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
+            motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
+            motion_anchor: None,
             server_motions: VecDeque::new(),
+            deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
+            dimension_waiting: false,
             prediction_sync: Default::default(),
         }
     }
@@ -297,19 +312,28 @@ impl LocalPhysicsController {
         self.prediction_sync.clear();
         self.state = None;
         self.eye_offset = eye::LocalEyeOffset::default();
+        self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.input_edges = Default::default();
         self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
+        self.motion_ticks.clear();
+        self.motion_anchor = self
+            .state
+            .as_ref()
+            .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
+        self.dimension_waiting = false;
         self.anchor_state.reset();
         self.history = PredictionHistory::new(self.history_capacity)
             .expect("local physics history capacity is non-zero");
@@ -347,19 +371,28 @@ impl LocalPhysicsController {
         self.state = Some(state);
         self.previous_position = feet;
         self.eye_offset = eye::LocalEyeOffset::default();
+        self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.input_edges = Default::default();
         self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
+        self.motion_ticks.clear();
+        self.motion_anchor = self
+            .state
+            .as_ref()
+            .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.deferred_corrections = Default::default();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
+        self.dimension_waiting = false;
         // Every hard anchor starts a fresh bounded probe epoch: the new
         // position is probed before its first simulated tick, and any prior
         // failure budget or frozen embedded-anchor hold is replaced.
@@ -419,33 +452,26 @@ impl LocalPhysicsController {
         world: &impl CollisionWorld,
         effects: &mut impl MovementEffectSource,
     ) -> LocalPhysicsFrame {
+        self.dimension_waiting = false;
         let Some(state) = self.state.as_mut() else {
             return LocalPhysicsFrame::default();
         };
-        if input.jumping && !self.previous_jump_held {
+        self.input_edges.observe(context.input);
+        if context.input.jump.pressed || (input.jumping && !self.previous_jump_held) {
             self.jump_edge_pending = true;
         }
         self.previous_jump_held = input.jumping;
         input.jump_pressed = self.jump_edge_pending;
         self.fly_toggle_pending ^= context.mode_intent.fly_toggle;
 
-        if self.discard_next_elapsed {
-            self.discard_next_elapsed = false;
-            return LocalPhysicsFrame::default();
-        }
-
-        self.accumulated_seconds += elapsed.as_secs_f64();
-        let due = ((self.accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
-            .floor()
-            .clamp(0.0, u64::MAX as f64) as u64;
-        self.accumulated_seconds -= due as f64 * LOCAL_PHYSICS_TICK_SECONDS;
-        let allowed = due.min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
-        let mut frame = LocalPhysicsFrame {
-            due_ticks: due,
-            dropped_ticks: due.saturating_sub(allowed as u64),
-            samples: Vec::with_capacity(allowed),
-            ..LocalPhysicsFrame::default()
-        };
+        let mut frame = fixed_ticks::frame(
+            elapsed,
+            &mut self.accumulated_seconds,
+            &mut self.discard_next_elapsed,
+        );
+        let allowed = frame
+            .due_ticks
+            .min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
 
         let sprint_request = input.sprinting;
         let requested_movement_speed = input.movement_speed;
@@ -456,14 +482,15 @@ impl LocalPhysicsController {
         input.creative_flight = context.mode_intent.creative_flight;
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
+        input.swift_sneak = context.mode_intent.swift_sneak;
         for tick_index in 0..allowed {
             // Before the first simulated tick of a freshly anchored epoch,
             // probe the anchor out of any solid overlap (provisional
             // recovery policy; see `anchor_probe`).
-            if tick_index == 0 && !self.modes.mode().is_walking() {
+            if tick_index == 0 && !input.immobile && !self.modes.mode().is_walking() {
                 // The probe only knows the standing box, so a low pose cannot be depenetrated by it.
                 self.anchor_state.reset();
-            } else if tick_index == 0 {
+            } else if tick_index == 0 && !input.immobile {
                 match self.anchor_state.before_tick(world, state.position) {
                     BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
                     BeforeTick::Proceed => {}
@@ -474,7 +501,8 @@ impl LocalPhysicsController {
             // latch for taps shorter than one fixed tick, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             let grounded_before_tick = state.on_ground;
-            let jump_repeated = input.jumping
+            let jump_repeated = !input.immobile
+                && input.jumping
                 && grounded_before_tick
                 && state.jump_delay == 0
                 && !self.jump_edge_pending;
@@ -487,6 +515,7 @@ impl LocalPhysicsController {
             let mut forced_sneak = false;
             let mut mode_error = None;
             let previous_modes = self.modes;
+            let [move_sideways, move_forward] = ModeObservation::input_vector(input);
             match self.modes.select(
                 context.mode_intent,
                 self.fly_toggle_pending,
@@ -497,8 +526,12 @@ impl LocalPhysicsController {
                     in_water: self.last_environment.in_water,
                     in_lava: self.last_environment.in_lava,
                     sprinting: sprint_request,
-                    move_sideways: input.strafe as f32,
-                    move_forward: input.forward as f32,
+                    sprint_blinded: input.effects.blindness,
+                    sprint_down: context.input.sprint_down,
+                    input_mode: context.input_mode,
+                    requested_movement: state.requested_movement,
+                    move_sideways,
+                    move_forward,
                     sneaking: sneak_request,
                     pitch: context.pitch,
                     yaw: input.yaw_degrees as f32,
@@ -514,8 +547,15 @@ impl LocalPhysicsController {
                     input.sneaking = sneak_request || choice.forced_sneak;
                     forced_sneak = choice.forced_sneak;
                 }
+                Err(_) if input.immobile => {
+                    // Missing terrain cannot turn an authoritative freeze into a blocked tick.
+                    self.modes = previous_modes;
+                    input.mode = self.modes.mode();
+                    input.sneaking = sneak_request;
+                }
                 Err(error) => mode_error = Some(error),
             }
+            self.modes.record_controls(input, context.input.sneak_down);
             // A rider's position is its seat on the mount, not a simulated result.
             let mut ride_delta = None;
             if input.mode == sim::MovementMode::Riding
@@ -550,6 +590,11 @@ impl LocalPhysicsController {
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
             input.liquid_attach_height = Some(f64::from(self.eye_offset.height(1.0)));
+            let entry_velocity = [
+                state.velocity.x as f32,
+                state.velocity.y as f32,
+                state.velocity.z as f32,
+            ];
             let predicted = match mode_error {
                 Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
                     error,
@@ -565,13 +610,18 @@ impl LocalPhysicsController {
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
+                    self.eye_offset.tick(input.mode, input.sneaking);
                     self.controller_history.push_back(ControllerFrame {
                         tick: state.tick,
+                        entry_velocity,
+                        eye_height: self.eye_offset.height(1.0),
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
                         fly_toggle: self.fly_toggle_pending,
                         requested_sneak: sneak_request,
                         requested_sprint: sprint_request,
+                        sprint_down: context.input.sprint_down,
+                        input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,
                         sprint_override: None,
@@ -585,7 +635,7 @@ impl LocalPhysicsController {
                     });
                     effects.commit_successful_tick();
                     self.previous_position = before;
-                    self.eye_offset.tick(input.mode, input.sneaking);
+                    self.visual_correction.tick();
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
                     frame.completed_ticks += 1;
@@ -601,12 +651,8 @@ impl LocalPhysicsController {
                     processed.mode = input.mode;
                     processed.ride = context.mode_intent.ride;
                     processed.forced_sneak = forced_sneak;
-                    processed.direction_flags = Some(super::encoding::direction_flags([
-                        -input.strafe as f32,
-                        input.forward as f32,
-                    ]));
-                    if input.mode == sim::MovementMode::Riding {
-                        // The mount owns jumping; only the raw button flags describe it.
+                    if input.immobile || input.mode == sim::MovementMode::Riding {
+                        // Frozen travel and mount-owned jumping cannot continue a local jump arc.
                         processed.jump_initiated = false;
                         processed.jump_arc_active = false;
                     }
@@ -640,7 +686,7 @@ impl LocalPhysicsController {
                         camera_orientation: context.camera_orientation,
                         jumping: input.jumping,
                         sneaking: input.sneaking,
-                        sneak_button: context.sneak_button,
+                        input: self.input_edges.sample(context.input),
                         sprinting: input.sprinting,
                         input_mode: context.input_mode,
                         grounded_before_tick,
@@ -664,7 +710,18 @@ impl LocalPhysicsController {
                             .expect("completed tick appended a movement sample")
                             .clone(),
                     );
+                    motion_ticks::retain(
+                        &mut self.motion_ticks,
+                        &mut self.motion_anchor,
+                        self.sample_history
+                            .back()
+                            .expect("completed sample retained"),
+                        self.controller_history
+                            .back()
+                            .expect("completed controller retained"),
+                    );
                     self.jump_edge_pending = false;
+                    self.input_edges = Default::default();
                     self.fly_toggle_pending = false;
                     input.jump_pressed = false;
                 }
@@ -715,9 +772,14 @@ impl LocalPhysicsController {
     #[must_use]
     pub fn render_eye_position(&self) -> Option<[f32; 3]> {
         let mut feet = self.render_feet_position()?;
-        let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
-        feet[1] += self.eye_offset.height(alpha as f32);
+        feet[1] += self.eye_offset.height(self.tick_alpha());
         Some(feet)
+    }
+
+    /// How far the frame sits between the last two completed ticks, `0..=1`.
+    #[must_use]
+    pub fn tick_alpha(&self) -> f32 {
+        (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0) as f32
     }
 
     /// The interpolated actor origin, independent of the camera's stance offset.
@@ -725,7 +787,9 @@ impl LocalPhysicsController {
     pub fn render_feet_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
         let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
-        let feet = self.previous_position + (state.position - self.previous_position) * alpha;
+        let feet = self.previous_position
+            + (state.position - self.previous_position) * alpha
+            + self.visual_correction.offset(alpha as f32);
         Some([feet.x as f32, feet.y as f32, feet.z as f32])
     }
 

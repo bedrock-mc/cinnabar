@@ -12,7 +12,7 @@ pub use admission::step_and_send;
 pub use classify::{AirUse, Cooldown, Needs, classify};
 
 pub const QUICK_CHARGE_ENCHANTMENT_ID: i16 = 35;
-/// `handleBuildAction` re-arms the next build action this long after an air use.
+/// Vanilla re-arms the next build action this long after an air use.
 const USE_REARM_MILLIS: u64 = 200;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,9 +79,11 @@ pub struct ItemUseRuntime {
     repeat_armed: bool,
     /// A rejected click retries only while its verified selection remains current.
     deferred_selection: Option<FrozenMiningSelection>,
+    /// Only this owner's rejected batch may retry a published tick.
+    rejected_swing_tick: Option<(u64, Option<(u64, u64)>)>,
     /// A rejected release still precedes the next use, even if Use is pressed again.
     release_pending: bool,
-    /// `TypedClientNetId<ItemStackLegacyRequestIdTag>`'s process-wide counter.
+    /// Vanilla's process-wide legacy item-stack request id counter.
     last_legacy_request_id: i32,
     crossbows: crossbow::CrossbowPredictions,
 }
@@ -124,6 +126,7 @@ impl ItemUseRuntime {
     pub fn observe_press(&mut self, pressed: bool) {
         if pressed {
             self.deferred_selection = None;
+            self.rejected_swing_tick = None;
             self.latched_press = true;
         }
     }
@@ -133,6 +136,7 @@ impl ItemUseRuntime {
         self.latched_press = false;
         self.repeat_armed = false;
         self.deferred_selection = None;
+        self.rejected_swing_tick = None;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
@@ -162,7 +166,12 @@ impl ItemUseRuntime {
         let mut outcome = UseOutcome::default();
         let pressed = std::mem::take(&mut self.latched_press);
         if pressed {
-            self.repeat_armed = !frame.press_consumed;
+            self.repeat_armed = !frame.press_consumed
+                && (frame.air_use.is_some()
+                    || frame
+                        .selection
+                        .as_ref()
+                        .is_none_or(|selection| selection.item.block_runtime_id() == 0));
         }
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
         let release_pending = std::mem::take(&mut self.release_pending);
@@ -185,7 +194,7 @@ impl ItemUseRuntime {
                 if current.slot != active.selection.slot
                     || current.item.network_id() != active.selection.item.network_id() =>
             {
-                // Switching away stops the use without a release, as `Player::stopUsingItem`.
+                // Switching away stops the use without a release, as vanilla does.
                 self.active = None;
                 return;
             }
@@ -197,8 +206,8 @@ impl ItemUseRuntime {
             frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks);
         // Queue pressure must not turn an already-observed early release into a full charge.
         if !release_pending && depleted && (frame.held || active.crossbow) {
-            // `completeUsingItem` finishes locally, without a release transaction.
-            // CrossbowItem stores its loaded projectile for the next press's pose/action.
+            // A depleted use finishes locally, without a release transaction.
+            // A crossbow stores its loaded projectile for the next press's pose/action.
             if active.crossbow && frame.charge_projectile.is_some() {
                 self.crossbows.predict(
                     &selection,
@@ -261,7 +270,7 @@ impl ItemUseRuntime {
             return;
         };
         self.rearm_millis = Some(frame.now_millis.saturating_add(USE_REARM_MILLIS));
-        // `baseUseItem` opens a legacy request scope on every air use.
+        // Vanilla opens a legacy request scope on every air use.
         let legacy_request_id = self.next_legacy_request_id();
         let on_cooldown = air_use
             .and_then(AirUse::cooldown)
@@ -358,8 +367,8 @@ impl ItemUseRuntime {
         self.cooldowns.iter().any(|(active, _)| *active == category)
     }
 
-    /// `TypedClientNetId::_generateNext`: even ids from -4 downward, restarting past the range.
-    fn next_legacy_request_id(&mut self) -> i32 {
+    /// Vanilla legacy request ids: even ids from -4 downward, restarting past the range.
+    pub fn next_legacy_request_id(&mut self) -> i32 {
         let current = if self.last_legacy_request_id < -2 {
             self.last_legacy_request_id
         } else {

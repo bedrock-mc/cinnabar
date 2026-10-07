@@ -40,6 +40,7 @@ fn in_families(path: &str) -> bool {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     let json = extension == Some("json");
     let raster = matches!(extension, Some("png" | "tga"));
+    let material = path.starts_with("materials/") && extension == Some("material");
     (json
         && [
             "entity/",
@@ -52,6 +53,7 @@ fn in_families(path: &str) -> bool {
         .iter()
         .any(|prefix| path.starts_with(prefix)))
         || (path.starts_with("textures/") && (raster || (json && path.contains("/entity/"))))
+        || material
 }
 
 /// Geometry is keyed by identifier, so a file outside `models/entity/` is filed under it.

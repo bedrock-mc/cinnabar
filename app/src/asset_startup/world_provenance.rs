@@ -57,7 +57,7 @@ pub(crate) fn verify_world_carrier(
                 component,
                 expected: format_sha256(expected),
                 actual: format_sha256(actual),
-                rebuild_command: COMPILE_COMMAND.as_str(),
+                rebuild_command: COMPILE_COMMAND,
             });
         }
     }

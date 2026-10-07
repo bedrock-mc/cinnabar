@@ -1,5 +1,5 @@
-//! Which state controls a stateful control shows, as the components'
-//! `_updateControlVisibility` write them: each named target is the first
+//! Which state controls a stateful control shows, as vanilla's components
+//! write them: each named target is the first
 //! descendant with that name, and a shown target shows even if it is itself
 //! authored `visible: false`.
 
@@ -15,7 +15,7 @@ const BUTTON: [&str; 4] = [
     "hover_control",
     "default_control",
 ];
-/// `ToggleComponent`'s targets by `checked + 4·hover + 8·locked`; unused slots are empty.
+/// A toggle's state targets by `checked + 4·hover + 8·locked`; unused slots are empty.
 const TOGGLE: [&str; 16] = [
     "unchecked_control",
     "checked_control",

@@ -135,3 +135,45 @@ fn block_breaking_negotiation_requires_successful_setup_in_the_same_session() {
     facts.begin_session(5);
     assert_eq!(facts.server_authoritative_block_breaking(), None);
 }
+
+fn immobile(value: bool) -> crate::MovementFlagUpdate {
+    crate::MovementFlagUpdate {
+        immobile: Some(value),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn local_immobility_retains_omitted_metadata_until_an_explicit_clear() {
+    let mut facts = LocalPlayerFacts::new(4);
+    assert!(!facts.is_immobile());
+    assert!(facts.apply_local_movement_flags(4, immobile(true)));
+    assert!(facts.is_immobile());
+    assert!(facts.apply_local_movement_flags(4, crate::MovementFlagUpdate::default()));
+    facts.publish_player_game_mode(PlayerGameMode::Creative);
+    facts.set_mount(Some(9));
+    facts.clear_local_abilities();
+    assert!(
+        facts.is_immobile(),
+        "other player facts do not release travel"
+    );
+    assert!(facts.apply_local_movement_flags(4, immobile(false)));
+    assert!(!facts.is_immobile());
+}
+
+#[test]
+fn local_immobility_preserves_same_session_and_retires_on_session_replacement() {
+    let mut facts = LocalPlayerFacts::new(4);
+    assert!(!facts.apply_local_movement_flags(3, immobile(true)));
+    assert!(!facts.is_immobile());
+    assert!(facts.apply_local_movement_flags(4, immobile(true)));
+    assert!(!facts.apply_local_movement_flags(3, immobile(false)));
+    facts.begin_session(4);
+    assert!(facts.is_immobile());
+    facts.begin_session(5);
+    assert!(!facts.is_immobile());
+    assert!(!facts.apply_local_movement_flags(4, immobile(true)));
+    assert!(!facts.is_immobile());
+    assert!(facts.apply_local_movement_flags(5, immobile(true)));
+    assert!(facts.is_immobile());
+}

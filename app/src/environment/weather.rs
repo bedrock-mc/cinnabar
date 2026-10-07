@@ -23,7 +23,7 @@ const MAX_QUEUED_SPLASHES: usize = 256;
 /// Ticks a bolt stays drawn after it spawns; needs native measurement.
 const BOLT_VISIBLE_TICKS: u32 = 8;
 
-const WEATHER_TEXTURES_FILENAME: &str = "vanilla-v1.mcbewth";
+const WEATHER_TEXTURES_FILENAME: &str = assets::carriers::WEATHER.output;
 const WEATHER_TEXTURES_COMPILE_COMMAND: &str = "make weather-assets";
 
 /// Loads the optional precipitation and End sky carrier next to the world carrier; an absent or
@@ -138,8 +138,8 @@ impl WeatherDisplay {
                 self.ticks.rain.push([self.previous_rain, self.rain]);
             }
         }
-        // Native Weather consumers interpolate the previous/current tick states;
-        // only ClientLevel::_subTick explicitly requests alpha zero for its rate.
+        // Vanilla weather consumers interpolate the previous/current tick states;
+        // only the seasonal palette rate explicitly uses alpha zero.
         let alpha = (self.tick_seconds / world::TICK_DURATION.as_secs_f64()) as f32;
         WeatherState {
             rain_level: self.previous_rain + (self.rain - self.previous_rain) * alpha,
@@ -156,12 +156,12 @@ impl WeatherDisplay {
         self.fog.set_precipitation_count(count);
     }
 
-    /// Native Weather+0x4c, independent of the interpolated displayed rain.
+    /// Vanilla's weather fog level, independent of the interpolated displayed rain.
     pub(crate) fn fog_level(&self) -> f32 {
         self.fog.level(self.dimension)
     }
 
-    /// Native Weather+0x38, used without interpolation by the sky's rain admission.
+    /// Vanilla's current-tick rain level, used without interpolation by the sky's rain admission.
     pub(crate) fn current_rain_level(&self) -> f32 {
         self.rain
     }

@@ -66,6 +66,7 @@ fn named_clock_rows_keep_packet_fifo_and_survive_dimension_changes() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0; 3],
+                ..Default::default()
             }),
         )
         .expect("dimension change");

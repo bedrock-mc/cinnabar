@@ -1,6 +1,10 @@
 use super::*;
+mod block_highlights;
+mod fullbright;
 mod gameplay;
 mod prepared_settings;
+mod render;
+mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.
 fn fixture(frame: &str, text: &str) -> String {
@@ -101,7 +105,7 @@ fn unknown_authority_and_oversized_packages_fail_admission() {
         fixture("", "Hello").replacen("(component", "(component (import \"network\" (func))", 1);
     std::fs::write(&path, source).unwrap();
     assert!(ModHost::load(&path).is_err());
-    let file = File::create(&path).unwrap();
+    let file = std::fs::File::create(&path).unwrap();
     file.set_len((MAX_COMPONENT_BYTES + 1) as u64).unwrap();
     assert!(ModHost::load(&path).is_err());
 }

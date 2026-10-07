@@ -6,7 +6,7 @@ use assets::{
 };
 
 // Native grass_side's final variant (installed native vanilla base pack), selected
-// by GrassBlock::calcVariant.
+// when snow sits above.
 // The samples' flattened grass_side retains only its newer overlay entry, but
 // its mycelium_side array still exposes the same literal snowy sprite.
 const GRASS_SIDE_KEY: &str = "grass_side";

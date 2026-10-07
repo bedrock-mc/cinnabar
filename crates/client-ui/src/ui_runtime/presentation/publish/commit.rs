@@ -39,8 +39,8 @@ pub fn render_prepared_ui(
     let icon = presentation.player_preview_icon();
     let (left, right) = presentation.player_hand_icons();
     presentation.hud_frame.player_preview = icon;
-    presentation.hud_frame.left_hand = left;
-    presentation.hud_frame.right_hand = right;
+    presentation.hud_frame.left_hand = left.filter(|_| preview.hands);
+    presentation.hud_frame.right_hand = right.filter(|_| preview.hands);
     if let Some(menu) = presentation.menu_view.as_mut() {
         menu.profile_icon = icon;
     }
@@ -65,6 +65,11 @@ fn publish_item_viewmodels(
     presentation: &mut UiPresentationRuntime,
     (held, offhand): (Option<IconRef>, Option<IconRef>),
 ) {
+    if presentation.hud_frame.hand_rig_active || !presentation.hud_frame.first_person {
+        presentation.hud_frame.held_item_icon = None;
+        presentation.hud_frame.offhand_viewmodel_icon = None;
+        return;
+    }
     presentation.set_item_viewmodels(held, offhand);
     let (held, offhand) = presentation.item_viewmodel_icons();
     presentation.hud_frame.held_item_icon = held;
@@ -91,4 +96,48 @@ pub fn refresh_hud_frame(
         ItemIconFrames::default(),
     );
     publish_item_viewmodels(presentation, icons);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn switching_hotbar_icons_does_not_rasterize_or_replace_textures_under_the_hand_rig() {
+        let mut presentation =
+            UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+        presentation.hud_frame.first_person = true;
+        presentation.hud_frame.hand_rig_active = true;
+        let textures = Arc::clone(&presentation.textures);
+        for slot in 0..9 {
+            publish_item_viewmodels(
+                &mut presentation,
+                (
+                    Some(IconRef {
+                        page: 0,
+                        uv: [slot * 8, 0, slot * 8 + 8, 8],
+                        glint: false,
+                    }),
+                    None,
+                ),
+            );
+        }
+        assert!(Arc::ptr_eq(&textures, &presentation.textures));
+        assert!(presentation.held_viewmodel_source.is_none());
+        assert!(presentation.hud_frame.held_item_icon.is_none());
+
+        presentation.hud_frame.hand_rig_active = false;
+        publish_item_viewmodels(
+            &mut presentation,
+            (
+                Some(IconRef {
+                    page: 0,
+                    uv: [0, 0, 8, 8],
+                    glint: false,
+                }),
+                None,
+            ),
+        );
+        assert!(presentation.held_viewmodel_source.is_some());
+    }
 }

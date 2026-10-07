@@ -27,6 +27,7 @@ use ui::UserSettings;
 use world::ChunkKey;
 
 mod cursor_changes;
+use cursor_changes::track_test_focus;
 mod front_input;
 mod projection;
 
@@ -65,7 +66,7 @@ impl CollisionWorld for LenientCameraFixture {
 }
 
 #[test]
-fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
+fn third_person_boom_traces_eight_corners_and_stops_before_solid_geometry() {
     let subject = Vec3::new(0.0, 2.0, 0.0);
     let world = CameraCollisionFixture {
         boxes: vec![Aabb::new(
@@ -86,7 +87,7 @@ fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
         Vec3::new(
             0.0,
             2.0,
-            1.8 - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
+            4.02_f32.sqrt() - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
         ),
         1.0e-5,
     ));
@@ -95,7 +96,6 @@ fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
 #[test]
 fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_before_hit() {
     let subject = Vec3::new(0.0, 2.0, 0.0);
-    let diagonal = std::f32::consts::FRAC_1_SQRT_2;
     let cases = [
         (
             "wall",
@@ -104,7 +104,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 1.0, 2.0),
                 SimVec3::new(1.0, 3.0, 3.0),
             )],
-            1.8,
+            4.02_f32.sqrt(),
         ),
         (
             "corner",
@@ -113,7 +113,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 Aabb::new(SimVec3::new(1.5, 1.0, -1.0), SimVec3::new(2.0, 3.0, 4.0)),
                 Aabb::new(SimVec3::new(-1.0, 1.0, 1.5), SimVec3::new(4.0, 3.0, 2.0)),
             ],
-            1.3 / diagonal,
+            3.95_f32.sqrt(),
         ),
         (
             "ceiling",
@@ -122,7 +122,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 4.0, -1.0),
                 SimVec3::new(1.0, 4.5, 5.0),
             )],
-            1.8 / diagonal,
+            7.25_f32.sqrt(),
         ),
         (
             "floor",
@@ -131,7 +131,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 0.5, -1.0),
                 SimVec3::new(1.0, 1.0, 5.0),
             )],
-            0.8 / diagonal,
+            1.65_f32.sqrt(),
         ),
     ];
 
@@ -231,7 +231,7 @@ fn third_person_boom_stops_at_a_real_wall_beside_a_skipped_cell() {
         Vec3::new(
             0.0,
             2.0,
-            1.8 - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+            4.02_f32.sqrt() - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS
         ),
         1.0e-5,
     ));
@@ -388,7 +388,9 @@ fn capture_test_app(
 ) -> (App, Entity) {
     let mut app = App::new();
     app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
-    app.init_resource::<ButtonInput<KeyCode>>()
+    app.init_resource::<client_presentation::camera::CursorFocus>()
+        .add_systems(PreUpdate, track_test_focus)
+        .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(AutoFly::with_startup_capture(false, capture_on_start))
@@ -678,6 +680,49 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     let end = app.world().resource::<LocalViewPose>().eye_translation();
     let expected = start + camera::auto_fly_offset(0.5);
     assert!(end.abs_diff_eq(expected, 1.0e-4));
+}
+
+#[test]
+fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
+    let mut app = App::new();
+    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
+    app.init_resource::<Time>()
+        .add_plugins(FlyCameraPlugin::new(true));
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..default()
+        },
+        CursorOptions::default(),
+        PrimaryWindow,
+    ));
+    app.update();
+    let start = app.world().resource::<LocalViewPose>().eye_translation();
+    let step = Duration::from_millis(250);
+    let mut elapsed = Duration::ZERO;
+
+    for real_clock_present in [false, true, false] {
+        if real_clock_present {
+            let mut real_clock = Time::<bevy::time::Real>::default();
+            real_clock.advance_by(Duration::from_secs(10));
+            app.insert_resource(real_clock);
+        } else {
+            app.world_mut().remove_resource::<Time<bevy::time::Real>>();
+        }
+        app.world_mut().resource_mut::<Time>().advance_by(step);
+        elapsed += step;
+        app.update();
+
+        let actual = app.world().resource::<LocalViewPose>().eye_translation();
+        let expected = start + camera::auto_fly_offset(elapsed.as_secs_f32());
+        assert!(actual.abs_diff_eq(expected, 1.0e-4));
+        assert!(
+            app.world()
+                .resource::<camera::ScreenOverlays>()
+                .layers
+                .is_empty()
+        );
+    }
 }
 
 #[test]

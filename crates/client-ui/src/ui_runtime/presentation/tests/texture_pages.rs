@@ -13,7 +13,7 @@ fn independent_font(sides: &[u32]) -> Arc<RuntimeFontCatalog> {
                 pixels_sha256: Sha256::digest(&pixels).into(),
                 width: side,
                 height: side,
-                rgba8: pixels,
+                pixels: FontPixels::Rgba8(pixels),
             }
         })
         .collect::<Vec<_>>();
@@ -151,11 +151,18 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
 fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     let font = independent_font(&[1024, 2048, 2048, 2048]);
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
-    let font_bytes: usize = font.pages().iter().map(|page| page.rgba8.len()).sum();
+    let font_bytes: usize = font
+        .pages()
+        .iter()
+        .map(|page| page.pixels.bytes().len())
+        .sum();
     let page_bytes = |side: u32| side as usize * side as usize * 4;
     let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
     let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
-        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
+        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE)
+        + render_model::MAX_UI_FALLBACK_FONT_PAGES
+            * render_model::UI_FALLBACK_FONT_PAGE_SIDE as usize
+            * render_model::UI_FALLBACK_FONT_PAGE_SIDE as usize;
     assert_eq!(
         presentation.textures.plan().bytes(),
         font_bytes
@@ -166,7 +173,7 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];
         assert_eq!(page.dimensions(), [source.width, source.height]);
-        assert_eq!(page.pixels().as_ptr(), source.rgba8.as_ptr());
+        assert_eq!(page.pixels().as_ptr(), source.pixels.bytes().as_ptr());
     }
 }
 
@@ -779,4 +786,63 @@ fn frame_cost_bench_hidden_player_preview_while_turning() {
         presentation.sync_player_preview(Some(&skin), pose(frame), false, false, 0.0);
     }));
     eprintln!("FRAME_COST player_preview_turning_hidden: old={old:.3}ms new={new:.3}ms");
+}
+
+/// Coverage font pages add their own buckets beside the art and local-font slots and still fit.
+#[test]
+fn coverage_font_pages_fit_the_bucket_budget_with_every_reserved_slot() {
+    let font = Arc::new(
+        (*independent_font(&[1024, 2048, 2048]))
+            .clone()
+            .with_coverage_pages(),
+    );
+    let presentation =
+        UiPresentationRuntime::with_hud(Arc::clone(&font), crate::test_support::fixture_hud())
+            .unwrap();
+    let plan = presentation.textures.plan();
+    assert!(plan.buckets().len() <= render_model::MAX_UI_TEXTURE_BUCKETS);
+    for (index, page) in presentation.textures.pages().iter().enumerate() {
+        let fallback_start =
+            presentation.textures.dynamic_start() + render_model::UI_FALLBACK_FONT_PAGE_OFFSET;
+        let fallback_end = fallback_start + render_model::MAX_UI_FALLBACK_FONT_PAGES;
+        let expected =
+            if index < font.pages().len() || (fallback_start..fallback_end).contains(&index) {
+                render_model::UiTextureFormat::Coverage
+            } else {
+                render_model::UiTextureFormat::Rgba8
+            };
+        assert_eq!(page.format(), expected, "page {index}");
+    }
+    let local = presentation.textures.dynamic_start() + render_model::UI_LOCAL_FONT_PAGE_OFFSET;
+    let bucket = plan.buckets()[plan.locations()[local].bucket];
+    assert_eq!(bucket.format, render_model::UiTextureFormat::Rgba8);
+    assert_eq!(
+        bucket.dimensions,
+        [render_model::UI_LOCAL_FONT_PAGE_SIDE; 2]
+    );
+}
+
+#[test]
+fn multiple_coverage_families_use_their_actual_bytes_during_startup_admission() {
+    let family = (*independent_font(&[2048; 3]))
+        .clone()
+        .with_coverage_pages();
+    let font = family
+        .with_named_font("body", &family)
+        .unwrap()
+        .with_named_font("heading", &family)
+        .unwrap();
+    let presentation =
+        UiPresentationRuntime::with_hud(Arc::new(font), crate::test_support::fixture_hud())
+            .unwrap();
+    let plan = presentation.textures.plan();
+    assert!(plan.bytes() < render_model::MAX_UI_TEXTURE_BYTES);
+    assert!(plan.validate_device(4096, 256).is_ok());
+    for index in 0..9 {
+        let location = plan.locations()[index];
+        assert_eq!(
+            plan.buckets()[location.bucket].format,
+            render_model::UiTextureFormat::Coverage
+        );
+    }
 }

@@ -23,7 +23,7 @@ use crate::local_player::{
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
-    ActorRigPresentation, SkinLayerPack, actor_rig_presentation, entity_rig_presentation,
+    ActorRigPresentation, actor_rig_presentation, entity_rig_presentation,
     local_actor_presentation_for_visibility, local_diagnostic_presentation,
     select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
 };
@@ -46,11 +46,10 @@ fn render_bone() -> RenderBoneTransform {
 }
 
 fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
-    ActorSnapshot {
+    let mut actor = super::actor_snapshot(protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: runtime_id as i64,
         runtime_id,
-        spawn_revision: 3,
-        movement_revision,
         kind: ActorKind::Player {
             uuid: [runtime_id as u8; 16],
             username: "player".into(),
@@ -60,30 +59,24 @@ fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
         pitch: 0.0,
         yaw: 90.0,
         head_yaw: 90.0,
-        previous_pose: ActorPose {
-            position: [2.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-        },
-        received_pose: ActorPose {
-            position: [4.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 90.0,
-            head_yaw: 90.0,
-        },
-        interpolation_ticks_remaining: 0,
         body_yaw: 90.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: Some(41),
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
-    }
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    });
+    actor.spawn_revision = 3;
+    actor.movement_revision = movement_revision;
+    actor.on_ground = Some(true);
+    actor.source_tick = Some(41);
+    actor.previous_pose = ActorPose {
+        position: [2.0, 64.0, -2.0],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+    };
+    actor
 }
 
 fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
@@ -134,12 +127,15 @@ fn rig<'a>(
         item_animation: [client_world::ItemAnimationState::default(); 2],
         off_hand_animation: [client_world::ItemAnimationState::default(); 2],
         animation_variables: Default::default(),
+        java: Default::default(),
+        java_equipped: None,
     }
 }
 
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
     ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
@@ -356,62 +352,6 @@ fn identical_skin_families_share_one_bounded_texture_layer() {
     );
 }
 
-/// An unchanged skin set must reuse the packed payload instead of copying it every frame.
-#[test]
-fn unchanged_skin_layers_reuse_one_packed_payload() {
-    let mut pack = SkinLayerPack::default();
-    let first =
-        select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 32)]);
-    let packed = pack.pack(first.skin_layers);
-    let again =
-        select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 32)]);
-    let repacked = pack.pack(again.skin_layers);
-    assert!(Arc::ptr_eq(&packed, &repacked));
-    assert_eq!(pack.rebuilds(), 1);
-    let changed = select_actor_presentations(99, false, None, [render_owned(1, 33)]);
-    assert_eq!(pack.pack(changed.skin_layers).len(), STANDARD_SKIN_BYTES);
-    assert_eq!(pack.rebuilds(), 2);
-}
-
-/// Pointer reuse must preserve byte equality, order and changes to independently owned skins.
-#[test]
-fn skin_layer_packing_keeps_equal_copies_and_detects_changed_pixels() {
-    let mut pack = SkinLayerPack::default();
-    let one: protocol::SkinRgba8 = vec![1; STANDARD_SKIN_BYTES].into();
-    let two: protocol::SkinRgba8 = vec![2; STANDARD_SKIN_BYTES].into();
-    let first = pack.pack(vec![one.clone(), two.clone()]);
-    let shared = pack.pack(vec![one.clone(), two.clone()]);
-    let copies = pack.pack(vec![one.to_vec().into(), two.to_vec().into()]);
-    assert!(Arc::ptr_eq(&first, &shared));
-    assert!(Arc::ptr_eq(&first, &copies));
-    assert_eq!(pack.rebuilds(), 1);
-    let reordered = pack.pack(vec![two.clone(), one.clone()]);
-    assert_eq!(&reordered[..STANDARD_SKIN_BYTES], &*two);
-    assert_eq!(&reordered[STANDARD_SKIN_BYTES..], &*one);
-    let mut expected = one.to_vec();
-    expected[STANDARD_SKIN_BYTES - 1] = 3;
-    let changed = pack.pack(vec![two, expected.clone().into()]);
-    assert_eq!(&changed[STANDARD_SKIN_BYTES..], expected.as_slice());
-    assert_eq!(pack.rebuilds(), 3);
-    assert!(pack.pack(Vec::new()).is_empty());
-    assert_eq!(pack.rebuilds(), 4);
-}
-
-/// Equal replacement pixels retain the packed output and release the obsolete source raster.
-#[test]
-fn skin_layer_packing_releases_replaced_equal_source_pixels() {
-    let mut pack = SkinLayerPack::default();
-    let source: protocol::SkinRgba8 = vec![11; STANDARD_SKIN_BYTES].into();
-    let obsolete = Arc::downgrade(source.pixels());
-    let replacement: protocol::SkinRgba8 = source.to_vec().into();
-    let first = pack.pack(vec![source]);
-    assert!(obsolete.upgrade().is_some());
-    let second = pack.pack(vec![replacement]);
-    assert!(Arc::ptr_eq(&first, &second));
-    assert_eq!(pack.rebuilds(), 1);
-    assert!(obsolete.upgrade().is_none());
-}
-
 #[test]
 fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
     let mut local = local_diagnostic_presentation(7, 0, 7, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
@@ -425,7 +365,7 @@ fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
 
     let batch = select_actor_presentations_for_view(7, true, Some(local), [], Some(view));
     let mut scene = ActorRenderScene::default();
-    let frame = update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
 
     assert_eq!(frame.rig.instances.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 7);
@@ -485,14 +425,15 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         .expect("view-backed local visibility converts to a diagnostic rig");
         let batch = select_actor_presentations(42, snapshot.visible(), Some(local), []);
         let mut scene = ActorRenderScene::default();
-        let frame = update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+        let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
 
         assert_eq!(frame.rig.instances.len(), expected_draws);
         assert_eq!(frame.rig.manifest.len(), expected_draws);
         if expected_draws != 0 {
             assert_eq!(frame.rig.manifest[0].identity.runtime_id, 42);
             assert_eq!(frame.rig.manifest[0].route, ActorRigRoute::Diagnostic);
-            assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+            let skin = frame.player_skin(frame.rig.instances[0].texture_layer);
+            assert_eq!(skin.map(|skin| skin.len()), Some(STANDARD_SKIN_BYTES));
         }
     }
 
@@ -556,6 +497,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         publish_local_actor_visibility(
             &avatar,
             perspective,
+            None,
             authoritative_eye,
             Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
             subject_rotation,
@@ -593,6 +535,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
     publish_local_actor_visibility(
         &avatar,
         PerspectiveMode::FirstPerson,
+        None,
         Some(subject_eye),
         Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
         subject_rotation,
@@ -626,7 +569,6 @@ fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
 
 #[test]
 fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
-    let bones = [model_bone([0.0; 3])];
     for identifier in [
         "minecraft:arrow",
         "minecraft:ender_pearl",
@@ -636,24 +578,43 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
         actor.kind = ActorKind::Entity {
             identifier: identifier.into(),
         };
-        let rig = ActorRigSnapshot {
-            previous_body_yaw: 90.0,
-            body_yaw: 90.0,
-            ..rig(42, &bones, &bones)
-        };
-        let presentation =
-            entity_rig_presentation(&rig, &actor, &render::ActorArtworkPages::default(), 1.0)
+        for pitch in [-90.0_f32, -35.0, 0.0, 90.0] {
+            let rotation = (Quat::from_rotation_y(73.0_f32.to_radians())
+                * Quat::from_rotation_x(pitch.to_radians()))
+            .to_array();
+            let bones = [BoneTransform {
+                rotation,
+                ..model_bone([0.0; 3])
+            }];
+            for body_yaw in [-120.0, 0.0, 90.0] {
+                let rig = ActorRigSnapshot {
+                    previous_body_yaw: body_yaw,
+                    body_yaw,
+                    ..rig(42, &bones, &bones)
+                };
+                let presentation = entity_rig_presentation(
+                    &rig,
+                    &actor,
+                    &render::ActorArtworkPages::default(),
+                    1.0,
+                )
                 .unwrap();
-        let rows = presentation.submission.world_from_actor;
-        let basis = if identifier == "minecraft:arrow" {
-            -1.0
-        } else {
-            1.0
-        };
-        assert!((rows[0][0] - basis).abs() < 1e-6, "{identifier}");
-        assert!(rows[0][2].abs() < 1e-6, "{identifier}");
-        assert!(rows[2][0].abs() < 1e-6, "{identifier}");
-        assert!((rows[2][2] - basis).abs() < 1e-6, "{identifier}");
+                let rows = presentation.submission.world_from_actor;
+                assert_eq!(presentation.world_yaw_degrees, 0.0, "{identifier}");
+                assert!((rows[0][0] + 1.0).abs() < 1e-6, "{identifier}");
+                assert!(rows[0][2].abs() < 1e-6, "{identifier}");
+                assert!(rows[2][0].abs() < 1e-6, "{identifier}");
+                assert!((rows[2][2] + 1.0).abs() < 1e-6, "{identifier}");
+                assert_eq!(
+                    presentation.submission.input.current_bones[0].rotation, rotation,
+                    "{identifier} keeps its authored rotation at pitch {pitch}"
+                );
+                assert_eq!(
+                    presentation.submission.input.previous_bones[0].rotation,
+                    rotation
+                );
+            }
+        }
     }
 }
 

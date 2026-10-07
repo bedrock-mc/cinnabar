@@ -41,7 +41,7 @@ pub fn day_plateau(angle: f32) -> f32 {
     (colour_cosine(angle) * 2.0 + 0.5).clamp(0.0, 1.0)
 }
 
-/// Colour helpers use the native table, unlike getSunDirection's full-precision sinf/cosf.
+/// Colour helpers use the native table, unlike the sun direction's full-precision sinf/cosf.
 pub(crate) fn colour_cosine(angle: f32) -> f32 {
     let half_angle = angle * PI;
     crate::native_trig::cosine(half_angle + half_angle)
@@ -54,7 +54,7 @@ pub fn daylight(angle: f32, rain: f32, thunder: f32) -> f32 {
     lerp(NIGHT_SKY_TRANSFER, 1.0, day_plateau(angle) * storm)
 }
 
-/// Ordinary Dimension::getSkyDarken, consumed by builder.
+/// Vanilla ordinary sky darkening, consumed by builder.
 /// This uses cosf and a distinct twilight curve/floor, not the sky draw's transfer.
 #[must_use]
 pub fn lightmap_sky_darken(angle: f32, fog_weather: f32, thunder: f32) -> f32 {
@@ -77,7 +77,7 @@ pub(crate) fn rgb_to_gamma(rgb: [f32; 3]) -> [f32; 3] {
 /// Star alpha: zero by day, at most 0.5 at midnight, hidden by rain.
 #[must_use]
 pub fn star_brightness(angle: f32, rain: f32) -> f32 {
-    // DimensionClientUtils::getStarBrightness: weather participates
+    // Vanilla star brightness: weather participates
     // before clamping and squaring; a third-strength rain already hides the stars.
     let weather = (1.0 - unit(rain) * 3.0).clamp(0.0, 1.0);
     let height = colour_cosine(angle);
@@ -93,7 +93,7 @@ pub fn sunrise_band(angle: f32, rain: f32) -> [f32; 4] {
     band
 }
 
-/// Current getSunriseColor does not read weather. The sky and cloud
+/// Vanilla's sunrise colour does not read weather. The sky and cloud
 /// draw callers apply their different weather/composition policies separately.
 pub(crate) fn raw_sunrise_band(angle: f32) -> [f32; 4] {
     let height = colour_cosine(angle);

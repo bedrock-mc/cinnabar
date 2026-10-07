@@ -29,16 +29,12 @@ use render::{
     RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
 mod startup;
-use startup::read_verified_physics_registry;
 
 #[cfg(feature = "acceptance")]
 use crate::acceptance::world_ready::emit_world_ready;
 use crate::{
     args,
-    asset_startup::{
-        LoadedAssetKind, load_runtime_assets, require_hud_assets, require_icon_assets,
-        select_asset_path_from_environment,
-    },
+    asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
     block_use::{BlockUseRuntime, produce_block_use},
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
     environment::{
@@ -58,15 +54,15 @@ use crate::{
     },
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        PhysicsAuthorityGate, PhysicsCollisionRegistries, advance_local_physics,
-        send_movement_prediction_sync,
+        PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
     },
     present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
-            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
-            publish_actor_render_frame, receive_network_events, spawn_network,
+            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
+            prepare_actor_render_frame, publish_actor_render_frame, publish_entity_shadows,
+            receive_network_events, spawn_network,
         },
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
@@ -153,8 +149,28 @@ pub(crate) enum ClientFrameSet {
     ActorPreparation,
     UiPreparation,
     NetworkSend,
+    ActorFinalization,
     ActorPublication,
     UiPublication,
+}
+
+/// Registers the production actor observation and publication boundaries.
+pub(crate) fn configure_actor_render_systems(app: &mut App) {
+    app.init_resource::<client_presentation::actor_publication::ActorFrameState>()
+        .add_systems(
+            Update,
+            advance_actor_frame.in_set(ClientFrameSet::ActorPreparation),
+        )
+        .add_systems(
+            Update,
+            prepare_actor_render_frame.in_set(ClientFrameSet::ActorFinalization),
+        )
+        .add_systems(
+            Update,
+            (publish_actor_render_frame, publish_entity_shadows)
+                .chain()
+                .in_set(ClientFrameSet::ActorPublication),
+        );
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
@@ -164,6 +180,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.init_resource::<Phase3EvidenceEmitter>();
     app.init_resource::<crate::runtime::network::PackReload>();
     configure_client_authority_systems(app);
+    configure_actor_render_systems(app);
     crate::audio::configure(app);
     app.init_resource::<BlockUseRuntime>()
         .init_resource::<crate::item_use::ItemUseRuntime>()
@@ -218,7 +235,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish)
                 .chain()
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
@@ -242,17 +259,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            prepare_actor_render_frame.in_set(ClientFrameSet::ActorPreparation),
-        )
-        .add_systems(
-            Update,
-            publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
-        )
-        .add_systems(
-            Update,
             crate::hotbar::select_hotbar_slot
                 .after(ClientFrameSet::SemanticFinalize)
-                .before(ClientFrameSet::UiPreparation),
+                .before(ClientFrameSet::ActorPreparation),
         )
         .add_systems(
             Update,
@@ -413,6 +422,9 @@ fn bind_direct_session_directory(
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    #[cfg(feature = "developer-control")]
+    crate::developer_control::prepare_native_application()?;
+    crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = crate::lifecycle::children::StopOnDrop;
     crate::lifecycle::children::install_exit_hooks();
@@ -420,6 +432,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
+    crate::runtime::network::set_compile_cache_dir(layout.compiled_pack_cache_dir());
+    crate::runtime::network::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -442,8 +456,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let loaded_assets =
-        load_runtime_assets(selected_assets).context("load startup block assets")?;
+    let carriers = startup::load_startup_carriers(selected_assets, &layout.physics_registry);
+    let startup::CoreCarriers {
+        assets: loaded_assets,
+        actor: actor_catalog,
+        equipment: equipment_catalog,
+    } = carriers.core.context("load startup block assets")?;
     if let Some(notice) = &loaded_assets.notice {
         eprintln!("{notice}");
     } else if loaded_assets.kind == LoadedAssetKind::CompiledBlob {
@@ -466,40 +484,30 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
-    let actor_artwork = crate::asset_startup::require_actor_artwork(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    )
-    .context("load exact entity-linked neutral actor artwork")?;
+    let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
+    let actor_artwork = crate::asset_startup::actor_artwork(&actor_catalog, &entity_runtime);
     let hand_geometry = render::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
-    let hud_assets = require_hud_assets(&loaded_assets.selected_path)
+    let hud_assets = carriers
+        .hud
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
-    let icon_assets = require_icon_assets(
-        &loaded_assets.selected_path,
-        crate::asset_startup::vanilla_source_manifest_json(),
-    )
-    .context("load pinned official Mojang sample item-icon carrier")?;
+    let icon_assets = carriers
+        .icons
+        .context("load pinned official Mojang sample item-icon carrier")?;
     eprintln!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
-    let equipment_catalog = crate::asset_startup::load_optional_equipment_assets(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    );
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         crate::presentation::equipment::EquipmentRuntime::build(
             Arc::clone(&entity_runtime),
             equipment_catalog.clone(),
             Arc::clone(icon_assets.runtime()),
             Some(Arc::clone(&loaded_assets.runtime)),
-            crate::asset_startup::load_optional_block_entity_assets(&loaded_assets.selected_path),
+            carriers.block_entities.clone(),
             actor_artwork,
         );
-    let lang_assets = crate::asset_startup::require_lang_assets(
-        &loaded_assets.selected_path,
-        crate::asset_startup::vanilla_source_manifest_json(),
-    )
-    .context("load pinned official Mojang sample localization carrier")?;
+    let lang_assets = carriers
+        .lang
+        .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
     let saved_settings = crate::menu::settings_options::SettingsOptions::load(
         &layout
@@ -510,55 +518,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         &loaded_assets.selected_path,
         args.language.as_deref().or(saved_settings.language()),
     );
-    // The sound-definition catalog binds optionally (VPA-017): absence falls
-    // back to a bounded empty catalog with this one-time notice, while a
-    // present-but-invalid carrier fails startup closed above through the
-    // typed error naming the exact path and rebuild command.
-    let loaded_audio = match crate::asset_startup::load_audio_assets(&loaded_assets.selected_path) {
-        Ok(Some(loaded)) => {
-            eprintln!("{}", loaded.startup_summary());
-            Some(loaded)
-        }
-        Ok(None) => {
-            eprintln!(
-                "{}",
-                crate::asset_startup::audio_assets_missing_notice(
-                    &crate::asset_startup::audio_asset_path(&loaded_assets.selected_path)
-                )
-            );
-            None
-        }
-        Err(error) => {
-            return Err(anyhow::Error::new(error))
-                .context("load optional pinned sound-definition carrier");
-        }
-    };
-    let pcm = crate::asset_startup::load_audio_pcm_assets(
-        &loaded_assets.selected_path,
-        loaded_audio.as_ref(),
-    )
-    .context("load optional reviewed finite PCM carrier")?;
-    let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
-    // The sound bank binds optionally: absence or damage leaves playback silent, never fatal.
-    let sound_bank = match crate::audio::SoundBank::open(
-        &crate::audio::sound_bank_path(&loaded_assets.selected_path),
-        audio_catalog.clone(),
-    ) {
-        Ok(Some(bank)) => {
-            eprintln!("loaded sound bank ({} sound files)", bank.file_count());
-            Some(bank)
-        }
-        Ok(None) => {
-            eprintln!(
-                "optional sound bank was not found; run `make audio-bank` (or `make assets`) to enable playback"
-            );
-            None
-        }
-        Err(error) => {
-            eprintln!("sound bank unusable, audio stays silent: {error}");
-            None
-        }
-    };
+    let startup::AudioCarriers {
+        catalog: audio_catalog,
+        pcm,
+        sound_bank,
+    } = carriers.audio?;
     let audio_device = if pcm.is_some() || sound_bank.is_some() {
         crate::named_audio::AudioDevice::open_default_once()
     } else {
@@ -568,21 +532,16 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let named_audio =
         crate::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
     let audio_engine = crate::audio::AudioEngine::new(sound_bank);
-    let particle_assets = crate::particles::load_optional_carrier(&loaded_assets.selected_path);
+    let particle_assets = carriers.particles;
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
-        crate::block_entities::load_block_entity_scene(&loaded_assets.selected_path);
+        crate::block_entities::block_entity_scene(carriers.block_entities.as_deref());
     block_entity_scene.install_entity_assets(&entity_runtime);
-    // Spawner mobs read the actor catalog; without it cages stay empty.
-    match crate::asset_startup::require_actor_assets(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    ) {
-        Ok(catalog) => block_entity_scene.install_mob_assets(&entity_runtime, &catalog),
-        Err(error) => eprintln!("spawner mobs unavailable: {error}"),
-    }
+    block_entity_scene.install_mob_assets(&entity_runtime, &actor_catalog);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
+    let font_runtime =
+        crate::asset_startup::oreui_fonts::install(font_runtime, &layout.resource_root);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
@@ -590,13 +549,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
     // The gameplay HUD draws through the JSON-UI engine, so its carrier is required.
-    let ui_assets =
-        client_ui::ui_runtime::json_ui_assets::require_ui_assets(&loaded_assets.selected_path)?;
+    let ui_assets = carriers.ui?;
     ui_presentation
         .enable_json_ui(ui_assets)
         .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
+    let ui_catalog = crate::runtime::network::PackUiCatalog(
+        ui_presentation
+            .pack_catalog_base()
+            .context("JSON-UI engine is missing its carrier catalog")?,
+    );
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
-    // Dev-only: CINNABAR_OREUI_LOCAL_ASSETS compares OreUI against the install's originals.
+    // Installed OreUI artwork is discovered and decoded once for every native screen.
     if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images()
         && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
@@ -616,8 +579,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
-    let weather_textures =
-        environment::load_optional_weather_textures(&loaded_assets.selected_path);
+    let weather_textures = carriers.weather;
     let authored_texture_loading = crate::render_mode::AuthoredTextureLoading::new(
         Arc::clone(&loaded_assets.runtime),
         loaded_assets.material_keys.clone(),
@@ -637,25 +599,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // same validated geometry catalog as the third-person actor pass.
     let hand_rig_builder =
         crate::runtime::network::HandRigBuilder::from_runtime_assets(&entity_runtime)?;
-    // One shared authority drives both startup registry gates: the
-    // world-carrier provenance pins and this physics binding both derive
-    // their protocol expectation from it, so a partially flipped carrier set
-    // fails closed here instead of aliasing live block identities.
-    let expected_protocol = crate::asset_startup::active_content_registry_protocol();
-    let collision_breg = crate::asset_startup::pinned_block_registry_bytes();
-    let collision_preg = read_verified_physics_registry(
-        &layout.physics_registry,
-        PHYSICS_REGISTRY_SHA256,
-        expected_protocol,
-    )?;
-    let collision_registries = PhysicsCollisionRegistries::bind_coherent_assets(
-        collision_breg,
-        &collision_preg,
-        &layout.physics_registry,
-        &loaded_assets.selected_path,
-        expected_protocol,
-    )
-    .context("decode and bind the active-content-protocol collision registries")?;
+    let collision_registries = carriers.collision?;
     eprintln!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
@@ -682,6 +626,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             address,
             None,
             client_blob_cache.enables_upstream_client_cache(),
+            false,
         )
         .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
@@ -704,6 +649,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             client_blob_cache: client_blob_cache.cache(),
             player_skin: local_player_skin.clone(),
             actor_artwork: Some(actor_artwork.clone()),
+            ui_catalog: Some(ui_catalog.0.clone()),
         })
         .context("spawn Bedrock network worker")
         {
@@ -725,6 +671,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let present_mode_runtime =
         PresentModeRuntime::from_startup(args.force_vsync, args.no_vsync, diagnostics_enabled);
     let present_mode_policy = present_mode_runtime.policy();
+    let vsync_override = present_mode_runtime.vsync_override();
     let runtime_config = AcceptanceRuntimeConfig {
         build_profile: if cfg!(debug_assertions) {
             "debug"
@@ -734,27 +681,36 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
+    let primary_window = Window {
+        title: launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
+        present_mode,
+        ..default()
+    };
+    #[cfg(feature = "developer-control")]
+    let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: launcher::PRODUCT_NAME.to_owned(),
-                    present_mode,
-                    ..default()
-                }),
-                ..default()
-            })
-            .set(render_plugin())
-            // Keep the umbrella bundle disabled so Enhanced can opt into TAA
-            // without also enabling SMAA/CAS and their extra graph passes.
-            .disable::<AntiAliasPlugin>()
-            // The launcher owns the production process lifecycle. Keeping the
-            // OS default SIGINT action also preserves a real developer escape
-            // hatch if graceful Bevy teardown is wedged.
-            .disable::<TerminalCtrlCHandlerPlugin>(),
-    );
+    let plugins = DefaultPlugins
+        .set(WindowPlugin {
+            primary_window: Some(primary_window),
+            ..default()
+        })
+        .set(render_plugin())
+        .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
+        // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
+        // graph requires post-process nodes that are intentionally absent
+        // from this compact custom renderer.
+        .disable::<AntiAliasPlugin>()
+        // The launcher owns the production process lifecycle. Keeping the
+        // OS default SIGINT action also preserves a real developer escape
+        // hatch if graceful Bevy teardown is wedged.
+        .disable::<TerminalCtrlCHandlerPlugin>();
+    #[cfg(feature = "tracy")]
+    let plugins = plugins.set(bevy::log::LogPlugin {
+        custom_layer: crate::tracy::layer,
+        ..default()
+    });
+    app.add_plugins(plugins);
     app.add_plugins(FxaaPlugin);
     app.add_plugins(TemporalAntiAliasPlugin);
     app.add_systems(Update, crate::window_icon::apply);
@@ -784,7 +740,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(SessionController::new(core_process))
+    .insert_resource(
+        SessionController::new(core_process).with_server_address(args.address.as_deref()),
+    )
+    .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
@@ -831,7 +790,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .with_language_assets(
             loaded_assets.selected_path.clone(),
             args.language.as_deref(),
-        ),
+        )
+        .with_vsync_override(vsync_override),
     )
     .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
@@ -899,9 +859,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 .map(std::path::PathBuf::from),
         ))
         .init_resource::<render::RuntimeStageSpans>()
+        .add_plugins(render::GpuTimingPlugin)
         .add_systems(
             First,
             (
+                crate::runtime::frame_profile::track_frame_interval,
                 crate::runtime::frame_profile::trace_frame_focus,
                 render::begin_stage_span::<MAIN_FRAME>,
             )
@@ -932,8 +894,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::HandRigRenderPlugin,
         render::DroppedItemRenderPlugin,
         render::ScreenOverlayRenderPlugin,
+        render::AimAssistHighlightPlugin,
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
+        render::EntityShadowRenderPlugin,
     ));
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
@@ -949,6 +913,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::particles::configure_particles(&mut app);
     crate::block_entities::configure(&mut app, block_entity_font);
     crate::block_selection::configure(&mut app);
+    crate::primitive_shapes::configure(&mut app);
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);
@@ -961,10 +926,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     crate::modding::configure_from_environment(&mut app);
+    #[cfg(feature = "developer-control")]
+    crate::developer_control::configure(&mut app);
     crate::server_experiences::configure(&mut app);
+    crate::discord_presence::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
+    crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }

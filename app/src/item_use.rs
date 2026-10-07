@@ -1,9 +1,8 @@
 //! Air item use: the click-air transaction every held item sends, and holding, releasing and
 //! throwing.
 //!
-//! Follows `ClientInputCallbacks::handleBuildAction`, `GameMode::baseUseItem`,
-//! `GameMode::releaseUsingItem` and `Player::completeUsingItem`; projectiles, food effects and
-//! ammunition stay server-owned.
+//! Follows vanilla's build action, air use, release and use completion; projectiles,
+//! food effects and ammunition stay server-owned.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -64,7 +63,7 @@ impl ItemUseRuntime {
         frame_alpha: f32,
     ) -> client_world::AttachableAnimationInput<'static> {
         let max_use_ticks = self.active_timing().map_or_else(
-            // Native CrossbowItem::getMaxUseDuration remains its charge duration
+            // A crossbow's maximum use duration remains its charge duration
             // when loaded; Instant describes the next action, not that query.
             || match selected_air_use_with_projectile(player_runtime, stream, Some(None)) {
                 Some(AirUse::Hold { max_ticks, .. }) => max_ticks,
@@ -293,6 +292,8 @@ pub(crate) struct ItemUseContext<'w, 's> {
     effects: Res<'w, LocalMovementEffectTimeline>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
+    aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
+    camera: Res<'w, crate::camera::ServerCameraView>,
 }
 
 /// Runs after block use so a press that interacted with a block starts no item use.
@@ -302,7 +303,14 @@ pub(crate) fn produce_item_use(
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
     mut swings: ResMut<SwingTracker>,
+    mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     runtime.synchronize(context.ui.session_id());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
@@ -330,6 +338,10 @@ pub(crate) fn produce_item_use(
         runtime.cancel_pending_input();
     }
     runtime.observe_press(admitted && use_phase.pressed);
+    movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
+    if movement.has_held_release() {
+        return;
+    }
     let held = admitted && use_phase.held;
     let Some(stream) = context.client_world.stream.as_ref() else {
         return;
@@ -348,12 +360,25 @@ pub(crate) fn produce_item_use(
         runtime.selected_projectile(&player_runtime, &context.ui),
     );
     let creative = player_runtime.facts.player_game_mode() == Some(PlayerGameMode::Creative);
+    let inventory_revision = player_runtime.selected_hotbar_slot().and_then(|slot| {
+        context
+            .ui
+            .inventory_ledger(&player_runtime)
+            .authoritative_slot_revision(slot)
+    });
+    let selection = verified_use_selection(&player_runtime, &context.ui).map(|server| {
+        context
+            .block_use
+            .inventory
+            .predicted_selection(&server, inventory_revision.unwrap_or(0))
+            .unwrap_or(server)
+    });
     let frame = UseFrame {
         tick: sample.tick,
         now_millis,
         position: sample.position,
         held,
-        selection: verified_use_selection(&player_runtime, &context.ui),
+        selection,
         air_use,
         ready: match air_use {
             Some(AirUse::Hold { needs, .. }) => {
@@ -362,12 +387,7 @@ pub(crate) fn produce_item_use(
             _ => false,
         },
         creative,
-        inventory_revision: player_runtime.selected_hotbar_slot().and_then(|slot| {
-            context
-                .ui
-                .inventory_ledger(&player_runtime)
-                .authoritative_slot_revision(slot)
-        }),
+        inventory_revision,
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
         press_consumed: context.melee.blocks_use_at(now_millis)
             || context.block_use.interacted_at(sample.tick),
@@ -375,15 +395,22 @@ pub(crate) fn produce_item_use(
     if let Some(reason) = runtime.press_drop_reason(&frame) {
         crate::movement::note_click_drop("use", reason);
     }
-    let duration = swing_duration(context.effects.mining_effects());
-    admit_on_tick(
+    let duration = swing_duration(
+        context
+            .effects
+            .mining_tick(sample.tick, movement.completed_tick())
+            .0,
+    );
+    admit_with_action_aim(
         &mut runtime,
         &mut swings,
         &mut movement,
+        &mut view,
         &frame,
         stream.local_player_runtime_id(),
         duration,
-        |packets| context.network.send_inventory_packets(packets),
+        crate::camera::aim_assist::action_rotation(&context.aim, &context.camera),
+        &context.network,
     );
     if let Some((slot, revision)) = runtime.take_emptied_slot() {
         player_runtime
@@ -393,8 +420,45 @@ pub(crate) fn produce_item_use(
     }
 }
 
-/// `releaseUsing` checks the offhand for either projectile first, then inventory
-/// arrows, and synthesizes an arrow only in creative (09a157e0).
+/// Admits this tick's use. A release aim assist turns the player for waits until this tick's
+/// input carries the new facing, since the server launches with the facing it last received.
+#[allow(clippy::too_many_arguments)]
+fn admit_with_action_aim(
+    runtime: &mut gameplay::item_use::ItemUseRuntime,
+    swings: &mut gameplay::melee::SwingTracker,
+    movement: &mut MovementTicker,
+    view: &mut crate::local_player::LocalViewPose,
+    frame: &UseFrame,
+    local_runtime_id: u64,
+    swing_duration: i32,
+    aim_rotation: Option<bevy::prelude::Quat>,
+    network: &NetworkHandle,
+) {
+    let mut assisted = None;
+    admit_on_tick(
+        runtime,
+        swings,
+        movement,
+        frame,
+        local_runtime_id,
+        swing_duration,
+        |packets| {
+            if aim_rotation.is_some() && packets.iter().any(protocol::is_aim_assist_rotation_action)
+            {
+                assisted = Some(packets);
+                return Ok(());
+            }
+            network.send_inventory_packets(packets)
+        },
+    );
+    if let (Some(rotation), Some(packets)) = (aim_rotation, assisted) {
+        crate::camera::aim_assist::apply_action_rotation(rotation, view, movement, frame.tick);
+        movement.hold_release_after_tick(frame.tick, packets);
+    }
+}
+
+/// Release checks the offhand for either projectile first, then inventory
+/// arrows, and synthesizes an arrow only in creative.
 fn loading_projectile(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &chunk_pipeline::WorldStream,

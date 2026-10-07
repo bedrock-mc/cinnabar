@@ -1,3 +1,6 @@
+#[path = "runtime/elytra_tests.rs"]
+mod elytra_tests;
+
 use std::sync::Arc;
 
 use assets::IconSprite;
@@ -13,7 +16,7 @@ use super::{
     atlas::{ATLAS_SIDE, SpriteAtlas},
     display::{
         FirstPersonHand, FirstPersonShape, ItemDisplay, attach_to_bone, first_person_display,
-        held_block_display, is_mirrored_art,
+        held_block_display, is_rod,
     },
     runtime::{FirstPersonArms, layer_presentation},
 };
@@ -120,6 +123,7 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
     }]);
     let location = locations[0].unwrap();
     let body = ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -213,43 +217,6 @@ fn undrawn_main_hand_item_keeps_the_swinging_arm() {
 }
 
 #[test]
-fn elytra_wings_hang_off_the_body_at_their_literal_offsets() {
-    use assets::{AttachablePose, AttachablePoseBone, ItemDisplayScalar};
-    let scalar = |value: f32| ItemDisplayScalar::new(value).unwrap();
-    let uniform = |value: f32| Some([scalar(value); 3]);
-    let pose = AttachablePose {
-        key: "default".into(),
-        bones: Box::new([
-            AttachablePoseBone {
-                bone: "body".into(),
-                translation: None,
-                rotation: None,
-                scale: uniform(1.5),
-            },
-            AttachablePoseBone {
-                bone: "left_wing".into(),
-                translation: Some([scalar(4.0), scalar(8.0), scalar(-16.0)]),
-                rotation: None,
-                scale: Some([scalar(1.0), scalar(1.0), scalar(2.0)]),
-            },
-        ]),
-    };
-    let names = ["body", "left_wing", "right_wing"]
-        .map(Box::<str>::from)
-        .to_vec();
-    let posed = super::elytra::pose(&names, &pose, bone([0.0, 1.0, 0.0], 1.0));
-    assert_eq!(posed[0].translation_scale, [0.0, 1.0, 0.0, 1.5]);
-    // X is mirrored, offsets scale with the body, and the wing stacks its own axis scale.
-    let wing = posed[1].translation_scale;
-    assert!((wing[0] + 4.0 / 16.0 * 1.5).abs() < 1e-6);
-    assert!((wing[1] - (1.0 + 8.0 / 16.0 * 1.5)).abs() < 1e-6);
-    assert!((wing[2] + 1.0 * 1.5).abs() < 1e-6);
-    assert_eq!(wing[3], 1.5);
-    assert_eq!(posed[1].axis_scale, [1.0, 1.0, 2.0, 1.0]);
-    assert_eq!(posed[2], hidden_bone());
-}
-
-#[test]
 fn head_items_map_to_their_skull_kinds_and_others_to_none() {
     use render::SkullKind;
     let kind = super::runtime::skull_kind;
@@ -320,6 +287,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     runtime.register_skin_rig(rig, names.clone());
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
     let body = ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -354,8 +322,10 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     let worn = |identifier: &str| WornItem {
         identifier: Arc::from(identifier),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Sprite,
         dye_rgb: None,
+        enchanted: false,
     };
     let armor = ActorEquipmentInput {
         armor: [
@@ -367,7 +337,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         .map(|identifier| Some(worn(identifier))),
         ..ActorEquipmentInput::default()
     };
-    assert_eq!(runtime.layers_for(&body, &armor).len(), 4);
+    assert_eq!(runtime.layers_for(&body, &armor, None).len(), 4);
     let held = [
         "minecraft:ender_pearl",
         "minecraft:diamond_sword",
@@ -378,7 +348,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
             main: Some(worn(identifier)),
             ..ActorEquipmentInput::default()
         };
-        (identifier, runtime.layers_for(&body, &input).len())
+        (identifier, runtime.layers_for(&body, &input, None).len())
     });
     eprintln!("{held:?}");
     assert_eq!(held[0].1, 1);
@@ -408,6 +378,7 @@ fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmis
     runtime.register_skin_rig(rig, names.clone());
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -522,6 +493,28 @@ fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
     ]
 }
 
+#[test]
+fn java_hand_preserves_a_pack_bow_binding_selected_ahead_of_vanilla() {
+    let files = crown_pack()
+        .into_iter()
+        .map(|(path, bytes)| {
+            let bytes = if path.ends_with(".json") {
+                String::from_utf8(bytes)
+                    .unwrap()
+                    .replace("test:crown", "minecraft:bow")
+                    .into_bytes()
+            } else {
+                bytes
+            };
+            (path, bytes)
+        })
+        .collect();
+    let (mut runtime, _) = pack_runtime(files);
+    assert!(runtime.is_vanilla_attachable("minecraft:bow"));
+    runtime.set_pack_layer(None);
+    assert!(!runtime.is_vanilla_attachable("minecraft:bow"));
+}
+
 // A custom attachable whose name and geometry say nothing is worn where `minecraft:wearable` puts it.
 #[test]
 fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
@@ -531,23 +524,25 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     let crown = WornItem {
         identifier: Arc::from("test:crown"),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Other,
         dye_rgb: None,
+        enchanted: false,
     };
     let worn = ActorEquipmentInput {
         armor: [Some(crown), None, None, None],
         ..ActorEquipmentInput::default()
     };
-    assert!(runtime.layers_for(&body, &worn).is_empty());
+    assert!(runtime.layers_for(&body, &worn, None).is_empty());
     let components = protocol::ItemComponents {
         wearable_slot: Some("slot.armor.head".into()),
         ..Default::default()
     };
     let items = session_items(vec![("test:crown", components)], vec![]);
     runtime.set_session_items(Some(&items), None, Vec::new());
-    assert_eq!(runtime.layers_for(&body, &worn).len(), 1);
+    assert_eq!(runtime.layers_for(&body, &worn, None).len(), 1);
     runtime.set_session_items(None, None, Vec::new());
-    assert!(runtime.layers_for(&body, &worn).is_empty());
+    assert!(runtime.layers_for(&body, &worn, None).is_empty());
 }
 
 #[test]
@@ -558,8 +553,10 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
     let item = WornItem {
         identifier: Arc::from("test:gem"),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Other,
         dye_rgb: None,
+        enchanted: false,
     };
     let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
     let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
@@ -597,6 +594,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
             main: Some(item),
             ..Default::default()
         },
+        None,
     );
     assert_eq!(third[0].location, first.presentation.location);
     assert_ne!(
@@ -615,12 +613,18 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
         main: Some(WornItem {
             identifier: Arc::from(identifier),
             metadata: 0,
+            damage: None,
             kind: HeldKind::Other,
             dye_rgb: None,
+            enchanted: false,
         }),
         ..ActorEquipmentInput::default()
     };
-    assert!(runtime.layers_for(&body, &held("test:blade")).is_empty());
+    assert!(
+        runtime
+            .layers_for(&body, &held("test:blade"), None)
+            .is_empty()
+    );
     let blade = protocol::ItemComponents {
         hand_equipped: true,
         use_duration_ticks: Some(24),
@@ -633,8 +637,8 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
     let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
     let (_, locations) = pages.with_equipment_rasters(staged.rasters());
     runtime.set_session_items(Some(&items), Some(staged), locations);
-    let blade_layers = runtime.layers_for(&body, &held("test:blade"));
-    let gem_layers = runtime.layers_for(&body, &held("test:gem"));
+    let blade_layers = runtime.layers_for(&body, &held("test:blade"), None);
+    let gem_layers = runtime.layers_for(&body, &held("test:gem"), None);
     assert_eq!((blade_layers.len(), gem_layers.len()), (1, 1));
     let bone = |layers: &[super::runtime::EquipmentPresentation]| {
         layers[0].submission.input.current_bones[0]
@@ -659,8 +663,10 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
     let item = WornItem {
         identifier: Arc::from("test:controller"),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Other,
         dye_rgb: None,
+        enchanted: false,
     };
     let mut items = session_items(
         vec![("test:controller", Default::default())],
@@ -693,6 +699,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
             main: Some(item),
             ..Default::default()
         },
+        None,
     );
     let right_item = body.input.current_bones[5];
     let grip = attach_to_bone(right_item, held_block_display()).unwrap();
@@ -753,7 +760,7 @@ fn first_person_equip_dip_and_mirrored_art() {
     let turned = first_person_display(FirstPersonShape::Sprite { mirrored_art: true }, REST);
     let half_turn = rest.rotation.inverse() * turned.rotation;
     assert!(half_turn.angle_between(Quat::IDENTITY) > 3.0);
-    assert!(is_mirrored_art("minecraft:fishing_rod") && !is_mirrored_art("minecraft:stick"));
+    assert!(is_rod("minecraft:fishing_rod") && !is_rod("minecraft:stick"));
     let block = first_person_display(FirstPersonShape::Block, REST);
     assert!((block.scale - 0.4).abs() < 1e-5);
     assert!(
@@ -785,4 +792,57 @@ fn first_person_consume_raises_the_item() {
         },
     );
     assert!(started.translation.distance(rest.translation) < 0.05);
+}
+
+/// Java grips ride the right arm, not the hand bone vanilla still turns, and skip the hurt flash.
+#[test]
+fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
+    use super::runtime::{ActorEquipmentInput, HeldKind, JavaGrip, StagedSessionIcons, WornItem};
+    use render_model::java_animation::{JavaHeldItem, JavaItemMesh, third_person_item};
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let mut body = player_body(&mut runtime);
+    let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
+    let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+    let (_, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&items), Some(staged), locations);
+    let turned = |rotation: Quat, translation: [f32; 3]| RenderBoneTransform {
+        rotation: rotation.to_array(),
+        ..bone(translation, 1.0)
+    };
+    let arm = turned(Quat::from_rotation_x(0.7), [0.3, 1.4, 0.0]);
+    let mut pose = body.input.current_bones.to_vec();
+    pose[3] = arm;
+    pose[5] = turned(Quat::from_rotation_z(1.1), [0.4, 0.9, 0.1]);
+    body.input.previous_bones = pose.clone().into();
+    body.input.current_bones = pose.into();
+    body.overlay_rgba8 = 0x6600_00ff;
+    let input = ActorEquipmentInput {
+        main: Some(WornItem {
+            identifier: Arc::from("test:gem"),
+            metadata: 0,
+            damage: None,
+            kind: HeldKind::Other,
+            dye_rgb: None,
+            enchanted: false,
+        }),
+        java: Some(JavaGrip::default()),
+        ..ActorEquipmentInput::default()
+    };
+    let layers = runtime.layers_for(&body, &input, None);
+    assert_eq!(layers.len(), 1);
+    let expected = attach_to_bone(
+        arm,
+        ItemDisplay::from_matrix(third_person_item(JavaHeldItem::Flat, JavaItemMesh::Sprite)),
+    )
+    .unwrap();
+    let held = layers[0].submission.input.current_bones[0];
+    for (actual, expected) in held
+        .translation_scale
+        .iter()
+        .chain(&held.rotation)
+        .zip(expected.translation_scale.iter().chain(&expected.rotation))
+    {
+        assert!((actual - expected).abs() < 1e-5, "{held:?} vs {expected:?}");
+    }
+    assert_eq!(layers[0].submission.overlay_rgba8, 0);
 }

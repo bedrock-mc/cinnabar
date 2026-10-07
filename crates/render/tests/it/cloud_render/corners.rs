@@ -39,7 +39,7 @@ fn native_face_vertex_sequences_and_quad_diagonals_execute_on_gpu() {
             write_depth: false,
         }],
     );
-    // Current native TextureTessellator emits these four vertices per
+    // Vanilla emits these four vertices per
     // face. Its shared quad buffer selects [1,2,0,0,2,3].
     let corners = [
         [[1, 0], [1, 1], [0, 1], [0, 0]],

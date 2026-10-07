@@ -26,7 +26,7 @@ fn render_projectile_states() {
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let entities = Arc::new(assets::RuntimeEntityAssets::decode(&bytes).unwrap());
     let artwork = pack_compiler::compile_actor_assets(Path::new(&pack), manifest).unwrap();
-    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &bytes).unwrap();
+    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &entities).unwrap();
     let candidates = catalog
         .bindings()
         .iter()

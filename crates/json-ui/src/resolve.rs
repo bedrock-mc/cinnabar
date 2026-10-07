@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use crate::anim;
 use crate::catalog::{Catalog, RawControl, child_controls};
 use crate::env::{Env, evaluate, substitute};
-use crate::merge::{Layering, flatten_def, inherit};
+use crate::merge::{Layering, flatten_def, flatten_properties, inherit};
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
 const MAX_DEPTH: usize = 256;
@@ -80,7 +80,7 @@ impl<'a> Resolver<'a> {
         name: &str,
         root_env: &Env,
     ) -> Option<(Option<String>, std::collections::BTreeMap<String, Value>)> {
-        let (control, _) = flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
+        let control = flatten_properties(self.catalog, namespace, name, &mut self.diagnostics)?;
         // As in `resolve_root`, `ignored` reads the scope before the control's own `$` values.
         if self.is_ignored(&control, root_env) {
             return None;
@@ -300,17 +300,20 @@ impl<'a> Resolver<'a> {
         child: &RawControl,
         env: &Env,
     ) -> (RawControl, Option<ControlRef>, Option<String>) {
-        // `{ "$button_layout": {} }` with `$button_layout: "@ns.panel"` instances
-        // that panel, named as it is (the disconnect screen's buttons).
+        // A variable child key may supply both its instance name and inherited template.
         if child.base.is_none()
             && let Some(Value::String(text)) = child
                 .name
                 .strip_prefix('$')
                 .and_then(|variable| env.get(variable))
-            && let Some(reference) = text.strip_prefix('@')
+            && let Some((name, reference)) = text.split_once('@')
         {
             let mut named = child.clone();
-            named.name = ControlRef::parse(reference, &child.owner_ns).name;
+            named.name = if name.is_empty() {
+                ControlRef::parse(reference, &child.owner_ns).name
+            } else {
+                name.to_owned()
+            };
             named.base = Some(reference.to_owned());
             return self.resolve_child_base(&named, env);
         }
@@ -580,6 +583,38 @@ fn instance_name(name: &str, env: &Env) -> String {
 #[cfg(test)]
 mod tests {
     use crate::{Catalog, Context, resolve};
+
+    #[test]
+    fn variable_child_key_keeps_named_inheritance_and_inline_overrides() {
+        let mut catalog = Catalog::default();
+        catalog.overlay_text(
+            "ui/a.json",
+            r##"{ "namespace": "a",
+                "button": { "type": "button", "size": [36, 36],
+                    "$caption|default": "Base",
+                    "controls": [
+                        { "border": { "type": "image", "texture": "blue" } },
+                        { "label": { "type": "label", "text": "$caption" } } ] },
+                "root": { "type": "panel", "$button_control": "chosen@a.button",
+                    "controls": [
+                        { "$button_control": { "size": [50, 60], "$caption": "Join" } } ] } }"##,
+        );
+        let resolved = resolve(&catalog, "a.root", &Context::empty());
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let root = resolved.control.unwrap();
+        let button = root.child("chosen").expect("the authored instance name");
+        assert_eq!(button.control_type.as_deref(), Some("button"));
+        assert_eq!(button.properties["size"], serde_json::json!([50, 60]));
+        assert_eq!(
+            button.child("border").unwrap().properties["texture"],
+            "blue"
+        );
+        assert_eq!(button.child("label").unwrap().properties["text"], "Join");
+    }
 
     // A control's own `$` declarations do not decide its `ignored`.
     #[test]

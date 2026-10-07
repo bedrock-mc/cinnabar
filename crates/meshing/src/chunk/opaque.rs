@@ -3,7 +3,8 @@ use std::cell::OnceCell;
 use assets::BlockFlags;
 
 use crate::{
-    DiagnosticGeometryCount, DiagnosticGeometrySummary, Face, PackedQuad, PackedQuadLighting, SIDE,
+    CubeQuadLayout, DiagnosticGeometryCount, DiagnosticGeometrySummary, Face, PackedQuad,
+    PackedQuadLighting, SIDE,
     contributors::{PaletteFacts, PaletteSource, ResolvedPaletteEntry},
 };
 
@@ -41,23 +42,63 @@ impl DiagnosticGeometryAccumulator {
     }
 }
 
+/// Cube quads split by draw path, each kept in emission order.
+#[derive(Default)]
+pub(crate) struct CubeQuadStreams {
+    solid: Vec<PackedQuad>,
+    solid_lighting: Vec<PackedQuadLighting>,
+    solid_counts: [u32; 6],
+    two_sided: Vec<PackedQuad>,
+    two_sided_lighting: Vec<PackedQuadLighting>,
+}
+
+impl CubeQuadStreams {
+    /// Solid quads must arrive grouped by face in `Face::ALL` order.
+    fn push(&mut self, quad: PackedQuad, lighting: PackedQuadLighting, solid: bool) {
+        if solid {
+            self.solid_counts[quad.face().index()] += 1;
+            self.solid.push(quad);
+            self.solid_lighting.push(lighting);
+        } else {
+            self.two_sided.push(quad);
+            self.two_sided_lighting.push(lighting);
+        }
+    }
+
+    pub(crate) fn finish(self) -> (Vec<PackedQuad>, Vec<PackedQuadLighting>, CubeQuadLayout) {
+        let len = self.solid.len() + self.two_sided.len();
+        let mut quads = Vec::with_capacity(len);
+        let mut lighting = Vec::with_capacity(len);
+        for face in CubeQuadLayout::SOLID_FACE_ORDER {
+            let start = self.solid_counts[..face.index()].iter().sum::<u32>() as usize;
+            let range = start..start + self.solid_counts[face.index()] as usize;
+            quads.extend_from_slice(&self.solid[range.clone()]);
+            lighting.extend_from_slice(&self.solid_lighting[range]);
+        }
+        quads.extend(self.two_sided);
+        lighting.extend(self.two_sided_lighting);
+        (
+            quads,
+            lighting,
+            CubeQuadLayout::from_solid_counts(self.solid_counts),
+        )
+    }
+}
+
 pub(crate) struct CubeMeshOutput<'a> {
-    quads: &'a mut Vec<PackedQuad>,
-    lighting: &'a mut Vec<PackedQuadLighting>,
+    streams: &'a mut CubeQuadStreams,
     diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
     materials: &'a [assets::Material],
 }
 
 impl<'a> CubeMeshOutput<'a> {
     pub(crate) fn new(
-        quads: &'a mut Vec<PackedQuad>,
-        lighting: &'a mut Vec<PackedQuadLighting>,
+        streams: &'a mut CubeQuadStreams,
         diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
         materials: &'a [assets::Material],
     ) -> Self {
         Self {
-            quads,
-            lighting,
+            streams,
             diagnostic_geometry,
             materials,
         }
@@ -310,14 +351,17 @@ pub(crate) fn greedy_slice(
             for row in &mut rows[v..v + height] {
                 *row &= !span;
             }
-            output.quads.push(PackedQuad::new(
-                origin.map(|coordinate| coordinate as u8),
-                face,
-                width as u8,
-                height as u8,
-                material_id,
-            ));
-            output.lighting.push(lighting);
+            output.streams.push(
+                PackedQuad::new(
+                    origin.map(|coordinate| coordinate as u8),
+                    face,
+                    width as u8,
+                    height as u8,
+                    material_id,
+                ),
+                lighting,
+                crate::is_single_sided_opaque(output.materials, material_id),
+            );
             if material_id == assets::DIAGNOSTIC_MATERIAL {
                 output.diagnostic_geometry.record(origin_entry);
             }

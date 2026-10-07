@@ -11,7 +11,7 @@ use crate::{
     local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
     menu::{
         CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
-        spawn_core_for_address,
+        server_trust::SessionTrust, spawn_core_for_address,
     },
     movement::{LocalPhysicsController, MovementTicker},
     player_runtime::PlayerRuntime,
@@ -61,9 +61,12 @@ pub(crate) struct SessionController {
     /// The join provisioning behind the connecting screen.
     join: Option<JoinAttempt>,
     generation: u64,
+    server_address: Option<String>,
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
     connecting: bool,
+    /// Polls the per-session core this join started for its server trust question.
+    trust: Option<SessionTrust>,
 }
 
 impl Default for SessionController {
@@ -80,9 +83,26 @@ impl SessionController {
             directory: None,
             join: None,
             generation: 1,
+            server_address: None,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
+            trust: None,
         }
+    }
+
+    pub(crate) fn with_server_address(mut self, address: Option<&str>) -> Self {
+        self.set_server_address(address);
+        self
+    }
+
+    pub(crate) fn server_address(&self) -> Option<&str> {
+        self.server_address.as_deref()
+    }
+
+    fn set_server_address(&mut self, address: Option<&str>) {
+        self.server_address = address
+            .filter(|address| launcher::menu::view::pingable(address))
+            .map(rich_presence::normalize_endpoint);
     }
 
     pub(crate) fn status(&self) -> SessionStatus {
@@ -154,9 +174,11 @@ impl SessionController {
             // session; that ownership is what makes the client answer
             // LoginSuccess with cache-enabled status downstream.
             cache.enables_upstream_client_cache(),
+            true,
         )
         .map_err(|error| format!("Could not start {address}: {error}"))?;
         self.core.replace(child);
+        self.trust = Some(SessionTrust::watch(socket_dir.clone()));
         Ok(JoinStage::Core {
             socket_dir,
             directory,
@@ -260,6 +282,7 @@ pub(crate) struct SessionResources<'w> {
     interaction: ResMut<'w, InteractionOriginSnapshot>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
+    ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
 }
 
 impl SessionResources<'_> {
@@ -274,6 +297,7 @@ impl SessionResources<'_> {
             .core
             .stop_detached(move || drop((join, directory)));
         controller.connecting = false;
+        controller.server_address = None;
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
@@ -317,8 +341,12 @@ fn attempt_connect(
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.show_home();
     let generation = session.retire();
+    session.controller.trust = None;
     session.runtime.experiences.select_destination(&address);
     menu.begin_join_progress(&address, local_world);
+    session
+        .controller
+        .set_server_address((!local_world).then_some(address.as_str()));
     let launcher = session.launcher.as_deref().and_then(|slot| {
         slot.begin_join(
             &address,
@@ -404,6 +432,7 @@ fn poll_join(
                 cache,
                 socket_dir,
                 session.actor_artwork.as_deref(),
+                session.ui_catalog.as_deref(),
             ) {
                 if owned_core {
                     let directory = controller.directory.take();
@@ -429,6 +458,7 @@ fn start_network(
     cache: &BlobCache,
     socket_dir: PathBuf,
     actor_artwork: Option<&render::ActorArtworkPages>,
+    ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
 ) -> Result<(), String> {
     let replacement = crate::runtime::network::spawn_network(NetworkConfig {
         session_generation,
@@ -437,6 +467,7 @@ fn start_network(
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin().clone(),
         actor_artwork: actor_artwork.cloned(),
+        ui_catalog: ui_catalog.map(|base| base.0.clone()),
     })
     .map_err(|error| error.to_string())?;
     commands.insert_resource(replacement.movement_ticker());
@@ -453,6 +484,10 @@ pub(crate) fn drive_session(
     mut session: SessionResources,
 ) {
     session.controller.publish(&mut menu);
+    // A queued answer reaches its core before a decline below retires that core.
+    if let Some(trust) = session.controller.trust.as_ref() {
+        menu.sync_session_trust(trust);
+    }
     drive_intents(
         &mut commands,
         &mut exits,
@@ -461,6 +496,13 @@ pub(crate) fn drive_session(
         &mut session,
     );
     session.controller.publish(&mut menu);
+    if !session.controller.connecting {
+        session.controller.trust = None;
+    }
+    match session.controller.trust.as_ref() {
+        Some(trust) => menu.sync_session_trust(trust),
+        None => menu.forget_session_trust(),
+    }
 }
 
 fn drive_intents(
@@ -620,6 +662,22 @@ fn end_transfer_without_follow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presence_endpoint_tracks_remote_destinations_and_clears_local_destinations() {
+        let mut controller =
+            SessionController::default().with_server_address(Some("first.example.net:19133"));
+        assert_eq!(controller.server_address(), Some("first.example.net:19133"));
+        controller.set_server_address(Some("[::1]:19134"));
+        assert_eq!(controller.server_address(), Some("[::1]:19134"));
+        controller.set_server_address(None);
+        assert_eq!(controller.server_address(), None);
+        controller.set_server_address(Some(&format!(
+            "{}fixture",
+            launcher::menu::view::EXPERIENCE_ADDRESS_PREFIX,
+        )));
+        assert_eq!(controller.server_address(), None);
+    }
 
     #[test]
     fn transfer_addresses_bracket_ipv6_and_leave_ordinary_hosts_untouched() {

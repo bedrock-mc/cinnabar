@@ -22,7 +22,7 @@ cross-platform parity.
 | Scale mapping | Clamp the modifier before mapping the final index to a scale. |
 | Effective modifier | Report the modifier after viewport clamping. |
 
-`GuiData::GUI_SCALE_VALUES` is `[1, 2, 3, 4, 5, 6, 7, 8]`. Desktop minimum
+Vanilla's GUI scale values are `[1, 2, 3, 4, 5, 6, 7, 8]`. Desktop minimum
 viewport dimensions are height 250 and width 376; the half-range factor is 0.5.
 
 For an ordinary desktop viewport without safe-zone adjustments, the optimal and

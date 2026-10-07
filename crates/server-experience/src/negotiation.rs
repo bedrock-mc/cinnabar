@@ -93,7 +93,7 @@ impl Pending {
             version: WIRE_VERSION,
             api: API_VERSION,
             capabilities: if std::env::var(DEVELOPER_ENV).as_deref() == Ok("1") {
-                crate::manifest::implemented_permissions()
+                crate::manifest::developer_permissions()
             } else {
                 Default::default()
             },

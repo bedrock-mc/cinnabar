@@ -63,9 +63,10 @@ fn ready_mesh_backlog_drains() {
 /// A ready backlog supplies every worker, with room for results awaiting the next poll.
 #[test]
 fn mesh_admission_has_a_full_worker_wave() {
-    let workers = 12;
+    // The wave follows the world pool, not the caller's rayon pool.
+    let workers = super::super::workers::WORKERS.size().threads();
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(workers)
+        .num_threads(workers + 7)
         .build()
         .unwrap();
     let mut stream = lit_stream(1);

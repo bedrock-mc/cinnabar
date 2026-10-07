@@ -38,6 +38,7 @@ fn source() -> String {
         include_str!("../../src/block_entity/block_entity.wgsl"),
         "skull.wgsl",
         render::BLOCK_ENTITY_VERTEX_WORDS,
+        render::BLOCK_SELECTION_VERTICES_PER_EDGE,
     );
     let bevy::shader::Source::Wgsl(source) = shader.source else {
         unreachable!()
@@ -163,7 +164,7 @@ fn raster(
 
 fn sampled_light(inputs: LightmapInputs, block: u8, sky: u8) -> [f32; 3] {
     let table = inputs.build();
-    // Native getColorForUV: /16 coordinates, clamp-linear sampling of RGB bytes.
+    // Vanilla light texture lookup: /16 coordinates, clamp-linear sampling of RGB bytes.
     std::array::from_fn(|channel| {
         [
             (block, sky),

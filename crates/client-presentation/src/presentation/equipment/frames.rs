@@ -13,7 +13,7 @@ use render_model::{ActorRigVertex, RenderBoneTransform};
 
 use super::display::{
     FirstPersonHand, FirstPersonShape, attach_to_bone, first_person_display, held_block_display,
-    held_sprite_display, is_hand_equipped, is_mirrored_art, view_bone,
+    held_sprite_display, is_hand_equipped, is_rod, view_bone,
 };
 use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};
 
@@ -182,6 +182,7 @@ enum Held {
 
 fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        prefer_client_skin: false,
         uuid: [5; 16],
         username: "local".into(),
         skin: PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
@@ -193,6 +194,12 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         pitch: 0.0,
         main_hand: Some(Arc::from(main_hand)),
         off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_slot: 0,
+        main_hand_stack_id: None,
+        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        flying: false,
         teleported: false,
         first_person,
         view_bobbing: true,
@@ -350,7 +357,7 @@ fn render_first_person_held_item_frames() {
                 } else {
                     first_person_display(
                         FirstPersonShape::Sprite {
-                            mirrored_art: is_mirrored_art(identifier),
+                            mirrored_art: is_rod(identifier),
                         },
                         REST,
                     )

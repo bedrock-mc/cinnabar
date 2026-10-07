@@ -18,9 +18,16 @@ pub struct SkinRenderLayer {
 pub(super) struct SkinLayerSkeleton {
     image: SkinAnimation,
     geometry: Arc<assets::SkinGeometry>,
-    bones: Vec<RuntimeBone>,
-    names: Vec<Box<str>>,
-    rest: Arc<[BoneTransform]>,
+    pub(super) bones: Vec<RuntimeBone>,
+    pub(super) names: Vec<Box<str>>,
+    pub(super) rest: Arc<[BoneTransform]>,
+}
+
+impl SkinLayerSkeleton {
+    /// Whether `layer` was posed on this skeleton.
+    pub(super) fn poses(&self, layer: &SkinRenderLayer) -> bool {
+        self.image.kind == layer.image.kind && self.geometry.digest == layer.geometry.digest
+    }
 }
 
 /// Resolves each animation image's own named geometry once per skin update.
@@ -181,8 +188,32 @@ pub(super) fn evaluate(
         .collect()
 }
 
-/// Carries the last completed pose across ticks without interpolating a replaced model.
-pub(super) fn carry(previous: &[SkinRenderLayer], next: &mut [SkinRenderLayer], reset: bool) {
+/// Bounds the additional persona composition before sampling a body's frame pose.
+pub(super) fn sample(
+    state: &ActorRigState,
+    evaluator: &Evaluator<'_>,
+    variables: &MolangVariables,
+    local: &[LocalDelta],
+    render: Option<&[RenderTextureLayer]>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Vec<SkinRenderLayer>, EvalError> {
+    let work = state.skin_skeleton().map_or(0, |skin| {
+        skin.layers.iter().map(|layer| layer.bones.len()).sum()
+    });
+    if work > budget.work_left {
+        return Err(EvalError::ActorBudget);
+    }
+    budget.work_left -= work;
+    Ok(evaluate(state, evaluator, variables, local, render))
+}
+
+/// Advances endpoints only on a tick, keeping view refreshes and replaced models separate.
+pub(super) fn carry(
+    previous: &[SkinRenderLayer],
+    next: &mut [SkinRenderLayer],
+    reset: bool,
+    advance_history: bool,
+) {
     if reset {
         return;
     }
@@ -190,7 +221,11 @@ pub(super) fn carry(previous: &[SkinRenderLayer], next: &mut [SkinRenderLayer], 
         if let Some(old) = previous.iter().find(|old| {
             old.image.kind == layer.image.kind && old.geometry.digest == layer.geometry.digest
         }) {
-            layer.previous = Arc::clone(&old.current);
+            layer.previous = Arc::clone(if advance_history {
+                &old.current
+            } else {
+                &old.previous
+            });
         }
     }
 }

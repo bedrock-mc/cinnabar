@@ -21,32 +21,7 @@ func (messagingTokens) ServiceToken(context.Context) (*service.Token, error) {
 	return &service.Token{AuthorizationHeader: "MCToken fixture", ValidUntil: time.Now().Add(time.Hour)}, nil
 }
 
-// Locale injection preserves the caller's headers and custom HTTP client settings.
-func TestMessagingLanguageClonesRequests(t *testing.T) {
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.Header.Get("Accept-Language") != locale.Default || request.Header.Get("X-Fixture") != "kept" {
-			t.Fatalf("headers = %+v", request.Header)
-		}
-		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: http.Header{}}, nil
-	})
-	original := &http.Client{Transport: transport, Timeout: time.Second}
-	client := messagingHTTPClient(original, "")
-	request, err := http.NewRequest(http.MethodGet, "https://messaging.fixture.test", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.Header.Set("X-Fixture", "kept")
-	response, err := client.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	if request.Header.Get("Accept-Language") != "" || client.Timeout != original.Timeout || client == original {
-		t.Fatal("locale transport changed its caller's request or HTTP client")
-	}
-}
-
-// The upstream client keeps its request shape and continuation while both calls carry the UI locale.
+// The session's client keeps the request shape and continuation while both calls carry the UI locale.
 func TestMessagingRequestsCarryLanguage(t *testing.T) {
 	var bodies []map[string]any
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -72,12 +47,16 @@ func TestMessagingRequestsCarryLanguage(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(data)), Header: http.Header{}}, nil
 	})
-	env := new(playermessaging.Environment)
-	if err := json.Unmarshal([]byte(`{"serviceUri":"https://messaging.fixture.test"}`), env); err != nil {
+	previous := http.DefaultClient.Transport
+	http.DefaultClient.Transport = transport
+	t.Cleanup(func() { http.DefaultClient.Transport = previous })
+	discovery := &service.Discovery{ServiceEnvironments: map[string]map[string]json.RawMessage{
+		"messaging": {"prod": json.RawMessage(`{"serviceUri":"https://messaging.fixture.test"}`)},
+	}}
+	client, err := NewMessagingSession("fr-FR").get(discovery, messagingTokens{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	env.HTTPClient = messagingHTTPClient(&http.Client{Transport: transport}, "fr-FR")
-	client := env.New(messagingTokens{})
 	for range 2 {
 		if _, err := client.Refresh(context.Background()); err != nil {
 			t.Fatal(err)
@@ -98,5 +77,26 @@ func TestMessagingRequestsCarryLanguage(t *testing.T) {
 	event := events[0].(map[string]any)
 	if event["eventType"] != "Impression" || event["instanceId"] != "fixture-instance" || event["reportId"] != "fixture-report" || event["sessionId"] != client.SessionID() {
 		t.Fatalf("event = %+v", event)
+	}
+}
+
+// A session opened before the UI language is known asks in the default locale.
+func TestMessagingDefaultsToTheDefaultLocale(t *testing.T) {
+	var language string
+	previous := http.DefaultClient.Transport
+	http.DefaultClient.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		language = request.Header.Get("Accept-Language")
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"result":{"messages":[]}}`)), Header: http.Header{}}, nil
+	})
+	t.Cleanup(func() { http.DefaultClient.Transport = previous })
+	discovery := &service.Discovery{ServiceEnvironments: map[string]map[string]json.RawMessage{
+		"messaging": {"prod": json.RawMessage(`{"serviceUri":"https://messaging.fixture.test"}`)},
+	}}
+	client, err := NewMessagingSession("").get(discovery, messagingTokens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Refresh(context.Background()); err != nil || language != locale.Default {
+		t.Fatalf("Accept-Language = %q err = %v", language, err)
 	}
 }

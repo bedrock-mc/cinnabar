@@ -109,6 +109,7 @@ impl WorldStream {
                         .mesh_light_halo(key)
                         .expect("fixture light halo is current"),
                     queue_wait: Duration::ZERO,
+                    dispatch_wait: Duration::ZERO,
                     duration: Duration::ZERO,
                     urgent: false,
                 };

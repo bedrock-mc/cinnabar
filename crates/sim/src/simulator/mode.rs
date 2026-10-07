@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Aabb, CollisionWorld, PLAYER_HEIGHT, PLAYER_WIDTH, Vec3, WorldQueryError};
 
-/// Current Player constructor's SneakingHeightChangeVersion value.
+/// Sneaking collision height for the target game version.
 const SNEAK_HEIGHT: f64 = 1.49_f32 as f64;
-/// Native horizontal pose uses collision width as height (RVA 0x02c33550).
+/// Vanilla's horizontal pose uses collision width as height.
 const LOW_POSE_HEIGHT: f64 = PLAYER_WIDTH;
-/// Native bounding-box input update shrinks all probe faces (RVA 0x09eeeb70).
+/// Vanilla's bounding-box input update shrinks all probe faces by this inset.
 const FIT_INSET: f64 = 0.01_f32 as f64;
 
 /// Locomotion mode the client selected for one tick; the simulator never picks it.

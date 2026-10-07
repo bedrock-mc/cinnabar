@@ -88,13 +88,25 @@ impl ResidentScene {
                     eligible: eligible(entity, allocation),
                     center,
                     half_extent,
-                    cube: indexed_indirect_command(allocation),
+                    cube: cube_coverage_command(allocation),
                     model: model_direct_draw_command(allocation),
                 }
             }));
         self.revision = self.revision.wrapping_add(1);
         true
     }
+}
+
+// Depth and shadows need both solid and cutout quads, including faces outside the camera view.
+fn cube_coverage_command(allocation: &GpuChunkAllocation) -> Option<DrawIndexedIndirectArgs> {
+    let (quads, _, base_vertex) = cube_draw_base(allocation)?;
+    Some(DrawIndexedIndirectArgs {
+        index_count: STATIC_QUAD_INDICES.len() as u32,
+        instance_count: quads.end - quads.start,
+        first_index: 0,
+        base_vertex,
+        first_instance: quads.start,
+    })
 }
 
 fn allocation_matches(left: &GpuChunkAllocation, right: &GpuChunkAllocation) -> bool {

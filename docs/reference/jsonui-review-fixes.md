@@ -7,7 +7,7 @@ captures the real Drop setting and reopens the inventory before checking both Q
 and R, including the Ctrl modifier.
 
 The corrections reject authored internal animation programs and validate their
-indices, share instance keys between binding and layout, seed native creation
+indices, share instance keys between binding and layout, seed vanilla creation
 bags with form titles, restore the saved screen cancel route after unconsumed
 Escape, suppress the unbound physical Q shortcut, explicitly clear recipe icons,
 and apply perspective only when its configured option changes.
@@ -25,10 +25,10 @@ the installed bedrock-samples tree.
 | Cancel routing | `ui/server_form.json:11` maps `button.menu_cancel` to `button.menu_exit` on the enclosing screen. A consuming inner control retains priority over screen cancel. |
 | Drop remapping | Replace the key vector with the newly captured key and route the inventory Drop action (`menu_inventory_drop`). |
 | Recipe cells | `ui/ui_common.json:3946` binds `#item_renderer_data`; draw from the current control property bag. Do not retain a previous row’s renderer index. |
-| Perspective | Register the perspective option’s callback and apply `_perspectiveOptionChanged` only for a perspective change. |
-| Font measurement | Obtain the current FontHandle for both measured text and drawing. `ui/ui_template_dialogs.json:9` defines the standard title label; the accepted open-font deviation still requires shared installed metrics. |
+| Perspective | Register a callback on the perspective option and apply the camera change only when that option changes. |
+| Font measurement | Use the same current font for both measured text and drawing. `ui/ui_template_dialogs.json:9` defines the standard title label; the accepted open-font deviation still requires shared installed metrics. |
 
-These rules do not establish a native frame-time budget for the captured shop.
+These rules do not establish a vanilla frame-time budget for the captured shop.
 
 ## Live form investigation (incomplete)
 

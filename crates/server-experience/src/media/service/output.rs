@@ -1,18 +1,13 @@
 //! Independent, bounded presentation queues for interleaved decoder output.
 
 use super::super::frames::{FrameQueue, PcmBlock};
-#[cfg(any(feature = "developer-media", test))]
 use super::super::{MAX_FRAMES, frames::VideoFrame};
-#[cfg(any(feature = "developer-media", test))]
 use anyhow::{Result, ensure};
 use std::collections::VecDeque;
 
-#[cfg(any(feature = "developer-media", test))]
 const MAX_AUDIO_BLOCKS: usize = super::super::MAX_PCM_FRAMES / super::super::OPUS_PACKET_FRAMES;
-#[cfg(any(feature = "developer-media", test))]
 const MAX_PUMP_OUTPUTS: usize = MAX_FRAMES + MAX_AUDIO_BLOCKS;
 
-#[cfg(any(feature = "developer-media", test))]
 #[derive(Debug)]
 pub enum Output {
     Video(VideoFrame),
@@ -24,16 +19,19 @@ pub enum Output {
 pub(super) struct Queues {
     pub(super) frames: FrameQueue,
     pub(super) pcm: VecDeque<PcmBlock>,
+    /// Presentation end of the latest decoded audio.
+    pub(super) audio_end_us: u64,
 }
 
 impl Queues {
-    /// Drains interleaved output in bounded batches, retaining each stream until its consumer takes it.
-    #[cfg(any(feature = "developer-media", test))]
+    /// Drains interleaved output in bounded batches, retaining each stream until its consumer
+    /// takes it; returns whether the decoder reported its end.
     pub(super) fn pump(
         &mut self,
         generation: u64,
         mut poll: impl FnMut() -> Option<Result<Output>>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let mut ended = false;
         for _ in 0..MAX_PUMP_OUTPUTS {
             if !self.frames.has_capacity() || self.pcm.len() >= MAX_AUDIO_BLOCKS {
                 break;
@@ -50,12 +48,16 @@ impl Queues {
                             <= super::super::OPUS_PACKET_FRAMES,
                         "PCM block exceeds packet frame limit"
                     );
+                    let frames = (block.samples.len() / usize::from(block.channels)) as u64;
+                    self.audio_end_us = self.audio_end_us.max(
+                        block.pts_us + frames * 1_000_000 / u64::from(super::super::SAMPLE_RATE),
+                    );
                     self.pcm.push_back(block);
                 }
-                Output::End => {}
+                Output::End => ended = true,
             }
         }
-        Ok(())
+        Ok(ended)
     }
 }
 

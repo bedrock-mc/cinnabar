@@ -105,7 +105,7 @@ Ordinary flat sprites otherwise retain the same grip. There is no mirror-main-ha
 
 Legacy cube display supplies
 `T(0,.1875,-.3125)*Rx(200)*Ry(225)*S(.375)`. Offhand ordinary cube rendering reaches that
-same helper after its independent hand-frame offset. `_rebuildItem` uses mesh offset `(-.5,-.5,-.5)`, centering the cube basis. Native special-shape/custom presentation branches remain distinct.
+same helper after its independent hand-frame offset. The cached cube mesh uses offset `(-.5,-.5,-.5)`, centering the cube basis. Vanilla special-shape/custom presentation branches remain distinct.
 
 Single-bone authored Shield/Trident previews retain actual attachable geometry, bind pivot,
 texture and literal pack channels. Bound-root channels are composed with the owning item
@@ -114,18 +114,17 @@ sprite grip nor a GUI-item projection. See [held attachables](held-attachables.m
 native parent/binding contract. Item normals follow the same bone, arm and view transforms
 before the native float FANCY formula; they are not guessed from projected icon triangles.
 Expression-bound roots retain
-the authored default root origin with Y pivot minus the shared ModelPart height.
-`PreviewHeldPlacement::authored` applies that origin adjustment once, retaining the original
-mesh bind pivot; it does not rotate an invented screen offset into the model. The player
-pose VM and literal preview share `MODEL_PART_ORIGIN_Y` with the existing GUI ModelPart basis.
+the authored default root origin with Y pivot minus the shared model-part height.
+The shared attachable placement applies that origin adjustment once; the preview retains the
+resolved pose and original mesh bind pivot. The player
+pose VM and literal preview share `MODEL_PART_ORIGIN_Y` with the existing GUI model-part basis.
 The first live preview run caught an offhand Shield floating above the head because this
 bound-root origin was missing. That rejected capture is not a passing parity gate. The
 installed-carrier regression now exercises the actual Shield geometry, both authored wield
 poses and actual player item-bone pivots, checking bounds at the hand instead of above the head.
 The native mirrored actor-rig frame converts once into the standard preview biped's front
 frame before its arm/owner projection, keeping the item seated as the live model turns.
-`DataDrivenRenderer::render`
-uses Y rotation `wrap(180-body_yaw)` and then negates the first two matrix columns.
+The data-driven actor renderer uses Y rotation `wrap(180-body_yaw)` and then negates the first two matrix columns.
 The live UI outer fixed rotation is Z rotation by pi: its contiguous axis
 is `(0,0,1)`, not `(0,1,0)`. The neutral outer/actor X/Y sign rotations cancel, leaving
 the actor's fixed facing half-turn; that establishes the held producer's front-frame
@@ -135,7 +134,7 @@ The software raster remains a compatibility/test and empty-hand fallback. It is 
 quality path for the inventory's live player or paper-doll model.
 
 GPU pose/view angles and native idle bob are continuous, not CPU-cache quarter/half-degree
-steps. `animation.player.bob` uses `cos(life_time*103.2)*2.865+2.865` in degrees. The `PaperDollRenderer` constructor sets `variable.is_paperdoll=1`; the install-fetched
+steps. `animation.player.bob` uses `cos(life_time*103.2)*2.865+2.865` in degrees. The paper-doll renderer sets `variable.is_paperdoll=1`; the install-fetched
 player controller's paperdoll state omits bob, holding and sneak animations, so that renderer
 does not inherit the live model's idle arm/crouch/holding modifiers.
 

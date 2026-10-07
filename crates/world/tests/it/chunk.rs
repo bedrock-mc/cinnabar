@@ -219,3 +219,33 @@ fn liquid_mesh_dependents_are_the_checked_inverse_sample_set() {
         8
     );
 }
+
+/// Shared shelter context preserves captured columns, with explicit sources taking precedence.
+#[test]
+fn shared_shelter_column_retains_old_sections_and_deduplicates_overrides() {
+    use std::sync::Arc;
+    use world::ChunkStore;
+
+    let center = SubChunk::decode(&[8, 1, 1, 2], &RawBlockIds { air: 0 });
+    let replacement = SubChunk::decode(&[8, 1, 1, 4], &RawBlockIds { air: 0 });
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut store = ChunkStore::new();
+    for y in [0, 1, 3, 20] {
+        store
+            .commit_sub_chunk(SubChunkKey::from_chunk(key.chunk(), y), center.clone())
+            .unwrap();
+    }
+    let column = store.chunk(key.chunk()).unwrap().shared_sub_chunks();
+    let mut neighbourhood = MeshNeighbourhood::new(&center).with_shared_column(0, &column);
+    assert!(neighbourhood.insert_column_above(3, &replacement));
+    let upper = SubChunkKey::from_chunk(key.chunk(), 20);
+    let old_upper = store.sub_chunk(upper).unwrap();
+    store.commit_sub_chunk(upper, replacement.clone()).unwrap();
+    assert!(Arc::ptr_eq(column.get(&20).unwrap(), &old_upper));
+    assert!(!Arc::ptr_eq(&store.sub_chunk(upper).unwrap(), &old_upper));
+    let sources: Vec<_> = neighbourhood
+        .seasonal_column()
+        .map(|(y, chunk)| (y, chunk.runtime_id(0, 0, 0, 0)))
+        .collect();
+    assert_eq!(sources, [(0, Some(1)), (3, Some(2)), (20, Some(1))]);
+}

@@ -79,14 +79,13 @@ pub(in crate::compiler) fn bee_housing_inventory_is_exact(records: &[RegistryRec
         let Some((direction, honey_level)) = exact_bee_housing_state(record) else {
             return false;
         };
-        let (family, base) = match record.name.as_ref() {
-            "minecraft:bee_nest" => (0, 10_395),
-            "minecraft:beehive" => (1, 12_495),
+        let family = match record.name.as_ref() {
+            "minecraft:bee_nest" => 0,
+            "minecraft:beehive" => 1,
             _ => return false,
         };
-        let state = honey_level * 4 + direction;
-        let slot = family * 24 + state as usize;
-        if record.sequential_id != base + state || seen[slot] {
+        let slot = family * 24 + (honey_level * 4 + direction) as usize;
+        if seen[slot] {
             return false;
         }
         seen[slot] = true;

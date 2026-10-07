@@ -136,8 +136,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
 
     let masks = VisibilityMasks::from_facts(&facts);
     let leaves = super::leaves::LeafOcclusion::new(palette_context);
-    let mut quads = Vec::new();
-    let mut cube_lighting = Vec::new();
+    let mut cube_streams = CubeQuadStreams::default();
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     for face in Face::ALL {
         let columns = exposed_columns(palette_context, face, &masks, &neighbour_facts, &leaves);
@@ -178,8 +177,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                 &mut rows,
                 &lighting_scratch,
                 &mut CubeMeshOutput::new(
-                    &mut quads,
-                    &mut cube_lighting,
+                    &mut cube_streams,
                     &mut diagnostic_geometry,
                     visuals.materials(),
                 ),
@@ -213,24 +211,14 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                     for &selected_template in
                         &selected_templates[..usize::from(selected_template_count)]
                     {
-                        let Some(selected) =
-                            visuals.model_templates().get(selected_template as usize)
-                        else {
+                        let Some(parts) = assets::model_template_parts(
+                            visuals.model_templates(),
+                            selected_template,
+                        ) else {
                             continue;
                         };
-                        let part_count = if selected.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0
-                        {
-                            super::models::MAX_COMPOUND_MODEL_PARTS
-                        } else {
-                            1
-                        };
-                        for part in 0..part_count {
-                            let part_template = selected_template + part;
-                            let Some(template) =
-                                visuals.model_templates().get(part_template as usize)
-                            else {
-                                continue;
-                            };
+                        for (part, template) in parts.iter().enumerate() {
+                            let part_template = selected_template + part as u32;
                             if template.quad_count == 0 {
                                 continue;
                             }
@@ -275,12 +263,15 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                 if visible_quad_mask & bit == 0 {
                                     continue;
                                 }
-                                let cull_flags =
-                                    if template.flags & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0 {
-                                        (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4
-                                    } else {
-                                        quad.flags
-                                    };
+                                let cull_flags = if template.flags
+                                    & (MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+                                        | assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL)
+                                    != 0
+                                {
+                                    (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4
+                                } else {
+                                    quad.flags
+                                };
                                 let Some(cull_face) =
                                     model_quad_cull_face(cull_flags, entry.variant & 3)
                                 else {
@@ -304,9 +295,19 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                             & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
                                             != 0
                                         && neighbour.network_value == entry.network_value;
-                                if neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                                let equal_portal =
+                                    template.flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0
+                                        && model_template_flags(visuals, neighbour)
+                                            & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                                            != 0;
+                                let inset_portal_face =
+                                    template.flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0
+                                        && quad.flags & assets::MODEL_QUAD_FLAG_CULL_FACE_MASK == 0;
+                                if (neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                                    && !inset_portal_face)
                                     || equal_pane
                                     || equal_transparent_cube
+                                    || equal_portal
                                     || snow_side_is_covered(visuals, entry, neighbour, cull_face)
                                 {
                                     visible_quad_mask &= !bit;
@@ -319,18 +320,32 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             else {
                                 continue;
                             };
-                            let Some(template_lighting) = crate::lighting::bake_template(
-                                &lighting,
-                                visuals,
-                                [x as i32, y as i32, z as i32],
-                                part_template,
-                                entry.variant & 3,
-                                visuals
-                                    .resolve(network_id_mode, entry.network_value)
-                                    .light_properties()
-                                    .emission()
-                                    > 0,
-                            ) else {
+                            let emission = visuals
+                                .resolve(network_id_mode, entry.network_value)
+                                .light_properties()
+                                .emission();
+                            let baked = if template.flags
+                                & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                                != 0
+                            {
+                                crate::lighting::bake_portal_template(
+                                    &lighting,
+                                    visuals,
+                                    [x as i32, y as i32, z as i32],
+                                    part_template,
+                                    emission,
+                                )
+                            } else {
+                                crate::lighting::bake_template(
+                                    &lighting,
+                                    visuals,
+                                    [x as i32, y as i32, z as i32],
+                                    part_template,
+                                    entry.variant & 3,
+                                    emission > 0,
+                                )
+                            };
+                            let Some(template_lighting) = baked else {
                                 continue;
                             };
                             let Ok(model_ref_index) = u32::try_from(model_refs.len()) else {
@@ -386,6 +401,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     } else {
         (Vec::new(), Vec::new())
     };
+    let (quads, cube_lighting, layout) = cube_streams.finish();
     ChunkMesh {
         light_emitters: crate::light_emitters::collect_emitters(
             sub_chunk,
@@ -395,6 +411,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         cube_streams: Box::new(CubeStreams {
             cube_quads: quads.into_boxed_slice(),
             cube_lighting: cube_lighting.into_boxed_slice(),
+            layout,
             diagnostic_geometry: diagnostic_geometry.finish(),
         }),
         model_refs: model_refs.into_boxed_slice(),
@@ -412,9 +429,8 @@ use std::cell::OnceCell;
 
 use assets::{
     BlockFlags, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets,
-    VisualKind,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, SubChunk};
 
@@ -426,8 +442,8 @@ use super::{
         model_template_flags, select_model_templates, snow_side_is_covered,
     },
     opaque::{
-        CubeMeshOutput, DiagnosticGeometryAccumulator, VisibilityMasks, block_coordinate,
-        exposed_columns, face_offset, greedy_slice,
+        CubeMeshOutput, CubeQuadStreams, DiagnosticGeometryAccumulator, VisibilityMasks,
+        block_coordinate, exposed_columns, face_offset, greedy_slice,
     },
 };
 use crate::{

@@ -634,6 +634,23 @@ fn boss_lifecycle_style_health_membership_and_stacking_are_stable() {
 }
 
 #[test]
+fn boss_removal_ignores_unused_health_and_releases_retained_text() {
+    let mut store = BossBarStore::default();
+    store
+        .apply(1, boss(BossAction::Show, 17, "Dragon", 0.75))
+        .unwrap();
+    assert!(store.retained_text_bytes() > 0);
+    assert_eq!(
+        store
+            .apply(2, boss(BossAction::Hide, 17, "", f32::NAN))
+            .unwrap(),
+        RetainedUiApply::Applied
+    );
+    assert!(store.stacked().is_empty());
+    assert_eq!(store.retained_text_bytes(), 0);
+}
+
+#[test]
 fn allocation_free_boss_query_preserves_first_show_order() {
     let mut store = BossBarStore::default();
     store

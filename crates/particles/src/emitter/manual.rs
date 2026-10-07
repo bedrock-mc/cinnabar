@@ -4,8 +4,7 @@ use super::{Emitter, Outputs, Rate};
 
 impl Emitter {
     /// Adds particles at this independent origin without moving earlier world-space particles.
-    /// `LevelRendererPlayer::addBiomeTintedParticleEffect`
-    /// keeps one emitter per colour and calls its manual emission method for every origin.
+    /// Vanilla biome-tinted particles keep one emitter per colour and calls its manual emission method for every origin.
     pub(crate) fn emit_cached_manual(
         &mut self,
         position: [f32; 3],

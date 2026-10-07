@@ -92,14 +92,14 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", 
 [[crates]]
 name = "pack-compiler"
 path = "crates/pack-compiler"
-allowed_dependencies = ["assets"]
+allowed_dependencies = ["assets", "freetype-sys", "ttf-parser"]
 forbidden_dependencies = ["asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
-test_support_features = ["publication-test-support"]
+test_support_features = ["publication-test-support", "benchmark-support"]
 allowed_dependencies = ["client-world", "meshing", "assets", "world", "render-api"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "protocol", "bevy", "wgpu"]
@@ -176,6 +176,13 @@ path = "crates/input"
 allowed_dependencies = []
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
+# Control wire, auth and recording primitives shared by the client glue and controllers.
+[[crates]]
+name = "developer-control"
+path = "crates/developer-control"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
 [[crates]]
 name = "render-api"
 path = "crates/render-api"
@@ -203,7 +210,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protoco
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["assets", "meshing", "mod-api", "particles", "render-api", "render-model", "world"]
+allowed_dependencies = ["assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -211,7 +218,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "particles", "player-state", "protocol", "render", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "rich-presence", "meshing", "mod-host", "objc2", "objc2-app-kit", "pack-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -233,10 +240,18 @@ path = "crates/mod-api"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
+# Sandboxed mod render contract: WGSL admission and camera-independent primitive geometry.
+[[crates]]
+name = "mod-render"
+path = "crates/mod-render"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
+
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["mod-api", "server-experience", "ui"]
+allowed_dependencies = ["mod-api", "mod-render", "server-experience", "ui"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -248,6 +263,12 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "time-changer-mod"
 path = "examples/mods/time-changer"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "render-sample-mod"
+path = "examples/mods/render-sample"
 allowed_dependencies = ["mod-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
@@ -296,7 +317,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "dist-local"
 path = "tools/dist"
-allowed_dependencies = []
+allowed_dependencies = ["assets"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -314,8 +335,22 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "jsonui-mcp"
 path = "tools/jsonui-mcp"
-allowed_dependencies = ["json-ui", "jsonui-editor"]
+allowed_dependencies = ["json-ui", "jsonui-editor", "mcp-stdio"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "mcp-stdio"
+path = "tools/mcp-stdio"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+# Drives a developer client over its loopback control endpoint; never links the client.
+[[crates]]
+name = "cinnabar-mcp"
+path = "tools/cinnabar-mcp"
+allowed_dependencies = ["developer-control", "mcp-stdio"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "cinnabar-cxb"
@@ -687,3 +722,9 @@ forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlay
 [[module_boundaries]]
 path = "crates/particles/src"
 forbidden_modules = ["bevy", "wgpu"]
+
+[[crates]]
+name = "rich-presence"
+path = "crates/rich-presence"
+allowed_dependencies = ["launcher"]
+forbidden_dependencies = ["bevy", "wgpu"]

@@ -182,7 +182,8 @@ fn run_seed(
     queue_cap: usize,
 ) -> Result<SeedSnapshot, LightSolveError> {
     let volume = bounds.volume().unwrap();
-    let mut output = MutableOutput::new(bounds, 41, volume);
+    let mut scratch = MutableOutputScratch::default();
+    let mut output = MutableOutput::new(bounds, 41, volume, &mut scratch);
     let mut queue = VecDeque::new();
     let mut direct = DensePositionSet::new(bounds, volume);
     let limits = SolverLimits::new(volume, queue_cap);
@@ -658,7 +659,8 @@ fn measure_seed_scans(bounds: LightBounds, full_volume: bool, rounds: usize) -> 
         block_halo,
         sky_halo,
     };
-    let mut output = MutableOutput::new(bounds, 41, volume);
+    let mut scratch = MutableOutputScratch::default();
+    let mut output = MutableOutput::new(bounds, 41, volume, &mut scratch);
     let mut block_queue = VecDeque::new();
     let mut sky_queue = VecDeque::new();
     let mut direct = DensePositionSet::new(bounds, volume);

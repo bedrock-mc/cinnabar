@@ -1,4 +1,4 @@
-use assets::{FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
+use assets::{FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
 use sha2::{Digest, Sha256};
 
 use super::*;
@@ -14,7 +14,7 @@ fn private_font(marker: u8) -> Arc<RuntimeFontCatalog> {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: side,
         height: side,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let metrics = GlyphMetrics {
         codepoint: 'A',

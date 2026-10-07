@@ -1,8 +1,9 @@
 use serde_json::{Value, json};
-use ui::mod_panel::{Control, FONT_NAME};
+use ui::mod_panel::{Control, FONT_NAME, Panel, Style, Theme};
 
 #[derive(Clone, Copy)]
 pub(super) struct Palette {
+    pub background: [f64; 4],
     pub card: [f64; 4],
     pub border: [f64; 4],
     pub text: [f64; 4],
@@ -12,9 +13,33 @@ pub(super) struct Palette {
 }
 
 impl Palette {
+    pub fn for_panel(panel: &Panel) -> Self {
+        if panel.theme == Theme::Monochrome {
+            return Self {
+                background: rgba(0x191719),
+                card: rgba(0x242124),
+                raised: rgba(0x302c30),
+                border: rgba(0x454045),
+                text: rgba(0xf6f4f6),
+                muted: rgba(0xc7bfc7),
+                accent: rgba(0xf6f4f6),
+            };
+        }
+        let mut palette = Self::new(panel.dark);
+        if panel.style == Style::Compact && panel.dark {
+            palette.card = [0.075, 0.09, 0.115, 0.96];
+            palette.border = [0.22, 0.26, 0.31, 0.9];
+            palette.raised = [0.16, 0.185, 0.22, 0.98];
+            palette.muted = [0.67, 0.71, 0.76, 1.];
+            palette.accent = [1., 0.34, 0.32, 1.];
+        }
+        palette
+    }
+
     pub fn new(dark: bool) -> Self {
         if dark {
             Self {
+                background: [0.; 4],
                 card: [0.055, 0.058, 0.065, 0.96],
                 border: [0.2, 0.21, 0.23, 0.94],
                 text: [0.94, 0.95, 0.97, 1.0],
@@ -24,6 +49,7 @@ impl Palette {
             }
         } else {
             Self {
+                background: [0.; 4],
                 card: [0.96, 0.965, 0.975, 0.97],
                 border: [0.75, 0.77, 0.8, 0.95],
                 text: [0.11, 0.12, 0.14, 1.0],
@@ -33,6 +59,15 @@ impl Palette {
             }
         }
     }
+}
+
+fn rgba(rgb: u32) -> [f64; 4] {
+    [
+        f64::from((rgb >> 16) & 255) / 255.,
+        f64::from((rgb >> 8) & 255) / 255.,
+        f64::from(rgb & 255) / 255.,
+        1.,
+    ]
 }
 
 pub(super) fn named(name: &str, definition: Value) -> Value {
@@ -108,7 +143,7 @@ pub(super) fn toggle(index: usize, offset: [f64; 2]) -> Value {
     let mut track = rounded([20.0, 10.0], [0.0; 2], 5.0, [0.0; 4]);
     track["bindings"] = json!([{"binding_name":format!("#row_{index}_toggle_color"),"binding_name_override":"#color"}]);
     let mut knob = rounded([6.0, 6.0], [2.0, 2.0], 3.0, [1.0; 4]);
-    knob["bindings"] = json!([{"binding_name":format!("#row_{index}_knob_offset"),"binding_name_override":"#offset"}]);
+    knob["bindings"] = json!([{"binding_name":format!("#row_{index}_knob_offset"),"binding_name_override":"#offset"},{"binding_name":format!("#row_{index}_knob_color"),"binding_name_override":"#color"}]);
     button(
         &format!("mod.control:{index}"),
         [20.0, 14.0],
@@ -151,7 +186,16 @@ pub(super) fn row(control: &Control, index: usize, width: f64, y: f64, palette: 
                 true,
             );
             value["text_alignment"] = json!("right");
-            controls.push(named("value", value));
+            value["offset"] = json!([0., 0.]);
+            controls.push(named(
+                "value",
+                button(
+                    &format!("mod.edit:{index}"),
+                    [width * 0.36, 12.0],
+                    [width * 0.64, 0.0],
+                    vec![named("text", value)],
+                ),
+            ));
             let mut fill = rounded([width, 2.0], [0.0, 3.5], 1.0, palette.accent);
             fill["bindings"] = json!([{"binding_name":format!("#row_{index}_fill"),"binding_name_override":"#size_binding_x"}]);
             let mut knob = rounded([5.0, 5.0], [0.0, 0.0], 2.5, palette.text);
@@ -215,6 +259,7 @@ pub(super) fn row(control: &Control, index: usize, width: f64, y: f64, palette: 
             ));
             button(&action, [width, 24.0], [0.0, y], controls)
         }
+        Control::Keybind { .. } => keybind_row(index, width, y, palette, 24.0, false),
         Control::Button { .. } => {
             let mut value = label(
                 &label_key,
@@ -238,6 +283,60 @@ pub(super) fn row(control: &Control, index: usize, width: f64, y: f64, palette: 
             )
         }
     }
+}
+
+pub(super) fn keybind_row(
+    index: usize,
+    width: f64,
+    y: f64,
+    palette: Palette,
+    height: f64,
+    separator: bool,
+) -> Value {
+    let mut key = label(
+        &format!("#row_{index}_value"),
+        [29., 15.],
+        [0., 7.],
+        palette.text,
+        true,
+    );
+    key["text_alignment"] = json!("center");
+    key["font_scale_factor"] = json!(0.75);
+    let mut cap_palette = palette;
+    cap_palette.card = palette.raised;
+    let mut cap = chrome([32., 22.], cap_palette, 5.);
+    cap.push(named("value", key));
+    let mut controls = vec![
+        named(
+            "label",
+            label(
+                &format!("#row_{index}_label"),
+                [width - 38., 16.],
+                [0., 7.],
+                palette.muted,
+                true,
+            ),
+        ),
+        named(
+            "keycap",
+            button(
+                &format!("mod.control:{index}"),
+                [32., 22.],
+                [width - 32., 0.],
+                cap,
+            ),
+        ),
+    ];
+    if separator {
+        controls.insert(
+            0,
+            named(
+                "separator",
+                rounded([width, 0.5], [0., -3.], 0., palette.border),
+            ),
+        );
+    }
+    panel([width, height], [0., y], controls)
 }
 
 pub(super) fn row_height(control: &Control) -> f64 {

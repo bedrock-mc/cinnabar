@@ -31,9 +31,8 @@ const FOX_SAMPLE_SHA256: [u8; 32] = [
 ];
 // Shipped iOS vanilla/__brarchive/models/entity.brarchive, polar_bear.geo.json:
 // the body cube bind pose is +90 X, independently of its bone's default rotation.
-// llama.geo.json has the same bind. Native GeometryGroup keeps same-identifier history;
-// Geometry::_parseBones reads missing bind fields through
-// JsonValueHierarchy::get, retaining the older shipped bind under the modern sample.
+// llama.geo.json has the same bind. Vanilla keeps same-identifier geometry history
+// and reads missing bind fields from it, retaining the older shipped bind under the modern sample.
 const NATIVE_BODY_BIND_ROTATION: [f32; 3] = [90.0, 0.0, 0.0];
 // The same native base model retains these adult fox cube binds beneath its modern
 // replacements. The baby model is independently authored. See docs/reference/fox-rendering.md.

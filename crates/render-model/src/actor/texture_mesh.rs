@@ -1,8 +1,11 @@
-//! Native attachable raster extrusions (TextureMesh::compileQuads).
+//! Vanilla attachable raster extrusions.
 //!
 //! Unlike cubes, these meshes start in the image's X/Z plane with Y-down depth.
 
-use assets::{EquipmentTexture, RuntimeEntityAssets};
+use assets::{
+    EntityGeometry, EntityGeometryBone, EntityGeometryTextureMesh, EquipmentTexture,
+    RuntimeEntityAssets,
+};
 use glam::{Mat4, Vec3};
 
 use super::{
@@ -39,30 +42,11 @@ pub fn attachable_geometry(
             )?;
         }
         for mesh in &bone.texture_meshes {
-            let pivot = Vec3::from_array(mesh.local_pivot.map(|v| v.get()));
-            let position = Vec3::from_array(mesh.position.map(|v| v.get()));
-            let authored_bone_pivot =
-                Vec3::from_array(bone.pivot.map_or([0.0; 3], |p| p.map(|v| v.get())));
-            let [x, y, z] = mesh.rotation.map(|v| v.get().to_radians());
-            let sx = f32::from(geometry.texture_width) / f32::from(texture.width);
-            let sz = f32::from(geometry.texture_height) / f32::from(texture.height);
-            // Bone matrices subtract the bind pivot; our vertices retain absolute model
-            // coordinates, so native's bone-local subtraction is left to that matrix.
-            let matrix = Mat4::from_translation(Vec3::from_array(bone_bind_pivot(bone)))
-                * Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0) / 16.0)
-                * Mat4::from_translation(position - authored_bone_pivot)
-                * Mat4::from_rotation_z(z)
-                * Mat4::from_rotation_y(y)
-                * Mat4::from_rotation_x(x)
-                * Mat4::from_translation(-pivot)
-                * Mat4::from_scale(
-                    Vec3::new(sx, sx.max(sz), sz) * Vec3::from_array(mesh.scale.map(|v| v.get())),
-                );
             append_pixels(
                 &mut vertices,
                 texture,
                 index as u32,
-                matrix,
+                raster_matrix(geometry, bone, mesh, texture),
                 mesh.use_pixel_depth,
             )?;
         }
@@ -75,6 +59,71 @@ pub fn attachable_geometry(
         vertices,
         bones.iter().map(bone_bind_pivot).collect::<Vec<_>>(),
     )
+}
+
+/// Image pixels (column, depth, row) to the rig frame in blocks for one raster mesh.
+fn raster_matrix(
+    geometry: &EntityGeometry,
+    bone: &EntityGeometryBone,
+    mesh: &EntityGeometryTextureMesh,
+    texture: &EquipmentTexture,
+) -> Mat4 {
+    let pivot = Vec3::from_array(mesh.local_pivot.map(|v| v.get()));
+    let position = Vec3::from_array(mesh.position.map(|v| v.get()));
+    let authored_bone_pivot = Vec3::from_array(bone.pivot.map_or([0.0; 3], |p| p.map(|v| v.get())));
+    let [x, y, z] = mesh.rotation.map(|v| v.get().to_radians());
+    let sx = f32::from(geometry.texture_width) / f32::from(texture.width);
+    let sz = f32::from(geometry.texture_height) / f32::from(texture.height);
+    // Bone matrices subtract the bind pivot; our vertices retain absolute model
+    // coordinates, so native's bone-local subtraction is left to that matrix.
+    Mat4::from_translation(Vec3::from_array(bone_bind_pivot(bone)))
+        * Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0) / 16.0)
+        * Mat4::from_translation(position - authored_bone_pivot)
+        * Mat4::from_rotation_z(z)
+        * Mat4::from_rotation_y(y)
+        * Mat4::from_rotation_x(x)
+        * Mat4::from_translation(-pivot)
+        * Mat4::from_scale(
+            Vec3::new(sx, sx.max(sz), sz) * Vec3::from_array(mesh.scale.map(|v| v.get())),
+        )
+}
+
+/// For one raster mesh: image columns, unit extrusion depth and rows to the rig frame,
+/// followed by every bone's bind pivot (rig blocks).
+pub fn attachable_raster_frame(
+    assets: &RuntimeEntityAssets,
+    geometry_index: usize,
+    texture: &EquipmentTexture,
+) -> Option<(Mat4, Vec<[f32; 3]>)> {
+    let geometry = assets.geometries().get(geometry_index)?;
+    let bones = resolve_geometry_bones(assets, geometry_index).ok()?;
+    let mut meshes = bones
+        .iter()
+        .flat_map(|bone| bone.texture_meshes.iter().map(move |mesh| (bone, mesh)));
+    let (bone, mesh) = meshes.next()?;
+    if meshes.next().is_some() || bones.iter().any(|bone| !bone.cubes.is_empty()) {
+        return None;
+    }
+    Some((
+        unit_depth_frame(
+            raster_matrix(geometry, bone, mesh, texture),
+            texture,
+            mesh.use_pixel_depth,
+        ),
+        bones.iter().map(bone_bind_pivot).collect(),
+    ))
+}
+
+fn raster_depth(texture: &EquipmentTexture, use_pixel_depth: bool) -> f32 {
+    if use_pixel_depth {
+        f32::from(texture.width.max(texture.height)) / 16.0
+    } else {
+        1.0
+    }
+}
+
+fn unit_depth_frame(image_to_rig: Mat4, texture: &EquipmentTexture, use_pixel_depth: bool) -> Mat4 {
+    image_to_rig * Mat4::from_scale(Vec3::new(1.0, raster_depth(texture, use_pixel_depth), 1.0))
 }
 
 fn append_pixels(
@@ -96,11 +145,7 @@ fn append_pixels(
             && (z as usize) < height
             && texture.rgba8[(z as usize * width + x as usize) * 4 + 3] >= 2
     };
-    let depth = if use_pixel_depth {
-        width.max(height) as f32 / 16.0
-    } else {
-        1.0
-    };
+    let depth = raster_depth(texture, use_pixel_depth);
     for z in 0..height {
         for x in 0..width {
             if !opaque(x as isize, z as isize) {
@@ -149,6 +194,7 @@ fn append_pixels(
                     uv,
                     back_uv: uv,
                     bone_index,
+                    surface: super::ActorRigSurface::SINGLE_FACE,
                 }));
                 if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                     return Err(ActorRigGeometryError::CatalogCapacity);
@@ -162,6 +208,50 @@ fn append_pixels(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn java_raster_keeps_one_sixteenth_depth_at_every_texture_resolution() {
+        use crate::java_animation::{JavaHand, JavaItemMesh, first_person_item};
+
+        for (width, height) in [(16, 16), (32, 64), (128, 128)] {
+            let texture = EquipmentTexture {
+                identifier: "test:bow".into(),
+                width,
+                height,
+                rgba8: vec![255; usize::from(width) * usize::from(height) * 4].into(),
+            };
+            for use_pixel_depth in [false, true] {
+                let image_to_rig = Mat4::from_translation(Vec3::new(0.2, 0.7, -0.1))
+                    * Mat4::from_rotation_x(0.4)
+                    * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
+                let mut vertices = Vec::new();
+                append_pixels(&mut vertices, &texture, 0, image_to_rig, use_pixel_depth).unwrap();
+                let hand = JavaHand {
+                    swing: 0.0,
+                    equip: 1.0,
+                    using: None,
+                };
+                let native = first_person_item(hand, JavaItemMesh::Raster { width, height }, false)
+                    * unit_depth_frame(image_to_rig, &texture, use_pixel_depth).inverse();
+                let frame = first_person_item(hand, JavaItemMesh::Sprite, false);
+                let expected_front = frame.transform_point3(Vec3::ZERO);
+                let expected_back = frame.transform_point3(Vec3::new(0.0, 0.0, -1.0 / 16.0));
+                let front = image_to_rig.transform_point3(Vec3::new(0.0, 0.0, f32::from(height)));
+                let back = image_to_rig.transform_point3(Vec3::new(
+                    0.0,
+                    raster_depth(&texture, use_pixel_depth),
+                    f32::from(height),
+                ));
+                assert!(
+                    vertices
+                        .iter()
+                        .any(|v| Vec3::from_array(v.position).abs_diff_eq(back, 1e-5))
+                );
+                assert!(native.transform_point3(front).distance(expected_front) < 1e-5);
+                assert!(native.transform_point3(back).distance(expected_back) < 1e-5);
+            }
+        }
+    }
 
     #[test]
     fn raster_depth_and_alpha_follow_native_tessellator() {

@@ -88,7 +88,6 @@ pub(super) fn load_entity_assets(
             rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
         });
     }
-    let identity = Sha256::digest(&bytes).into();
     let runtime = Arc::new(RuntimeEntityAssets::decode(&bytes).map_err(|source| {
         AssetStartupError::EntityAssetsDecode {
             path: path.clone(),
@@ -96,6 +95,9 @@ pub(super) fn load_entity_assets(
             rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
         }
     })?);
+    let identity = runtime
+        .carrier_identity()
+        .expect("a decoded entity carrier knows its identity");
     let expected_manifest_sha256 = canonical_source_manifest_sha256(VANILLA_SOURCE_JSON);
     let actual_manifest_sha256 = runtime.source_manifest_sha256();
     if actual_manifest_sha256 != expected_manifest_sha256 {
@@ -189,7 +191,7 @@ pub(super) fn load_font_assets(
             }
         })?;
     Ok(LoadedFontAssets {
-        runtime: Arc::new(runtime),
+        runtime: Arc::new(runtime.with_coverage_pages()),
         selected_path: path,
         diagnostic: false,
     })
@@ -257,7 +259,6 @@ pub(super) fn load_atmosphere_assets(
             rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
         });
     }
-    let identity = Sha256::digest(&bytes).into();
     let runtime = Arc::new(RuntimeAtmosphereAssets::decode(&bytes).map_err(|source| {
         AssetStartupError::AtmosphereDecode {
             path: path.clone(),
@@ -265,6 +266,7 @@ pub(super) fn load_atmosphere_assets(
             rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
         }
     })?);
+    let identity = runtime.carrier_identity();
     world_provenance::verify_atmosphere_carrier(&path, &runtime)?;
     Ok(LoadedAtmosphereAssets {
         runtime,

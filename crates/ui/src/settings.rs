@@ -1,7 +1,7 @@
 use semantic_input::{ControlSettings, PerspectiveMode};
 
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
-pub const DEFAULT_OUTLINE_SELECTION: bool = false;
+pub const DEFAULT_OUTLINE_SELECTION: bool = true;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UserSettings {
@@ -41,6 +41,8 @@ pub struct VideoSettings {
     pub camera_shake: bool,
     pub outline_selection: bool,
     pub damage_bob: f32,
+    /// Java Edition 1.7 player animations instead of vanilla Bedrock's.
+    pub java_animations: bool,
 }
 
 impl Default for VideoSettings {
@@ -61,6 +63,7 @@ impl Default for VideoSettings {
             camera_shake: true,
             outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
+            java_animations: true,
         }
     }
 }
@@ -115,7 +118,12 @@ impl RenderMode {
 
 #[cfg(test)]
 mod tests {
-    use super::RenderMode;
+    use super::{RenderMode, UserSettings};
+
+    #[test]
+    fn default_block_selection_uses_an_outline() {
+        assert!(UserSettings::default().video.outline_selection);
+    }
 
     #[test]
     fn render_mode_defaults_to_vanilla_and_round_trips_its_text() {

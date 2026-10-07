@@ -1,4 +1,4 @@
-//! Captures gameplay observations at the existing pre-send presentation boundary.
+//! Captures pre-send observations and finalizes poses after local interaction admission.
 use crate::{
     movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
     player_runtime::PlayerRuntime,
@@ -21,22 +21,23 @@ pub(crate) struct ActorObservations<'w> {
     view: Res<'w, crate::local_player::LocalViewPose>,
     skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
     settings: Res<'w, crate::camera::CameraSettingsAuthority>,
-    swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
+    effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     ui: Option<Res<'w, UiRuntime>>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
     ui_presentation: Option<Res<'w, UiPresentationRuntime>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
+    input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
-    cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
 }
 
-/// Samples live owners without changing the established prepare/send/publish order.
-pub(crate) fn prepare_actor_render_frame(
+/// Captures live owners and advances actors before UI and interaction picking.
+pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,
+    mut java_blocking: Local<bool>,
 ) {
     let ActorObservations {
         mut world,
@@ -45,14 +46,14 @@ pub(crate) fn prepare_actor_render_frame(
         view,
         skin,
         settings,
-        mut swings,
+        effects,
         ui,
         menu,
         ui_presentation,
         collisions,
         item_use,
+        input,
         movement,
-        cave,
         time,
         profiler,
     } = observations;
@@ -60,36 +61,71 @@ pub(crate) fn prepare_actor_render_frame(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::ActorPublication));
     let stream = world.stream.as_ref();
-    let local_use = stream.zip(ui.as_deref()).zip(item_use.as_deref()).map_or(
-        client_world::LocalItemUse::Unpredicted,
-        |((stream, ui), item_use)| item_use.local_item_use(&player, stream, ui),
+    let local_equipment = stream.map_or_else(Default::default, |stream| {
+        client_presentation::presentation::equipment::local_input(
+            &player,
+            stream,
+            ui.as_deref(),
+            stream.local_player_runtime_id(),
+        )
+    });
+    // Java blocks with a sword while use is held; Bedrock never flags that use.
+    let java_sword = settings.feel().java_animations
+        && local_equipment
+            .main
+            .as_ref()
+            .is_some_and(|item| render_model::java_animation::is_java_sword(&item.identifier));
+    let blocking = java_sword
+        && input
+            .as_deref()
+            .is_some_and(|input| input.phase(semantic_input::Action::Use).held);
+    let local_use = if blocking {
+        client_world::LocalItemUse::Using
+    } else {
+        match stream.zip(ui.as_deref()).zip(item_use.as_deref()) {
+            Some(((stream, ui), item_use)) => item_use.local_item_use(&player, stream, ui),
+            None => client_world::LocalItemUse::Unpredicted,
+        }
+    };
+    // Ending a block clears the use flag it raised, whatever the hand holds next.
+    let local_use =
+        if (java_sword || *java_blocking) && local_use == client_world::LocalItemUse::Unpredicted {
+            client_world::LocalItemUse::Idle
+        } else {
+            local_use
+        };
+    *java_blocking = blocking;
+    let mut local_feed = client_presentation::actor_feed::build_local_player_feed(
+        &*physics,
+        view.rotation(),
+        false,
+        settings.feel().view_bobbing,
+        skin.local_uuid,
+        || skin.player_skin(),
+        local_use,
     );
+    if let Some(feed) = &mut local_feed {
+        #[cfg(feature = "developer-control")]
+        {
+            feed.prefer_client_skin = skin.recording_cape_enabled();
+        }
+        feed.main_hand_slot = player.selected_hotbar_slot().unwrap_or(0);
+        feed.main_hand_stack_id = player
+            .selected_stack()
+            .map(|stack| stack.stack_network_id)
+            .filter(|id| *id > 0);
+        let mining_effects = effects
+            .as_deref()
+            .map_or_else(Default::default, |effects| effects.mining_effects());
+        feed.bedrock_swing_ticks = gameplay::melee::swing_duration(mining_effects);
+        feed.java_swing_ticks = gameplay::melee::java_swing_duration(mining_effects);
+    }
     let input = ActorFrameInput {
-        local_feed: client_presentation::actor_feed::build_local_player_feed(
-            &*physics,
-            view.rotation(),
-            false,
-            settings.feel().view_bobbing,
-            skin.local_uuid,
-            || skin.player_skin(),
-            local_use,
-        ),
+        local_feed,
         predicted_eye: physics.render_eye_position(),
         predicted_feet: physics.render_feet_position(),
-        local_equipment: stream.map_or_else(Default::default, |stream| {
-            client_presentation::presentation::equipment::local_input(
-                &player,
-                stream,
-                ui.as_deref(),
-                stream.local_player_runtime_id(),
-            )
-        }),
-        // Consume only while a stream exists, as the prior publisher did.
-        swing_started: stream.and_then(|_| {
-            swings
-                .as_deref_mut()
-                .and_then(crate::melee::SwingTracker::take_started)
-        }),
+        local_equipment,
+        swing_progress: None,
         renders_game: crate::screen_policy::renders_game(
             &player,
             ui.as_deref(),
@@ -103,10 +139,23 @@ pub(crate) fn prepare_actor_render_frame(
                 let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
                 (playback.emote, playback.elapsed(now))
             }),
-        hide_hand: menu
-            .as_ref()
-            .is_some_and(|menu| menu.settings_snapshot().0.value("hide_hand") != 0),
+        hide_hand: menu.as_ref().is_some_and(|menu| {
+            let settings = menu.settings_snapshot().0;
+            !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
+                settings.value("hide_hud") != 0,
+                settings.value("hide_hand") != 0,
+            )
+            .hand
+        }),
     };
+    if let Some(stream) = world.stream.as_mut() {
+        stream.set_local_motion_authority(
+            movement
+                .as_deref()
+                .filter(|movement| movement.physics_is_authorized())
+                .map(|movement| movement.interaction_authority_identity()),
+        );
+    }
     let ClientWorld {
         stream,
         entity_assets,
@@ -115,9 +164,12 @@ pub(crate) fn prepare_actor_render_frame(
         prepared_actor_artwork,
         ..
     } = &mut *world;
-    client_presentation::actor_publication::prepare_actor_render_frame(
+    client_presentation::actor_publication::advance_actor_frame(
         ActorWorld {
             stream: stream.as_mut(),
+            collisions: collisions
+                .as_deref()
+                .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
             entity_assets: entity_assets.as_deref(),
             pack_entities: pack_entities.clone(),
             session_items: session_items.clone(),
@@ -149,6 +201,93 @@ pub(crate) fn prepare_actor_render_frame(
                 });
             (consume, animation)
         },
+        params,
+    );
+}
+
+/// Gameplay clocks borrowed only after the interaction owners have admitted this frame's actions.
+#[derive(SystemParam)]
+pub(crate) struct ActorFinalObservations<'w> {
+    world: ResMut<'w, ClientWorld>,
+    physics: Res<'w, LocalPhysicsController>,
+    effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
+    swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
+    movement: Option<Res<'w, MovementTicker>>,
+    collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
+    cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
+}
+
+/// Consumes admitted local ticks and builds their final poses with the pre-send capture.
+pub(crate) fn prepare_actor_render_frame(
+    observations: ActorFinalObservations,
+    params: client_presentation::actor_publication::ActorFramePublication,
+) {
+    let ActorFinalObservations {
+        mut world,
+        physics,
+        effects,
+        mut swings,
+        movement,
+        collisions,
+        cave,
+    } = observations;
+    let stream = world.stream.as_ref();
+    let swing_progress = stream.and_then(|_| {
+        let movement = movement.as_deref()?;
+        let swings = swings.as_deref_mut()?;
+        if let Some(effects) = effects.as_deref() {
+            swings.sync_ticks(
+                movement.interaction_authority_identity(),
+                movement.completed_tick(),
+                effects,
+            );
+        }
+        let mut progress = swings.published_progress(movement.completed_tick());
+        progress.frame_alpha = Some(physics.tick_alpha());
+        Some(progress)
+    });
+    if let (Some(stream), Some(movement), Some(swings)) = (
+        world.stream.as_mut(),
+        movement
+            .as_deref()
+            .filter(|movement| movement.physics_is_authorized()),
+        swings.as_deref(),
+    ) {
+        let alpha = physics.tick_alpha();
+        let samples = swings
+            .committed_samples()
+            .filter_map(|(tick, mut progress)| {
+                let sample = physics.sample_at(tick)?;
+                progress.frame_alpha = Some(alpha);
+                Some(client_world::LocalSwingMotionSample {
+                    tick,
+                    delta: sample.movement,
+                    yaw: sample.yaw,
+                    progress,
+                })
+            });
+        stream.sync_local_swing_motion(movement.interaction_authority_identity(), samples);
+    }
+    let ClientWorld {
+        stream,
+        entity_assets,
+        pack_entities,
+        session_items,
+        prepared_actor_artwork,
+        ..
+    } = &mut *world;
+    client_presentation::actor_publication::prepare_actor_render_frame(
+        ActorWorld {
+            stream: stream.as_mut(),
+            collisions: collisions
+                .as_deref()
+                .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
+            entity_assets: entity_assets.as_deref(),
+            pack_entities: pack_entities.clone(),
+            session_items: session_items.clone(),
+            prepared_actor_artwork,
+        },
+        swing_progress,
         |stream, low, high| {
             cave.as_deref().is_some_and(|cave| {
                 cave.hides_box(
@@ -161,6 +300,60 @@ pub(crate) fn prepare_actor_render_frame(
             })
         },
         params,
+    );
+}
+
+/// Publishes entity-shadow casters for the bodies this frame drew.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn publish_entity_shadows(
+    world: Res<ClientWorld>,
+    player: Res<PlayerRuntime>,
+    partial_tick: Res<ActorFramePartialTick>,
+    local: Res<crate::local_player::LocalAvatarVisibilityCarrier>,
+    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
+    frame: Res<render::ActorRenderFrame>,
+    mut drawn: Local<Vec<u64>>,
+    mut staging: Local<Vec<render_model::EntityShadow>>,
+    scene: Option<ResMut<render::EntityShadowScene>>,
+) {
+    let Some(mut scene) = scene else {
+        return;
+    };
+    let stream = world.stream.as_ref();
+    let local = stream.map(|stream| {
+        let runtime_id = stream.local_player_runtime_id();
+        client_presentation::entity_shadows::LocalShadowSource {
+            runtime_id,
+            visible: local.snapshot().is_some_and(|visibility| {
+                visibility.runtime_id() == runtime_id && visibility.visible()
+            }),
+            feet: local
+                .snapshot()
+                .filter(|visibility| visibility.runtime_id() == runtime_id)
+                .map(|visibility| visibility.feet().to_array()),
+            spectator: player
+                .facts
+                .game_mode_capabilities()
+                .is_some_and(|caps| !caps.visible),
+        }
+    });
+    let view = camera
+        .single()
+        .ok()
+        .map(|(transform, projection)| render::ActorCullView {
+            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
+            camera_position: transform.translation,
+            max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        });
+    client_presentation::entity_shadows::drawn_bodies(&frame, &mut drawn);
+    client_presentation::entity_shadows::publish_entity_shadows(
+        stream,
+        partial_tick.0,
+        local,
+        view,
+        &drawn,
+        &mut staging,
+        &mut scene,
     );
 }
 

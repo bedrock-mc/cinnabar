@@ -1,5 +1,10 @@
 //! Unconditional actor artwork for the explicitly incomplete neutral material profile.
-use std::{collections::BTreeMap, io::Cursor, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Cursor,
+    path::Path,
+    sync::Arc,
+};
 
 use assets::{
     ActorArtworkBinding, ActorTexture, AssetError, CompiledEntityAssets, MAX_ACTOR_PIXEL_BYTES,
@@ -112,7 +117,7 @@ struct DecodedRaster {
 }
 
 /// Finds rasters selected by the vanilla crystal's controllers without assuming a texture path.
-fn native_crystal_sources(entities: &CompiledEntityAssets) -> std::collections::BTreeSet<u32> {
+fn native_crystal_sources(entities: &CompiledEntityAssets) -> BTreeSet<u32> {
     entities
         .render
         .layers
@@ -136,11 +141,99 @@ fn native_crystal_sources(entities: &CompiledEntityAssets) -> std::collections::
         .collect()
 }
 
+/// Geometries each texture source can be drawn with; `None` once a layer scrolls its UVs with
+/// `uv_anim`, which can bring any texel on screen.
+fn source_geometries(entities: &CompiledEntityAssets) -> BTreeMap<u32, Option<BTreeSet<u32>>> {
+    let render = &entities.render;
+    let mut drawn = BTreeMap::<u32, Option<BTreeSet<u32>>>::new();
+    for layer in &render.layers {
+        let rig = &entities.rig_bindings[layer.rig as usize];
+        let geometries: BTreeSet<u32> = entities.rig_geometries[rig.first_geometry as usize..]
+            [..usize::from(rig.geometry_count)]
+            .iter()
+            .map(|candidate| candidate.geometry)
+            .chain(
+                render.geometries[layer.first_geometry as usize..]
+                    [..usize::from(layer.geometry_count)]
+                    .iter()
+                    .map(|choice| choice.geometry),
+            )
+            .collect();
+        for source in layer_sources(render, layer) {
+            let entry = drawn.entry(source).or_insert_with(|| Some(BTreeSet::new()));
+            match entry {
+                Some(set) if layer.uv_anim.is_none() => set.extend(&geometries),
+                _ => *entry = None,
+            }
+        }
+    }
+    drawn
+}
+
+fn layer_sources<'a>(
+    render: &'a assets::EntityRenderData,
+    layer: &'a assets::EntityRenderLayer,
+) -> impl Iterator<Item = u32> + 'a {
+    render.slots[layer.first_slot as usize..][..usize::from(layer.slot_count)]
+        .iter()
+        .flat_map(|slot| {
+            render.candidates[slot.first_candidate as usize..][..usize::from(slot.candidate_count)]
+                .iter()
+                .map(|candidate| candidate.source)
+        })
+}
+
+/// Decodes each source once under the artwork build's alpha contract.
+struct SourceDecoder {
+    lenient: bool,
+    crystal_sources: BTreeSet<u32>,
+    dissolve_masks: BTreeSet<u32>,
+    drawn: BTreeMap<u32, Option<BTreeSet<u32>>>,
+}
+
+impl SourceDecoder {
+    fn decode(
+        &self,
+        entities: &CompiledEntityAssets,
+        source: u32,
+        read: &mut dyn FnMut(u32) -> Result<Vec<u8>, AssetError>,
+    ) -> Result<Option<DecodedRaster>, AssetError> {
+        let asset = &entities.sources[source as usize];
+        let binary_alpha = !self.lenient
+            && !self.dissolve_masks.contains(&source)
+            && !assets::native_actor_texture_uses_color_mask(asset)
+            && !assets::native_actor_texture_uses_multitexture(asset);
+        let sampled = |width: u16, height: u16| {
+            let mut union = vec![false; usize::from(width) * usize::from(height)];
+            for &geometry in self.drawn.get(&source)?.as_ref()? {
+                let texels = assets::neutral_actor_geometry_sampled_texels(
+                    &entities.geometries,
+                    geometry as usize,
+                    width,
+                    height,
+                )?;
+                union
+                    .iter_mut()
+                    .zip(texels)
+                    .for_each(|(union, texel)| *union |= texel);
+            }
+            Some(union)
+        };
+        Ok(decode_raster(
+            asset.path.as_ref(),
+            &read(source)?,
+            binary_alpha.then_some(&sampled as &dyn Fn(u16, u16) -> Option<Vec<bool>>),
+            !self.lenient && self.crystal_sources.contains(&source),
+        ))
+    }
+}
+
 /// Decodes actor art, baking the crystal's native point-sampled alpha test when requested.
+/// `binary_alpha` returns the texels a raster of the given size can be sampled at.
 fn decode_raster(
     path: &str,
     bytes: &[u8],
-    binary_alpha: bool,
+    binary_alpha: Option<&dyn Fn(u16, u16) -> Option<Vec<bool>>>,
     crystal: bool,
 ) -> Option<DecodedRaster> {
     let format = if path.ends_with(".png") {
@@ -170,11 +263,23 @@ fn decode_raster(
     }
     // Neutral opacity rasters require binary alpha. A witnessed native material raster,
     // or a lenient server-pack build, retains every alpha byte instead of quantizing it.
-    (!binary_alpha
-        || pixels
+    if let Some(sampled) = binary_alpha
+        && !pixels
             .chunks_exact(4)
-            .all(|pixel| matches!(pixel[3], 0 | 255)))
-    .then_some(DecodedRaster {
+            .all(|pixel| matches!(pixel[3], 0 | 255))
+    {
+        let sampled = sampled(width, height)?;
+        for (pixel, sampled) in pixels.chunks_exact_mut(4).zip(sampled) {
+            if !matches!(pixel[3], 0 | 255) {
+                if sampled {
+                    return None;
+                }
+                // Point sampling never reads this texel, so no material can show its alpha.
+                pixel[3] = 0;
+            }
+        }
+    }
+    Some(DecodedRaster {
         width,
         height,
         pixels,
@@ -195,7 +300,12 @@ fn build_artwork(
     let mut decoded = BTreeMap::<u32, Option<DecodedRaster>>::new();
     let mut table = BTreeMap::<u32, usize>::new();
     let render = &entities.render;
-    let crystal_sources = native_crystal_sources(entities);
+    let decoder = SourceDecoder {
+        lenient,
+        crystal_sources: native_crystal_sources(entities),
+        dissolve_masks: assets::actor_dissolve_mask_sources(render),
+        drawn: source_geometries(entities),
+    };
     for (rig_index, rig) in entities.rig_bindings.iter().enumerate() {
         let reject = |fallbacks: &mut Vec<ActorFallback>, reason: &str| {
             fallbacks.push(ActorFallback {
@@ -210,20 +320,20 @@ fn build_artwork(
         let layers = &layers[..layers.partition_point(|layer| layer.rig as usize == rig_index)];
         let sources: Vec<u32> = layers
             .iter()
-            .flat_map(|layer| {
-                let slots = &render.slots[layer.first_slot as usize..][..layer.slot_count as usize];
-                slots.iter().flat_map(|slot| {
-                    render.candidates[slot.first_candidate as usize..]
-                        [..slot.candidate_count as usize]
-                        .iter()
-                        .map(|candidate| candidate.source)
-                })
-            })
+            .flat_map(|layer| layer_sources(render, layer))
             .collect();
         if sources.is_empty() {
             reject(&mut fallbacks, "no_render_layer");
             continue;
         }
+        // The body route is the base controller's art; a conditional overlay's (such as the
+        // charged creeper's armor) must never stand in for it.
+        let base_sources: Vec<u32> = layers
+            .iter()
+            .find(|layer| layer.condition.is_none())
+            .or(layers.first())
+            .map(|layer| layer_sources(render, layer).collect())
+            .unwrap_or_default();
         for offset in 0..usize::from(rig.geometry_count) {
             let candidate_index = rig.first_geometry as usize + offset;
             let candidate = entities.rig_geometries[candidate_index];
@@ -248,20 +358,7 @@ fn build_artwork(
                     continue;
                 }
                 if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
-                    let path = entities.sources[source as usize].path.as_ref();
-                    let binary_alpha = !lenient
-                        && !assets::native_actor_texture_uses_color_mask(
-                            &entities.sources[source as usize],
-                        )
-                        && !assets::native_actor_texture_uses_multitexture(
-                            &entities.sources[source as usize],
-                        );
-                    slot.insert(decode_raster(
-                        path,
-                        &read(source)?,
-                        binary_alpha,
-                        !lenient && crystal_sources.contains(&source),
-                    ));
+                    slot.insert(decoder.decode(entities, source, read)?);
                 }
                 let Some(raster) = decoded[&source].as_ref() else {
                     continue;
@@ -280,7 +377,9 @@ fn build_artwork(
                         }
                     },
                 };
-                default_texture.get_or_insert(index);
+                if base_sources.contains(&source) {
+                    default_texture.get_or_insert(index);
+                }
             }
             let Some(texture) = default_texture else {
                 reject(&mut fallbacks, "missing_or_ambiguous_texture");
@@ -325,20 +424,7 @@ fn build_artwork(
                 continue;
             }
             if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
-                let path = entities.sources[source as usize].path.as_ref();
-                let binary_alpha = !lenient
-                    && !assets::native_actor_texture_uses_color_mask(
-                        &entities.sources[source as usize],
-                    )
-                    && !assets::native_actor_texture_uses_multitexture(
-                        &entities.sources[source as usize],
-                    );
-                slot.insert(decode_raster(
-                    path,
-                    &read(source)?,
-                    binary_alpha,
-                    !lenient && crystal_sources.contains(&source),
-                ));
+                slot.insert(decoder.decode(entities, source, read)?);
             }
             let Some(raster) = decoded[&source].as_ref() else {
                 continue;

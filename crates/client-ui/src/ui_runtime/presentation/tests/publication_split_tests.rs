@@ -1,5 +1,34 @@
 use super::*;
 
+#[test]
+fn suppressed_cpu_hands_do_not_republish_cached_arm_textures() {
+    let player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    for hands in [true, false, true] {
+        let prepared = PendingUiPublication {
+            inventory: runtime.capture_presentation_inventory(&player),
+            preview: PreviewCapture {
+                skin: None,
+                pose: Default::default(),
+                shown: false,
+                hands,
+            },
+            item_icons: (None, None),
+            now_millis: 0,
+            physical_size: [800, 600],
+            dpi_scale: DpiScale::new(1.0).unwrap(),
+        };
+        render_prepared_ui(&player, &mut runtime, &mut presentation, prepared).unwrap();
+        assert!(
+            presentation.player_hand_icons().1.is_some(),
+            "the cached skin remains available"
+        );
+        assert_eq!(presentation.cpu_empty_hand_fallback().is_some(), hands);
+        assert_eq!(presentation.hud_frame().left_hand.is_some(), hands);
+    }
+}
+
 /// Captures all authority fields the scoped rendering view must restore.
 fn inventory_state(
     player_runtime: &player_state::PlayerState,

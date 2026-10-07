@@ -22,7 +22,7 @@ use crate::{
 };
 use client_ui::ui_runtime::UiRuntime;
 
-const HOTBAR_DIGIT_ACTIONS: [Action; 9] = [
+pub(crate) const HOTBAR_DIGIT_ACTIONS: [Action; HOTBAR_SLOT_COUNT as usize] = [
     Action::Hotbar1,
     Action::Hotbar2,
     Action::Hotbar3,

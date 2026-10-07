@@ -1,5 +1,5 @@
-//! Focused regressions derived from current 1.26.50.26 canonical movement
-//! bodies and their matching PE data. These use a synthetic fully wet world;
+//! Focused regressions for 1.26.50.26 vanilla liquid movement and its constants.
+//! These use a synthetic fully wet world;
 //! they do not claim captured vanilla trajectories or live server acceptance.
 
 use sim::{
@@ -66,8 +66,8 @@ fn native_float(bits: u32) -> f64 {
 
 #[test]
 fn current_water_drag_keeps_vertical_retention_and_sprint_without_a_swim_pose() {
-    // RVA 0x0320fc20: sprint is ActorData bit 3; y uses the independent
-    // water retention. RVA 0x0322d5d0 then applies water gravity outside swim.
+    // Sprint is entity flag 3; y uses the independent water retention.
+    // Water gravity then applies outside the swim pose.
     // Frozen f32 outputs for velocity (0.4, 0.2, 0.3), airborne Depth Strider.
     let cases = [
         (false, 0, [0x3ea3_d70b, 0x3e1e_b853, 0x3e75_c290]),
@@ -104,8 +104,8 @@ fn current_water_drag_keeps_vertical_retention_and_sprint_without_a_swim_pose() 
 
 #[test]
 fn held_swim_jump_ascends_independently_of_look_pitch() {
-    // Dispatch 0x09fdd550 excludes MobIsJumping; jump 0x0a5dc2e0 uses
-    // the default liquid impulse. Swimming skips gravity (0x0322d5d0).
+    // A held swim jump uses the default liquid impulse regardless of pitch;
+    // swimming skips gravity.
     for pitch_degrees in [-90.0, 0.0, 90.0] {
         let mut state = PlayerState::new(Vec3::new(0.5, 5.0, 0.5));
         state.swim_amount = 1.0;
@@ -129,7 +129,7 @@ fn held_swim_jump_ascends_independently_of_look_pitch() {
 
 #[test]
 fn swimming_dive_steers_before_vertical_water_drag_without_gravity() {
-    // Current 0x09fd2140 selects the faster steering rate below its dive
+    // Vanilla selects the faster steering rate below its dive
     // threshold. Pitch 90 degrees reaches the exact -1 table cardinal.
     let mut state = PlayerState::new(Vec3::new(0.5, 5.0, 0.5));
     let output = Simulator::default()
@@ -149,7 +149,7 @@ fn swimming_dive_steers_before_vertical_water_drag_without_gravity() {
 
 #[test]
 fn ordinary_water_sneak_adds_downward_motion_before_drag_and_gravity() {
-    // WaterSinkInputSystem 0x0dc3db30 adds the descent input in water,
+    // Sneaking in water adds the descent input,
     // independently of horizontal sneak slowdown and the swimming pose.
     let mut state = PlayerState::new(Vec3::new(0.5, 5.0, 0.5));
     let output = Simulator::default()
@@ -168,7 +168,7 @@ fn ordinary_water_sneak_adds_downward_motion_before_drag_and_gravity() {
 
 #[test]
 fn swimming_upward_steering_stops_at_the_tick_captured_attach_cell_boundary() {
-    // Current 0x09eeeb70 floors attach7 and copies its material's liquid byte.
+    // The bounding-box update floors attach7 and copies its material's liquid byte.
     // The body remains wet at y=4.4, independently of that point's cell.
     for (height, initial, movement, retained) in [
         (

@@ -164,3 +164,10 @@ pub fn plain_text(text: &str, limit: usize) -> bool {
 pub fn implemented_permissions() -> BTreeSet<Permission> {
     BTreeSet::from([Permission::Ui, Permission::Messaging])
 }
+
+/// What the developer client advertises: the above plus media playback onto scene quads.
+pub fn developer_permissions() -> BTreeSet<Permission> {
+    let mut permissions = implemented_permissions();
+    permissions.extend([Permission::Scene, Permission::Media]);
+    permissions
+}

@@ -1,9 +1,12 @@
 use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
-use super::{tick::WeightedClip, *};
+use super::{
+    tick::{ControllerBlend, WeightedClip},
+    *,
+};
 
-// ModelPart loader uses 24, then the model
-// constructor negates native Y into BoneOrientation default position.
+// Vanilla bone loading uses a 24-pixel Y origin, then negates Y for the
+// bone's default position.
 pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
 #[derive(Clone, Copy)]
@@ -46,8 +49,31 @@ pub(super) fn sample_clips(
 ) -> Result<Vec<LocalDelta>, EvalError> {
     let assets = evaluator.assets;
     let mut local = vec![LocalDelta::default(); bones.len()];
+    // Shortest-path blends sample each state into its own fresh pose before composing.
+    let mut sides = clips.iter().any(|clip| clip.blend.is_some()).then(|| {
+        [
+            vec![LocalDelta::default(); bones.len()],
+            vec![LocalDelta::default(); bones.len()],
+        ]
+    });
+    let mut pending: Option<ControllerBlend> = None;
     for weighted in clips {
         budget.charge_work()?;
+        if let (Some(blend), Some(sides)) = (pending, sides.as_mut())
+            && weighted.blend.is_none_or(|next| {
+                next.controller != blend.controller || (blend.incoming && !next.incoming)
+            })
+        {
+            compose_blend(&mut local, sides, blend.amount);
+            pending = None;
+        }
+        let pose = match (weighted.blend, sides.as_mut()) {
+            (Some(blend), Some(sides)) => {
+                pending = Some(blend);
+                &mut sides[usize::from(blend.incoming)]
+            }
+            _ => &mut local,
+        };
         let weight = weighted.weight;
         if weight < f32::EPSILON {
             continue;
@@ -79,21 +105,21 @@ pub(super) fn sample_clips(
         // An override clip first restores every bone it animates to its whole default pose.
         if clip.override_previous {
             for channel in channels {
-                *local
+                *pose
                     .get_mut(channel.bone as usize)
                     .ok_or(EvalError::Invalid)? = LocalDelta::default();
             }
         }
         for channel in channels {
             budget.charge_work()?;
-            let bone = local
+            let bone = pose
                 .get_mut(channel.bone as usize)
                 .ok_or(EvalError::Invalid)?;
             // Native blending retains the greatest frame setting across active clips.
             bone.rotation_relative_to_entity |= channel.rotation_relative_to_entity;
             let current = bone.property(channel.property);
-            // `this` reads BoneOrientation, not an animation-only delta. ModelPart's
-            // defaults are copied into that orientation before channels add their values.
+            // `this` reads the bone orientation, not an animation-only delta. The
+            // bone's defaults are copied into that orientation before channels add their values.
             let defaults = default_channel(bones, channel.bone as usize, channel.property)
                 .ok_or(EvalError::Invalid)?;
             let this = std::array::from_fn(|axis| match channel.property {
@@ -116,7 +142,30 @@ pub(super) fn sample_clips(
             }
         }
     }
+    if let (Some(blend), Some(sides)) = (pending, sides.as_mut()) {
+        compose_blend(&mut local, sides, blend.amount);
+    }
     Ok(local)
+}
+
+/// Lerps the outgoing and incoming poses, rotating the short way round, then adds translation
+/// and rotation to `local` and multiplies its scale. Both sides reset for the next blend.
+fn compose_blend(local: &mut [LocalDelta], sides: &mut [Vec<LocalDelta>; 2], amount: f32) {
+    let [from, to] = sides;
+    for ((bone, from), to) in local.iter_mut().zip(from.iter_mut()).zip(to.iter_mut()) {
+        for axis in 0..3 {
+            let (a, b) = (from.translation[axis], to.translation[axis]);
+            bone.translation[axis] += a + (b - a) * amount;
+            let (a, b) = (from.rotation[axis], to.rotation[axis]);
+            bone.rotation[axis] += a + ((b - a + 180.0).rem_euclid(360.0) - 180.0) * amount;
+            let (a, b) = (from.scale[axis], to.scale[axis]);
+            bone.scale[axis] *= a + (b - a) * amount;
+        }
+        bone.rotation_relative_to_entity |=
+            from.rotation_relative_to_entity || to.rotation_relative_to_entity;
+        *from = LocalDelta::default();
+        *to = LocalDelta::default();
+    }
 }
 
 fn default_channel(
@@ -135,9 +184,9 @@ fn default_channel(
         EntityAnimationProperty::Rotation => bone.rotation,
         EntityAnimationProperty::Scale => [1.0; 3],
         EntityAnimationProperty::Translation => {
-            // ModelPart uses an authored X/Z frame and a 24-pixel Y origin. A
+            // Bones use an authored X/Z frame and a 24-pixel Y origin. A
             // parented part stores a relative pivot; only roots retain that origin.
-            // BoneOrientation negates ModelPart's Y before exposing it to Molang.
+            // Vanilla negates that Y before exposing it to Molang.
             let origin = match bone.parent {
                 Some(parent) => bones.get(parent)?.pivot,
                 None => [0.0, MODEL_PART_ORIGIN_Y, 0.0],
@@ -282,7 +331,7 @@ fn compose_bone(
     }
     let bone = bones.get(index)?;
     let delta = local.get(index).copied().unwrap_or_default();
-    // Owner-name binding clears defaults; an explicit expression keeps ModelPart defaults.
+    // Owner-name binding clears defaults; an explicit expression keeps bone defaults.
     // Keep the authored pivot unchanged: child offsets and mesh bind coordinates still use it.
     let (root_pivot, root_rotation) = match bone.attachable_root {
         AttachableRootFrame::Actor => (bone.pivot, bone.rotation),
@@ -351,14 +400,18 @@ fn compose_bone(
     Some(transform)
 }
 
-fn total_scale(transform: &BoneTransform) -> [f32; 3] {
+pub(super) fn total_scale(transform: &BoneTransform) -> [f32; 3] {
     transform
         .axis_scale
         .map(|axis| axis * transform.translation_scale[3])
 }
 
 /// Stores a uniform scale in `translation_scale[3]` and anything else per axis.
-fn with_scale(rotation: [f32; 4], translation: [f32; 3], scale: [f32; 3]) -> BoneTransform {
+pub(super) fn with_scale(
+    rotation: [f32; 4],
+    translation: [f32; 3],
+    scale: [f32; 3],
+) -> BoneTransform {
     let uniform = scale[0] == scale[1] && scale[1] == scale[2];
     BoneTransform {
         rotation,

@@ -1,8 +1,8 @@
 //! Block facts icon baking needs beyond the world carrier: registry families, the pack's carried
 //! textures, and the canonical state an item is drawn from.
 //!
-//! Vanilla's item renderer draws a block item flat when `BlockTessellator::canRender` rejects
-//! its shape; `BlockItem::getIconInfo` then shows the carried texture, down face, at the
+//! Vanilla's item renderer draws a block item flat when it cannot tessellate
+//! its shape, and then shows the carried texture, down face, at the
 //! block's variant.
 
 use std::path::Path;
@@ -42,7 +42,7 @@ fn is_reviewed_flat(name: &str) -> bool {
         .any(|suffix| name.ends_with(suffix))
         || matches!(
             name,
-            "ladder" | "waterlily" | "end_rod" | "sea_pickle" | "spore_blossom" | "bamboo"
+            "ladder" | "waterlily" | "end_rod" | "sea_pickle" | "spore_blossom" | "bamboo" | "bell"
         )
 }
 
@@ -53,6 +53,28 @@ pub(super) struct IconBlocks {
 }
 
 impl IconBlocks {
+    /// The registry identifier of a compiled block visual.
+    pub(super) fn name(&self, visual: BlockVisualId) -> Option<&str> {
+        self.records
+            .get(visual.0 as usize)
+            .map(|record| record.name.as_ref())
+    }
+
+    /// Chest GUI faces are inventory terrain tiles even though the placed chest is entity-drawn.
+    pub(super) fn inventory_cube_tiles(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<[IconSprite; 6]>, AssetError> {
+        if !self
+            .name(visual)
+            .is_some_and(|name| name == "minecraft:chest" || name.ends_with("_chest"))
+        {
+            return Ok(None);
+        }
+        self.tiles(root, visual, true)
+    }
+
     pub(super) fn read(root: &Path) -> Result<Self, AssetError> {
         let records = read_registry_for_protocol(
             include_bytes!("../../../assets/data/block-registry-v2193.bin"),
@@ -73,9 +95,7 @@ impl IconBlocks {
         let kind = world.resolve(NetworkIdMode::Sequential, visual.0).kind();
         FLAT_FAMILIES.contains(&record.model_family)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
-            || (record.model_family == ModelFamily::Unknown
-                && kind == VisualKind::Model
-                && is_reviewed_flat(&record.name))
+            || (record.model_family == ModelFamily::Unknown && is_reviewed_flat(&record.name))
     }
 
     /// The state an item draws: a wall item shows a post with east and west arms.
@@ -180,7 +200,7 @@ impl IconBlocks {
         let pack = self.pack.as_ref()?;
         let record = self.records.get(visual.0 as usize)?;
         let key = resolve_carried_down_key(&pack.blocks, record)?;
-        // The world key's variant stands in for the block's `getVariant`.
+        // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, BlockFace::Down)
             .key
             .and_then(|world| pack.terrain.get_for_model_record(&world, record))
@@ -195,6 +215,36 @@ impl IconBlocks {
         if !file.is_file() {
             return Ok(None);
         }
-        Ok(super::bounded_sprite(decode_texture(&file, path)?).map(|(sprite, _)| sprite))
+        Ok(super::sprites::bounded_sprite(decode_texture(&file, path)?).map(|(sprite, _)| sprite))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn candles_keep_their_carried_icons_without_world_model_geometry() {
+        let blocks = IconBlocks {
+            records: assets::read_registry_for_protocol(
+                include_bytes!("../../../assets/data/block-registry-v2193.bin"),
+                assets::active_content_registry_protocol(),
+            )
+            .unwrap(),
+            pack: None,
+        };
+        let world = RuntimeAssets::diagnostic();
+        for name in [
+            "minecraft:candle",
+            "minecraft:magenta_candle",
+            "minecraft:bell",
+        ] {
+            let record = blocks
+                .records
+                .iter()
+                .find(|record| record.name.as_ref() == name)
+                .unwrap();
+            assert!(blocks.is_flat(&world, BlockVisualId(record.sequential_id)));
+        }
     }
 }

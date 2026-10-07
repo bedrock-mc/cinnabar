@@ -45,9 +45,9 @@ var errResourcePackTransferTooLarge = errors.New("proxy: resource-pack transfers
 type ConnectStage string
 
 const (
-	ConnectStageRealm      ConnectStage = "realm"      // RealmsConnectProgressHandler: the Realm lookup
-	ConnectStageConnecting ConnectStage = "connecting" // GameServerConnectProgressHandler
-	ConnectStagePacks      ConnectStage = "packs"      // ResourcePackProgressHandler
+	ConnectStageRealm      ConnectStage = "realm"      // vanilla progress stage: the Realm lookup
+	ConnectStageConnecting ConnectStage = "connecting" // vanilla progress stage: connecting to the server
+	ConnectStagePacks      ConnectStage = "packs"      // vanilla progress stage: resource packs
 )
 
 // ConnectProgress is the join's live stage; a zero Stage means no join is being prepared.
@@ -396,6 +396,7 @@ func (stack *selectedResourcePackStack) release() {
 // downstream connection. close is idempotent so cancellation and listener
 // shutdown cannot double-close an upstream session or target.
 type preparedConnection struct {
+	packetDelay   *PacketDelay
 	downstream    packetSession // attached when Accept transfers the prepared session
 	upstream      upstreamSession
 	releaseTarget func() error
@@ -454,6 +455,7 @@ type preparedConnections struct {
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
 	resolveTarget               func(context.Context) (*resolvedUpstreamTarget, error)
+	serverTrust                 minecraft.ServerTrust // decides transfer hops to addressed NetherNet servers
 	dialTarget                  func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
 	captureResourcePackStack    func(upstreamSession, func(*resource.Pack) bool) (*selectedResourcePackStack, error)
 	resourcePackCache           minecraft.ResourcePackCache
@@ -486,11 +488,17 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.connectPrepared = connections.connect
 	connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger)
+		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger, nil)
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dialer.DialContextNetwork)
+			dial := dialer.DialContextNetwork
+			if dialer.TokenSource != nil {
+				dial = func(ctx context.Context, network minecraft.Network, address string) (*minecraft.Conn, error) {
+					return dialWithPreparedTransport(ctx, network, address, dialer.DialContextNetwork)
+				}
+			}
+			return dialMinecraftUpstream(ctx, networkForAddress(target, address, connections.serverTrust), address, dial)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack
@@ -773,7 +781,7 @@ func (connections *preparedConnections) shutdown() error {
 func servePreparedConnection(ctx context.Context, downstream downstreamSession, prepared *preparedConnection) (err error) {
 	prepared.downstream = downstream
 	defer func() { err = errors.Join(err, prepared.close()) }()
-	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() })
+	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() }, prepared.packetDelay)
 }
 
 // finish stops progress once the dial has returned.

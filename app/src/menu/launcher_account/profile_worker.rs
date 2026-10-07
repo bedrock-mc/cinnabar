@@ -66,14 +66,26 @@ fn poll_with_timeout(
                 "profile request"
             );
         }
-        crossbeam_channel::select! {
-            recv(stop) -> _ => return,
-            recv(requests) -> request => {
-                if request.is_err() { return; }
-            }
-            default(if failed { FEED_RETRY } else { FEED_INTERVAL }) => {}
+        let wake = match idle_wait(failed) {
+            Some(wait) => crossbeam_channel::select! {
+                recv(stop) -> _ => return,
+                recv(requests) -> request => request.is_ok(),
+                default(wait) => true,
+            },
+            None => crossbeam_channel::select! {
+                recv(stop) -> _ => return,
+                recv(requests) -> request => request.is_ok(),
+            },
+        };
+        if !wake {
+            return;
         }
     }
+}
+
+/// How long Profile idles before reloading on its own; a loaded Profile waits for a request.
+fn idle_wait(failed: bool) -> Option<Duration> {
+    failed.then_some(FEED_RETRY)
 }
 
 /// Limits missing-worker diagnostics even when Retry is clicked repeatedly.
@@ -91,6 +103,13 @@ pub(crate) fn log_unavailable(outcome: &'static str) {
 mod tests {
     use super::*;
     use std::{io::Read, os::unix::net::UnixListener};
+
+    /// A loaded Profile reloads only when opened, retried or the account changes, not on a timer.
+    #[test]
+    fn loaded_profile_waits_for_a_request() {
+        assert_eq!(idle_wait(false), None);
+        assert_eq!(idle_wait(true), Some(FEED_RETRY));
+    }
 
     #[test]
     fn profile_loading_ends_when_control_accepts_without_reply() {

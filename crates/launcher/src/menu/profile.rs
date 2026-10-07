@@ -21,7 +21,7 @@ pub fn profile_banner_index(identifier: &str, banner_count: usize) -> Option<usi
 }
 
 /// Formats the English abbreviated day/hour/minute duration used by Profile Stats.
-/// Bedrock truncates the service's minute value before passing it to DateHelper.
+/// Bedrock truncates the service's minute value before formatting it.
 pub fn profile_minutes_display(value: &str) -> Option<String> {
     let minutes = profile_value(value)?;
     if minutes > f64::from(i32::MAX) {

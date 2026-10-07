@@ -10,7 +10,7 @@ use std::sync::Arc;
 use json_ui::{
     BindState, BossBar, CROSSHAIR_SCREEN, CachedLibrary, Catalog, CatalogLibrary, Context,
     DataSource, FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolveCache, ResolvedControl,
-    Sidebar, Timed, ViewState, bind_stateful, hud_clocks, hud_context, hud_data_source,
+    Sidebar, Timed, ViewState, bind_incremental, hud_clocks, hud_context, hud_data_source, rebind,
     render_bound_cached, resolve,
 };
 use ui::{TimedText, UiNode};
@@ -51,7 +51,7 @@ pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
 const CHAT_BACKGROUND_OPACITY: f64 = 0.5;
 /// Newest chat lines the controller keeps alive.
 const MAX_CHAT_LINES: usize = 50;
-/// Java sidebar background opacities (`getBackgroundColor(0.3)` / `(0.4)`).
+/// Java sidebar background opacities: 0.3 for rows, 0.4 for the title.
 const SIDEBAR_OPACITY: f64 = 0.3;
 const SIDEBAR_TITLE_OPACITY: f64 = 0.4;
 /// The selected-item label shows for two seconds after the selection changes.
@@ -94,6 +94,12 @@ struct Laid {
 }
 
 impl CachedScreen {
+    /// Texture metadata participates in layout, including tiled sprite sizes.
+    fn invalidate_textures(&mut self) {
+        self.laid = None;
+        self.measures = json_ui::MeasureCache::default();
+    }
+
     /// Whether the bound HUD has content for an extension to accompany.
     pub(super) fn has_visible_content(&self) -> bool {
         self.laid.as_ref().is_some_and(|laid| {
@@ -195,18 +201,31 @@ impl CachedScreen {
                 library: CatalogLibrary { catalog, context },
                 cache: &self.library,
             };
-            let mut bound = bind_stateful(tree, &data, &library, &mut self.binding).0;
-            if current
-                && self.laid.as_ref().is_some_and(|laid| {
-                    laid.root == root && laid.px == px && laid.language == language
-                })
-            {
-                let mut previous = self.laid.take()?.render.bound;
-                self.measures.update_tree(&mut previous, bound);
-                bound = previous;
-            } else {
-                self.measures = json_ui::MeasureCache::default();
-            }
+            let previous = self.laid.take().filter(|_| current);
+            let same_frame = previous.as_ref().is_some_and(|laid| {
+                laid.root == root && laid.px == px && laid.language == language
+            });
+            let bound = match previous {
+                Some(laid) => {
+                    let mut bound = laid.render.bound;
+                    if !same_frame {
+                        self.measures = json_ui::MeasureCache::default();
+                    }
+                    rebind(
+                        tree,
+                        &data,
+                        &library,
+                        &mut self.binding,
+                        &mut bound,
+                        &mut self.measures,
+                    );
+                    bound
+                }
+                None => {
+                    self.measures = json_ui::MeasureCache::default();
+                    bind_incremental(tree, &data, &library, &mut self.binding)
+                }
+            };
             self.passes += 1;
             self.laid = Some(Laid {
                 reference: reference.to_owned(),
@@ -237,6 +256,16 @@ pub(super) struct HudScreens {
     model: Option<HudModel>,
     opacity: Option<i32>,
     data: Arc<DataSource>,
+}
+
+impl HudScreens {
+    /// Preserve bindings while relaying out screens for a changed texture pack.
+    pub(super) fn invalidate_textures(&mut self) {
+        self.hud.invalidate_textures();
+        self.crosshair.invalidate_textures();
+        self.toast.invalidate_textures();
+        self.loading.invalidate_textures();
+    }
 }
 
 impl UiPresentationRuntime {
@@ -312,6 +341,7 @@ impl UiPresentationRuntime {
             runtime,
             &frame,
             self.hud_textures.as_ref(),
+            &self.form_presentation.chat.settings.options,
         );
         let context = hud_context(renderer.context());
         let catalog = Arc::clone(renderer.catalog());
@@ -602,7 +632,6 @@ fn boss_tint(color: ui::BossColor) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
 }
 
-#[cfg(any(test, feature = "test-support"))]
 impl CachedScreen {
     /// The last laid-out draw nodes, in virtual px.
     pub(super) fn nodes(&self) -> &[json_ui::DrawNode] {

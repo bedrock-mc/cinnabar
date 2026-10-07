@@ -34,6 +34,7 @@ pub(super) fn append(
             uv,
             back_uv: uv,
             bone_index,
+            surface: super::ActorRigSurface::SINGLE_FACE,
         });
     }
     Ok(())

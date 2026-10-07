@@ -31,6 +31,8 @@ fn node() -> Node {
         children: Vec::new(),
         deferred: None,
         retained: false,
+        scope: Default::default(),
+        track: Default::default(),
     }
 }
 

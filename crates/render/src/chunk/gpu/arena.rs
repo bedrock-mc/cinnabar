@@ -91,6 +91,8 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_ref_buffer: Buffer,
+    /// Per-slot capacity of `transparent_ref_buffer`, which is also the second slot's offset.
+    pub(in crate::chunk) transparent_slot_refs: usize,
     pub(in crate::chunk) bind_group: Option<BindGroup>,
     pub(in crate::chunk) bind_group_buffers: Option<ChunkBindGroupBuffers>,
     pub(in crate::chunk) quad_capacity: usize,
@@ -163,11 +165,11 @@ impl ChunkGpuArena {
             }),
             indirect_buffer: create_indirect_buffer(render_device, 1),
             transparent_indirect_buffer: create_indirect_buffer(render_device, 1),
-            transparent_ref_buffer: create_storage_buffer(
+            transparent_ref_buffer: transparent_ref_buffer(
                 render_device,
-                "double-buffered transparent draw refs",
-                TRANSPARENT_REF_BUFFER_BYTES as u64,
+                INITIAL_TRANSPARENT_SLOT_REFS,
             ),
+            transparent_slot_refs: INITIAL_TRANSPARENT_SLOT_REFS,
             bind_group: None,
             bind_group_buffers: None,
             quad_capacity: 1,

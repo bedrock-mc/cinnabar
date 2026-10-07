@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+mod aim_assist;
+
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
     ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
@@ -19,15 +21,18 @@ pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
 pub(crate) const MAX_TRACKED_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
-// Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
+// Metadata keys retained verbatim by ActorSnapshot.
 const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
-const SCALE_METADATA_KEY: u32 = 38;
+/// Raw server actor scale, applied independently of the visual definition's scale.
+pub const SCALE_METADATA_KEY: u32 = 38;
 const NAMETAG_METADATA_KEY: u32 = 4;
-const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
-const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
-/// `minecraft:collision_box` in the vanilla `player.json` definition.
-const PLAYER_COLLISION_WIDTH: f32 = 0.6;
-const PLAYER_COLLISION_HEIGHT: f32 = 1.8;
+pub(crate) const VARIANT_METADATA_KEY: u32 = 2;
+/// Unscaled actor collision width supplied by the server.
+pub const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
+/// Unscaled actor collision height supplied by the server.
+pub const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
+const DEFAULT_ACTOR_COLLISION_WIDTH: f32 = 0.6;
+const DEFAULT_ACTOR_COLLISION_HEIGHT: f32 = 1.8;
 pub(crate) const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
@@ -39,8 +44,10 @@ const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SWIMMING: u32 = 57;
 const ACTOR_FLAG_USING_ITEM: u32 = 4;
 const ACTOR_FLAG_SPRINTING: u32 = 3;
+pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
+pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
@@ -63,7 +70,7 @@ pub(crate) enum ActorApplyResult {
 }
 
 /// Steps a remote actor takes to reach each absolute movement target.
-pub(crate) const ACTOR_INTERPOLATION_TICKS: u8 = 3;
+pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {
@@ -87,21 +94,49 @@ pub struct ActorSnapshot {
     pub head_yaw: f32,
     pub previous_pose: ActorPose,
     pub received_pose: ActorPose,
-    pub interpolation_ticks_remaining: u8,
+    pub interpolation_ticks_remaining: u32,
     pub body_yaw: f32,
     pub on_ground: Option<bool>,
     pub teleported: bool,
     pub player_mode: Option<MovePlayerMode>,
+    pub player_game_mode: Option<protocol::GameModeUpdate>,
     pub source_tick: Option<u64>,
     pub metadata: HashMap<u32, ActorMetadataValue>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
     pub int_properties: HashMap<u32, i32>,
     pub float_properties: HashMap<u32, f32>,
     pub status: ActorStatus,
+    pub(crate) dragon_animation: Option<Box<dragon_animation::State>>,
 }
 
 impl ActorSnapshot {
-    /// Native StateVector units for tick-driven engine animation components.
+    /// Whether damage or ordinary mob death applies the red actor overlay.
+    #[must_use]
+    pub fn hurt_overlay_active(&self) -> bool {
+        if self.is_dying_dragon() {
+            self.status.hurt_time > 0 && !self.status.skip_red_flash
+        } else {
+            self.status.overlay_active()
+        }
+    }
+
+    /// Dragons retain their authored death pose while ordinary mobs tip onto their side.
+    #[must_use]
+    pub fn death_rotation_progress(&self, partial_tick: f32) -> Option<f32> {
+        if self.is_dying_dragon() {
+            None
+        } else {
+            self.status.death_progress(partial_tick)
+        }
+    }
+
+    pub(crate) fn is_dying_dragon(&self) -> bool {
+        self.status.dead
+            && matches!(&self.kind, ActorKind::Entity { identifier }
+            if identifier.as_ref() == "minecraft:ender_dragon")
+    }
+
+    /// Vanilla velocity units (blocks/tick) for tick-driven engine animation.
     pub(crate) fn native_velocity(&self) -> [f32; 3] {
         self.status.native_velocity
     }
@@ -128,8 +163,15 @@ impl ActorSnapshot {
     }
 
     fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
+        let terrain_interlock =
+            terrain_interlock::TerrainInterlock::attached(&spawn.kind, std::time::Instant::now());
+        let mut position = spawn.position;
+        if matches!(&spawn.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:falling_block")
+        {
+            position[1] -= FALLING_BLOCK_NETWORK_OFFSET;
+        }
         let pose = ActorPose {
-            position: spawn.position,
+            position,
             pitch: spawn.pitch,
             yaw: spawn.yaw,
             head_yaw: spawn.head_yaw,
@@ -140,7 +182,7 @@ impl ActorSnapshot {
             spawn_revision,
             movement_revision: 0,
             kind: spawn.kind,
-            position: spawn.position,
+            position,
             velocity: spawn.velocity,
             pitch: spawn.pitch,
             yaw: spawn.yaw,
@@ -152,6 +194,7 @@ impl ActorSnapshot {
             on_ground: None,
             teleported: false,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
             attributes: HashMap::with_capacity(spawn.attributes.len()),
@@ -159,8 +202,10 @@ impl ActorSnapshot {
             float_properties: HashMap::new(),
             status: ActorStatus {
                 native_velocity: spawn.velocity,
+                terrain_interlock,
                 ..ActorStatus::default()
             },
+            dragon_animation: None,
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
@@ -203,6 +248,7 @@ impl ActorSnapshot {
             on_ground: Some(feed.on_ground),
             teleported: feed.teleported,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
             attributes: HashMap::new(),
@@ -212,6 +258,7 @@ impl ActorSnapshot {
                 native_velocity: feed.velocity,
                 ..ActorStatus::default()
             },
+            dragon_animation: None,
         };
         snapshot.apply_local_flags(feed);
         snapshot
@@ -269,19 +316,31 @@ impl ActorSnapshot {
         self.head_yaw = pose.head_yaw;
     }
 
-    /// Feet-anchored `(min, max)` box from the width and height metadata; a player
-    /// missing either falls back to its definition's collision box.
+    /// Feet-anchored `(min, max)` box with server scale applied once.
+    /// Omitted dimensions retain the generic actor defaults independently.
     #[must_use]
     pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
         let player = matches!(self.kind, ActorKind::Player { .. });
-        let dimension = |key, player_default| match self.metadata.get(&key) {
+        let dimension = |key, default| match self.metadata.get(&key) {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
                 Some(*value)
             }
-            _ => player.then_some(player_default),
+            Some(ActorMetadataValue::Float(_)) => player.then_some(default),
+            _ => Some(default),
         };
-        let half_width = dimension(BOUNDING_BOX_WIDTH_METADATA_KEY, PLAYER_COLLISION_WIDTH)? * 0.5;
-        let height = dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY, PLAYER_COLLISION_HEIGHT)?;
+        let scale = self.render_scale();
+        let half_width = dimension(
+            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            DEFAULT_ACTOR_COLLISION_WIDTH,
+        )? * scale
+            * 0.5;
+        let height = dimension(
+            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            DEFAULT_ACTOR_COLLISION_HEIGHT,
+        )? * scale;
+        if !half_width.is_finite() || !height.is_finite() {
+            return None;
+        }
         let [x, y, z] = self.position;
         Some((
             [x - half_width, y, z - half_width],
@@ -328,11 +387,11 @@ impl ActorSnapshot {
     }
 
     /// The server-set render scale (metadata `Scale`), multiplying the model's own scale; an
-    /// absent, non-finite or non-positive value reads 1.
+    /// absent, non-finite or negative value reads 1. Zero hides the body while retaining its actor.
     #[must_use]
     pub fn render_scale(&self) -> f32 {
         match self.metadata.get(&SCALE_METADATA_KEY) {
-            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale > 0.0 => *scale,
+            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale >= 0.0 => *scale,
             _ => 1.0,
         }
     }
@@ -473,6 +532,7 @@ pub struct PlayerProfile {
 /// when the flag word holding it was absent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MovementFlagUpdate {
+    pub immobile: Option<bool>,
     pub sneaking: Option<bool>,
     pub sprinting: Option<bool>,
     pub gliding: Option<bool>,
@@ -508,6 +568,7 @@ impl MovementFlagUpdate {
             flags.map(|flags| flags & (1_u64 << bit) != 0)
         };
         Some(Self {
+            immobile: bit(ACTOR_FLAG_IMMOBILE),
             sneaking: bit(ACTOR_FLAG_SNEAKING),
             sprinting: bit(ACTOR_FLAG_SPRINTING),
             gliding: bit(ACTOR_FLAG_GLIDING),
@@ -517,19 +578,22 @@ impl MovementFlagUpdate {
     }
 }
 
-/// Client-authored identity and pose for the local player's own third-person rig, which the
-/// server never spawns as an actor. When the player list carries no self entry, the skin backs
-/// a synthetic profile keyed by `uuid`; a real echo overrides it.
+/// Client-authored identity and pose for the local rig. The skin backs a synthetic profile;
+/// a server appearance takes priority unless `prefer_client_skin` explicitly overrides it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFeed {
     pub uuid: [u8; 16],
     pub username: std::sync::Arc<str>,
     /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.
     pub skin: PlayerSkin,
+    /// Uses the client appearance locally while retaining any server profile for restoration.
+    pub prefer_client_skin: bool,
     pub position: [f32; 3],
     /// Native simulation displacement per tick, passed through from `sim::PlayerState`.
     pub velocity: [f32; 3],
     pub on_ground: bool,
+    /// Active flight from the client's completed movement mode, rather than server abilities.
+    pub flying: bool,
     /// Look-input yaw driving the body target, not the camera boom.
     pub yaw: f32,
     pub head_yaw: f32,
@@ -537,6 +601,16 @@ pub struct LocalPlayerFeed {
     /// Identifiers of the client-owned main-hand and off-hand items.
     pub main_hand: Option<std::sync::Arc<str>>,
     pub off_hand: Option<std::sync::Arc<str>>,
+    /// The main-hand stack's data value.
+    pub main_hand_metadata: u32,
+    /// Positive server identity for the selected stack, if one is available.
+    pub main_hand_stack_id: Option<i32>,
+    /// Selected hotbar slot; equal stacks in different slots still re-equip.
+    pub main_hand_slot: u8,
+    /// Current Bedrock swing duration, recalculated from the active effects each tick.
+    pub bedrock_swing_ticks: i32,
+    /// Current Java swing duration, which excludes Conduit Power.
+    pub java_swing_ticks: i32,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
@@ -572,6 +646,10 @@ pub(crate) struct ActorStore {
     max_player_skin_bytes: usize,
     retained_player_skin_bytes: usize,
     ignored_movement_components: u64,
+    actor_identifier_skips: u64,
+    player_game_mode_skips: u64,
+    world_default_game_mode: Option<protocol::PlayerGameMode>,
+    aim_actor_classes: HashMap<std::sync::Arc<str>, bool>,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     rider_to_ridden: HashMap<i64, i64>,
@@ -586,14 +664,24 @@ pub(crate) struct ActorStore {
     /// Key of the synthetic local-player profile, present only while the player list carries no
     /// self entry; cleared when a real echo takes over or the actor set is reset.
     synthetic_local_uuid: Option<[u8; 16]>,
+    /// Last client-fed appearance, separate from server replacements of its profile.
+    synthetic_local_skin: Option<[u8; 32]>,
+    /// A client skin that could not fit the profile budget is retried on later feeds.
+    synthetic_local_skin_pending: bool,
     /// Monotonic spawn/movement revision for the client-fed local player actor.
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
     local_view_bobbing: bool,
+    local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
+    local_main_metadata: u32,
+    local_main_stack_id: Option<i32>,
+    local_main_slot: u8,
+    local_bedrock_swing_ticks: i32,
+    local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
@@ -607,31 +695,49 @@ pub(crate) struct ActorStore {
     local_knockback: Option<(u64, [f32; 2])>,
     /// Status events awaiting a particle or sound consumer.
     status_notices: Vec<ActorStatusNotice>,
+    particle_effects: std::collections::VecDeque<crate::CommittedParticleEvent>,
+    synchronized_audio: synchronized_audio::SynchronizedAudio,
 }
 
+mod cloud_particles;
 mod crystal_beam;
 pub use crystal_beam::CrystalBeamView;
+pub(crate) mod dragon_animation;
+mod dragon_beam;
+mod dragon_death;
+pub use dragon_death::DragonDeathView;
+mod dragon_fireball_particles;
+mod dragon_particles;
 mod dropped;
 mod entities;
 mod fire;
 mod hurt;
 mod lifecycle;
 mod lightning;
+mod mount;
+mod movement_interpolation;
 mod placement;
 mod projectile;
 pub(crate) mod properties;
 mod query;
+mod shadow;
+mod synchronized_audio;
+mod terrain_interlock;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
-pub use entities::{BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation};
+pub use entities::{
+    BlockEntityCandidate, BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation,
+};
 pub use fire::FIRE_FADE_TICKS;
 pub use hurt::{
     ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
     HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
+pub(crate) use placement::FLAG_BABY;
 pub use placement::{ActorFluidProbe, RideSeat, SeatDefaults, SeatRequirement};
 pub use properties::PropertyDefault;
+pub use shadow::ActorShadowCaster;
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {
@@ -649,7 +755,9 @@ fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
 
 fn event_dimension(event: &ActorEvent) -> Option<i32> {
     match event {
-        ActorEvent::Spawn(event) => Some(event.dimension),
+        ActorEvent::Spawn(event) | ActorEvent::PlayerSpawn { spawn: event, .. } => {
+            Some(event.dimension)
+        }
         ActorEvent::Remove(event) => Some(event.dimension),
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
@@ -657,7 +765,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::PlayerList(_)
         | ActorEvent::Skin { .. }
         | ActorEvent::Status(_)
-        | ActorEvent::TakeItem(_) => None,
+        | ActorEvent::TakeItem(_)
+        | ActorEvent::Identifiers(_) => None,
     }
 }
 
@@ -678,4 +787,19 @@ mod projectile_tests;
 mod review_tests;
 
 #[cfg(test)]
+mod terrain_interlock_tests;
+
+#[cfg(test)]
 mod velocity_tests;
+
+#[cfg(test)]
+mod movement_duration_tests;
+
+#[cfg(test)]
+mod scale_tests;
+
+#[cfg(test)]
+mod bounds_tests;
+
+#[cfg(test)]
+mod movement_flags_tests;

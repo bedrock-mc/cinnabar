@@ -58,7 +58,7 @@ pub(in crate::compiler) fn cactus_inventory_is_exact(records: &[RegistryRecord])
         let Some(age) = exact_cactus_age(record) else {
             return false;
         };
-        if record.sequential_id != 13_606 + age || seen[age as usize] {
+        if seen[age as usize] {
             return false;
         }
         seen[age as usize] = true;

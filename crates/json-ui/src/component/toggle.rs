@@ -1,5 +1,4 @@
-//! The toggle component (`ToggleComponent`) and the toggle manager
-//! (`ToggleManagerComponent`), as the 1.26.50 factory reads them.
+//! The toggle component and the toggle manager, as the 1.26.50 factory reads them.
 
 use serde_json::Value;
 
@@ -66,8 +65,7 @@ impl ToggleMeta {
     }
 }
 
-/// What a toggle does with a button event reaching it, as
-/// `ToggleComponent::receive`: the new state and whether a click set it, or
+/// What a toggle does with a button event reaching it: the new state and whether a click set it, or
 /// `None` when it ignores the event.
 pub(crate) fn on_button(
     meta: &ToggleMeta,

@@ -8,13 +8,13 @@ image is a cuboid UV sheet, not the image that should be placed directly in an i
 | Rule | Behaviour |
 | --- | --- |
 | GUI dispatch | Select the shield model renderer rather than the sprite blitter. |
-| Shield model | Load the authored `shield` ModelPart with default geometry and `ui_shield.skinning` material. |
+| Shield model | Load the authored `shield` model part with default geometry and `ui_shield.skinning` material. |
 | Geometry loading | Find the named geometry bone and load its pivot and cubes. |
-| ModelPart orientation | Use `24 - pivot.y` with box-local inverted Y and apply the supplied model unit. |
+| Model-part orientation | Use `24 - pivot.y` with box-local inverted Y and apply the supplied model unit. |
 
 For GUI position `(x,y)` and item scale `s`, the native matrix is
 `T(x + 8s, y + 10s, -10s) * S(11s) * Rx(30 degrees) * Ry(30 degrees)`;
-ModelPart geometry uses `1/16` units. Matrices post-multiply, so the Y rotation acts first.
+Model-part geometry uses `1/16` units. Matrices post-multiply, so the Y rotation acts first.
 The model is not mirrored in actor-space X and does not run first-person wield animations.
 For the static shield root, pivot-relative box coordinates and the root orientation combine
 into `(authored.x, 24 - authored.y, authored.z)` before the GUI matrix.
@@ -26,7 +26,7 @@ into `(authored.x, 24 - authored.y, authored.z)` before the GUI matrix.
 | GUI model scale | `11` |
 | GUI rotation angle | `0.52359879` radians |
 | Model unit | `0.0625` |
-| ModelPart Y orientation | `24` |
+| Model-part Y orientation | `24` |
 
 The compiler resolves the shield attachable's geometry and default texture identifiers from
 the pinned pack, including source-hash verification on its decoded texture. It reads the
@@ -48,7 +48,7 @@ face-UV dimensions, alpha threshold, missing-model refusal, bound texture select
 deterministic compilation and unchanged ordinary sprites, independently of optional carriers.
 
 Patterned/NBT-tinted shield layers and their separate banner GUI material, glint-specific
-shader behavior, custom rotated/animated/inherited ModelPart trees, exact hardware-MSAA
+shader behavior, custom rotated/animated/inherited model-part trees, exact hardware-MSAA
 coverage, fractional item-scale sampling and a matched vanilla frame comparison remain open.
 Unsupported model-part branches are explicitly refused rather than approximated. This fixes
 the ordinary shield's incorrect raw texture-sheet route; it does not close the complete shield

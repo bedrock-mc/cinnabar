@@ -168,7 +168,7 @@ animated rig remotes use. All three below flow from that.
   the shared rig + motion model.
 - First-person hand+item: flat CPU sprite / static `EmptyHandNeutralStaticFallback`; no
   bob/swing/equip/sway/lighting/held item. Implement via first-person render controller +
-  `animation.player.first_person.*` (public samples) + `ItemInHandRenderer` transforms.
+  `animation.player.first_person.*` (public samples) + vanilla's held-item transforms.
 - Top-left mini player: no vanilla counterpart → remove if a standalone overlay; keep the
   inventory/menu paperdoll.
 
@@ -326,7 +326,7 @@ aim assist, sounds, buoyancy, container data) have no visual effect and are reta
 
 | Key | Consumed | Vanilla effect |
 | --- | --- | --- |
-| 0 / 92 flags | yes | every `is_*` query, on-fire camera overlay, invisible body (NoDraw; armor and held items stay, as `shouldHideHeldItems` returns false), show/always-show name, sneak tag dimming, sleeping, riding layouts (saddled, baby, tamed, sheared) |
+| 0 / 92 flags | yes | every `is_*` query, on-fire camera overlay, invisible body (NoDraw; armor and held items stay, as vanilla never hides held items for invisibility), show/always-show name, sneak tag dimming, sleeping, riding layouts (saddled, baby, tamed, sheared) |
 | 1 structural_integrity, 2 variant, 43 mark_variant, 104 skin_id, 101 trade_tier, 48 invulnerable_ticks, 55 fuse_time, 21 swell_dir | yes | integer queries; render-controller texture, geometry and part-visibility arrays re-evaluated per tick for vanilla and server-pack entities alike |
 | 3 color, 82 color2 | no | engine-side dye tint (sheep wool, shulker, tropical fish, llama carpet); not a Molang query — missing |
 | 4 name, 81 always_show_nametag, 84 score_tag, 143 nameplate_render_distance_max | yes | nametag text (players included), forced visibility, score line within 10 blocks, tag range (default 64) |
@@ -338,7 +338,7 @@ aim assist, sounds, buoyancy, container data) have no visual effect and are reta
 | 84 score, 140 nameplate_render_distance_max (current target) | yes | synced below-name score inside the native ten-block gate; per-actor tag range |
 | 136 filtered_name (older table's target) | no | filtered tag text — missing; current target key mapping still needs reconciliation |
 
-Missing presentation that the flags drive: the entity flame billboard (`ActorRenderer::renderFlame`)
+Missing presentation that the flags drive: the entity flame billboard
 and `on_fire_color`, entity ground shadows (none are drawn at any scale), the charged-creeper
 armor layer (needs `uv_anim`), and per-tick Molang `scripts.scale` (only a constant authored scale
 is carried).
@@ -367,5 +367,6 @@ the samples). Legacy 64x32 images are expanded as vanilla does.
 
 Player cape: drawn from the skin's cape raster with the `geometry.cape` mesh posed from the
 player's bones by name; the cape's rest turn, layer resampling and `cape_flap_amount` scale need
-native verification. With the real carriers no cape draws yet: vanilla defines `geometry.cape` in
-`models/mobs.json`, which the entity compiler does not read.
+native parity verification. The entity compiler retains vanilla's `geometry.cape` from
+`models/mobs.json` in the geometry carrier and reference sidecar. Server-assigned local appearances
+survive unchanged client pose feeds and roster removal while the player actor remains alive.

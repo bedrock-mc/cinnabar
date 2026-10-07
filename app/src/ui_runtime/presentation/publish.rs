@@ -1,11 +1,15 @@
 //! Per-frame HUD observation and publication.
 use super::*;
 use bevy::prelude::Transform;
+use client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot;
 
+#[cfg(test)]
+mod camera_hand_tests;
 mod commit;
+mod loading;
 use client_ui::ui_runtime::presentation::{
     ItemIconFrames, PendingUiPublication, PreparedUiPublication, PreviewCapture, capture_hud_frame,
-    nametags, player_preview, startup::StartupReadinessInput,
+    nametags, player_preview,
 };
 pub(crate) use commit::publish_ui_runtime;
 
@@ -22,13 +26,25 @@ pub(crate) fn observe_mount_jump_input(
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
     SafeArea::ZERO
 }
+
+/// CPU hand carriers follow the same camera capability as the animated hand rig.
+fn hand_first_person(
+    perspective: semantic_input::PerspectiveMode,
+    server: Option<&crate::camera::ServerCameraView>,
+) -> bool {
+    let fallback = perspective == semantic_input::PerspectiveMode::FirstPerson;
+    server.map_or(fallback, |camera| camera.renders_first_person(fallback))
+}
+
 /// Resources beyond Bevy's sixteen-parameter limit.
 type PublishExtras<'w> = (
     Res<'w, WorldStreamFramePoll>,
     Res<'w, crate::menu::MenuRuntime>,
-    Res<'w, render::HandRigScene>,
+    Res<'w, client_presentation::actor_publication::ActorFrameState>,
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
+    Option<Res<'w, render::ActorPipelineReadiness>>,
+    Option<Res<'w, crate::camera::ServerCameraView>>,
     (
         Res<'w, crate::runtime::network::ActorFramePartialTick>,
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
@@ -66,6 +82,8 @@ pub(crate) fn prepare_ui_runtime(
         hand_rig,
         collisions,
         profiler,
+        actor_pipelines,
+        server_camera,
         (
             actor_partial,
             local_frame,
@@ -109,105 +127,61 @@ pub(crate) fn prepare_ui_runtime(
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.expire_hud(now_millis);
-    if menu_runtime.is_visible() {
-        presentation.set_loading_stage(None);
-        diagnostics_input.set_startup_probe_enabled(false);
-    } else {
-        let (connected, stream_work_drained) =
-            client_world
-                .stream
+    let restart = client_world.dimension_transfer.take_presentation_reset();
+    loading::prepare_loading(
+        &mut client_world,
+        &mut presentation,
+        &runtime,
+        &mut diagnostics_input,
+        &network,
+        loading::LoadingObservation {
+            restart,
+            menu_visible: menu_runtime.is_visible(),
+            snapshot: visibility_diagnostics.snapshot(),
+            visible_rendered: visibility.visible_rendered,
+            cohort: frame_poll.cohort,
+            render_work_drained: render_queue.retained_len() == 0
+                && upload_acknowledgements.is_empty(),
+            actor_pipelines_ready: actor_pipelines
                 .as_ref()
-                .map_or((false, false), |stream| {
-                    let stats = stream.stats();
-                    let drained = stats.queued_decode_jobs == 0
-                        && stats.in_flight_decode_jobs == 0
-                        && stats.pending_light_jobs == 0
-                        && stats.in_flight_light_jobs == 0
-                        && stats.pending_mesh_jobs == 0
-                        && stats.in_flight_mesh_jobs == 0
-                        && stats.pending_retry_requests == 0
-                        && stats.awaiting_sub_chunk_responses == 0
-                        && stats.admitted_world_events == 0
-                        && stats.admitted_heavy_events == 0
-                        && stream.pending_request_work_count() == 0
-                        && stream.outstanding_sub_chunk_count() == 0
-                        && stream.pending_mesh_change_count() == 0
-                        && stream.unacknowledged_mesh_count() == 0;
-                    (true, drained)
-                });
-        let render_work_drained =
-            render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
-        let loading = presentation.startup_mut().probe_enabled(connected);
-        let (startup_released, loading_milestone) =
-            presentation.startup_mut().observe_with_milestone(
-                StartupReadinessInput {
-                    session_generation: runtime.session_id(),
-                    connected,
-                    diagnostics_frame_generation: diagnostics_input.frame_generation(),
-                    snapshot: visibility_diagnostics.snapshot(),
-                    visible_rendered: visibility.visible_rendered,
-                    local_terrain_ready: loading
-                        && client_world
-                            .stream
-                            .as_ref()
-                            .is_some_and(chunk_pipeline::WorldStream::local_terrain_ready),
-                    cohort_target_complete: frame_poll.cohort.map_or_else(
-                        // Outside acceptance runs the cohort is only scanned while loading, so a
-                        // sparse view (a Flat world) can still release the loading screen. A
-                        // server that sent no terrain before spawn (Dragonfly) sends none until
-                        // initialized, so its empty startup view releases once work drains.
-                        || {
-                            loading
-                                && client_world
-                                    .stream
-                                    .as_ref()
-                                    .is_some_and(|stream| stream.startup_view_complete())
-                        },
-                        |status| status.target_is_complete(),
-                    ),
-                    stream_work_drained,
-                    render_work_drained,
-                    world_entry_held: runtime.experiences.holds_world_entry(),
-                },
-                now_millis,
-            );
-        if let Some(milestone) = loading_milestone {
-            eprintln!("{milestone}");
-        }
-        diagnostics_input
-            .set_startup_probe_enabled(presentation.startup_mut().probe_enabled(connected));
-        presentation.set_loading_stage(if !connected {
-            Some(LoadingStage::Connecting)
-        } else if startup_released {
-            None
-        } else {
-            Some(LoadingStage::BuildingTerrain)
-        });
-        if startup_released && !presentation.startup_mut().completion_queued {
-            presentation.startup_mut().completion_queued = network.finish_loading();
-        }
-    }
+                .is_none_or(|ready| ready.is_ready()),
+            now: time.elapsed(),
+        },
+    );
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     let menu_skin = menu_runtime.player_skin();
-    let skin = player_preview::local_preview_skin(
-        stream,
-        &render_model::ActorSkinPixels {
-            width: menu_skin.width,
-            height: menu_skin.height,
-            rgba8: menu_skin.rgba8.clone(),
-        },
-    );
-    let pose = player_preview::PlayerPreviewPose::of_local_player(stream);
+    presentation.set_menu_preview_skin(&menu_skin.standard_skin());
+    let own_pixels = render_model::ActorSkinPixels {
+        width: menu_skin.width,
+        height: menu_skin.height,
+        rgba8: menu_skin.rgba8.clone(),
+    };
+    let skin = if menu_runtime.is_visible() {
+        player_preview::local_preview_skin(None, &own_pixels)
+    } else {
+        player_preview::local_preview_skin(stream, &own_pixels)
+    };
+    let dressing_room =
+        menu_runtime.is_visible() && menu_runtime.screen() == crate::menu::MenuScreen::DressingRoom;
+    let pose = if dressing_room {
+        player_preview::PlayerPreviewPose::default()
+    } else {
+        player_preview::PlayerPreviewPose::of_local_player(stream)
+    };
     // The model wears the local player's armor and held item.
-    presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
-        client_world
-            .stream
-            .as_ref()?
-            .authority()
-            .canonical_item_stack(stack)?
-            .identifier
-    });
+    if dressing_room {
+        presentation.set_player_preview_gear([None; 4], None);
+    } else {
+        presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
+            client_world
+                .stream
+                .as_ref()?
+                .authority()
+                .canonical_item_stack(stack)?
+                .identifier
+        });
+    }
     let doll_state = client_world
         .stream
         .as_ref()
@@ -245,10 +219,30 @@ pub(crate) fn prepare_ui_runtime(
             emote_preview,
         );
     }
-    let hide_hand = settings.value("hide_hand") != 0;
+    let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
+        settings.value("hide_hud") != 0,
+        settings.value("hide_hand") != 0,
+    );
+    let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
-    let first_person =
-        camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let first_person = hand_first_person(camera_settings.perspective(), server_camera.as_deref());
+    let java_held_item = camera_settings.feel().java_animations
+        && stream
+            .and_then(|stream| {
+                stream
+                    .authority()
+                    .actor_rig(stream.local_player_runtime_id())
+            })
+            .map_or_else(
+                || {
+                    player_runtime
+                        .selected_stack_snapshot()
+                        .is_some_and(|selected| {
+                            matches!(selected.state, PlayerInventorySlot::Present(_))
+                        })
+                },
+                |rig| rig.java_equipped.is_some(),
+            );
     let preview = PreviewCapture {
         skin,
         pose,
@@ -256,7 +250,7 @@ pub(crate) fn prepare_ui_runtime(
             || menu_runtime.is_visible()
             || hud_doll
             || runtime.emotes().is_open(),
-        hands: first_person && !hide_hand && !hand_rig.is_active(),
+        hands: first_person && !hide_hand && !hand_rig.hand_is_active() && !java_held_item,
     };
     client_ui::ui_runtime::presentation::forms::observe_station_block(
         &player_runtime,
@@ -308,9 +302,9 @@ pub(crate) fn prepare_ui_runtime(
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
-    presentation.hud_frame_mut().first_person &= !hide_hand;
-    presentation.hud_frame_mut().hand_rig_active = hand_rig.is_active();
-    if hand_rig.is_active() {
+    presentation.hud_frame_mut().first_person = first_person && !hide_hand;
+    presentation.hud_frame_mut().hand_rig_active = hand_rig.hand_is_active();
+    if hand_rig.hand_is_active() {
         hand.use_animated_rig();
     } else {
         hand.observe(
@@ -332,6 +326,7 @@ pub(crate) fn prepare_ui_runtime(
     let nametags = client_world
         .stream
         .as_ref()
+        .filter(|_| overlays.nametags)
         .zip(
             cameras
                 .single()
@@ -355,14 +350,11 @@ pub(crate) fn prepare_ui_runtime(
     presentation.set_chat_settings_snapshot(menu_runtime.settings_snapshot());
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
-        presentation.sync_menu_artwork(
-            client_ui::ui_runtime::presentation::menu_artwork::view_paths(&view),
-        );
-        for server in view.featured.iter_mut().chain(view.gatherings.iter_mut()) {
+        presentation.sync_menu_artwork_view(&view);
+        for server in view.featured.iter_mut() {
             server.icon = presentation.menu_artwork_icon(&server.image_path);
         }
         view.featured_icon = presentation.item_icon("minecraft:compass_item", 0);
-        view.gathering_icon = presentation.item_icon("minecraft:map_empty", 0);
         view.realm_icon = presentation.item_icon("minecraft:ender_pearl", 0);
         view.friend_icon = presentation.item_icon("minecraft:heart_of_the_sea", 0);
         view.saved_icon = presentation.item_icon("minecraft:book_normal", 0);

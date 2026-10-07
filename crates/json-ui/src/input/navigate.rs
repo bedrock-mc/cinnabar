@@ -1,7 +1,6 @@
-//! Keyboard/gamepad focus movement over hit regions, after the 1.26.50
-//! `FocusManager`: default focus by precedence, identifier overrides, the
-//! directional sweep (`_sweepForControlDirectional`), scroll sections, and
-//! focus-container rules (`_handleFocusContainerLogic`).
+//! Keyboard/gamepad focus movement over hit regions, after 1.26.50: default
+//! focus by precedence, identifier overrides, the directional sweep, scroll
+//! sections, and focus-container rules.
 
 use crate::emit::RectOut;
 use crate::state::{FocusMemory, ViewState};
@@ -11,7 +10,7 @@ use super::{HitKind, HitRegion, focus_order};
 
 /// Minimum cosine a candidate needs toward the sweep direction.
 const SWEEP_CONE: f64 = 0.02;
-/// How far into its own edge the sweep starts (`_sweepToNextFocusObject`).
+/// How far into its own edge the sweep starts.
 const EDGE_INSET: f64 = 2.0;
 /// Distances at or below this aim straight ahead.
 const DIRECTION_EPSILON: f64 = 1.192_092_9e-7;
@@ -295,7 +294,7 @@ fn route<'a>(
     None
 }
 
-/// `_sweepForControlDirectional`: the nearest candidate ahead of `current`'s
+/// Directional sweep: the nearest candidate ahead of `current`'s
 /// leading edge within the cone, retrying from the far side of `bounds` when
 /// `wrap`; `clipped` drops candidates with no corner inside their clip.
 fn sweep<'a>(

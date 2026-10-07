@@ -6,6 +6,7 @@ Cinnabar is a Rust Bedrock client plus a Go core. Every system (UI, rendering, c
 | --- | --- |
 | `docs/agents/multi-agent-workflow.md` | Worktrees, build limits, checks |
 | `docs/agents/live-testing.md` | Running the client or BDS, capturing frames, closing a visual/performance gate |
+| `docs/agents/client-mcp.md` | Scripting the client or recording video through the MCP server |
 
 ## Performance: as fast as we can make it
 
@@ -13,7 +14,7 @@ Parity covers what the player sees and how the game behaves, never how we comput
 
 ## Parity sources
 
-Vanilla behaviour, constants, geometry, formulas, layouts and vanilla packs may be used directly, as long as we write our own code. Never paste decompiled source. Committed files (code, comments, docs, commit messages, PR text) never name where behaviour was reverse-engineered from: no decompilation repos or paths, reconstruction line references, function addresses, RVAs or executable hashes. Describe the vanilla behaviour itself, for example as a "Vanilla rules" table. Vanilla pack file paths are fine.
+Vanilla behaviour, constants, geometry, formulas, layouts and vanilla packs may be used directly, as long as we write our own code. Never paste decompiled source. Committed files (code, comments, docs, commit messages, PR text) never name where behaviour was reverse-engineered from: no decompilation repos or paths, reconstruction line references, function addresses, RVAs or executable hashes. Describe the vanilla behaviour itself, for example as a "Vanilla rules" table. Vanilla pack file paths are fine. The one exception is `docs/agents/vanilla-refs-map.md`, the agent index mapping files to the vanilla code they match; add references there, never in code or other docs. Java Edition 1.7 player animations and capes are an owner-mandated exception to Bedrock parity: a built-in default, switchable to vanilla in Video settings.
 
 ## UI
 
@@ -45,7 +46,7 @@ Keep comments to one or two lines that say what the code can't. Never restate si
 
 ## Branches and landing
 
-`dev` is the default and release branch; releases are tagged from it. Land work through a PR into `dev`: compile the crates you touched (`cargo check --tests -p …`), push, and open the PR straight away. CI's full matrix and code review run in parallel on it and are the gate; fix what they report in new commits, and merge once review is clean and CI is green. Don't repeat CI locally: no clippy, nextest or `verify-affected` ladders for PR work, and never full-workspace sweeps. A direct push to `dev` has no PR CI, so run `cargo run -p devtool --locked -- verify-affected --base origin/dev` once before it. A scheduled CI job tests `dev` every 30 minutes, and the pusher fixes a red result immediately.
+`dev` is the default and release branch; releases are tagged from it. Land work through a PR into `dev`: compile the crates you touched (`cargo check --tests -p …`), push, and open the PR straight away. PR CI (a Linux gate plus a Windows/macOS platform subset, aggregated as `ci-ok`) and code review run in parallel on it and are the gate; fix what they report in new commits, and merge once review is clean and CI is green. Don't repeat CI locally: no clippy, nextest or `verify-affected` ladders for PR work, and never full-workspace sweeps. A direct push to `dev` has no PR CI, so run `cargo run -p devtool --locked -- verify-affected --base origin/dev` once before it. Scheduled CI runs the full three-OS matrix on `dev` (cache warm-up hourly, full runs every 6 hours), and the pusher fixes a red result immediately.
 
 ## Parallel work: minimise bottlenecks
 

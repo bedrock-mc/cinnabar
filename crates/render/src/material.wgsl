@@ -35,7 +35,7 @@ fn material_position_random(position: vec3<i32>) -> u32 {
 }
 
 // Current cube tessellation applies this only to faces
-// enabled by BlockGraphics' pack-authored isotropic mask.
+// enabled by blocks.json's pack-authored isotropic mask.
 fn material_leaf_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
     if ((flags & MATERIAL_LEAF_ISOTROPIC_FLAG) == 0u || (flags & 3u) != 0u) {
         return flags;
@@ -45,7 +45,7 @@ fn material_leaf_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
     return flags | select(native_code, native_code ^ 1u, native_code >= 2u);
 }
 
-// AmbientOcclusionCalculator raises the four-sample average * face
+// Vanilla ambient occlusion raises the four-sample average * face
 // coefficient to the source block's exponent before vertex interpolation.
 fn material_leaf_shade(ao_face: f32, flags: u32) -> f32 {
     let encoded = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;

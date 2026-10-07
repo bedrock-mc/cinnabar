@@ -8,7 +8,7 @@ pub mod state;
 pub mod worker;
 
 pub use action::StoreAction;
-pub use snapshot::{DisplayRow, StoreSnapshot, StoreView};
+pub use snapshot::{DisplayRow, StoreArt, StoreSnapshot, StoreView};
 pub use state::StoreState;
 pub use worker::{StoreError, StoreEvent, StoreRequest};
 

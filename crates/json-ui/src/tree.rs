@@ -12,7 +12,7 @@ mod properties;
 pub use properties::Properties;
 
 /// A fully qualified `namespace.name` handle for a control definition.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ControlRef {
     pub namespace: String,
     pub name: String,

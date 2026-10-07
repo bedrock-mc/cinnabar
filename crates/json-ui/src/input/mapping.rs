@@ -1,5 +1,4 @@
-//! A control's input component as the 1.26.50 factory builds it
-//! (`UIControlFactory::_populateInputComponent`): its button mappings, the
+//! A control's input component as the 1.26.50 factory builds it: its button mappings, the
 //! source-less hover mappings, the `any` remap, and the pointer/modal flags.
 
 use serde_json::Value;
@@ -145,7 +144,7 @@ impl InputComponent {
     }
 
     /// Look up one global route without copying every mapping into a temporary component.
-    pub(super) fn global_target(control: &ResolvedControl, from: &str) -> Option<String> {
+    pub(crate) fn global_target(control: &ResolvedControl, from: &str) -> Option<String> {
         let cached = super::cache::entry(&control.properties);
         cached
             .mappings

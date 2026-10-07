@@ -1,4 +1,4 @@
-//! Current-client liquid drag, jump ascent and swimming pitch steering.
+//! Vanilla liquid drag, jump ascent and swimming pitch steering.
 
 use crate::{
     Aabb, BlockPhysicsFlags, CollisionQuery, CollisionWorld, Vec3, WorldQueryError,
@@ -9,7 +9,7 @@ use super::{
     DEPTH_STRIDER_MAX_LEVEL, DEPTH_STRIDER_TARGET_DRAG, MovementInput, MovementMode, WATER_DRAG,
 };
 
-// Current UnderWaterSensingSystem (0x09fd7c00), PE VAs 0x150064950/0x150167290.
+// Head-water sensing compares the eye against liquid level / 9, offset one level down.
 const LIQUID_LEVEL_DIVISOR: f32 = 9.0;
 const HEAD_SURFACE_OFFSET: f32 = -1.0 / LIQUID_LEVEL_DIVISOR;
 
@@ -26,10 +26,32 @@ pub fn sample_water_head(
         f64::from(feet.y as f32 + height as f32),
         f64::from(feet.z as f32),
     );
+    submerged(world, point, &[BlockPhysicsFlags::WATER])
+}
+
+/// Whether `point` lies below the surface of the water or lava filling its block, as vanilla
+/// tests an actor's breathing point.
+pub fn sample_liquid_submersion(
+    world: &(impl CollisionWorld + ?Sized),
+    point: Vec3,
+) -> Result<CollisionQuery<bool>, WorldQueryError> {
+    submerged(
+        world,
+        point,
+        &[BlockPhysicsFlags::WATER, BlockPhysicsFlags::LAVA],
+    )
+}
+
+/// Compares the point with the primary layer's liquid level / 9, offset one level down.
+fn submerged(
+    world: &(impl CollisionWorld + ?Sized),
+    point: Vec3,
+    liquids: &[BlockPhysicsFlags],
+) -> Result<CollisionQuery<bool>, WorldQueryError> {
     let block = super::environment::block_at(point)?;
     let sample = world.block_physics(block)?;
     let facts = sample.primary();
-    let in_water = if facts.flags.contains(BlockPhysicsFlags::WATER) {
+    let in_liquid = if liquids.iter().any(|liquid| facts.flags.contains(*liquid)) {
         let level = if facts.fluid_height_blocks >= 1.0 {
             1.0
         } else {
@@ -44,13 +66,13 @@ pub fn sample_water_head(
         false
     };
     Ok(CollisionQuery {
-        value: in_water,
+        value: in_liquid,
         identity: sample.identity,
     })
 }
 
-/// CurrentSwimAmountSystem (0x099e64c0) precedes MobJumpSystem in the
-/// native category's registration order. Crawl flag 114 also advances the blend.
+/// The swim-amount blend advances before the jump step each tick. Crawl flag
+/// 114 also advances the blend.
 pub(super) fn advance_swim_amount(previous: f32, previous_pose_active: bool) -> f32 {
     if previous_pose_active {
         (previous + 0.1_f32).min(1.0)
@@ -59,7 +81,7 @@ pub(super) fn advance_swim_amount(previous: f32, previous_pose_active: bool) -> 
     }
 }
 
-/// MobJumpSystem (0x0a5dc2e0) suppresses every jump path while the blend
+/// Vanilla suppresses every jump path while the blend
 /// is partial, and a swimming jump additionally requires head water.
 pub(super) fn jump_suppressed(
     mode: MovementMode,
@@ -94,17 +116,17 @@ pub(super) fn sample_attach(
     })
 }
 
-// 1.26.50.26 RVA 0x0320fc20; PE VAs 0x14ff9c370 and 0x15005ea28.
+// Horizontal water drag while sprinting.
 const SPRINT_WATER_DRAG: f32 = 0.9;
-// MobJumpSystem equivalent 0x0a5dc2e0 reads PE VA 0x1500b5374.
+// Upward impulse per tick while jumping in liquid.
 const LIQUID_JUMP_ACCELERATION: f32 = 0.04;
-// WaterSinkInputSystem equivalent 0x0dc3db30 reads PE VA 0x150106adc.
+// Downward impulse per tick while sneaking in water.
 const WATER_SINK_ACCELERATION: f32 = -0.04;
-// SwimControl equivalent 0x09fd2140; PE VAs 0x150361800 and 0x14ffab668.
+// Swimming pitch steering rates; the faster rate applies below the dive threshold.
 const SWIM_STEER_RATE: f32 = 0.06;
 const SWIM_DIVE_STEER_RATE: f32 = 0.085;
 const SWIM_DIVE_THRESHOLD: f32 = -0.2;
-// MobMovementClimbOutOfLiquid 0x09004df0; PE VA 0x14ffab698.
+// Liquid exit: probe raised by 0.6, then set vertical velocity to 0.3.
 const LIQUID_EXIT_RAISE: f32 = 0.6;
 const LIQUID_EXIT_VELOCITY: f32 = 0.3;
 
@@ -169,16 +191,16 @@ pub(super) fn sink(velocity_y: &mut f64) {
     *velocity_y = f64::from(*velocity_y as f32 + WATER_SINK_ACCELERATION);
 }
 
-/// Swimming pitch steering runs only without a held jump. The native dispatch
-/// excludes MobIsJumpingFlagComponent and lets MobJumpSystem handle ascent.
+/// Swimming pitch steering runs only without a held jump; a held jump ascends
+/// through the jump step instead.
 pub(super) fn steer(velocity_y: &mut f64, input: &MovementInput, attach_in_liquid: Option<bool>) {
     if input.jumping {
         return;
     }
     let pitch = input.pitch_degrees as f32;
     let target = minecraft_sin(f64::from(-pitch.to_radians())) as f32;
-    // RVA 0x09fd2140: ordinary upward steering requires the liquid material
-    // flag written by bounding-box input update, even if velocity was falling.
+    // Ordinary upward steering requires the liquid material flag written by
+    // the bounding-box input update, even if velocity was falling.
     if target > 0.0 && attach_in_liquid == Some(false) {
         *velocity_y = 0.0;
         return;

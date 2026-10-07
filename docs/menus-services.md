@@ -12,9 +12,8 @@ also send `Session-Id` and, for messaging, `Accept-Language`.
 | Surface | Service call | Auth | Cinnabar |
 | --- | --- | --- | --- |
 | Discovery | `GET client.discovery.minecraft-services.net/api/v1.0/discovery/MinecraftPE/builds/<ver>` | none | `catalog` |
-| Featured servers | `POST {gatherings}/api/v2.0/discovery/blob/client` | MCToken | `featured_servers.v1` |
-| Experiences (gatherings list) | same search; join `POST {gatherings}/api/v2.0/join/experience` | MCToken | `gatherings.v1` |
-| Live events | `GET {gatherings}/api/v1.0/config/public?clientVersion&clientPlatform&clientSubPlatform` | MCToken | `home.v1` `live_events` |
+| Servers tab | `POST {layout}/api/v1.0/layout/ServerTab` body `{}`: fabs of experiences, each joined at connect by `POST {gatherings}/api/v2.0/join/experience` | MCToken | `featured_servers.v1` (every experience once) |
+| Live events | none: the current client never requests gatherings `/api/v1.0/config/public` (the service answers 404), so the start-screen gathering panel stays hidden | — | not served |
 | Messaging (tiles, inbox, modals, toasts) | `POST {messaging}/api/v1.0/session/refresh` `{sessionId, continuationToken}`; reports `POST .../messages/event` | MCToken | `home.v1` `messages`/`inbox`, `message_event.v1` |
 | Treatments | MCToken session result `treatments[]` | PlayFab | `home.v1` `treatments` |
 | Realms worlds | `GET bedrock.frontendlegacy.realms.minecraft-services.net/worlds` | XSTS(`https://pocket.realms.minecraft.net/`) | `realms_list.v1` |

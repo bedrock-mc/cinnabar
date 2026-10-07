@@ -1,4 +1,4 @@
-//! Animation definitions as `UIAnimationComponent::_createAnimation` reads them:
+//! Animation definitions as vanilla reads them:
 //! the base fields every type shares and each type's own values, linked into a
 //! per-control graph so a `next` cycle re-enters the same instance.
 

@@ -7,7 +7,7 @@ use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEven
 use render::{ActorArtworkPages, ActorRigRoute};
 use std::{fs, path::PathBuf, sync::Arc};
 
-pub(super) struct Pack(PathBuf);
+pub(crate) struct Pack(PathBuf);
 impl Pack {
     fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -48,7 +48,7 @@ fn weighted_fixture(
 
 /// A one-entity pack (`minecraft:example`) whose wave clip is weighted by `weight`, compiled with
 /// its rig drawn in `pose_mode`.
-pub(super) fn compiled_fixture(
+pub(crate) fn compiled_fixture(
     weight: &str,
     repetitions: usize,
     pose_mode: assets::ActorPoseMode,
@@ -69,12 +69,13 @@ pub(super) fn compiled_fixture(
     let bytes = encode_entity_blob(&entities).unwrap();
     let compiled = pack_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
     // The compiler binds every rig as a compiled pose; re-encode with the requested route.
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &bytes).unwrap();
+    let decoded = RuntimeEntityAssets::decode(&bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &decoded).unwrap();
     let mut bindings = catalog.bindings().to_vec();
     assert_eq!(bindings.len(), 1);
     bindings[0].pose_mode = pose_mode;
     let rest_bytes = assets::encode_actor_catalog(&bytes, catalog.textures(), &bindings).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&rest_bytes, &bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&rest_bytes, &decoded).unwrap();
     (
         pack,
         ActorArtworkPages::new(&catalog),
@@ -107,7 +108,7 @@ fn spawn_runtime(runtime_id: u64, unique_id: i64) -> WorldEvent {
         links: Arc::from([]),
     }))
 }
-pub(super) fn stream(entities: Arc<RuntimeEntityAssets>) -> WorldStream {
+pub(crate) fn stream(entities: Arc<RuntimeEntityAssets>) -> WorldStream {
     WorldStream::new_with_asset_sets(
         WorldBootstrap {
             local_player_unique_id: 1,
@@ -270,6 +271,7 @@ fn static_clock_survives_invalid_first_eval_but_requires_real_tick_after_reset_o
                 teleported: true,
                 player_mode: None,
                 source_tick: Some(2),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();
@@ -417,6 +419,9 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
             world
                 .resource_mut::<bevy::time::Time<Real>>()
                 .update_with_instant(clock);
+            world
+                .run_system_cached(crate::runtime::network::advance_actor_frame)
+                .unwrap();
             world
                 .run_system_cached(crate::runtime::network::prepare_actor_render_frame)
                 .unwrap();

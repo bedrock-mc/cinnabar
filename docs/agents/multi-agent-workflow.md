@@ -30,3 +30,12 @@ Before a direct push to `dev`, run `cargo run -p devtool --locked -- verify-affe
 once. Read the real exit code — never let a pipe hide it, and never treat "the background job
 finished" as "the check passed". A test that fails only on a network fetch or on stale local
 carriers is an environment artifact: confirm by rerunning it, and say so.
+
+## CI
+
+`ci-ok` is the required check. Pull requests run fmt, the architecture gate, clippy and every Rust
+and Go test on Linux. Windows and macOS run `cargo check --workspace --all-targets`, the client
+library tests and the crates in `PLATFORM_TEST_PACKAGES` in `ci.yml`; add a crate there when its
+tests exercise OS-specific code. Packaging, physics-bootstrap and PowerShell-harness jobs run only
+when their inputs change. The full three-OS matrix runs on `dev` every six hours, and on any branch
+with `gh workflow run ci.yml --ref <branch>`. `ci-cache.yml` tests `dev` on Linux hourly.

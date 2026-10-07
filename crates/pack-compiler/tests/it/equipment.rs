@@ -154,3 +154,170 @@ fn compilation_is_deterministic() {
         encode_entity_blob(&second.assets).unwrap()
     );
 }
+
+#[test]
+fn legacy_elytra_resolves_native_armor_texture_slots_and_reference_sidecar() {
+    let pack = equipment_pack();
+    let geometry_identifier = assets::ELYTRA_GEOMETRY_IDENTIFIER;
+    let texture_identifier = "textures/models/armor/elytra";
+    write(
+        pack.path(),
+        assets::LEGACY_ENTITY_GEOMETRY_PATH,
+        &serde_json::to_vec(&serde_json::json!({
+            "format_version":"1.8.0",
+            (geometry_identifier):{
+                "texturewidth":64,"textureheight":32,
+                "bones":[
+                    {"name":"body","pivot":[0,24,0]},
+                    {"name":"left_wing","parent":"body","pivot":[0,24,0],
+                        "cubes":[{"origin":[-10,0,0],"size":[10,20,2],"uv":[22,0]}]},
+                    {"name":"right_wing","parent":"body","pivot":[0,24,0],
+                        "mirror":true,"cubes":[{"origin":[0,0,0],"size":[10,20,2],"uv":[22,0]}]}
+                ]
+            },
+            "geometry.obsolete":{"bones":[{"name":"old"}]}
+        }))
+        .unwrap(),
+    );
+    write(
+        pack.path(),
+        "attachables/elytra.json",
+        &serde_json::to_vec(&serde_json::json!({
+            "format_version":"1.10.0",
+            "minecraft:attachable":{"description":{
+                "identifier":"minecraft:elytra",
+                "materials":{"default":"elytra","enchanted":"elytra_glint"},
+                "textures":{"default":texture_identifier,"enchanted":assets::ACTOR_GLINT_TEXTURE_IDENTIFIER},
+                "geometry":{"default":geometry_identifier},
+                "render_controllers":["controller.render.armor"]
+            }}
+        }))
+        .unwrap(),
+    );
+    write(
+        pack.path(),
+        "textures/models/armor/elytra.png",
+        &synthetic_raster([200, 40, 40, 255]),
+    );
+    write(
+        pack.path(),
+        &format!("{}.png", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER),
+        &synthetic_raster([90, 20, 200, 255]),
+    );
+    write(pack.path(), "render_controllers/armor.json", br#"{
+        "format_version":"1.8.0","render_controllers":{"controller.render.armor":{
+            "geometry":"Geometry.default",
+            "materials":[{"*":"variable.is_enchanted ? Material.enchanted : Material.default"}],
+            "textures":["variable.has_trim ? variable.trim_path : Texture.default","Texture.enchanted"]
+        }}
+    }"#);
+    let compilation = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    let binding = compilation
+        .equipment_bindings
+        .iter()
+        .find(|binding| binding.identifier.as_ref() == "minecraft:elytra")
+        .unwrap();
+    assert_eq!(binding.category, EquipmentCategory::Elytra);
+    assert_eq!(binding.geometry.identifier.as_ref(), geometry_identifier);
+    assert_eq!(
+        binding.geometry.resolution,
+        EntityDependencyResolution::Catalog,
+        "chest equipment must resolve the legacy elytra model in the catalog"
+    );
+    assert_eq!(binding.texture.identifier.as_ref(), texture_identifier);
+    assert_eq!(
+        binding.texture.resolution,
+        EntityDependencyResolution::Catalog
+    );
+    let geometry = compilation
+        .assets
+        .geometries
+        .iter()
+        .find(|geometry| geometry.identifier.as_ref() == geometry_identifier)
+        .expect("elytra wings must be available to the equipment renderer");
+    assert_eq!((geometry.texture_width, geometry.texture_height), (64, 32));
+    assert_eq!(geometry.bones.len(), 3);
+    assert_eq!(
+        geometry.bones[1].cubes[0].size.map(|value| value.get()),
+        [10.0, 20.0, 2.0]
+    );
+    let rig = compilation
+        .assets
+        .rig_bindings
+        .iter()
+        .position(|rig| {
+            compilation.assets.symbols[rig.entity_symbol as usize]
+                .identifier
+                .as_ref()
+                == "minecraft:elytra"
+        })
+        .expect("the native elytra attachable must have a runtime rig");
+    let layer = compilation
+        .assets
+        .render
+        .layers
+        .iter()
+        .find(|layer| layer.rig as usize == rig)
+        .expect("the trim texture variable must not discard the native armor render layer");
+    assert_eq!(layer.slot_count, 2);
+    let slots = &compilation.assets.render.slots[layer.first_slot as usize..][..2];
+    let base = &compilation.assets.render.candidates[slots[0].first_candidate as usize];
+    assert!(
+        base.condition.is_some(),
+        "the base image is selected only without a trim"
+    );
+    assert_eq!(
+        compilation.assets.sources[base.source as usize]
+            .path
+            .as_ref(),
+        "textures/models/armor/elytra.png"
+    );
+    let glint = &compilation.assets.render.candidates[slots[1].first_candidate as usize];
+    assert_eq!(
+        compilation.assets.sources[glint.source as usize]
+            .path
+            .as_ref(),
+        format!("{}.png", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER)
+    );
+    let textures = pack_compiler::compile_equipment_textures_for_assets(
+        pack.path(),
+        &compilation.assets,
+        &compilation.equipment_bindings,
+    )
+    .unwrap();
+    assert_eq!(
+        textures
+            .iter()
+            .find(|texture| texture.identifier.as_ref() == assets::ACTOR_GLINT_TEXTURE_IDENTIFIER)
+            .expect("equipment must retain the shared enchantment raster")
+            .rgba8
+            .as_ref(),
+        &[90, 20, 200, 255]
+    );
+    let base_textures = pack_compiler::compile_equipment_textures(
+        pack.path(),
+        &compilation.assets.sources,
+        &compilation.equipment_bindings,
+    )
+    .unwrap();
+    assert!(
+        base_textures
+            .iter()
+            .any(|texture| texture.identifier.as_ref() == assets::ACTOR_GLINT_TEXTURE_IDENTIFIER)
+    );
+    let refs = pack_compiler::compile_vanilla_entity_refs(pack.path()).unwrap();
+    let index = refs.geometry_index[geometry_identifier] as usize;
+    let source: serde_json::Value = serde_json::from_str(&refs.geometry_files[index].text).unwrap();
+    assert!(source.get(geometry_identifier).is_some());
+    assert!(source.get("geometry.obsolete").is_none());
+}
+
+/// Encodes one original texel so carrier tests can verify raster ingestion.
+fn synthetic_raster(pixel: [u8; 4]) -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(1, 1, image::Rgba(pixel));
+    let mut output = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, image::ImageFormat::Png)
+        .unwrap();
+    output.into_inner()
+}

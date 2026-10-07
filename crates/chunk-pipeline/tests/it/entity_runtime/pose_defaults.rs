@@ -1,4 +1,4 @@
-//! Native BoneOrientation defaults are part of Molang `this`, not animation deltas.
+//! Vanilla bone default orientations are part of Molang `this`, not animation deltas.
 use super::*;
 
 fn with_this_channel(

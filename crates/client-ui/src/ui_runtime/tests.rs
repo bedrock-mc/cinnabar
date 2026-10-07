@@ -30,6 +30,24 @@ fn envelope(session_id: u64, sequence: u64, event: UiEvent) -> SequencedUiEvent 
     }
 }
 
+/// Builds a translated text packet for the localization fixtures.
+fn raw_text_event(json: &str) -> protocol::UiEvent {
+    protocol::UiEvent::RawText(protocol::RawTextEvent {
+        text: protocol::TextEvent {
+            category: protocol::TextCategory::MessageOnly,
+            kind: protocol::TextKind::Raw,
+            needs_translation: false,
+            source: None,
+            message: std::sync::Arc::from(""),
+            parameters: std::sync::Arc::from([]),
+            xuid: std::sync::Arc::from(""),
+            platform_chat_id: std::sync::Arc::from(""),
+            filtered_message: None,
+        },
+        document: protocol::parse_raw_text(json).unwrap(),
+    })
+}
+
 fn text(message: &str) -> UiEvent {
     UiEvent::Text(TextEvent {
         category: TextCategory::MessageOnly,
@@ -982,5 +1000,6 @@ mod inventory_overlay_tests;
 mod inventory_send_tests;
 mod inventory_transaction_tests;
 mod leniency_tests;
+mod localized_text_tests;
 mod mining_mode_tests;
 mod retained_bounds_tests;

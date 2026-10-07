@@ -102,6 +102,10 @@ impl MediaTexture {
         (generation == self.generation).then_some(&self.view)
     }
 
+    pub fn size(&self) -> [u32; 2] {
+        self.size
+    }
+
     /// Exact texture charge; decoder surfaces and staging are accounted separately.
     pub fn allocated_bytes(&self) -> u64 {
         u64::from(self.size[0]) * u64::from(self.size[1]) * 4

@@ -9,7 +9,7 @@ use crate::{
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
 };
-use bevy::prelude::{Query, Res, ResMut, Time, Transform, With};
+use bevy::prelude::{Projection, Query, Res, ResMut, Time, Transform, With};
 pub use client_presentation::camera::presentation::{FirstPersonHandMotion, ScreenEffectFacts};
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_ui::ui_runtime::UiRuntime;
@@ -40,22 +40,32 @@ pub(crate) fn advance_presentation_state(
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
+    client_world: Option<Res<ClientWorld>>,
     physics: Option<Res<LocalPhysicsController>>,
+    ui: Option<Res<UiRuntime>>,
     bob: ResMut<WalkBobState>,
     sway: ResMut<HandSwayState>,
     hurt: ResMut<CameraHurtState>,
+    java: ResMut<client_presentation::camera::java::JavaCameraState>,
     hand: ResMut<FirstPersonHandMotion>,
 ) {
     client_presentation::camera::presentation::advance_presentation_state(
         time,
         settings,
         view,
+        client_world.as_deref().map(
+            |world| client_presentation::observations::WorldObservation {
+                stream: world.stream.as_ref(),
+            },
+        ),
         physics
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
+        ui.as_deref(),
         bob,
         sway,
         hurt,
+        java,
         hand,
     );
 }
@@ -109,24 +119,28 @@ pub(crate) fn apply_camera_presentation(
     settings: Res<CameraSettingsAuthority>,
     instructions: Option<Res<ServerCameraInstructions>>,
     hand: Res<FirstPersonHandMotion>,
-    vision: Res<VisionEffects>,
+    portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
     client_world: Option<Res<ClientWorld>>,
+    collisions: Option<Res<PhysicsCollisionRegistries>>,
     server: ResMut<ServerCameraView>,
-    cameras: Query<&mut Transform, With<FlyCamera>>,
+    cameras: Query<(&mut Transform, Option<&mut Projection>), With<FlyCamera>>,
 ) {
     client_presentation::camera::presentation::apply_camera_presentation(
         time,
         settings,
         instructions,
         hand,
-        vision,
+        portal,
         view,
         client_world.as_deref().map(
             |world| client_presentation::observations::WorldObservation {
                 stream: world.stream.as_ref(),
             },
         ),
+        collisions
+            .as_deref()
+            .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
         server,
         cameras,
     );

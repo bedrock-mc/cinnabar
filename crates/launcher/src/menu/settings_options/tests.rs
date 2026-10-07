@@ -1,6 +1,57 @@
 use super::*;
 use semantic_input::{InputContext, PhysicalControl};
 
+#[test]
+fn existing_f_binding_survives_freelook_default() {
+    let settings =
+        SettingsOptions::decode(br#"{"keys":{"key.drop":9,"key.inventory":12}}"#).unwrap();
+    assert_eq!(
+        settings.named_key_control("key.drop"),
+        Some(PhysicalControl::KeyboardUsage(9))
+    );
+    assert_eq!(
+        settings.named_key_control("key.inventory"),
+        Some(PhysicalControl::KeyboardUsage(12))
+    );
+    assert_eq!(settings.named_key_control("key.freelook"), None);
+    let controls = settings.controls().unwrap();
+    assert!(
+        !controls
+            .bindings()
+            .iter()
+            .any(|binding| binding.action == semantic_input::Action::Freelook)
+    );
+}
+
+#[test]
+fn freelook_defaults_to_f_and_remaps_to_mouse_across_reload() {
+    let mut settings = SettingsOptions::default();
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == semantic_input::Action::Freelook)
+        .unwrap();
+    assert_eq!(
+        settings.key_control(row),
+        Some(PhysicalControl::KeyboardUsage(0x09))
+    );
+    assert!(settings.remap(row, PhysicalControl::MouseButton(4)));
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    let controls = loaded.controls().unwrap();
+    let mut router = semantic_input::SemanticInputRouter::default();
+    router.replace_bindings(controls).unwrap();
+    router
+        .route(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                activity_sequence: 1,
+                mouse_buttons: vec![4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(router.finalize().unwrap().phases[semantic_input::Action::Freelook as usize].held);
+}
+
 /// Finds an option through the same stable controller identifier used on disk.
 fn index(name: &str) -> usize {
     SETTINGS_OPTIONS
@@ -203,6 +254,20 @@ fn every_supplemental_binding_survives_reload_and_individual_reset() {
 }
 
 #[test]
+fn untouched_and_legacy_options_keep_block_outline_selection() {
+    assert!(
+        SettingsOptions::default()
+            .user_settings()
+            .video
+            .outline_selection
+    );
+    for saved in [b"{}".as_slice(), br#"{"values":{"gamma":40}}"#.as_slice()] {
+        let restored = SettingsOptions::decode(saved).unwrap();
+        assert!(restored.user_settings().video.outline_selection);
+    }
+}
+
+#[test]
 fn outline_selection_reaches_render_settings_after_persistence() {
     let mut settings = SettingsOptions::default();
     for enabled in [true, false] {
@@ -231,4 +296,96 @@ fn always_sprint_defaults_off_and_persists_into_runtime_settings() {
     let legacy =
         SettingsOptions::decode(br#"{"values":{"keyboard_mouse_sensitivity":75}}"#).unwrap();
     assert!(!legacy.user_settings().gameplay.always_sprint);
+}
+
+#[test]
+fn vsync_defaults_on_and_persists_into_runtime_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(settings.user_settings().video.vsync);
+    settings.set(index("vsync"), 0);
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(!loaded.user_settings().video.vsync);
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(legacy.user_settings().video.vsync);
+}
+
+#[test]
+fn exact_server_ping_is_optional_and_persists_with_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.exact_server_ping());
+    settings.set(index(SHOW_EXACT_SERVER_PING), 1);
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.exact_server_ping());
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(!legacy.exact_server_ping());
+}
+
+#[test]
+fn dark_mode_defaults_off_persists_and_resets_with_video_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.oreui_dark_mode());
+    settings.set(index(OREUI_DARK_MODE), 1);
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.oreui_dark_mode());
+    loaded.reset_group(SettingsGroup::Audio);
+    assert!(loaded.oreui_dark_mode());
+    loaded.reset_group(SettingsGroup::Video);
+    assert!(!loaded.oreui_dark_mode());
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(!legacy.oreui_dark_mode());
+}
+
+#[test]
+fn animations_default_to_java_and_persist_both_choices() {
+    let mut settings = SettingsOptions::default();
+    let index = index("animations");
+    assert_eq!(settings.get(index), 0);
+    assert!(settings.user_settings().video.java_animations);
+    for choice in [1, 0] {
+        settings.set(index, choice);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.get(index), choice);
+        assert_eq!(loaded.user_settings().video.java_animations, choice == 0);
+    }
+    let untouched = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(untouched.user_settings().video.java_animations);
+    settings.set(index, 1);
+    settings.reset_group(super::SettingsGroup::Video);
+    assert!(settings.user_settings().video.java_animations);
+}
+
+#[test]
+fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
+    for (toggle, choice) in [(0, 1), (1, 0)] {
+        let legacy = serde_json::json!({ "values": { "java_animations": toggle } });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(loaded.value("animations"), choice);
+        assert_eq!(loaded.user_settings().video.java_animations, toggle != 0);
+        let saved = serde_json::to_value(&loaded).unwrap();
+        assert!(saved["values"].get("java_animations").is_none());
+        assert_eq!(saved["values"]["animations"], choice);
+        let selected = serde_json::json!({
+            "values": { "java_animations": toggle, "animations": toggle }
+        });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&selected).unwrap()).unwrap();
+        assert_eq!(loaded.value("animations"), toggle);
+    }
+}
+
+#[test]
+fn crosshair_preferences_persist_and_reset_without_changing_legacy_defaults() {
+    use super::{INVERT_CROSSHAIR_OPTION, SettingsGroup, THIRD_PERSON_CROSSHAIR_OPTION};
+    let mut options = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(options.value(option.name), option.default);
+        options.set(index(option.name), 1 - option.default);
+    }
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(loaded.value(option.name), 1 - option.default);
+    }
+    loaded.reset_group(SettingsGroup::Video);
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(loaded.value(option.name), option.default);
+    }
 }

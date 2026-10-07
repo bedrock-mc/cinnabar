@@ -1,4 +1,4 @@
-use ui::mod_panel::Panel;
+use ui::mod_panel::{Icon, Panel, Style};
 
 use super::widgets::row_height;
 
@@ -11,6 +11,8 @@ pub(super) fn top_offset(viewport: [f64; 2]) -> f64 {
 }
 
 pub(super) struct Card<'a> {
+    pub flat: bool,
+    pub icon: Icon,
     pub label: &'a str,
     pub toggle: Option<usize>,
     pub controls: Vec<usize>,
@@ -27,7 +29,10 @@ pub(super) struct Layout<'a> {
 
 impl<'a> Layout<'a> {
     pub fn new(panel: &'a Panel, viewport: [f64; 2], category: usize, rows: usize) -> Self {
-        let width = (viewport[0] - 24.0).min(344.0).floor();
+        let compact = panel.style == Style::Compact;
+        let width = (viewport[0] - 24.0)
+            .min(if compact { 440.0 } else { 344.0 })
+            .floor();
         let mut categories = Vec::new();
         for section in &panel.sections {
             if !categories.contains(&section.category.as_str()) {
@@ -49,12 +54,20 @@ impl<'a> Layout<'a> {
                     .expect("validated section reference")
             };
             let controls: Vec<_> = section.controls.iter().map(|id| find(id)).collect();
-            let height = CARD_HEADER
+            let height = if compact { 42.0 } else { CARD_HEADER }
                 + controls
                     .iter()
-                    .map(|index| row_height(&panel.controls[*index]))
+                    .map(|index| {
+                        if compact {
+                            super::compact::row_height(&panel.controls[*index])
+                        } else {
+                            row_height(&panel.controls[*index])
+                        }
+                    })
                     .sum::<f64>();
             cards.push(Card {
+                flat: false,
+                icon: section.icon,
                 label: &section.label,
                 toggle: section.toggle.as_deref().map(find),
                 controls,
@@ -62,7 +75,7 @@ impl<'a> Layout<'a> {
                 offset: [0.0; 2],
             });
         }
-        let available = viewport[1] - NAV_HEIGHT - 42.0;
+        let available = viewport[1] - if compact { 78.0 } else { NAV_HEIGHT + 42.0 };
         if cards.is_empty() || cards.iter().any(|card| card.height > available) {
             let indices: Vec<_> = if panel.sections.is_empty() {
                 (0..panel.controls.len()).collect()
@@ -73,10 +86,52 @@ impl<'a> Layout<'a> {
                     .collect()
             };
             let rows = rows.max(1);
+            if compact {
+                let mut pages = Vec::new();
+                let mut controls = Vec::new();
+                let mut height = 13.0;
+                for index in indices {
+                    let next = super::compact::row_height(&panel.controls[index]);
+                    if !controls.is_empty() && (height + next > available || controls.len() == rows)
+                    {
+                        pages.push(vec![Card {
+                            flat: true,
+                            icon: Icon::None,
+                            label: selected.unwrap_or("Controls"),
+                            toggle: None,
+                            controls: std::mem::take(&mut controls),
+                            height,
+                            offset: [10.0, NAV_HEIGHT + GAP + 10.0],
+                        }]);
+                        height = 13.0;
+                    }
+                    controls.push(index);
+                    height += next;
+                }
+                if !controls.is_empty() || pages.is_empty() {
+                    pages.push(vec![Card {
+                        flat: true,
+                        icon: Icon::None,
+                        label: selected.unwrap_or("Controls"),
+                        toggle: None,
+                        controls,
+                        height,
+                        offset: [10.0, NAV_HEIGHT + GAP + 10.0],
+                    }]);
+                }
+                return Self {
+                    width,
+                    card_width: width - 20.0,
+                    categories,
+                    pages,
+                };
+            }
             let mut pages: Vec<_> = indices
                 .chunks(rows)
                 .map(|controls| {
                     vec![Card {
+                        flat: false,
+                        icon: Icon::None,
                         label: selected.unwrap_or("Controls"),
                         toggle: None,
                         controls: controls.to_vec(),
@@ -87,6 +142,8 @@ impl<'a> Layout<'a> {
                 .collect();
             if pages.is_empty() {
                 pages.push(vec![Card {
+                    flat: false,
+                    icon: Icon::None,
                     label: "Controls",
                     toggle: None,
                     controls: Vec::new(),
@@ -101,8 +158,15 @@ impl<'a> Layout<'a> {
                 pages,
             };
         }
-        let columns = if width >= 300.0 { 2 } else { 1 };
-        let card_width = (width - (columns - 1) as f64 * GAP) / columns as f64;
+        let columns = if compact && width >= 375.0 {
+            3
+        } else if width >= 300.0 {
+            2
+        } else {
+            1
+        };
+        let inset = if compact { 10.0 } else { 0.0 };
+        let card_width = (width - 2.0 * inset - (columns - 1) as f64 * GAP) / columns as f64;
         let mut pages: Vec<Vec<Card<'a>>> = vec![Vec::new()];
         let mut row = Vec::new();
         let mut y = NAV_HEIGHT + GAP;
@@ -113,6 +177,12 @@ impl<'a> Layout<'a> {
             }
         }
         append_row(&mut pages, &mut row, &mut y, available, card_width);
+        if compact {
+            for card in pages.iter_mut().flatten() {
+                card.offset[0] += inset;
+                card.offset[1] += 10.0;
+            }
+        }
         Self {
             width,
             card_width,

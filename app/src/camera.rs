@@ -6,15 +6,11 @@ use crate::semantic_controls::{
     SemanticTouchTargets,
 };
 use crate::settings_runtime::RuntimeSettings;
-use bevy::{
-    input::mouse::AccumulatedMouseMotion,
-    prelude::*,
-    window::{CursorOptions, PrimaryWindow, Window},
-};
+use bevy::prelude::*;
 
 pub use client_presentation::camera::{
     AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, AutoFly, CameraFeelSettings,
-    CameraFovInputs, CameraFovState, CameraHurtState, CameraPresentationPlugin,
+    CameraFovInputs, CameraFovState, CameraHurtState, CameraPresentationPlugin, CameraRig,
     CameraSettingsAuthority, CameraSettingsError, FirstPersonHandMotion, FlyCamera,
     FlyCameraUpdateSet, HandSwayState, HeadMedium, LocalHurtEvent, OverlayKind, OverlayLayer,
     PITCH_LIMIT, PortalProgress, SPYGLASS_FOV_MODIFIER, ScreenEffectFacts, ScreenEffectInputs,
@@ -26,7 +22,10 @@ pub use client_presentation::camera::{
     update_camera_fov, walk_bob_effect,
 };
 use client_presentation::camera::{fov, look, overlay_publish};
+pub(crate) mod aim_assist;
+pub(crate) mod aim_highlight;
 mod facts;
+mod focus;
 mod presentation;
 
 /// Optional developer camera input, after physical look and before movement.
@@ -62,10 +61,13 @@ impl Default for FlyCameraPlugin {
 
 impl Plugin for FlyCameraPlugin {
     fn build(&self, app: &mut App) {
+        focus::install(app);
         app.add_plugins(CameraPresentationPlugin {
             auto_fly: self.auto_fly,
             capture_on_start: self.capture_on_start,
         })
+        .init_resource::<client_presentation::aim_assist::ServerAimAssist>()
+        .init_resource::<client_presentation::aim_assist::AimAssistFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticInputSnapshot>()
         .init_resource::<PendingDeviceFrame>()
@@ -74,7 +76,11 @@ impl Plugin for FlyCameraPlugin {
         .init_resource::<RuntimeSettings>()
         .add_systems(
             Startup,
-            (spawn_fly_camera, overlay_publish::load_overlay_textures),
+            (
+                spawn_fly_camera,
+                overlay_publish::load_overlay_textures,
+                aim_highlight::load_base_textures,
+            ),
         )
         .configure_sets(
             Update,
@@ -89,11 +95,14 @@ impl Plugin for FlyCameraPlugin {
                     apply_runtime_camera_settings,
                     presentation::collect_fov_inputs,
                     facts::collect_screen_effect_facts,
-                    update_camera_fov,
                 )
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(FlyCameraUpdateSet),
+                // After camera input, so a rig committed this frame sets this frame's FOV.
+                update_camera_fov
+                    .after(FlyCameraUpdateSet)
+                    .before(ClientFrameSet::Camera),
                 (
                     update_cursor_capture,
                     update_perspective,
@@ -103,10 +112,12 @@ impl Plugin for FlyCameraPlugin {
                     .chain()
                     .in_set(FlyCameraUpdateSet),
                 (
+                    facts::collect_portal_contact,
                     presentation::advance_presentation_state,
                     presentation::update_screen_overlays,
-                    overlay_publish::publish_screen_overlays,
                     presentation::apply_camera_presentation,
+                    overlay_publish::publish_screen_overlays,
+                    facts::diagnose_portal,
                 )
                     .chain()
                     .after(resolve_camera_pose)
@@ -155,10 +166,11 @@ pub(crate) fn update_look(
     ),
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
-    settings: Res<CameraSettingsAuthority>,
+    settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
     smoother: ResMut<look::LookSmoother>,
     view: ResMut<LocalViewPose>,
+    server: Option<ResMut<ServerCameraView>>,
 ) {
     client_presentation::camera::update_look(
         (
@@ -179,6 +191,7 @@ pub(crate) fn update_look(
         time,
         smoother,
         view,
+        server,
     );
 }
 
@@ -203,46 +216,16 @@ pub(crate) fn update_movement(
         view,
     );
 }
-/// Samples UI cursor authority immediately before presentation updates capture.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn update_cursor_capture(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    keys: ResMut<ButtonInput<KeyCode>>,
-    mouse_buttons: ResMut<ButtonInput<MouseButton>>,
-    mouse_motion: ResMut<AccumulatedMouseMotion>,
-    auto_fly: ResMut<AutoFly>,
-    ui: Option<Res<client_ui::ui_runtime::UiRuntime>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
-    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
-    consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
-) {
-    let policy = client_presentation::observations::CursorPolicy {
-        consent: consent.is_some_and(|consent| consent.0),
-        absorbs_input: crate::screen_policy::absorbs_input(
-            &player_runtime,
-            ui.as_deref(),
-            menu.as_deref(),
-            presentation.as_deref(),
-        ),
-        steals_mouse: ui.as_deref().map(|ui| {
-            ui.steals_mouse(
-                &player_runtime,
-                menu.as_deref().map(|menu| {
-                    menu as &dyn client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene
-                }),
-            )
-        }),
-    };
-    client_presentation::camera::update_cursor_capture(
-        policy,
-        window,
-        keys,
-        mouse_buttons,
-        mouse_motion,
-        auto_fly,
-    );
-}
+/// Present while a developer controller drives input; the window then counts as focused and
+/// captured without touching the OS cursor.
+#[derive(Resource, Debug, Default)]
+#[cfg_attr(
+    not(feature = "developer-control"),
+    allow(dead_code, reason = "inserted only by the developer control endpoint")
+)]
+pub(crate) struct DrivenInput;
+
+pub(crate) use focus::{mouse_input_active, update_cursor_capture};
 
 #[cfg(test)]
 pub(crate) fn movement_axes(keys: &ButtonInput<KeyCode>) -> Vec3 {

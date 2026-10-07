@@ -218,6 +218,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 transition_count: 1,
                 on_entry: None,
                 on_exit: None,
+                ..Default::default()
             },
             EntityControllerState {
                 name: 1,
@@ -227,6 +228,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 transition_count: 0,
                 on_entry: None,
                 on_exit: None,
+                ..Default::default()
             },
         ]
         .into_boxed_slice(),
@@ -338,7 +340,10 @@ fn runtime_budgets_are_the_reviewed_exact_ceilings() {
     assert_eq!(MAX_CONTROLLER_TRANSITIONS_PER_TICK, 8);
     assert_eq!(MAX_MOLANG_OPS_PER_ACTOR_TICK, 4_096);
     assert_eq!(MAX_MOLANG_OPS_PER_WORLD_TICK, 262_144);
-    assert_eq!(MAX_MOLANG_OPS_PER_RENDER_FRAME, 0);
+    assert_eq!(
+        MAX_MOLANG_OPS_PER_RENDER_FRAME,
+        MAX_MOLANG_OPS_PER_WORLD_TICK
+    );
     assert_eq!(MAX_ACTOR_ACTION_HISTORY, 32);
 }
 
@@ -417,6 +422,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
                 teleported: true,
                 player_mode: None,
                 source_tick: Some(2),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();
@@ -572,6 +578,7 @@ fn dimension_change_drops_rig_palettes_without_stale_publication() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -679,6 +686,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
                 teleported: false,
                 player_mode: None,
                 source_tick: Some(2),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();
@@ -704,6 +712,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
                 teleported: true,
                 player_mode: None,
                 source_tick: Some(3),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();
@@ -786,6 +795,7 @@ fn turn(sequence: u64, yaw: f32) -> WorldEvent {
         teleported: false,
         player_mode: None,
         source_tick: Some(sequence),
+        interpolation: Default::default(),
     }))
 }
 

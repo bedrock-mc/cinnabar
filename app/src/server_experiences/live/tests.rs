@@ -9,6 +9,7 @@ use server_experience::{
 struct FakeWorker {
     response: Option<Transaction>,
     dispatched: Vec<Vec<u8>>,
+    channels: Vec<String>,
     owner: Principal,
     epoch: u64,
 }
@@ -19,6 +20,7 @@ impl Worker for FakeWorker {
         Ok(Self {
             response: None,
             dispatched: Vec::new(),
+            channels: Vec::new(),
             owner,
             epoch,
         })
@@ -30,6 +32,7 @@ impl Worker for FakeWorker {
     /// Records delivered payloads and completes them on the next poll.
     fn dispatch(&mut self, request: Dispatch) -> Result<()> {
         self.dispatched.push(request.record);
+        self.channels.push(request.channel);
         self.response = Some(Transaction {
             owner: self.owner.clone(),
             epoch: self.epoch,
@@ -119,6 +122,10 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         })
         .collect();
     let mut live = Live {
+        media: super::super::media::Media::new(grant.clone(), 1, PathBuf::new()),
+        screens: Vec::new(),
+        screens_built: None,
+        scene_revision: 0,
         grant,
         instances,
         executable: PathBuf::new(),
@@ -292,4 +299,102 @@ fn changed_dimension_rejects_completed_old_epoch_output_before_publication() {
             .response
             .is_some()
     );
+}
+
+const INTRO: &str = "media/clip.json";
+
+/// Grants one fixture bundle the media and scene adapters and an indexed descriptor.
+fn grant_media(live: &mut Live<FakeWorker>, id: &str) {
+    let capabilities = &mut live.instances.get_mut(id).unwrap().capabilities;
+    capabilities
+        .scope
+        .permissions
+        .extend([Permission::Media, Permission::Scene]);
+    capabilities.assets.insert(INTRO.into());
+}
+
+fn media_quad(x: f32) -> server_experience::runtime::SceneObject {
+    server_experience::runtime::SceneObject::Quad {
+        texture: INTRO.into(),
+        transform: [x, 64.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        size: [16.0, 9.0],
+    }
+}
+
+#[test]
+fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
+    let mut live = fixture(1);
+    grant_media(&mut live, "bundle0");
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance.helper.as_mut().unwrap().response = Some(Transaction {
+        owner: instance.owner.clone(),
+        epoch: live.epoch,
+        commands: vec![Command::Media {
+            id: INTRO.into(),
+            operation: server_experience::runtime::MediaOperation::Play,
+            position_ms: 0,
+        }],
+    });
+    live.poll(1, 0).unwrap();
+    // No verified descriptor was registered, so the player is refused and reported stopped.
+    live.media_mut().service(0, 0, true);
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    let helper = live.instances["bundle0"].helper.as_ref().unwrap();
+    assert_eq!(helper.channels, [super::super::media::EVENT_CHANNEL]);
+    let record: Vec<Scalar> = serde_json::from_slice(&helper.dispatched[0]).unwrap();
+    assert!(matches!(
+        record.as_slice(),
+        [Scalar::Text(path), Scalar::Choice(2), Scalar::Integer(0)] if path == INTRO
+    ));
+}
+
+#[test]
+fn only_a_bundles_own_quad_textured_by_its_playing_media_becomes_a_textured_screen() {
+    let mut live = fixture(2);
+    for id in ["bundle0", "bundle1"] {
+        let contributions = &mut live.instances.get_mut(id).unwrap().contributions;
+        contributions
+            .scene
+            .insert(1, media_quad(if id == "bundle0" { 5.0 } else { 9.0 }));
+    }
+    assert!(
+        live.changed_screens().unwrap().is_empty(),
+        "no player means no screen"
+    );
+    let frame = render::MediaFrame {
+        serial: 3,
+        width: 2,
+        height: 2,
+        rgba: std::sync::Arc::from(vec![255u8; 16]),
+    };
+    live.media_mut().set_frame("bundle0", INTRO, Some(frame));
+    let screens = live.changed_screens().unwrap();
+    assert_eq!(screens.len(), 1);
+    assert_eq!(screens[0].center, [5.0, 64.0, 0.0]);
+    assert_eq!(screens[0].half_right, [8.0, 0.0, 0.0]);
+    assert_eq!(screens[0].half_up, [0.0, 4.5, 0.0]);
+    assert_eq!(screens[0].frame.as_ref().map(|frame| frame.serial), Some(3));
+}
+
+#[test]
+fn an_unchanged_media_scene_is_presented_without_rebuilding() {
+    let mut live = fixture(1);
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .contributions
+        .scene
+        .insert(1, media_quad(5.0));
+    let frame = render::MediaFrame {
+        serial: 3,
+        width: 2,
+        height: 2,
+        rgba: std::sync::Arc::from(vec![255u8; 16]),
+    };
+    live.media_mut().set_frame("bundle0", INTRO, Some(frame));
+    assert_eq!(live.changed_screens().map(<[_]>::len), Some(1));
+    let before = crate::tests::alloc_count::thread_allocations();
+    let unchanged = live.changed_screens().is_none();
+    assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);
+    assert!(unchanged);
 }

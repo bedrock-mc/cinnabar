@@ -7,7 +7,7 @@ use crate::ui_runtime::presentation::tests::fixture_font;
 use std::collections::HashMap;
 
 /// Draws one route without installed carriers or texture files.
-fn paint(
+pub(super) fn paint(
     offsets: HashMap<String, f32>,
     draw: impl FnOnce(&mut Canvas<'_>),
 ) -> (Vec<ScrollArea>, Vec<(MenuAction, UiRect)>, Vec<UiNode>) {
@@ -20,6 +20,30 @@ fn paint(
     draw(&mut canvas);
     let (scrolls, hits) = (canvas.scrolls, canvas.hits);
     (scrolls, hits, nodes)
+}
+
+/// Every solid fill as window bounds and colour, in draw order.
+pub(super) fn solids(nodes: &[UiNode]) -> Vec<([f32; 4], [u8; 4])> {
+    let origin = |mut id: Option<ui::UiNodeId>| {
+        let mut at = [0.0, 0.0];
+        while let Some(node) = id.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
+            let min = node.bounds().min();
+            at = [at[0] + min.x(), at[1] + min.y()];
+            id = node.parent();
+        }
+        at
+    };
+    nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Solid { color, .. } => {
+                let [x, y] = origin(node.parent());
+                let (min, max) = (node.bounds().min(), node.bounds().max());
+                Some(([min.x() + x, min.y() + y, max.x() + x, max.y() + y], *color))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Makes enough friends to overflow either list.
@@ -68,7 +92,7 @@ fn review_inbox_list_registers_its_full_scroll_extent() {
         })
         .collect();
     let (scrolls, _, _) = paint(HashMap::new(), |c| {
-        inbox::draw(c, &view, [1280.0, 720.0]).unwrap()
+        inbox::draw(c, &view, [1280.0, 720.0], &|_| None).unwrap()
     });
     assert!(scrolls.iter().any(|area| area.max > 0.0));
 }

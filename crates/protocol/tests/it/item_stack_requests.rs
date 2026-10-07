@@ -185,8 +185,8 @@ fn builder_rejects_ids_amounts_counts_and_slots() {
 
 /// Native sparse ownership allows earlier negative odd request references on
 /// either cell. This request's own id is reserved for its newly created output.
-/// Current SparseContainerSetListenerClient::postSetItem stamps cells;
-/// ItemStackRequestActionHandler::_validateRequestSlot resolves them.
+/// Vanilla stamps cells with the request id and resolves those references
+/// when validating request slots.
 #[test]
 fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
     let take = |id| StackRequestAction::Take {

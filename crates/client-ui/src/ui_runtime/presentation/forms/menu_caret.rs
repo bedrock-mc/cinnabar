@@ -1,4 +1,4 @@
-//! The launcher text boxes' caret, after vanilla's `TextEditComponent` as the
+//! The launcher text boxes' caret, after vanilla's text edit component as the
 //! engine models it (`json_ui` `component/edit.rs` and `emit.rs`): the
 //! `CARET_GLYPH` at the caret, toggled every `CARET_BLINK_SECONDS` and shown
 //! again after each edit. A press inside a box places the caret at the
@@ -30,6 +30,7 @@ pub(super) struct TextSpot {
     /// The text's scale over the frame metrics, and its named font (`None`: the default).
     pub(super) factor: f32,
     pub(super) font: Option<String>,
+    pub(super) letter_spacing_64: i32,
     pub(super) metrics: TextMetrics,
 }
 
@@ -54,6 +55,7 @@ impl TextSpot {
         if let Ok(scale) = UiScale::new_display(self.metrics.scale.get() * self.factor) {
             request.scale = scale;
         }
+        request.wrap.letter_spacing_64 = self.letter_spacing_64;
         layouts
             .layout(request)
             .map_or(0.0, |layout| layout.size_64()[0] as f32 / 64.0)

@@ -9,7 +9,6 @@ fn grown_same_start_liquid_range_keeps_old_refs_physically_resident() {
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
     let key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![identity.clone()],
         texture_identity,
         tint_identity,
@@ -43,7 +42,6 @@ fn physical_residency_rejects_moved_shrunk_or_structurally_invalid_streams() {
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 3, 8..16, 32..36, 1);
     let key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![identity.clone()],
         texture_identity,
         tint_identity,
@@ -160,14 +158,7 @@ fn keyed_residency_lookup_matches_direct_scan() {
         resident.push(unrelated);
     }
     let snapshot_of = |visible: Vec<TransparentAllocationIdentity>| {
-        let key = ViewSortKey::try_new(
-            [0.0; 3],
-            [0.0, 0.0, 0.0, 1.0],
-            visible,
-            texture_identity,
-            tint_identity,
-        )
-        .unwrap();
+        let key = ViewSortKey::try_new([0.0; 3], visible, texture_identity, tint_identity).unwrap();
         committed_transparent_state(&key, vec![PackedTransparentDrawRef::new(2, 0)])
             .committed()
             .unwrap()

@@ -113,6 +113,30 @@ fn root_selection_excludes_all_physical_subpacks() {
     );
     assert_eq!(pack.files_under("").as_ref(), ["base.txt", "manifest.json"]);
 }
+
+#[test]
+fn undeclared_server_subpack_names_fall_back_to_root_resources() {
+    for extra in [
+        "",
+        r#", "subpacks": [{"folder_name":"high", "name":"High", "memory_tier":2}]"#,
+    ] {
+        let manifest = manifest(extra);
+        let archive = zip_files(&[
+            ("manifest.json", manifest.as_bytes()),
+            ("base.txt", b"root"),
+            ("subpacks/high/base.txt", b"high"),
+            ("subpacks/server label/base.txt", b"undeclared"),
+        ]);
+        let pack = validate_fixture(archive, "server label").expect("root fallback");
+        assert_eq!(pack.sub_pack_name(), "server label");
+        assert_eq!(
+            pack.read_file("base.txt").unwrap().unwrap().as_ref(),
+            b"root"
+        );
+        assert_eq!(pack.files_under("").as_ref(), ["base.txt", "manifest.json"]);
+    }
+}
+
 #[test]
 fn skips_unsafe_duplicate_and_nonfile_entries_without_dropping_the_pack() {
     let manifest = manifest("");

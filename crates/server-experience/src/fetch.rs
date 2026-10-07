@@ -12,6 +12,24 @@ use std::{
 };
 use url::Url;
 
+/// PEM file of the CA that a developer loopback media origin presents.
+pub const DEVELOPER_MEDIA_CA_ENV: &str = "CINNABAR_DEV_MEDIA_CA";
+
+/// Loopback origins are reachable only under the developer switch with an explicit CA.
+fn developer_loopback() -> bool {
+    std::env::var(crate::policy::DEVELOPER_ENV).as_deref() == Ok("1")
+        && std::env::var_os(DEVELOPER_MEDIA_CA_ENV).is_some()
+}
+
+/// Public addresses always; loopback only for a developer media origin.
+fn allowed_address(ip: IpAddr) -> bool {
+    address_allowed(ip, developer_loopback())
+}
+
+fn address_allowed(ip: IpAddr, developer_loopback: bool) -> bool {
+    public_address(ip) || (ip.is_loopback() && developer_loopback)
+}
+
 /// Validates an exact URL against the approved origin set, without doing I/O.
 pub fn approved_url(text: &str, origins: &BTreeSet<String>) -> Result<Url> {
     ensure!(text.len() <= crate::policy::MAX_URL_BYTES, "URL too long");
@@ -29,10 +47,10 @@ pub fn approved_url(text: &str, origins: &BTreeSet<String>) -> Result<Url> {
         "origin not approved"
     );
     if let Some(url::Host::Ipv4(ip)) = url.host() {
-        ensure!(public_address(IpAddr::V4(ip)), "private address denied");
+        ensure!(allowed_address(IpAddr::V4(ip)), "private address denied");
     }
     if let Some(url::Host::Ipv6(ip)) = url.host() {
-        ensure!(public_address(IpAddr::V6(ip)), "private address denied");
+        ensure!(allowed_address(IpAddr::V6(ip)), "private address denied");
     }
     Ok(url)
 }
@@ -90,10 +108,17 @@ pub async fn fetch(
     .await??
     .collect();
     ensure!(
-        !addresses.is_empty() && addresses.iter().all(|a| public_address(a.ip())),
+        !addresses.is_empty() && addresses.iter().all(|a| allowed_address(a.ip())),
         "DNS address denied"
     );
-    let client = Client::builder()
+    let mut builder = Client::builder();
+    if addresses.iter().any(|a| a.ip().is_loopback()) {
+        let path = std::env::var_os(DEVELOPER_MEDIA_CA_ENV)
+            .ok_or_else(|| anyhow::anyhow!("developer media CA missing"))?;
+        let pem = tokio::fs::read(path).await?;
+        builder = builder.add_root_certificate(reqwest::Certificate::from_pem(&pem)?);
+    }
+    let client = builder
         .https_only(true)
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -158,4 +183,20 @@ pub async fn fetch(
     }
     ensure!(bytes.len() == expected_bytes, "truncated download");
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_loopback_opens_and_only_for_the_developer_media_origin() {
+        let loopback: IpAddr = "127.0.0.1".parse().unwrap();
+        let private: IpAddr = "10.0.0.1".parse().unwrap();
+        assert!(!address_allowed(loopback, false));
+        assert!(address_allowed(loopback, true));
+        assert!(address_allowed("::1".parse().unwrap(), true));
+        assert!(!address_allowed(private, true));
+        assert!(address_allowed("1.1.1.1".parse().unwrap(), false));
+    }
 }

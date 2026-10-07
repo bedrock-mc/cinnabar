@@ -1,4 +1,4 @@
-//! `UiExpression::evaluate`: a value/operator stack where prefix `+`, `-` and
+//! Expression evaluation: a value/operator stack where prefix `+`, `-` and
 //! `not` reduce as soon as their operand arrives and binary operators reduce
 //! left to right by precedence, with the client's per-type operator rules.
 

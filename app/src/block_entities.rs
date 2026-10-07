@@ -12,6 +12,5 @@ mod state;
 mod system;
 
 pub(crate) use system::{
-    BLOCK_ENTITY_ASSETS_FILENAME, BlockEntityFont, BlockEntityRuntime, configure,
-    load_block_entity_scene,
+    BlockEntityFont, BlockEntityRuntime, block_entity_scene, configure, load_block_entity_carrier,
 };

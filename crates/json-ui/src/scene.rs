@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use serde_json::Value;
 
-/// A screen root's settings. Defaults are the parser's (`getAsBool` fallbacks).
+/// A screen root's settings. Defaults are vanilla's parser fallbacks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScreenSettings {
     pub screen_not_flushable: bool,
@@ -17,7 +17,7 @@ pub struct ScreenSettings {
     pub should_steal_mouse: bool,
     pub low_frequency_rendering: bool,
     pub screen_draws_last: bool,
-    /// Read by `UIScene::ignoreAsTop`: the scene below still counts as topmost.
+    /// The scene below still counts as topmost.
     pub force_render_below: bool,
     pub send_telemetry: bool,
     pub close_on_player_hurt: bool,
@@ -71,7 +71,7 @@ impl ScreenSettings {
     }
 
     /// Settings from a resolved screen root's properties; a value that is not a
-    /// bool (an unbound `$var`) keeps the default, as `getAsBool` does for null.
+    /// bool (an unbound `$var`) keeps the default, as vanilla does for null.
     pub fn from_properties(properties: &BTreeMap<String, Value>) -> Self {
         let d = Self::default();
         let flag = |key: &str, default: bool| match properties.get(key) {
@@ -149,7 +149,7 @@ impl<K: Copy + PartialEq> SceneStack<K> {
         self.scenes.iter().any(|scene| scene.key == key)
     }
 
-    /// Scenes in paint order (`forEachVisibleScreen`): from the highest scene that
+    /// Scenes in paint order: from the highest scene that
     /// hides the game up, skipping topmost-only scenes under the effective top,
     /// then every draws-last scene. `frequent_only` is the per-frame pass that
     /// also skips menu and low-frequency scenes.
@@ -205,13 +205,13 @@ impl<K: Copy + PartialEq> SceneStack<K> {
         self.input_targets().contains(&key)
     }
 
-    /// `ClientInstance::currentScreenShouldStealMouse`.
+    /// Whether the top screen captures the mouse, as vanilla decides.
     pub fn steals_mouse(&self) -> bool {
         self.top()
             .is_some_and(|scene| scene.settings.should_steal_mouse)
     }
 
-    /// `ClientInstance::isShowingMenu`.
+    /// Whether vanilla would treat the top screen as a menu.
     pub fn showing_menu(&self) -> bool {
         self.top()
             .is_some_and(|scene| scene.settings.is_showing_menu)
@@ -274,7 +274,7 @@ impl<K: Copy + PartialEq> ScreenNav<K> {
     }
 
     /// Pops back to the first instance of `screen` and returns true, or leaves the
-    /// history alone when it holds none (`popScreensBackToFirstInstanceOf`).
+    /// history alone when it holds none.
     pub fn pop_back_to(&mut self, screen: K) -> bool {
         match self.stack.iter().position(|entry| *entry == screen) {
             Some(index) => {

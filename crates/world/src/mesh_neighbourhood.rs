@@ -1,61 +1,13 @@
+use std::{collections::BTreeMap, sync::Arc};
+
 use crate::SubChunk;
 
 const WIDTH: usize = 3;
 const SUB_CHUNK_SIDE: i32 = crate::SUB_CHUNK_SIDE as i32;
 const ENTRY_COUNT: usize = WIDTH * WIDTH * WIDTH;
-const ADJACENT_OFFSETS: [[i8; 3]; 26] = [
-    [-1, -1, -1],
-    [-1, -1, 0],
-    [-1, -1, 1],
-    [-1, 0, -1],
-    [-1, 0, 0],
-    [-1, 0, 1],
-    [-1, 1, -1],
-    [-1, 1, 0],
-    [-1, 1, 1],
-    [0, -1, -1],
-    [0, -1, 0],
-    [0, -1, 1],
-    [0, 0, -1],
-    [0, 0, 1],
-    [0, 1, -1],
-    [0, 1, 0],
-    [0, 1, 1],
-    [1, -1, -1],
-    [1, -1, 0],
-    [1, -1, 1],
-    [1, 0, -1],
-    [1, 0, 0],
-    [1, 0, 1],
-    [1, 1, -1],
-    [1, 1, 0],
-    [1, 1, 1],
-];
-pub(crate) const LIQUID_SAMPLE_OFFSETS: [[i8; 3]; 23] = [
-    [0, -1, 0],
-    [-1, -1, 0],
-    [1, -1, 0],
-    [0, -1, -1],
-    [0, -1, 1],
-    [-1, 0, -1],
-    [-1, 0, 0],
-    [-1, 0, 1],
-    [0, 0, -1],
-    [0, 0, 0],
-    [0, 0, 1],
-    [1, 0, -1],
-    [1, 0, 0],
-    [1, 0, 1],
-    [-1, 1, -1],
-    [-1, 1, 0],
-    [-1, 1, 1],
-    [0, 1, -1],
-    [0, 1, 0],
-    [0, 1, 1],
-    [1, 1, -1],
-    [1, 1, 0],
-    [1, 1, 1],
-];
+mod offsets;
+use offsets::ADJACENT_OFFSETS;
+pub(crate) use offsets::LIQUID_SAMPLE_OFFSETS;
 
 /// One palette-native block sample from a bounded meshing snapshot.
 ///
@@ -109,6 +61,7 @@ pub struct MeshNeighbourhood<'a> {
     block_origin: [i32; 3],
     sub_chunks: [Option<&'a SubChunk>; ENTRY_COUNT],
     column_above: Vec<(i32, &'a SubChunk)>,
+    shared_column: Option<(i32, &'a BTreeMap<i32, Arc<SubChunk>>)>,
 }
 
 impl<'a> MeshNeighbourhood<'a> {
@@ -123,6 +76,7 @@ impl<'a> MeshNeighbourhood<'a> {
             block_origin: [0; 3],
             sub_chunks,
             column_above: Vec::new(),
+            shared_column: None,
         }
     }
 
@@ -172,6 +126,16 @@ impl<'a> MeshNeighbourhood<'a> {
         true
     }
 
+    /// Borrows an immutable column index; explicitly inserted upper sections take precedence.
+    pub fn with_shared_column(
+        mut self,
+        center_y: i32,
+        column: &'a BTreeMap<i32, Arc<SubChunk>>,
+    ) -> Self {
+        self.shared_column = Some((center_y, column));
+        self
+    }
+
     /// Center, upper neighbor, and explicitly captured higher sub-chunks.
     pub fn seasonal_column(&self) -> impl Iterator<Item = (i32, &'a SubChunk)> + '_ {
         [
@@ -181,6 +145,24 @@ impl<'a> MeshNeighbourhood<'a> {
         .into_iter()
         .flatten()
         .chain(self.column_above.iter().copied())
+        .chain(
+            self.shared_column
+                .into_iter()
+                .flat_map(move |(center, column)| {
+                    column
+                        .range(center.saturating_add(2)..)
+                        .filter_map(move |(&y, section)| {
+                            let offset = y.checked_sub(center)?;
+                            (offset >= 2
+                                && offset.checked_mul(SUB_CHUNK_SIDE).is_some()
+                                && !self
+                                    .column_above
+                                    .iter()
+                                    .any(|(explicit, _)| *explicit == offset))
+                            .then_some((offset, section.as_ref()))
+                        })
+                }),
+        )
     }
 
     /// Canonical offsets for all 26 adjacent sub-chunks used by diagonal AO.

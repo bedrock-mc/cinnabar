@@ -4,7 +4,7 @@ The server-initiated `ContainerClosePacket` branch invokes the local-player
 server-close path with the container type. The response branch instead calls the
 local item-stack manager without passing or comparing the response’s window id or type.
 
-`onContainerScreenClose` removes the pending screen when the retained screen queue
+Screen close removes the pending screen when the retained screen queue
 has more than its base entry. The response payload is not a screen-identity
 correlation token.
 

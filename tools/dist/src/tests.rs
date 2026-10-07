@@ -1,4 +1,4 @@
-use super::{ASSET_FILES, DistError, Options, Platform, input_files, stage};
+use super::{DistError, Options, Platform, input_files, layout, stage};
 #[cfg(unix)]
 use super::{canonicalize_top_level_alias, reject_existing_symlinks};
 use std::{
@@ -23,7 +23,7 @@ fn fixture(platform: Platform) -> (PathBuf, Options) {
     let root = temp_root();
     let assets = root.join("synthetic-assets");
     fs::create_dir(&assets).unwrap();
-    for name in ASSET_FILES {
+    for name in layout::asset_files() {
         fs::write(assets.join(name), format!("synthetic {name}")).unwrap();
     }
     let client = root.join("client.bin");

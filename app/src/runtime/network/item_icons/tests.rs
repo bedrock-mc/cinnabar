@@ -254,6 +254,7 @@ fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
         let blocks = protocol::CustomBlocks {
             blocks: vec![protocol::CustomBlock {
                 name: Arc::from("test:custom_cube"),
+                tags: Default::default(),
                 state_count: 1,
                 collides: true,
                 collision_box: None,
@@ -298,6 +299,7 @@ fn registry_items_named_after_custom_blocks_are_block_items() {
     let blocks = protocol::CustomBlocks {
         blocks: vec![protocol::CustomBlock {
             name: "t:crate".into(),
+            tags: Default::default(),
             state_count: 1,
             collides: true,
             collision_box: None,

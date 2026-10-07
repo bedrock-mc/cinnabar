@@ -233,6 +233,8 @@ pub struct WorldStreamNormalizationStats {
     pub retry_request_encoding_failures: u64,
     pub biome_definition_resolution_failures: u64,
     pub biome_tint_revision_overflows: u64,
+    pub invalid_actor_block_syncs: u64,
+    pub actor_block_sync_capacity_failures: u64,
 }
 
 impl WorldStreamNormalizationStats {
@@ -259,6 +261,8 @@ impl WorldStreamNormalizationStats {
             self.retry_request_encoding_failures,
             self.biome_definition_resolution_failures,
             self.biome_tint_revision_overflows,
+            self.invalid_actor_block_syncs,
+            self.actor_block_sync_capacity_failures,
         ]
         .into_iter()
         .fold(0, u64::saturating_add)
@@ -285,6 +289,8 @@ pub(super) enum NormalizationErrorReason {
     RetryRequestEncodingFailure,
     BiomeDefinitionResolutionFailure,
     BiomeTintRevisionOverflow,
+    InvalidActorBlockSync,
+    ActorBlockSyncCapacity,
 }
 
 impl WorldStreamNormalizationStats {
@@ -328,6 +334,10 @@ impl WorldStreamNormalizationStats {
             }
             NormalizationErrorReason::BiomeTintRevisionOverflow => {
                 &mut self.biome_tint_revision_overflows
+            }
+            NormalizationErrorReason::InvalidActorBlockSync => &mut self.invalid_actor_block_syncs,
+            NormalizationErrorReason::ActorBlockSyncCapacity => {
+                &mut self.actor_block_sync_capacity_failures
             }
         };
         *counter = counter.saturating_add(1);
@@ -381,6 +391,8 @@ pub struct WorldStreamStats {
     pub max_decode_queue_wait: Duration,
     pub max_light_queue_wait: Duration,
     pub max_mesh_queue_wait: Duration,
+    /// Worker-pool share of the mesh queue wait: dispatch to worker start.
+    pub max_mesh_dispatch_wait: Duration,
     pub max_decode_duration: Duration,
     pub max_mesh_duration: Duration,
     pub max_light_duration: Duration,
@@ -400,8 +412,13 @@ impl WorldStreamStats {
         self.max_light_queue_wait = self.max_light_queue_wait.max(queue_wait);
     }
 
-    pub(super) fn observe_mesh_queue_wait(&mut self, queue_wait: Duration) {
+    pub(super) fn observe_mesh_queue_wait(
+        &mut self,
+        queue_wait: Duration,
+        dispatch_wait: Duration,
+    ) {
         self.max_mesh_queue_wait = self.max_mesh_queue_wait.max(queue_wait);
+        self.max_mesh_dispatch_wait = self.max_mesh_dispatch_wait.max(dispatch_wait);
     }
 }
 
@@ -461,6 +478,7 @@ pub(super) struct MeshCompletion {
     pub(super) dependency_mask: MeshDependencyMask,
     pub(super) light_halo: MeshLightHalo,
     pub(super) queue_wait: Duration,
+    pub(super) dispatch_wait: Duration,
     pub(super) duration: Duration,
     pub(super) urgent: bool,
 }

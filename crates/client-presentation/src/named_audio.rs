@@ -13,7 +13,7 @@ use bevy::prelude::{MessageReader, NonSendMut, Query, Res, ResMut, Resource, Tra
 use semantic_input::PerspectiveMode;
 use std::sync::Arc;
 mod backend;
-pub use backend::AudioDevice;
+pub use backend::{AudioDevice, CAPTURE_CHANNELS, CaptureMixer};
 use backend::{CancelablePcm, PermitPool, VOICE_LIMIT, VoiceControl};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -18,8 +18,29 @@ use bevy::{
 use super::{
     ACTOR_SHADER_SOURCE, ActorGpu, ActorPipelineKey, ActorPipelineSpecializer,
     ActorRenderInstalled, ActorRenderPlugin, actor_bind_group_layout, actor_pipeline_descriptor,
-    actor_skin_upload_plan,
+    player_skins_resident,
 };
+
+#[path = "pipeline_prewarm_tests.rs"]
+mod pipeline_prewarm_tests;
+
+#[path = "pipeline_material_gpu_tests.rs"]
+mod pipeline_material_gpu_tests;
+
+#[path = "frame_order_tests.rs"]
+mod frame_order_tests;
+
+/// A residency holding one standard-raster skin in class 0, layer 0.
+fn one_resident_skin() -> Arc<crate::actor::ActorSkinResidency> {
+    let skin = render_api::SkinRgba8::from(vec![255; render_model::STANDARD_SKIN_BYTES]);
+    let mut residency = crate::actor::ActorSkinResidency::default();
+    residency.classes[0] = Arc::from([Some(crate::actor::ResidentSkin {
+        texels: Arc::clone(skin.pixels()),
+        skin,
+        admission: 1,
+    })]);
+    Arc::new(residency)
+}
 
 #[test]
 fn shared_skin_layer_prepares_one_texture_layer_for_multiple_actors() {
@@ -34,41 +55,124 @@ fn shared_skin_layer_prepares_one_texture_layer_for_multiple_actors() {
             ..Default::default()
         },
     ]);
-    frame.skins_rgba8 = vec![255; render_model::STANDARD_SKIN_BYTES].into();
+    frame.skins = one_resident_skin();
 
-    let plan =
-        actor_skin_upload_plan(&frame).expect("a shared normalized skin family remains drawable");
-
-    assert_eq!(plan.layer_count, 1);
+    assert!(player_skins_resident(&frame));
 }
 
 #[test]
-fn skin_upload_preparation_rejects_misaligned_bytes_and_out_of_range_layers() {
+fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() {
+    use bevy::prelude::Msaa;
+    use bevy::render::render_resource::{ColorWrites, CompareFunction, Specializer};
+    for material in [
+        assets::EntityRenderMaterial::DissolveDepth,
+        assets::EntityRenderMaterial::DissolveColor,
+    ] {
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                    enhanced: false,
+                    material: material as u32,
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        let depth = descriptor.depth_stencil.unwrap();
+        let target = descriptor.fragment.unwrap().targets[0].clone().unwrap();
+        assert!(depth.depth_write_enabled);
+        assert_eq!(target.blend, None);
+        if material == assets::EntityRenderMaterial::DissolveDepth {
+            assert_eq!(target.write_mask, ColorWrites::empty());
+            assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+        } else {
+            assert_eq!(target.write_mask, ColorWrites::ALL);
+            assert_eq!(depth.depth_compare, CompareFunction::Equal);
+        }
+    }
+}
+
+#[test]
+fn actor_material_states_specialize_culling_blending_and_depth_write_independently() {
+    use bevy::prelude::Msaa;
+    use bevy::render::render_resource::{BlendFactor, Face, Specializer};
+    for (cull, blend, depth_write) in [
+        (true, false, true),
+        (false, true, true),
+        (true, true, false),
+    ] {
+        let material = crate::ActorMaterial {
+            state: Some(assets::EntityRenderMaterialState {
+                alpha_test: true,
+                cull,
+                blend,
+                depth_write,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                    enhanced: false,
+                    material: material.gpu_word(),
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        assert_eq!(descriptor.primitive.cull_mode, cull.then_some(Face::Back));
+        assert_eq!(
+            descriptor.depth_stencil.unwrap().depth_write_enabled,
+            depth_write
+        );
+        let actual = descriptor.fragment.unwrap().targets[0]
+            .as_ref()
+            .unwrap()
+            .blend;
+        assert_eq!(actual.is_some(), blend);
+        if let Some(actual) = actual {
+            assert_eq!(actual.color.src_factor, BlendFactor::SrcAlpha);
+            assert_eq!(actual.color.dst_factor, BlendFactor::OneMinusSrcAlpha);
+        }
+    }
+}
+
+#[test]
+fn skin_preparation_rejects_slots_that_are_not_resident() {
     let mut frame = crate::actor::ActorRenderFrame::default();
     frame.rig.instances = Arc::from([crate::actor::ActorGpuInstance {
         texture_layer: 0,
         ..Default::default()
     }]);
-    frame.skins_rgba8 = vec![255; render_model::STANDARD_SKIN_BYTES - 1].into();
-    assert!(actor_skin_upload_plan(&frame).is_none());
+    assert!(!player_skins_resident(&frame));
 
-    frame.skins_rgba8 = vec![255; render_model::STANDARD_SKIN_BYTES].into();
-    Arc::make_mut(&mut frame.rig.instances)[0].texture_layer = 1;
-    assert!(actor_skin_upload_plan(&frame).is_none());
+    frame.skins = one_resident_skin();
+    assert!(player_skins_resident(&frame));
+    for slot in [1, crate::actor::pack_skin_slot(1, 0)] {
+        Arc::make_mut(&mut frame.rig.instances)[0].texture_layer = slot;
+        assert!(!player_skins_resident(&frame));
+    }
 }
 
 #[test]
-fn generic_only_frames_do_not_require_or_reinterpret_player_skin_bytes() {
+fn generic_only_frames_do_not_require_or_reinterpret_player_skins() {
     let mut frame = crate::actor::ActorRenderFrame::default();
     frame.rig.instances = Arc::from([crate::actor::ActorGpuInstance {
         texture_layer: 17,
         ..Default::default()
     }]);
     frame.instance_pages = Arc::from([1]);
-    let plan = actor_skin_upload_plan(&frame).expect("generic layer is not a player-skin layer");
-    assert_eq!(plan.layer_count, 0);
+    assert!(
+        player_skins_resident(&frame),
+        "generic layer is not a player-skin layer"
+    );
     frame.instance_pages = Arc::from([0]);
-    assert!(actor_skin_upload_plan(&frame).is_none());
+    assert!(!player_skins_resident(&frame));
 }
 
 #[test]
@@ -121,6 +225,7 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
             uv: [0.0; 2],
             back_uv: [0.0; 2],
             bone_index: 0,
+            surface: Default::default(),
         }; 3],
     );
     frame.rig.geometry_spans = Arc::from([crate::actor::ActorRigGeometrySpan {
@@ -145,7 +250,6 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
         .unwrap();
     let gpu = world.resource::<ActorGpu>();
     assert_eq!(gpu.instance_count, 1);
-    assert!(gpu.skin_view.is_some());
     assert_eq!(gpu.artwork.pages.len(), 1);
     let draw = crate::actor::ActorDrawFrame {
         artwork_identity: gpu.artwork_identity,
@@ -219,6 +323,7 @@ fn standalone_actor_shader_source() -> String {
         ACTOR_SHADER_SOURCE,
         "actor.wgsl",
         crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
     );
     let bevy::shader::Source::Wgsl(source) = shader.source else {
         panic!("actor source is WGSL");
@@ -302,6 +407,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
     ActorPipelineSpecializer
         .specialize(
             ActorPipelineKey {
+                material: 0,
                 msaa: Msaa::Sample4,
                 hdr: true,
                 enhanced: false,
@@ -337,6 +443,7 @@ fn camera_marker_selects_actor_enhanced_variant_without_changing_vanilla_depth()
                     msaa: Msaa::Off,
                     hdr: true,
                     enhanced,
+                    material: assets::EntityRenderMaterial::Default as u32,
                 },
                 &mut descriptor,
             )
@@ -362,13 +469,15 @@ fn camera_marker_selects_actor_enhanced_variant_without_changing_vanilla_depth()
 
 #[test]
 fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
-    assert_eq!(std::mem::size_of::<render_model::ActorRigVertex>(), 44);
+    assert_eq!(
+        std::mem::size_of::<render_model::ActorRigVertex>(),
+        render_model::ACTOR_RIG_VERTEX_WORDS * 4
+    );
     assert_eq!(
         std::mem::offset_of!(render_model::ActorRigVertex, bone_index),
         40
     );
     assert!(ACTOR_SHADER_SOURCE.contains("instance_index * ACTOR_GPU_INSTANCE_WORDS"));
-    assert!(ACTOR_SHADER_SOURCE.contains("(span.first_vertex + vertex_index) * 11u"));
     assert!(ACTOR_SHADER_SOURCE.contains("vertex_words[vertex_base + 10u]"));
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 0u && color.a < 0.1"));
     // The one-sided plane sentinel lies below the shader's discard threshold.
@@ -380,7 +489,7 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
 #[test]
 fn native_color_mask_alpha_controls_dye_not_opacity() {
     assert!(ACTOR_SHADER_SOURCE.contains("let color_mask_material = material_class.y != 0u;"));
-    assert!(ACTOR_SHADER_SOURCE.contains("if (!color_mask_material && !multitexture_material &&"));
+    assert!(ACTOR_SHADER_SOURCE.contains("!color_mask_material && !multitexture_material &&"));
     assert!(ACTOR_SHADER_SOURCE.contains("mix(color.rgb, color.rgb * dye, color.a)"));
     assert!(ACTOR_SHADER_SOURCE.contains("color.a * change_color.a"));
     let descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
@@ -405,6 +514,129 @@ fn native_multitexture_mixes_rgb_once_without_using_base_alpha_as_coverage() {
     assert!(ACTOR_SHADER_SOURCE.contains("!color_mask_material && !multitexture_material &&"));
     assert_eq!(
         std::mem::offset_of!(crate::actor::ActorGpuInstance, multitexture_layers) / 4,
-        crate::actor::ACTOR_GPU_INSTANCE_WORDS - 2
+        std::mem::offset_of!(crate::actor::ActorGpuInstance, material) / 4 - 2
     );
+}
+
+fn diagnostic_body(runtime_id: u64, texture_layer: u32) -> crate::actor::ActorRigSubmission {
+    use crate::actor::{ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute};
+    let bone = render_model::RenderBoneTransform {
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        translation_scale: [0.0, 0.0, 0.0, 1.0],
+        axis_scale: render_model::UNIT_AXIS_SCALE,
+    };
+    crate::actor::ActorRigSubmission {
+        material: Default::default(),
+        culling_bounds: Default::default(),
+        input: ActorRigRenderInput {
+            identity: ActorRenderIdentity {
+                session_id: 1,
+                dimension: 0,
+                runtime_id,
+                spawn_revision: 1,
+                ingress_sequence: 1,
+                source_tick: Some(1),
+                movement_revision: 1,
+                pose_generation: 1,
+                layer: 0,
+            },
+            rig: render_model::EntityRigId(u32::MAX),
+            previous_bones: Arc::from([bone; 6]),
+            current_bones: Arc::from([bone; 6]),
+            completed_tick: 1,
+            reset_generation: 1,
+        },
+        world_from_actor: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 64.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ],
+        texture_layer,
+        route: ActorRigRoute::Diagnostic,
+        tint: 0,
+        uv_anim: crate::IDENTITY_UV_ANIM,
+        light: 0,
+        overlay_rgba8: 0,
+    }
+}
+
+/// A standard raster upscaled from a `side`-texel skin of one varying colour per texel.
+fn upscaled_skin(seed: u8, side: usize) -> render_api::SkinRgba8 {
+    let standard = render_model::STANDARD_SKIN_SIDE;
+    let scale = standard / side;
+    let mut out = vec![0; render_model::STANDARD_SKIN_BYTES];
+    for (index, texel) in out.chunks_exact_mut(4).enumerate() {
+        let (x, y) = (index % standard / scale, index / standard / scale);
+        texel.copy_from_slice(&[seed, x as u8, y as u8, 255]);
+    }
+    out.into()
+}
+
+/// Publishes the players in `shown` (runtime id, skin) and syncs the GPU arrays to that frame.
+fn publish_and_sync(
+    scene: &mut crate::actor::ActorRenderScene,
+    gpu: &mut super::GpuSkinArrays,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    shown: &[(u64, &render_api::SkinRgba8)],
+) -> Vec<u32> {
+    let skins: Vec<_> = shown.iter().map(|(_, skin)| (*skin).clone()).collect();
+    let frame = scene.update_rigs(
+        0.5,
+        None,
+        shown
+            .iter()
+            .enumerate()
+            .map(|(index, (runtime_id, _))| diagnostic_body(*runtime_id, index as u32)),
+        &skins,
+    );
+    assert!(player_skins_resident(frame));
+    gpu.sync(&frame.skins, device, queue);
+    assert!(gpu.is_synced(&frame.skins));
+    frame
+        .rig
+        .instances
+        .iter()
+        .map(|instance| instance.texture_layer)
+        .collect()
+}
+
+#[test]
+fn skin_arrays_upload_only_newly_admitted_skins() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut gpu = super::GpuSkinArrays::new(&device);
+    let mut scene = crate::actor::ActorRenderScene::default();
+    let skins: Vec<_> = (0..6).map(|seed| upscaled_skin(seed, 64)).collect();
+    let classic = 64 * 64 * 4;
+
+    let first: Vec<_> = (0..4)
+        .map(|index| (index + 1, &skins[index as usize]))
+        .collect();
+    let layers = publish_and_sync(&mut scene, &mut gpu, &device, &queue, &first);
+    assert_eq!(gpu.uploaded_bytes, 4 * classic);
+
+    // Players leaving and re-entering view sample their existing layers.
+    let subset = [first[3], first[1]];
+    let mut moved = publish_and_sync(&mut scene, &mut gpu, &device, &queue, &subset);
+    moved.sort_unstable();
+    let mut expected = [layers[1], layers[3]];
+    expected.sort_unstable();
+    assert_eq!(moved, expected);
+    publish_and_sync(&mut scene, &mut gpu, &device, &queue, &first);
+    assert_eq!(gpu.uploaded_bytes, 4 * classic);
+
+    // HD skins upload only their native layer; growing the array copies resident layers on
+    // the GPU instead of re-uploading them.
+    let hd = [upscaled_skin(9, 256), upscaled_skin(10, 256)];
+    let mut shown = first.clone();
+    shown.push((5, &hd[0]));
+    let one = publish_and_sync(&mut scene, &mut gpu, &device, &queue, &shown);
+    assert_eq!(gpu.uploaded_bytes, 4 * classic + 256 * 256 * 4);
+    shown.push((6, &hd[1]));
+    let two = publish_and_sync(&mut scene, &mut gpu, &device, &queue, &shown);
+    assert_eq!(scene.frame().skins.classes[3].len(), 2);
+    assert_eq!(two[..5], one[..]);
+    assert_eq!(gpu.uploaded_bytes, 4 * classic + 2 * 256 * 256 * 4);
 }

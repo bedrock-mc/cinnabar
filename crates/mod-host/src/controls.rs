@@ -107,7 +107,9 @@ pub(super) fn validate_frame(frame: &ControlFrame) -> Result<()> {
     );
     ensure!(
         frame.keys_pressed.len() <= mod_api::MAX_CONTROL_KEYS
-            && frame.keys_pressed.iter().all(|key| key_valid(key)),
+            && frame.keys_pressed.iter().all(|key| key_valid(key))
+            && frame.keys_held.len() <= mod_api::MAX_CONTROL_KEYS
+            && frame.keys_held.iter().all(|key| key_valid(key)),
         "invalid controls key edges"
     );
     ensure!(

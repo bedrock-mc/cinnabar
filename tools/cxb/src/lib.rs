@@ -10,6 +10,7 @@ use server_experience::{cache, crypto};
 pub mod bundle;
 pub mod fixtures;
 pub mod keys;
+pub mod media;
 
 /// Publishes a bundle into a client's cache under its digest, as a finished download would.
 /// Returns the digest and the cache directory.

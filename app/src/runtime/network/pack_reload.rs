@@ -46,6 +46,7 @@ pub(crate) struct PackReload {
     last_duration: Option<Duration>,
     error: Option<String>,
     previous: Option<PackApplication>,
+    aim_assist_textures: [Option<Arc<render::AimAssistTexture>>; 2],
     previous_assets: Option<Arc<assets::RuntimeAssets>>,
 }
 
@@ -66,12 +67,18 @@ impl Default for PackReload {
             last_duration: None,
             error: None,
             previous: None,
+            aim_assist_textures: Default::default(),
             previous_assets: None,
         }
     }
 }
 
 impl PackReload {
+    /// Prepared texture overrides remain owned by the currently accepted pack application.
+    pub(crate) fn aim_assist_textures(&self) -> &[Option<Arc<render::AimAssistTexture>>; 2] {
+        &self.aim_assist_textures
+    }
+
     /// Queues a global stack; importing or reordering never touches the network connection.
     pub(crate) fn request_globals(&mut self, stack: Arc<ValidatedPackStack>) -> u64 {
         self.globals = stack;
@@ -103,6 +110,7 @@ impl PackReload {
     /// Retains server-owned facts while keeping user packs below the server stack.
     pub(super) fn begin_session(&mut self, generation: u64, packs: &PackApplication) {
         self.generation = generation;
+        self.aim_assist_textures = packs.aim_assist_textures.clone();
         self.previous = None;
         self.server = match &packs.admission {
             PackAdmission::Validated(stack) => stack.clone(),
@@ -121,6 +129,7 @@ impl PackReload {
         self.inputs = Arc::default();
         self.items = None;
         self.generation = 0;
+        self.aim_assist_textures = Default::default();
         self.previous = None;
         self.revision += 1;
     }
@@ -360,6 +369,7 @@ pub(crate) fn reload_resource_packs(
                             &prepared.application.item_components,
                         )
                 });
+                reload.aim_assist_textures = prepared.application.aim_assist_textures.clone();
                 reload.previous = Some(prepared.application.clone());
                 reload.previous_assets = Some(prepared.assets.clone());
                 if let Some(environment) = prepared.environment {

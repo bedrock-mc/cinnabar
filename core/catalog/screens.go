@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
+	"github.com/df-mc/go-xsapi/v2/social"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
@@ -18,12 +18,15 @@ import (
 // a caller that caches the artwork.
 type FeaturedServer struct {
 	Name         string   `json:"name"`
+	Group        string   `json:"group"`
+	PlayerCount  *int64   `json:"player_count,omitempty"`
 	Address      string   `json:"address"`
 	Caption      string   `json:"caption"`
 	Description  string   `json:"description,omitempty"`
 	NewsTitle    string   `json:"news_title,omitempty"`
 	News         string   `json:"news,omitempty"`
 	Logo         Image    `json:"logo"`
+	Background   Image    `json:"background"` // the details panel's banner
 	Screenshots  []Image  `json:"screenshots"`
 	Games        []Game   `json:"games"`
 	Tags         []string `json:"tags,omitempty"`
@@ -42,18 +45,6 @@ type Game struct {
 type Image struct {
 	URL  string `json:"url,omitempty"`
 	Path string `json:"path,omitempty"`
-}
-
-// Gathering is a community experience; it is joined by ID only when the player connects.
-type Gathering struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Caption     string `json:"caption"`
-	Description string `json:"description,omitempty"`
-	Creator     string `json:"creator,omitempty"`
-	Image       Image  `json:"image"`
-	StartUnix   int64  `json:"start_unix,omitempty"`
-	EndUnix     int64  `json:"end_unix,omitempty"`
 }
 
 // Profile is the signed-in account as the start and profile screens show it. A count whose
@@ -79,39 +70,6 @@ type Profile struct {
 // Partial returns why lookups failed; their fields are left unset. Callers redact it before logging.
 func (p Profile) Partial() error { return p.partial }
 
-// FeaturedServers lists the featured servers from the gatherings service.
-func FeaturedServers(ctx context.Context, account *authcache.Account) ([]FeaturedServer, error) {
-	var result []FeaturedServer
-	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
-		values, err := client.FeaturedServers(ctx)
-		if err != nil {
-			return err
-		}
-		result = featuredServers(values)
-		return nil
-	})
-	return result, err
-}
-
-// Gatherings lists the community experiences; listing never joins one.
-func Gatherings(ctx context.Context, account *authcache.Account) ([]Gathering, error) {
-	var result []Gathering
-	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
-		values, err := client.Experiences(ctx)
-		if err != nil {
-			return err
-		}
-		result = make([]Gathering, 0, len(values))
-		for _, experience := range values {
-			if experience != nil && experience.Valid() {
-				result = append(result, gathering(experience))
-			}
-		}
-		return nil
-	})
-	return result, err
-}
-
 // JoinGathering joins the experience now and returns its typed server assignment.
 func JoinGathering(ctx context.Context, account *authcache.Account, id uuid.UUID) (*gatherings.Address, error) {
 	var address *gatherings.Address
@@ -134,10 +92,10 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 	defer xbl.Close()
 	info := xbl.UserInfo()
 	profile := Profile{Gamertag: info.GamerTag, XUID: info.XUID}
-	social := xbl.Social()
+	people := xbl.Social()
 	var failures []error
 	finish = ObserveProfileRequest(ctx, "identity")
-	user, err := social.UserByXUID(ctx, info.XUID)
+	user, err := people.UserByXUID(ctx, info.XUID)
 	finish(err)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("profile: %w", err))
@@ -155,22 +113,20 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 		}
 	}
 	finish = ObserveProfileRequest(ctx, "friends")
-	friends, err := social.Friends(ctx)
+	friends, err := peopleCount(ctx, people, social.PeopleListFriends)
 	finish(err)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("friends: %w", err))
 	} else {
-		count := len(friends)
-		profile.Friends = &count
+		profile.Friends = &friends
 	}
 	finish = ObserveProfileRequest(ctx, "followers")
-	followers, err := social.Followers(ctx)
+	followers, err := peopleCount(ctx, people, social.PeopleListFollowers)
 	finish(err)
 	if err != nil {
 		failures = append(failures, fmt.Errorf("followers: %w", err))
 	} else {
-		count := len(followers)
-		profile.Followers = &count
+		profile.Followers = &followers
 	}
 	finish = ObserveProfileRequest(ctx, "statistics")
 	stats, err := profileStatistics(ctx, xbl.HTTPClient(), info.XUID)
@@ -190,6 +146,12 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 	}
 	profile.partial = errors.Join(failures...)
 	return profile, nil
+}
+
+// peopleCount counts one people list; the game requests these lists without decorations.
+func peopleCount(ctx context.Context, people *social.Client, list social.PeopleList) (int, error) {
+	users, err := people.People(ctx, list, social.PeopleListConfig{Undecorated: true})
+	return len(users), err
 }
 
 // withGatherings hands run a gatherings client on the discovered endpoint and the account's token.
@@ -215,78 +177,6 @@ func gatheringsClient(discovery *service.Discovery, tokens service.TokenSource) 
 		return nil, fmt.Errorf("resolve gatherings service: %w", err)
 	}
 	return env.New(tokens), nil
-}
-
-func featuredServers(values []*gatherings.FeaturedServer) []FeaturedServer {
-	result := make([]FeaturedServer, 0, len(values))
-	for _, server := range values {
-		if server == nil || !server.Valid() {
-			continue
-		}
-		result = append(result, FeaturedServer{
-			Name:         displayName(server.Item.Title.Neutral(), server.CreatorName, "Featured server"),
-			Address:      server.Address(),
-			Caption:      firstGameCaption(server.AvailableGames, "Featured server"),
-			Description:  strings.TrimSpace(server.Item.Description.Neutral()),
-			NewsTitle:    strings.TrimSpace(server.NewsTitle),
-			News:         strings.TrimSpace(server.News),
-			Logo:         Image{URL: artworkURL(server.Item, nil)},
-			Screenshots:  screenshots(server.Item),
-			Games:        games(server.Item, server.AvailableGames),
-			Tags:         server.Item.Tags,
-			thumbnailURL: artworkURL(server.Item, server.AvailableGames),
-		})
-	}
-	return result
-}
-
-func gathering(experience *gatherings.Experience) Gathering {
-	entry := Gathering{
-		ID:          experience.ID.String(),
-		Name:        displayName(experience.Item.Title.Neutral(), experience.CreatorName, "Gathering"),
-		Caption:     firstGameCaption(experience.AvailableGames, "Community gathering"),
-		Description: strings.TrimSpace(experience.Item.Description.Neutral()),
-		Creator:     strings.TrimSpace(experience.CreatorName),
-		Image:       Image{URL: artworkURL(experience.Item, experience.AvailableGames)},
-	}
-	if !experience.Item.StartDate.IsZero() {
-		entry.StartUnix = experience.Item.StartDate.Unix()
-	}
-	if !experience.Item.EndDate.IsZero() {
-		entry.EndUnix = experience.Item.EndDate.Unix()
-	}
-	return entry
-}
-
-func screenshots(item playfabcatalog.Item) []Image {
-	result := []Image{}
-	for _, image := range item.Images {
-		if strings.EqualFold(image.Type, playfabcatalog.ImageTypeScreenshot) && validArtworkURL(image.URL) {
-			result = append(result, Image{URL: image.URL})
-		}
-	}
-	return result
-}
-
-func games(item playfabcatalog.Item, values []gatherings.AvailableGame) []Game {
-	result := make([]Game, 0, len(values))
-	for _, value := range values {
-		game := Game{
-			Title:       strings.TrimSpace(value.Title),
-			Subtitle:    strings.TrimSpace(value.Subtitle),
-			Description: strings.TrimSpace(value.Description),
-		}
-		for _, image := range item.Images {
-			if value.ImageTag != "" && image.Tag == value.ImageTag && validArtworkURL(image.URL) {
-				game.Image.URL = image.URL
-				break
-			}
-		}
-		if game.Title != "" || game.Subtitle != "" {
-			result = append(result, game)
-		}
-	}
-	return result
 }
 
 // maxCachedArtwork bounds the artwork directory; the least recently used files go first.
@@ -315,22 +205,13 @@ func FeaturedImages(servers []FeaturedServer) []*Image {
 	var images []*Image
 	for index := range servers {
 		server := &servers[index]
-		images = append(images, &server.Logo)
+		images = append(images, &server.Logo, &server.Background)
 		for shot := range server.Screenshots {
 			images = append(images, &server.Screenshots[shot])
 		}
 		for game := range server.Games {
 			images = append(images, &server.Games[game].Image)
 		}
-	}
-	return images
-}
-
-// GatheringImages lists the artwork of gatherings for CacheImages.
-func GatheringImages(gatherings []Gathering) []*Image {
-	images := make([]*Image, 0, len(gatherings))
-	for index := range gatherings {
-		images = append(images, &gatherings[index].Image)
 	}
 	return images
 }

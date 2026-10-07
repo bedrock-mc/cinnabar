@@ -1,5 +1,11 @@
-use super::{MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef, TransparentSortCandidate};
+use super::groups::{TransparentGroupInput, TransparentGroupOrder, TransparentGroups};
+use super::{
+    MAX_TRANSPARENT_DRAW_REFS, PackedTransparentDrawRef, TransparentLiquidPhaseGroup,
+    transparent_liquid_phase_groups,
+};
+use crate::chunk::transparent::face_metric::{FaceOrderCamera, TransparentFaceMetric};
 use crate::chunk::*;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransparentSortError {
@@ -179,10 +185,10 @@ impl TransparentAllocationIdentity {
     }
 }
 
+/// Omits camera rotation: each sub-chunk is its own phase item and its faces sort by position.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ViewSortKey {
-    pub(in crate::chunk) camera_position_bits: [u32; 3],
-    pub(in crate::chunk) camera_orientation_bits: [u32; 4],
+    pub(in crate::chunk) order_camera: FaceOrderCamera,
     pub(in crate::chunk) visible_allocations: Arc<[TransparentAllocationIdentity]>,
     pub(in crate::chunk) asset_identity: ChunkTextureAssetIdentity,
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
@@ -196,40 +202,16 @@ pub(in crate::chunk) struct TransparentAddressIdentity {
 }
 
 impl ViewSortKey {
+    /// Keys the camera only as far as some visible sub-chunk's face order depends on it.
     pub fn try_new(
         camera_position: [f32; 3],
-        camera_orientation: [f32; 4],
         mut visible_allocations: Vec<TransparentAllocationIdentity>,
         asset_identity: ChunkTextureAssetIdentity,
         tint_identity: ChunkBiomeTintIdentity,
     ) -> Result<Self, TransparentSortError> {
-        if !camera_position.into_iter().all(f32::is_finite)
-            || !camera_orientation.into_iter().all(f32::is_finite)
-        {
+        if !camera_position.into_iter().all(f32::is_finite) {
             return Err(TransparentSortError::InvalidCameraTransform);
         }
-        let norm_squared = camera_orientation
-            .into_iter()
-            .map(|value| value * value)
-            .sum::<f32>();
-        if !norm_squared.is_finite() || norm_squared == 0.0 {
-            return Err(TransparentSortError::InvalidCameraTransform);
-        }
-        let inverse_norm = norm_squared.sqrt().recip();
-        let mut orientation = camera_orientation.map(|value| value * inverse_norm);
-        let sign_anchor = [
-            orientation[3],
-            orientation[2],
-            orientation[1],
-            orientation[0],
-        ]
-        .into_iter()
-        .find(|value| *value != 0.0)
-        .unwrap_or(1.0);
-        if sign_anchor.is_sign_negative() {
-            orientation = orientation.map(|value| -value);
-        }
-        let canonical_bits = |value: f32| if value == 0.0 { 0 } else { value.to_bits() };
         visible_allocations.sort_by_key(TransparentAllocationIdentity::canonical_tuple);
         visible_allocations.dedup();
         for pair in visible_allocations.windows(2) {
@@ -237,9 +219,10 @@ impl ViewSortKey {
                 return Err(TransparentSortError::ConflictingAllocation { key: pair[0].key });
             }
         }
+        let order_camera = TransparentFaceMetric::new(Vec3::from_array(camera_position))
+            .order_camera(visible_allocations.iter().map(|identity| identity.key));
         Ok(Self {
-            camera_position_bits: camera_position.map(canonical_bits),
-            camera_orientation_bits: orientation.map(canonical_bits),
+            order_camera,
             visible_allocations: Arc::from(visible_allocations),
             asset_identity,
             tint_identity,
@@ -261,11 +244,16 @@ impl ViewSortKey {
     }
 }
 
+/// Spans of `refs` that differ from a base order, computed off the render thread.
+pub(in crate::chunk) type TransparentRefPatch =
+    (Arc<[PackedTransparentDrawRef]>, Vec<Range<usize>>);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransparentSortResult {
     pub(in crate::chunk) generation: ViewSortGeneration,
     pub(in crate::chunk) key: ViewSortKey,
-    pub(in crate::chunk) refs: Box<[PackedTransparentDrawRef]>,
+    pub(in crate::chunk) refs: Arc<[PackedTransparentDrawRef]>,
+    pub(in crate::chunk) patch: Option<TransparentRefPatch>,
 }
 
 impl TransparentSortResult {
@@ -274,11 +262,21 @@ impl TransparentSortResult {
         key: ViewSortKey,
         refs: Vec<PackedTransparentDrawRef>,
     ) -> Result<Self, TransparentSortError> {
+        Self::with_patch(generation, key, refs.into(), None)
+    }
+
+    pub(in crate::chunk) fn with_patch(
+        generation: ViewSortGeneration,
+        key: ViewSortKey,
+        refs: Arc<[PackedTransparentDrawRef]>,
+        patch: Option<TransparentRefPatch>,
+    ) -> Result<Self, TransparentSortError> {
         validate_transparent_sort_ref_count(refs.len())?;
         Ok(Self {
             generation,
             key,
-            refs: refs.into_boxed_slice(),
+            refs,
+            patch,
         })
     }
 }
@@ -289,9 +287,30 @@ pub struct TransparentOrderedSnapshot {
     pub(in crate::chunk) key: ViewSortKey,
     pub(in crate::chunk) refs: Arc<[PackedTransparentDrawRef]>,
     pub(in crate::chunk) buffer_slot: u8,
+    pub(in crate::chunk) phase_groups: PhaseGroupCache,
 }
 
+/// Per-snapshot memo of its validated sub-chunk partition; never part of snapshot equality.
+#[derive(Debug, Clone, Default)]
+pub(in crate::chunk) struct PhaseGroupCache(OnceLock<Option<Arc<[TransparentLiquidPhaseGroup]>>>);
+
+impl PartialEq for PhaseGroupCache {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for PhaseGroupCache {}
+
 impl TransparentOrderedSnapshot {
+    /// Validates the sub-chunk partition once per committed order instead of every frame.
+    pub(in crate::chunk) fn phase_groups(&self) -> Option<Arc<[TransparentLiquidPhaseGroup]>> {
+        self.phase_groups
+            .0
+            .get_or_init(|| transparent_liquid_phase_groups(self).map(Arc::from))
+            .clone()
+    }
+
     #[must_use]
     pub const fn generation(&self) -> ViewSortGeneration {
         self.generation
@@ -320,6 +339,8 @@ pub struct TransparentSortState {
     pub(in crate::chunk) committed: Option<TransparentOrderedSnapshot>,
     pub(in crate::chunk) staged: Option<TransparentStagedSnapshot>,
     pub(in crate::chunk) upload_cap: usize,
+    /// Committed-slot ranges the caller must write before this frame renders.
+    pub(in crate::chunk) pending_patch: Vec<Range<usize>>,
 }
 
 #[derive(Debug)]
@@ -364,6 +385,7 @@ impl TransparentSortState {
             committed: None,
             staged: None,
             upload_cap: if upload_cap == 0 { 1 } else { upload_cap },
+            pending_patch: Vec::new(),
         }
     }
 
@@ -420,14 +442,27 @@ impl TransparentSortState {
         {
             return Ok(false);
         }
+        // The same address set has the same layout, so changed spans can be written into the
+        // committed slot atomically within one frame instead of re-staging every reference.
         if let Some(committed) = self.committed.as_mut()
             && committed.key.address_identity_eq(&result.key)
-            && committed.refs.as_ref() == result.refs.as_ref()
+            && committed.refs.len() == result.refs.len()
         {
-            committed.generation = result.generation;
-            committed.key = result.key;
-            self.staged = None;
-            return Ok(true);
+            let patch = match result.patch {
+                Some((base, spans)) if Arc::ptr_eq(&base, &committed.refs) => spans,
+                _ => changed_ref_spans(&committed.refs, &result.refs),
+            };
+            if patch.iter().map(ExactSizeIterator::len).sum::<usize>() <= self.upload_cap {
+                committed.generation = result.generation;
+                committed.key = result.key;
+                if !patch.is_empty() {
+                    committed.refs = result.refs;
+                    committed.phase_groups = PhaseGroupCache::default();
+                }
+                self.pending_patch = patch;
+                self.staged = None;
+                return Ok(true);
+            }
         }
         let buffer_slot = self
             .committed
@@ -437,8 +472,9 @@ impl TransparentSortState {
             self.committed = Some(TransparentOrderedSnapshot {
                 generation: result.generation,
                 key: result.key,
-                refs: Arc::from(result.refs),
+                refs: result.refs,
                 buffer_slot,
+                phase_groups: PhaseGroupCache::default(),
             });
             self.staged = None;
             return Ok(true);
@@ -446,7 +482,7 @@ impl TransparentSortState {
         self.staged = Some(TransparentStagedSnapshot {
             generation: result.generation,
             key: result.key,
-            refs: Arc::from(result.refs),
+            refs: result.refs,
             uploaded: 0,
             buffer_slot,
         });
@@ -487,15 +523,36 @@ impl TransparentSortState {
                 key: staged.key,
                 refs: staged.refs,
                 buffer_slot: staged.buffer_slot,
+                phase_groups: PhaseGroupCache::default(),
             });
             return true;
         }
         false
     }
 
+    /// Takes the committed-slot spans that the last in-place commit changed.
+    pub fn take_patch(&mut self) -> Vec<Range<usize>> {
+        std::mem::take(&mut self.pending_patch)
+    }
+
     #[must_use]
     pub const fn committed(&self) -> Option<&TransparentOrderedSnapshot> {
         self.committed.as_ref()
+    }
+
+    /// Refs already written to each GPU slot: the committed snapshot and any uploaded staged prefix.
+    pub(in crate::chunk) fn resident_refs(
+        &self,
+    ) -> impl Iterator<Item = (u8, &[PackedTransparentDrawRef])> {
+        let committed = self
+            .committed
+            .as_ref()
+            .map(|snapshot| (snapshot.buffer_slot, &snapshot.refs[..]));
+        let staged = self
+            .staged
+            .as_ref()
+            .map(|snapshot| (snapshot.buffer_slot, &snapshot.refs[..snapshot.uploaded]));
+        committed.into_iter().chain(staged)
     }
 
     #[must_use]
@@ -513,15 +570,30 @@ impl TransparentSortState {
         self.requested = None;
         self.committed = None;
         self.staged = None;
+        self.pending_patch.clear();
     }
 }
 
-#[derive(Debug)]
-pub(in crate::chunk) struct TransparentSortRequest {
-    pub(in crate::chunk) generation: ViewSortGeneration,
-    pub(in crate::chunk) requested_at: Instant,
-    pub(in crate::chunk) key: ViewSortKey,
-    pub(in crate::chunk) view_from_world: Mat4,
+// Writing a few unchanged references is cheaper than another buffer write call.
+const PATCH_MERGE_GAP: usize = 32;
+
+pub(in crate::chunk) fn changed_ref_spans(
+    old: &[PackedTransparentDrawRef],
+    new: &[PackedTransparentDrawRef],
+) -> Vec<Range<usize>> {
+    let mut spans = Vec::<Range<usize>>::new();
+    for (index, _) in old
+        .iter()
+        .zip(new)
+        .enumerate()
+        .filter(|(_, (old, new))| old != new)
+    {
+        match spans.last_mut() {
+            Some(span) if index - span.end <= PATCH_MERGE_GAP => span.end = index + 1,
+            _ => spans.push(index..index + 1),
+        }
+    }
+    spans
 }
 
 #[derive(Debug)]
@@ -529,15 +601,20 @@ pub(in crate::chunk) struct TransparentSortWork {
     pub(in crate::chunk) generation: ViewSortGeneration,
     pub(in crate::chunk) requested_at: Instant,
     pub(in crate::chunk) key: ViewSortKey,
-    pub(in crate::chunk) view_from_world: Mat4,
-    pub(in crate::chunk) candidates: Arc<[TransparentSortCandidate]>,
+    pub(in crate::chunk) camera: Vec3,
+    /// In `key.visible_allocations` order, which is the committed layout.
+    pub(in crate::chunk) groups: TransparentGroups,
+    /// Parallel to `groups`.
+    pub(in crate::chunk) cached: Vec<Option<TransparentGroupOrder>>,
+    /// The committed order when it has this layout, so the worker can diff against it.
+    pub(in crate::chunk) base: Option<Arc<[PackedTransparentDrawRef]>>,
     pub(in crate::chunk) distinct_tint_count: usize,
 }
 
 #[derive(Debug, Clone)]
 pub(in crate::chunk) struct TransparentCandidateCache {
     pub(in crate::chunk) address_identity: TransparentAddressIdentity,
-    pub(in crate::chunk) candidates: Arc<[TransparentSortCandidate]>,
+    pub(in crate::chunk) groups: TransparentGroups,
     pub(in crate::chunk) distinct_tint_count: usize,
 }
 
@@ -546,7 +623,9 @@ pub(in crate::chunk) struct TransparentWorkerResult {
     pub(in crate::chunk) generation: ViewSortGeneration,
     pub(in crate::chunk) requested_at: Instant,
     pub(in crate::chunk) key: ViewSortKey,
-    pub(in crate::chunk) refs: Result<Vec<PackedTransparentDrawRef>, TransparentSortError>,
+    pub(in crate::chunk) refs: Result<Arc<[PackedTransparentDrawRef]>, TransparentSortError>,
+    pub(in crate::chunk) patch: Option<TransparentRefPatch>,
+    pub(in crate::chunk) fresh: Vec<TransparentGroupOrder>,
     pub(in crate::chunk) cpu_duration: Duration,
     pub(in crate::chunk) distinct_tint_count: usize,
 }
@@ -563,4 +642,6 @@ pub(in crate::chunk) struct TransparentSortRuntime {
     pub(in crate::chunk) committed_distinct_tint_count: usize,
     pub(in crate::chunk) last_indirect_identity: Option<(u8, usize)>,
     pub(in crate::chunk) candidate_cache: Option<TransparentCandidateCache>,
+    pub(in crate::chunk) group_inputs: HashMap<SubChunkKey, Arc<TransparentGroupInput>>,
+    pub(in crate::chunk) group_orders: HashMap<SubChunkKey, TransparentGroupOrder>,
 }

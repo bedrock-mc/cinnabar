@@ -16,6 +16,7 @@ fn sparse_collision_authority_retires_only_selected_columns() {
         ChunkKey::new(1, 1, 1),
     ];
     for column in columns {
+        assert!(!store.contains_column(column));
         for y in [-2_000, -4, 20, 2_000] {
             let key = SubChunkKey::from_chunk(column, y);
             assert!(store.mark_sub_chunk_loaded(key).unwrap());
@@ -24,8 +25,10 @@ fn sparse_collision_authority_retires_only_selected_columns() {
         }
         assert!(!store.is_sub_chunk_loaded(SubChunkKey::from_chunk(column, 0)));
         assert!(store.chunk(column).is_none());
+        assert!(store.contains_column(column));
     }
     store.mark_chunk_loaded(columns[0]).unwrap();
+    assert!(store.contains_column(columns[0]));
     assert!(store.is_sub_chunk_loaded(SubChunkKey::from_chunk(columns[0], 0)));
     assert!(!store.is_sub_chunk_loaded(SubChunkKey::from_chunk(columns[1], 0)));
     let retired_revision = store.collision_revision(columns[1]).unwrap();
@@ -33,15 +36,18 @@ fn sparse_collision_authority_retires_only_selected_columns() {
     let (removed, retired) = store.detach_chunks(&columns[..2].iter().copied().collect());
     assert!(removed.is_empty() && retired.is_empty());
     for column in &columns[..2] {
+        assert!(!store.contains_column(*column));
         assert!(!store.is_sub_chunk_loaded(SubChunkKey::from_chunk(*column, -4)));
         assert!(store.collision_revision(*column).is_none());
     }
     assert!(store.is_sub_chunk_loaded(SubChunkKey::from_chunk(columns[2], -4)));
+    assert!(store.contains_column(columns[2]));
     assert_eq!(store.collision_revision(columns[2]), retained_revision);
     store
         .mark_sub_chunk_loaded(SubChunkKey::from_chunk(columns[1], -4))
         .unwrap();
     assert!(store.collision_revision(columns[1]).unwrap() > retired_revision);
+    assert!(store.contains_column(columns[1]));
 }
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {

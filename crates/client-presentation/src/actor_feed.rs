@@ -36,6 +36,7 @@ pub fn build_local_player_feed(
     }
     let (sneaking, sprinting) = physics.latest_sneak_sprint().unwrap_or_default();
     Some(LocalPlayerFeed {
+        prefer_client_skin: false,
         // A real player-list echo overrides this; without one, the stream backs the local body
         // with the client's own uploaded skin under this stable local uuid.
         uuid: local_uuid,
@@ -49,6 +50,12 @@ pub fn build_local_player_feed(
         pitch: pitch_degrees,
         main_hand: None,
         off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_slot: 0,
+        main_hand_stack_id: None,
+        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        flying: matches!(physics.mode(), sim::MovementMode::Flying),
         teleported: false,
         first_person,
         view_bobbing,

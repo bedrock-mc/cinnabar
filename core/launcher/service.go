@@ -48,7 +48,7 @@ type Config struct {
 	Remove   func(path string) error
 
 	Featured                  func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
-	Gatherings                func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
+	ExperienceCounts          func(context.Context, *authcache.Account) ([]gatherings.ExperiencePlayerCount, error)
 	Profile                   func(context.Context, *authcache.Account) (catalog.Profile, error)
 	ProfileFeaturedScreenshot func(context.Context, *authcache.Account, string) (catalog.Image, error)
 	ProfileAvatar             func(context.Context, *authcache.Account, string, string) (catalog.Image, error)
@@ -68,8 +68,8 @@ type Service struct {
 
 	mu           sync.Mutex
 	snap         snapshot
-	flights      [3]*flight
-	attempted    [3]time.Time
+	flights      [2]*flight
+	attempted    [2]time.Time
 	profileLogMu sync.Mutex
 	profileLogs  map[string]time.Time
 	profileArt   []string   // current avatar and achievement art pruning must keep
@@ -94,8 +94,8 @@ func New(cfg Config) *Service {
 	if cfg.Featured == nil {
 		cfg.Featured = catalog.FeaturedServers
 	}
-	if cfg.Gatherings == nil {
-		cfg.Gatherings = catalog.Gatherings
+	if cfg.ExperienceCounts == nil {
+		cfg.ExperienceCounts = new(catalog.ExperienceCounts).Counts
 	}
 	if cfg.Profile == nil {
 		cfg.Profile = catalog.AccountProfile
@@ -159,9 +159,24 @@ func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer
 	return cached(ctx, s, featuredFeed)
 }
 
-// Gatherings lists the community gatherings with their artwork cached, from the last good fetch.
-func (s *Service) Gatherings(ctx context.Context) ([]catalog.Gathering, error) {
-	return cached(ctx, s, gatheringsFeed)
+// FeaturedServersWithCounts adds live populations while experience details are visible.
+func (s *Service) FeaturedServersWithCounts(ctx context.Context) ([]catalog.FeaturedServer, error) {
+	servers, err := s.FeaturedServers(ctx)
+	if err != nil || !hasExperiences(servers) {
+		return servers, err
+	}
+	src, err := s.source()
+	if err != nil {
+		return nil, err
+	}
+	counts, countErr := s.cfg.ExperienceCounts(ctx, src)
+	if countErr != nil {
+		s.logger.Warn("experience counts unavailable", "error", control.RedactError(countErr))
+	}
+	if _, err := s.source(); err != nil {
+		return nil, err
+	}
+	return withExperienceCounts(servers, counts), nil
 }
 
 // Home returns the start screen's service data with its artwork cached, from the last good fetch.

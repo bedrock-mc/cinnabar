@@ -14,6 +14,9 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
         self.latest_sneak_sprint()
     }
+    fn mode(&self) -> sim::MovementMode {
+        std::ops::Deref::deref(self).mode()
+    }
     /// Borrows the collision frontier used by the completed tick.
     fn last_world_identity(&self) -> Option<&sim::WorldCollisionIdentity> {
         std::ops::Deref::deref(self).last_world_identity()
@@ -21,6 +24,35 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     /// Reports gameplay's current ownership of translation.
     fn is_active(&self) -> bool {
         std::ops::Deref::deref(self).is_active()
+    }
+    /// Forwards every completed tick so water entry survives frames with several physics ticks.
+    fn visit_motion_ticks(
+        &self,
+        after: Option<u64>,
+        visit: &mut dyn FnMut(u64, client_presentation::audio::local::MotionSample),
+    ) {
+        self.visit_completed_ticks(after, &mut |sample, environment, entry_velocity| {
+            let position = sample.position.map(f64::from);
+            visit(
+                sample.tick,
+                client_presentation::audio::local::MotionSample {
+                    position: [
+                        position[0],
+                        position[1] - f64::from(protocol::PLAYER_NETWORK_OFFSET),
+                        position[2],
+                    ],
+                    velocity_y: f64::from(sample.velocity[1]),
+                    entry_velocity,
+                    movement: sample.movement,
+                    on_ground: sample.grounded_after_tick,
+                    sneaking: sample.sneaking,
+                    in_water: environment.in_water,
+                },
+            );
+        });
+    }
+    fn tick_alpha(&self) -> f32 {
+        std::ops::Deref::deref(self).tick_alpha()
     }
 }
 impl CollisionLookup for crate::movement::PhysicsCollisionRegistries {

@@ -106,22 +106,23 @@ fn draw_body(rendered: &ActorRenderFrame, runtime_id: u64, out: &Path) -> (usize
             continue;
         }
         let layer = instance.texture_layer as usize;
-        let (width, height, pixels) = if *page == 0 {
-            (
-                render_model::STANDARD_SKIN_SIDE,
-                render_model::STANDARD_SKIN_SIDE,
-                rendered.skins_rgba8.as_ref(),
-            )
+        let (width, height, skin) = if *page == 0 {
+            let Some(skin) = rendered.player_skin(instance.texture_layer) else {
+                continue;
+            };
+            let side = render_model::STANDARD_SKIN_SIDE;
+            (side, side, &**skin)
         } else {
             let Some(page) = rendered.artwork_pages().pages().get(usize::from(*page) - 1) else {
                 continue;
             };
             let (width, height) = page.dimensions();
-            (usize::from(width), usize::from(height), page.pixels())
-        };
-        let bytes = width * height * 4;
-        let Some(skin) = pixels.get(layer * bytes..(layer + 1) * bytes) else {
-            continue;
+            let (width, height) = (usize::from(width), usize::from(height));
+            let bytes = width * height * 4;
+            let Some(skin) = page.pixels().get(layer * bytes..(layer + 1) * bytes) else {
+                continue;
+            };
+            (width, height, skin)
         };
         let uv_anim = instance.uv_anim;
         let shade = |uv: [f32; 2]| {
@@ -260,7 +261,7 @@ fn lobby_player_report() {
         bootstrap: capture.bootstrap,
         packets: vec![],
     };
-    let (mut world, _, mut replay) = build_world(&empty, Path::new(&pack), false);
+    let (mut world, _, mut replay) = build_world(&empty, Some(Path::new(&pack)), false);
     let cameras: Vec<Entity> = world
         .query_filtered::<Entity, bevy::prelude::With<crate::camera::FlyCamera>>()
         .iter(&world)
@@ -273,7 +274,7 @@ fn lobby_player_report() {
     world
         .resource_mut::<Time<Real>>()
         .update_with_instant(clock);
-    world.run_system_cached(prepare_actor_render_frame).unwrap();
+    prepare_offline_actor_frame(&mut world);
     world.run_system_cached(publish_actor_render_frame).unwrap();
     let mut seen = BTreeMap::new();
     let mut records = Vec::new();
@@ -296,7 +297,7 @@ fn lobby_player_report() {
             world
                 .resource_mut::<Time<Real>>()
                 .update_with_instant(clock);
-            world.run_system_cached(prepare_actor_render_frame).unwrap();
+            prepare_offline_actor_frame(&mut world);
             world.run_system_cached(publish_actor_render_frame).unwrap();
         }
         report_states(&world, &labels, &mut seen, &mut records, index, &out);

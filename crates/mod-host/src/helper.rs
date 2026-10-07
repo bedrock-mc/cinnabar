@@ -33,6 +33,15 @@ pub fn developer_executable(client: &Path) -> std::path::PathBuf {
     })
 }
 
+/// Locates the media decoder helper beside the client executable.
+pub fn media_executable(client: &Path) -> std::path::PathBuf {
+    client.with_file_name(if cfg!(windows) {
+        "cinnabar-media-helper.exe"
+    } else {
+        "cinnabar-media-helper"
+    })
+}
+
 /// Checks the developer launcher before offering component execution.
 pub fn developer_runtime_available(client: &Path) -> bool {
     let Ok(metadata) = std::fs::metadata(developer_executable(client)) else {

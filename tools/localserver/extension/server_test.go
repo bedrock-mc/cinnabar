@@ -157,6 +157,19 @@ func TestNewServerOffersItsBundles(t *testing.T) {
 	}
 }
 
+// Media origins join the delivery origin, and a scene or media bundle asks for surface memory.
+func TestNewServerOffersMediaOriginsAndSurfaceMemory(t *testing.T) {
+	const media = "https://127.0.0.1:19443"
+	s, _ := testServer(t, func(cfg *Config) {
+		cfg.MediaOrigins = []string{media, DeliveryOrigin}
+		cfg.Bundles[0].Manifest.Permissions |= NewPermissions(PermissionMedia)
+	})
+	offer, _ := markerOffer(t, s.Marker())
+	if !slices.Equal(offer.Scope.Origins, []string{media, DeliveryOrigin}) || offer.Scope.GPUBytes != MediaGPUBytes {
+		t.Errorf("scope %+v, want origins [%s %s] and %d GPU bytes", offer.Scope, media, DeliveryOrigin, MediaGPUBytes)
+	}
+}
+
 // Startup refuses an offer the client would refuse or could not reach.
 func TestNewServerRejects(t *testing.T) {
 	tooMany := func(cfg *Config) {

@@ -78,6 +78,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
         axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let body = ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -112,8 +113,10 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
     let item = WornItem {
         identifier: Arc::from("test:opaque_cube"),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Block(visual),
         dye_rgb: None,
+        enchanted: false,
     };
     (runtime, body, item)
 }
@@ -129,6 +132,7 @@ fn third_person(
             main: Some(item.clone()),
             ..Default::default()
         },
+        None,
     );
     assert_eq!(layers.len(), 1);
     layers.pop().unwrap()

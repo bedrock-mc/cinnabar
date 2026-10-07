@@ -116,8 +116,8 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
     } else {
         std::mem::take(&mut input.pointer_edges)
     };
-    // InputComponent sends pointer deltas to active components;
-    // ScrollViewComponent consumes them while capture is still down.
+    // Vanilla sends pointer deltas to active components; a scroll view
+    // consumes them while capture is still down.
     // Move the existing capture once before any release, even when the final state is up.
     if let Some(point) = point
         && (input.pointer.held || edges.contains(&false))

@@ -1,8 +1,8 @@
 use super::*;
 
 impl LocalPhysicsController {
-    /// Native SprintTrigger skips its stop action while the preceding swimming
-    /// flag and this tick's body-water sensing are set (current RVA 0x0c5b6310).
+    /// Vanilla skips the sprint stop while the preceding swimming flag and this
+    /// tick's body-water sensing are set.
     pub(crate) fn retains_swim_sprint(
         &self,
         world: &impl CollisionWorld,

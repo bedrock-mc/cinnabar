@@ -1,4 +1,4 @@
-//! Scroll views as the client's `ScrollViewComponent` lays them out: the named
+//! Scroll views as the vanilla client lays them out: the named
 //! viewport, content, track, box and bar panel are found breadth-first from the
 //! view (tree order does not matter), the content shifts by the clamped offset
 //! snapped to 1/8 px, the box takes `clamp(viewport / content, 0.1, 1)` of the
@@ -191,7 +191,7 @@ impl ScrollFrame {
             panel_hidden: false,
             metrics: None,
         };
-        // `_updateScroll` scrolls only with all four references resolved, along
+        // Vanilla scrolls only with all four references resolved, along
         // the box's `draggable` axis.
         let (
             Some((content, content_rect, _)),

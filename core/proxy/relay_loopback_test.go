@@ -110,7 +110,7 @@ func startRelayLoopback(tb testing.TB, networks func(testing.TB) (minecraft.Netw
 	client, err := minecraft.Dialer{
 		IdentityData:       login.IdentityData{DisplayName: "RustClient"},
 		Protocol:           minecraft.DefaultProtocol,
-		RelayStartup:       true,
+		Handoff:            minecraft.HandoffAtStartGame,
 		EnableBatchReading: true,
 		FlushRate:          -1,
 		ErrorLog:           quiet,

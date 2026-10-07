@@ -14,7 +14,9 @@ use bevy::render::render_resource::{BindGroupEntry, BindingResource, PipelineCac
 use render_model::UiRenderRejectReason;
 
 use super::{UiGpu, UiPipeline};
-use render_model::{UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan};
+use render_model::{
+    UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
+};
 
 /// Observes schedule-separated device-resource changes, not arbitrary context IDs.
 pub(crate) struct DeviceObservation {
@@ -46,6 +48,8 @@ impl DeviceObservation {
 pub(super) struct GpuBucket {
     pub(super) texture: Texture,
     pub(super) view: TextureView,
+    /// `x` is 1 for a coverage bucket, which the shader samples as white with that alpha.
+    pub(super) format_uniform: bevy::render::render_resource::Buffer,
     pub(super) bind_group: Option<BindGroup>,
 }
 
@@ -162,15 +166,17 @@ impl UiGpuTextures {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
         let dirty = self.state.dirty(catalog)?;
-        let format = TextureFormat::Rgba8Unorm.guaranteed_format_features(device.features());
-        if !format
-            .allowed_usages
-            .contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
-            || !format
-                .flags
-                .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
-        {
-            return Err(UiRenderRejectReason::InvalidTextureExtent);
+        for format in [TextureFormat::Rgba8Unorm, TextureFormat::R8Unorm] {
+            let format = format.guaranteed_format_features(device.features());
+            if !format
+                .allowed_usages
+                .contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
+                || !format
+                    .flags
+                    .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
+            {
+                return Err(UiRenderRejectReason::InvalidTextureExtent);
+            }
         }
         // All catalog and per-device admission checks precede allocation/writes.
         if resized {
@@ -182,6 +188,14 @@ impl UiGpuTextures {
             self.allocation_identity = Some(catalog.static_identity());
             self.allocation_plan = Some(catalog.plan().clone());
             for bucket in catalog.plan().buckets() {
+                #[cfg(feature = "tracy")]
+                let _span = bevy::log::info_span!(
+                    "ui.texture_allocate",
+                    width = bucket.dimensions[0],
+                    height = bucket.dimensions[1],
+                    layers = bucket.layers,
+                )
+                .entered();
                 let texture = device.create_texture(&TextureDescriptor {
                     label: Some("bounded UI dimension bucket"),
                     size: Extent3d {
@@ -192,7 +206,10 @@ impl UiGpuTextures {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: TextureDimension::D2,
-                    format: TextureFormat::Rgba8Unorm,
+                    format: match bucket.format {
+                        UiTextureFormat::Rgba8 => TextureFormat::Rgba8Unorm,
+                        UiTextureFormat::Coverage => TextureFormat::R8Unorm,
+                    },
                     usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
                     view_formats: &[],
                 });
@@ -201,9 +218,18 @@ impl UiGpuTextures {
                     dimension: Some(TextureViewDimension::D2Array),
                     ..Default::default()
                 });
+                let coverage = u32::from(bucket.format == UiTextureFormat::Coverage);
+                let format_uniform = device.create_buffer_with_data(
+                    &bevy::render::render_resource::BufferInitDescriptor {
+                        label: Some("UI bucket page format"),
+                        contents: bytemuck::cast_slice(&[coverage, 0, 0, 0]),
+                        usage: bevy::render::render_resource::BufferUsages::UNIFORM,
+                    },
+                );
                 self.buckets.push(GpuBucket {
                     texture,
                     view,
+                    format_uniform,
                     bind_group: None,
                 });
             }
@@ -219,6 +245,16 @@ impl UiGpuTextures {
         let buckets = &self.buckets;
         self.state.execute(catalog, &dirty, |_, page, location| {
             let [width, height] = page.dimensions();
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "ui.texture_write",
+                bucket = location.bucket,
+                layer = location.layer,
+                width,
+                height,
+                bytes = page.pixels().len(),
+            )
+            .entered();
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &buckets[location.bucket].texture,
@@ -233,7 +269,7 @@ impl UiGpuTextures {
                 page.pixels(),
                 TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(width * 4),
+                    bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
                     rows_per_image: Some(height),
                 },
                 Extent3d {
@@ -283,6 +319,10 @@ pub(super) fn prepare_ui_bind_group(
                 BindGroupEntry {
                     binding: 3,
                     resource: BindingResource::Sampler(&linear_sampler),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: bucket.format_uniform.as_entire_binding(),
                 },
             ],
         ));
@@ -351,8 +391,8 @@ mod tests {
     #[test]
     fn local_font_replacement_writes_one_reserved_page_without_static_reallocation() {
         use render_model::{
-            MAX_UI_DYNAMIC_PAGES, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
-            UI_LOCAL_FONT_PAGE_SIDE,
+            MAX_UI_DYNAMIC_PAGES, UI_DYNAMIC_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_OFFSET,
+            UI_FALLBACK_FONT_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
         };
 
         let page = |side, value| {
@@ -362,8 +402,16 @@ mod tests {
             )
             .unwrap()
         };
+        let fallback = UiTexturePage::coverage(
+            [UI_FALLBACK_FONT_PAGE_SIDE; 2],
+            vec![0; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize].into(),
+        )
+        .unwrap();
         let mut pages = vec![page(1, 255)];
         pages.extend((0..MAX_UI_DYNAMIC_PAGES).map(|offset| {
+            if offset >= UI_FALLBACK_FONT_PAGE_OFFSET {
+                return fallback.clone();
+            }
             page(
                 if offset == UI_LOCAL_FONT_PAGE_OFFSET {
                     UI_LOCAL_FONT_PAGE_SIDE
@@ -379,22 +427,40 @@ mod tests {
         state
             .execute(&base, &dirty, |_, _, _| Ok::<_, ()>(()))
             .unwrap();
-        let mut replacement = base.pages()[base.dynamic_start()..].to_vec();
-        replacement[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_LOCAL_FONT_PAGE_SIDE, 41);
-        let changed = base.replace_dynamic(replacement).unwrap();
-        assert_eq!(changed.static_identity(), base.static_identity());
-        assert_eq!(changed.plan(), base.plan());
-        let target = base.dynamic_start() + UI_LOCAL_FONT_PAGE_OFFSET;
-        assert_eq!(state.dirty(&changed).unwrap(), [target]);
-        let mut written = Vec::new();
-        state
-            .execute(&changed, &[target], |index, _, _| {
-                written.push(index);
-                Ok::<_, ()>(())
-            })
-            .unwrap();
-        assert_eq!(written, [target]);
-        assert!(state.dirty(&changed).unwrap().is_empty());
+        let mut current = base.clone();
+        for offset in [
+            UI_LOCAL_FONT_PAGE_OFFSET,
+            UI_FALLBACK_FONT_PAGE_OFFSET,
+            MAX_UI_DYNAMIC_PAGES - 1,
+        ] {
+            let mut replacement = current.pages()[current.dynamic_start()..].to_vec();
+            replacement[offset] = if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+                page(UI_LOCAL_FONT_PAGE_SIDE, 41)
+            } else {
+                UiTexturePage::coverage(
+                    [UI_FALLBACK_FONT_PAGE_SIDE; 2],
+                    vec![41; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize]
+                        .into(),
+                )
+                .unwrap()
+            };
+            current = current.replace_dynamic(replacement).unwrap();
+            assert_eq!(current.static_identity(), base.static_identity());
+            assert_eq!(current.plan(), base.plan());
+            let target = base.dynamic_start() + offset;
+            assert_eq!(state.dirty(&current).unwrap(), [target]);
+            let mut written = Vec::new();
+            state
+                .execute(&current, &[target], |index, page, _| {
+                    written.push(index);
+                    assert_eq!(page.format(), base.pages()[target].format());
+                    assert_eq!(page.pixels().len(), base.pages()[target].pixels().len());
+                    Ok::<_, ()>(())
+                })
+                .unwrap();
+            assert_eq!(written, [target]);
+            assert!(state.dirty(&current).unwrap().is_empty());
+        }
         let mut wrong = base.pages()[base.dynamic_start()..].to_vec();
         wrong[UI_LOCAL_FONT_PAGE_OFFSET] = page(UI_DYNAMIC_PAGE_SIDE, 0);
         assert!(base.replace_dynamic(wrong).is_err());

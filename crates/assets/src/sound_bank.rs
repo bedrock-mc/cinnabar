@@ -1,4 +1,4 @@
-//! MCBESND1: sound-event routing JSON plus an offset index over raw FSB5 sound files.
+//! MCBESND1: sound-event routing JSON plus an offset index over encoded sound files.
 //!
 //! Layout: header, three JSON blobs, index, SHA-256 of all of those, then file data. Only the
 //! prefix is read at startup; sound files are read by offset on demand.
@@ -163,7 +163,7 @@ impl SoundBankIndex {
     }
 }
 
-/// Builds a bank; `files` are `(extensionless path, raw FSB5 bytes)` and order is canonicalized.
+/// Builds a bank; `files` are `(extensionless path, encoded bytes)` and order is canonicalized.
 pub fn encode_sound_bank(
     sounds_json: &[u8],
     materials_json: &[u8],

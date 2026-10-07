@@ -1,13 +1,12 @@
 # Effective movement speed and sprint authority
 
-`Player::getSpeed` reads `minecraft:movement` from AttributeInstance current. `BaseAttributeMap::updateAttribute`
-replaces the previous modifier set with the packet's modifiers and
+Player speed reads the current value of the `minecraft:movement` attribute. An
+attribute update replaces the previous modifier set with the packet's modifiers and
 adjusts the final current to the packet's current. The wire value already includes
 any sprint or other movement-speed effects. It is not a base walking speed.
 
-`LocalPlayer::setSprinting` and
-`SprintTriggerSystem::setSprinting` return on an unchanged actor
-flag. `Mob::setSprinting` adds or removes only its identified sprint
+Setting sprint, on the local player and through the sprint trigger, returns on
+an unchanged actor flag. A mob adds or removes only its identified sprint
 modifier when that modifier is absent or present. The sprint modifier has UUID
 `D208FC00-42AA-4AAD-9276-D5446530DE43`, operation 2, operand 2; its factor is the
 shared simulator sprint multiplier. Server metadata adopts the flag without

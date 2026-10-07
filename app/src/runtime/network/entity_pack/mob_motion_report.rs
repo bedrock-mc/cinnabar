@@ -229,7 +229,7 @@ fn compile(pack: &Path) -> Vanilla {
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let entities = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let artwork = pack_compiler::compile_actor_assets(pack, manifest).unwrap();
-    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &bytes).unwrap();
+    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &entities).unwrap();
     Vanilla {
         candidates: catalog
             .bindings()
@@ -298,6 +298,7 @@ fn move_mobs(world: &mut WorldStream, tick: u32, travel: f32) {
                     teleported: false,
                     player_mode: None,
                     source_tick: Some(u64::from(tick)),
+                    interpolation: Default::default(),
                 })),
             )
             .unwrap();
@@ -326,13 +327,7 @@ fn publish(
     let mut batch = actors::select_actor_presentations(1, false, None, bodies);
     entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     let frame: ActorRenderFrame = scene
-        .update_rigs_with_artwork(
-            1.0,
-            None,
-            batch.submissions.clone(),
-            Arc::from([]),
-            &batch.artwork,
-        )
+        .update_rigs_with_artwork(1.0, None, batch.submissions.clone(), &[], &batch.artwork)
         .clone();
     for (index, id) in MOB_IDS.into_iter().enumerate() {
         let entry = frame

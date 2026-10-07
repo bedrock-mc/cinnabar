@@ -1,6 +1,6 @@
 //! The caller-held animation state of a screen: one component per animated
 //! control (keyed by its layout key), ticking its active instances as
-//! `UIAnimationComponent::_animationTick` does and keeping the values they write.
+//! vanilla does and keeping the values they write.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -251,7 +251,7 @@ impl Component {
         self.written
     }
 
-    /// Resources are ready at the first paint (`onResourcesLoaded`).
+    /// Resources are ready at the first paint.
     fn render(&mut self) {
         self.rendered = true;
         for instance in &mut self.instances {
@@ -428,7 +428,7 @@ impl Component {
     }
 }
 
-/// `UIAnimFlipbook::tick`: at most one frame per tick, the remainder kept.
+/// Flipbook stepping: at most one frame per tick, the remainder kept.
 fn flip_step(
     node: &AnimNode,
     instance: &mut Instance,

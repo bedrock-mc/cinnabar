@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::predicate::Scalar;
 use crate::state::LayoutReport;
+use crate::tree::ResolvedControl;
 
 /// FNV-1a over a layout key, streamed so a child extends its parent's hash.
 pub(super) fn key_hash(seed: u64, bytes: &[u8]) -> u64 {
@@ -59,6 +60,13 @@ pub struct BindState {
     pub(super) generation: u64,
     /// Whether any built control reads the layout’s scroll feedback.
     pub(super) scroll_observed: bool,
+    /// The last bind's controls, which hold the memory of every live one; `controls`
+    /// keeps only those dropped under still-hidden ancestors.
+    pub(super) tree: Option<Box<super::Node>>,
+    /// The data the last incremental bind read.
+    pub(super) data: Option<std::sync::Arc<super::DataSource>>,
+    /// Keys of the controls the last bind built rather than reused.
+    pub(super) built: Vec<u64>,
 }
 
 /// One control's memory.
@@ -98,9 +106,14 @@ impl BindState {
     /// The bag value `name` of the control at layout `key` after the last bind.
     pub fn value(&self, key: &str, name: &str) -> Option<&Scalar> {
         let key = key_hash(KEY_ROOT, key.as_bytes());
+        let live = || {
+            let node = super::reuse::find(self.tree.as_deref()?, key)?;
+            node.retained.then_some(&node.own)
+        };
         self.published
             .get(&key)
             .and_then(|values| values.get(name))
+            .or_else(|| live()?.get(name))
             .or_else(|| self.controls.get(&key)?.bag.get(name))
     }
 
@@ -132,6 +145,29 @@ impl BindState {
 
     /// Whether a bind has run over this state yet.
     pub fn is_empty(&self) -> bool {
-        self.controls.is_empty()
+        fn retains(node: &super::Node) -> bool {
+            node.retained || node.children.iter().any(retains)
+        }
+        self.tree.as_deref().is_none_or(|tree| !retains(tree)) && self.controls.is_empty()
+    }
+
+    /// Controls the last bind built rather than carried over unchanged.
+    pub fn rebuilt(&self) -> usize {
+        self.built.len()
+    }
+
+    /// The `/`-joined name paths of the controls the last bind built.
+    pub fn rebuilt_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        if let Some(tree) = &self.tree {
+            super::reuse::rebuilt_paths(tree, &self.built, "", &mut paths);
+        }
+        paths
+    }
+
+    /// The whole tree the last bind produced.
+    pub(super) fn bake(&mut self, components: &crate::component::Components) -> ResolvedControl {
+        let tree = self.tree.as_deref_mut().expect("a bind keeps its root");
+        super::reuse::bake_full(tree, components)
     }
 }

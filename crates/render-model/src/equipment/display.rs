@@ -41,7 +41,7 @@ pub fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
     held_sprite_display_for_hand(hand_equipped, false)
 }
 
-/// Native `_renderOffHandItem` has its own bone-frame offset and
+/// Vanilla's off-hand item has its own bone-frame offset and
 /// hand-equipped X translation, rather than reflecting the main-hand grip.
 pub fn held_sprite_display_for_hand(hand_equipped: bool, off_hand: bool) -> ItemDisplay {
     let grip = if hand_equipped {
@@ -106,8 +106,8 @@ pub fn attach_to_bone(
     bone.is_finite().then_some(bone)
 }
 
-/// Legacy block grip, applied to the centred cube emitted by
-/// `_rebuildItem` through the (-.5,-.5,-.5) mesh offset.
+/// Legacy block grip, applied to the centred cube vanilla emits through
+/// the (-.5,-.5,-.5) mesh offset.
 pub fn held_block_display() -> ItemDisplay {
     held_block_display_for_hand(false)
 }
@@ -130,7 +130,15 @@ pub fn held_block_display_for_hand(off_hand: bool) -> ItemDisplay {
     )
 }
 
-/// Items vanilla holds upright (its `isHandEquipped`): tools, weapons and rod-like items. The
+/// Rods on a stick, whose art both editions turn half a revolution in first person.
+pub fn is_rod(identifier: &str) -> bool {
+    matches!(
+        identifier.strip_prefix("minecraft:").unwrap_or(identifier),
+        "fishing_rod" | "carrot_on_a_stick" | "warped_fungus_on_a_stick"
+    )
+}
+
+/// Items vanilla holds upright: tools, weapons and rod-like items. The
 /// reference keeps this per item in code; the list mirrors vanilla's hand-equipped items.
 pub fn is_hand_equipped(identifier: &str) -> bool {
     let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);

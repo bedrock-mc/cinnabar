@@ -151,7 +151,6 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           make package-binaries
-          bash scripts/fetch-ui-font.sh
           tools="$GITHUB_WORKSPACE/release-tools/packaging/macos"
           bash "$tools/build-app.sh"
           bash "$tools/sign-notarize.sh" .local/dist/macos-release/Cinnabar.app
@@ -227,7 +226,6 @@ jobs:
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: |
           make package-binaries
-          bash scripts/fetch-ui-font.sh
           pwsh -NoProfile -File "$GITHUB_WORKSPACE/release-tools/packaging/windows/build-installer.ps1" -Root "$CINNABAR_SOURCE_ROOT"
           mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/$AUXILIARY_ASSET"
           mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/$RELEASE_ASSET"
@@ -314,7 +312,6 @@ jobs:
       - name: Package
         run: |
           make package-binaries
-          bash scripts/fetch-ui-font.sh
           bash "$GITHUB_WORKSPACE/release-tools/packaging/linux/build-appimage.sh"
           mv .local/dist/linux-release/Cinnabar-*-x86_64.AppImage "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Check the AppImage against the payload allowlist

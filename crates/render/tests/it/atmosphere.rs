@@ -286,7 +286,7 @@ fn cloud_weather_colours_use_exact_native_values_and_contributions() {
     let clear = cloud_weather_colour(0.0, 0.0);
     let rain = cloud_weather_colour(1.0, 0.0);
     let thunder = cloud_weather_colour(0.0, 1.0);
-    // Current getCloudColor, legacy (non-custom) branch.
+    // Vanilla cloud colour, legacy (non-custom) branch.
     let rain_native = 0.6_f32;
     let thunder_native = 0.2_f32;
 
@@ -418,7 +418,7 @@ fn native_rain_sky_requires_current_rain_above_threshold_and_precipitation_fog()
         }),
         [0.5; 3],
     );
-    // Native admission reads Weather+0x38, independently of interpolated frame rain.
+    // Vanilla admission reads current simulation rain, independently of interpolated frame rain.
     assert_sky_gamma(
         AtmosphereFrame::from_bedrock_time(6000.0, 0.0, 0.0).with_camera_environment(wet_view),
         [0.5; 3],

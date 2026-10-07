@@ -1,7 +1,7 @@
 //! Native close-time return-to-player, then Drop of any remainder.
 //!
-//! ContainerManagerController::_closeContainers invokes
-//! _returnToPlayerOrDrop for every return-on-close input and cursor.
+//! Vanilla returns every return-on-close input and the cursor to the player,
+//! dropping what does not fit.
 //! Close transport waits for our retained sparse requests to settle; that
 //! bounded admission policy is not a claim about native packet timing.
 

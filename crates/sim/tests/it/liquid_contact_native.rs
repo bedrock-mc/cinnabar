@@ -1,4 +1,4 @@
-//! LiquidBlocksFetch senses the preceding pose before SwimTrigger changes it.
+//! Liquid contact senses the preceding pose before the swim trigger changes it.
 
 use std::cell::RefCell;
 

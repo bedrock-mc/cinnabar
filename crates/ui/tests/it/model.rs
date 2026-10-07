@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
+use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 pub use ui::{
     PointerPhase, SafeArea, TextLayout, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle,
@@ -405,6 +405,10 @@ fn text_layout() -> Arc<TextLayout> {
 }
 
 fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
+    text_layout_rendering(linear, assets::FontRendering::Coverage)
+}
+
+fn text_layout_rendering(linear: bool, rendering: assets::FontRendering) -> Arc<TextLayout> {
     let rgba8 = vec![255; 8].into_boxed_slice();
     let pages = [
         FontTexturePage {
@@ -414,7 +418,7 @@ fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
             pixels_sha256: Sha256::digest(&rgba8[..4]).into(),
             width: 1,
             height: 1,
-            rgba8: rgba8[..4].to_vec().into_boxed_slice(),
+            pixels: FontPixels::Rgba8(rgba8[..4].to_vec().into_boxed_slice()),
         },
         FontTexturePage {
             source_path: "font/page1.png".into(),
@@ -423,7 +427,7 @@ fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
             pixels_sha256: Sha256::digest(&rgba8[4..]).into(),
             width: 1,
             height: 1,
-            rgba8: rgba8[4..].to_vec().into_boxed_slice(),
+            pixels: FontPixels::Rgba8(rgba8[4..].to_vec().into_boxed_slice()),
         },
     ];
     let glyphs = [
@@ -456,7 +460,8 @@ fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
         font.with_linear_sampling()
     } else {
         font
-    };
+    }
+    .with_rendering(rendering);
     TextLayoutCache::new(1, 64 * 1024)
         .layout(TextLayoutRequest {
             text: "AB",
@@ -498,6 +503,30 @@ fn outline_text_selects_linear_sampler_without_changing_default_text_geometry() 
     for (nearest, linear) in nearest.vertices.iter().zip(&linear.vertices) {
         assert_eq!(nearest.position, linear.position);
         assert_eq!(nearest.uv, linear.uv);
+    }
+}
+
+#[test]
+fn native_text_modes_emit_gamma_and_distance_flags_with_their_sampler() {
+    use assets::{FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontRendering};
+    for (rendering, flags) in [
+        (FontRendering::NativeCoverage, FONT_STYLE_COVERAGE_GAMMA),
+        (
+            FontRendering::NativeSdf,
+            FONT_STYLE_COVERAGE_GAMMA | FONT_STYLE_SDF | ui::UI_STYLE_BILINEAR,
+        ),
+    ] {
+        let draw = draw_list(UiVisual::Text {
+            layout: text_layout_rendering(true, rendering),
+            color: [255; 4],
+            shadow: TextShadow::None,
+        });
+        assert!(
+            draw.vertices
+                .iter()
+                .all(|vertex| vertex.style_flags == flags)
+        );
+        assert_eq!(draw.vertices.len(), 8);
     }
 }
 

@@ -32,6 +32,14 @@ fn cloud_shadow_sampling_enabled(settings: &EnhancedRendering, effects_ready: bo
     settings.volumetric_clouds && effects_ready
 }
 
+fn wind_shadow_update_due(seconds: f32, previous: f32) -> bool {
+    let interval = crate::enhanced::local_lights::POINT_SHADOW_ANIMATION_INTERVAL;
+    seconds.is_finite()
+        && (!previous.is_finite()
+            || seconds < previous
+            || (seconds / interval).floor() > (previous / interval).floor())
+}
+
 /// Allocates a correctly sized effect target from the texture cache.
 fn cached(
     cache: &mut TextureCache,
@@ -274,9 +282,10 @@ pub(crate) fn prepare_enhanced_views(
         let actor_signature = local.actors.as_ref().map_or(0, |actors| {
             crate::enhanced::local_lights::near_actor_signature(actors, &state.local_lights.shadows)
         });
-        state.local_lights.dirty |= actor_signature != state.actor_shadow_signature;
+        let actor_changed = actor_signature != state.actor_shadow_signature;
+        state.local_lights.dirty |= actor_changed || settings_changed;
         state.local_lights.dirty |= state.caster_material_key != Some(gpu.materials.id());
-        if settings.waving && (seconds - state.point_shadow_seconds).abs() >= 1.0 / 15.0 {
+        if settings.waving && wind_shadow_update_due(seconds, state.point_shadow_seconds) {
             state.local_lights.dirty = true;
         }
         state.actor_shadow_signature = actor_signature;
@@ -384,6 +393,11 @@ pub(crate) fn prepare_enhanced_views(
                 .local_shadow
                 .as_mut()
                 .expect("local visibility allocated");
+            history.set_caster_interval(if settings.waving && !actor_changed {
+                crate::enhanced::local_lights::POINT_SHADOW_ANIMATION_INTERVAL
+            } else {
+                0.0
+            });
             history.prepare(
                 &queue,
                 valid,

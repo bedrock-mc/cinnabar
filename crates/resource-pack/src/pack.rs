@@ -23,7 +23,7 @@ pub(crate) struct EntryIndex {
 }
 
 /// One admitted archive. Bytes stay compressed (and encrypted, if they were);
-/// files are inflated and decrypted per read, so plaintext never persists.
+/// files are inflated and decrypted per read, so the pack retains no plaintext.
 #[derive(Clone)]
 pub struct ValidatedPack {
     pub(crate) pack_id: Uuid,

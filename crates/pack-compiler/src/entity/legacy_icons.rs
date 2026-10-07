@@ -1,7 +1,6 @@
-//! Legacy vanilla icon routes: the atlas key and variant the retail client's
-//! `VanillaItems::initClientData` assigns to items without an icon component,
-//! with potion icons keyed by aux. Each row cites its call site in the 26.30
-//! client; keys absent from the pinned atlas are skipped, never invented.
+//! Legacy vanilla icon routes: the atlas key and variant vanilla 26.30
+//! assigns to items without an icon component, with potion icons keyed by aux.
+//! Keys absent from the pinned atlas are skipped, never invented.
 
 use assets::AssetError;
 

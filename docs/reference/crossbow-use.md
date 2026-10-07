@@ -1,44 +1,42 @@
-# Native crossbow use state
+# Crossbow use state
 
 ## Charge, load, fire
 
-`getMaxUseDuration` is 25 ticks minus five ticks per Quick Charge
-level; loading does not change that duration query to zero. `use`
-checks the stack's cached charged projectile. An uncharged item starts use; a
+The maximum use duration is 25 ticks minus five ticks per Quick Charge
+level; loading does not change it to zero. Using the item checks the stack's
+cached charged projectile. An uncharged item starts use; a
 charged item fires and then removes `chargedItem` and its cached projectile.
 
-`releaseUsing` computes normalized draw power from duration minus
+Release computes normalized draw power from duration minus
 remaining ticks. Only full power loads a projectile. It checks offhand arrows or
 fireworks first, then inventory arrows; creative can synthesize an arrow when no
 projectile is present. The compound mutation writes the serialized projectile into
-`chargedItem` and retains a cached item stack. The crossbow's duration-depleted
-virtual implementation dispatches release with zero remaining
+`chargedItem` and retains a cached item stack. When the use duration runs out, the crossbow releases with zero remaining
 ticks. A short release clears rather than loads the projectile.
 
-After its item-complete gameplay event, `Player::completeUsingItem` checks
-`Level::isClientSide` and skips the transaction/depletion branch on the client.
-The sub-client id is a separate field.
+After the item-complete gameplay event, completing the use skips the
+transaction/depletion branch on the client. The sub-client id is a separate
+field.
 
-Only the server-side branch constructs an `ItemReleaseInventoryTransaction`:
-the transaction fills selected slot, player position and action `Use` (1),
-invokes `useTimeDepleted` and writes the mutated stack. That branch also records
+Only the server-side branch builds a release-item inventory transaction: it
+fills selected slot, player position and action `Use` (1), runs the
+use-time-depleted step and writes the mutated stack. That branch also records
 inventory actions and `CompletedUsingItem`. It does not justify sending a
 client completion transaction or a second click-air request. Ordinary early
-button release still sends a release transaction. `getAnimationFrame` selects frame 4 for loaded arrows and frame 5 for fireworks
+button release still sends a release transaction. The item's animation frame is 4 for loaded arrows and frame 5 for fireworks
 independently of whether the use button is still held.
 
 ## HUD and inventory icons
 
-The current `setIcon` override registers five icon records from
-the `crossbow_pulling` atlas key, in variants zero through four. The
-`getIconInfo` override uses the ordinary standby icon for frame
-zero; nonzero animation frame N addresses registered record N minus one.
+The crossbow registers five icon records from the `crossbow_pulling` atlas
+key, in variants zero through four. Its icon lookup uses the ordinary standby
+icon for frame zero; nonzero animation frame N addresses registered record N minus one.
 The pinned pack's `textures/item_texture.json` orders those variants as
 pulling 0, pulling 1, pulling 2, loaded arrow, and loaded firework. Thus damage
 metadata is not a charging or loaded-icon selector.
 
-HUD capture now routes every charged stack's icon through that mapping. Native
-loaded NBT applies to hotbar, inventory, offhand, storage, and cursor cells.
+HUD capture now routes every charged stack's icon through that mapping. Loaded
+NBT applies to hotbar, inventory, offhand, storage, and cursor cells.
 Player hotbar slots also receive the same animation frame and revision-scoped
 local charge/fire prediction as their attachable; switching selection retains
 the loaded icon, and authoritative corrections replace it. The renderer still
@@ -58,7 +56,7 @@ standby, partial/full drawing and persistent loaded-arrow hand/HUD states.
 Reopening the survival inventory also shows the loaded-arrow icon. Ignored
 captures `2026-10-01_23.47.17.png` through `23.47.21.png` and `23.48.14.png`
 record that run; the arrow count changes from 64 to 63. This is live functional
-and rendering evidence, not a version-matched native frame comparison.
+and rendering evidence, not a version-matched vanilla frame comparison.
 
 The October 2 UTC follow-up repeats loading against offline vanilla BDS with
 the canonical client.
@@ -100,6 +98,6 @@ The ignored local fixture uses the pinned Dragonfly fork. Its
 `session/handler_inventory_transaction.go` routes all release transactions to
 `Player.ReleaseItem`, ignoring the action subtype. Crossbow implements
 `Chargeable`, not `Releasable`; its `Charge` path is reached by a second
-`Player.UseItem` call instead. Consequently the fixture cannot establish native
+`Player.UseItem` call instead. Consequently the fixture cannot establish vanilla
 crossbow loading from the client's silent duration completion. No click-air
 workaround, fabricated loaded packet or production Go change masks this gap.

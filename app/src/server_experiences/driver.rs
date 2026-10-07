@@ -10,7 +10,7 @@ use crate::{app::ClientFrameSet, menu::MenuRuntime, runtime::network::NetworkHan
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 #[derive(Resource)]
-struct ExperienceService {
+pub(super) struct ExperienceService {
     settings_path: PathBuf,
     cache_root: PathBuf,
     settings: Option<Settings>,
@@ -37,7 +37,7 @@ pub(crate) fn configure(app: &mut App) {
     })
     .add_systems(
         Update,
-        (drive, super::input::consume)
+        (drive, super::input::consume, present_media)
             .chain()
             .before(ClientFrameSet::SemanticSample)
             .after(ClientFrameSet::RawInput)
@@ -59,6 +59,8 @@ fn drive(
     mut ownership: ResMut<super::input::ConsentInput>,
     time: Res<Time<Real>>,
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let generation = runtime.session_id();
@@ -143,7 +145,9 @@ fn drive(
         presentation.hover_experience(cursor);
     }
     let approval_ready = presentation.experience_approval_ready();
-    let focused = window.is_some_and(|window| window.focused);
+    let focused = driven.is_some()
+        || (window.is_some_and(|window| window.focused)
+            && focus.as_ref().is_none_or(|focus| focus.available()));
     let choice =
         if focused && can_disable(&extension.session.state) && keys.just_pressed(KeyCode::F9) {
             Some(Choice::Disable)
@@ -178,6 +182,12 @@ fn drive(
             }
             _ => {}
         }
+        if wants_prompt
+            && !matches!(extension.session.state, State::Offered(_))
+            && let Some(focus) = focus.as_deref_mut()
+        {
+            focus.authorize_screen_return();
+        }
     }
     network.set_experience_enabled(
         matches!(extension.session.state, State::Awaiting(_))
@@ -210,6 +220,49 @@ fn drive(
         service.download = None;
         service.live = None;
         extension.active = false;
+    }
+}
+
+/// Advances media players on the monotonic clock and publishes their screens and audio.
+fn present_media(
+    mut service: ResMut<ExperienceService>,
+    time: Res<Time<Real>>,
+    scene: Option<ResMut<render::MediaScreenScene>>,
+    device: Option<NonSendMut<client_presentation::named_audio::AudioDevice>>,
+    audio_settings: Option<Res<client_presentation::audio::settings::AudioSettings>>,
+) {
+    let local_us = u64::try_from(time.elapsed().as_micros()).unwrap_or(u64::MAX);
+    let muted = service
+        .settings
+        .as_ref()
+        .is_some_and(|settings| settings.media_muted);
+    let mut scene = scene;
+    if let Some(live) = &mut service.live {
+        // Consent already covers playback here; the autoplay preference awaits a settings UI.
+        live.media_mut()
+            .service(super::unix_seconds(), local_us, true);
+        let defaults = client_presentation::audio::settings::AudioSettings::default();
+        let settings = audio_settings.as_deref().unwrap_or(&defaults);
+        live.media_mut().pump_audio(
+            device.map(NonSendMut::into_inner),
+            settings,
+            muted,
+            local_us,
+        );
+        let budget = live.gpu_budget_bytes();
+        // Writes only on change, so an unchanged scene neither allocates nor re-extracts.
+        if let Some(screens) = live.changed_screens()
+            && let Some(scene) = scene.as_mut()
+            && (!screens.is_empty() || !scene.screens.is_empty())
+        {
+            scene.screens.clear();
+            scene.screens.extend_from_slice(screens);
+            scene.gpu_budget_bytes = budget;
+        }
+    } else if let Some(scene) = scene.as_mut()
+        && !scene.screens.is_empty()
+    {
+        scene.screens.clear();
     }
 }
 
@@ -266,13 +319,14 @@ fn advance_runtime(
         .and_then(|download| download.poll())
     {
         service.download = None;
-        let executable = mod_host::helper::developer_executable(&std::env::current_exe()?);
+        let client = std::env::current_exe()?;
         service.live = Some(super::live::Live::start(
             grant.clone(),
             result?,
             extension.epoch,
             now_ms,
-            &executable,
+            &mod_host::helper::developer_executable(&client),
+            &mod_host::helper::media_executable(&client),
         )?);
         extension.active = true;
     }

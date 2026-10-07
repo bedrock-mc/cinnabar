@@ -19,7 +19,7 @@ use crate::ui_runtime::presentation::screens::{SEARCH_TAB, Widget};
 /// The controller collection filled by the recipe book.
 const COLLECTION: &str = "recipe_book";
 
-/// `CraftingScreenController::addStaticScreenVars`: radio indexes of the tabs
+/// Vanilla crafting screen variables: radio indexes of the tabs
 /// and layout toggles.
 const INDEXES: [(&str, u64); 9] = [
     ("construction_index", 1),

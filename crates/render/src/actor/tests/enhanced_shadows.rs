@@ -7,6 +7,7 @@ fn shader(definitions: &[&str]) -> String {
         include_str!("../../actor.wgsl"),
         "actor.wgsl",
         crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
     );
     let bevy::shader::Source::Wgsl(source) = shader.source else {
         panic!("actor source is WGSL");

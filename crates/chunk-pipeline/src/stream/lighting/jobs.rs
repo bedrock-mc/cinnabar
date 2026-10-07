@@ -2,7 +2,7 @@ use super::super::*;
 
 impl WorldStream {
     /// Keeps nearby pending work's priority while executing its highest light dependency.
-    fn near_light_column_candidate(
+    pub(in crate::stream) fn near_light_column_candidate(
         &self,
         key: SubChunkKey,
         view: SchedulerView,
@@ -33,6 +33,7 @@ impl WorldStream {
             }
         }
         candidate.distance_squared = priority.distance_squared;
+        candidate.startup_class = priority.startup_class;
         candidate.urgent = priority.urgent;
         Some(candidate)
     }
@@ -42,6 +43,13 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!(
+            "light.dispatch",
+            budget,
+            pending = self.lighting.jobs.pending.len()
+        )
+        .entered();
         let light_job_cap = if self.lighting.jobs.pending.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
             || self.mesh_jobs.pending.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
         {
@@ -61,10 +69,7 @@ impl WorldStream {
             return 0;
         }
 
-        let view = SchedulerView {
-            position: camera_position,
-            forward: self.view_forward,
-        };
+        let view = self.scheduler_view(camera_position);
         let wakeups = &self.lighting.priority_wakeups;
         let probe_near =
             self.lighting
@@ -73,13 +78,13 @@ impl WorldStream {
                     (0, pending.urgent || wakeups.get(&key) == Some(&revision))
                 });
 
-        let mut near = if probe_near {
-            scheduler::near_light_columns(view, self.authority.current_dimension())
-                .filter_map(|key| self.near_light_column_candidate(key, view))
-                .collect::<BinaryHeap<_>>()
-        } else {
-            BinaryHeap::new()
-        };
+        let mut near = self.transfer_light_candidates();
+        if probe_near {
+            near.extend(
+                scheduler::near_light_columns(view, self.authority.current_dimension())
+                    .filter_map(|key| self.near_light_column_candidate(key, view)),
+            );
+        }
         let mut prepared_batches = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
         let mut scanned = 0;
@@ -101,7 +106,7 @@ impl WorldStream {
             };
             let mut queued = queued;
             if queued {
-                candidate.distance_squared = view.rank(candidate.key);
+                candidate.refresh_rank(view);
             }
             if queued && near.peek().is_some_and(|local| *local > candidate) {
                 self.lighting.jobs.lanes[0].ready.push(candidate);
@@ -125,6 +130,8 @@ impl WorldStream {
                     highest_pending.urgent || priority.urgent,
                 );
                 candidate.distance_squared = priority.distance_squared;
+                candidate.startup_class = priority.startup_class;
+                candidate.transfer = priority.transfer;
             }
             let key = candidate.key;
             let revision = candidate.revision;
@@ -269,26 +276,36 @@ impl WorldStream {
             .phase2_stages
             .light_jobs_dispatched
             .saturating_add(dispatched as u64);
+        let mut dispatch = workers::WORKERS.batch(workers::Lane::Light);
         for batch in prepared_batches {
             let tx = self.lighting.tx.clone();
             let running = RunningLightJob::start(&self.lighting.running_jobs);
-            workers::WORKERS.light.spawn(move || {
+            dispatch.spawn_with_scratch(move |scratch| {
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("light.solve", sections = batch.len()).entered();
                 let started = Instant::now();
-                let solved = solve_prepared_light_batch(batch);
+                let solved = solve_prepared_light_batch_with_scratch(batch, scratch);
                 let duration = started.elapsed();
+                #[cfg(feature = "tracy")]
+                drop(_zone);
                 // Release the worker slot before publishing: a drained completion means a free slot.
                 drop(running);
                 for entry in solved {
-                    let _ = tx.send(LightCompletion {
+                    let completion = LightCompletion {
                         key: entry.key,
                         identity: entry.identity,
                         result: entry.result,
                         queue_wait: queue_wait(entry.queued_at, started),
                         duration,
-                    });
+                    };
+                    #[cfg(feature = "tracy")]
+                    let _zone = tracing::info_span!("light.completion_send", key = ?completion.key)
+                        .entered();
+                    let _ = tx.send(completion);
                 }
             });
         }
+        drop(dispatch);
         dispatched
     }
     fn take_prepared_light_job(
@@ -331,6 +348,8 @@ impl WorldStream {
         }
     }
     pub(in crate::stream) fn accept_light_completion(&mut self, completion: LightCompletion) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("light.completion", key = ?completion.key).entered();
         self.stats.phase2_stages.light_jobs_completed = self
             .stats
             .phase2_stages
@@ -598,7 +617,17 @@ impl WorldStream {
                 if neighbour_in_same_batch {
                     continue;
                 }
-                if completed_uniform_direct_sky && self.known_air_has_vertical_direct_sky(neighbour)
+                if completed_uniform_direct_sky
+                    && self.known_air.contains(&neighbour)
+                    && self.light_is_current(neighbour)
+                    && self.lighting.store.light(neighbour).is_some_and(|light| {
+                        self.lighting
+                            .direct_sky
+                            .get(&neighbour)
+                            .is_some_and(|direct| {
+                                is_uniform_direct_sky(light, direct.mask.as_ref())
+                            })
+                    })
                 {
                     continue;
                 }

@@ -192,3 +192,44 @@ fn seed_cache_publishes_where_the_client_cache_reads() {
     let cache = BundleCache::open(&objects).unwrap();
     assert_eq!(cache.read(&digest).unwrap().unwrap(), b"bundle bytes");
 }
+
+#[test]
+fn build_assets_are_indexed_under_their_relative_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let seed = dir.path().join("publisher.seed");
+    assert!(cxb(&["keygen", path(&seed)]).status.success());
+    let core = dir.path().join("core.wasm");
+    std::fs::write(&core, CORE_MODULE).unwrap();
+    let manifest = dir.path().join("manifest.toml");
+    std::fs::write(&manifest, MANIFEST_TOML).unwrap();
+    let assets = dir.path().join("assets");
+    std::fs::create_dir_all(assets.join("media")).unwrap();
+    std::fs::write(assets.join("media/clip.json"), b"{}").unwrap();
+    std::fs::write(assets.join("poster.png"), b"png").unwrap();
+    let out = dir.path().join("assets.cxb");
+    let mut args = vec![
+        "build",
+        "--manifest",
+        path(&manifest),
+        "--component",
+        path(&core),
+        "--publisher-seed",
+        path(&seed),
+        "--out",
+        path(&out),
+        "--assets",
+        path(&assets),
+    ];
+    let output = cxb(&args);
+    assert!(output.status.success(), "{output:?}");
+    let verified = verify(&std::fs::read(&out).unwrap(), &seed).unwrap();
+    assert_eq!(verified.file("media/clip.json").unwrap(), b"{}");
+    assert_eq!(verified.file("poster.png").unwrap(), b"png");
+
+    // An asset that would shadow the component is refused.
+    std::fs::write(assets.join("component.wasm"), b"x").unwrap();
+    let rejected = dir.path().join("rejected.cxb");
+    args[8] = path(&rejected);
+    assert!(!cxb(&args).status.success());
+    assert!(!rejected.exists());
+}

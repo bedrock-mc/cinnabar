@@ -1,15 +1,14 @@
 use super::super::*;
 
-const MINERAL_CUBE_IDENTITIES: [(u32, u32, &str, &str, &str); 2] = [
+/// `(network hash, name, terrain key, texture path)`; sequential IDs vary by registry version.
+const MINERAL_CUBE_IDENTITIES: [(u32, &str, &str, &str); 2] = [
     (
-        12_638,
         0xbda0_2665,
         "minecraft:cinnabar",
         "cinnabar",
         "textures/blocks/cinnabar",
     ),
     (
-        14_658,
         0x2d65_8dd8,
         "minecraft:sulfur",
         "sulfur",
@@ -17,27 +16,24 @@ const MINERAL_CUBE_IDENTITIES: [(u32, u32, &str, &str, &str); 2] = [
     ),
 ];
 
-fn identity(
-    record: &RegistryRecord,
-) -> Option<(u32, u32, &'static str, &'static str, &'static str)> {
+fn identity(record: &RegistryRecord) -> Option<(u32, &'static str, &'static str, &'static str)> {
     MINERAL_CUBE_IDENTITIES
         .iter()
         .copied()
-        .find(|&(_, _, name, _, _)| record.name.as_ref() == name)
+        .find(|&(_, name, _, _)| record.name.as_ref() == name)
 }
 
 pub(in crate::compiler) fn is_mineral_cube_name(name: &str) -> bool {
     MINERAL_CUBE_IDENTITIES
         .iter()
-        .any(|&(_, _, candidate, _, _)| name == candidate)
+        .any(|&(_, candidate, _, _)| name == candidate)
 }
 
 pub(in crate::compiler) fn is_mineral_cube_record(record: &RegistryRecord) -> bool {
-    let Some((sequential_id, network_hash, _, _, _)) = identity(record) else {
+    let Some((network_hash, _, _, _)) = identity(record) else {
         return false;
     };
-    record.sequential_id == sequential_id
-        && record.network_hash == network_hash
+    record.network_hash == network_hash
         && record.canonical_state.as_ref() == "{}"
         && record.model_family == ModelFamily::Unknown
         && record.contributor_role == ContributorRole::Primary
@@ -72,7 +68,7 @@ pub(in crate::compiler) fn mineral_cube_material_descriptor(
     pack: &PackSources,
     record: &RegistryRecord,
 ) -> Option<(Descriptor, Box<str>)> {
-    let (_, _, _, expected_key, expected_path) = identity(record)?;
+    let (_, _, expected_key, expected_path) = identity(record)?;
     if pack
         .blocks
         .get_exact_scalar_plain(record.name.strip_prefix("minecraft:")?, expected_key)?

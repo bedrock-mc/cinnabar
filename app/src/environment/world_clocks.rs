@@ -1,9 +1,9 @@
 //! The atmosphere's bounded consumer of the native named clock registry.
 //!
 //! Vanilla registry initialization and synchronization. Sync skips unknown IDs and independently applies time and pause;
-//! WorldClock::tick and RegistryClient::tick respectively
-//! gate advancement on the clock's pause state and global doDaylightCycle.
-//! Level::getTime's lookup uses its canonical pre-registered hash
+//! each clock's tick and the registry tick respectively gate advancement on the
+//! clock's pause state and global doDaylightCycle.
+//! The level-time lookup uses its canonical pre-registered hash
 //! directly: a different server ID carrying the same string is not that clock.
 //! Unrelated clocks and marker callbacks have no current Cinnabar consumer.
 
@@ -13,7 +13,8 @@ use super::{WorldClock, numeric::finite_nonnegative, visual_world_time};
 
 pub(super) fn apply_legacy_time(clock: &mut WorldClock, time: i32, elapsed_seconds: f64) {
     let elapsed_seconds = finite_nonnegative(elapsed_seconds);
-    // Legacy handler compares Level::getTime before calling Level::setTime; identical integer times are not re-anchored.
+    // The legacy handler compares the current level time first; identical integer
+    // times are not re-anchored.
     if clock.server_time.is_none()
         || visual_world_time(*clock, elapsed_seconds).floor() != f64::from(time)
     {
@@ -56,7 +57,7 @@ pub(super) fn apply_clock_update(
 
 fn apply_state(clock: &mut WorldClock, state: WorldClockState, elapsed_seconds: f64) {
     let current_time = visual_world_time(*clock, elapsed_seconds);
-    // Native compares the integer WorldClock time, rather than resetting the
+    // Vanilla compares the integer clock time, rather than resetting the
     // renderer's fractional tick on every equal-valued synchronization packet.
     let time_changed = current_time.floor() != f64::from(state.time);
     if time_changed || clock.paused != state.paused {

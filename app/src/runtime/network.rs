@@ -12,6 +12,7 @@ use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEvent
 #[cfg(feature = "acceptance")]
 use crate::runtime::visibility::AppMetrics;
 use std::sync::Arc;
+use std::time::Duration;
 #[cfg(feature = "acceptance")]
 use std::time::Instant;
 
@@ -51,10 +52,11 @@ pub(crate) use inventory::{
 pub(crate) use pack_reload::{PackReload, reload_resource_packs};
 #[cfg(test)]
 pub(crate) use resource_packs::PackApplication;
+pub(crate) use resource_packs::ui_catalog::PackUiCatalog;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, active_language_code,
     classify_bootstrap_generation, set_active_language, set_base_material_keys,
-    set_base_terrain_catalog,
+    set_base_terrain_catalog, set_compile_cache_dir,
 };
 pub(crate) use session::{
     BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
@@ -209,7 +211,11 @@ pub(crate) fn receive_network_events(
         mut ui_runtime,
         time,
     } = state;
+    let display_interval = profiler
+        .as_deref()
+        .map_or(Duration::ZERO, RuntimeStageProfiler::frame_interval);
     if let Some(stream) = client_world.stream.as_mut() {
+        stream.set_display_interval(display_interval);
         stream.begin_frame_work();
     }
     let controls =
@@ -302,7 +308,9 @@ pub(crate) fn receive_network_events(
                 ui_runtime.experiences.marker = packs.extension_marker;
                 player_runtime.facts.publish_bootstrap_game_modes(
                     player_game_mode,
-                    world_default_game_mode,
+                    world_default_game_mode
+                        .hud_mode()
+                        .unwrap_or(protocol::PlayerGameMode::Unknown),
                     player_game_mode_uses_world_default,
                 );
                 ui_runtime.set_hardcore(hardcore);
@@ -383,10 +391,14 @@ pub(crate) fn receive_network_events(
                         "skipped malformed server block definitions"
                     );
                 }
+                stream.set_world_default_game_mode(world_default_game_mode);
+                stream.set_display_interval(display_interval);
                 stream.begin_frame_work();
+                stream.set_startup_priority(true);
                 stream.set_startup_terrain_announced(terrain_before_spawn);
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
+                stream.set_custom_block_identities(&custom_blocks);
                 stream.set_light_diagnostic_custom_blocks(custom_blocks.clone());
                 stream.set_pack_entities(packs.entities.as_ref().map(|pack| {
                     (
@@ -672,15 +684,15 @@ pub(crate) fn receive_network_events(
         }
     }
 
-    let admission_capacity = client_world.stream.as_ref().map_or(
-        NETWORK_INGRESS_BUDGET_PER_FRAME,
-        WorldStream::remaining_admission_capacity,
-    );
-    let events = drain_world_ingress_until_barrier(
-        network.world_events_mut(),
-        NETWORK_INGRESS_BUDGET_PER_FRAME.min(admission_capacity),
-    );
-    for ingress in events {
+    let mut drain = WorldIngressDrain::new(NETWORK_INGRESS_BUDGET_PER_FRAME);
+    loop {
+        let admission_capacity = client_world.stream.as_ref().map_or(
+            NETWORK_INGRESS_BUDGET_PER_FRAME,
+            WorldStream::remaining_admission_capacity,
+        );
+        let Some(ingress) = drain.next(network.world_events_mut(), admission_capacity) else {
+            break;
+        };
         let sequenced = match ingress {
             session::WorldIngress::Event(sequenced) => {
                 network.record_readiness_event_consumed(&sequenced.event);
@@ -918,12 +930,13 @@ pub(crate) mod reload_environment;
 mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
+    ActorFramePartialTick, HandRigBuilder, advance_actor_frame, prepare_actor_render_frame,
+    publish_actor_render_frame, publish_entity_shadows,
 };
 
 #[cfg(test)]
 pub(crate) use drain::drain_network_ingress;
-pub(crate) use drain::{drain_network_controls, drain_world_ingress_until_barrier};
+pub(crate) use drain::{WorldIngressDrain, drain_network_controls};
 
 #[cfg(feature = "acceptance")]
 pub(crate) use acceptance::committed_control::acceptance_surface_anchor;

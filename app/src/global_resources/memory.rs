@@ -11,26 +11,43 @@ pub(super) fn physical_bytes() -> u64 {
     result.unwrap_or(0)
 }
 
-/// Uses the kernel's byte-valued hardware memory property.
+/// Reads the kernel's byte-valued `hw.memsize` property.
 #[cfg(target_os = "macos")]
 fn read_physical_bytes() -> Option<u64> {
-    let output = std::process::Command::new("/usr/sbin/sysctl")
-        .args(["-n", "hw.memsize"])
-        .output()
-        .ok()?;
-    output.status.success().then_some(())?;
-    std::str::from_utf8(&output.stdout)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    use std::ffi::{c_char, c_int, c_void};
+    unsafe extern "C" {
+        fn sysctlbyname(
+            name: *const c_char,
+            old: *mut c_void,
+            old_length: *mut usize,
+            new: *mut c_void,
+            new_length: usize,
+        ) -> c_int;
+    }
+    let mut bytes = 0u64;
+    let mut length = size_of::<u64>();
+    // SAFETY: the name is NUL-terminated and `bytes` has the `length` the kernel may write.
+    let result = unsafe {
+        sysctlbyname(
+            c"hw.memsize".as_ptr(),
+            (&raw mut bytes).cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (result == 0 && length == size_of::<u64>()).then_some(bytes)
 }
 
-/// Reads the kernel's total physical RAM count, reported in KiB.
 #[cfg(target_os = "linux")]
 fn read_physical_bytes() -> Option<u64> {
-    let memory = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let line = memory
+    meminfo_total_bytes(&std::fs::read_to_string("/proc/meminfo").ok()?)
+}
+
+/// `MemTotal` from `/proc/meminfo`, which the kernel reports in KiB.
+#[cfg(any(target_os = "linux", test))]
+fn meminfo_total_bytes(meminfo: &str) -> Option<u64> {
+    let line = meminfo
         .lines()
         .find_map(|line| line.strip_prefix("MemTotal:"))?;
     line.split_whitespace()
@@ -40,28 +57,33 @@ fn read_physical_bytes() -> Option<u64> {
         .checked_mul(1024)
 }
 
-/// Queries the operating system's physical-memory property on the worker.
 #[cfg(target_os = "windows")]
 fn read_physical_bytes() -> Option<u64> {
-    let output = std::process::Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory",
-        ])
-        .output()
-        .ok()?;
-    output.status.success().then_some(())?;
-    std::str::from_utf8(&output.stdout)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    crate::desktop::windows::physical_memory()
 }
 
 /// Unsupported platforms retain the lowest automatic tier until a native reader exists.
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn read_physical_bytes() -> Option<u64> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meminfo_total_is_read_in_kib() {
+        let meminfo = "MemFree:  1000 kB\nMemTotal:       16318060 kB\nSwapTotal: 0 kB\n";
+        assert_eq!(meminfo_total_bytes(meminfo), Some(16_318_060 * 1024));
+        assert_eq!(meminfo_total_bytes("MemFree: 1 kB\n"), None);
+        assert_eq!(meminfo_total_bytes("MemTotal: lots kB\n"), None);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    #[test]
+    fn native_reader_reports_installed_memory() {
+        let bytes = read_physical_bytes().expect("physical memory");
+        assert!(bytes >= 256 << 20, "{bytes}");
+    }
 }

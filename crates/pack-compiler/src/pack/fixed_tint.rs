@@ -49,7 +49,7 @@ impl TerrainTextureMap {
 
 /// Parses the literal RGB multiplier in a terrain atlas entry.
 pub fn parse_atlas_tint(source: &str) -> Option<[u8; 3]> {
-    // TextureJSONParser delegates to colour parsing:
+    // Vanilla texture JSON delegates to colour parsing:
     // hexadecimal strings select their low RGB bytes, with alpha one.
     let hex = source.strip_prefix('#')?;
     if !matches!(hex.len(), 6 | 8) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {

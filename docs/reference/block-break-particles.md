@@ -6,13 +6,12 @@ The runtime pack is selected by `assets/vanilla-source.json`.
 
 The level-event dispatcher handles break events
 2001 and 2021 by resolving the block, centering the emitter at the floored cell
-plus 0.5, and reading `BlockDestructionParticlesComponent`'s particle count.
-Its current getter returns **100** without a count override.
+plus 0.5, and reading the block's destruction-particle count, which is **100**
+without a count override.
 The previous
 Cinnabar value, 32, did not match this path.
 
-`addTerrainParticleEffect` selects `minecraft:block_destruct`.
-`_addTerrainEffect` supplies the count, its cube-root intensity, velocity scalar 1 and radius 0.5 for these
+The terrain particle effect is `minecraft:block_destruct`, spawned with the count, its cube-root intensity, velocity scalar 1 and radius 0.5 for these
 events. It refuses a request only when the selected effect already has more
 than 20 emitters or more than 500 particles. These are strict pre-spawn checks,
 not a clamp on the admitted burst, and do not count unrelated effects.

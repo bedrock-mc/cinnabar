@@ -17,9 +17,6 @@ func hasLinkAttribute(info os.FileInfo) bool {
 	return !ok || data.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
-// syncDir is unnecessary on Windows because the directory cannot be synced this way.
-func syncDir(string) error { return nil }
-
 // canonicalPlatformPath folds case for the in-process root lease.
 func canonicalPlatformPath(path string) string { return strings.ToLower(path) }
 

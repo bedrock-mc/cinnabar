@@ -48,6 +48,7 @@ pub(super) struct EngineSlots {
     pub(super) is_holding_right: Option<usize>,
     pub(super) is_holding_left: Option<usize>,
     pub(super) is_sneaking: Option<usize>,
+    pub(super) chest_layer_visible: Option<usize>,
     pub(super) is_blocking: Option<usize>,
     pub(super) damage_nearby_mobs: Option<usize>,
     /// Refreshed per tick so the root controller tracks live perspective, not only its seed.
@@ -77,6 +78,8 @@ pub(super) struct EngineSlots {
     pub(super) horse_stand_anim: Option<usize>,
     pub(super) horse_shake_tail: Option<usize>,
     pub(super) horse_open_mouth: Option<usize>,
+    /// Dense slots for each requested dragon historical frame's yaw or height.
+    pub(super) dragon_history: Vec<(usize, usize, usize)>,
 }
 
 // Client-owned variables seeded on construction and needing independent measurement; remote third-person actors keep these values because
@@ -141,6 +144,7 @@ impl VariableLayout {
                 is_holding_right: slot("variable.is_holding_right"),
                 is_holding_left: slot("variable.is_holding_left"),
                 is_sneaking: slot("variable.is_sneaking"),
+                chest_layer_visible: slot("variable.chest_layer_visible"),
                 is_blocking: slot("variable.is_blocking"),
                 damage_nearby_mobs: slot("variable.damage_nearby_mobs"),
                 is_first_person: slot("variable.is_first_person"),
@@ -166,6 +170,24 @@ impl VariableLayout {
                 horse_stand_anim: slot("variable.stand_anim"),
                 horse_shake_tail: slot("variable.shake_tail"),
                 horse_open_mouth: slot("variable.open_mouth"),
+                dragon_history: symbols[variable_base..variable_base + variable_count]
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(slot, symbol)| {
+                        let name = symbol
+                            .identifier
+                            .strip_prefix("variable.historical_frame_")?;
+                        let (offset, component) = name.split_once('.')?;
+                        let offset = offset.parse::<usize>().ok()?;
+                        let axis = match component {
+                            "rot_y" => 0,
+                            "pos_y" => 1,
+                            _ => return None,
+                        };
+                        (offset < crate::actor_store::dragon_animation::HISTORICAL_VARIABLES)
+                            .then_some((slot, offset, axis))
+                    })
+                    .collect(),
             },
         }
     }
@@ -199,6 +221,7 @@ pub struct ActorAnimationVariables<'a> {
     assets: Option<&'a RuntimeEntityAssets>,
     variables: Option<&'a MolangVariables>,
     life_tick: u64,
+    input: Option<ActorTickInput>,
 }
 
 impl<'a> ActorAnimationVariables<'a> {
@@ -211,7 +234,19 @@ impl<'a> ActorAnimationVariables<'a> {
             assets,
             variables: Some(variables),
             life_tick,
+            input: None,
         }
+    }
+
+    /// Equipment observes the same fixed-tick movement and swim blend as its owner.
+    pub(super) fn with_input(mut self, input: Option<ActorTickInput>) -> Self {
+        self.input = input;
+        self
+    }
+
+    /// Retains query inputs as well as script variables for worn animation clips.
+    pub(super) fn input(self) -> Option<ActorTickInput> {
+        self.input
     }
 
     pub(super) fn life_tick(self) -> u64 {

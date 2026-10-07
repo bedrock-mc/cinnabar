@@ -205,7 +205,7 @@ fn sprite_uv(anim: &NodeAnim, written: &Written, uv: UvRect, base: Option<[f64; 
     }
 }
 
-/// `UIAsepriteFlipbook::tick`: the frame whose span holds `ms` into the loop.
+/// Aseprite flipbook timing: the frame whose span holds `ms` into the loop.
 fn aseprite_origin(frames: &[crate::sidecar::AsepriteFrame], ms: i64) -> [f32; 2] {
     let total: i64 = frames.iter().map(|frame| frame.duration_ms).sum();
     if total == 0 {

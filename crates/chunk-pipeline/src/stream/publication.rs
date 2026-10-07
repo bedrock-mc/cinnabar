@@ -1,10 +1,22 @@
 use super::*;
 
 impl WorldStream {
+    /// Retains StartGame's level mode for remote-player target admission.
+    pub fn set_world_default_game_mode(&mut self, mode: client_world::ingestion::GameModeUpdate) {
+        self.authority.set_world_default_game_mode(mode);
+    }
+
     /// Read-only view of the admitted world; mutation stays behind ordered admission.
     #[must_use]
     pub const fn authority(&self) -> &client_world::WorldAuthority {
         &self.authority
+    }
+
+    /// Delivers each committed primitive-shape packet once in network order.
+    pub fn pop_primitive_shapes(
+        &mut self,
+    ) -> Option<render_api::primitive_shapes::PrimitiveShapesEvent> {
+        self.authority.pop_primitive_shapes()
     }
 
     pub fn set_publication_allowance(&mut self, allowance: PublicationAllowance) {
@@ -87,6 +99,7 @@ impl WorldStream {
             self.applied_mesh_generations.remove(&key);
         }
         self.revisions.clear_if_current(key, generation);
+        self.acknowledge_actor_block_syncs(key, generation);
         self.stats.phase2_stages.mesh_uploads_acknowledged = self
             .stats
             .phase2_stages
@@ -158,6 +171,10 @@ impl WorldStream {
     pub fn set_actor_fluids(&mut self, samples: &[(u64, bool, bool)]) {
         self.authority.set_actor_fluids(samples)
     }
+    /// Records `(runtime_id, submerged)` breathing-point samples that hide entity shadows.
+    pub fn set_actor_breathing_liquids(&mut self, samples: &[(u64, bool)]) {
+        self.authority.set_actor_breathing_liquids(samples)
+    }
     /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.authority.set_actor_camera_rotation(rotation)
@@ -180,10 +197,36 @@ impl WorldStream {
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
         self.authority.sync_local_player_pose(feed)
     }
+
+    /// Publishes a client-selected appearance against the retained local player profile.
+    pub fn update_local_player_skin(&mut self, profile: &client_world::PlayerProfile) -> bool {
+        self.authority
+            .update_local_player_skin(profile.skin.clone())
+    }
     /// Starts the local player's arm swing, which the server never echoes back to its owner.
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.authority.start_local_player_swing(ticks)
+    }
+    /// Uses committed local swing samples without re-admitting them on the remote actor clock.
+    pub fn sync_local_swing(&mut self, progress: client_world::LocalSwingProgress) {
+        self.authority.sync_local_swing(progress);
+    }
+    /// Selects the local motion authority before the actor clock advances unrelated animation.
+    pub fn set_local_motion_authority(&mut self, authority: Option<(u64, u64)>) {
+        self.authority.set_local_motion_authority(authority);
+    }
+    /// Advances local torso motion with each admitted physical tick's matching swing samples.
+    pub fn sync_local_swing_motion(
+        &mut self,
+        authority: (u64, u64),
+        samples: impl IntoIterator<Item = client_world::LocalSwingMotionSample>,
+    ) {
+        self.authority.sync_local_swing_motion(authority, samples);
+    }
+    /// Drops the local player's Java equip progress to zero, as a block placement does.
+    pub fn reset_local_java_equip(&mut self) {
+        self.authority.reset_local_java_equip()
     }
     /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
     /// Layers the session's server-pack entity catalog over the vanilla one; its entities
@@ -252,6 +295,7 @@ impl WorldStream {
         self.stats.max_decode_queue_wait = Duration::ZERO;
         self.stats.max_light_queue_wait = Duration::ZERO;
         self.stats.max_mesh_queue_wait = Duration::ZERO;
+        self.stats.max_mesh_dispatch_wait = Duration::ZERO;
         self.stats.max_decode_duration = Duration::ZERO;
         self.stats.max_mesh_duration = Duration::ZERO;
         self.stats.max_light_duration = Duration::ZERO;

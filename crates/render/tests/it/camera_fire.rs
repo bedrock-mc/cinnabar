@@ -4,8 +4,9 @@ use wgpu::util::DeviceExt;
 /// Original synthetic pixels isolate native cube orientation and point sampling.
 #[test]
 fn camera_fire_native_cube_is_open_above_and_keeps_pixel_edges_below() {
-    let Some(gpu) = fixture_gpu() else {
-        eprintln!("skipping camera_fire_native_cube: missing native GPU adapter fixture");
+    let Some(gpu) =
+        Gpu::for_fixture("camera_fire_native_cube_is_open_above_and_keeps_pixel_edges_below")
+    else {
         return;
     };
     let texture = gpu.device.create_texture_with_data(
@@ -51,11 +52,13 @@ fn camera_fire_native_cube_is_open_above_and_keeps_pixel_edges_below() {
         ..Default::default()
     });
     let render = |frame: f32| {
-        let mut words = vec![0.0; 12 + render::MAX_SCREEN_OVERLAY_LAYERS * 8];
-        words[0] = 1.0;
-        words[4..8].copy_from_slice(&[frame, frame, 0.0, 1.0]);
-        words[8..12].copy_from_slice(&[1.25, 0.7, 0.0, 0.0]);
-        words[12..20].copy_from_slice(&[
+        let mut words = vec![1.0, 0.0, 0.0, 0.0];
+        words.extend([frame, frame, 0.0, 1.0]);
+        words.extend([1.25, 0.7, 0.0, 0.0]);
+        words.extend([0.0; 4]);
+        words.extend(bevy::math::Mat4::IDENTITY.to_cols_array());
+        let layer_start = words.len();
+        words.extend([
             1.0,
             1.0,
             1.0,
@@ -65,6 +68,7 @@ fn camera_fire_native_cube_is_open_above_and_keeps_pixel_edges_below() {
             0.0,
             0.0,
         ]);
+        words.resize(layer_start + render::MAX_SCREEN_OVERLAY_LAYERS * 8, 0.0);
         let uniform = gpu.buffer(&words, wgpu::BufferUsages::UNIFORM);
         let bindings = [
             wgpu::BindGroupEntry {
@@ -85,6 +89,14 @@ fn camera_fire_native_cube_is_open_above_and_keeps_pixel_edges_below() {
             },
             wgpu::BindGroupEntry {
                 binding: 4,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
                 resource: wgpu::BindingResource::Sampler(&sampler),
             },
         ];
@@ -119,25 +131,4 @@ fn camera_fire_native_cube_is_open_above_and_keeps_pixel_edges_below() {
                 .all(|pixel| pixel[3] == 0 || pixel[..3] == rgb)
         );
     }
-}
-
-fn fixture_gpu() -> Option<Gpu> {
-    fn finish<T>(future: impl std::future::Future<Output = T>) -> T {
-        let mut future = std::pin::pin!(future);
-        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
-        loop {
-            if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut context) {
-                return value;
-            }
-            std::thread::yield_now();
-        }
-    }
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-    let adapter = finish(instance.request_adapter(&Default::default())).ok()?;
-    if adapter.get_info().backend == wgpu::Backend::Noop {
-        return None;
-    }
-    let (device, queue) = finish(adapter.request_device(&Default::default()))
-        .expect("available camera-fire adapter must create the fixture device");
-    Some(Gpu { device, queue })
 }

@@ -66,6 +66,14 @@ use super::{
     MovementTicker, PhysicsAuthorityFault, PhysicsSendIdentity, PhysicsTickEvidenceContext,
 };
 
+/// A release batch fenced behind the input tick that carries its facing.
+#[derive(Debug, Clone)]
+pub(super) struct HeldRelease {
+    tick: u64,
+    packets: Vec<Packet>,
+    facing_sent: bool,
+}
+
 /// The reported pose of one unsent tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UnsentSampleView {
@@ -73,7 +81,23 @@ pub struct UnsentSampleView {
     /// Network (eye-offset) position.
     pub position: [f32; 3],
     pub delta: [f32; 3],
+    /// Resolved motion controls held-use cadence independently of outbound velocity.
+    pub displacement: [f32; 3],
     pub sneaking: bool,
+}
+
+impl UnsentSampleView {
+    /// Reads the interaction pose without copying queued transport state.
+    fn from_queued(sample: &super::QueuedPhysicsSample) -> Self {
+        Self {
+            tick: sample.snapshot.tick,
+            position: sample.snapshot.position,
+            delta: sample.snapshot.delta,
+            displacement: sample.displacement,
+            sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
+                != 0,
+        }
+    }
 }
 
 /// Capacity of every movement retry queue: queued samples, staged sends,
@@ -118,6 +142,13 @@ pub fn flush_player_auth_inputs_guarded<E>(
         let Some(mut sample) = ticker.outbox.front().cloned() else {
             break;
         };
+        if ticker
+            .held_release
+            .as_ref()
+            .is_some_and(|held| sample.snapshot.tick > held.tick)
+        {
+            break;
+        }
         if ticker.tick_evidence.len() == OUTBOX_CAPACITY {
             ticker.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
             break;
@@ -216,13 +247,81 @@ impl MovementTicker {
 
     /// The newest unsent tick, which standalone interaction packets precede.
     pub fn newest_unsent_sample(&self) -> Option<UnsentSampleView> {
-        self.outbox.back().map(|sample| UnsentSampleView {
-            tick: sample.snapshot.tick,
-            position: sample.snapshot.position,
-            delta: sample.snapshot.delta,
-            sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
-                != 0,
-        })
+        self.outbox.back().map(UnsentSampleView::from_queued)
+    }
+
+    /// Looks up only the exact tick still owned by the unsent movement queue.
+    pub fn unsent_sample_at(&self, tick: u64) -> Option<UnsentSampleView> {
+        self.outbox
+            .iter()
+            .find(|sample| sample.snapshot.tick == tick)
+            .map(UnsentSampleView::from_queued)
+    }
+
+    /// The first eligible unsent tick committed in this render frame.
+    pub fn first_unsent_sample_in_frame(&self, recent_ticks: usize) -> Option<UnsentSampleView> {
+        if recent_ticks == 0 {
+            return None;
+        }
+        let first = self
+            .completed_tick()
+            .saturating_sub(recent_ticks as u64 - 1);
+        self.outbox
+            .iter()
+            .find(|sample| sample.snapshot.tick >= first)
+            .map(UnsentSampleView::from_queued)
+    }
+
+    /// Holds an aim-assisted release until `tick`'s input, which carries the facing it launches
+    /// with, is written; later inputs wait behind it and an authority change first drops it.
+    pub fn hold_release_after_tick(&mut self, tick: u64, packets: Vec<Packet>) {
+        self.held_release = Some(HeldRelease {
+            tick,
+            packets,
+            facing_sent: false,
+        });
+    }
+
+    /// Whether a held release still waits; later uses must not overtake it.
+    pub const fn has_held_release(&self) -> bool {
+        self.held_release.is_some()
+    }
+
+    /// Sends a held release once its facing tick was written; a full queue keeps the fence.
+    pub fn send_held_release(
+        &mut self,
+        send: impl FnOnce(Vec<Packet>) -> Result<(), crate::BatchSendError>,
+    ) {
+        let Some(held) = self.held_release.as_ref().filter(|held| held.facing_sent) else {
+            return;
+        };
+        if send(held.packets.clone()) != Err(crate::BatchSendError::Full) {
+            self.held_release = None;
+        }
+    }
+
+    pub(super) fn confirm_held_release_facing(&mut self, tick: u64) {
+        if let Some(held) = self.held_release.as_mut().filter(|held| held.tick == tick) {
+            held.facing_sent = true;
+        }
+    }
+
+    /// Action aim overrides actor facing on its unsent tick without changing movement or camera input.
+    pub fn override_action_rotation(&mut self, tick: u64, pitch: f32, yaw: f32) -> bool {
+        if !pitch.is_finite() || !yaw.is_finite() {
+            return false;
+        }
+        let Some(sample) = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick)
+        else {
+            return false;
+        };
+        sample.snapshot.pitch = pitch;
+        sample.snapshot.yaw = yaw;
+        sample.snapshot.head_yaw = yaw;
+        true
     }
 
     /// Flags an attack press that hit nothing on its exact unsent tick.
@@ -301,6 +400,14 @@ impl MovementTicker {
         });
         // The destroy machine observes the new identity and resets.
         self.invalidate_mining();
+        // A release whose facing never reached the socket must not launch without it.
+        if self
+            .held_release
+            .as_ref()
+            .is_some_and(|held| !held.facing_sent)
+        {
+            self.held_release = None;
+        }
         for pending in &mut self.pending_sends {
             pending.retry_after_cancellation = false;
         }

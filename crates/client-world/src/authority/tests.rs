@@ -35,6 +35,43 @@ fn block_interactions_encode_the_current_session_palette() {
 }
 
 #[test]
+fn credits_admission_targets_the_live_local_runtime_actor() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 2,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    for (sequence, runtime_id) in [(7, 72), (8, 41)] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Ui(UiEvent::ShowCredits(protocol::ShowCreditsEvent {
+                    runtime_id,
+                })),
+                Some(sequence),
+            )
+            .unwrap();
+    }
+    let events = authority.take_committed_ui();
+    assert!(matches!(
+        events.as_slice(),
+        [CommittedUiEvent::Ui {
+            sequence: 8,
+            event: UiEvent::ShowCredits(protocol::ShowCreditsEvent { runtime_id: 41 })
+        }]
+    ));
+}
+
+#[test]
 fn biome_tint_revision_overflow_keeps_the_previous_atomic_snapshot() {
     let mut authority = WorldAuthority::new(
         WorldBootstrap {
@@ -70,4 +107,241 @@ fn biome_tint_revision_overflow_keeps_the_previous_atomic_snapshot() {
     assert!(report.revision_overflow);
     assert!(!report.changed);
     assert_eq!(report.resolution_failures, 0);
+}
+
+#[test]
+fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
+    use world::{BlockIds, NbtCompound, NbtValue, SubChunk};
+
+    let definitions = CustomBlocks {
+        blocks: Arc::from([
+            CustomBlock {
+                name: "example:plain".into(),
+                tags: Default::default(),
+                state_count: 1,
+                collides: true,
+                collision_box: None,
+                selection: CustomSelection::Default,
+                visual: Arc::default(),
+            },
+            CustomBlock {
+                name: "example:powered".into(),
+                tags: Default::default(),
+                state_count: 2,
+                collides: true,
+                collision_box: None,
+                selection: CustomSelection::Default,
+                visual: Arc::new(CustomBlockVisuals {
+                    state_axes: Box::new([CustomStateAxis {
+                        name: "custom:powered".into(),
+                        values: Box::new([
+                            CustomStateValue::Bool(false),
+                            CustomStateValue::Bool(true),
+                        ]),
+                    }]),
+                    ..Default::default()
+                }),
+            },
+        ]),
+        skipped: 0,
+        ..Default::default()
+    };
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let mut authority = custom_identity_authority(mode);
+        authority.set_custom_block_ids(if mode == NetworkIdMode::Sequential {
+            1..4
+        } else {
+            0..0
+        });
+        authority.set_sequential_id_remap(assets::SequentialIdRemap::new([(0, 1, 4)]));
+        authority.set_custom_block_identities(&definitions);
+        let ids = authority.decode_ids(0);
+        assert_eq!(ids.assets.visual_count(), 1);
+        assert!(!ids.assets.is_diagnostic());
+        for (block, state_index, internal_id) in [(0, 0, 1), (1, 1, 3)] {
+            let definition = &definitions.blocks[block];
+            let state = &definition.hashed_states()[state_index];
+            let mut entry = NbtCompound::default();
+            entry.insert("name", NbtValue::String(definition.name.to_string().into()));
+            if block == 1 {
+                let mut states = NbtCompound::default();
+                states.insert("custom:powered", NbtValue::Byte(1));
+                entry.insert("states", NbtValue::Compound(states));
+            }
+            let expected = if mode == NetworkIdMode::Sequential {
+                internal_id
+            } else {
+                state.hash
+            };
+            assert_ne!(expected, ids.air);
+            assert_eq!(ids.resolve_persistent(&entry), expected);
+            if mode == NetworkIdMode::Hashed {
+                assert!(!ids.assets.is_known(mode, expected));
+                assert_eq!(ids.resolve(expected), expected);
+            }
+            let mut payload = vec![8, 1, 0];
+            payload.extend(entry.encode_root().unwrap());
+            let decoded = SubChunk::decode(&payload, &ids);
+            assert_eq!(decoded.runtime_id(0, 0, 0, 0), Some(expected));
+        }
+    }
+}
+
+fn custom_identity_authority(mode: NetworkIdMode) -> WorldAuthority {
+    use assets::{
+        BlobProvenance, BlockFlags, BlockVisual, CompiledAssets, ContributorRole, LightProperties,
+        NO_ANIMATION, NO_MODEL_TEMPLATE, VisualKind, VisualSupport,
+    };
+    let diagnostic = RuntimeAssets::diagnostic();
+    let compiled = CompiledAssets {
+        visuals: Box::new([BlockVisual {
+            faces: [0; 6],
+            flags: BlockFlags::AIR,
+            kind: VisualKind::Invisible,
+            support: VisualSupport::Exact,
+            contributor_role: ContributorRole::Air,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        }]),
+        light_properties: Box::new([LightProperties::default()]),
+        hashed: Box::new([(HASHED_AIR_NETWORK_ID, 0)]),
+        materials: diagnostic.materials().into(),
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations: Box::new([]),
+        animation_frames: Box::new([]),
+        texture_pages: diagnostic.texture_pages().into(),
+        biomes: diagnostic.biome_assets().clone(),
+        provenance: BlobProvenance {
+            source_manifest_sha256: [1; 32],
+            block_registry_sha256: [2; 32],
+            light_registry_sha256: [3; 32],
+            biome_registry_sha256: [4; 32],
+        },
+    };
+    WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: mode == NetworkIdMode::Hashed,
+        },
+        Arc::new(RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap()),
+        None,
+        [0.0; 3],
+        None,
+    )
+}
+
+fn plain_identity_block(name: &str) -> CustomBlock {
+    CustomBlock {
+        name: name.into(),
+        tags: Default::default(),
+        state_count: 1,
+        collides: true,
+        collision_box: None,
+        selection: CustomSelection::Default,
+        visual: Arc::default(),
+    }
+}
+
+fn plain_identity_entry(name: &str) -> world::NbtCompound {
+    let mut entry = world::NbtCompound::default();
+    entry.insert("name", world::NbtValue::String(name.into()));
+    entry
+}
+
+#[test]
+fn custom_identity_snapshots_preserve_incomplete_offsets_and_survive_replacement() {
+    use world::BlockIds;
+
+    let mut incomplete = plain_identity_block("example:incomplete");
+    incomplete.state_count = 2;
+    incomplete.visual = Arc::new(CustomBlockVisuals {
+        state_identity_incomplete: true,
+        ..Default::default()
+    });
+    let definitions = CustomBlocks {
+        blocks: Arc::from([
+            plain_identity_block("example:first"),
+            incomplete,
+            plain_identity_block("example:last"),
+        ]),
+        skipped: 0,
+        ..Default::default()
+    };
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let mut authority = custom_identity_authority(mode);
+        authority.set_custom_block_ids(if mode == NetworkIdMode::Sequential {
+            10..14
+        } else {
+            0..0
+        });
+        authority.set_custom_block_identities(&definitions);
+        let captured = authority.decode_ids(0);
+        for (name, sequential) in [("example:first", 10), ("example:last", 13)] {
+            let entry = plain_identity_entry(name);
+            let expected = if mode == NetworkIdMode::Sequential {
+                sequential
+            } else {
+                block_state_network_hash(name, std::iter::empty())
+            };
+            assert_eq!(captured.resolve_persistent(&entry), expected);
+        }
+        assert_eq!(
+            captured.resolve_persistent(&plain_identity_entry("example:incomplete")),
+            captured.air(),
+        );
+        authority.replace_runtime_assets(Arc::new(RuntimeAssets::diagnostic()));
+        authority.set_custom_block_identities(&CustomBlocks::default());
+        let entry = plain_identity_entry("example:last");
+        assert_ne!(captured.resolve_persistent(&entry), captured.air());
+        let fresh = authority.decode_ids(0);
+        assert_eq!(fresh.resolve_persistent(&entry), fresh.air());
+    }
+}
+
+#[test]
+fn custom_identity_registry_stops_at_admitted_range_and_offset_overflow() {
+    use world::BlockIds;
+
+    let mut authority = custom_identity_authority(NetworkIdMode::Sequential);
+    let definitions = CustomBlocks {
+        blocks: Arc::from([
+            plain_identity_block("example:first"),
+            plain_identity_block("example:last"),
+        ]),
+        skipped: 0,
+        ..Default::default()
+    };
+    authority.set_custom_block_ids(10..11);
+    authority.set_custom_block_identities(&definitions);
+    let bounded = authority.decode_ids(0);
+    assert_eq!(
+        bounded.resolve_persistent(&plain_identity_entry("example:first")),
+        10,
+    );
+    assert_eq!(
+        bounded.resolve_persistent(&plain_identity_entry("example:last")),
+        bounded.air(),
+    );
+
+    let mut overflowing = plain_identity_block("example:overflow");
+    overflowing.state_count = u32::MAX;
+    let overflowing = CustomBlocks {
+        blocks: Arc::from([overflowing, plain_identity_block("example:after_overflow")]),
+        skipped: 0,
+        ..Default::default()
+    };
+    authority.set_custom_block_ids(10..12);
+    authority.set_custom_block_identities(&overflowing);
+    let exhausted = authority.decode_ids(0);
+    assert_eq!(
+        exhausted.resolve_persistent(&plain_identity_entry("example:after_overflow")),
+        exhausted.air(),
+    );
 }

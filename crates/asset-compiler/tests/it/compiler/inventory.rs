@@ -506,7 +506,7 @@ fn generated_registry_has_exact_reviewed_selector_alias_cube_products() {
     }
 }
 
-fn write_selector_alias_cube_pack(root: &Path, hay_route: &str) {
+pub(super) fn write_selector_alias_cube_pack(root: &Path, hay_route: &str) {
     write_pack(
         root,
         &format!(

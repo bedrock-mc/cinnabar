@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
 
 func TestTransferStateRecordsNextUpstreamAndNotifies(t *testing.T) {
@@ -173,4 +176,69 @@ func TestReportDisconnectIgnoresOtherErrorsAndBoundsMessage(t *testing.T) {
 	if len(info.Message) == 0 || len(info.Message) > maxDisconnectMessageBytes || !utf8.ValidString(info.Message) {
 		t.Fatalf("message length %d valid=%t", len(info.Message), utf8.ValidString(info.Message))
 	}
+}
+
+// The transfer target is dialed while the old upstream's Close is still blocked.
+func TestTransferTargetDialsWhileOldUpstreamCloseBlocks(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	transfers := new(TransferState)
+	allowClose := make(chan struct{})
+	defer func() {
+		select {
+		case <-allowClose:
+		default:
+			close(allowClose)
+		}
+	}()
+	old := &gatedCloseUpstream{fakeUpstream: newFakeUpstream(nil), closeStarted: make(chan struct{}), allowClose: allowClose}
+	downstream := newFakeDownstream(nil)
+	served := make(chan error, 1)
+	go func() {
+		served <- servePreparedConnection(ctx, downstream, &preparedConnection{upstream: observeTransfers(old, transfers, nil)})
+	}()
+	old.reads <- packetResult{packet: &packet.Transfer{Address: "pvp.inpvp.net", Port: 19132}}
+	for !slices.ContainsFunc(downstream.written(), func(value packet.Packet) bool { _, ok := value.(*packet.Transfer); return ok }) {
+		if ctx.Err() != nil {
+			t.Fatal("Transfer was not relayed to the client")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// The client leaves to follow the transfer; the old session's Close now blocks.
+	_ = downstream.Abort()
+	select {
+	case <-old.closeStarted:
+	case <-ctx.Done():
+		t.Fatal("old upstream was never closed")
+	}
+
+	connections := newPreparedConnections("zeqa.net:19132", nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	connections.resolveTarget = withPendingTransfer(transfers, func(_ context.Context, address string) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{address: address, network: remoteRakNet()}, nil
+	}, func(context.Context) (*resolvedUpstreamTarget, error) {
+		return nil, errors.New("pending transfer was not dialed")
+	})
+	connections.captureResourcePackStack = func(upstreamSession, func(*resource.Pack) bool) (*selectedResourcePackStack, error) {
+		return &selectedResourcePackStack{}, nil
+	}
+	dialed := make(chan string, 1)
+	connections.dialTarget = func(_ context.Context, target *resolvedUpstreamTarget, _ minecraft.Dialer) (upstreamSession, error) {
+		dialed <- target.address
+		return newFakeUpstream(nil), nil
+	}
+	prepared, err := connections.connect(ctx, dialerTestDownstream{protocol: minecraft.DefaultProtocol})
+	if err != nil {
+		t.Fatalf("connect() error = %v", err)
+	}
+	defer prepared.close()
+	if got := <-dialed; got != "pvp.inpvp.net:19132" {
+		t.Fatalf("dialed %q, want the transfer target", got)
+	}
+	select {
+	case <-served:
+		t.Fatal("old session finished before its Close was released")
+	default:
+	}
+	close(allowClose)
+	<-served
 }

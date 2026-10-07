@@ -73,16 +73,16 @@ fn sine_table(index: i32) -> f64 {
 }
 
 /// Looks up sine after the native float multiply and truncation toward zero.
-pub(crate) fn minecraft_sin(value: f64) -> f64 {
+pub fn minecraft_sin(value: f64) -> f64 {
     sine_table((value as f32 * TRIG_INDEX_SCALE) as i32)
 }
 
 /// Applies the quarter-turn offset before truncating the native float index.
-pub(crate) fn minecraft_cos(value: f64) -> f64 {
+pub fn minecraft_cos(value: f64) -> f64 {
     sine_table((value as f32 * TRIG_INDEX_SCALE + 16_384.0) as i32)
 }
 
-/// Native look vector used by the swimming trigger (current RVA 0x09fd25a0).
+/// Vanilla look vector used by the swimming trigger.
 #[must_use]
 pub fn view_direction(pitch_degrees: f32, yaw_degrees: f32) -> Vec3 {
     let pitch = -pitch_degrees.to_radians();

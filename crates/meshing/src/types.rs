@@ -457,13 +457,9 @@ impl PackedQuad {
     const POSITION_MASK: u32 = 0x1f;
     const EXTENT_MASK: u32 = 0x0f;
 
-    pub(crate) fn new(
-        origin: [u8; 3],
-        face: Face,
-        width: u8,
-        height: u8,
-        material_id: u32,
-    ) -> Self {
+    /// Origin coordinates must lie inside the sub-chunk and extents in `1..=16`.
+    #[must_use]
+    pub fn new(origin: [u8; 3], face: Face, width: u8, height: u8, material_id: u32) -> Self {
         debug_assert!(origin.into_iter().all(|coordinate| coordinate < SIDE as u8));
         debug_assert!((1..=SIDE as u8).contains(&width));
         debug_assert!((1..=SIDE as u8).contains(&height));
@@ -543,6 +539,12 @@ impl FaceConnectivity {
     #[must_use]
     pub const fn bits(self) -> u64 {
         self.0
+    }
+
+    /// Inverse of `bits`; bits outside the 6x6 matrix are dropped.
+    #[must_use]
+    pub const fn from_bits(bits: u64) -> Self {
+        Self(bits & CONNECTIVITY_MASK)
     }
 
     #[must_use]
@@ -663,6 +665,7 @@ pub struct ChunkMesh {
 pub(crate) struct CubeStreams {
     pub(crate) cube_quads: Box<[PackedQuad]>,
     pub(crate) cube_lighting: Box<[PackedQuadLighting]>,
+    pub(crate) layout: crate::CubeQuadLayout,
     pub(crate) diagnostic_geometry: DiagnosticGeometrySummary,
 }
 
@@ -755,6 +758,7 @@ impl ChunkMesh {
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
                 cube_lighting: cube_lighting.into_boxed_slice(),
+                layout: crate::CubeQuadLayout::default(),
                 diagnostic_geometry: DiagnosticGeometrySummary::default(),
             }),
             model_refs: model_refs.into_boxed_slice(),
@@ -783,6 +787,11 @@ impl ChunkMesh {
     #[must_use]
     pub fn cube_lighting(&self) -> &[PackedQuadLighting] {
         &self.cube_streams.cube_lighting
+    }
+
+    #[must_use]
+    pub const fn cube_layout(&self) -> crate::CubeQuadLayout {
+        self.cube_streams.layout
     }
 
     #[must_use]

@@ -1,4 +1,4 @@
-//! Current 1.26.50.26 ItemRenderer. Item-local
+//! Dropped items as 1.26.50.26 renders them. Item-local
 //! geometry already contains the default display correction; copies translate before actor scale.
 
 use super::dropped_item_transform;
@@ -38,7 +38,7 @@ impl DroppedItemSpawnPose {
         Self { close_yaw_degrees }
     }
 
-    /// `getRenderYOffset`'s table-index truncation and cubic ease-in are retained. Computing
+    /// Vanilla's render Y offset table-index truncation and cubic ease-in are retained. Computing
     /// just the addressed sine sample avoids retaining a 65536-float table per renderer.
     #[must_use]
     pub fn bob(self, age_ticks: f32, phase: f32, shape: DroppedItemShape) -> f32 {

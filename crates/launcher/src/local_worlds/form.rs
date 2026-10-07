@@ -12,6 +12,7 @@ pub struct CreateForm {
     pub name: String,
     pub game_mode: GameMode,
     pub generator: Generator,
+    pub backend: Backend,
     pub difficulty: Difficulty,
     /// Blank means random; digits are used as-is and other text is hashed.
     pub seed_text: String,
@@ -23,6 +24,7 @@ impl Default for CreateForm {
             name: DEFAULT_WORLD_NAME.to_owned(),
             game_mode: GameMode::Survival,
             generator: Generator::Normal,
+            backend: Backend::Dragonfly,
             difficulty: Difficulty::Normal,
             seed_text: String::new(),
         }
@@ -105,16 +107,22 @@ impl CreateForm {
             game_mode: self.game_mode,
             generator: self.generator,
             difficulty: self.difficulty,
-            // Flat worlds run on the built-in server, which can pause; default worlds need BDS.
-            backend: (self.generator == Generator::Flat).then_some(Backend::Dragonfly),
+            backend: Some(self.backend),
             seed: seed_from_text(&self.seed_text),
         })
     }
 }
 
-/// Owner-chosen world type names (not vanilla strings): default terrain runs on BDS, Flat on dragonfly.
-pub const NORMAL_WORLD_LABEL: &str = "Normal (BDS)";
-pub const FLAT_WORLD_LABEL: &str = "Flat (Dragonfly)";
+/// Terrain choices are independent of the server hosting them.
+pub const NORMAL_WORLD_LABEL: &str = "Normal (Vanilla)";
+pub const FLAT_WORLD_LABEL: &str = "Flat";
+
+pub fn backend_label(backend: Backend) -> &'static str {
+    match backend {
+        Backend::Dragonfly => "Dragonfly",
+        Backend::Bds => "BDS",
+    }
+}
 
 pub fn world_type_label(generator: Generator) -> &'static str {
     match generator {
@@ -188,7 +196,7 @@ mod tests {
         assert_eq!(world.name, "My World");
         assert_eq!(world.game_mode, GameMode::Survival);
         assert_eq!(world.seed, None);
-        assert_eq!(world.backend, None, "the core puts default worlds on BDS");
+        assert_eq!(world.backend, Some(Backend::Dragonfly));
         let flat = CreateForm {
             generator: Generator::Flat,
             ..CreateForm::default()
@@ -197,6 +205,22 @@ mod tests {
             flat.build().map(|w| w.backend),
             Ok(Some(Backend::Dragonfly))
         );
+    }
+
+    #[test]
+    fn backend_and_generator_build_independently() {
+        for backend in [Backend::Dragonfly, Backend::Bds] {
+            for generator in [Generator::Normal, Generator::Flat] {
+                let form = CreateForm {
+                    backend,
+                    generator,
+                    ..Default::default()
+                };
+                let built = form.build().unwrap();
+                assert_eq!(built.backend, Some(backend));
+                assert_eq!(built.generator, generator);
+            }
+        }
     }
 
     #[test]

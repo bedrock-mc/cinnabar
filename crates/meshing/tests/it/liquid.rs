@@ -183,7 +183,10 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
         (WATER_SOURCE, [8, 8, 8]),
         (OTHER_LIQUID, [9, 8, 8]),
     ]));
-    assert_eq!(different.liquid_quads().len(), 10);
+    assert_eq!(different.liquid_quads().len(), 12);
+    for (origin, face) in [([8, 8, 8], Face::PositiveX), ([9, 8, 8], Face::NegativeX)] {
+        assert!(!quad_at(&different, origin, face).is_two_sided());
+    }
     let different_above = mesh(&blocks(&[
         (WATER_SOURCE, [8, 8, 8]),
         (OTHER_LIQUID, [8, 9, 8]),
@@ -205,7 +208,7 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
 }
 
 #[test]
-fn alpha_glass_enclosure_culls_water_sides_and_bottom_but_preserves_top_admission() {
+fn alpha_glass_enclosure_keeps_water_contacts_without_reverse_side_winding() {
     let enclosure = |neighbour| {
         mesh(&blocks(&[
             (WATER_SOURCE, [8, 8, 8]),
@@ -219,8 +222,14 @@ fn alpha_glass_enclosure_culls_water_sides_and_bottom_but_preserves_top_admissio
     };
 
     let transparent = enclosure(GLASS);
-    assert_eq!(transparent.liquid_quads().len(), 1);
-    assert_eq!(transparent.liquid_quads()[0].face(), Face::PositiveY);
+    assert_eq!(transparent.liquid_quads().len(), Face::ALL.len());
+    assert!(
+        transparent
+            .liquid_quads()
+            .iter()
+            .filter(|quad| quad.face() != Face::PositiveY)
+            .all(|quad| !quad.is_two_sided())
+    );
     assert!(enclosure(SOLID).liquid_quads().is_empty());
 }
 
@@ -253,9 +262,8 @@ fn only_emitted_liquid_tops_lower_shared_top_and_side_heights_after_lighting_rep
 
 #[test]
 fn native_liquid_winding_admission_survives_lighting_repack() {
-    // Vanilla tessellator face metadata: the ordinary exposed top
-    // admits opposite winding, only primary-Air side neighbours do, and the
-    // ordinary bottom helper never requests a secondary face.
+    // Primary-air sides and exposed tops admit reverse winding.
+    // Thin-geometry contacts and bottom faces retain a single winding.
     let exposed = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8])]));
     for quad in exposed.liquid_quads() {
         assert_eq!(quad.is_two_sided(), quad.face() != Face::NegativeY);
@@ -265,12 +273,16 @@ fn native_liquid_winding_admission_survives_lighting_repack() {
             (WATER_SOURCE, [8, 8, 8]),
             (neighbour, [9, 8, 8]),
         ]));
-        assert!(
-            !touching
-                .liquid_quads()
-                .iter()
-                .any(|quad| quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX)
-        );
+        if neighbour != SOLID {
+            assert!(!quad_at(&touching, [8, 8, 8], Face::PositiveX).is_two_sided());
+        } else {
+            assert!(
+                !touching
+                    .liquid_quads()
+                    .iter()
+                    .any(|quad| quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX)
+            );
+        }
         assert!(quad_at(&touching, [8, 8, 8], Face::NegativeX).is_two_sided());
         assert!(quad_at(&touching, [8, 8, 8], Face::PositiveY).is_two_sided());
         assert!(!quad_at(&touching, [8, 8, 8], Face::NegativeY).is_two_sided());
@@ -550,7 +562,7 @@ fn depth_writing_lava_uses_the_shared_liquid_stream_without_water_flags() {
 }
 
 #[test]
-fn mixed_water_and_lava_are_stably_partitioned_with_only_native_lava_interface() {
+fn mixed_water_and_lava_are_stably_partitioned_with_both_primary_contact_faces() {
     let mesh = mesh(&blocks(&[
         (WATER_SOURCE, [8, 8, 8]),
         (NON_WATER_LIQUID, [9, 8, 8]),
@@ -560,8 +572,8 @@ fn mixed_water_and_lava_are_stably_partitioned_with_only_native_lava_interface()
         .iter()
         .position(|quad| quad.is_depth_writing())
         .expect("lava suffix");
-    assert_eq!(split, 5);
-    assert_eq!(mesh.liquid_quads().len(), 11);
+    assert_eq!(split, 6);
+    assert_eq!(mesh.liquid_quads().len(), 12);
     assert!(
         mesh.liquid_quads()[..split]
             .iter()
@@ -573,8 +585,7 @@ fn mixed_water_and_lava_are_stably_partitioned_with_only_native_lava_interface()
             .all(|quad| quad.is_depth_writing())
     );
     assert!(
-        !mesh
-            .liquid_quads()
+        mesh.liquid_quads()
             .iter()
             .any(|quad| { quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX })
     );
@@ -1109,13 +1120,14 @@ fn transparent_cube_over_water_is_not_an_open_flow_neighbour() {
     assert_eq!(top.material_id(), STILL);
 }
 
-/// Mesh output for dense mixed cube/model/liquid scenes must stay byte-identical.
-/// Includes native transparent-cube flow barriers, selective reverse-face
-/// admission, classic-water primary-Air contacts, liquid inset flags and no-AO lighting.
+/// Dense mixed scenes retain extra-air contacts, primary-air winding, flow barriers,
+/// liquid inset flags and no-AO lighting.
 #[test]
 fn mixed_neighbourhood_mesh_output_is_golden() {
     let digests = [(1_u64, 8_u64), (2, 30), (3, 70), (4, 95)].map(|(seed, density)| {
-        let mesh = mesh_mixed(&mixed_neighbourhood_chunks(seed, density));
+        let chunks = mixed_neighbourhood_chunks(seed, density);
+        let mesh = mesh_mixed(&chunks);
+        liquid_contacts::assert_thin_primary_contacts(&chunks, &mesh);
         assert!(!mesh.cube_quads().is_empty() && !mesh.liquid_quads().is_empty());
         format!("{mesh:?}")
             .bytes()
@@ -1126,10 +1138,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            16_967_610_146_635_233_032,
-            1_635_448_699_120_490_173,
-            4_724_742_875_596_759_153,
-            402_004_103_534_269_269
+            13_081_610_191_978_589_870,
+            7_276_265_386_106_865_686,
+            18_330_598_413_732_250_100,
+            11_629_133_763_896_578_950
         ]
     );
 }
@@ -1172,11 +1184,12 @@ fn conflicting_layer_mesh_output_is_golden() {
         })
         .collect::<Vec<_>>();
     let mesh = mesh_mixed(&chunks);
+    liquid_contacts::assert_thin_primary_contacts(&chunks, &mesh);
     let digest = format!("{mesh:?}")
         .bytes()
         .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 8_827_825_707_649_792_903);
+    assert_eq!(digest, 857_614_043_643_775_143);
 }

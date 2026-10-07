@@ -12,7 +12,7 @@ use super::display::{FirstPersonShape, ItemDisplay, first_person_display, view_b
 #[cfg(test)]
 mod tests;
 
-/// Native TextureTessellator pixel-to-model conversion (current PE VA14ffa90e0).
+/// Vanilla held-sprite extrusion: 16 icon texels per model unit.
 const NATIVE_ICON_TEXELS_PER_UNIT: u16 = 16;
 
 #[cfg(test)]
@@ -35,7 +35,7 @@ pub(super) fn block_pose(state: ItemAnimationState) -> Option<RenderBoneTransfor
     pose(state, FirstPersonShape::Block)
 }
 
-/// Native renderOffhandItem, not the main-hand swing stack. Blocks use
+/// Vanilla offhand item pose, not the main-hand swing stack. Blocks use
 /// the default presentation-type-2 matrix; sprites here have a square native icon.
 pub(super) fn offhand_pose(hand_equipped: bool, block: bool) -> Option<RenderBoneTransform> {
     if block {
@@ -61,7 +61,7 @@ pub(super) fn offhand_sprite_pose(
     }
     let long_side = f32::from(width.max(height));
     let height = f32::from(height) / long_side;
-    // TextureTessellator writes positive column X, depth Y,
+    // Vanilla's sprite extrusion writes positive column X, depth Y,
     // row Z. held_sprite_vertices stores [-column, height-row, -depth]/long_side.
     // This proper rotation + translation preserves the UV-labelled front/back corners.
     let native_from_held = Mat4::from_translation(Vec3::new(0.0, 0.0, height))

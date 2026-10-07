@@ -1,8 +1,7 @@
-//! ActorPlacerItem resolves icons by actor identifier, not item-atlas key spelling.
+//! Spawn eggs resolve icons by actor identifier, not item-atlas key spelling.
 //!
-//! Current 26.50.26 getIconInfo reads the actor icon map. The
-//! ActorResourceDefinitionGroup loader reads description.spawn_egg
-//! texture/texture_index; ActorPlacerItem::isValidAuxValue accepts only zero.
+//! 26.50.26 reads the actor icon map. Vanilla reads description.spawn_egg texture/texture_index; spawn eggs accept
+//! only aux zero.
 //! The pinned pack supplies precolored raster variants, including legacy eggs.
 
 use serde_json::Map;

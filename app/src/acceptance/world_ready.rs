@@ -119,7 +119,7 @@ pub(crate) fn emit_world_ready(
         rendered_sub_chunks: cache.rendered.len(),
         visible_sub_chunks: cache.visible_rendered,
         mutation_target_rendered: mutation_target
-            .is_some_and(|target| cache.rendered.contains(&target)),
+            .is_some_and(|target| cache.rendered.contains_key(&target)),
         mutation_target_visible: mutation_target.is_some_and(|target| cache.is_visible(target)),
         mutation_target_clean: mutation_target.is_some_and(|target| stream.is_mesh_clean(target)),
         position: stream.resolved_server_position().position,

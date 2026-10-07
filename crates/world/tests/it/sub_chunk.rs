@@ -315,6 +315,43 @@ fn unsupported_width_reads_uniform_air_after_the_header_only() {
 }
 
 #[test]
+fn persistent_palette_entries_resolve_names_and_states_without_shifting_the_stream() {
+    struct NamedIds;
+    impl BlockIds for NamedIds {
+        fn air(&self) -> u32 {
+            AIR
+        }
+        fn resolve(&self, id: u32) -> u32 {
+            id
+        }
+        fn resolve_persistent(&self, entry: &world::NbtCompound) -> u32 {
+            assert_eq!(entry.string("name"), Some("stone"));
+            assert_eq!(
+                entry.compound("states").unwrap().integer("test_state"),
+                Some(3)
+            );
+            42
+        }
+    }
+    let mut states = world::NbtCompound::default();
+    states.insert("test_state", world::NbtValue::Int(3));
+    let mut entry = world::NbtCompound::default();
+    entry.insert("name", world::NbtValue::String("stone".into()));
+    entry.insert("states", world::NbtValue::Compound(states));
+    let mut bytes = vec![8, 1, 0];
+    bytes.extend(entry.encode_root().unwrap());
+    let end = bytes.len();
+    bytes.extend(uniform(8, None, 7));
+    let (decoded, consumed) = SubChunk::decode_prefix(&bytes, &NamedIds);
+    assert_eq!(decoded.runtime_id(0, 0, 0, 0), Some(42));
+    assert_eq!(consumed, end);
+    assert_eq!(
+        SubChunk::decode(&bytes[consumed..], &NamedIds).runtime_id(0, 0, 0, 0),
+        Some(7)
+    );
+}
+
+#[test]
 fn persistent_palette_entries_skip_their_nbt_and_read_as_air() {
     let stone = [&[10, 0, 8, 4][..], b"name", &[15], b"minecraft:stone", &[0]].concat();
     let mut bytes = vec![9, 1, 0, 0];

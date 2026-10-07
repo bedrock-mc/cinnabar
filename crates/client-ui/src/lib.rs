@@ -11,3 +11,6 @@ pub mod store;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+#[cfg(test)]
+mod allocation_count;

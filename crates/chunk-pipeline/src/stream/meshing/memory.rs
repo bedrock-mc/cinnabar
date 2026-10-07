@@ -95,7 +95,7 @@ mod tests {
     #[ignore = "offline mesh output pressure fixture"]
     fn mesh_output_retention_timing() {
         let payload_bytes = 16 * 1024 * 1024;
-        let count_limit = super::super::admission::mesh_job_cap(rayon::current_num_threads());
+        let count_limit = super::super::admission::mesh_worker_cap();
         let retained = Arc::new(AtomicU64::new(0));
         let before = (0..count_limit)
             .map(|_| vec![7_u8; payload_bytes as usize])

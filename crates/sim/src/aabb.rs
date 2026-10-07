@@ -73,6 +73,29 @@ impl Aabb {
             && (self.min.z as f32) < (rhs.max.z as f32)
     }
 
+    /// Fraction of the closed segment `origin..origin + delta` at which it first touches this box.
+    #[must_use]
+    pub fn segment_entry(self, origin: Vec3, delta: Vec3) -> Option<f64> {
+        let mut entry = 0.0_f64;
+        let mut exit = 1.0_f64;
+        for axis in 0..3 {
+            if delta[axis].abs() <= f64::EPSILON {
+                if origin[axis] < self.min[axis] || origin[axis] > self.max[axis] {
+                    return None;
+                }
+                continue;
+            }
+            let first = (self.min[axis] - origin[axis]) / delta[axis];
+            let second = (self.max[axis] - origin[axis]) / delta[axis];
+            entry = entry.max(first.min(second));
+            exit = exit.min(first.max(second));
+            if entry > exit {
+                return None;
+            }
+        }
+        (exit >= 0.0 && entry <= 1.0).then_some(entry.clamp(0.0, 1.0))
+    }
+
     #[must_use]
     pub fn is_zero_volume(self) -> bool {
         self.min == self.max

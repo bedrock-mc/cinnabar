@@ -1,4 +1,4 @@
-//! Native HoverTextRenderer geometry, painted through retained JSON-UI nodes.
+//! Vanilla hover text geometry, painted through retained JSON-UI nodes.
 //! See docs/reference/inventory-hover-tooltip.md for the vanilla rules.
 
 use std::collections::BTreeMap;
@@ -18,7 +18,7 @@ const MOUSE_OFFSET: [f32; 2] = [10.0, -10.0];
 const BOX_EXTRA: f32 = 8.0;
 const WIDTH_EXTRA: f32 = 1.0;
 const TEXT_OFFSET: f32 = 5.0;
-// BitmapFont::getWrapHeight returns default scale × 10.
+// Wrapped line pitch is the default font scale × 10.
 const TEXT_PITCH: u32 = 10;
 
 /// Current update takes a minimum first-line height, then adds wrap pitch for
@@ -33,7 +33,7 @@ fn text_height(font_scale: f32, wrap_height: f32, lines: u16) -> f32 {
 /// Native coordinates stay in virtual UI pixels until the final node emission.
 /// A too-wide box flips left, then centers above the pointer if neither side fits.
 fn box_rect(anchor: [f32; 2], text: [f32; 2], viewport: [f32; 2]) -> Rect {
-    // Font::getLineLength rounds the widest line upward first.
+    // Vanilla rounds the widest line's length upward first.
     let width = text[0].ceil() + WIDTH_EXTRA + BOX_EXTRA;
     let height = text[1].trunc() + BOX_EXTRA;
     let [mut dx, mut dy] = MOUSE_OFFSET;
@@ -108,7 +108,7 @@ impl Painter<'_> {
             UiVisual::Text {
                 layout,
                 color: alpha([255; 4]),
-                // Native drawCached receives false for its shadow/outline switches.
+                // Vanilla draws hover text without shadow or outline.
                 shadow: TextShadow::None,
             },
             [

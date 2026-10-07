@@ -25,22 +25,27 @@ impl Default for BoneChannels {
 }
 
 /// The bone's pose in the hand item bone's frame: `pivot` is the authored bind pivot (rig frame,
-/// blocks), and the offset mirrors authored X like the actor pose evaluator.
+/// blocks), and the offset mirrors authored X. Only expression bindings use the humanoid origin.
 pub fn attach(
     hand: RenderBoneTransform,
     pivot: [f32; 3],
     channels: BoneChannels,
+    has_binding_expression: bool,
 ) -> Option<RenderBoneTransform> {
     let [rx, ry, rz, rw] = hand.rotation;
     let hand_rotation = Quat::from_vec4(glam::Vec4::new(rx, ry, rz, rw).try_normalize()?);
     let hand_scale = hand.translation_scale[3] * hand.axis_scale[0];
     let [x, y, z] = channels.translation;
     let offset = Vec3::new(-x, y, z) / 16.0;
+    let mut local_pivot = Vec3::from_array(pivot);
+    if has_binding_expression {
+        local_pivot.y -= assets::gui_item::SHIELD_MODEL_PART_HEIGHT / 16.0;
+    }
     let origin = Vec3::new(
         hand.translation_scale[0],
         hand.translation_scale[1],
         hand.translation_scale[2],
-    ) + hand_rotation * ((Vec3::from_array(pivot) + offset) * hand_scale);
+    ) + hand_rotation * ((local_pivot + offset) * hand_scale);
     let turned = (hand_rotation * authored_rotation(channels.rotation)).normalize();
     let [sx, sy, sz] = channels.scale;
     let bone = RenderBoneTransform {

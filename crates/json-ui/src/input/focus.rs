@@ -1,5 +1,4 @@
-//! A control's focus component (`UIControlFactory::_populateFocusComponent`) and
-//! the focus containers enclosing it (`_populateFocusContainerComponent`).
+//! A control's focus component and the focus containers enclosing it.
 
 use serde_json::Value;
 
@@ -74,7 +73,7 @@ impl FocusMeta {
         let flag = |key: &str, fallback: bool| bound_bool(control, key).unwrap_or(fallback);
         Self {
             enabled: bound_bool(control, "#focus_enabled").unwrap_or(flag("focus_enabled", false)),
-            // A non-integer precedence reads as zero, as `Json::Value::isInt` gates it.
+            // A non-integer precedence reads as zero, as in vanilla.
             precedence: bound_number(control, "default_focus_precedence")
                 .filter(|value| value.fract() == 0.0)
                 .map_or(0, |value| value as i32),

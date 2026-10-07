@@ -1,6 +1,6 @@
 use crate::{Aabb, Vec3};
 
-/// Native LiquidPhysics material probe, using the preceding collision pose.
+/// Vanilla liquid material probe, using the preceding collision pose.
 pub(crate) fn liquid_probe_bounds(aabb: Aabb, water: bool) -> Aabb {
     let inset = if water {
         [0.001_f32, 0.401, 0.001]

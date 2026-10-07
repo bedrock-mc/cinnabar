@@ -154,16 +154,9 @@ impl OcclusionPart {
             .filter(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
         Self {
             occludes: occluder.is_some(),
-            full_cube: contributors.primary_entry().is_some_and(|entry| {
-                entry.kind == VisualKind::Cube
-                    || (entry.kind == VisualKind::Model
-                        && assets
-                            .model_templates()
-                            .get(entry.model_template as usize)
-                            .is_some_and(|template| {
-                                template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
-                            }))
-            }),
+            full_cube: contributors
+                .primary_entry()
+                .is_some_and(|entry| is_full_cube(assets, entry.kind, entry.model_template)),
             opaque_faces: occluder.map_or(0, |entry| {
                 Face::ALL
                     .into_iter()
@@ -176,6 +169,16 @@ impl OcclusionPart {
     const fn opaque(self, face: Face) -> bool {
         self.opaque_faces & (1 << face as u8) != 0
     }
+}
+
+/// Transparent cube templates block liquid flow without hiding transparent contact faces.
+fn is_full_cube(assets: &RuntimeAssets, kind: VisualKind, model_template: u32) -> bool {
+    kind == VisualKind::Cube
+        || (kind == VisualKind::Model
+            && assets
+                .model_templates()
+                .get(model_template as usize)
+                .is_some_and(|template| template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE))
 }
 
 const HALO_SIDE: usize = SIDE + 2;
@@ -614,10 +617,11 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                     Face::PositiveZ,
                 ] {
                     let adjacent = add(block, face_offset(face));
-                    let adjacent_primary_air = primary_is_air(classifier, neighbourhood, adjacent);
+                    let adjacent_primary_air = layer_is_air(classifier, neighbourhood, 0, adjacent);
                     if compatible(&sampler, neighbourhood, adjacent, cell.identity)
                         || sampler.solid(neighbourhood, adjacent, opposite_face(face))
-                        || (!cell.depth_writing && !adjacent_primary_air)
+                        || (!cell.depth_writing
+                            && !layer_is_air(classifier, neighbourhood, 1, adjacent))
                     {
                         continue;
                     }
@@ -645,7 +649,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 let below = add(block, [0, -1, 0]);
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
                     && !sampler.solid(neighbourhood, below, Face::PositiveY)
-                    && (cell.depth_writing || primary_is_air(classifier, neighbourhood, below))
+                    && (cell.depth_writing || layer_is_air(classifier, neighbourhood, 1, below))
                 {
                     push_quad(pack(
                         origin,
@@ -695,18 +699,16 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     (addressed, lighting)
 }
 
-/// Classic water (lighting model != deferred) admits side/bottom faces
-/// only beside primary Air, even when a non-Air block has a transparent face.
-/// Other liquids retain the ordinary face mask. Side reverse winding also
-/// requires primary Air, independently of any additional liquid layer.
-fn primary_is_air(
+/// Extra-layer air admits classic water contacts; primary air controls reverse winding.
+fn layer_is_air(
     classifier: BlockClassifier,
     neighbourhood: &MeshNeighbourhood<'_>,
+    layer: usize,
     coordinate: [i32; 3],
 ) -> bool {
-    match neighbourhood.liquid_sample(0, coordinate) {
+    match neighbourhood.liquid_sample(layer, coordinate) {
         world::MeshSample::Block(network_value) => classifier.is_air(network_value),
-        // Preserve the existing open-boundary policy for absent primary data.
+        // An absent layer or subchunk is air at an open mesh boundary.
         world::MeshSample::Open => true,
     }
 }

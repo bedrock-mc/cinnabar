@@ -24,12 +24,7 @@ impl ActorRigFrameBuilder {
         let mut combined = self.catalog.geometries.clone();
         replace_range(&mut combined, is_pack_rig_id, entities.iter().cloned());
         // The first update must fit with the previous equipment still present.
-        if combined
-            .values()
-            .map(|geometry| geometry.vertices.len())
-            .sum::<usize>()
-            <= MAX_ACTOR_RIG_VERTICES
-        {
+        if self.catalog.can_admit(&combined) {
             replace_range(
                 &mut combined,
                 is_pack_equipment_rig_id,

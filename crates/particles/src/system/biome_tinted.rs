@@ -9,8 +9,7 @@ use crate::{
 };
 
 impl ParticleSystem {
-    /// Emits one biome-tinted particle at a block center. Vanilla 26.50's
-    /// `LevelRendererPlayer::addBiomeTintedParticleEffect` caches
+    /// Emits one biome-tinted particle at a block center. Vanilla 26.50 caches
     /// the emitter by effect name and colour compared as RGBA8, then requests
     /// one particle at each origin. The pack, not this route, controls its motion.
     pub fn spawn_biome_tinted(

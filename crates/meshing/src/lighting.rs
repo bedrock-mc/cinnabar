@@ -185,8 +185,8 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
             .filter(|&id| !self.classifier.is_air(id))
             .is_some_and(|id| {
                 let visual = self.assets.resolve(self.network_id_mode, id);
-                // BlockType::getShadeBrightness:
-                // property 0x20 and Block+0x71, independently of Block+0xa3.
+                // Vanilla shade brightness: leaf models and light emitters count,
+                // whatever their solidity.
                 visual.flags().contains(assets::BlockFlags::LEAF_MODEL)
                     || visual.light_properties().emission() > 0
             })
@@ -312,7 +312,7 @@ pub(crate) fn bake_liquid_quad<I: LightingInputs + ?Sized>(
         return lighting_at(inputs.sample(add_normal(block, face_basis(face).0)));
     }
     // Incomplete top-light parity: native averages four admitted samples in the
-    // y+1 plane, rounding each channel. Admission uses BlockType+0x15c > 0.5,
+    // y+1 plane, rounding each channel. Admission uses a per-block property > 0.5,
     // which is not carried by LightingInputs and is not the solid-render bit
     // (ordinary ice is non-solid but retains 0.0 here). Preserve the existing
     // top light/admission until that independent native property is available.
@@ -389,8 +389,7 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
         let solid_a = inputs.occludes(side_a);
         let solid_b = inputs.occludes(side_b);
         let blocked_diagonal = solid_a && solid_b;
-        // AmbientOcclusionCalculator::calculateWithCache
-        // averages four independent 0.2/1 shade samples. Its diagonal fallback
+        // Vanilla ambient occlusion averages four independent 0.2/1 shade samples. Its diagonal fallback
         // uses the solid-render bits, not those shade samples: two leaves may
         // darken the vertex while still admitting the diagonal's light.
         let shade_diagonal = if blocked_diagonal { side_a } else { corner };
@@ -498,6 +497,48 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
                         )
                     },
                 )
+            })
+            .collect(),
+    )
+}
+
+/// Nether portals take vanilla's flat lighting path: boundary-adjacent light, own light
+/// on inset faces, no AO, and the registered emission as a per-face minimum.
+pub(crate) fn bake_portal_template<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    assets: &RuntimeAssets,
+    block: [i32; 3],
+    template_id: u32,
+    emission: u8,
+) -> Option<Vec<PackedQuadLighting>> {
+    let template = assets.model_templates().get(template_id as usize)?;
+    let start = template.quad_start as usize;
+    let end = start.checked_add(template.quad_count as usize)?;
+    let quads = assets.model_quads().get(start..end)?;
+    Some(
+        quads
+            .iter()
+            .map(|quad| {
+                let sample_position = model_quad_face(*quad, 0).map_or(block, |face| {
+                    let (normal, _, _) = face_basis(face);
+                    let axis = normal.iter().position(|&n| n != 0).expect("face axis");
+                    let boundary = quad.positions.iter().all(|position| {
+                        if normal[axis] < 0 {
+                            position[axis] <= 0
+                        } else {
+                            position[axis] >= 256
+                        }
+                    });
+                    if boundary {
+                        add_normal(block, normal)
+                    } else {
+                        block
+                    }
+                });
+                let sample = inputs.sample(sample_position);
+                let packed = pack_sample(sample.block().max(emission), sample.sky(), 0)
+                    | (u16::from(emission > 0) << 11);
+                PackedQuadLighting::new([packed; 4])
             })
             .collect(),
     )

@@ -107,14 +107,14 @@ fn collect(
             .ok()
             .and_then(|relative| relative.with_extension("").to_str().map(str::to_owned))
             .map(|text| text.replace('\\', "/"));
-        let is_fsb = path
+        let is_sound = path
             .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("fsb"));
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fsb") || ext.eq_ignore_ascii_case("ogg"));
         match stem {
-            Some(stem) if meta.is_file() && is_fsb && meta.len() <= MAX_BANK_FILE_BYTES => {
+            Some(stem) if meta.is_file() && is_sound && meta.len() <= MAX_BANK_FILE_BYTES => {
                 files.push((stem, fs::read(&path).map_err(io_error(&path))?));
             }
-            _ if is_fsb => *skipped += 1,
+            _ if is_sound => *skipped += 1,
             _ => {}
         }
     }
@@ -181,5 +181,22 @@ mod tests {
         let materials: Value = serde_json::from_slice(index.materials_json()).unwrap();
         assert_eq!(materials["stone"], "stone");
         assert!(materials.get("air").is_none());
+    }
+
+    #[test]
+    fn packs_ogg_music_with_the_same_extensionless_lookup_as_fsb() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        fs::create_dir_all(root.join("sounds/music")).unwrap();
+        fs::write(root.join("sounds.json"), "{}").unwrap();
+        fs::write(root.join("sounds/music/track.OGG"), b"OggSencoded").unwrap();
+        let compiled = compile_audio_bank(root).expect("compile");
+        let prefix = assets::sound_bank_prefix_len(&compiled.bytes).unwrap();
+        let index = assets::SoundBankIndex::decode_prefix(&compiled.bytes[..prefix]).unwrap();
+        let entry = index.entry("sounds/music/track").expect("pack music file");
+        assert_eq!(
+            &compiled.bytes[entry.offset as usize..entry.offset as usize + entry.len as usize],
+            b"OggSencoded"
+        );
     }
 }

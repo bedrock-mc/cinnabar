@@ -25,6 +25,8 @@ const LOOP_FADE_SECONDS: f32 = 1.5;
 /// A one-shot still decoding after this long is dropped rather than played late.
 const MAX_DECODE_WAIT_SECONDS: f64 = 1.0;
 
+mod music;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Listener {
     pub position: [f32; 3],

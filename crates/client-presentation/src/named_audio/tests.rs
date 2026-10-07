@@ -17,6 +17,7 @@ fn play(sequence: u64) -> SequencedAudioEvent {
         sequence,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         event: protocol::AudioEvent::Play(protocol::PlayAudioEvent {
             name: Arc::from("ambient.underwater.loop"),
             position: [0; 3],
@@ -33,6 +34,7 @@ fn stop(sequence: u64, all: bool) -> SequencedAudioEvent {
         sequence,
         dimension: 0,
         dimension_epoch: 0,
+        actor_synchronization: None,
         event: protocol::AudioEvent::Stop(protocol::StopAudioEvent {
             name: Arc::from("ambient.underwater.loop"),
             stop_all_sounds: all,

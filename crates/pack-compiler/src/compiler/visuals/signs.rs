@@ -113,7 +113,7 @@ pub(in crate::compiler) fn sign_quads(material: u32, state: SignState) -> Vec<Mo
     let materials = [material; 6];
     match state {
         SignState::Standing { rotation } => {
-            // Classic vanilla's SignModel declares a 24x12 board and its
+            // Classic vanilla's sign model declares a 24x12 board and its
             // block-entity render pose applies a 2/3 scale before converting
             // model pixels to world units. The resulting 16x8-pixel (1x1/2
             // block) world silhouette is therefore [0,256] x [112,240] here;

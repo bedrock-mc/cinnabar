@@ -10,6 +10,26 @@ struct SurfaceWorld {
 }
 
 impl CollisionWorld for SurfaceWorld {
+    /// Returns the homogeneous fixture floor with its explicit source material.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<sim::ProvenancedCollider>>, WorldQueryError> {
+        let boxes = self.collision_boxes(query)?;
+        Ok(CollisionQuery {
+            value: boxes
+                .value
+                .into_iter()
+                .map(|aabb| sim::ProvenancedCollider {
+                    aabb,
+                    block: Some([0, 0, 0]),
+                    runtime_id: None,
+                })
+                .collect(),
+            identity: boxes.identity,
+        })
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-8.0, 0.0, -8.0), Vec3::new(8.0, 1.0, 8.0));
         Ok(CollisionQuery::synthetic(
@@ -127,7 +147,7 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
                 levitation: Some(0),
                 ..MovementEffects::default()
             },
-            0.01,
+            0.0098,
         ),
         (
             MovementEffects {
@@ -135,7 +155,7 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
                 slow_falling: true,
                 ..MovementEffects::default()
             },
-            0.01,
+            0.0098,
         ),
         (
             MovementEffects {
@@ -143,7 +163,7 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
                 slow_falling: true,
                 ..MovementEffects::default()
             },
-            -0.01,
+            -0.0098,
         ),
     ] {
         let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
@@ -205,10 +225,13 @@ fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
             &surface(SurfaceResponse::Slime),
         )
         .unwrap();
-    assert!(grounded.velocity.y <= 0.0);
+    assert_eq!(
+        grounded.velocity.y,
+        f64::from((0.2_f32 - 0.08_f32) * 0.98_f32)
+    );
 }
 
-/// Current BedBlock restitution is 0.75, without a one-block velocity cap.
+/// Vanilla bed restitution is 0.75, without a one-block velocity cap.
 #[test]
 fn bed_restitution_is_uncapped() {
     let mut state = PlayerState::new(Vec3::new(0.0, 1.2, 0.0));

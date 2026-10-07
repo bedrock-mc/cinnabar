@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use assets::{FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
+use assets::{FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
 use sha2::{Digest, Sha256};
 
 use super::{AssetStartupError, FONT_ASSETS_COMPILE_COMMAND, LoadedFontAssets};
@@ -15,7 +15,7 @@ pub(super) fn diagnostic_font_assets(path: PathBuf) -> Result<LoadedFontAssets, 
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let glyph = GlyphMetrics {
         codepoint: '\u{fffd}',

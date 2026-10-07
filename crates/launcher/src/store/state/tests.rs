@@ -371,7 +371,7 @@ fn review_background_inventory_and_image_batches_are_replenished() {
     );
     let mut state = StoreState::new();
     let urls = (0..=MAX_IMAGES_IN_FLIGHT).map(|index| format!("https://x.test/{index}.png"));
-    assert_eq!(state.image_urls(urls).len(), MAX_IMAGES_IN_FLIGHT);
+    assert_eq!(state.image_urls(urls, false).len(), MAX_IMAGES_IN_FLIGHT);
     let followup = state.apply(StoreEvent::Image {
         url: "https://x.test/0.png".into(),
         result: Err(StoreError::Unavailable),
@@ -388,4 +388,71 @@ fn review_refused_detail_does_not_leave_the_screen_loading() {
     state.refused(&requests[0]);
     assert!(!state.snapshot().loading);
     assert_eq!(state.snapshot().failure, Some(StoreError::Unavailable));
+}
+
+#[test]
+fn rows_without_a_client_factory_are_dropped_and_show_more_keeps_its_row() {
+    let mut state = StoreState::new();
+    let mut shown = page(vec![
+        vec![offer("bundle", None, None)],
+        vec![offer("a", None, Some(320))],
+    ]);
+    shown.rows[0].kind = Some("CoinBundleRow".into());
+    shown.rows[1].kind = Some("HeroRow".into());
+    shown.rows[1].continuation = Some("hero-more".into());
+    state.apply(StoreEvent::Page(Ok(shown)));
+    let rows = state.snapshot().rows;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        (rows[0].role, rows[0].offers[0].id.as_str()),
+        ("HeroRow", "a")
+    );
+    assert!(matches!(
+        state.act(StoreAction::ShowMore { row: 0 }).as_slice(),
+        [StoreRequest::RowMore { row: 0, continuation }] if continuation == "hero-more"
+    ));
+}
+
+// Opening an offer queued its screenshots behind every thumbnail the home page still had waiting.
+#[test]
+fn offer_page_art_is_fetched_before_waiting_thumbnails() {
+    let mut state = StoreState::new();
+    let urls: Vec<String> = (0..80).map(|i| format!("https://x.test/{i}.jpg")).collect();
+    let offers = urls
+        .iter()
+        .enumerate()
+        .map(|(i, url)| offer(&i.to_string(), Some(url), None))
+        .collect();
+    let started = state.apply(StoreEvent::Page(Ok(page(vec![offers]))));
+    assert!(started.len() < urls.len(), "some thumbnails wait");
+    state.apply(StoreEvent::Offer(Ok(Box::new(StoreOfferDetail {
+        offer: offer("0", None, None),
+        description: None,
+        screenshot_urls: vec!["https://x.test/shot.jpg".into()],
+        display_version: None,
+        platforms: vec![],
+    }))));
+    let next = state.apply(StoreEvent::Image {
+        url: urls[0].clone(),
+        result: Ok("/c/0.jpg".into()),
+    });
+    assert!(
+        matches!(next.as_slice(), [StoreRequest::Image(url)] if url == "https://x.test/shot.jpg"),
+        "{next:?}"
+    );
+}
+
+// A thumbnail repeated among the screenshots was requested twice while counted once in flight.
+#[test]
+fn offer_page_art_requests_each_image_once() {
+    let mut state = StoreState::new();
+    let shot = "https://x.test/shot.jpg".to_owned();
+    let sent = state.apply(StoreEvent::Offer(Ok(Box::new(StoreOfferDetail {
+        offer: offer("a", Some(&shot), None),
+        description: None,
+        screenshot_urls: vec![shot.clone(), shot.clone()],
+        display_version: None,
+        platforms: vec![],
+    }))));
+    assert_eq!(sent.len(), 1, "{sent:?}");
 }

@@ -40,7 +40,11 @@ fn a_native_texture_override_keeps_its_material_without_promoting_equipment() {
 fn native_color_mask_textures_have_independent_opaque_material_pages() {
     let entity_bytes = std::fs::read(std::env::var_os("CINNABAR_ENTITY_CARRIER").unwrap()).unwrap();
     let actor_bytes = std::fs::read(std::env::var_os("CINNABAR_ACTOR_CARRIER").unwrap()).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&actor_bytes, &entity_bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &actor_bytes,
+        &assets::RuntimeEntityAssets::decode(&entity_bytes).unwrap(),
+    )
+    .unwrap();
     let pages = ActorArtworkPages::new(&catalog);
     let mut masks = 0;
     let mut neutral = 0;

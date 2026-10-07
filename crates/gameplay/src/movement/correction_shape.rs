@@ -1,8 +1,5 @@
 //! Classification and reconciliation of committed local-player corrections and
 //! other tick-stamped timeline edits into prediction and the outbox.
-//!
-//! The teleport-displacement snap is Cinnabar policy; vanilla has no such
-//! shape for `CorrectPlayerMovePrediction`.
 
 use protocol::PLAYER_NETWORK_OFFSET;
 use sim::CollisionWorld;
@@ -12,36 +9,19 @@ use super::{
     MovementTicker, PhysicsAuthorityFault, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
 };
 
-/// Largest per-tick displacement still treated as an ordinary reconcilable
-/// correction.
-///
-/// One full chunk column (16 blocks) within a single 20 Hz tick exceeds every
-/// vanilla Bedrock locomotion ceiling — terminal fall speed is roughly 3.9
-/// blocks per tick and sprint jumping stays far below one block per tick — so a
-/// larger server displacement cannot be reproduced by replaying retained inputs
-/// and is handled through the existing teleport anchor path instead.
-/// Provisional policy pending version-matched native measurement.
-pub const CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS: f32 = 16.0;
-
 /// How one committed correction must be applied to prediction state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorrectionShape {
     /// Position, motion and ground flag match the retained frame within the
     /// vanilla epsilon, so nothing is replayed and no state is touched.
     Confirmed,
-    /// Ordinary small or full correction reconciled by replacing the retained
-    /// position/ground at its tick and replaying later inputs. This is today's
-    /// established behavior and also covers any correction that is not exactly
-    /// confirming and stays within the teleport displacement bound.
+    /// Replace the retained authoritative state and replay later inputs,
+    /// regardless of the distance between predicted and corrected positions.
     Replay,
-    /// Displacement beyond [`CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS`], or an
-    /// unresolvable non-finite anchor: snap through the existing teleport
-    /// anchor path, including its bounded state clearing and settle window.
-    TeleportSnap,
 }
 
 /// Squared distance within which vanilla treats a correction's position and
-/// motion as already matching the retained frame (`getAdvanceFrameResult`).
+/// motion as already matching the retained frame.
 const CORRECTION_MATCH_EPSILON_SQUARED: f32 = 1.0e-5;
 
 impl LocalPhysicsController {
@@ -59,12 +39,11 @@ impl LocalPhysicsController {
         on_ground: bool,
         velocity: Option<[f32; 3]>,
     ) -> CorrectionShape {
-        if !network_position.into_iter().all(f32::is_finite) {
-            // Position resolution bounds non-finite input upstream, so this is
-            // pure defense: an unresolvable anchor is rejected by the
-            // controller's InvalidAnchor guard before any shape-specific path
-            // runs, leaving prediction state untouched.
-            return CorrectionShape::TeleportSnap;
+        if !network_position.into_iter().all(f32::is_finite)
+            || self.has_pending_prediction_corrections()
+        {
+            // Invalid anchors are rejected before reconciliation mutates state.
+            return CorrectionShape::Replay;
         }
         let Some(state) = self.retained_state(correction_tick) else {
             return CorrectionShape::Replay;
@@ -89,15 +68,11 @@ impl LocalPhysicsController {
         {
             return CorrectionShape::Confirmed;
         }
-        let bound = CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS;
-        if position_error > bound * bound {
-            CorrectionShape::TeleportSnap
-        } else {
-            CorrectionShape::Replay
-        }
+        CorrectionShape::Replay
     }
 }
 
+/// Compares positions or velocities in the packet's float precision.
 fn squared_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let dx = a[0] - b[0];
     let dy = a[1] - b[1];
@@ -133,7 +108,6 @@ pub fn reconcile_committed_correction(
     let mode = match shape {
         CorrectionShape::Confirmed => return Ok(None),
         CorrectionShape::Replay => PhysicsCorrectionMode::ReplayIfRetained,
-        CorrectionShape::TeleportSnap => PhysicsCorrectionMode::Snap,
     };
     reconcile_physics_anchor(
         ticker,
@@ -152,8 +126,8 @@ pub fn reconcile_committed_correction(
 
 /// Enters one `CorrectPlayerMovePrediction` into prediction.
 ///
-/// Cinnabar drops ticks outside retained history. The current vanilla client
-/// has a separate missing-frame path; matching it remains open in `plan.md`.
+/// Old and zero ticks are discarded. Missing newer ticks attach to the current
+/// captured frame and wait for a later correction to initiate a rewind.
 pub fn reconcile_prediction_correction(
     ticker: &mut MovementTicker,
     physics: &mut LocalPhysicsController,
@@ -163,8 +137,23 @@ pub fn reconcile_prediction_correction(
     velocity: [f32; 3],
     world: &impl CollisionWorld,
 ) -> Result<Option<PhysicsCorrectionOutcome>, PhysicsAuthorityFault> {
-    if physics.is_active() && !physics.retains_tick(correction_tick) {
+    if !physics.prediction_correction_is_eligible(correction_tick) {
         super::diagnostics::note_dropped_correction(correction_tick);
+        return Ok(None);
+    }
+    if !physics.retains_tick(correction_tick) {
+        if !ticker.physics_is_authorized() {
+            return Err(PhysicsAuthorityFault::Unauthorized);
+        }
+        if !network_position.into_iter().all(f32::is_finite) {
+            return Err(PhysicsAuthorityFault::CorrectionReplayFailed);
+        }
+        physics.defer_prediction_correction(PhysicsAnchor {
+            network_position,
+            tick: correction_tick,
+            on_ground,
+            velocity: Some(velocity),
+        });
         return Ok(None);
     }
     reconcile_committed_correction(
@@ -179,11 +168,11 @@ pub fn reconcile_prediction_correction(
 }
 
 /// Live-to-target distance under which vanilla rewinds a tick-stamped teleport
-/// `MovePlayer` (`_onPlayerMovePacketReceived`, 16.0 read from the 26.30 client).
+/// `MovePlayer`.
 const MOVE_PLAYER_REWIND_DISTANCE: f32 = 16.0;
 
 /// Enters one teleport-mode `MovePlayer`: a nearby, retained, unmounted tick
-/// replays from it with motion cleared as `MovePlayerInput` does; anything
+/// replays from it with motion cleared, as vanilla does; anything
 /// else resets history and snaps.
 pub fn reconcile_move_player_teleport(
     ticker: &mut MovementTicker,
@@ -223,7 +212,7 @@ pub struct PhysicsAnchor {
     pub network_position: [f32; 3],
     pub tick: u64,
     pub on_ground: bool,
-    /// Server StateVector motion; `None` keeps the retained velocity.
+    /// Server velocity; `None` keeps the retained velocity.
     pub velocity: Option<[f32; 3]>,
 }
 
@@ -257,26 +246,20 @@ pub fn reconcile_physics_anchor(
     mode: PhysicsCorrectionMode,
     world: &impl CollisionWorld,
 ) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
-    let PhysicsAnchor {
-        network_position,
-        tick,
-        on_ground,
-        velocity,
-    } = anchor;
     if !ticker.physics_is_authorized() {
         return Err(PhysicsAuthorityFault::Unauthorized);
     }
 
-    if !network_position.into_iter().all(f32::is_finite) {
+    if !anchor.network_position.into_iter().all(f32::is_finite) {
         return Err(PhysicsAuthorityFault::CorrectionReplayFailed);
     }
 
-    let apply_candidate = |mode| {
+    let apply_candidate = |anchor: PhysicsAnchor, mode| {
         let aligned_tick = match mode {
-            PhysicsCorrectionMode::ReplayIfRetained => tick,
+            PhysicsCorrectionMode::ReplayIfRetained => anchor.tick,
             PhysicsCorrectionMode::Snap => ticker
                 .next_tick
-                .max(tick.saturating_add(1))
+                .max(anchor.tick.saturating_add(1))
                 .saturating_sub(1),
         };
         let mut candidate_physics = physics.clone();
@@ -285,10 +268,8 @@ pub fn reconcile_physics_anchor(
         let plan = candidate_physics
             .apply_correction(
                 PhysicsAnchor {
-                    network_position,
                     tick: aligned_tick,
-                    on_ground,
-                    velocity,
+                    ..anchor
                 },
                 mode,
                 confirmation.as_ref(),
@@ -310,7 +291,7 @@ pub fn reconcile_physics_anchor(
         Ok((candidate_ticker, candidate_physics, plan.outcome))
     };
 
-    let mut result = apply_candidate(mode);
+    let mut result = apply_candidate(anchor, mode);
     if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained)
         && matches!(
             result,
@@ -321,7 +302,7 @@ pub fn reconcile_physics_anchor(
         )
     {
         tracing::warn!(
-            tick,
+            tick = anchor.tick,
             error = ?result.as_ref().err(),
             "movement replay failed; snapping correction to the current tick"
         );
@@ -331,7 +312,10 @@ pub fn reconcile_physics_anchor(
         // remains authoritative in each case, so discard speculative history
         // and continue from a current-tick snap instead of silently restoring
         // free-camera movement.
-        result = apply_candidate(PhysicsCorrectionMode::Snap);
+        result = apply_candidate(
+            physics.replay_fallback_anchor(anchor),
+            PhysicsCorrectionMode::Snap,
+        );
     }
 
     match result {

@@ -6,7 +6,7 @@ use std::{
 
 use bevy::prelude::Resource;
 
-use super::ActorDrawManifestEntry;
+use super::{ActorArtworkPageId, ActorDrawManifestEntry};
 
 #[path = "gpu/geometry.rs"]
 mod geometry;
@@ -208,7 +208,8 @@ struct PendingActorDraw {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ActorDrawSpan {
-    pub page: u8,
+    pub material: u32,
+    pub page: ActorArtworkPageId,
     pub first: u32,
     pub count: u32,
     /// Vertices of the geometry every instance of the span draws.
@@ -321,6 +322,7 @@ mod tests {
     fn draw_tracker_requires_actual_draw_execution() {
         let tracker = ActorDrawTracker::default();
         let span = ActorDrawSpan {
+            material: 0,
             page: 0,
             first: 0,
             count: 1,
@@ -342,12 +344,14 @@ mod tests {
         frame.manifest = Arc::from([frame.manifest[0].clone(), second]);
         let spans = [
             ActorDrawSpan {
+                material: 0,
                 page: 0,
                 first: 0,
                 count: 1,
                 vertex_count: 3,
             },
             ActorDrawSpan {
+                material: 0,
                 page: 1,
                 first: 1,
                 count: 1,

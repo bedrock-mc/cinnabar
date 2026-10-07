@@ -13,6 +13,13 @@ pub(super) enum OccupiedStackRelation {
 }
 
 impl PlayerInventoryLedger {
+    /// Retained registry identity for consumers caching identifier-dependent data.
+    pub fn item_registry_snapshot(
+        &self,
+    ) -> Option<&std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>> {
+        self.item_registry.as_ref()
+    }
+
     pub fn negotiated_item_entry(&self, network_id: i32) -> Option<&ItemRegistryEntry> {
         self.item_registry.as_ref()?.get(&network_id)
     }
@@ -61,7 +68,7 @@ impl PlayerInventoryLedger {
         destination: &NetworkItemStack,
     ) -> OccupiedStackRelation {
         let distinct_network_ids = source.network_id != destination.network_id;
-        // Native ItemStackBase::matchesItem compares block/aux identity; a
+        // Vanilla item matching compares block/aux identity; a
         // nonzero block identity is an ordinary block stack, not an unknown
         // stack shape. Count and sparse/server stack ids are not item identity.
         if source.metadata != destination.metadata

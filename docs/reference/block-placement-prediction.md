@@ -1,4 +1,4 @@
-# Native block placement prediction
+# Block placement prediction
 
 ## Vanilla rules
 
@@ -34,7 +34,7 @@ server block response could cross the delayed relay. The block is absent from th
 frame and present in both the early and post-reply frames. Frames are ignored local files
 `2026-10-01_12.08.15.png`, `12.08.16.png` and `12.08.17.png` beneath `.local/screenshots/`.
 The grass hand/hotbar visual and open-inventory icon also render after the carried-texture
-fix. This is a live functional prediction witness, not native Bedrock/BDS parity acceptance.
+fix. This is a live functional prediction witness, not vanilla Bedrock/BDS parity acceptance.
 Platform: macOS 26.3 / M3 Pro / Metal, optimized debug, logical window 1280x752,
 rendered content 2560x1440, Retina scale 2. Native capture succeeded; native input failed
 its fresh focus check, so an explicit local macOS input helper held focus throughout the
@@ -42,7 +42,7 @@ three-frame witness and checked the title reported `captured` before use.
 
 Provisional, labeled incomplete: oriented/sized/merging/non-cube block state resolution,
 replacement and custom placement rules, Adventure item restrictions, selection shapes,
-actor-overlap tolerances, repeat timing and complete native material/side-effect behavior.
+actor-overlap tolerances, repeat timing and complete vanilla material/side-effect behavior.
 App prediction remains after successful local outbox admission, not before packet queuing;
-native ordering parity is not claimed. No full placement parity gate is closed. Changes
+vanilla ordering parity is not claimed. No full placement parity gate is closed. Changes
 remain local and uncommitted.

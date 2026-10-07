@@ -17,6 +17,23 @@ pub(super) struct SampledEnvironment {
     pub block_samples: usize,
 }
 
+/// Reads one primary block without exceeding the tick's shared physics budget.
+pub(super) fn sample_primary(
+    world: &impl CollisionWorld,
+    block: [i32; 3],
+    block_samples: &mut usize,
+) -> Result<crate::CollisionQuery<crate::BlockPhysicsFacts>, WorldQueryError> {
+    if *block_samples == MAX_BLOCK_SAMPLES_PER_TICK {
+        return Err(WorldQueryError::QueryExtentExceeded);
+    }
+    let sample = world.block_physics(block)?;
+    *block_samples += 1;
+    Ok(crate::CollisionQuery {
+        value: *sample.primary(),
+        identity: sample.identity,
+    })
+}
+
 /// Samples the movement pose's sweep and the preceding liquid-sensing pose.
 pub(super) fn sample(
     world: &(impl CollisionWorld + ?Sized),
@@ -37,7 +54,12 @@ pub(super) fn sample(
     let min = block_at(swept.min)?;
     let max = inclusive_max_block_at(swept.max)?;
     let support = block_below(position)?;
-    let mut blocks = BTreeSet::from([support]);
+    let friction_block = block_at(Vec3::new(
+        f64::from(position.x as f32),
+        f64::from(position.y as f32 - 0.1_f32),
+        f64::from(position.z as f32),
+    ))?;
+    let mut blocks = BTreeSet::from([support, friction_block]);
     for x in min[0]..=max[0] {
         for y in min[1]..=max[1] {
             for z in min[2]..=max[2] {
@@ -59,22 +81,34 @@ pub(super) fn sample(
             None => sample.identity.clone(),
             Some(previous) => previous.merge(&sample.identity)?,
         });
-        if block == support {
+        if block == friction_block {
             friction = sample.primary().friction;
+        }
+        if block == support {
             let response = active_surface_response(sample.primary(), player, block);
             if response != SurfaceResponse::None {
                 movement.surface_response = response;
             }
         }
         for facts in &sample.layers {
-            let active_response = active_surface_response(facts, player, block);
+            let body_contact = fluid_intersects(player, block, 1.0);
+            let active_response = if body_contact
+                && matches!(
+                    facts.surface_response,
+                    SurfaceResponse::Honey
+                        | SurfaceResponse::BubbleUp
+                        | SurfaceResponse::BubbleDown
+                ) {
+                active_surface_response(facts, player, block)
+            } else {
+                SurfaceResponse::None
+            };
             if movement.surface_response == SurfaceResponse::None
                 && active_response != SurfaceResponse::None
             {
                 movement.surface_response = active_response;
             }
             // Web slowdown belongs to the displacement phase, not ground acceleration.
-            let body_contact = fluid_intersects(player, block, 1.0);
             if !facts.flags.contains(BlockPhysicsFlags::COBWEB)
                 && (body_contact || (block == support && facts.flags.bits() == 0))
             {
@@ -140,8 +174,8 @@ pub(super) fn contains_liquid(
                 });
                 // The raised exit probe asks whether its sampled block cells
                 // carry liquid, not whether the liquid surface reaches it.
-                // Current BlockSource::containsAnyLiquid (0x031a7a20)
-                // reads getBlock's primary material, without secondary layers.
+                // Vanilla reads only the primary block's material here,
+                // without secondary layers.
                 let flags = sample.primary().flags;
                 contains |= flags.contains(BlockPhysicsFlags::WATER)
                     || flags.contains(BlockPhysicsFlags::LAVA);

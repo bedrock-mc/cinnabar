@@ -1,11 +1,11 @@
-//! ClientLevel::_subTick season rows.
+//! Vanilla's per-tick seasonal foliage palette rows.
 
 use super::*;
 mod admission;
 #[cfg(test)]
 mod lifecycle_tests;
 
-/// SeasonsRenderer::tick refreshes its palette at tick 0 and every hundred ticks.
+/// Vanilla refreshes the seasons palette at tick 0 and every hundred ticks.
 const PALETTE_REFRESH_TICKS: u64 = 100;
 const RAIN_THRESHOLD: f32 = 0.2;
 const COLD_ACCUMULATION: f32 = 0.04;

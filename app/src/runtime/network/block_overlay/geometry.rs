@@ -26,6 +26,8 @@ pub(super) struct FaceUv {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Cube {
+    /// The bone that owns the cube, which bone visibility hides by name.
+    pub(super) bone: String,
     /// Block-local pixel bounds in world orientation (0..16 spans the block).
     pub(super) min: [f32; 3],
     pub(super) max: [f32; 3],
@@ -213,6 +215,10 @@ fn parse_bones(bones: &Value, texture_size: [f32; 2]) -> Geometry {
                     .push((world_pivot(pivot), world_angles(rotation)));
             }
             parsed.rotations.extend(chain.iter().copied());
+            bone["name"]
+                .as_str()
+                .unwrap_or_default()
+                .clone_into(&mut parsed.bone);
             geometry.cubes.push(parsed);
         }
     }
@@ -277,6 +283,7 @@ fn parse_cube(cube: &Value) -> Option<Cube> {
         _ => return None,
     };
     Some(Cube {
+        bone: String::new(),
         min,
         max,
         faces,

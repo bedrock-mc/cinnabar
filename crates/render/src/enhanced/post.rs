@@ -194,6 +194,7 @@ fn post_bind_group(
 /// Draws one fullscreen pass.
 fn fullscreen_pass(
     context: &mut RenderContext,
+    world: &World,
     label: &'static str,
     target: &TextureView,
     load: LoadOp<wgpu::Color>,
@@ -214,7 +215,10 @@ fn fullscreen_pass(
             },
         })],
         depth_stencil_attachment: None,
-        timestamp_writes: None,
+        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+            world,
+            crate::RuntimeStage::GpuPost,
+        ),
         occlusion_query_set: None,
     });
     pass.set_render_pipeline(pipeline);
@@ -316,7 +320,15 @@ impl ViewNode for EnhancedLightingNode {
         let clear = LoadOp::Clear(wgpu::Color::TRANSPARENT);
         let group = bind(black, black);
         if post.atmosphere_cache.sky_needs_update() {
-            fullscreen_pass(context, "enhanced sky LUT", &post.sky, clear, sky, &group);
+            fullscreen_pass(
+                context,
+                world,
+                "enhanced sky LUT",
+                &post.sky,
+                clear,
+                sky,
+                &group,
+            );
             if super::probes::update_environment_sky(
                 context,
                 world,
@@ -330,6 +342,7 @@ impl ViewNode for EnhancedLightingNode {
         if post.atmosphere_cache.cloud_shadow_needs_update() {
             fullscreen_pass(
                 context,
+                world,
                 "enhanced cloud shadows",
                 &post.cloud_shadow,
                 clear,
@@ -348,6 +361,7 @@ impl ViewNode for EnhancedLightingNode {
         let group = bind(black, &post.sky);
         fullscreen_pass(
             context,
+            world,
             "enhanced AO and volumetric clouds",
             &post.effects,
             clear,
@@ -421,6 +435,7 @@ impl ViewNode for EnhancedSkyNode {
         );
         fullscreen_pass(
             context,
+            world,
             "enhanced sky background",
             target.main_texture_view(),
             LoadOp::Load,
@@ -543,6 +558,7 @@ impl ViewNode for EnhancedPostNode {
             let group = bind(black, black, black, black, black);
             fullscreen_pass(
                 context,
+                world,
                 "enhanced light shafts",
                 shaft_view,
                 clear,
@@ -571,6 +587,7 @@ impl ViewNode for EnhancedPostNode {
         );
         fullscreen_pass(
             context,
+            world,
             "enhanced composite",
             &post_targets.composite,
             clear,
@@ -587,6 +604,7 @@ impl ViewNode for EnhancedPostNode {
         );
         fullscreen_pass(
             context,
+            world,
             "enhanced temporal resolve",
             &post_targets.history_views[index],
             clear,
@@ -603,6 +621,7 @@ impl ViewNode for EnhancedPostNode {
         );
         fullscreen_pass(
             context,
+            world,
             "enhanced filmic display",
             post.destination,
             clear,

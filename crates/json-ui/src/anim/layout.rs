@@ -29,6 +29,19 @@ pub(crate) struct Own {
 }
 
 impl Inherited {
+    /// Whether two contexts animate a subtree alike.
+    pub(crate) fn same(&self, other: &Inherited) -> bool {
+        let same = |a: &[Arc<ControlAnims>], b: &[Arc<ControlAnims>]| {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| Arc::ptr_eq(a, b) || a == b)
+        };
+        self.alpha == other.alpha
+            && self.born == other.born
+            && self.clock == other.clock
+            && same(&self.alpha_anims, &other.alpha_anims)
+            && same(&self.movers, &other.movers)
+            && same(&self.clip_movers, &other.clip_movers)
+    }
+
     /// The creation clock `control` animates on.
     pub(crate) fn own(&self, control: &ResolvedControl) -> Own {
         Own {

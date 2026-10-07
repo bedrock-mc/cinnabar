@@ -16,12 +16,16 @@ mod diagnostics;
 pub mod diagnostics_config;
 mod effects;
 mod encoding;
+mod input_state;
+
+pub use input_state::TickInput;
 mod evidence;
 pub mod local_facts;
 mod locomotion;
 mod outbox;
 mod physics;
 mod prediction_sync;
+mod respawn;
 mod speed_authority;
 mod state;
 mod teleport_ack;
@@ -31,7 +35,7 @@ pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsA
 pub use collision_registries::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
 pub use control_trace::{trace_local_attributes, trace_server_control};
 pub use coordination::physics_authority_fault_for_frame;
-pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
+pub use correction_shape::CorrectionShape;
 pub use correction_shape::{
     PhysicsAnchor, reconcile_candidate_physics_correction, reconcile_physics_anchor,
 };
@@ -50,13 +54,14 @@ pub use outbox::OUTBOX_CAPACITY;
 #[cfg(any(test, feature = "test-support"))]
 pub use outbox::flush_player_auth_inputs;
 pub use outbox::{
-    InteractionPacketGuard, MovementOutboxReconciliation, flush_player_auth_inputs_guarded,
+    InteractionPacketGuard, MovementOutboxReconciliation, UnsentSampleView,
+    flush_player_auth_inputs_guarded,
 };
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
-    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
-    physics_movement_input,
+    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMotionSample, PhysicsMovementSample,
+    PhysicsSampleContext, physics_movement_input,
 };
 pub use prediction_sync::{PredictionSyncState, send_movement_prediction_sync};
 use sim::WorldCollisionIdentity;
@@ -85,6 +90,7 @@ pub enum MovementSource {
 struct QueuedPhysicsSample {
     session_generation: u64,
     snapshot: PlayerAuthInputSnapshot,
+    displacement: [f32; 3],
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
     mining: Option<crate::mining::QueuedMiningInteraction>,
@@ -147,6 +153,7 @@ pub struct MovementTicker {
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
+    held_release: Option<outbox::HeldRelease>,
 }
 
 #[cfg(test)]
@@ -188,6 +195,7 @@ impl MovementTicker {
             unmarked_move_players_observed: 0,
             epoch_publisher,
             mining_epoch_publisher,
+            held_release: None,
         }
     }
 
@@ -199,6 +207,7 @@ impl MovementTicker {
         initial_position: [f32; 3],
     ) {
         self.position_authority_changed();
+        self.held_release = None;
         self.session_active = true;
         self.session_generation = session_generation;
         self.next_tick = initial_server_tick.saturating_add(1);
@@ -222,6 +231,7 @@ impl MovementTicker {
 
     pub fn deactivate(&mut self) {
         self.position_authority_changed();
+        self.held_release = None;
         self.session_active = false;
         self.outbox.clear();
         self.pending_sends.clear();
@@ -346,6 +356,7 @@ impl MovementTicker {
         self.outbox.push_back(QueuedPhysicsSample {
             session_generation: self.session_generation,
             snapshot,
+            displacement: completed.movement,
             world_identity: completed.world_identity,
             evidence,
             mining: None,
@@ -392,7 +403,7 @@ impl MovementTicker {
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
-            // LocalPlayer::sendInput copies end-of-tick StateVector motion.
+            // Vanilla sends the end-of-tick velocity as the position delta.
             delta: sample.velocity,
             move_vector,
             analogue_move_vector,
@@ -531,6 +542,7 @@ impl MovementTicker {
             && identity.reanchor_epoch == self.reanchor_epoch
         {
             self.confirm_sent(&pending.sample);
+            self.confirm_held_release_facing(identity.tick);
         }
         self.sent_physics_packet_count = self.sent_physics_packet_count.saturating_add(1);
         self.tick_evidence.push_back(pending.evidence);
@@ -828,6 +840,7 @@ impl MovementTicker {
                     }
                     pending.snapshot.position = replayed.position;
                     pending.snapshot.delta = replayed.velocity;
+                    pending.displacement = replayed.movement;
                     pending.snapshot.move_vector = encoding::wire_move_vector(replayed.move_vector);
                     // Tick-bound actions survive; all movement flags come from replay.
                     pending.snapshot.flags = [
@@ -918,4 +931,7 @@ mod zeqa_tests;
 pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
-pub use frame::{LocomotionState, PhysicsFrameInput};
+pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput};
+
+#[cfg(test)]
+mod input_state_tests;

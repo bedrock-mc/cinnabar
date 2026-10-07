@@ -58,6 +58,8 @@ impl WorldStream {
         event: PreparedWorldEvent,
         sequence: Option<u64>,
     ) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.commit", sequence).entered();
         match event {
             PreparedWorldEvent::InlineLevelChunk {
                 event,
@@ -76,7 +78,9 @@ impl WorldStream {
                 // admission.
                 self.record_required_level_chunk(&event);
                 self.record_column_arrival(key, Instant::now());
-                let range = vanilla_dimension_range(event.dimension)
+                let range = self
+                    .authority
+                    .dimension_range(event.dimension)
                     .expect("inline events are range-checked before decode");
                 let stored_keys = decoded
                     .sub_chunks()
@@ -92,18 +96,8 @@ impl WorldStream {
                     .difference(&stored_keys)
                     .copied()
                     .collect::<BTreeSet<_>>();
-                let old_keys = self
-                    .resident
-                    .iter()
-                    .copied()
-                    .filter(|resident| resident.chunk() == key)
-                    .collect::<BTreeSet<_>>();
-                let old_air = self
-                    .known_air
-                    .iter()
-                    .copied()
-                    .filter(|resident| resident.chunk() == key)
-                    .collect::<BTreeSet<_>>();
+                let old_keys = self.resident.column(key).copied().collect::<BTreeSet<_>>();
+                let old_air = self.known_air.column(key).copied().collect::<BTreeSet<_>>();
                 let Ok(applied) = self.authority.commit_level_chunk(key, decoded) else {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
@@ -112,8 +106,12 @@ impl WorldStream {
                 self.reconcile_block_crack_column(key);
                 self.loaded_columns.insert(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
-                self.resident.retain(|resident| resident.chunk() != key);
-                self.known_air.retain(|resident| resident.chunk() != key);
+                for old in &old_keys {
+                    self.resident.remove(old);
+                }
+                for old in &old_air {
+                    self.known_air.remove(old);
+                }
                 for stale in old_keys.difference(&new_keys) {
                     self.set_connectivity(*stale, None);
                 }
@@ -309,13 +307,36 @@ impl WorldStream {
                     }
                 }
             }
+            PreparedWorldEvent::SyncedBlockUpdates {
+                result,
+                events,
+                duration,
+            } => {
+                self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                match result {
+                    Ok(prepared) => {
+                        if !self.commit_block_mutations_with_relight(
+                            prepared.mutations,
+                            &prepared.relight,
+                        ) {
+                            self.record_normalization_error(
+                                NormalizationErrorReason::BlockMutationFailure,
+                            );
+                        } else {
+                            self.queue_actor_block_syncs(events);
+                        }
+                    }
+                    Err(_) => self
+                        .record_normalization_error(NormalizationErrorReason::BlockMutationFailure),
+                }
+            }
             PreparedWorldEvent::BlockEntityUpdate {
                 key,
                 decoded,
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
-                if !block_entity_y_is_valid(key.dimension, key.y) {
+                if !block_entity_y_is_valid(self.authority.dimension_range(key.dimension), key.y) {
                     self.record_normalization_error(
                         NormalizationErrorReason::InvalidBlockEntityPosition,
                     );
@@ -357,7 +378,7 @@ impl WorldStream {
                 unreachable!("LevelChunk packets are prepared on workers")
             }
             WorldEvent::ChunkResync(event) => {
-                let Some(range) = vanilla_dimension_range(event.dimension) else {
+                let Some(range) = self.authority.dimension_range(event.dimension) else {
                     if let Some(sequence) = sequence {
                         self.cancel_request_reservation(sequence);
                     }
@@ -384,7 +405,7 @@ impl WorldStream {
                     self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
                 }
             }
-            WorldEvent::BlockUpdates(_) => {
+            WorldEvent::BlockUpdates(_) | WorldEvent::SyncedBlockUpdates(_) => {
                 unreachable!("block-update batches are prepared on workers")
             }
             WorldEvent::BlockEntityUpdate(_) => {
@@ -443,27 +464,47 @@ impl WorldStream {
             }
             WorldEvent::ChangeDimension(change) => {
                 let sequence = sequence.expect("sequenced dimension changes commit through submit");
+                self.dimension_transfer_priority = None;
+                self.actor_block_syncs = actor_block_sync::ActorBlockSyncs::default();
                 self.replace_block_crack_dimension(sequence);
                 self.clear_block_events();
                 self.evict_all_resident();
                 self.block_entity_visuals.clear();
                 self.authority.reset_dimension(sequence, change.dimension);
                 let resolved = self.authority.resolve_position(change.position);
+                self.local_player_chunk = None;
                 self.publisher
                     .reset_for_dimension(resolved.position.map(floor_to_i32));
                 self.last_retention_center = None;
                 self.last_retention_radius = None;
                 self.authority
                     .push_committed_control(CommittedControlEvent::ChangeDimension {
+                        sequence,
                         change,
                         resolved,
                     });
             }
+            WorldEvent::DimensionChangeAck { .. } => {
+                // Native selects the session's local player by subclient and
+                // intentionally ignores the action's runtime actor ID.
+                self.authority
+                    .push_committed_control(CommittedControlEvent::DimensionChangeAck {
+                        sequence: sequence
+                            .expect("dimension acknowledgement commits through submit"),
+                        dimension_epoch: self.authority.form_dimension_epoch(),
+                    });
+            }
             WorldEvent::Respawn(respawn) => {
                 let sequence = sequence.expect("sequenced respawns commit through submit");
-                let resolved = self.authority.resolve_position(respawn.position);
-                self.provisionally_rebase_for_local_teleport(resolved.position);
-                self.reevaluate_chunk_retention();
+                let resolved = if respawn.ready_to_spawn() {
+                    let resolved = self.authority.resolve_position(respawn.position);
+                    self.local_player_chunk = None;
+                    self.provisionally_rebase_for_local_teleport(resolved.position);
+                    self.reevaluate_chunk_retention();
+                    resolved
+                } else {
+                    self.authority.resolved_server_position()
+                };
                 self.authority
                     .push_committed_control(CommittedControlEvent::Respawn {
                         sequence,
@@ -483,10 +524,12 @@ impl WorldStream {
                     self.publisher.source_capture_sequence = None;
                 }
                 let resolved = self.authority.resolve_position(movement.position);
+                // Unmarked moves reconcile like corrections against a past tick; only teleports recenter.
                 if movement.mode.is_teleport() {
+                    self.local_player_chunk = None;
                     self.provisionally_rebase_for_local_teleport(resolved.position);
+                    self.reevaluate_chunk_retention();
                 }
-                self.reevaluate_chunk_retention();
                 self.authority
                     .push_committed_control(CommittedControlEvent::MovePlayer {
                         sequence,
@@ -511,8 +554,8 @@ impl WorldStream {
                 {
                     return;
                 }
+                // A correction names a past tick; retention waits for physics to reconcile it.
                 let resolved = self.authority.resolve_position(correction.position);
-                self.reevaluate_chunk_retention();
                 self.authority.push_committed_control(
                     CommittedControlEvent::PlayerMovementCorrection {
                         sequence,
@@ -562,7 +605,7 @@ impl WorldStream {
             self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
             return;
         }
-        let Some(range) = vanilla_dimension_range(event.dimension) else {
+        let Some(range) = self.authority.dimension_range(event.dimension) else {
             self.record_normalization_error(
                 NormalizationErrorReason::UnsupportedLevelChunkDimension,
             );

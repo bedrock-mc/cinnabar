@@ -59,6 +59,34 @@ pub(crate) fn observe_block_ray(
     selection: FrozenMiningSelection,
     input: (PlayerInputMode, f64, (NonZeroU64, u64), u64),
 ) -> Result<Option<FrozenBlockObservation>, BlockRayUnavailable> {
+    observe_block_ray_using(
+        origin,
+        ui,
+        client_world,
+        collisions,
+        selection,
+        input,
+        |world, origin, direction, reach| {
+            world.block_interaction_ray_current(origin, direction, reach)
+        },
+    )
+}
+
+/// Freezes a current observation after the owning interaction chooses its support target.
+pub(crate) fn observe_block_ray_using(
+    origin: &InteractionOriginSnapshot,
+    ui: &UiRuntime,
+    client_world: &ClientWorld,
+    collisions: &PhysicsCollisionRegistries,
+    selection: FrozenMiningSelection,
+    input: (PlayerInputMode, f64, (NonZeroU64, u64), u64),
+    choose: impl FnOnce(
+        &PaletteWorld<'_>,
+        Vec3,
+        Vec3,
+        f64,
+    ) -> Result<Option<sim::BlockHit>, sim::WorldQueryError>,
+) -> Result<Option<FrozenBlockObservation>, BlockRayUnavailable> {
     let (
         input_mode,
         reach,
@@ -78,8 +106,7 @@ pub(crate) fn observe_block_ray(
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
     );
-    let Some(hit) = world
-        .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
+    let Some(hit) = choose(&world, vector(ray.origin()), vector(ray.direction()), reach)
         .map_err(|_| BlockRayUnavailable)?
     else {
         return Ok(None);
@@ -290,3 +317,6 @@ mod tests {
         )));
     }
 }
+
+#[cfg(test)]
+mod correction_tests;

@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/hashimthearab/rust-mcbe/core/store"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 	codePurchaseReused = -32032
 	codeStoreNotFound  = -32033
 
-	defaultStorePage = "store"
+	defaultStorePage = marketplace.PageStoreRoot
 )
 
 // Marketplace is the Minecraft Marketplace service behind the store_* methods; *store.Session implements it.
@@ -120,8 +121,13 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 			return reply.fail(codePurchaseBusy, "Purchase in progress")
 		case errors.Is(err, store.ErrPurchaseReused):
 			return reply.fail(codePurchaseReused, "Purchase id reused")
-		case errors.Is(err, store.ErrUnknownPage):
+		case errors.Is(err, marketplace.ErrUnknownPage):
+			server.logServiceFailure(method, err) // names the page keys the session config offers
 			return reply.fail(codeStoreNotFound, "Unknown page")
+		}
+		// Thumbnail misses are per image and bounded by the client; everything else names why the store failed.
+		if method != methodStoreImage {
+			server.logServiceFailure(method, err)
 		}
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
@@ -149,17 +155,13 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 	case methodStoreSearch:
 		var params struct {
 			Term         string `json:"term"`
-			Filter       string `json:"filter"`
-			OrderBy      string `json:"order_by"`
-			Count        int    `json:"count"`
 			Continuation string `json:"continuation"`
 		}
 		if !decodeParams(raw, &params) {
 			return reply.invalid()
 		}
 		result, err := market.Search(ctx, store.SearchQuery{
-			Term: params.Term, Filter: params.Filter, OrderBy: params.OrderBy,
-			Count: params.Count, Continuation: params.Continuation,
+			Term: params.Term, Continuation: params.Continuation,
 		})
 		if err != nil {
 			return failStore(err)

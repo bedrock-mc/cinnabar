@@ -29,6 +29,11 @@ pub(in crate::stream) fn mesh_job_cap(worker_threads: usize) -> usize {
         .clamp(2, WORK_RESULT_CAPACITY)
 }
 
+/// Mesh may run on every world worker, so its cap follows the whole pool.
+pub(in crate::stream) fn mesh_worker_cap() -> usize {
+    mesh_job_cap(workers::WORKERS.size().threads())
+}
+
 impl WorldStream {
     /// Stops a superseded job before its next expensive worker phase.
     pub(in crate::stream) fn cancel_mesh_job(&mut self, key: SubChunkKey) {
@@ -57,5 +62,17 @@ mod tests {
         assert_eq!(mesh_job_cap(12), 24);
         assert_eq!(mesh_job_cap(32), 64);
         assert_eq!(mesh_job_cap(usize::MAX), WORK_RESULT_CAPACITY);
+    }
+
+    /// The cap reads the world pool, not whichever rayon pool the caller runs in.
+    #[test]
+    fn mesh_cap_reads_the_world_pool() {
+        let expected = mesh_job_cap(workers::WORKERS.size().threads());
+        let foreign = rayon::ThreadPoolBuilder::new()
+            .num_threads(37)
+            .build()
+            .unwrap();
+        assert_eq!(foreign.install(mesh_worker_cap), expected);
+        assert_eq!(mesh_worker_cap(), expected);
     }
 }

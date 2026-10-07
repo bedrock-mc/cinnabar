@@ -16,6 +16,26 @@ struct StrataWorld {
 }
 
 impl CollisionWorld for StrataWorld {
+    /// Assigns the homogeneous floor's known material to each fixture collider.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<sim::ProvenancedCollider>>, WorldQueryError> {
+        let boxes = self.collision_boxes(query)?;
+        Ok(CollisionQuery {
+            value: boxes
+                .value
+                .into_iter()
+                .map(|aabb| sim::ProvenancedCollider {
+                    aabb,
+                    block: Some([0, 0, 0]),
+                    runtime_id: None,
+                })
+                .collect(),
+            identity: boxes.identity,
+        })
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let floor = Aabb::new(Vec3::new(-8.0, 0.0, -8.0), Vec3::new(8.0, 1.0, 8.0));
         Ok(CollisionQuery::synthetic(

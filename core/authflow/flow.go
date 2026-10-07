@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -28,7 +29,12 @@ type Config struct {
 	DeviceToken  func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error)
 	Refresh      func(*oauth2.Token, io.Writer) oauth2.TokenSource
 	CachedSource func(context.Context, authcache.Config) (oauth2.TokenSource, error)
+	// CompleteSignIn caches what a join needs beyond the OAuth token; nil skips it.
+	CompleteSignIn func(ctx context.Context, path string, source oauth2.TokenSource) error
 }
+
+// completeSignInTimeout bounds the service exchange; a failure leaves it to the first join.
+const completeSignInTimeout = 30 * time.Second
 
 type event struct {
 	Version         int    `json:"v"`
@@ -75,7 +81,7 @@ func Run(ctx context.Context, config Config) error {
 	if source == nil {
 		source = authcache.Source
 	}
-	_, err := source(ctx, authcache.Config{
+	signedIn, err := source(ctx, authcache.Config{
 		Path: config.Path, Writer: io.Discard, Request: request, Refresh: refresh,
 	})
 	if err != nil {
@@ -93,6 +99,15 @@ func Run(ctx context.Context, config Config) error {
 	method := "cached"
 	if acquired {
 		method = "device_code"
+	}
+	if config.CompleteSignIn != nil {
+		exchange, cancel := context.WithTimeout(ctx, completeSignInTimeout)
+		_ = config.CompleteSignIn(exchange, config.Path, signedIn)
+		cancel()
+		// A completion failure leaves the exchange to the first join; a cancelled sign-in is not success.
+		if ctx.Err() != nil {
+			return fail(writer, "cancelled", "Sign-in was cancelled.")
+		}
 	}
 	return emit(writer, event{Version: 1, Kind: "authenticated", Method: method})
 }

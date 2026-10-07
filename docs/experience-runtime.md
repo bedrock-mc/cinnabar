@@ -217,6 +217,15 @@ bedrock-local-server … -extension-key <seed file> -extension-audience <host:po
   the client's verifiers; regenerate them with
   `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures`.
 
+### Client part media (developer)
+
+`-extension-media <dir>` (with the `-extension` flags) serves `<dir>` over HTTPS at
+`-extension-media-addr` (IPv4 loopback, default `127.0.0.1:19443`), adds that origin and surface
+GPU memory to the offer, and writes a fresh CA to `<world>/extension-media-ca.pem`. The client
+fetches loopback media only with `CINNABAR_DEV_SERVER_EXPERIENCES=1` and `CINNABAR_DEV_MEDIA_CA`
+naming that file. `cinnabar-cxb media` strips tags from a profile WebM and writes its descriptor;
+`cinnabar-cxb build --assets <dir>` indexes it into a bundle.
+
 ## Limits
 
 - `crates/experience-runtime/src/limits.rs` is the only source of the guest limits: fuel, epoch

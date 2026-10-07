@@ -1,4 +1,5 @@
-//! F2 frame capture: encodes off-thread and reports the saved file in chat.
+//! Frame capture: one shared readback per frame, F2 screenshots encoded off-thread and
+//! reported in chat.
 
 use std::{
     fs::{self, File},
@@ -17,6 +18,41 @@ use crossbeam_channel::{Receiver, Sender};
 use client_ui::ui_runtime::UiRuntime;
 
 type SaveResult = Result<String, String>;
+type CaptureConsumer = Box<dyn FnOnce(&Image) + Send + Sync>;
+
+/// Everything that wants this frame's pixels. Bevy silently drops a second capture of one
+/// window in a frame, so a single readback serves every consumer.
+#[derive(Resource, Default)]
+pub(crate) struct FrameCapture(Vec<CaptureConsumer>);
+
+impl FrameCapture {
+    pub(crate) fn request(&mut self, consumer: impl FnOnce(&Image) + Send + Sync + 'static) {
+        self.0.push(Box::new(consumer));
+    }
+}
+
+/// Requests made before this set are served by the frame being rendered.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct FrameCaptureSet;
+
+pub(crate) fn configure_frame_capture(app: &mut App) {
+    app.init_resource::<FrameCapture>()
+        .add_systems(Last, spawn_frame_capture.in_set(FrameCaptureSet));
+}
+
+fn spawn_frame_capture(mut capture: ResMut<FrameCapture>, mut commands: Commands) {
+    if capture.0.is_empty() {
+        return;
+    }
+    let mut consumers = std::mem::take(&mut capture.0);
+    commands.spawn(Screenshot::primary_window()).observe(
+        move |captured: On<ScreenshotCaptured>| {
+            for consumer in consumers.drain(..) {
+                consumer(&captured.image);
+            }
+        },
+    );
+}
 
 #[derive(Resource)]
 struct ScreenshotChannel {
@@ -26,6 +62,7 @@ struct ScreenshotChannel {
 }
 
 pub(super) fn configure(app: &mut App, dir: PathBuf) {
+    configure_frame_capture(app);
     let (sender, receiver) = crossbeam_channel::unbounded();
     app.insert_resource(ScreenshotChannel {
         dir,
@@ -63,7 +100,7 @@ struct EnvCapture {
 
 fn capture_from_env(
     mut capture: ResMut<EnvCapture>,
-    mut commands: Commands,
+    mut frames: ResMut<FrameCapture>,
     mut exits: MessageWriter<AppExit>,
 ) {
     if let Some(done) = &capture.done {
@@ -83,15 +120,12 @@ fn capture_from_env(
     }
     let (sender, receiver) = crossbeam_channel::bounded(1);
     let path = capture.path.clone();
-    commands.spawn(Screenshot::primary_window()).observe(
-        move |captured: On<ScreenshotCaptured>| {
-            let image = captured.image.clone();
-            let (path, sender) = (path.clone(), sender.clone());
-            std::thread::spawn(move || {
-                let _ = sender.send(write_png(image, &path));
-            });
-        },
-    );
+    frames.request(move |image| {
+        let image = image.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(write_png(image, &path));
+        });
+    });
     capture.done = Some(receiver);
 }
 
@@ -100,7 +134,7 @@ fn capture_on_key(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     channel: Res<ScreenshotChannel>,
-    mut commands: Commands,
+    mut frames: ResMut<FrameCapture>,
 ) {
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !crate::menu::settings_options::binding_pressed(
@@ -119,18 +153,13 @@ fn capture_on_key(
             return;
         }
     };
-    let mut reserved = Some(file);
     let sender = channel.sender.clone();
-    commands.spawn(Screenshot::primary_window()).observe(
-        move |captured: On<ScreenshotCaptured>| {
-            let Some(file) = reserved.take() else { return };
-            let image = captured.image.clone();
-            let (path, sender) = (path.clone(), sender.clone());
-            std::thread::spawn(move || {
-                let _ = sender.send(write_reserved_png(image, &path, file));
-            });
-        },
-    );
+    frames.request(move |image| {
+        let image = image.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(write_reserved_png(image, &path, file));
+        });
+    });
 }
 
 fn report_saved(
@@ -149,7 +178,7 @@ fn report_saved(
 }
 
 /// Writes the capture as RGB so HDR alpha never reaches the file.
-fn write_png(image: Image, path: &Path) -> SaveResult {
+pub(crate) fn write_png(image: Image, path: &Path) -> SaveResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
@@ -228,6 +257,7 @@ mod tests {
         sender.send(Err("cannot save".into())).unwrap();
         let mut app = App::new();
         app.add_message::<AppExit>()
+            .init_resource::<FrameCapture>()
             .insert_resource(EnvCapture {
                 path: PathBuf::new(),
                 frames: 0,

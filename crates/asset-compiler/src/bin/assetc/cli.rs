@@ -161,7 +161,7 @@ pub(super) enum Command {
         #[arg(long)]
         report: PathBuf,
     },
-    /// Compile unconditional neutral binary-alpha actor artwork.
+    /// Compile actor artwork from geometry and material contracts.
     ActorAssets {
         #[arg(long)]
         pack: PathBuf,
@@ -293,6 +293,35 @@ pub(super) enum Command {
         /// Ignored/local deterministic JSON report path.
         #[arg(long)]
         out: PathBuf,
+    },
+    /// Build every stale carrier in the carrier table in one parallel pass.
+    Prepare {
+        /// Checkout that tracked inputs and the pinned pack resolve against.
+        #[arg(long, default_value = ".", conflicts_with = "kit")]
+        root: PathBuf,
+        /// Installer preparation kit holding the tracked inputs; builds installed carriers only.
+        #[arg(long, requires = "workspace")]
+        kit: Option<PathBuf>,
+        /// Directory the pinned pack unpacks below when building from a kit.
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        /// Carrier directory; defaults to the checkout's compiled-asset directory.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Carrier names to build, plus the carriers they read.
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        /// Print the stale set as JSON and build nothing.
+        #[arg(long)]
+        check: bool,
+        /// Report progress as JSON lines.
+        #[arg(long)]
+        json: bool,
+        /// Fetch the pinned pack when a stale carrier needs it; confirms the Minecraft EULA.
+        #[arg(long)]
+        accept_eula: bool,
+        #[arg(long)]
+        clouds_override: Option<PathBuf>,
     },
     /// Download (when missing), verify and unpack the pinned sample pack below `.local/assets`.
     VanillaPack {

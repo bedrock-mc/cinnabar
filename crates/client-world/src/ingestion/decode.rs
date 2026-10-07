@@ -87,6 +87,24 @@ impl DecodeJob {
                     },
                 }
             }
+            DecodeJob::SyncedBlockUpdates {
+                sequence,
+                batches,
+                events,
+                ids,
+            } => {
+                let (result, events) =
+                    super::block_sync::prepare_synced_block_mutations(batches, events, &ids);
+                DecodeCompletion {
+                    sequence,
+                    queue_wait,
+                    event: PreparedWorldEvent::SyncedBlockUpdates {
+                        result,
+                        events,
+                        duration: started.elapsed(),
+                    },
+                }
+            }
             DecodeJob::BlockEntityUpdate { sequence, event } => {
                 let key = BlockEntityKey::new(
                     event.dimension,

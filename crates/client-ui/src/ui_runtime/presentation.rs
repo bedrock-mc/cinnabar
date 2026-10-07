@@ -16,6 +16,7 @@ use crate::ui_runtime::{item_facts, render_adapter::adapt_ui_draw_list};
 
 pub mod debug_overlay;
 pub mod dynamic_textures;
+mod font_fallback;
 pub mod forms;
 pub mod gui_models;
 pub mod gui_scale_settings;
@@ -34,6 +35,7 @@ pub mod nametag_atlas;
 pub mod nametags;
 pub mod paper_doll;
 pub mod player_preview;
+pub mod primitive_shapes;
 pub mod primitives;
 pub mod publish;
 pub mod retained_hud;
@@ -107,6 +109,7 @@ pub struct UiPresentationRuntime {
     /// The startup font without the session's glyph sheets.
     base_font: Arc<RuntimeFontCatalog>,
     mod_panel_font: Option<mod_panel_font::InstalledFont>,
+    fallback_font: Option<Arc<RuntimeFontCatalog>>,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
     blank_dynamic_page: render_model::UiTexturePage,
@@ -125,6 +128,7 @@ pub struct UiPresentationRuntime {
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
+    debug_overlay: debug_overlay::OverlayCache,
     /// Bedrock desktop GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
     /// Platform safe-area insets in logical px, applied to the HUD geometry,
@@ -137,6 +141,7 @@ pub struct UiPresentationRuntime {
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
+    primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
     paper_doll: paper_doll::PaperDoll,
     player_preview_page: Option<u16>,
@@ -144,6 +149,8 @@ pub struct UiPresentationRuntime {
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
     /// How the UI last asked to show the model, and the idle sway it was drawn at.
     player_preview_view: player_preview::PreviewView,
+    menu_preview_model: player_preview::model::MenuPreviewModel,
+    menu_preview: player_preview::controller::MenuPreview,
     player_preview_drawn: Option<(
         player_preview::PreviewView,
         f32,
@@ -182,9 +189,10 @@ pub struct UiPresentationRuntime {
     logged_hotbar: [Option<(Arc<str>, bool)>; 9],
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
-    /// Current full GUI slider geometry, including steps clipped from view.
-    /// Captured drags keep following it while scale changes move the row.
-    gui_scale_drag_targets: Vec<(MenuAction, UiRect)>,
+    menu_skin_thumbnail_indices: Vec<usize>,
+    menu_cape_thumbnail_indices: Vec<usize>,
+    /// Full settings slider geometry, including steps clipped from view.
+    settings_slider_drag_targets: Vec<(MenuAction, UiRect)>,
     menu_scrolls: menu_scroll::MenuScrolls,
     form_presentation: forms::FormPresentation,
     /// Window-space rect of the sign editor's Done button in the last build.
@@ -235,6 +243,7 @@ impl UiPresentationRuntime {
             obfuscation: ObfuscationGlyphs::from_catalog(&font),
             base_font: Arc::clone(&font),
             mod_panel_font: None,
+            fallback_font: None,
             font,
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,
@@ -252,17 +261,21 @@ impl UiPresentationRuntime {
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             debug_lines: None,
+            debug_overlay: debug_overlay::OverlayCache::default(),
             gui_scale_preference: None,
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
+            primitive_text: primitive_shapes::PrimitiveTextRasterizer::default(),
             paper_doll: Default::default(),
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
             player_preview_view: player_preview::PreviewView::default(),
+            menu_preview_model: player_preview::model::MenuPreviewModel::default(),
+            menu_preview: player_preview::controller::MenuPreview::default(),
             player_preview_drawn: None,
             player_preview_bob: 0.0,
             player_preview_gear: player_preview::PreviewEquipment::default(),
@@ -291,7 +304,9 @@ impl UiPresentationRuntime {
             logged_hotbar: Default::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
-            gui_scale_drag_targets: Vec::new(),
+            menu_skin_thumbnail_indices: Vec::new(),
+            menu_cape_thumbnail_indices: Vec::new(),
+            settings_slider_drag_targets: Vec::new(),
             menu_scrolls: Default::default(),
             form_presentation: forms::FormPresentation::default(),
             loading_stage: None,
@@ -350,7 +365,18 @@ impl UiPresentationRuntime {
                     (player_preview::PREVIEW_WIDTH * player_preview::PREVIEW_HEIGHT * 4) as usize
                 ]
             } else {
-                player_preview::render(skin, pose, drawn.0, drawn.1, &drawn.2)
+                match self.menu_preview_model.vertices.as_deref() {
+                    Some(body) => player_preview::render_body_with_cape(
+                        body,
+                        skin,
+                        pose,
+                        drawn.0,
+                        drawn.1,
+                        &drawn.2,
+                        self.menu_preview_model.cape.as_ref(),
+                    ),
+                    None => player_preview::render(skin, pose, drawn.0, drawn.1, &drawn.2),
+                }
             },
             left_hand: player_preview::render_hand(skin, pose, true),
             right_hand: player_preview::render_hand(skin, pose, false),
@@ -380,7 +406,12 @@ impl UiPresentationRuntime {
         let set = menu_artwork::ArtworkSet {
             paths,
             oversized: self.oversized_ui_textures(),
+            ..Default::default()
         };
+        self.sync_artwork_set(set);
+    }
+
+    fn sync_artwork_set(&mut self, set: menu_artwork::ArtworkSet) {
         if !set.same(&self.menu_artwork_set) {
             self.menu_artwork_set = set.clone();
             self.menu_artwork_loader.request(set);
@@ -402,6 +433,12 @@ impl UiPresentationRuntime {
     }
 
     pub fn set_menu_view(&mut self, view: Option<MenuView>) {
+        if let Some(requests) = self.base_font.glyph_requests()
+            && let Some(view) = &view
+        {
+            requests.set_locale(view.settings_options.language().unwrap_or(""));
+        }
+        self.poll_font_fallback();
         self.menu_view = view;
     }
 
@@ -550,6 +587,7 @@ impl UiPresentationRuntime {
         let scenes = stack.visible(false);
         self.begin_form_frame();
         self.menu_seconds = now_millis as f64 / 1_000.0;
+        self.configure_oreui_motion();
         let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
         self.scene_clocks.observe(&open, self.menu_seconds);
         let mut menu_hit_targets = Vec::new();
@@ -668,6 +706,9 @@ impl UiPresentationRuntime {
                         content_height,
                     )?;
                 }
+                Scene::Credits => {
+                    self.append_credits_screen(runtime, nodes, next, metrics, content, now_millis)?;
+                }
             }
         }
         if !scenes.contains(&Scene::Chat) {
@@ -707,6 +748,7 @@ impl UiPresentationRuntime {
             self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content)?;
         }
         // Every screen has painted: retire animation state nothing touched.
+        self.append_oreui_motion(&mut nodes, &mut next_id, content)?;
         self.end_animation_frame();
         self.apply_gui_models(&mut nodes);
         // Unchanged nodes build the same frame unless §k text re-rolls its glyphs, so tree,

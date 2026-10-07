@@ -79,7 +79,7 @@ pub(in crate::compiler) fn cake_inventory_is_exact(records: &[RegistryRecord]) -
         let Some(bite) = exact_cake_bite(record) else {
             return false;
         };
-        if record.sequential_id != 14_055 + bite || seen[bite as usize] {
+        if seen[bite as usize] {
             return false;
         }
         seen[bite as usize] = true;

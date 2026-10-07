@@ -19,8 +19,8 @@ pub mod ability_bit {
     pub const INVULNERABLE: u32 = 1 << 8;
     pub const FLYING: u32 = 1 << 9;
     pub const MAY_FLY: u32 = 1 << 10;
-    // Retained wire evidence, not a mining gate. Native instant destruction uses
-    // Actor::isCreative, not the Instabuild ability (see game-mode-updates.md).
+    // Retained wire evidence, not a mining gate. Vanilla instant destruction checks
+    // the creative game mode, not the Instabuild ability (see game-mode-updates.md).
     pub const INSTANT_BUILD: u32 = 1 << 11;
     pub const NO_CLIP: u32 = 1 << 17;
     pub const FLY_SPEED: u32 = 1 << 13;
@@ -129,7 +129,7 @@ impl GameModeCapabilities {
                 attack_reach: 0.0,
                 creative_reach: false,
             },
-            // `Player::_setPlayerGameType` gives any id but survival the base GameMode, which
+            // Vanilla gives any id but survival its base game-mode logic, which
             // interacts freely; server abilities still refine Build and Mine.
             PlayerGameMode::Unknown => Self::for_mode(PlayerGameMode::Survival),
         }

@@ -1,11 +1,11 @@
-//! The 32 easing curves of 1.26.50's `Easing` table (`mce::Math::ease*`), in the
+//! The 32 easing curves of 1.26.50's easing table, in the
 //! client's single-precision arithmetic and 65536-entry sine table.
 
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-/// An easing curve, in the client's `EasingType` order.
+/// An easing curve, in the vanilla client's order.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Easing {
     #[default]
