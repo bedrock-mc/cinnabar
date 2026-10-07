@@ -106,10 +106,12 @@ pub enum Event {
     Updated(World),
     Status(WorldStatus),
     Prefs(Prefs, WorldStatus),
+    PrefsPolled(Prefs, WorldStatus),
     EulaRequired,
     EulaAccepted,
     Failed(String),
     FailedPrefs(String),
+    FailedPrefsPolled(String),
 }
 
 pub const EULA_URL: &str = "https://www.minecraft.net/eula";
@@ -174,6 +176,7 @@ pub struct WorldsMenu {
     creation_backend: Backend,
     creation_generator: Generator,
     creation_choices_loaded: bool,
+    prefs_poll_pending: bool,
     creation_backend_changed: bool,
     creation_generator_changed: bool,
 }
@@ -376,7 +379,13 @@ impl WorldsMenu {
                     effects.extend(self.proceed(Pending::SubmitCreate));
                     effects
                 }
-                _ => self.proceed(Pending::Create),
+                _ => {
+                    self.creation_backend_changed = true;
+                    let mut effects = self.proceed(Pending::Create);
+                    self.create.backend = Backend::Dragonfly;
+                    effects.extend(self.save_creation_choices());
+                    effects
+                }
             },
             PromptButton::GetDocker => vec![Effect::OpenUrl(DOCKER_URL)],
             PromptButton::Retry => {
@@ -418,7 +427,11 @@ impl WorldsMenu {
                 Vec::new()
             }
             Input::BeginCreate if matches!(self.screen, Screen::List | Screen::Templates) => {
-                self.gate(Pending::Create)
+                let mut effects = self.gate(Pending::Create);
+                if !self.creation_choices_loaded {
+                    effects.push(Effect::LoadPrefs);
+                }
+                effects
             }
             Input::OpenTemplates if self.screen == Screen::List => {
                 self.screen = Screen::Templates;
@@ -704,6 +717,14 @@ impl WorldsMenu {
                 self.note_status(&status);
                 self.apply_status(status)
             }
+            Event::PrefsPolled(prefs, status) => {
+                self.prefs_poll_pending = false;
+                self.apply(Event::Prefs(prefs, status))
+            }
+            Event::FailedPrefsPolled(message) => {
+                self.prefs_poll_pending = false;
+                self.apply(Event::FailedPrefs(message))
+            }
             Event::Prefs(prefs, status) => {
                 let initial = !self.creation_choices_loaded;
                 if !self.creation_backend_changed {
@@ -743,7 +764,8 @@ impl WorldsMenu {
                         }
                     };
                 }
-                if detecting {
+                if detecting && !self.prefs_poll_pending {
+                    self.prefs_poll_pending = true;
                     effects.push(Effect::PollPrefs);
                 }
                 effects

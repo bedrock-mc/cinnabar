@@ -52,9 +52,11 @@ fn setup(state: SetupState) -> Setup {
 }
 
 fn loaded(names: &[&str]) -> WorldsMenu {
-    let mut menu = WorldsMenu::default();
-    menu.setup = Some(setup(SetupState::Ready));
-    menu.creation_choices_loaded = true;
+    let mut menu = WorldsMenu {
+        setup: Some(setup(SetupState::Ready)),
+        creation_choices_loaded: true,
+        ..Default::default()
+    };
     assert_eq!(menu.update(Input::Refresh), vec![Effect::List]);
     menu.apply(Event::Listed(
         names
@@ -320,7 +322,7 @@ fn prefs_are_polled_until_docker_detection_settles() {
         vec![Effect::PollPrefs]
     );
     assert!(
-        menu.apply(Event::Prefs(
+        menu.apply(Event::PrefsPolled(
             Prefs::default(),
             with_reason(UnavailableReason::DockerNotRunning)
         ))
@@ -776,5 +778,120 @@ fn creation_waits_for_initial_preferences_before_submitting() {
     let effects = menu.update(Input::SubmitCreate);
     assert!(
         matches!(effects.as_slice(), [Effect::Create(spec)] if spec.backend == Some(Backend::Bds) && spec.generator == Generator::Flat)
+    );
+}
+
+#[test]
+fn creation_preferences_retry_after_initial_failure() {
+    let mut menu = loaded(&[]);
+    menu.creation_choices_loaded = false;
+    menu.apply(Event::FailedPrefs("Unable to load preferences".into()));
+    assert_eq!(menu.screen(), Screen::Error);
+    menu.update(Input::Back);
+    assert_eq!(menu.update(Input::BeginCreate), vec![Effect::LoadPrefs]);
+    assert!(menu.view().busy);
+    menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
+    assert!(!menu.view().busy);
+    assert!(matches!(
+        menu.update(Input::SubmitCreate).as_slice(),
+        [Effect::Create(_)]
+    ));
+}
+
+#[test]
+fn creation_preferences_acknowledgements_keep_one_detection_poll() {
+    let mut menu = loaded(&[]);
+    menu.update(Input::BeginCreate);
+    let mut checking = status(WorldState::Idle, "");
+    checking.setup = Some(setup(SetupState::CheckingRuntime));
+    assert_eq!(
+        menu.apply(Event::Prefs(Prefs::default(), checking.clone())),
+        vec![Effect::PollPrefs]
+    );
+    for flat in [true, false, true] {
+        assert!(matches!(
+            menu.update(Input::SetFlat(flat)).as_slice(),
+            [Effect::SaveCreationChoices { .. }]
+        ));
+        assert!(
+            menu.apply(Event::Prefs(Prefs::default(), checking.clone()))
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn creation_preferences_explicit_dragonfly_prompt_overrides_saved_bds_choice() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &["Saved BDS world"]);
+    menu.worlds[0].backend = Backend::Bds;
+    menu.creation_backend = Backend::Bds;
+    menu.creation_generator = Generator::Flat;
+    menu.update(Input::Play);
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+    let effects = menu.update(Input::Prompt(PromptButton::UseDragonfly));
+    assert_eq!(menu.screen(), Screen::Create);
+    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+    assert_eq!(menu.create_form().generator, Generator::Flat);
+    assert_eq!(menu.worlds[0].backend, Backend::Bds);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveCreationChoices {
+            backend: Backend::Dragonfly,
+            generator: Generator::Flat
+        }]
+    );
+}
+
+#[test]
+fn completed_preference_polls_schedule_one_successor() {
+    let mut menu = loaded(&[]);
+    let mut checking = status(WorldState::Idle, "");
+    checking.setup = Some(setup(SetupState::CheckingRuntime));
+    assert_eq!(
+        menu.apply(Event::Prefs(Prefs::default(), checking.clone())),
+        vec![Effect::PollPrefs]
+    );
+    for _ in 0..3 {
+        assert_eq!(
+            menu.apply(Event::PrefsPolled(Prefs::default(), checking.clone())),
+            vec![Effect::PollPrefs]
+        );
+        assert!(
+            menu.apply(Event::Prefs(Prefs::default(), checking.clone()))
+                .is_empty()
+        );
+    }
+    assert!(
+        menu.apply(Event::PrefsPolled(
+            Prefs::default(),
+            with_reason(UnavailableReason::DockerMissing)
+        ))
+        .is_empty()
+    );
+    assert!(!menu.prefs_poll_pending);
+}
+
+#[test]
+fn failed_preference_poll_can_restart_after_retry() {
+    let mut menu = loaded(&[]);
+    let mut checking = status(WorldState::Idle, "");
+    checking.setup = Some(setup(SetupState::CheckingRuntime));
+    menu.apply(Event::Prefs(Prefs::default(), checking.clone()));
+    menu.apply(Event::FailedPrefsPolled(
+        "Unable to read preferences".into(),
+    ));
+    assert!(!menu.prefs_poll_pending);
+    menu.update(Input::Back);
+    menu.update(Input::BeginCreate);
+    assert_eq!(
+        menu.update(Input::RedetectBds),
+        vec![Effect::SetPrefs {
+            dismiss_docker_prompt: false,
+            redetect: true
+        }]
+    );
+    assert_eq!(
+        menu.apply(Event::Prefs(Prefs::default(), checking)),
+        vec![Effect::PollPrefs]
     );
 }

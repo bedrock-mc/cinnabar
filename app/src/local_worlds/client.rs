@@ -29,6 +29,7 @@ impl WorldsClient {
                     if matches!(effect, Effect::PollStatus | Effect::PollPrefs) {
                         thread::sleep(POLL_DELAY);
                     }
+                    let polling_preferences = matches!(effect, Effect::PollPrefs);
                     let preferences = matches!(
                         effect,
                         Effect::LoadPrefs
@@ -40,6 +41,12 @@ impl WorldsClient {
                         runtime
                             .block_on(execute(&socket_dir, effect))
                             .map(|event| match event {
+                                Event::Prefs(prefs, status) if polling_preferences => {
+                                    Event::PrefsPolled(prefs, status)
+                                }
+                                Event::Failed(message) if polling_preferences => {
+                                    Event::FailedPrefsPolled(message)
+                                }
                                 Event::Failed(message) if preferences => {
                                     Event::FailedPrefs(message)
                                 }
