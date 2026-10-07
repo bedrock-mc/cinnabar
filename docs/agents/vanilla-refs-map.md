@@ -2484,6 +2484,14 @@ preview build is not an exact retail/platform capture for every supported client
 - Current banner GUI renderer `0x6c581a0` uses `T(8.5,11,-10) * S(5.5) * Rx(20°) * Ry(-30°)`, model units 1/16 and static cloth tilt zero. The frame is uncolored; only the cloth uses the base dye.
 - Current banner constant setup `0x6c57b00` reads `ItemColor` RGB entries from the table at `0x10128cd4`, black aux 0 through white aux 15 (`#f0f0f0`). `BannerItem::buildDescriptionId` `0x29b4620` corroborates identity aux-to-color mapping for values 0 through 15. The old sign atlas route does not represent the GUI banner model.
 
+## tools/registrygen/physics_v2193.go
+- Reserved v2193 states (element and chemistry blocks, hard glass and panes, coloured and
+  underwater torches, chalkboard, camera, underwater TNT, poplar signs, shelf mushroom,
+  straw bed) all keep the default block friction 0.6: every one with a pinned PMMP
+  `block_properties_table.json` row (166 of 170 names) reads 0.6000000238. Their collision
+  shapes still differ per block (Prismarine: cubes, panes, none), so they stay passable
+  until reviewed per-block facts exist.
+
 ## tools/registrygen/education_v2193.go
 ## crates/pack-compiler/src/compiler/visuals/literal.rs
 - Pinned 1.26.50 palette `block_states.nbt` contains allow and deny with empty state, plus 162 border states (four wall connections in none/short/tall and byte wall_post_bit). Vanilla packs route them through `build_allow`, `build_deny`, and `border_block`.
