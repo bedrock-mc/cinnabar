@@ -17,6 +17,8 @@ struct DryBubbleBoundary;
 
 struct SharedBudgetWorld {
     calls: Cell<usize>,
+    /// Every cell is an upward bubble column instead of still water.
+    bubbles: bool,
 }
 
 struct IdentityProbeWorld {
@@ -112,8 +114,12 @@ impl CollisionWorld for SharedBudgetWorld {
 
     fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         self.calls.set(self.calls.get() + 1);
+        let mut facts = water_facts();
+        if self.bubbles {
+            facts.surface_response = SurfaceResponse::BubbleUp;
+        }
         Ok(BlockPhysicsSample {
-            layers: Box::new([water_facts()]),
+            layers: Box::new([facts]),
             identity: CollisionQuery::synthetic(()).identity,
         })
     }
@@ -340,6 +346,7 @@ fn mixed_water_and_lava_uses_water_drag_and_gravity_precedence() {
 fn liquid_exit_probe_shares_the_tick_block_sample_budget() {
     let within_cap = SharedBudgetWorld {
         calls: Cell::new(0),
+        bubbles: false,
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 0.1, 0.5));
     state.velocity.x = 29.0;
@@ -358,6 +365,7 @@ fn liquid_exit_probe_shares_the_tick_block_sample_budget() {
 
     let beyond_cap = SharedBudgetWorld {
         calls: Cell::new(0),
+        bubbles: false,
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 0.5, 0.5));
     state.velocity.x = 20.0;
@@ -811,4 +819,31 @@ fn depth_strider_reads_effective_sprint_and_custom_speed_once_in_both_water_mode
             }
         }
     }
+}
+
+/// Exit-probe reads spend the shared budget, so later bubble-column reads cannot exceed it.
+#[test]
+fn post_move_block_reads_share_the_budget_spent_by_the_exit_probe() {
+    let world = SharedBudgetWorld {
+        calls: Cell::new(0),
+        bubbles: true,
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, 0.1, 0.5));
+    state.velocity.x = 29.0;
+    let before = state.clone();
+    assert!(matches!(
+        Simulator::default().tick(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                ..MovementInput::default()
+            },
+            &world,
+        ),
+        Err(sim::SimulationError::World(
+            WorldQueryError::QueryExtentExceeded
+        ))
+    ));
+    assert_eq!(world.calls.get(), 64);
+    assert_eq!(state, before);
 }

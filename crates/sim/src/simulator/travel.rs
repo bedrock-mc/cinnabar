@@ -130,6 +130,10 @@ pub(super) fn tick_mode(
         sampled.descend_through,
     );
     let height = input.mode.hitbox_height(input.sneaking);
+    let stuck = super::inside::stuck_multiplier(&sampled, &input);
+    if let Some(multiplier) = stuck {
+        super::inside::slow_request(&mut next.velocity, multiplier);
+    }
     next.requested_movement = next.velocity;
     let motion = resolve_motion(
         &view,
@@ -156,6 +160,9 @@ pub(super) fn tick_mode(
     }
     if motion.collisions.z {
         next.velocity.z = 0.0;
+    }
+    if stuck.is_some() {
+        next.velocity = Vec3::ZERO;
     }
 
     match input.mode {
@@ -203,10 +210,18 @@ pub(super) fn tick_mode(
             state.position.y,
             next.position.y,
             &mut next.velocity,
-            sampled.block_samples,
+            &mut sampled.block_samples,
         )?;
         identity = identity.merge(&exit.identity)?;
     }
+    super::inside::after_move(
+        world,
+        motion.aabb,
+        &mut next.velocity,
+        &input,
+        &mut sampled,
+        &mut identity,
+    )?;
     next.jump_delay = next.jump_delay.saturating_sub(1);
     next.collisions = motion.collisions;
 
