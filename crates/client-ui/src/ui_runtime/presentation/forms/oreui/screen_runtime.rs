@@ -143,7 +143,7 @@ impl UiPresentationRuntime {
                 }
                 MenuScreen::Pause => {
                     canvas.capture_focus = true;
-                    character_preview = pause::draw(&mut canvas, view, size)?;
+                    character_preview = pause::draw(&mut canvas, view, size, translate)?;
                     self.form_presentation.menu_focus = canvas
                         .focus_hits
                         .iter()
