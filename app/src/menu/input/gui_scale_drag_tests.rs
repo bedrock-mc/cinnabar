@@ -12,6 +12,188 @@ use client_ui::ui_runtime::UiRuntime;
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
+#[test]
+fn option_slider_drag_keeps_capture_outside_track_and_releases() {
+    let presentation = client_ui::test_support::mini_engine_presentation();
+    check_option_slider_drag(presentation);
+}
+
+#[test]
+fn installed_audio_slider_drag_keeps_capture_outside_track_and_releases() {
+    let Some(presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping installed_audio_slider_drag_keeps_capture_outside_track_and_releases: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    check_option_slider_drag(presentation);
+}
+
+fn check_option_slider_drag(presentation: UiPresentationRuntime) {
+    use client_ui::test_support::{menu_hit_targets, settings_section_index};
+
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    menu.activate(MenuAction::SettingsSection(
+        settings_section_index("sound_forced_index").unwrap(),
+    ));
+    let index = super::super::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "main_volume")
+        .unwrap() as u16;
+    menu.set_option(index, 50);
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(menu)
+        .insert_resource(presentation)
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                resolution: WindowResolution::new(PHYSICAL[0], PHYSICAL[1]),
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    let view = app.world().resource::<MenuRuntime>().view();
+    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let presentation = &mut *app.world_mut().resource_mut::<UiPresentationRuntime>();
+    presentation.set_menu_view(Some(view));
+    presentation
+        .build(
+            &player,
+            &UiRuntime::new(1),
+            0,
+            PHYSICAL,
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let middle = menu_hit_targets(presentation)
+        .iter()
+        .find_map(|(action, bounds)| {
+            (*action == MenuAction::SettingsOption(index, 50)).then_some(Vec2::new(
+                (bounds.min().x() + bounds.max().x()) * 0.5,
+                (bounds.min().y() + bounds.max().y()) * 0.5,
+            ))
+        })
+        .expect("rendered volume slider midpoint");
+    let music_index = super::super::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "music_volume")
+        .unwrap() as u16;
+    let music_point = menu_hit_targets(presentation)
+        .iter()
+        .find_map(|(action, bounds)| {
+            (*action == MenuAction::SettingsOption(music_index, 25)).then_some(Vec2::new(
+                (bounds.min().x() + bounds.max().x()) * 0.5,
+                (bounds.min().y() + bounds.max().y()) * 0.5,
+            ))
+        })
+        .expect("rendered second slider quarter point");
+    let music = app
+        .world()
+        .resource::<MenuRuntime>()
+        .settings_options
+        .value("music_volume");
+    let initial = app
+        .world()
+        .resource::<MenuRuntime>()
+        .settings_options
+        .value("main_volume");
+    pointer(&mut app, window, Vec2::ZERO, Some(ButtonState::Pressed));
+    pointer(&mut app, window, middle, None);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value("main_volume"),
+        initial,
+        "pressing outside the slider cannot capture it by moving over it"
+    );
+    pointer(&mut app, window, music_point, None);
+    let options = &app.world().resource::<MenuRuntime>().settings_options;
+    assert_eq!(
+        (options.value("main_volume"), options.value("music_volume")),
+        (initial, music),
+        "a held outside press stays uncaptured over values that differ from the current ones"
+    );
+    pointer(&mut app, window, middle, Some(ButtonState::Released));
+    pointer(&mut app, window, middle, Some(ButtonState::Pressed));
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value("main_volume"),
+        50
+    );
+    pointer(&mut app, window, music_point, None);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value("main_volume"),
+        25,
+        "dragging over another slider keeps updating the captured slider"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value("music_volume"),
+        music
+    );
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value("main_volume"),
+        0,
+        "held drag leaves the track vertically and clamps to its left end"
+    );
+    pointer(
+        &mut app,
+        window,
+        Vec2::new(PHYSICAL[0] as f32 - 1.0, PHYSICAL[1] as f32 - 1.0),
+        None,
+    );
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value("main_volume"),
+        100
+    );
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value("music_volume"),
+        music
+    );
+    pointer(&mut app, window, middle, Some(ButtonState::Released));
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .value("main_volume"),
+        100,
+        "release prevents subsequent pointer movement from changing volume"
+    );
+}
+
 fn frame(app: &mut App, action: MenuAction) -> UiRect {
     let view = app.world().resource::<MenuRuntime>().view();
     app.world_mut()
