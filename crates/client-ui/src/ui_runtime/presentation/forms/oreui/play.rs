@@ -4,6 +4,7 @@
 //! row playing on press with a trailing Edit action).
 
 use std::collections::HashMap;
+mod tabs;
 
 use super::super::super::{IconRef, UiPresentationError};
 use super::grid::{Grid, space};
@@ -13,7 +14,7 @@ use super::theme::EDGE;
 use super::theme::{
     BODY, CAPTION, NEUTRAL80, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST,
 };
-use super::widgets::{Variant, button, header, panel, row, screen_overlay, tabs, tag};
+use super::widgets::{Variant, button, header, panel, row, screen_overlay, tag};
 use super::{play_realms, play_servers};
 use crate::menu::{LocalWorldAction, MenuAction, MenuScreen, MenuView};
 
@@ -22,6 +23,21 @@ pub(super) fn draw(
     view: &MenuView,
     size: [f32; 2],
     images: &HashMap<String, IconRef>,
+) -> Result<(), UiPresentationError> {
+    let selected = match view.screen {
+        MenuScreen::Social => 1,
+        MenuScreen::Servers => 2,
+        _ => 0,
+    };
+    draw_tab(canvas, view, size, images, selected)
+}
+
+pub(super) fn draw_tab(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    images: &HashMap<String, IconRef>,
+    selected: usize,
 ) -> Result<(), UiPresentationError> {
     let [width, height] = size;
     screen_overlay(canvas, size)?;
@@ -36,38 +52,20 @@ pub(super) fn draw(
     let [left, right] = grid.span(0, if grid.narrow { 8 } else { 12 });
     let tab_top = top + space(canvas, 1);
     let tab_bottom = tab_top + canvas.r(4.8);
-    let worlds = view.friends.len() + view.local_worlds.len();
-    let selected = match view.screen {
-        MenuScreen::Social => 1,
-        MenuScreen::Servers => 2,
-        _ => 0,
-    };
-    let worlds_label = format!("Worlds ({worlds})");
-    tabs(
-        canvas,
-        view,
-        [left, tab_top, right, tab_bottom],
-        &[
-            (
-                worlds_label.as_str(),
-                Some(MenuAction::Navigate(MenuScreen::Play)),
-            ),
-            ("Realms", Some(MenuAction::Navigate(MenuScreen::Social))),
-            ("Servers", Some(MenuAction::Navigate(MenuScreen::Servers))),
-        ],
-        selected,
-    )?;
+    tabs::draw(canvas, view, [left, tab_top, right, tab_bottom], selected)?;
     let body: Bounds = [
         left,
         tab_bottom + space(canvas, 2),
         right,
         height - space(canvas, 2),
     ];
+    let entrance = canvas.begin_entrance(super::motion::Surface::Play(selected as u8));
     match selected {
         1 => play_realms::draw(canvas, view, &grid, body),
         2 => play_servers::draw(canvas, view, &grid, body, images),
         _ => worlds_tab(canvas, view, body),
-    }
+    }?;
+    canvas.end_entrance(entrance, size)
 }
 
 fn worlds_tab(

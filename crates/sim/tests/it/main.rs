@@ -19,6 +19,7 @@ mod liquid_contact_native;
 mod liquid_exit_native;
 mod liquid_native;
 mod modes;
+mod movement_parity;
 mod palette_world;
 mod prediction;
 mod primary_block_lookup;

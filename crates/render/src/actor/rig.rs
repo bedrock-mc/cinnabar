@@ -6,6 +6,8 @@ use bytemuck::{Pod, Zeroable};
 
 #[path = "rig/bone_arena.rs"]
 mod bone_arena;
+#[path = "rig/eligibility.rs"]
+mod eligibility;
 use bone_arena::PoseMatrixCache;
 #[path = "rig/catalog.rs"]
 mod catalog;
@@ -407,6 +409,31 @@ impl ActorRigFrameBuilder {
         &self.catalog.vertices
     }
 
+    /// Checks one camera-space draw without advancing frame generations or rebuilding buffers.
+    pub fn can_draw_submission(&self, submission: &ActorRigSubmission) -> bool {
+        if self.frame_generation == u64::MAX || eligibility::validate_input(submission).is_err() {
+            return false;
+        }
+        let Ok((id, geometry)) = eligibility::geometry(&self.catalog, submission) else {
+            return false;
+        };
+        let Some(&index) = self.catalog.indices.get(&id) else {
+            return false;
+        };
+        u32::try_from(submission.input.reset_generation).is_ok()
+            && self.catalog.published_spans[index as usize].vertex_count > 0
+            && self.matrices.pose_is_valid(
+                &submission.input.previous_bones,
+                id,
+                &geometry.bone_pivots,
+            )
+            && self.matrices.pose_is_valid(
+                &submission.input.current_bones,
+                id,
+                &geometry.bone_pivots,
+            )
+    }
+
     #[must_use]
     pub fn build(
         &mut self,
@@ -484,25 +511,8 @@ impl ActorRigFrameBuilder {
         });
         let mut body_count = 0usize;
         for submission in ordered.drain(..) {
-            if submission.route == ActorRigRoute::NoDraw {
-                rejects.no_draw = rejects.no_draw.saturating_add(1);
-                continue;
-            }
-            let diagnostic = submission.route == ActorRigRoute::Diagnostic;
-            if (!submission.input.identity.is_exact() || submission.input.completed_tick == 0)
-                && !diagnostic
-                || submission.input.reset_generation == 0
-            {
-                rejects.invalid_identity = rejects.invalid_identity.saturating_add(1);
-                continue;
-            }
-            if submission
-                .world_from_actor
-                .iter()
-                .flatten()
-                .any(|value| !value.is_finite())
-            {
-                rejects.invalid_world_transform = rejects.invalid_world_transform.saturating_add(1);
+            if let Err(error) = eligibility::validate_input(&submission) {
+                error.count(&mut rejects);
                 continue;
             }
             if !actor_rig_submission_is_visible(&submission, view) {
@@ -517,36 +527,13 @@ impl ActorRigFrameBuilder {
             }
             let previous = &submission.input.previous_bones;
             let current = &submission.input.current_bones;
-            if previous.len() != current.len() {
-                rejects.pose_length_mismatch = rejects.pose_length_mismatch.saturating_add(1);
-                continue;
-            }
-            if previous.is_empty() || previous.len() > MAX_RENDER_BONES_PER_ACTOR {
-                rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
-                continue;
-            }
-            if previous
-                .iter()
-                .chain(current.iter())
-                .any(|bone| !bone.is_finite())
-            {
-                rejects.non_finite_pose = rejects.non_finite_pose.saturating_add(1);
-                continue;
-            }
-            let geometry_id = match submission.route {
-                ActorRigRoute::Compiled | ActorRigRoute::StaticFallback => submission.input.rig,
-                ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
-                ActorRigRoute::NoDraw => unreachable!(),
+            let (geometry_id, geometry) = match eligibility::geometry(&self.catalog, &submission) {
+                Ok(geometry) => geometry,
+                Err(error) => {
+                    error.count(&mut rejects);
+                    continue;
+                }
             };
-            let Some(geometry) = self.catalog.geometries.get(&geometry_id) else {
-                rejects.missing_geometry = rejects.missing_geometry.saturating_add(1);
-                continue;
-            };
-            // Construction already bounds every vertex bone by the pivots.
-            if geometry.bones_used() > previous.len() {
-                rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
-                continue;
-            }
             let Some(next_bone_count) = previous_bones.len().checked_add(previous.len()) else {
                 rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
                 continue;

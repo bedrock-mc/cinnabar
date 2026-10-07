@@ -11,7 +11,7 @@ use bevy::{
         mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
     prelude::*,
-    window::{CursorGrabMode, CursorMoved, CursorOptions, PrimaryWindow, WindowFocused},
+    window::{CursorMoved, CursorOptions, PrimaryWindow, WindowFocused},
 };
 use developer_control::{
     input::{Control, InputPlan, MouseButton as ControlButton, yaw_difference},
@@ -229,14 +229,10 @@ fn inject(
         let window = window.bypass_change_detection();
         driver.real_focus.get_or_insert(window.focused);
         window.focused = true;
-        let cursor = cursor.bypass_change_detection();
-        cursor.grab_mode = CursorGrabMode::Locked;
-        cursor.visible = false;
+        crate::camera::release_cursor(&mut cursor);
     } else if std::mem::take(&mut *was_driven) {
         window.bypass_change_detection().focused = driver.real_focus.unwrap_or(false);
-        let cursor = cursor.bypass_change_detection();
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        crate::camera::release_cursor(&mut cursor);
     }
     *was_driven = driving;
     let expired: Vec<_> = driver
@@ -366,6 +362,49 @@ mod tests {
 
     use super::{Driver, Physical, apply, inject};
     use crate::camera::DrivenInput;
+
+    #[test]
+    fn driven_input_releases_cursor_once_without_native_windowing() {
+        #[derive(Resource, Default)]
+        struct CursorWrites(usize);
+        let mut app = App::new();
+        app.add_plugins(InputPlugin)
+            .add_message::<WindowFocused>()
+            .add_message::<CursorMoved>()
+            .init_resource::<Driver>()
+            .init_resource::<DrivenInput>()
+            .init_resource::<CursorWrites>()
+            .add_systems(PreUpdate, inject.before(bevy::input::InputSystems))
+            .add_systems(
+                PostUpdate,
+                |cursors: Query<(), Changed<CursorOptions>>, mut writes: ResMut<CursorWrites>| {
+                    writes.0 += cursors.iter().count();
+                },
+            );
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    focused: false,
+                    ..default()
+                },
+                CursorOptions {
+                    grab_mode: bevy::window::CursorGrabMode::Locked,
+                    visible: false,
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        app.update();
+        let cursor = app.world().get::<CursorOptions>(window).unwrap();
+        assert_eq!(cursor.grab_mode, bevy::window::CursorGrabMode::None);
+        assert!(cursor.visible);
+        assert!(app.world().get::<Window>(window).unwrap().focused);
+        assert_eq!(app.world().resource::<CursorWrites>().0, 1);
+        app.update();
+        assert_eq!(app.world().resource::<CursorWrites>().0, 1);
+    }
 
     #[test]
     fn handing_back_control_discards_unconsumed_pointer_and_text() {

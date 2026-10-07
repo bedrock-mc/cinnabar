@@ -1,79 +1,45 @@
+/// Packet directions retain actual buttons even when opposite inputs cancel.
 #[test]
-fn slowed_primary_preserves_captured_device_normalized_direction_policy() {
-    let component = std::f32::consts::FRAC_1_SQRT_2;
-    let diagonal_mask = PlayerInputFlags::UP_LEFT
-        | PlayerInputFlags::UP_RIGHT
-        | PlayerInputFlags::DOWN_LEFT
-        | PlayerInputFlags::DOWN_RIGHT;
-    for (axes, expected_diagonal) in [
-        ([component, component], PlayerInputFlags::UP_RIGHT),
-        ([0.5, 0.5], PlayerInputFlags::NONE),
-        ([0.25, 0.5], PlayerInputFlags::NONE),
-        ([0.0, 0.0], PlayerInputFlags::NONE),
-    ] {
-        let mut physics = LocalPhysicsController::default();
-        physics.reanchor_network_position([0.0, 2.620_01, 0.0], 40, true);
-        let input = physics_movement_input(axes, 0.0, true, false, true, false, None);
-        let frame = physics.advance_with_context(
-            Duration::from_millis(50),
-            input,
-            PhysicsSampleContext {
-                raw_move_vector: [-1.0, -1.0],
-                analogue_move_vector: [-1.0, -1.0],
-                ..Default::default()
-            },
-            &Floor,
-        );
-        let [sample] = frame.samples.as_slice() else {
-            panic!("expected one tick")
-        };
-        assert_eq!(
-            sample.move_vector.map(f32::to_bits),
-            axes.map(|axis| (axis * 0.3_f32).to_bits())
-        );
-        let mut ticker = MovementTicker::default();
-        ticker.reset(1, 40, sample.position);
-        ticker.set_source(MovementSource::Physics);
-        ticker.enqueue_completed_physics(sample.clone()).unwrap();
-        let snapshot = ticker.pop_pending().unwrap().snapshot;
-        assert_eq!(
-            snapshot.flags.bits() & diagonal_mask.bits(),
-            expected_diagonal.bits()
-        );
-        assert_eq!(
-            snapshot.flags.bits() & PlayerInputFlags::UP.bits() != 0,
-            axes[1] > 0.0
-        );
-        assert_eq!(
-            snapshot.flags.bits() & PlayerInputFlags::RIGHT.bits() != 0,
-            axes[0] > 0.0
-        );
-        assert_eq!(
-            snapshot.flags.bits() & (PlayerInputFlags::DOWN | PlayerInputFlags::LEFT).bits(),
-            0
-        );
-    }
-}
-
-#[test]
-fn captured_direction_snapshot_cannot_inject_unrelated_flags() {
+fn captured_digital_directions_are_independent_of_all_vector_carriers() {
     let mut sample = completed_sample(41, [0.0, 64.0, 0.0]);
-    sample.move_vector = [0.0; 2];
-    sample.processed.direction_flags = Some(
-        PlayerInputFlags::UP_RIGHT
-            | PlayerInputFlags::SPRINTING
-            | PlayerInputFlags::JUMP_PRESSED_RAW,
-    );
+    sample.move_vector = [0.0, 0.0];
+    sample.raw_move_vector = [0.0, 0.0];
+    sample.input.movement_buttons = semantic_input::MovementButtons {
+        forward: true,
+        backward: true,
+        right: true,
+        ..Default::default()
+    };
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 40, sample.position);
     ticker.set_source(MovementSource::Physics);
     ticker.enqueue_completed_physics(sample).unwrap();
     let flags = ticker.pop_pending().unwrap().snapshot.flags;
-    assert_ne!(flags.bits() & PlayerInputFlags::UP_RIGHT.bits(), 0);
+    let expected = PlayerInputFlags::UP | PlayerInputFlags::DOWN | PlayerInputFlags::RIGHT;
+    assert_eq!(flags.bits() & expected.bits(), expected.bits());
     assert_eq!(
-        flags.bits() & (PlayerInputFlags::SPRINTING | PlayerInputFlags::JUMP_PRESSED_RAW).bits(),
+        flags.bits() & (PlayerInputFlags::UP_RIGHT | PlayerInputFlags::DOWN_RIGHT).bits(),
         0
     );
+}
+
+/// An analogue diagonal has no corresponding digital button presses.
+#[test]
+fn analogue_diagonals_do_not_synthesize_direction_buttons() {
+    let mut sample = completed_sample(41, [0.0, 64.0, 0.0]);
+    sample.move_vector = [0.5, 0.5];
+    sample.raw_move_vector = [0.5, 0.5];
+    sample.analogue_move_vector = [0.5, 0.5];
+    let flags = super::encoding::input_flags(&sample, super::encoding::HeldInput::default());
+    let directions = PlayerInputFlags::UP
+        | PlayerInputFlags::DOWN
+        | PlayerInputFlags::LEFT
+        | PlayerInputFlags::RIGHT
+        | PlayerInputFlags::UP_RIGHT
+        | PlayerInputFlags::UP_LEFT
+        | PlayerInputFlags::DOWN_LEFT
+        | PlayerInputFlags::DOWN_RIGHT;
+    assert_eq!(flags.bits() & directions.bits(), 0);
 }
 
 #[test]
@@ -164,7 +130,10 @@ fn tick_snapshots_map_each_device_carrier_to_its_wire_field() {
             std::f32::consts::FRAC_1_SQRT_2
         ]
     );
-    assert_eq!(keyboard_snapshot.raw_move_vector, keyboard_snapshot.move_vector);
+    assert_eq!(
+        keyboard_snapshot.raw_move_vector,
+        keyboard_snapshot.move_vector
+    );
     assert_eq!(keyboard_snapshot.analogue_move_vector, [0.0, 0.0]);
 
     let gamepad_snapshot = ticker.pop_pending().unwrap().snapshot;
@@ -183,6 +152,7 @@ fn direction_flags_ignore_raw_and_analogue_carriers() {
         | PlayerInputFlags::DOWN_RIGHT.bits();
     let mut sample = completed_sample(43, [1.0, 64.0, 2.0]);
     sample.move_vector = [0.0, 1.0];
+    sample.input.movement_buttons.forward = true;
     sample.raw_move_vector = [-1.0, -1.0];
     sample.analogue_move_vector = [1.0, 1.0];
 
@@ -222,22 +192,28 @@ fn non_finite_device_carriers_fail_physics_authority_closed() {
     }
 }
 
-
 #[test]
 fn digital_gamepad_direction_uses_the_normalized_raw_fallback() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 40, [0.0, 64.0, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker.enqueue_completed_physics(PhysicsMovementSample {
-        raw_move_vector: [1.0, 1.0],
-        analogue_move_vector: [0.0, 0.0],
-        input_mode: PlayerInputMode::GamePad,
-        ..completed_sample(41, [0.0, 64.0, 0.0])
-    }).unwrap();
+    ticker
+        .enqueue_completed_physics(PhysicsMovementSample {
+            raw_move_vector: [1.0, 1.0],
+            analogue_move_vector: [0.0, 0.0],
+            input_mode: PlayerInputMode::GamePad,
+            ..completed_sample(41, [0.0, 64.0, 0.0])
+        })
+        .unwrap();
     let snapshot = ticker.pop_pending().unwrap().snapshot;
     assert_eq!(snapshot.analogue_move_vector, [0.0, 0.0]);
-    assert_eq!(snapshot.raw_move_vector,
-        [-std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2]);
+    assert_eq!(
+        snapshot.raw_move_vector,
+        [
+            -std::f32::consts::FRAC_1_SQRT_2,
+            std::f32::consts::FRAC_1_SQRT_2
+        ]
+    );
 }
 
 #[test]

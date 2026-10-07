@@ -3,6 +3,9 @@
 
 use std::sync::Arc;
 
+pub(super) mod body;
+use body::{HEAD_SOFT_LIMIT_SQUARED, HEAD_SOFT_PULL};
+
 use super::{
     BoneTransform, RuntimeBone,
     pose::{quat_multiply, rotate_vector, total_scale, with_scale},
@@ -16,10 +19,14 @@ pub struct JavaMotion {
     pub limb_amount: [f32; 2],
     /// Body yaw in degrees.
     pub body_yaw: [f32; 2],
+    /// Local torso interpolation uses the simulation fraction; other motion keeps the actor clock.
+    pub body_frame_alpha: Option<f32>,
     /// First-person equip progress.
     pub equip: [f32; 2],
     /// Attack progress, advanced using the effects active on each tick.
     pub swing: [f32; 2],
+    /// The local physics frame fraction; remote swings retain the actor clock.
+    pub local_swing_alpha: Option<f32>,
     pub riding: bool,
     /// Swimming, crawling, gliding, sleeping or emoting: postures Java has no pose for.
     pub vanilla_posture: bool,
@@ -41,25 +48,33 @@ pub struct JavaHeldItem {
 }
 
 impl JavaMotion {
+    /// Samples the heading along the short angular path on its owning tick clock.
+    #[must_use]
+    pub fn body_yaw_at(self, alpha: f32) -> f32 {
+        let alpha = self.body_frame_alpha.unwrap_or(alpha);
+        let alpha = if alpha.is_finite() {
+            alpha.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.body_yaw[0] + wrap_degrees(self.body_yaw[1] - self.body_yaw[0]) * alpha
+    }
+
     /// The final attack frame wraps forward before the next tick returns to rest.
     #[must_use]
     pub fn swing_progress(self, alpha: f32) -> f32 {
-        let mut delta = self.swing[1] - self.swing[0];
-        if delta < 0.0 {
-            delta += 1.0;
-        }
-        self.swing[0] + delta * alpha
+        super::LocalSwingProgress::interpolate(self.swing, self.local_swing_alpha.unwrap_or(alpha))
     }
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct JavaMotionState {
     pub(super) motion: JavaMotion,
+    pub(super) local_body: super::local_motion::State,
     equipped: Option<JavaHeldItem>,
     equipped_slot: u8,
     observed_slot: u8,
     swing: Option<i32>,
-    hurt_time: u8,
     reset_equip: bool,
     chase: Option<[f64; 3]>,
 }
@@ -69,7 +84,7 @@ pub(super) struct JavaTick<'a> {
     pub(super) delta: [f32; 3],
     pub(super) yaw: f32,
     pub(super) swing_ticks: i32,
-    pub(super) hurt_time: u8,
+    pub(super) local_swing: Option<[f32; 2]>,
     pub(super) held: &'a Option<JavaHeldItem>,
     pub(super) held_slot: u8,
     pub(super) riding: bool,
@@ -86,12 +101,7 @@ pub(super) struct JavaTick<'a> {
     pub(super) local: bool,
 }
 
-const BODY_FOLLOW: f32 = 0.3;
-const HEAD_LIMIT: f32 = 75.0;
 const MOUNT_HEAD_LIMIT: f32 = 85.0;
-const HEAD_SOFT_LIMIT_SQUARED: f32 = 2500.0;
-const HEAD_SOFT_PULL: f32 = 0.2;
-const FACING_DISTANCE_SQUARED: f32 = 0.002_500_000_2;
 const LIMB_GAIN: f64 = 4.0;
 const LIMB_FOLLOW: f32 = 0.4;
 const HURT_LIMB_AMOUNT: f32 = 1.5;
@@ -130,65 +140,59 @@ impl JavaMotionState {
                 limb_swing: [0.0; 2],
                 limb_amount: [0.0; 2],
                 body_yaw: [body_yaw; 2],
+                body_frame_alpha: None,
                 equip: [1.0; 2],
                 swing: [0.0; 2],
+                local_swing_alpha: None,
                 riding: false,
                 vanilla_posture: false,
                 cape: [[0.0; 3]; 2],
                 bob: [0.0; 2],
                 walked: [0.0; 2],
             },
+            local_body: Default::default(),
             equipped: None,
             equipped_slot: u8::MAX,
             observed_slot: u8::MAX,
             swing: None,
-            hurt_time: 0,
             reset_equip: false,
             chase: None,
         }
     }
 
+    /// A hurt event immediately resets limb motion, including consecutive hits.
+    pub(super) fn hurt(&mut self) {
+        self.motion.limb_amount[1] = HURT_LIMB_AMOUNT;
+    }
+
     pub(super) fn advance(&mut self, tick: &JavaTick<'_>) {
         let motion = &mut self.motion;
-        let duration = tick.swing_ticks.max(1);
-        self.swing = self
-            .swing
-            .map(|counter| counter + 1)
-            .filter(|counter| *counter < duration);
-        motion.swing = [
-            motion.swing[1],
-            self.swing
-                .map_or(0.0, |counter| counter as f32 / duration as f32),
-        ];
+        if let Some(progress) = tick.local_swing {
+            motion.swing = progress;
+        } else {
+            let duration = tick.swing_ticks.max(1);
+            self.swing = self
+                .swing
+                .map(|counter| counter + 1)
+                .filter(|counter| *counter < duration);
+            motion.swing = [
+                motion.swing[1],
+                self.swing
+                    .map_or(0.0, |counter| counter as f32 / duration as f32),
+            ];
+        }
         motion.riding = tick.riding;
         motion.vanilla_posture = tick.vanilla_posture;
         let [dx, _, dz] = tick.delta;
-        if tick.hurt_time > self.hurt_time {
-            motion.limb_amount[1] = HURT_LIMB_AMOUNT;
-        }
-        self.hurt_time = tick.hurt_time;
         motion.limb_amount[0] = motion.limb_amount[1];
         let target = ((f64::from(dx).powi(2) + f64::from(dz).powi(2)).sqrt() * LIMB_GAIN) as f32;
         motion.limb_amount[1] += (target.min(1.0) - motion.limb_amount[1]) * LIMB_FOLLOW;
         motion.limb_swing[0] = motion.limb_swing[1];
         motion.limb_swing[1] += motion.limb_amount[1];
 
-        motion.body_yaw[0] = motion.body_yaw[1];
-        let mut body = motion.body_yaw[1];
-        let mut facing = body;
-        if dx * dx + dz * dz > FACING_DISTANCE_SQUARED {
-            facing = (f64::from(dz).atan2(f64::from(dx)) as f32).to_degrees() - 90.0;
+        if !self.local_body.active() {
+            body::advance(&mut motion.body_yaw, tick.delta, tick.yaw, motion.swing[1]);
         }
-        if motion.swing[1] > 0.0 {
-            facing = tick.yaw;
-        }
-        body += wrap_degrees(facing - body) * BODY_FOLLOW;
-        let lag = wrap_degrees(tick.yaw - body).clamp(-HEAD_LIMIT, HEAD_LIMIT);
-        body = tick.yaw - lag;
-        if lag * lag > HEAD_SOFT_LIMIT_SQUARED {
-            body += lag * HEAD_SOFT_PULL;
-        }
-        motion.body_yaw[1] = body;
 
         // A placement lowers the item before this tick's rise.
         if std::mem::take(&mut self.reset_equip) {
@@ -436,7 +440,7 @@ mod tests {
             delta,
             yaw,
             swing_ticks: super::super::ACTOR_SWING_TICKS,
-            hurt_time: 0,
+            local_swing: None,
             held: &None,
             held_slot: 0,
             riding: false,
@@ -467,17 +471,24 @@ mod tests {
     #[test]
     fn hurt_flails_the_limbs() {
         let mut state = JavaMotionState::spawn(0.0);
-        state.advance(&JavaTick {
-            hurt_time: 10,
-            ..tick([0.0; 3], 0.0)
-        });
+        state.hurt();
+        state.advance(&tick([0.0; 3], 0.0));
         assert_eq!(state.motion.limb_amount[0], 1.5);
         assert!((state.motion.limb_amount[1] - 0.9).abs() < 1e-6);
-        state.advance(&JavaTick {
-            hurt_time: 9,
-            ..tick([0.0; 3], 0.0)
-        });
+        state.advance(&tick([0.0; 3], 0.0));
         assert!((state.motion.limb_amount[1] - 0.54).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hurt_combines_with_movement_when_advancing_limb_swing() {
+        let mut state = JavaMotionState::spawn(0.0);
+        state.hurt();
+        state.advance(&tick([0.2, 0.0, 0.0], 0.0));
+        assert!((state.motion.limb_amount[1] - 1.22).abs() < 1e-6);
+        assert!((state.motion.limb_swing[1] - 1.22).abs() < 1e-6);
+        state.advance(&tick([0.2, 0.0, 0.0], 0.0));
+        assert!((state.motion.limb_amount[1] - 1.052).abs() < 1e-6);
+        assert!((state.motion.limb_swing[1] - 2.272).abs() < 1e-6);
     }
 
     /// Past 50 degrees of head turn the body is pulled a fifth of the way back.

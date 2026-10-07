@@ -253,7 +253,22 @@ pub struct DesktopGuiScale {
     optimal: u8,
 }
 
+/// A native GUI-scale option keeps its persisted modifier and displayed percentage together.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DesktopGuiScaleChoice {
+    pub offset: i8,
+    pub percentage: u16,
+}
+
 impl DesktopGuiScale {
+    pub fn choices(self) -> impl Iterator<Item = DesktopGuiScaleChoice> {
+        self.offsets().map(move |offset| DesktopGuiScaleChoice {
+            offset,
+            percentage: (f32::from(self.scale_for_offset(offset)) / f32::from(self.optimal) * 100.0)
+                .round() as u16,
+        })
+    }
+
     #[must_use]
     pub fn for_window(physical: [u32; 2]) -> Self {
         Self {

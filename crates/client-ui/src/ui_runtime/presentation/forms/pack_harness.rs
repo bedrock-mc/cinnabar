@@ -267,7 +267,8 @@ pub fn render(
 
 pub fn engine_presentation() -> Option<UiPresentationRuntime> {
     let carrier = carrier()?;
-    let mut presentation = UiPresentationRuntime::new(font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(Arc::new((*font()).clone().with_coverage_pages())).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
     let vanilla = local(&crate::install_layout::vanilla_pack_relative());
     let engine = presentation.form_presentation.engine.as_mut().unwrap();

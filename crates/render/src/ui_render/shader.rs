@@ -24,6 +24,11 @@ pub(crate) fn source(raw: &str) -> String {
         "UI_STYLE_COLOR_MASK",
         &format!("{}u", render_model::UI_STYLE_COLOR_MASK),
     )
+    .replace(
+        "FONT_STYLE_COVERAGE_GAMMA",
+        &format!("{}u", assets::FONT_STYLE_COVERAGE_GAMMA),
+    )
+    .replace("FONT_STYLE_SDF", &format!("{}u", assets::FONT_STYLE_SDF))
 }
 
 pub(super) fn from_wgsl(raw: &str, path: impl Into<String>) -> Shader {

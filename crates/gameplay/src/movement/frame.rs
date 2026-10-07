@@ -18,6 +18,7 @@ pub struct PhysicsFrameInput {
     pub movement: [f32; 2],
     pub raw_movement: [f32; 2],
     pub analogue_movement: [f32; 2],
+    pub movement_buttons: semantic_input::MovementButtons,
     pub yaw: f32,
     pub pitch: f32,
     pub camera_orientation: [f32; 3],
@@ -65,6 +66,7 @@ impl LocomotionState {
         movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
+        movement_effects.begin_frame();
         let PhysicsFrameInput {
             now,
             active,
@@ -114,6 +116,8 @@ impl LocomotionState {
             let controlled = self.controls.update(ControlObservation {
                 now,
                 forward: movement[1],
+                sideways: movement[0],
+                touch_input: input_mode == protocol::PlayerInputMode::Touch,
                 sprint_pressed: sprint.pressed,
                 sprint_held: sprint.held,
                 sneak_pressed: sneak.pressed,
@@ -122,6 +126,7 @@ impl LocomotionState {
                 always_sprint: active && frame.always_sprint,
                 toggle_sneak: frame.toggle_sneak,
                 sprint_blocked: facts.sprint_blocked,
+                sprint_start_blocked: facts.sprint_start_blocked,
                 flying: physics.mode() == sim::MovementMode::Flying,
                 retain_sprint,
             });
@@ -163,9 +168,19 @@ impl LocomotionState {
                         elytra_ready: facts.elytra_ready,
                         depth_strider: facts.depth_strider,
                         soul_speed: facts.soul_speed,
+                        swift_sneak: facts.swift_sneak,
                         swim_hunger_blocked: facts.swim_hunger_blocked,
+                        sprint_blocked: facts.sprint_blocked,
+                        sprint_start_blocked: facts.sprint_start_blocked,
+                        stop_sprinting: controlled.stop_sprinting,
                     },
-                    sneak_button: active && sneak.held,
+                    input: super::TickInput {
+                        movement_buttons: frame.movement_buttons,
+                        jump,
+                        sneak,
+                        sprint_down: controlled.sprint_down,
+                        sneak_down: controlled.sneaking,
+                    },
                 },
                 world,
                 movement_effects,

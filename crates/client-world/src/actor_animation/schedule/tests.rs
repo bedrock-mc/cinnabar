@@ -243,3 +243,5 @@ fn parallel_synthetic_crowd_matches_serial_through_world_budget_exhaustion() {
     );
     assert!(starved.world_budget_exhaustions > 0, "{starved:?}");
 }
+
+mod refresh_tests;

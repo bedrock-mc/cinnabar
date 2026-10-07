@@ -1,8 +1,9 @@
 use serde_json::{Value, json};
-use ui::mod_panel::{Control, FONT_NAME, Panel, Style};
+use ui::mod_panel::{Control, FONT_NAME, Panel, Style, Theme};
 
 #[derive(Clone, Copy)]
 pub(super) struct Palette {
+    pub background: [f64; 4],
     pub card: [f64; 4],
     pub border: [f64; 4],
     pub text: [f64; 4],
@@ -13,6 +14,17 @@ pub(super) struct Palette {
 
 impl Palette {
     pub fn for_panel(panel: &Panel) -> Self {
+        if panel.theme == Theme::Monochrome {
+            return Self {
+                background: rgba(0x191719),
+                card: rgba(0x242124),
+                raised: rgba(0x302c30),
+                border: rgba(0x454045),
+                text: rgba(0xf6f4f6),
+                muted: rgba(0xc7bfc7),
+                accent: rgba(0xf6f4f6),
+            };
+        }
         let mut palette = Self::new(panel.dark);
         if panel.style == Style::Compact && panel.dark {
             palette.card = [0.075, 0.09, 0.115, 0.96];
@@ -27,6 +39,7 @@ impl Palette {
     pub fn new(dark: bool) -> Self {
         if dark {
             Self {
+                background: [0.; 4],
                 card: [0.055, 0.058, 0.065, 0.96],
                 border: [0.2, 0.21, 0.23, 0.94],
                 text: [0.94, 0.95, 0.97, 1.0],
@@ -36,6 +49,7 @@ impl Palette {
             }
         } else {
             Self {
+                background: [0.; 4],
                 card: [0.96, 0.965, 0.975, 0.97],
                 border: [0.75, 0.77, 0.8, 0.95],
                 text: [0.11, 0.12, 0.14, 1.0],
@@ -45,6 +59,15 @@ impl Palette {
             }
         }
     }
+}
+
+fn rgba(rgb: u32) -> [f64; 4] {
+    [
+        f64::from((rgb >> 16) & 255) / 255.,
+        f64::from((rgb >> 8) & 255) / 255.,
+        f64::from(rgb & 255) / 255.,
+        1.,
+    ]
 }
 
 pub(super) fn named(name: &str, definition: Value) -> Value {
@@ -120,7 +143,7 @@ pub(super) fn toggle(index: usize, offset: [f64; 2]) -> Value {
     let mut track = rounded([20.0, 10.0], [0.0; 2], 5.0, [0.0; 4]);
     track["bindings"] = json!([{"binding_name":format!("#row_{index}_toggle_color"),"binding_name_override":"#color"}]);
     let mut knob = rounded([6.0, 6.0], [2.0, 2.0], 3.0, [1.0; 4]);
-    knob["bindings"] = json!([{"binding_name":format!("#row_{index}_knob_offset"),"binding_name_override":"#offset"}]);
+    knob["bindings"] = json!([{"binding_name":format!("#row_{index}_knob_offset"),"binding_name_override":"#offset"},{"binding_name":format!("#row_{index}_knob_color"),"binding_name_override":"#color"}]);
     button(
         &format!("mod.control:{index}"),
         [20.0, 14.0],

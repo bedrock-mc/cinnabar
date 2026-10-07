@@ -14,8 +14,11 @@ use crate::runtime::{
     world::ClientWorld,
 };
 
-/// Publishes through the same two systems used by the native main frame.
+/// Publishes through the actor stages used by the native main frame.
 fn publish(world: &mut World) -> ActorRenderFrame {
+    world
+        .run_system_cached(crate::runtime::network::advance_actor_frame)
+        .unwrap();
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     world.run_system_cached(publish_actor_render_frame).unwrap();
     world.resource::<ActorRenderFrame>().clone()

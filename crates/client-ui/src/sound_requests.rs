@@ -1,14 +1,11 @@
 //! Bounded sound requests drained by the app audio adapter at its existing frame stage.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+/// Click definition whose interface playback is disabled by the owner's preference.
+pub const UI_CLICK: &str = "random.click";
 
-static PENDING_UI_CLICKS: AtomicU32 = AtomicU32::new(0);
-
-/// Requests the interface click sound from any code path (no ECS access needed); coalesced per frame.
-pub fn ui_click() {
-    let _ = PENDING_UI_CLICKS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-        Some(count.saturating_add(1))
-    });
+/// Interface requests filter clicks while preserving other authored feedback.
+pub fn interface_sound_enabled(name: &str) -> bool {
+    name != UI_CLICK
 }
 
 /// Interface sounds JSON-UI sound components asked for: name, volume, pitch.
@@ -20,6 +17,9 @@ const MAX_PENDING_UI_SOUNDS: usize = 16;
 /// Plays a pressed launcher control's sound, holding back a repeat inside its
 /// `min_seconds_between_plays`, as vanilla's sound component does.
 pub fn ui_control_sound(sound: &json_ui::ControlSound) {
+    if !interface_sound_enabled(&sound.name) {
+        return;
+    }
     static LAST_PLAYED: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
         std::sync::Mutex::new(Vec::new());
     if sound.min_seconds > 0.0 {
@@ -43,17 +43,15 @@ pub fn ui_control_sound(sound: &json_ui::ControlSound) {
 
 /// Requests an interface sound a UI sound component names, at its volume and pitch.
 pub fn ui_sound(name: &str, volume: f32, pitch: f32) {
+    if !interface_sound_enabled(name) {
+        return;
+    }
     let mut pending = PENDING_UI_SOUNDS
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     if pending.len() < MAX_PENDING_UI_SOUNDS {
         pending.push((name.to_owned(), volume, pitch));
     }
-}
-
-/// Takes the coalesced click request at the existing audio pump boundary.
-pub fn take_click() -> bool {
-    PENDING_UI_CLICKS.swap(0, Ordering::Relaxed) > 0
 }
 
 /// Takes the queued named sounds in their original request order.
@@ -63,4 +61,30 @@ pub fn take_sounds() -> Vec<(String, f32, f32)> {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interface_clicks_are_silent_and_other_feedback_is_preserved() {
+        ui_sound(UI_CLICK, 1.0, 1.0);
+        ui_control_sound(&json_ui::ControlSound {
+            name: UI_CLICK.into(),
+            volume: 1.0,
+            pitch: 1.0,
+            min_seconds: 0.0,
+        });
+        ui_sound("ui.reject", 0.5, 1.25);
+        let sounds = take_sounds();
+        assert!(!sounds.iter().any(|(name, _, _)| name == UI_CLICK));
+        assert!(
+            sounds
+                .iter()
+                .any(|(name, volume, pitch)| name == "ui.reject"
+                    && *volume == 0.5
+                    && *pitch == 1.25)
+        );
+    }
 }

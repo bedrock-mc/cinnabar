@@ -1,17 +1,24 @@
 //! Inbox layout from the owner's vanilla inbox capture; date grouping is independent of read state.
 use super::super::super::UiPresentationError;
+use super::super::menu_screens::Translate;
 use super::grid::{Grid, space};
+use super::motion::Surface;
 use super::paint::Canvas;
 use super::theme::{BODY, CAPTION, NEUTRAL, TEXT, TEXT_DIMMER};
-use super::widgets::{header, panel, row, screen_overlay};
+use super::widgets::{header, row, screen_overlay};
 use crate::menu::{
     InboxItem, MenuAction, MenuScreen, MenuView,
     inbox::{self, Action, CATEGORIES},
 };
 
+mod actions;
 mod detail;
+mod empty;
 mod icons;
-use icons::{category_icon, filter_icon, trash_icon};
+mod sidebar;
+#[cfg(test)]
+mod tests;
+use icons::{filter_button, trash_icon};
 
 const UNREAD: [u8; 4] = [255, 128, 133, 255];
 
@@ -20,7 +27,11 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
+    translate: Translate<'_>,
 ) -> Result<(), UiPresentationError> {
+    if view.feeds.inbox_state.filters {
+        return actions::settings(canvas, view, size);
+    }
     if let Some(item) =
         view.feeds.home.inbox.iter().find(|item| {
             view.feeds.inbox_state.opened.as_deref() == Some(item.instance_id.as_str())
@@ -37,93 +48,22 @@ pub(super) fn draw(
         width,
         Some(MenuAction::Navigate(MenuScreen::Home)),
     )?;
-    let filter = [width - canvas.r(4.4), 0.0, width, canvas.r(4.4)];
-    canvas.hit(MenuAction::Inbox(Action::Filters), filter)?;
-    filter_icon(canvas, [filter[0] + canvas.r(1.2), canvas.r(1.2)])?;
-    let top = header_bottom + space(canvas, 4);
+    filter_button(canvas, view, width)?;
+    let top = header_bottom + space(canvas, 2);
     let bottom = height - space(canvas, 2);
-    let grid = Grid::new(canvas.r(1.0), width);
+    let grid = Grid::with_breakpoint(canvas.r(1.0), width, 102.0);
     let (menu_span, list_span) = if grid.narrow {
         ((0, 2), (2, 6))
     } else {
         ((1, 3), (4, 7))
     };
     let [left, right] = grid.span(menu_span.0, menu_span.1);
+    sidebar::draw(canvas, view, [left, top, right, bottom], grid.narrow)?;
     let pad = space(canvas, 4);
-    let row_height = canvas.r(4.8);
-    panel(
-        canvas,
-        [
-            left,
-            top,
-            right,
-            top + row_height * CATEGORIES.len() as f32 + pad * 2.0,
-        ],
-    )?;
     let state = &view.feeds.inbox_state;
-    for (index, category) in CATEGORIES.iter().enumerate() {
-        let y = top + pad + index as f32 * row_height;
-        let bounds = [left, y, right, y + row_height];
-        let action = MenuAction::Inbox(Action::Category(index));
-        if state.category == index
-            || view.hovered == Some(action)
-            || view.focused_action == Some(action)
-        {
-            row(canvas, view, bounds, state.category == index, Some(action))?;
-        } else {
-            canvas.hit(action, bounds)?;
-        }
-        let text_y = y + (row_height - canvas.r(BODY.line)) * 0.5;
-        category_icon(canvas, index, [left + pad, text_y])?;
-        canvas.text_line(
-            category,
-            [left + pad + canvas.r(3.0), text_y],
-            right - left - pad * 2.0 - canvas.r(6.0),
-            BODY,
-            TEXT,
-        )?;
-        let count = view
-            .feeds
-            .home
-            .inbox_counts
-            .get(&index)
-            .copied()
-            .unwrap_or_else(|| {
-                view.feeds
-                    .home
-                    .inbox
-                    .iter()
-                    .filter(|item| {
-                        item.unread && inbox::category_index(&item.category) == Some(index)
-                    })
-                    .count() as u32
-            });
-        if count > 0 {
-            let count = count.to_string();
-            let badge_width = canvas.measure(&count, CAPTION)? + canvas.r(0.8);
-            let badge = [
-                right - pad - badge_width,
-                text_y,
-                right - pad,
-                text_y + canvas.r(2.0),
-            ];
-            canvas.fill(badge, UNREAD)?;
-            canvas.text_centred(&count, badge, CAPTION, [30, 30, 31, 255], false)?;
-        }
-    }
     let [left, right] = grid.span(list_span.0, list_span.1);
-    let mut list_top = top;
-    if state.filters {
-        for (label, action) in [
-            ("Mark all as read", Action::MarkAllRead),
-            ("Delete all read messages", Action::DeleteAllRead),
-        ] {
-            let bounds = [left, list_top, right, list_top + row_height];
-            row(canvas, view, bounds, false, Some(MenuAction::Inbox(action)))?;
-            canvas.text_centred(label, bounds, BODY, TEXT, false)?;
-            list_top += row_height;
-        }
-    }
+    let list_top = top;
+    let entrance = canvas.begin_entrance(Surface::Inbox(state.category as u8));
     let scroll = canvas.begin_scroll(
         &format!("inbox_messages_{}", state.category),
         [left, list_top, right, bottom],
@@ -164,43 +104,11 @@ pub(super) fn draw(
         y += canvas.r(4.0);
     }
     if items.is_empty() {
-        canvas.text_centred(
-            "No messages",
-            [left, y, right, y + canvas.r(8.0)],
-            BODY,
-            TEXT,
-            false,
-        )?;
-        y += canvas.r(8.0);
+        y = empty::draw(canvas, state.category, [left, y, right, bottom], translate)?;
     }
     canvas.end_scroll(scroll, y - start)?;
-    if state.delete_pending.is_some() {
-        canvas.hits.clear();
-        canvas.fill([0., 0., width, height], [0, 0, 0, 180])?;
-        let b = [width * 0.25, height * 0.35, width * 0.75, height * 0.65];
-        panel(canvas, b)?;
-        canvas.text_centred(
-            "Delete message?",
-            [b[0], b[1], b[2], b[1] + row_height],
-            BODY,
-            TEXT,
-            false,
-        )?;
-        for (i, label, action) in [
-            (0, "Cancel", Action::Cancel),
-            (1, "Delete", Action::ConfirmDelete),
-        ] {
-            let half = (b[2] - b[0]) * 0.5;
-            let bounds = [
-                b[0] + i as f32 * half,
-                b[3] - row_height,
-                b[0] + (i + 1) as f32 * half,
-                b[3],
-            ];
-            row(canvas, view, bounds, false, Some(MenuAction::Inbox(action)))?;
-            canvas.text_centred(label, bounds, BODY, TEXT, false)?;
-        }
-    }
+    canvas.end_entrance(entrance, size)?;
+    actions::delete_dialog(canvas, view, size)?;
     Ok(())
 }
 

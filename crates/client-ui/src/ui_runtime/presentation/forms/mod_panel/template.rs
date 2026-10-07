@@ -10,6 +10,7 @@ use super::{
 pub(super) fn same_shape(a: &Panel, b: &Panel) -> bool {
     a.title == b.title
         && a.style == b.style
+        && a.theme == b.theme
         && a.dark == b.dark
         && a.sections == b.sections
         && a.controls.len() == b.controls.len()
@@ -61,13 +62,18 @@ pub(super) fn catalog(
         rows,
     );
     let page = page.min(layout.pages.len() - 1);
-    let palette = Palette::new(panel.dark);
+    let palette = Palette::for_panel(panel);
     let width = layout.width;
     let height = layout.height(page);
     let mut controls = vec![named(
         "navigation",
         navigation(panel, &layout, category, palette),
     )];
+    if panel.theme == ui::mod_panel::Theme::Monochrome {
+        let mut background = palette;
+        background.card = palette.background;
+        controls.splice(0..0, chrome([width, height], background, 14.));
+    }
     for (card_index, card) in layout.pages[page].iter().enumerate() {
         let card_width = layout.card_width;
         let mut contents = chrome([card_width, card.height], palette, 8.0);

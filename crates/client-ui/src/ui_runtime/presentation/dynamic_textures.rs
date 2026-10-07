@@ -244,6 +244,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .as_ref()
             .map_or_else(super::mod_panel_font::blank_page, |font| font.page.clone()),
     );
+    dynamic.extend(super::font_fallback::pages(runtime));
     // Unused art pages keep their old pixels; nothing references them.
     let art_pages = previous
         .len()

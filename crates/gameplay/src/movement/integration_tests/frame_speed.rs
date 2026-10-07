@@ -7,6 +7,10 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         movement: [0.0, 1.0],
         raw_movement: [0.0, 1.0],
         analogue_movement: [0.0, 1.0],
+        movement_buttons: semantic_input::MovementButtons {
+            forward: true,
+            ..Default::default()
+        },
         yaw: 180.0,
         pitch: 0.0,
         camera_orientation: [0.0, 0.0, -1.0],
@@ -139,7 +143,7 @@ fn gameplay_frame_adopts_server_sprint_without_double_boosting() {
 }
 
 #[test]
-fn always_sprint_packets_follow_processed_movement_and_stop_when_idle() {
+fn always_sprint_keeps_request_flags_while_actor_sprint_is_gated() {
     let (mut physics, mut ticker) = walked_physics(0);
     let mut locals = super::LocomotionState::default();
     let mut effects = super::LocalMovementEffectTimeline::default();
@@ -148,7 +152,7 @@ fn always_sprint_packets_follow_processed_movement_and_stop_when_idle() {
         (1.0, false, false, true, true),
         (0.0, false, false, true, false),
         (1.0, false, false, true, true),
-        (1.0, true, false, true, false),
+        (1.0, true, false, true, true),
         (1.0, false, true, true, false),
         (1.0, false, false, true, true),
         (1.0, false, false, false, false),
@@ -176,11 +180,16 @@ fn always_sprint_packets_follow_processed_movement_and_stop_when_idle() {
         let packet = &ticker.outbox.back().unwrap().snapshot;
         assert_eq!(
             packet.flags.bits() & PlayerInputFlags::SPRINTING.bits() != 0,
-            expected,
+            enabled,
             "case {index}"
         );
         assert_eq!(
             packet.flags.bits() & PlayerInputFlags::SPRINT_DOWN.bits() != 0,
+            enabled,
+            "case {index}"
+        );
+        assert_eq!(
+            physics.sample_at(packet.tick).unwrap().processed.sprinting,
             expected,
             "case {index}"
         );

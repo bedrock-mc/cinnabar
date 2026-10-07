@@ -10,7 +10,8 @@ const HASTE_EFFECT_ID: i32 = 3;
 const MINING_FATIGUE_EFFECT_ID: i32 = 4;
 const CONDUIT_POWER_EFFECT_ID: i32 = 26;
 const WEAVING_EFFECT_ID: i32 = 33;
-const TRACKED_EFFECT_COUNT: usize = 7;
+const BLINDNESS_EFFECT_ID: i32 = 15;
+const TRACKED_EFFECT_COUNT: usize = 8;
 // Keeps every admitted Jump Boost impulse below sim's collision-query extent.
 // Levitation contracts a valid current velocity toward a target of at most
 // 51.25 blocks/tick at this bound, so it cannot poison the following tick.
@@ -26,6 +27,7 @@ enum TrackedEffect {
     MiningFatigue,
     ConduitPower,
     Weaving,
+    Blindness,
 }
 
 impl TrackedEffect {
@@ -38,6 +40,7 @@ impl TrackedEffect {
             MINING_FATIGUE_EFFECT_ID => Some(Self::MiningFatigue),
             CONDUIT_POWER_EFFECT_ID => Some(Self::ConduitPower),
             WEAVING_EFFECT_ID => Some(Self::Weaving),
+            BLINDNESS_EFFECT_ID => Some(Self::Blindness),
             _ => None,
         }
     }
@@ -51,6 +54,7 @@ impl TrackedEffect {
             Self::MiningFatigue => 4,
             Self::ConduitPower => 5,
             Self::Weaving => 6,
+            Self::Blindness => 7,
         }
     }
 
@@ -95,6 +99,8 @@ pub struct LocalMovementEffectTimeline {
     last_sequence: Option<u64>,
     active: [Option<ActiveEffect>; TRACKED_EFFECT_COUNT],
     diagnostics: MovementEffectDiagnostics,
+    recent_mining: [(MiningEffects, MiningEffects); super::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME],
+    recent_tick_count: usize,
 }
 
 impl LocalMovementEffectTimeline {
@@ -103,6 +109,7 @@ impl LocalMovementEffectTimeline {
         self.last_sequence = None;
         self.active = [None; TRACKED_EFFECT_COUNT];
         self.diagnostics = MovementEffectDiagnostics::default();
+        self.recent_tick_count = 0;
     }
 
     pub fn apply(&mut self, session_generation: u64, sequence: u64, event: ActorEffectEvent) {
@@ -166,6 +173,27 @@ impl LocalMovementEffectTimeline {
         }
     }
 
+    /// Starts a render frame's bounded history of successfully committed effects.
+    pub fn begin_frame(&mut self) {
+        self.recent_tick_count = 0;
+    }
+
+    /// Number of successful ticks recorded since the latest frame began.
+    pub fn recent_tick_count(&self) -> usize {
+        self.recent_tick_count
+    }
+
+    /// Effects before admission and after expiry on an identified committed local tick.
+    pub fn mining_tick(&self, tick: u64, completed_tick: u64) -> (MiningEffects, MiningEffects) {
+        let distance = completed_tick.saturating_sub(tick) as usize;
+        if tick <= completed_tick && distance < self.recent_tick_count {
+            self.recent_mining[self.recent_tick_count - distance - 1]
+        } else {
+            let current = self.mining_effects();
+            (current, current)
+        }
+    }
+
     fn current_snapshot(&self) -> MovementEffects {
         MovementEffects {
             jump_boost: self.active[TrackedEffect::JumpBoost.index()]
@@ -174,10 +202,12 @@ impl LocalMovementEffectTimeline {
                 .map(|effect| effect.amplifier),
             slow_falling: self.active[TrackedEffect::SlowFalling.index()].is_some(),
             weaving: self.active[TrackedEffect::Weaving.index()].is_some(),
+            blindness: self.active[TrackedEffect::Blindness.index()].is_some(),
         }
     }
 
     fn consume_successful_tick(&mut self) {
+        let before = self.mining_effects();
         for active in &mut self.active {
             let Some(effect) = active else {
                 continue;
@@ -190,6 +220,12 @@ impl LocalMovementEffectTimeline {
                 *active = None;
             }
         }
+        if self.recent_tick_count == self.recent_mining.len() {
+            self.recent_mining.rotate_left(1);
+            self.recent_tick_count -= 1;
+        }
+        self.recent_mining[self.recent_tick_count] = (before, self.mining_effects());
+        self.recent_tick_count += 1;
     }
 
     #[cfg(test)]
@@ -222,6 +258,45 @@ mod mining_effects_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blindness_snapshot_tracks_duration_update_removal_and_session_reset() {
+        let mut timeline = LocalMovementEffectTimeline::default();
+        timeline.begin_session(1);
+        let mut event = ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 1,
+            action: ActorEffectAction::Add,
+            effect_id: BLINDNESS_EFFECT_ID,
+            amplifier: 0,
+            particles: false,
+            ambient: false,
+            duration_ticks: 2,
+            tick: 90,
+        };
+        timeline.apply(1, 1, event);
+        let retained = timeline.snapshot();
+        assert!(retained.blindness);
+        assert!(!retained.is_empty());
+        timeline.commit_successful_tick();
+        assert!(timeline.snapshot().blindness);
+        timeline.commit_successful_tick();
+        assert!(!timeline.snapshot().blindness);
+        assert!(retained.blindness);
+
+        event.action = ActorEffectAction::Update;
+        event.duration_ticks = -1;
+        timeline.apply(1, 2, event);
+        timeline.commit_successful_tick();
+        assert!(timeline.snapshot().blindness);
+        event.action = ActorEffectAction::Remove;
+        timeline.apply(1, 3, event);
+        assert!(timeline.snapshot().is_empty());
+        event.action = ActorEffectAction::Add;
+        timeline.apply(1, 4, event);
+        timeline.begin_session(2);
+        assert!(timeline.snapshot().is_empty());
+    }
 
     #[test]
     fn weaving_uses_native_id_and_expires_after_successful_ticks() {

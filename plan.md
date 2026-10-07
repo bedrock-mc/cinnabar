@@ -1,3 +1,106 @@
+## OreUI menus, appearance and motion
+
+- Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
+  panels and controls. Home keeps the shipped title above Play and character cards, with compact
+  utility actions and versions from their canonical sources. Commerce actions remain quiet.
+- Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
+  Optional Screen animations controls quick hover/press feedback, selection, glimmers, text edits,
+  screen changes, modal exits, pack accordions, scrolling and interpolated loading progress. Selected
+  segmented choices remain lowered; hit targets remain stable and input applies immediately.
+- Server views preserve service catalog groups, artwork, descriptions, activities and available
+  counts. Exact ping is optional. Collapse state and drag-reordered sections persist; custom servers
+  use the owner's requested label. Resource-pack controls and loading stages retain surrounding UI.
+- Dimension travel names the destination, uses its block icon and the owner's private runtime
+  background beneath a strong tint. Ordinary terrain loading retains its approved neutral treatment.
+- Create New World uses native panels, installed preview/category artwork and independent scrolling.
+  General/Advanced changes animate their contents. Unsupported categories, Hardcore and Realm
+  creation remain disabled. Backend defaults to Dragonfly or offers BDS with Docker detection;
+  generator selection independently offers Normal (Vanilla) and Flat. Template navigation works.
+- Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
+  seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
+- Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
+  and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
+- These layouts, appearance and custom motion are owner-authorized extensions. Matching-version
+  native UI parity remains open for responsive controls, rich Inbox templates and unsupported world
+  settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
+  terrain; Bedrock terrain, structures and mobs remain unverified. No performance gate closes.
+
+## OreUI Unicode fallback
+
+- Native language labels and server text resolve missing glyphs from installed locale-specific Noto
+  faces. Primary Latin glyph metrics and the HUD font remain unchanged. Mixed runs retain their
+  own sampling and em scale. Language names and common server symbols are warmed at startup.
+- Additional characters compile off-thread into shared bounded pages; requests deduplicate,
+  unsupported characters do not displace valid glyphs and failed updates preserve the valid cache.
+  Locale changes invalidate the fallback. Unchanged publications retain texture payload ownership.
+- Atlas bounds reject oversized glyphs and aggregate raster overflow before allocation. Multi-page
+  glyph/page order stays consistent. Reserved fallback storage leaves the ordinary UI budget available
+  for native controls and icons. Text coverage and opaque model color masks use independent flags.
+- Full script substitution, bidirectional shaping and low-size fallback raster parity remain open.
+
+## OreUI verification
+
+- The original Japanese-label failure, texture-budget rejection and colliding rendering flags were
+  reproduced before their fixes. Regression checks cover language names, small-cap MOTDs, uncached
+  glyph publication, cache recovery, bounds, texture ownership, control input, focus and navigation.
+- Touched Rust crates compile with tests and developer-control enabled. Focused UI, font, input,
+  loading, carrier and world checks pass. Core and local-server Go suites pass, including generator
+  selection and saved-world reopening. Incoming cursor-return behavior is preserved.
+- Owner reviews accepted Home, Pause, Inbox, world creation, server layouts and animation direction.
+  Prior macOS/Metal captures verify menu previews at 2048×1152 and Retina 2560×1440.
+- Final macOS/Metal pass at 2560×1440 physical, 1280×720 logical, DPI 2: primary and CJK language
+  labels, styled server MOTDs, dark Home and Quit legibility, geometry, clipping, layering and colors
+  were inspected. Mouse Cancel, Escape and keyboard Cancel work; focus remains inside the modal.
+  The final build also verifies restored native Play/settings/status icons, server symbols and the
+  latest merged input. User language, appearance and section preferences were preserved.
+- The final integrated rebuild repeats the native language/Home/Quit review with readable Japanese,
+  Korean and Chinese labels, intact artwork, working modal Cancel and confirmed shutdown.
+
+## Movement and input audit fixes
+
+- Input packets retain digital buttons and raw jump/sneak events separately from
+  requested controls and resulting actor state. Opposing keys remain visible,
+  brief taps survive tickless frames, and retries and rewinds preserve the input
+  captured for each tick. Sprint admission includes direction, stall and
+  seven-tick double-tap checks retained through replay;
+  forced crouching does not invent a held sneak button. Blindness participates
+  in sprint admission; Swift Sneak scales crouch input from equipped leggings.
+  Consumed controller taps do not steal fresh keyboard movement on the next frame.
+- Physics uses the selected collision support for landing responses and the
+  near-feet material for travel friction. Auto-climb, levitation, restitution
+  thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+- Prediction corrections replay regardless of distance. Nonzero future ticks
+  attach to the current captured frame for a later rewind; zero ticks and ticks
+  older than retained history are discarded. MovePlayer teleports keep their
+  separate distance rule. Deferred corrections clear old collision flags before
+  replay so a relocation cannot invent a ladder climb. If replay cannot query
+  terrain, its fallback preserves later retained server positions and motion.
+  Unstamped or expired reset corrections keep their incoming destination.
+- Validation: 267 simulator tests, 69 semantic-input tests, 345 movement tests
+  and 16 focused client tests pass. The touched-crate compile check includes
+  tests and the client app. The architecture check passes. Regression tests
+  reproduced the stale collision and controller handoff bugs before their fixes.
+- Full parity remains incomplete: vehicle prediction, special-block and glide
+  coverage, equipment-dependent powder snow, dynamic actor sizes,
+  touch layouts, independent orientation, prediction-sync metadata and exact
+  loading/stall timing still require matched fixtures. Paired retail-client
+  packet captures and live server verification have not been completed, so this
+  work does not establish universal vanilla parity or identify a specific ban's
+  cause. Existing provisional behavior below stays provisional.
+
+## Held block placement
+
+- Ordinary block holds now retain successful destinations, establish an adjacent
+  placement line, and use fresh ray segments to continue beyond ledges or upward.
+- Repeats use resolved movement and stance; transactions carry their trigger,
+  start/stop actions, local outcome, click position and survival inventory delta.
+- Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
+  backward sneak bridging, failed attempts and refused transport.
+- Incomplete: complete runtime block-property and custom block-placer admission,
+  item-specific replacement/state rules and live vanilla/server acceptance remain open. No
+  complete placement parity or performance gate is closed by these tests.
+- Vanilla rules: [held block placement](docs/reference/held-block-placement.md).
+
 ## Frame attribution and unchanged GPU uploads
 
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
@@ -53,6 +156,10 @@
   frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Every hurt event immediately resets the limb boost, including consecutive hits; movement
+  still contributes to the phase, and death alone does not trigger a flail.
+  Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
+  verify single and repeated hits, walking while hurt, and recovery to idle.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
@@ -167,6 +274,33 @@
   acceptance remains pending. Regressions are
   authored but unrun at the owner's request. The inspection build is running
   after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+## OreUI Settings
+
+- Global Resources is an owner-requested design exception using expandable OreUI pack cards,
+  imported thumbnails, priority actions and a native variant picker. Vanilla Textures is always
+  the immutable base of the displayed stack. Apply tracks staged edits against the acknowledged
+  running stack; finished work clears its transient status. Rendered verification is pending.
+- Controller uses its native category image; category selection plays the 500ms highlight.
+  Account uses the authenticated gamerpic or the signed-out silhouette. Sidebar bevels and
+  detail-row top/bottom edges now retain their native state roles and group boundaries.
+  The integrated Settings regressions and installed-font tests pass. The visible macOS client
+  runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
+  follow-up changes remain uncommitted, and matched Settings visual acceptance remains open.
+- Settings now uses the native OreUI shell, category sidebar, grouped descriptions, right-side
+  switches, filled sliders, inline choices, and independent panel scrollbars.
+- Shared launcher options, key remapping, language, accounts, packs and storage retain their
+  existing actions. Keyboard focus includes rows below the viewport and reveals them; resize
+  clamps scroll positions before painting. Always Sprint and VSync remain user extensions.
+- Regression tests reproduce legacy routing and unreachable offscreen focus. Rendered macOS
+  acceptance is pending; this does not close the Settings parity gate.
+- Incomplete: native options without a host model, controller binding glyphs, account management
+  actions/confirmations, Touch/Party/subscription services, and native storage subroutes.
+  Runtime vanilla artwork and core font faces are integrated, with native metrics, tracking,
+  kerning, CPU distance-field rasterization, coverage shading, control states and
+  pointer/navigation timelines. Locale shaping and hidden-tab animation resumption still
+  need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
+  acceptance remains open. Reference facts are tracked in
+  [OreUI](docs/oreui.md).
 
 ## Distant grass sides
 
@@ -6050,6 +6184,16 @@ directly to remote dev; the affected gate and new unit regressions were not run.
 Native hat geometry, other block-entity materials and full version-matched
 rendering parity remain open gates.
 
+## Servers catalogue and classic OreUI view
+
+The classic Servers feed now retains ranked featured and creator groups, localized descriptions,
+tagged logos/banners/activity artwork and real pong MOTDs. The detail pane renders its populated
+sections with independent scrolling and quick optional selection/glimmer motion. Regression
+checks cover grouping, rank zero, image roles, selection across catalogue reorder, detail content
+and bounded artwork packing. Integrated visible macOS review is in progress. Version-matched
+native acceptance, narrow metadata layout, full-capacity badges and server notification panels
+remain incomplete; this work does not close those parity gates.
+
 ## Freelook extension
 
 Freelook is a requested Cinnabar extension, not vanilla behavior. Hold its configurable
@@ -6110,3 +6254,18 @@ A macOS/Metal client pass at 1920×1080, DPI 1, GUI scale 2 verified centered
 geometry, scene-dependent inverted colors versus plain white, both third-person
 views, F1 visibility, and legible unclipped settings with working pointer focus
 and immediate toggle updates. This verifies the preferences, not broader HUD parity.
+
+
+## Absorption HUD limits
+
+Absorption uses the local attribute's current points and the vanilla JSON-UI native
+heart renderer. Incomplete: the retained HUD stat supports at most 65,535 current
+points and health containers remain capped at six rows. Larger valid values are
+skipped or bounded; this change does not close an unrestricted custom-health or
+visual-comparison parity gate. See `docs/reference/absorption-hearts.md` for the rules.
+
+Local swing publication: duration and progress tests cover both animation modes,
+and Java torso turning uses matching committed local ticks. Incomplete: native
+player body-turn timing remains on the provisional actor motion model. This work
+does not close the broader native body-motion or live visual parity gate. See
+`docs/reference/swing-duration.md` and `docs/reference/actor-animation-clocks.md`.

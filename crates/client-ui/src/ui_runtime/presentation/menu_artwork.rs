@@ -18,6 +18,17 @@ use crossbeam_channel::{Receiver, Sender};
 use image::{ImageReader, Limits, imageops::FilterType};
 
 use super::IconRef;
+use super::UiPresentationRuntime;
+
+mod skin_previews;
+use skin_previews::SkinArtwork;
+pub(crate) use skin_previews::thumbnail_key;
+mod cape_previews;
+mod packing;
+mod request_cache;
+use cape_previews::CapeArtwork;
+pub(crate) use cape_previews::{cape_texture_key, cape_thumbnail_key};
+use packing::pack;
 
 use launcher::accounts::MAX_ARTWORK_BYTES as MAX_SOURCE_BYTES;
 /// Largest source side, as a desktop texture allows; `MAX_DECODE_ALLOC` bounds memory.
@@ -27,6 +38,8 @@ const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 const MAX_WORKING_ALLOC: u64 = MAX_DECODE_ALLOC * 2;
 /// Largest side artwork keeps; bigger sources scale down, smaller stay native.
 const MAX_ARTWORK_SIDE: u32 = 512;
+const SERVER_BANNER_SIDE: u32 = 960;
+const SERVER_ACTIVITY_SIDE: u32 = 256;
 const GUTTER: u32 = 1;
 const MAX_ARTWORKS: usize = 64;
 /// Longest side kept for a list thumbnail (server logos, gamerpics, badges), so
@@ -63,12 +76,18 @@ struct Artwork {
 pub(super) struct ArtworkSet {
     pub(super) paths: Vec<(String, u32)>,
     pub(super) oversized: Vec<(String, Arc<[u8]>)>,
+    pub(super) skins: Vec<SkinArtwork>,
+    pub(super) capes: Vec<CapeArtwork>,
 }
 
 impl ArtworkSet {
     /// Equality without comparing texture bytes: engine textures by key and payload.
     pub(super) fn same(&self, other: &Self) -> bool {
         self.paths == other.paths
+            && self.capes.len() == other.capes.len()
+            && self.capes.iter().zip(&other.capes).all(|(a, b)| a.same(b))
+            && self.skins.len() == other.skins.len()
+            && self.skins.iter().zip(&other.skins).all(|(a, b)| a.same(b))
             && self.oversized.len() == other.oversized.len()
             && self
                 .oversized
@@ -103,6 +122,7 @@ pub(super) struct ArtworkLoader {
     results: Receiver<Packed>,
     requested: u64,
     ready: Option<Packed>,
+    gallery: Option<request_cache::GalleryRequest>,
     /// The installed atlas's refs, page-relative, for rebasing.
     pub(super) relative: HashMap<String, IconRef>,
 }
@@ -125,6 +145,7 @@ impl Default for ArtworkLoader {
             requested: 0,
             relative: HashMap::new(),
             ready: Some(title),
+            gallery: None,
         }
     }
 }
@@ -132,6 +153,7 @@ impl Default for ArtworkLoader {
 impl ArtworkLoader {
     /// Asks the worker for `set`'s atlas, superseding any pending request.
     pub(super) fn request(&mut self, set: ArtworkSet) {
+        self.gallery = None;
         self.requested += 1;
         self.ready = None;
         let _ = self.requests.send(Request {
@@ -237,12 +259,16 @@ fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
 enum Source {
     File(String, u32),
     Bytes(String, Arc<[u8]>),
+    Skin(SkinArtwork),
+    Cape(CapeArtwork),
 }
 
 impl Source {
     /// Includes replacement pack bytes so a reload cannot reuse an older image.
     fn key(&self) -> DecodeKey {
         match self {
+            Self::Skin(skin) => skin.decode_key(),
+            Self::Cape(cape) => cape.decode_key(),
             Self::File(path, side) => (path.clone(), *side, None),
             Self::Bytes(key, bytes) => {
                 use sha2::{Digest, Sha256};
@@ -271,6 +297,8 @@ impl DecodeCache {
             .iter()
             .map(|source| {
                 let art = match source {
+                    Source::Skin(skin) => skin.decode(),
+                    Source::Cape(cape) => cape.decode(),
                     Source::File(path, side) => decode(Path::new(path), *side),
                     Source::Bytes(_, bytes) => decode_bytes(bytes, WHOLE_PAGE),
                 };
@@ -319,12 +347,22 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .paths
         .iter()
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
-        .map(|(path, side)| Source::File(path.clone(), (*side).min(MAX_ARTWORK_SIDE)));
+        .map(|(path, side)| Source::File(path.clone(), (*side).min(SERVER_BANNER_SIDE)));
     let engine = set
         .oversized
         .iter()
         .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
-    let mut all: Vec<_> = files.take(MAX_ARTWORKS).collect();
+    let mut all: Vec<_> = set
+        .capes
+        .iter()
+        .take(MAX_ARTWORKS)
+        .cloned()
+        .map(Source::Cape)
+        .collect();
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(set.skins.iter().take(remaining).cloned().map(Source::Skin));
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(files.take(remaining));
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(
         engine
@@ -332,94 +370,6 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
             .take(remaining),
     );
     all
-}
-
-/// The built-in title, decoded once per process.
-fn title() -> Option<&'static Artwork> {
-    static TITLE: std::sync::OnceLock<Option<Artwork>> = std::sync::OnceLock::new();
-    TITLE
-        .get_or_init(|| {
-            decode_bytes(BUILT_IN_TITLE, WHOLE_PAGE).map(|(pixels, width, height)| Artwork {
-                width,
-                height,
-                pixels,
-            })
-        })
-        .as_ref()
-}
-
-/// Shelf-packs `set`'s decoded art into art pages numbered from 0; what is
-/// not decoded yet or does not fit is left out.
-fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packed {
-    let side = render_model::UI_ART_PAGE_SIDE;
-    let rest: Vec<(String, &Artwork)> = sources(set)
-        .iter()
-        .filter_map(|source| {
-            let key = source.key();
-            let art = cache.decoded.get(&key)?;
-            Some((key.0, art.as_ref()))
-        })
-        .collect();
-    // Preserve source priority under page pressure; visible portraits precede larger optional art.
-    // The title packs first so later art can never crowd it out.
-    let decoded: Vec<(String, &Artwork)> = title()
-        .map(|art| (TITLE_KEY.to_owned(), art))
-        .into_iter()
-        .chain(rest)
-        .collect();
-    let page_bytes = side as usize * side as usize * 4;
-    let mut buffers: Vec<Vec<u8>> = Vec::new();
-    let mut refs = HashMap::with_capacity(decoded.len());
-    let (mut page, mut x, mut y, mut shelf) = (0usize, GUTTER, GUTTER, 0u32);
-    for (path, art) in decoded {
-        if x + art.width + GUTTER > side {
-            x = GUTTER;
-            y += shelf + GUTTER;
-            shelf = 0;
-        }
-        if y + art.height + GUTTER > side {
-            page += 1;
-            x = GUTTER;
-            y = GUTTER;
-            shelf = 0;
-        }
-        if page >= render_model::MAX_UI_ART_PAGES {
-            break;
-        }
-        while buffers.len() <= page {
-            buffers.push(vec![0; page_bytes]);
-        }
-        let row_bytes = art.width as usize * 4;
-        for row in 0..art.height as usize {
-            let target = ((y as usize + row) * side as usize + x as usize) * 4;
-            buffers[page][target..target + row_bytes]
-                .copy_from_slice(&art.pixels[row * row_bytes..(row + 1) * row_bytes]);
-        }
-        let (left, top) = (x as u16, y as u16);
-        refs.insert(
-            path,
-            IconRef {
-                page: page as u16,
-                uv: [left, top, left + art.width as u16, top + art.height as u16],
-                glint: false,
-            },
-        );
-        x += art.width + GUTTER;
-        shelf = shelf.max(art.height);
-    }
-    let pages = buffers
-        .into_iter()
-        .map(|pixels| {
-            render_model::UiTexturePage::owned([side, side], Arc::from(pixels))
-                .expect("art pages have exact checked dimensions")
-        })
-        .collect();
-    Packed {
-        id,
-        complete,
-        pages,
-        refs,
-    }
 }
 
 fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
@@ -431,7 +381,7 @@ fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     if bytes.len() > MAX_SOURCE_BYTES {
         return None;
     }
-    decode_bytes(&bytes, max_side.min(MAX_ARTWORK_SIDE))
+    decode_bytes(&bytes, max_side.min(SERVER_BANNER_SIDE))
 }
 
 /// Straight-alpha RGBA8 (what the UI shader samples) of an image no larger
@@ -516,6 +466,9 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
 
 /// Every downloaded artwork path the menu view can draw.
 pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+    if view.screen == crate::menu::MenuScreen::DressingRoom {
+        return Vec::new();
+    }
     if view.screen == crate::menu::MenuScreen::Profile {
         return profile_art(view);
     }
@@ -552,12 +505,27 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         .chain(std::iter::once(
             view.feeds.profile.featured_screenshot_path.clone(),
         ))
-        .chain(selected.into_iter().flat_map(|details| {
-            std::iter::once(details.banner.clone())
-                .chain(details.screenshots.iter().cloned())
-                .chain(details.games.iter().map(|game| game.image_path.clone()))
-        }))
         .map(|path| (path, MAX_ARTWORK_SIDE));
+    if view.screen == crate::menu::MenuScreen::Servers {
+        let server_art = selected.into_iter().flat_map(|details| {
+            let side = if details.games.len() > 8 {
+                192
+            } else {
+                SERVER_ACTIVITY_SIDE
+            };
+            std::iter::once((details.banner.clone(), SERVER_BANNER_SIDE)).chain(
+                details
+                    .games
+                    .iter()
+                    .map(move |game| (game.image_path.clone(), side)),
+            )
+        });
+        return portraits
+            .chain(thumbnails)
+            .chain(server_art)
+            .filter(|(path, _)| !path.is_empty())
+            .collect();
+    }
     portraits
         .chain(
             view.global_resources
@@ -642,6 +610,107 @@ mod store_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_details_art_fits_alongside_all_catalog_logos_without_home_promotions() {
+        use crate::menu::{MenuGameCard, MenuScreen, MenuServerCard, ServerDetails};
+        for activities in [4, 12] {
+            let mut view = crate::menu::MenuView::new(true, "Fixture".into());
+            view.screen = MenuScreen::Servers;
+            view.featured = (0..13)
+                .map(|index| MenuServerCard {
+                    name: index.to_string(),
+                    address: index.to_string(),
+                    caption: String::new(),
+                    image_path: format!("logo-{index}"),
+                    icon: None,
+                })
+                .collect();
+            view.feeds.profile.avatar_path = "irrelevant-avatar".into();
+            view.feeds.details.insert(
+                "0".into(),
+                ServerDetails {
+                    banner: "banner".into(),
+                    games: (0..activities)
+                        .map(|index| MenuGameCard {
+                            image_path: format!("activity-{index}"),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
+            );
+            let set = ArtworkSet {
+                paths: view_paths(&view),
+                ..Default::default()
+            };
+            let mut cache = DecodeCache::default();
+            for source in sources(&set) {
+                let key = source.key();
+                let width = key.1;
+                let height = if key.0 == "banner" {
+                    width * 3 / 10
+                } else {
+                    width
+                };
+                cache.decoded.insert(
+                    key,
+                    Arc::new(Artwork {
+                        width,
+                        height,
+                        pixels: vec![255; width as usize * height as usize * 4],
+                    }),
+                );
+            }
+            let atlas = pack(&set, &cache, 0, true);
+            assert_eq!(
+                atlas.refs["banner"].uv[2] - atlas.refs["banner"].uv[0],
+                SERVER_BANNER_SIDE as u16
+            );
+            for index in 0..13 {
+                assert!(atlas.refs.contains_key(&format!("logo-{index}")));
+            }
+            for index in 0..activities {
+                assert!(
+                    atlas.refs.contains_key(&format!("activity-{index}")),
+                    "activity {index} of {activities} missing"
+                );
+            }
+            assert!(!atlas.refs.contains_key("irrelevant-avatar"));
+            assert!(atlas.pages.len() <= render_model::MAX_UI_ART_PAGES);
+        }
+    }
+
+    #[test]
+    fn settings_atlas_prepares_the_actual_profile_gamerpic_without_a_head_substitution() {
+        let mut view = crate::menu::MenuView::new(true, "Player".into());
+        view.screen = crate::menu::MenuScreen::Settings;
+        view.auth_state = crate::menu::auth::AuthState::Authenticated;
+        view.feeds.profile.picture_path = "profile-gamerpic.png".into();
+        view.feeds.home.persona_head = "persona-head.png".into();
+        let set = ArtworkSet {
+            paths: view_paths(&view),
+            ..Default::default()
+        };
+        let source = sources(&set)
+            .into_iter()
+            .find(|source| source.key().0 == view.feeds.profile.picture_path)
+            .unwrap();
+        let mut cache = DecodeCache::default();
+        cache.decoded.insert(
+            source.key(),
+            Arc::new(Artwork {
+                width: 8,
+                height: 8,
+                pixels: vec![255; 8 * 8 * 4],
+            }),
+        );
+        let prepared = pack(&set, &cache, 0, true);
+        let picture = prepared.refs.get(&view.feeds.profile.picture_path).unwrap();
+        assert_eq!(picture.uv[2] - picture.uv[0], 8);
+        assert_eq!(picture.uv[3] - picture.uv[1], 8);
+        assert!(!prepared.refs.contains_key(&view.feeds.home.persona_head));
+    }
 
     #[test]
     fn large_artwork_does_not_crowd_out_a_prioritized_gamerpic() {
@@ -851,6 +920,7 @@ mod tests {
         let set = ArtworkSet {
             paths: Vec::new(),
             oversized: vec![(TITLE_KEY.to_owned(), bytes)],
+            ..Default::default()
         };
         let mut cache = DecodeCache::default();
         cache.decode(&cache.missing(&set), &set);

@@ -84,6 +84,8 @@ impl LocalPhysicsController {
             }
         };
         let oldest = self.history.oldest_tick().unwrap_or(state.tick);
+        self.deferred_corrections
+            .replace_motion(applies_before, motion);
         self.server_motions.retain(|overlay| overlay.tick > oldest);
         if self.server_motions.len() >= self.history_capacity {
             self.server_motions.pop_front();

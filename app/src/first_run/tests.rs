@@ -30,6 +30,7 @@ pub(super) fn installed_layout(data: &Dir, executable: &str) -> InstallLayout {
         Platform::Linux,
         &InstallEnvironment {
             executable: PathBuf::from(executable),
+            user_root: None,
             home: Some(PathBuf::from("/home/dev")),
             local_app_data: None,
             xdg_config_home: Some(data.path().join("cfg")),

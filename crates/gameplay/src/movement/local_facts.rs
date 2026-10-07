@@ -10,6 +10,7 @@ const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
 /// Bedrock enchantment ids; provisional until checked against a native item.
 pub(crate) const DEPTH_STRIDER_ENCHANTMENT_ID: i16 = 7;
 const SOUL_SPEED_ENCHANTMENT_ID: i16 = 36;
+const SWIFT_SNEAK_ENCHANTMENT_ID: i16 = 37;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct LocalMovementFacts {
@@ -24,7 +25,9 @@ pub struct LocalMovementFacts {
     pub elytra_ready: bool,
     pub depth_strider: u8,
     pub soul_speed: u8,
+    pub swift_sneak: u8,
     pub sprint_blocked: bool,
+    pub sprint_start_blocked: bool,
     /// Native swim continuation stops without usable food above the sprint floor,
     /// unless the movement abilities permit flight.
     pub swim_hunger_blocked: bool,
@@ -38,7 +41,7 @@ pub fn read(
     let Some(player) = player else {
         return LocalMovementFacts::default();
     };
-    let [_, chestplate, _, boots] = player.inventory.local_armor();
+    let [_, chestplate, leggings, boots] = player.inventory.local_armor();
     let elytra_ready = !chestplate.is_empty()
         && stream
             .canonical_item_stack(&chestplate)
@@ -81,9 +84,14 @@ pub fn read(
         elytra_ready,
         depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
         soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
+        swift_sneak: protocol::item_enchantment_level(
+            &leggings.extra_data,
+            SWIFT_SNEAK_ENCHANTMENT_ID,
+        )
+        .unwrap_or(0),
         swim_hunger_blocked: !can_fly && hunger_below_floor.unwrap_or(true),
-        sprint_blocked: (player.facts.survival_stats_visible() && hunger_below_floor == Some(true))
-            || item_in_use,
+        sprint_blocked: !can_fly && hunger_below_floor.unwrap_or(true),
+        sprint_start_blocked: item_in_use,
     }
 }
 

@@ -53,6 +53,7 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
+        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
         java_swing_ticks: client_world::ACTOR_SWING_TICKS,
         flying: false,
         teleported: false,
@@ -136,7 +137,8 @@ fn published_persona_layers_follow_the_sampled_local_emote_only() {
     )
     .unwrap();
     assert_ne!(emote.skin_layers[0].current, native_pose);
-    let published = super::super::emote_geometry::skin_layer_snapshot(rig, Some(&emote), None);
+    let published =
+        super::super::emote_geometry::skin_layer_snapshot(rig, Some(&emote), None, None);
     assert_eq!(published.current, emote.current.as_ref());
     assert_eq!(
         published.skin_layers[0].current,
@@ -149,7 +151,7 @@ fn published_persona_layers_follow_the_sampled_local_emote_only() {
     assert_eq!(published.skin_layers[0].image, native_layer.image);
     assert_eq!(published.skin_layers[0].uv_anim, native_layer.uv_anim);
     assert_eq!(native_layer.current, native_pose);
-    let unchanged = super::super::emote_geometry::skin_layer_snapshot(rig, None, None);
+    let unchanged = super::super::emote_geometry::skin_layer_snapshot(rig, None, None, None);
     assert_eq!(unchanged.skin_layers[0].current, native_pose);
 }
 
@@ -453,6 +455,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
                     alpha: 0.5,
                     artwork: &artwork,
                     motion: Mat4::IDENTITY,
+                    sampling_camera: None,
                 },
                 &mut equipment,
                 &mut cache,

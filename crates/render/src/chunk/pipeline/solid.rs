@@ -62,19 +62,25 @@ pub(in crate::chunk) fn prepare_solid_indirect_batch_draws<'a>(
     (commands, drawn)
 }
 
-pub(in crate::chunk) type DrawSolidChunkCommands = (
-    crate::chunk::gpu_cull::SkipOccludedTerrain,
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawPackedSolidChunk,
-);
-pub(in crate::chunk) type DrawSolidChunkIndirectCommands = (
-    SetItemPipeline,
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawPackedSolidChunksIndirect,
-);
+pub(in crate::chunk) type DrawSolidChunkCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainSolid as usize },
+    (
+        crate::chunk::gpu_cull::SkipOccludedTerrain,
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedSolidChunk,
+    ),
+>;
+pub(in crate::chunk) type DrawSolidChunkIndirectCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainSolid as usize },
+    (
+        SetItemPipeline,
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawPackedSolidChunksIndirect,
+    ),
+>;
 
 pub(in crate::chunk) struct DrawPackedSolidChunk;
 

@@ -2,6 +2,11 @@
 //! fills per state, the type scale and the spacer steps. Sizes are in rem
 //! (one rem is five GUI pixels).
 
+use crate::ui_runtime::oreui_fonts::OreUiFont;
+
+mod appearance;
+pub(super) use appearance::Appearance;
+
 pub(super) type Rgba = [u8; 4];
 
 const fn rgb(value: u32) -> Rgba {
@@ -155,7 +160,7 @@ pub(super) const MENU_ITEM: Role = Role {
     pressed: rgb(0x313233),
     text: TEXT,
     shadow: rgb(0x313233),
-    border: BORDER,
+    border: DISABLED.shadow,
     specular: [black(0), black(0)],
     specular_hovered: [black(0), black(0)],
 };
@@ -185,41 +190,51 @@ pub(super) const HEADER_STRIP: Rgba = rgb(0xb1b2b5);
 pub(super) const BEVEL_LIGHT: Rgba = white(26);
 pub(super) const BEVEL_DARK: Rgba = black(77);
 
-/// A type style: size and line height in rem, and whether it is a heading face.
+/// A semantic face with its CSS em size and line height in rem.
 #[derive(Clone, Copy)]
 pub(super) struct Type {
     pub(super) size: f32,
     pub(super) line: f32,
+    pub(super) face: OreUiFont,
 }
 
 pub(super) const HEADER3: Type = Type {
     size: 3.2,
     line: 4.0,
+    face: OreUiFont::Ten,
 };
 pub(super) const HEADER5: Type = Type {
     size: 2.0,
     line: 2.4,
+    face: OreUiFont::Ten,
 };
 pub(super) const SECTION_HEADER: Type = Type {
     size: 1.6,
     line: 2.0,
+    face: OreUiFont::Ten,
 };
 pub(super) const BODY: Type = Type {
     size: 1.6,
     line: 2.0,
+    face: OreUiFont::Seven,
 };
 pub(super) const CAPTION: Type = Type {
     size: 1.4,
     line: 2.0,
+    face: OreUiFont::Seven,
 };
 pub(super) const PRIMARY_BUTTON: Type = Type {
     size: 2.0,
     line: 2.4,
+    face: OreUiFont::Ten,
 };
 pub(super) const SECONDARY_BUTTON: Type = Type {
     size: 1.6,
     line: 2.0,
+    face: OreUiFont::Seven,
 };
+
+pub(super) const LETTER_SPACING: f32 = 0.04;
 
 /// Spacer steps 1..=8 in rem.
 pub(super) const SPACE: [f32; 8] = [0.4, 0.8, 1.2, 1.6, 2.0, 2.4, 3.2, 6.4];

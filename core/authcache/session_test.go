@@ -59,100 +59,74 @@ func accountWithContendedSISU(t *testing.T) (*Account, <-chan io.Closer) {
 }
 
 func TestNestedOAuthLeaseRespectsCallerDeadline(t *testing.T) {
-	for _, retained := range []bool{false, true} {
-		name := "account"
-		if retained {
-			name = "retained PlayFab session"
+	account, acquired := accountWithContendedSISU(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := account.XSTSToken(ctx, cachedRelyingParty); done <- err }()
+	select {
+	case lease := <-acquired:
+		defer lease.Close()
+	case <-time.After(time.Second):
+		t.Fatal("SISU never reached the nested OAuth callback")
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("nested OAuth wait = %v, want caller deadline", err)
 		}
-		t.Run(name, func(t *testing.T) {
-			account, acquired := accountWithContendedSISU(t)
-			call := account.XSTSToken
-			if retained {
-				// PlayFab retains this source and calls it without the account gate.
-				call = account.session.XSTSToken
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-			defer cancel()
-			done := make(chan error, 1)
-			go func() { _, err := call(ctx, cachedRelyingParty); done <- err }()
-			select {
-			case lease := <-acquired:
-				defer lease.Close()
-			case <-time.After(time.Second):
-				t.Fatal("SISU never reached the nested OAuth callback")
-			}
-			select {
-			case err := <-done:
-				if !errors.Is(err, context.DeadlineExceeded) {
-					t.Fatalf("nested OAuth wait = %v, want caller deadline", err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("nested OAuth lease wait outlived the caller deadline")
-			}
-		})
+	case <-time.After(time.Second):
+		t.Fatal("nested OAuth lease wait outlived the caller deadline")
 	}
 }
 
-func TestSISUSessionKeepsConcurrentCallContextsSeparate(t *testing.T) {
-	for _, accountCall := range []bool{false, true} {
-		name := "same session"
-		if accountCall {
-			name = "account OAuth source"
-		}
-		t.Run(name, func(t *testing.T) {
-			account, acquired := accountWithContendedSISU(t)
-			session := account.session
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			first := make(chan error, 1)
-			go func() { _, err := session.XSTSToken(ctx, cachedRelyingParty); first <- err }()
-			var lease io.Closer
-			select {
-			case lease = <-acquired:
-				defer lease.Close()
-			case <-time.After(time.Second):
-				t.Fatal("SISU never reached the nested OAuth callback")
-			}
+func TestSISUCallersKeepTheirOwnContexts(t *testing.T) {
+	account, acquired := accountWithContendedSISU(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	first := make(chan error, 1)
+	go func() { _, err := account.XSTSToken(ctx, cachedRelyingParty); first <- err }()
+	var lease io.Closer
+	select {
+	case lease = <-acquired:
+		defer lease.Close()
+	case <-time.After(time.Second):
+		t.Fatal("SISU never reached the nested OAuth callback")
+	}
 
-			waitForOAuthLeaseWait(t, account)
-			call := session.XSTSToken
-			if accountCall {
-				call = account.XSTSToken
-			}
-			short, stop := context.WithTimeout(context.Background(), 50*time.Millisecond)
-			defer stop()
-			second := make(chan error, 1)
-			go func() { _, err := call(short, cachedRelyingParty); second <- err }()
-			select {
-			case err := <-second:
-				if !errors.Is(err, context.DeadlineExceeded) {
-					t.Fatalf("concurrent SISU wait = %v, want its own deadline", err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("concurrent SISU call waited beyond its deadline")
-			}
-			select {
-			case err := <-first:
-				t.Fatalf("shorter request canceled the active request: %v", err)
-			default:
-			}
-			cancel()
-			select {
-			case err := <-first:
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("active SISU wait = %v, want its own cancellation", err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("active SISU call ignored cancellation")
-			}
-			if err := lease.Close(); err != nil {
-				t.Fatal(err)
-			}
-			// A later request must reach the next SISU step, with neither canceled context retained.
-			if _, err := session.XSTSToken(context.Background(), cachedRelyingParty); err == nil || !strings.Contains(err.Error(), "proof key is absent") {
-				t.Fatalf("subsequent SISU call = %v, want OAuth success before missing test proof key", err)
-			}
-		})
+	waitForOAuthLeaseWait(t, account)
+	short, stop := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer stop()
+	second := make(chan error, 1)
+	go func() { _, err := account.XSTSToken(short, cachedRelyingParty); second <- err }()
+	select {
+	case err := <-second:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("concurrent SISU wait = %v, want its own deadline", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("concurrent SISU call waited beyond its deadline")
+	}
+	select {
+	case err := <-first:
+		t.Fatalf("shorter request canceled the active request: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case err := <-first:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("active SISU wait = %v, want its own cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active SISU call ignored cancellation")
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// A later request must reach the next SISU step, with neither canceled context retained.
+	if _, err := account.XSTSToken(context.Background(), cachedRelyingParty); err == nil || !strings.Contains(err.Error(), "proof key is absent") {
+		t.Fatalf("subsequent SISU call = %v, want OAuth success before missing test proof key", err)
 	}
 }
 

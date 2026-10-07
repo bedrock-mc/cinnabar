@@ -338,3 +338,40 @@ fn review_render_pose_cache_accounts_for_changed_bone_pivots() {
     assert_eq!(actual, expected);
     assert_ne!(actual, old);
 }
+
+#[test]
+fn draw_readiness_shares_rejections_without_changing_frame_or_cache_state() {
+    let geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry]).unwrap();
+    let good = submission(1, 1);
+    assert!(builder.can_draw_submission(&good));
+    assert_eq!(builder.frame_generation, 0);
+    assert!(builder.matrices.entries.is_empty());
+    assert_eq!(builder.build(0.0, None, [good.clone()]).instances.len(), 1);
+    for change in 0..5 {
+        let generation = builder.frame_generation;
+        let cached = builder.matrices.entries.len();
+        let mut bad = good.clone();
+        match change {
+            0 => bad.route = ActorRigRoute::NoDraw,
+            1 => bad.input.rig = EntityRigId(u32::MAX),
+            2 => bad.input.reset_generation = u64::MAX,
+            3 => bad.world_from_actor[0][0] = f32::NAN,
+            _ => {
+                let mut bone = bone(0);
+                bone.rotation = [0.0; 4];
+                bad.input.current_bones = Arc::from([bone]);
+            }
+        }
+        let allocated = crate::alloc_count::thread_allocations();
+        assert!(!builder.can_draw_submission(&bad));
+        assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+        assert_eq!(builder.frame_generation, generation);
+        assert_eq!(builder.matrices.entries.len(), cached);
+        assert!(builder.build(0.0, None, [bad]).instances.is_empty());
+    }
+    builder.frame_generation = u64::MAX;
+    assert!(!builder.can_draw_submission(&good));
+    assert!(builder.build(0.0, None, [good]).instances.is_empty());
+}

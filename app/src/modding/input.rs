@@ -256,6 +256,8 @@ pub(super) fn prepare_mod_input(
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationRuntime>,
     time: Option<Res<Time>>,
+    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
     let extension = extension.filter(|runtime| !runtime.suspended);
     if extension.is_none() {
@@ -267,6 +269,8 @@ pub(super) fn prepare_mod_input(
     let Ok((entity, window, mut cursor)) = windows.single_mut() else {
         return;
     };
+    let focused = driven.is_some()
+        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     let Some(mut extension) = extension else {
         let absorbed = menu.as_deref().map_or_else(
             || ui.ui_focused(&player),
@@ -274,9 +278,9 @@ pub(super) fn prepare_mod_input(
         );
         let restore = physical.finish_panel(
             false,
-            window.focused,
+            focused,
             absorbed,
-            crate::camera::input_is_active(window, &cursor),
+            crate::camera::mouse_input_active(window, &cursor, focus.as_deref(), driven.is_some()),
         );
         if let Some(mouse) = mouse.as_mut() {
             mouse.clear();
@@ -291,7 +295,7 @@ pub(super) fn prepare_mod_input(
         }
         return;
     };
-    if window.focused {
+    if focused {
         physical.seed_held(keys.get_pressed());
     }
     let mut panel_keys = Vec::new();
@@ -304,7 +308,7 @@ pub(super) fn prepare_mod_input(
             let name = format!("{:?}", event.key_code);
             let down = event.state == ButtonState::Pressed;
             transitions.push((name.clone(), down));
-            if down && window.focused {
+            if down && focused {
                 panel_keys.push((
                     name,
                     event
@@ -343,12 +347,13 @@ pub(super) fn prepare_mod_input(
     let was_open = physical.panel_owned;
     let owner = extension.panel_owner();
     let mut open = extension.host(owner).panel_open() && presentation.mod_panel_open();
+    let had_panel = open;
     let editing = open && presentation.mod_panel_editing();
     let interrupt = editing
         && panel_keys.iter().any(|(key, _, repeat)| {
             !repeat && (key == "F10" || presentation.mod_panel_toggle_key() == Some(key.as_str()))
         });
-    if !window.focused {
+    if !focused {
         presentation.cancel_mod_panel_pointer_input();
     }
     if absorbed || interrupt {
@@ -357,7 +362,7 @@ pub(super) fn prepare_mod_input(
     let mut pressed = Vec::new();
     let mut events = Vec::new();
     for (key, text, repeat) in panel_keys {
-        if open && window.focused && !absorbed && editing && !interrupt {
+        if open && focused && !absorbed && editing && !interrupt {
             let edit_key = if key == "KeyA"
                 && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight))
             {
@@ -380,22 +385,23 @@ pub(super) fn prepare_mod_input(
             .host(owner)
             .panel()
             .is_some_and(|panel| panel.capture_key);
-    if !extension.host(owner).is_active() || (window.focused && (absorbed || close_requested)) {
-        open = false;
-    } else if extension
+    let toggle_requested = extension
         .host(owner)
         .panel()
-        .is_some_and(|panel| pressed.contains(&panel.toggle_key))
-    {
+        .is_some_and(|panel| pressed.contains(&panel.toggle_key));
+    if !extension.host(owner).is_active() || (focused && (absorbed || close_requested)) {
+        open = false;
+    } else if toggle_requested {
         open = !open;
     }
     extension.host_mut(owner).set_panel_open(open);
     presentation.set_mod_panel_open(open);
+    let before_pointer_open = open;
     let was_held = mouse
         .as_ref()
         .is_some_and(|buttons| buttons.just_pressed(MouseButton::Left));
     if open
-        && window.focused
+        && focused
         && let Some(position) = window.cursor_position()
     {
         events.extend(presentation.mod_panel_events(
@@ -413,21 +419,31 @@ pub(super) fn prepare_mod_input(
         })
         .collect();
     open = presentation.mod_panel_open();
+    let pointer_closed = before_pointer_open && !open;
+    if !open
+        && focused
+        && !absorbed
+        && extension.host(owner).is_active()
+        && ((had_panel && (close_requested || toggle_requested)) || pointer_closed)
+        && let Some(focus) = focus.as_deref_mut()
+    {
+        focus.authorize_screen_return();
+    }
     extension.host_mut(owner).set_panel_open(open);
     let restore = physical.finish_panel(
         open,
-        window.focused,
+        focused,
         absorbed,
-        crate::camera::input_is_active(window, &cursor),
+        crate::camera::mouse_input_active(window, &cursor, focus.as_deref(), driven.is_some()),
     );
     extension.controls = mod_host::ControlFrame {
         seconds: time
             .as_ref()
             .map_or(0.0, |time| time.delta_secs().clamp(0.0, 1.0)),
-        focused: window.focused,
+        focused,
         gameplay: false,
         panel_open: open,
-        keys_pressed: if window.focused {
+        keys_pressed: if focused {
             pressed
                 .into_iter()
                 .filter(|key| !absorbed || key == "F10")
@@ -436,14 +452,14 @@ pub(super) fn prepare_mod_input(
         } else {
             Vec::new()
         },
-        keys_held: if window.focused && !absorbed && !editing {
+        keys_held: if focused && !absorbed && !editing {
             physical.held_keys.clone()
         } else {
             Vec::new()
         },
         events,
     };
-    if !window.focused {
+    if !focused {
         physical.left_held = false;
         physical.held_keys.clear();
         physical.held_seeded = false;

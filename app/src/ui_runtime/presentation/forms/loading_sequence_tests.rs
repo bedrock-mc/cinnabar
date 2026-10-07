@@ -105,11 +105,17 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
             for (x, y) in [(0, 0), (64, 0), (0, 640)] {
                 let texel = dirt.get_pixel((x % 64) / 4, (y % 64) / 4);
                 let shade = 0.5 - 0.2 * (y as f32 + 0.5) / 720.0;
-                for channel in 0..3 {
+                let source = std::array::from_fn(|channel| {
+                    if channel == 3 {
+                        255
+                    } else {
+                        (f32::from(texel[channel]) * shade).round() as u8
+                    }
+                });
+                let expected = snapshot::loading_backdrop_texel(&presentation, source, [x, y]);
+                for (channel, expected) in expected.iter().enumerate().take(3) {
                     assert!(
-                        pixels.get_pixel(x, y)[channel]
-                            .abs_diff((f32::from(texel[channel]) * shade).round() as u8)
-                            <= 1,
+                        pixels.get_pixel(x, y)[channel].abs_diff(*expected) <= 1,
                         "phase {phase} frame {index} dirt sampled another page at {x},{y}"
                     );
                 }
@@ -147,9 +153,14 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
     let side = client_ui::ui_runtime::oreui_assets::OREUI_PAGE_SIDE as usize;
     presentation
         .enable_oreui_originals(client_ui::ui_runtime::oreui_assets::OreUiImages {
-            rgba: vec![255; side * side * 4],
+            pages: vec![client_ui::ui_runtime::oreui_assets::OreUiPage {
+                dimensions: [side as u32; 2],
+                pixels: vec![255; side * side * 4].into(),
+            }],
             sprites: Default::default(),
             loading_frames: Default::default(),
+            animations: Default::default(),
+            source: None,
         })
         .unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
@@ -165,10 +176,17 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
     )
     .unwrap()
     .into_rgba8();
-    for channel in 0..3 {
-        let expected = (f32::from(dirt.get_pixel(0, 0)[channel]) * 0.5).round() as u8;
+    let source = std::array::from_fn(|channel| {
+        if channel == 3 {
+            255
+        } else {
+            (f32::from(dirt.get_pixel(0, 0)[channel]) * 0.5).round() as u8
+        }
+    });
+    let expected = snapshot::loading_backdrop_texel(&presentation, source, [0, 0]);
+    for (channel, expected) in expected.iter().enumerate().take(3) {
         assert!(
-            pixels.get_pixel(0, 0)[channel].abs_diff(expected) <= 1,
+            pixels.get_pixel(0, 0)[channel].abs_diff(*expected) <= 1,
             "before the server pack arrives, dirt must not address the preceding glyph page"
         );
     }

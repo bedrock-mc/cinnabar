@@ -145,3 +145,40 @@ fn unused_boss_slots_clear_names_and_hide_prefix_gated_backgrounds() {
         }
     }
 }
+
+#[test]
+fn absorption_native_hearts_are_gated_by_survival_ui_and_keep_their_renderer() {
+    let control = Arc::new(ResolvedControl {
+        name: "heart_renderer".into(),
+        control_type: Some("custom".into()),
+        base: None,
+        unresolved_base: None,
+        properties: [
+            ("renderer".into(), json!("heart_renderer")),
+            (
+                "bindings".into(),
+                json!([{
+                    "binding_name": "#show_survival_ui", "binding_name_override": "#visible"
+                }]),
+            ),
+        ]
+        .into(),
+        children: Vec::new(),
+        factory: None,
+    });
+    let mut state = BindState::new();
+    for survival_ui in [true, false, true] {
+        let (bound, diagnostics) = bind_stateful(
+            &control,
+            &hud_data_source(&HudModel {
+                survival_ui,
+                ..Default::default()
+            }),
+            &EmptyLibrary,
+            &mut state,
+        );
+        assert!(diagnostics.is_empty());
+        assert_eq!(bound.properties["visible"], json!(survival_ui));
+        assert_eq!(bound.properties["renderer"], json!("heart_renderer"));
+    }
+}

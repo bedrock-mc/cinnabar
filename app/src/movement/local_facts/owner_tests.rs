@@ -92,6 +92,20 @@ fn player() -> PlayerRuntime {
     player
 }
 
+/// Publishes usable hunger evidence without a server connection.
+fn set_food(player: &mut PlayerRuntime, food: u16) {
+    player
+        .facts
+        .apply_hunger_attribute(&protocol::ActorAttribute {
+            name: Arc::from("minecraft:player.hunger"),
+            min: 0.0,
+            max: 20.0,
+            current: f32::from(food),
+            default: Some(20.0),
+            modifiers: Arc::from([]),
+        });
+}
+
 /// Issues the same synchronous armor gesture as the UI, without a server response.
 fn command(mut player: ResMut<PlayerRuntime>) {
     player.facts.apply_local_movement_flags(
@@ -106,16 +120,7 @@ fn command(mut player: ResMut<PlayerRuntime>) {
         .ledger_mut()
         .begin_target_gesture(InventoryTarget::Armor(3), CellGesture::Click)
         .unwrap();
-    player
-        .facts
-        .apply_hunger_attribute(&protocol::ActorAttribute {
-            name: Arc::from("minecraft:player.hunger"),
-            min: 0.0,
-            max: 20.0,
-            current: 0.0,
-            default: Some(20.0),
-            modifiers: Arc::from([]),
-        });
+    set_food(&mut player, 0);
 }
 
 /// Samples the production movement view in the physics phase.
@@ -125,7 +130,8 @@ fn sample(player: Res<PlayerRuntime>, stream: Res<Stream>, mut observed: ResMut<
 
 #[test]
 fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
-    let player = player();
+    let mut player = player();
+    set_food(&mut player, SPRINT_HUNGER_FLOOR + 1);
     let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -139,7 +145,7 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
     assert_eq!(before.depth_strider, 3);
     assert!(!before.sprint_blocked);
     assert!(!before.immobile);
-    assert!(before.swim_hunger_blocked);
+    assert!(!before.swim_hunger_blocked);
     let mut app = App::new();
     app.insert_resource(player)
         .insert_resource(Stream(stream))
@@ -174,7 +180,7 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
 }
 
 #[test]
-fn swimming_food_gate_uses_native_floor_and_flight_permission() {
+fn movement_food_gates_use_the_sprint_floor_and_flight_permission() {
     let mut player = player();
     let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
@@ -185,38 +191,25 @@ fn swimming_food_gate_uses_native_floor_and_flight_permission() {
         air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
-    assert!(read(Some(&player), &GameplayWorldView(&stream), false).swim_hunger_blocked);
+    let missing_food = read(Some(&player), &GameplayWorldView(&stream), false);
+    assert!(missing_food.sprint_blocked);
+    assert!(missing_food.swim_hunger_blocked);
+    assert!(!missing_food.sprint_start_blocked);
     for (food, blocked) in [
         (SPRINT_HUNGER_FLOOR, true),
         (SPRINT_HUNGER_FLOOR + 1, false),
     ] {
-        player
-            .facts
-            .apply_hunger_attribute(&protocol::ActorAttribute {
-                name: Arc::from("minecraft:player.hunger"),
-                min: 0.0,
-                max: 20.0,
-                current: f32::from(food),
-                default: Some(20.0),
-                modifiers: Arc::from([]),
-            });
-        assert_eq!(
-            read(Some(&player), &GameplayWorldView(&stream), true).swim_hunger_blocked,
-            blocked
-        );
+        set_food(&mut player, food);
+        let observed = read(Some(&player), &GameplayWorldView(&stream), true);
+        assert_eq!(observed.sprint_blocked, blocked);
+        assert_eq!(observed.swim_hunger_blocked, blocked);
+        assert!(observed.sprint_start_blocked);
     }
     player
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Creative);
-    player
-        .facts
-        .apply_hunger_attribute(&protocol::ActorAttribute {
-            name: Arc::from("minecraft:player.hunger"),
-            min: 0.0,
-            max: 20.0,
-            current: 0.0,
-            default: Some(20.0),
-            modifiers: Arc::from([]),
-        });
-    assert!(!read(Some(&player), &GameplayWorldView(&stream), false).swim_hunger_blocked);
+    set_food(&mut player, 0);
+    let flying = read(Some(&player), &GameplayWorldView(&stream), false);
+    assert!(!flying.sprint_blocked);
+    assert!(!flying.swim_hunger_blocked);
 }

@@ -12,8 +12,11 @@ pub const MAX_UI_BATCHES: usize = 8_192;
 pub const MAX_UI_DRAW_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_UI_TEXTURE_SIDE: u32 = 4_096;
 pub const MAX_UI_TEXTURE_LAYERS: u32 = 256;
-/// Fits the CJK-fallback font pages plus the JSON-UI atlas beside the HUD and icon pages.
-pub const MAX_UI_TEXTURE_BYTES: usize = 128 * 1024 * 1024;
+/// Keeps the ordinary UI budget available beside the reserved Unicode fallback pages.
+pub const MAX_UI_TEXTURE_BYTES: usize = 128 * 1024 * 1024
+    + assets::FONT_FALLBACK_ATLAS_SIDE as usize
+        * assets::FONT_FALLBACK_ATLAS_SIDE as usize
+        * assets::MAX_FONT_FALLBACK_PAGES;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
@@ -63,7 +66,27 @@ pub const UI_STYLE_GLINT: u32 = 1 << 1;
 /// Reject sampled texture alpha below one half before multiplying vertex alpha.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 /// Texture alpha weights dye color; every surviving sampled texel is opaque.
-pub const UI_STYLE_COLOR_MASK: u32 = 1 << 5;
+pub const UI_STYLE_COLOR_MASK: u32 = 1 << 7;
+
+#[cfg(test)]
+mod style_tests {
+    use super::*;
+
+    #[test]
+    fn font_coverage_never_enables_opaque_model_color_masks() {
+        for rendering in [
+            assets::FontRendering::Coverage,
+            assets::FontRendering::NativeCoverage,
+            assets::FontRendering::NativeSdf,
+        ] {
+            assert_eq!(
+                u32::from(rendering.style_flags()) & UI_STYLE_COLOR_MASK,
+                0,
+                "text coverage must remain transparent outside glyphs"
+            );
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UiRenderBatch {
