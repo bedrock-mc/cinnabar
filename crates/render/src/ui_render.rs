@@ -88,6 +88,7 @@ impl Plugin for UiRenderPlugin {
 struct UiRenderInstalled;
 
 fn install_ui_render(app: &mut App) {
+    crate::upload_staging::install(app);
     app.init_resource::<UiRenderSceneResource>()
         .init_resource::<UiGlintSettings>()
         .init_resource::<UiRenderStatsResource>();
@@ -231,7 +232,11 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
-    (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
+    (coverage, glint, staging): (
+        Option<Res<UiHandCoverage>>,
+        Option<Res<UiGlintSettings>>,
+        Option<Res<crate::upload_staging::BufferUploadStaging>>,
+    ),
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
@@ -274,7 +279,12 @@ pub(crate) fn prepare_ui_resources(
         let _span =
             bevy::log::info_span!("ui.viewport_write", bytes = size_of::<UiViewportUniform>())
                 .entered();
-        render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
+        crate::upload_staging::write_batch(
+            staging.as_deref(),
+            &render_device,
+            &render_queue,
+            &[(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport))],
+        );
     }
     if let Some(previous) = gpu.last_admitted_revision {
         let reason = if input.revision < previous {

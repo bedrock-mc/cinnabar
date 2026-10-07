@@ -217,6 +217,7 @@ impl HandRigScene {
 
 fn install(app: &mut App) {
     app.init_resource::<HandRigScene>();
+    crate::upload_staging::install(app);
     crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
@@ -382,7 +383,10 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
 
 fn prepare(
     scene: Res<HandRigScene>,
-    background: Option<Res<crate::panorama::PanoramaScene>>,
+    (background, staging): (
+        Option<Res<crate::panorama::PanoramaScene>>,
+        Option<Res<crate::upload_staging::BufferUploadStaging>>,
+    ),
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
@@ -409,14 +413,21 @@ fn prepare(
     };
     let size = [viewport.z, viewport.w];
     upload_geometry(&mut gpu, &device, &queue, frame);
-    upload_pose(&mut gpu, &device, &queue, frame);
+    upload_pose(&mut gpu, &device, &queue, staging.as_deref(), frame);
     upload_skin(&mut gpu, &device, &queue, frame);
     upload_atlas(&mut gpu, &device, &queue, frame);
     ensure_depth(&mut gpu, &device, size, samples);
     let aspect = viewport.z as f32 / viewport.w as f32;
     let projection =
         Mat4::perspective_infinite_reverse_rh(frame.fov_radians, aspect, HAND_RIG_NEAR_PLANE);
-    upload_uniforms(&mut gpu, &queue, projection, frame.light);
+    upload_uniforms(
+        &mut gpu,
+        &device,
+        &queue,
+        staging.as_deref(),
+        projection,
+        frame.light,
+    );
     build_bind_group(&mut gpu, &device, &cache);
     let gpu = &mut *gpu;
     let layout = gpu.layout.clone();
@@ -431,7 +442,9 @@ fn prepare(
 /// Keeps unchanged hand projection and lighting out of the staging allocation path.
 fn upload_uniforms(
     gpu: &mut HandRigGpu,
+    device: &RenderDevice,
     queue: &RenderQueue,
+    staging: Option<&crate::upload_staging::BufferUploadStaging>,
     projection: Mat4,
     light: HandRigLight,
 ) {
@@ -443,7 +456,12 @@ fn upload_uniforms(
             bytes = std::mem::size_of_val(&projection)
         )
         .entered();
-        queue.write_buffer(&gpu.view_uniform, 0, bytemuck::cast_slice(&projection));
+        crate::upload_staging::write_batch(
+            staging,
+            device,
+            queue,
+            &[(&gpu.view_uniform, 0, bytemuck::cast_slice(&projection))],
+        );
         #[cfg(test)]
         {
             gpu.uniform_uploads[0] += 1;
@@ -454,7 +472,12 @@ fn upload_uniforms(
         let _span =
             bevy::log::info_span!("hand.light_write", bytes = std::mem::size_of_val(&light))
                 .entered();
-        queue.write_buffer(&gpu.light_uniform, 0, bytemuck::bytes_of(&light));
+        crate::upload_staging::write_batch(
+            staging,
+            device,
+            queue,
+            &[(&gpu.light_uniform, 0, bytemuck::bytes_of(&light))],
+        );
         #[cfg(test)]
         {
             gpu.uniform_uploads[1] += 1;
@@ -501,6 +524,7 @@ fn upload_pose(
     gpu: &mut HandRigGpu,
     device: &RenderDevice,
     queue: &RenderQueue,
+    staging: Option<&crate::upload_staging::BufferUploadStaging>,
     frame: &HandRigFrame,
 ) {
     if gpu.revision == Some(frame.revision) && gpu.instances.is_some() {
@@ -535,7 +559,7 @@ fn upload_pose(
         .entered();
         match slot {
             Some(buffer) if buffer.size() == bytes.len() as u64 => {
-                queue.write_buffer(buffer, 0, bytes);
+                crate::upload_staging::write_batch(staging, device, queue, &[(buffer, 0, bytes)]);
             }
             _ => {
                 *slot = Some(device.create_buffer_with_data(&BufferInitDescriptor {
