@@ -36,6 +36,7 @@ fn open_notification_pressed() -> SemanticInputSnapshot {
         input_mode: InputMode::KeyboardMouse,
         phases,
         release_reasons: [None; Action::COUNT],
+        movement_buttons: Default::default(),
     })
 }
 

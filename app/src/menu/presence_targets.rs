@@ -65,6 +65,7 @@ mod tests {
                 players: 3,
                 max_players: 100,
                 ping_ms: 20,
+                motd: String::new(),
             },
         );
         menu.feeds.pings.insert(
@@ -74,6 +75,7 @@ mod tests {
                 players: 0,
                 max_players: 50,
                 ping_ms: 0,
+                motd: String::new(),
             },
         );
         menu.realms.push(MenuRealmCard {
