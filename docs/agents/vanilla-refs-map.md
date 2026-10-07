@@ -179,6 +179,14 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
   holds). Clamp `vy < -0.2 → -0.2`; the ladder jump branch sets `0.2` and returns before the
   JumpFromGround request without a jump delay. Scaffolding constructor `0x08efe770` assigns
   property word `0x2020000` (no climbable bit).
+- `crates/sim/src/simulator/scaffolding.rs`, `simulator.rs` (scaffolding): BlockClimber
+  (mac `0x1058b3690`, helpers mac `0x1058b3d10`/`0x1058b3f80`) scans footprint columns
+  floor(min)..floor(max) at floor(min y) and floor(min y - 1) for flags 69/70, and for
+  99/100 when the block under the scaffold is not air, water or flowing water. Scaffolding
+  action `0x089909b0`: flag 100 plus sneak sets flag 71, `vy = -0.15` and zero fall distance.
+  MobJumpSystem `0x0a5dc2e0`: (69 or 99) without 71 sets `vy = 0.15` and jump delay 10 before
+  the ladder branch. Gravity setter `0x032252b0` returns when 71 and (69 or 70). Collision
+  shape mac `0x10ab628c0` keeps the top only for feet at or above it, without flag 71.
 
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
