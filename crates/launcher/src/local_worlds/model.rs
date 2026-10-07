@@ -210,7 +210,7 @@ impl WorldsMenu {
             error: self.error.clone(),
             prompt: self.prompt(),
             progress: self.progress(),
-            busy: self.busy,
+            busy: self.busy || (self.screen == Screen::Create && !self.creation_choices_loaded),
             bds_can_run: self.bds_can_run(),
             bds_unavailable: self.unavailable,
         }
@@ -480,7 +480,9 @@ impl WorldsMenu {
                 self.create.allow_cheats = enabled;
                 Vec::new()
             }
-            Input::SubmitCreate if self.screen == Screen::Create => {
+            Input::SubmitCreate
+                if self.screen == Screen::Create && self.creation_choices_loaded =>
+            {
                 self.gate(Pending::SubmitCreate)
             }
             Input::BeginEdit(index) if self.screen == Screen::List => {

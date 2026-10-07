@@ -102,7 +102,6 @@ func (m *Manager) idleLocked() {
 }
 
 // SetSetup attaches the dedicated-server installer whose status is reported and whose EULA gates BDS worlds.
-// Each detection result that becomes current re-points the default backend.
 func (m *Manager) SetSetup(setup Setup) {
 	m.setup = setup
 	setup.OnDetected(m.runtimeDetected)
@@ -154,23 +153,22 @@ func (r Runners) Start(ctx context.Context, spec StartSpec) (Instance, error) {
 func (m *Manager) List() ([]World, error) { return m.store.List() }
 
 // Create saves a new world; a BDS world is refused where BDS cannot run.
-// Unless Dragonfly was asked for, it first waits out a runtime detection in flight, so no world is saved
-// against a guessed backend.
+// BDS creation waits for runtime detection; the operator default is resolved before that decision.
 func (m *Manager) Create(spec Spec) (World, error) {
 	normalized, err := spec.normalize()
 	if err != nil {
 		return World{}, err
 	}
-	if m.setup != nil && normalized.Backend != BackendDragonfly {
+	if normalized.Backend == "" {
+		normalized.Backend = m.store.DefaultBackend()
+	}
+	if m.setup != nil && normalized.Backend == BackendBDS {
 		ctx, cancel := context.WithTimeout(context.Background(), m.runtimeWait)
 		err := m.setup.AwaitRuntime(ctx)
 		cancel()
 		if err != nil {
 			return World{}, ErrRuntimePending
 		}
-	}
-	if normalized.Backend == "" {
-		normalized.Backend = m.store.DefaultBackend()
 	}
 	if reason := m.unavailable[normalized.Backend]; reason != nil {
 		m.log.Error("cannot create local world", "backend", normalized.Backend, "error", reason)

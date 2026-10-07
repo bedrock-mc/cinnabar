@@ -1,6 +1,7 @@
 package localworld
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -109,5 +110,29 @@ func TestEverySupportedServerTerrainCombinationStaysExplicit(t *testing.T) {
 		if _, err := store.Create(Spec{Name: "Unsupported", Backend: backend, Generator: "void"}); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%s accepted unsupported Void: %v", backend, err)
 		}
+	}
+}
+
+// countedRuntimeWait detects unnecessary waits without using a timing assertion.
+type countedRuntimeWait struct {
+	*Provisioner
+	calls int
+}
+
+// AwaitRuntime reports a pending probe and records whether creation consulted it.
+func (s *countedRuntimeWait) AwaitRuntime(context.Context) error {
+	s.calls++
+	return context.DeadlineExceeded
+}
+
+func TestDefaultDragonflyCreationDoesNotConsultBDSDetection(t *testing.T) {
+	store := newTestStore(t)
+	store.SetDefaultBackend(BackendDragonfly)
+	setup := &countedRuntimeWait{Provisioner: &Provisioner{Root: t.TempDir()}}
+	manager := NewManager(store, Runners{}, nil)
+	manager.SetSetup(setup)
+	world, err := manager.Create(Spec{Name: "Default server"})
+	if err != nil || world.Backend != BackendDragonfly || setup.calls != 0 {
+		t.Fatalf("default creation = %+v, %v; runtime waits = %d", world, err, setup.calls)
 	}
 }

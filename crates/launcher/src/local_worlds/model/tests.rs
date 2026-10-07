@@ -754,3 +754,27 @@ fn an_early_server_change_keeps_the_saved_terrain_before_persisting() {
         }]
     );
 }
+
+#[test]
+fn creation_waits_for_initial_preferences_before_submitting() {
+    let mut menu = loaded(&[]);
+    menu.creation_choices_loaded = false;
+    menu.update(Input::BeginCreate);
+    assert!(menu.view().busy);
+    assert!(menu.update(Input::SubmitCreate).is_empty());
+    let mut ready = status(WorldState::Idle, "");
+    ready.setup = Some(setup(SetupState::Ready));
+    menu.apply(Event::Prefs(
+        Prefs {
+            creation_backend: Some(Backend::Bds),
+            creation_generator: Some(Generator::Flat),
+            ..Prefs::default()
+        },
+        ready,
+    ));
+    assert!(!menu.view().busy);
+    let effects = menu.update(Input::SubmitCreate);
+    assert!(
+        matches!(effects.as_slice(), [Effect::Create(spec)] if spec.backend == Some(Backend::Bds) && spec.generator == Generator::Flat)
+    );
+}
