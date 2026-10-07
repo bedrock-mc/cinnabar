@@ -154,6 +154,8 @@ pub(crate) struct MenuRuntime {
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
+    /// Developer recordings present placeholder accounts; nothing signs in or touches the store.
+    presentation_accounts: bool,
     /// The device code whose sign-in page was last opened, so each code opens once.
     sign_in_page_code: Option<String>,
     sign_out_requested: bool,
@@ -299,6 +301,11 @@ impl MenuRuntime {
             AuthState::Checking | AuthState::AwaitingCode { .. }
         ) || (auth_state == AuthState::Authenticated
             && (!self.catalog_started || self.catalog_process.is_some()));
+        let auth_state = if self.presentation_accounts {
+            AuthState::Authenticated
+        } else {
+            auth_state
+        };
         MenuView {
             visible: self.visible,
             over_world: self.over_world(),
@@ -322,7 +329,7 @@ impl MenuRuntime {
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
             vsync_override: self.vsync_override,
-            display_name: self.display_name.clone(),
+            display_name: self.presented_display_name(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
             realms: self.realms.clone(),
@@ -356,7 +363,7 @@ impl MenuRuntime {
             language_choices: std::sync::Arc::clone(&self.language_choices),
             key_remap: self.key_remap,
             settings_advanced_graphics: self.settings_advanced_graphics,
-            feeds: self.feeds.clone(),
+            feeds: self.presented_feeds(),
             store: self.store_snapshot.clone(),
             global_resources: self.global_resources.clone(),
         }
@@ -539,7 +546,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
-        if self.skin_editor_blocks(action) {
+        if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
             return;
         }
         if self.account_change_pending()
