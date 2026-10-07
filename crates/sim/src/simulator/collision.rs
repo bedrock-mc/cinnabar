@@ -109,13 +109,15 @@ pub(super) fn has_collision(
     })
 }
 
+/// Shortens the horizontal move request until the current pose's box keeps support within a step below.
 pub(super) fn clip_sneak_edge(
     world: &impl CollisionWorld,
     position: Vec3,
     velocity: Vec3,
+    height: f64,
 ) -> Result<(Vec3, Option<WorldCollisionIdentity>), WorldQueryError> {
     const OFFSET: f64 = 0.05_f32 as f64;
-    let full_player = Aabb::player_at(position);
+    let full_player = Aabb::player_with_height_at(position, height);
     let player = Aabb::new(
         Vec3::new(
             f64::from(full_player.min.x as f32 + 0.025_f32),
@@ -146,7 +148,7 @@ pub(super) fn clip_sneak_edge(
             clipped[axis] = reduce_toward_zero(clipped[axis], OFFSET);
         }
     }
-    while clipped.x != 0.0 && clipped.z != 0.0 {
+    while clipped.x != 0.0 || clipped.z != 0.0 {
         let query = bounded_collision_boxes(
             world,
             player.translated(Vec3::new(clipped.x, -STEP_HEIGHT * 1.01, clipped.z)),

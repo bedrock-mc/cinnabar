@@ -159,6 +159,7 @@ fn depenetrate_resolves_a_single_overlapping_block() {
     let block = Aabb::new(Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0));
     let cleared = sim::depenetrate_player(
         Vec3::new(0.5, 0.5, 0.5),
+        sim::PLAYER_HEIGHT,
         &[block],
         8,
         PROBE_MAX_DISPLACEMENT_BLOCKS,
@@ -177,7 +178,13 @@ fn depenetrate_refuses_displacement_beyond_the_bound() {
     // of inventing a large teleport.
     let huge = Aabb::new(Vec3::new(-10.0, -10.0, -10.0), Vec3::new(10.0, 10.0, 10.0));
     assert_eq!(
-        sim::depenetrate_player(Vec3::ZERO, &[huge], 8, PROBE_MAX_DISPLACEMENT_BLOCKS,),
+        sim::depenetrate_player(
+            Vec3::ZERO,
+            sim::PLAYER_HEIGHT,
+            &[huge],
+            8,
+            PROBE_MAX_DISPLACEMENT_BLOCKS,
+        ),
         None,
     );
 }
@@ -186,11 +193,17 @@ fn depenetrate_refuses_displacement_beyond_the_bound() {
 fn depenetrate_reports_clear_when_no_collider_overlaps() {
     let elsewhere = Aabb::new(Vec3::new(50.0, 50.0, 50.0), Vec3::new(51.0, 51.0, 51.0));
     assert_eq!(
-        sim::depenetrate_player(Vec3::ONE, &[elsewhere], 8, PROBE_MAX_DISPLACEMENT_BLOCKS),
+        sim::depenetrate_player(
+            Vec3::ONE,
+            sim::PLAYER_HEIGHT,
+            &[elsewhere],
+            8,
+            PROBE_MAX_DISPLACEMENT_BLOCKS,
+        ),
         Some(Vec3::ONE),
     );
     assert_eq!(
-        sim::depenetrate_player(Vec3::ONE, &[], 8, 1.5),
+        sim::depenetrate_player(Vec3::ONE, sim::PLAYER_HEIGHT, &[], 8, 1.5),
         Some(Vec3::ONE)
     );
 }
