@@ -2931,7 +2931,15 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `clearInProgressBAI` and `getInProgressBAI` own input intention.
   `by-owner/h/HitResultUtils.cpp`: `refreshHitResult` refreshes world pick evidence.
   `by-owner/c/ClientInputCallbacks.cpp`: `handleBuildAction` RVA `0x23178c0`
-  owns first press; selected-slot and gameplay-input routing own stopping boundaries.
+  owns first press; gameplay-input routing owns stopping boundaries.
+- Current `continueBuildBlock` at `0x28b66b0` reads the actor's current hand stack
+  on every repeat without resetting the successful destination, line, first intercept
+  or success timestamp on a selected-stack identity change. `buildBlock` at `0x28b5e60`
+  tests current-stack held-repeat eligibility before a transaction; continuation advances
+  the success timestamp only when that use returns success.
+  Named `by-owner/c/ClientInputCallbacks.cpp`: `handleSlotSelectButtonPress`
+  (3856–3933) calls inventory selection without stopping the build action;
+  `by-owner/p/PlayerInventory.cpp`: `selectSlot` (1051 onward) updates inventory only.
 - `by-owner/b/BlockItem.cpp`: `_calculatePlacePos` RVA `0xa5f6dc0`,
   replace the clicked cell when admitted, otherwise offset by face.
   `by-owner/p/PlanterItemComponent.cpp`: `getBlockPlacementContext` RVA `0xa2e0430`
