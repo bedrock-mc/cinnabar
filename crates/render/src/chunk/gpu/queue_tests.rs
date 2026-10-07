@@ -1195,3 +1195,47 @@ fn removed_components_are_reported_once_without_a_presence_scan() {
     actual.sort_unstable();
     assert_eq!(actual, expected);
 }
+
+/// A tracked change older than the key's newest one was reordered upstream and must not win.
+#[test]
+fn an_older_tracked_change_never_replaces_a_newer_one() {
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    let now = Instant::now();
+    let token = |generation| ChunkUploadToken {
+        generation,
+        dirty_since: now,
+    };
+    let urgent = ChunkUploadPriority::urgent();
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(ChunkRenderPlugin::new(1));
+
+    let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+    queue
+        .try_update_tracked(key, solid_test_mesh(), urgent, token(5))
+        .unwrap();
+    queue.try_remove_tracked(key, urgent, token(3)).unwrap();
+    assert_eq!(queue.pending[&key].generation, 5);
+    assert!(queue.removals.is_empty());
+    app.update();
+
+    let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+    assert_eq!(queue.render_manifest.get(&key), Some(&5));
+    queue.try_remove_tracked(key, urgent, token(4)).unwrap();
+    queue
+        .try_update_tracked(key, ChunkMesh::default(), urgent, token(4))
+        .unwrap();
+    assert_eq!(queue.retained_len(), 0, "stale changes are dropped");
+    assert_eq!(queue.render_manifest.get(&key), Some(&5));
+
+    queue.try_remove_tracked(key, urgent, token(6)).unwrap();
+    assert!(queue.removals.contains_key(&key));
+    queue.reset_session();
+    queue
+        .try_update_tracked(key, solid_test_mesh(), urgent, token(1))
+        .unwrap();
+    assert_eq!(
+        queue.pending[&key].generation, 1,
+        "a new session restarts generations"
+    );
+}

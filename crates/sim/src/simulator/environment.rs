@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::world::DEFAULT_SURFACE_FRICTION;
 use crate::{
     Aabb, BlockPhysicsFlags, CollisionWorld, SurfaceResponse, Vec3, WorldCollisionIdentity,
     WorldQueryError,
@@ -74,14 +75,14 @@ pub(super) fn sample(
     let block_samples = blocks.len();
     let mut identity: Option<WorldCollisionIdentity> = None;
     let mut movement = MovementEnvironment::default();
-    let mut friction = 0.6;
+    let mut friction = DEFAULT_SURFACE_FRICTION;
     for block in blocks {
         let sample = world.block_physics(block)?;
         identity = Some(match identity {
             None => sample.identity.clone(),
             Some(previous) => previous.merge(&sample.identity)?,
         });
-        if block == friction_block {
+        if block == friction_block && !probes_air(world, block, &mut identity)? {
             friction = sample.primary().friction;
         }
         if block == support {
@@ -143,6 +144,22 @@ pub(super) fn sample(
         identity,
         block_samples,
     })
+}
+
+/// Vanilla keeps the default friction over air, such as with the feet probe past a block edge.
+fn probes_air(
+    world: &(impl CollisionWorld + ?Sized),
+    block: [i32; 3],
+    identity: &mut Option<WorldCollisionIdentity>,
+) -> Result<bool, WorldQueryError> {
+    let Some(air) = world.primary_is_air(block)? else {
+        return Ok(false);
+    };
+    *identity = Some(match identity.take() {
+        None => air.identity,
+        Some(previous) => previous.merge(&air.identity)?,
+    });
+    Ok(air.value)
 }
 
 /// Checks a bounded volume against the same block-physics authority used for
