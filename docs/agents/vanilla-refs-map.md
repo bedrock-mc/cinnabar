@@ -168,6 +168,18 @@ preview build is not an exact retail/platform capture for every supported client
   Blindness registration `0x0347a4d0` identifies effect 15; sprint intent
   `0x0c5b6310` applies it only when starting sprint.
 
+## Block-interaction movement (2026-10-07)
+
+RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS build.
+
+- `crates/sim/src/simulator/environment.rs`, `simulator.rs` (climbing): walking travel
+  `0x099ccb00` and MobJumpSystem `0x0a5dc2e0` read one block at (floor x, floor AABB min y,
+  floor z); climbable is property bit 33 of `+0x130`, the sneak hold additionally needs byte
+  `+0x134` bit 2 at the same cell (which blocks carry it is untraced, so every climbable
+  holds). Clamp `vy < -0.2 → -0.2`; the ladder jump branch sets `0.2` and returns before the
+  JumpFromGround request without a jump delay. Scaffolding constructor `0x08efe770` assigns
+  property word `0x2020000` (no climbable bit).
+
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
 
@@ -1320,6 +1332,12 @@ preview build is not an exact retail/platform capture for every supported client
 - /// Native look vector used by the swimming trigger (current RVA 0x09fd25a0).
 
 ## crates/sim/src/simulator.rs
+- Ground acceleration `0x070d9630` stores speed * (0.546 / (friction * 0.91))^3 with the
+  friction block at AABB min y - 0.1 (soul sand friction * 1.225 unless Soul Speed, air
+  0.546); no block speed factor. Water acceleration `0x0dc3eeb0` reads only the water
+  movement attribute blended toward ground speed by Depth Strider; 26.30
+  `LavaTravelSystem::tickLavaTravelSystem` reads only MovementAttributesComponent, with no
+  block source. Block speed factors never reach these relative speeds.
 - // FinalizeMove uses the native float epsilon.
 - /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 - // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,

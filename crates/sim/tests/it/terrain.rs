@@ -234,8 +234,9 @@ fn grounded_movement_uses_snapshotted_authority_and_surface_formula() {
         )
         .unwrap();
 
+    // The support block's speed factor never scales ground acceleration.
     let friction: f64 = 0.91 * 0.8;
-    let expected = 0.98 * 0.25 * 1.3 * 0.4 * 0.162_771_36 / friction.powi(3);
+    let expected = 0.98 * 0.25 * 1.3 * 0.162_771_36 / friction.powi(3);
     assert!((tick.movement.z - expected).abs() <= 1.0e-7, "{tick:?}");
 }
 
@@ -611,4 +612,108 @@ fn the_edge_probe_ignores_shapes_only_the_standing_box_reaches() {
         .unwrap();
     assert!((tick.movement.x - 0.75).abs() <= 1.0e-6, "{tick:?}");
     assert!(!tick.collisions.x, "{tick:?}");
+}
+
+/// Climbing reads only the feet cell; a vine the box merely overlaps must not hold a sneaking faller.
+#[test]
+fn sneaking_beside_a_climbable_cell_keeps_falling() {
+    let mut world = TerrainWorld::default();
+    world.facts.insert(
+        [1, 4, 0],
+        BlockPhysicsFacts {
+            friction: 0.6,
+            horizontal_speed_factor: 1.0,
+            vertical_speed_factor: 1.0,
+            fluid_height_blocks: 0.0,
+            flags: BlockPhysicsFlags::CLIMBABLE,
+            surface_response: SurfaceResponse::None,
+        },
+    );
+    // Feet cell is [0, 4, 0]; the 0.6-wide box reaches x = 1.05, into the vine cell.
+    let mut state = PlayerState::new(Vec3::new(0.75, 4.2, 0.5));
+    state.velocity.y = -0.3;
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                sneaking: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(!tick.environment.on_climbable);
+    assert_eq!(tick.movement.y as f32, -0.3_f32);
+}
+
+fn climbable_at(world: &mut TerrainWorld, block: [i32; 3]) {
+    world.facts.insert(
+        block,
+        BlockPhysicsFacts {
+            friction: 0.6,
+            horizontal_speed_factor: 1.0,
+            vertical_speed_factor: 1.0,
+            fluid_height_blocks: 0.0,
+            flags: BlockPhysicsFlags::CLIMBABLE,
+            surface_response: SurfaceResponse::None,
+        },
+    );
+}
+
+/// A ladder the box only overlaps leaves an ordinary ground jump.
+#[test]
+fn ladder_beside_the_feet_cell_does_not_replace_the_ground_jump() {
+    let mut world = TerrainWorld::floor(Vec3::new(-8.0, 0.0, -8.0), Vec3::new(8.0, 1.0, 8.0));
+    climbable_at(&mut world, [1, 1, 0]);
+    let mut state = grounded(Vec3::new(0.75, 1.0, 0.5));
+    let output = Simulator::default()
+        .tick_with_controls(
+            &mut state,
+            MovementInput {
+                jumping: true,
+                jump_pressed: true,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(output.jump_initiated);
+    assert!(!output.tick_result.environment.on_climbable);
+    assert_eq!(output.tick_result.movement.y as f32, 0.42_f32);
+}
+
+/// Jumping at a ladder base climbs: no ground jump, sprint impulse or jump delay.
+#[test]
+fn jump_at_a_ladder_base_climbs_without_a_ground_jump() {
+    let mut world = TerrainWorld::floor(Vec3::new(-8.0, 0.0, -8.0), Vec3::new(8.0, 1.0, 8.0));
+    climbable_at(&mut world, [0, 1, 0]);
+    let input = MovementInput {
+        forward: 1.0,
+        sprinting: true,
+        jumping: true,
+        jump_pressed: true,
+        ..MovementInput::default()
+    };
+    let mut state = grounded(Vec3::new(0.5, 1.0, 0.5));
+    let output = Simulator::default()
+        .tick_with_controls(&mut state, input, &world)
+        .unwrap();
+    assert!(!output.jump_initiated);
+    assert!(output.tick_result.environment.on_climbable);
+    assert_eq!(output.tick_result.movement.y as f32, 0.2_f32);
+    assert_eq!(state.jump_delay, 0);
+
+    let mut walking = grounded(Vec3::new(0.5, 1.0, 0.5));
+    let walked = Simulator::default()
+        .tick(
+            &mut walking,
+            MovementInput {
+                jumping: false,
+                jump_pressed: false,
+                ..input
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(output.tick_result.movement.z, walked.movement.z);
 }

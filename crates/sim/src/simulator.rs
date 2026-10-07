@@ -227,14 +227,12 @@ impl Simulator {
             DEFAULT_AIR_FRICTION
         };
         let depth_strider = depth_strider_level(input.depth_strider, grounded_at_start);
+        // Liquid and ground speeds come from attributes and friction only; block
+        // speed factors never scale the acceleration.
         let relative_speed = if sampled.movement.in_water {
-            water_travel_speed(
-                &input,
-                sampled.movement.horizontal_speed_factor,
-                depth_strider,
-            )
+            water_travel_speed(&input, depth_strider)
         } else if sampled.movement.in_lava {
-            f64::from(DEFAULT_AIR_SPEED as f32 * sampled.movement.horizontal_speed_factor as f32)
+            DEFAULT_AIR_SPEED
         } else if grounded_at_start {
             ground_relative_speed(input, &sampled)
         } else if input.sprinting {
@@ -251,7 +249,11 @@ impl Simulator {
             relative_speed,
         );
 
+        // A held jump on a climbable feet cell climbs instead: no ground jump,
+        // sprint impulse, jump delay or start-jump report.
+        let climb_jump = input.jumping && sampled.movement.on_climbable;
         let jump_initiated = input.jump_pressed
+            && !climb_jump
             && !jump_suppressed
             && next.on_ground
             && next.jump_delay == 0
@@ -555,12 +557,8 @@ impl Simulator {
 
 /// Vanilla water travel speed: the water base blended toward the ground
 /// movement speed, multiplying the effective enchantment level before division.
-fn water_travel_speed(
-    input: &MovementInput,
-    horizontal_speed_factor: f64,
-    depth_strider: f64,
-) -> f64 {
-    let base = DEFAULT_AIR_SPEED as f32 * horizontal_speed_factor as f32;
+fn water_travel_speed(input: &MovementInput, depth_strider: f64) -> f64 {
+    let base = DEFAULT_AIR_SPEED as f32;
     let ground = effective_movement_speed(input);
     f64::from(base + ((ground - base) * depth_strider as f32) / f32::from(DEPTH_STRIDER_MAX_LEVEL))
 }
@@ -617,12 +615,8 @@ fn ground_relative_speed(input: MovementInput, sampled: &environment::SampledEnv
     } else {
         GROUND_BASE_FRICTION / drag
     };
-    let mut speed = effective_movement_speed(&input);
-    speed = speed * ratio * ratio * ratio;
-    if !soul_sand {
-        speed *= sampled.movement.horizontal_speed_factor as f32;
-    }
-    f64::from(speed)
+    let speed = effective_movement_speed(&input);
+    f64::from(speed * ratio * ratio * ratio)
 }
 
 /// Rounds the control impulse before the relative-movement calculation.
