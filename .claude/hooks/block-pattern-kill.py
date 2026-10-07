@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import sys
 
 BLOCKED = {"pkill", "killall"}
@@ -42,6 +43,8 @@ def commands(script, data=False):
             value = "".join(word)
             if redirect in {"<<", "<<-"}:
                 heredocs.append((value, quoted, redirect == "<<-", words))
+            elif redirect == "<<<":
+                segments.append((words, value + "\n"))
             elif redirect is None:
                 words.append(value)
             word.clear()
@@ -151,6 +154,8 @@ def commands(script, data=False):
 
 def command_blocked(words, depth, stdin_script=None):
     """Checks the executable and common launchers that interpret command strings."""
+    if depth > 20:
+        raise ValueError("command strings nested too deeply")
     i = 0
     while i < len(words):
         w = words[i]
@@ -164,20 +169,25 @@ def command_blocked(words, depth, stdin_script=None):
         elif name in {"bash", "sh", "zsh"}:
             i += 1
             reads_stdin = False
+            noexec = False
             while i < len(words) and words[i].startswith("-") and words[i] != "--":
                 option = words[i]
                 i += 1
+                if not option.startswith("--") and "n" in option[1:]:
+                    noexec = True
                 if not option.startswith("--") and "c" in option[1:]:
                     if i < len(words) and words[i] == "--":
                         i += 1
-                    return i < len(words) and scan(words[i], depth + 1)
+                    return not noexec and i < len(words) and scan(words[i], depth + 1)
                 if option in {"-o", "-O"}:
+                    if i < len(words) and words[i] == "noexec":
+                        noexec = True
                     i += 1
                 elif not option.startswith("--") and "s" in option[1:]:
                     reads_stdin = True
             if i < len(words) and words[i] == "--":
                 i += 1
-            return (stdin_script is not None and (reads_stdin or i == len(words)) and
+            return (not noexec and stdin_script is not None and (reads_stdin or i == len(words)) and
                     scan(stdin_script, depth + 1))
         elif name in WRAPPERS:
             takes = WRAPPERS[name]
@@ -196,7 +206,9 @@ def command_blocked(words, depth, stdin_script=None):
                         value = words[i] if i < len(words) else ""
                     else:
                         value = option.split("=", 1)[1] if option.startswith("--") else option[2:]
-                    return scan(value + " " + " ".join(words[i + 1:]), depth + 1)
+                    # env splits arguments; it does not interpret shell operators.
+                    return command_blocked(shlex.split(value, comments=True) + words[i + 1:],
+                                           depth + 1, stdin_script)
                 if option in takes:
                     i += 2
                 elif option.startswith("-") or (name == "env" and ASSIGNMENT.match(option)):
@@ -212,9 +224,7 @@ def command_blocked(words, depth, stdin_script=None):
 
 
 def scan(script, depth=0):
-    """Bounds launcher recursion so malformed or deeply nested input fails open."""
-    if depth > 20:
-        raise ValueError("command strings nested too deeply")
+    """Checks parsed commands and any stdin supplied directly to interpreters."""
     return any(command_blocked(words, depth, stdin) for words, stdin in commands(script))
 
 

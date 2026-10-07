@@ -13,6 +13,19 @@ spec.loader.exec_module(guard)
 
 
 class BlockPatternKill(unittest.TestCase):
+    def test_reviewed_launcher_forms(self):
+        for cmd in ["bash <<< 'pkill x'", "sudo sh <<< 'killall x'",
+                    "env -S 'bash -c' 'pkill x'", 'bash -n -c "$(pkill x)"']:
+            self.assertTrue(guard.blocked(cmd), cmd)
+        for cmd in [
+            "cat <<< 'pkill x'", "bash -c 'echo ok' <<< 'pkill x'",
+            "bash -n -c 'pkill x'", "bash -nc 'pkill x'",
+            "bash -o noexec -c 'pkill x'", "bash -n <<'EOF'\npkill x\nEOF",
+            "env -S 'echo hi; pkill x'", "env -S 'echo' 'hello; pkill x'",
+            "env -S 'bash -c' 'echo hi; echo pkill'",
+        ]:
+            self.assertFalse(guard.blocked(cmd), cmd)
+
     def test_nested_shell_forms(self):
         for cmd in [
             'echo "$( (echo ok); pkill x)"', "cat <(pkill x)", "cat >(killall x)",
