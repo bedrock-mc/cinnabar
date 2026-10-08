@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
@@ -33,7 +34,7 @@ pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
 pub struct SocketTransport {
     reader: FramedReader,
     frames: FrameQueue,
-    sending: Option<InFlightSend>,
+    sending: VecDeque<InFlightSend>, // accepted sends, flushed strictly in order
     peer_addr: SocketAddr,
 }
 
@@ -66,7 +67,7 @@ impl SocketTransport {
         Ok(Self {
             reader,
             frames,
-            sending: None,
+            sending: VecDeque::new(),
             peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         })
     }
@@ -83,30 +84,40 @@ impl Transport for SocketTransport {
     const USES_BATCH_PREFIX: bool = true;
 
     /// Retains the frame from the first poll until it is flushed, so a cancelled send can
-    /// neither lose nor repeat it; an earlier cancelled send finishes first.
+    /// neither lose nor repeat it; frames retained earlier finish first.
     fn poll_send(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         message: TransportMessage,
     ) -> Poll<Result<(), Self::Error>> {
         let this = self.get_mut();
-        loop {
-            let Some(sending) = this.sending.as_mut() else {
-                let frames = this.frames.clone();
-                let buffer = message.buffer.clone();
-                this.sending = Some(InFlightSend {
-                    buffer: message.buffer.clone(),
-                    write: Mutex::new(Box::pin(async move { frames.send(buffer).await })),
-                });
-                continue;
-            };
-            let current = same_buffer(&sending.buffer, &message.buffer);
-            let result = ready!(sending.poll(cx));
-            this.sending = None;
-            if current || result.is_err() {
+        if !this
+            .sending
+            .iter()
+            .any(|sending| same_buffer(&sending.buffer, &message.buffer))
+        {
+            let frames = this.frames.clone();
+            let buffer = message.buffer.clone();
+            this.sending.push_back(InFlightSend {
+                buffer: message.buffer.clone(),
+                write: Mutex::new(Box::pin(async move { frames.send(buffer).await })),
+            });
+        }
+        while let Some(front) = this.sending.front_mut() {
+            let result = ready!(front.poll(cx));
+            let finished = this
+                .sending
+                .pop_front()
+                .expect("the polled send is retained");
+            if result.is_err() {
+                this.sending.clear();
                 return Poll::Ready(result);
             }
+            if same_buffer(&finished.buffer, &message.buffer) {
+                return Poll::Ready(Ok(()));
+            }
         }
+        unreachable!("the current frame is retained until it finishes")
     }
 
     fn poll_drain_send(
@@ -114,12 +125,15 @@ impl Transport for SocketTransport {
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
         let this = self.get_mut();
-        let Some(sending) = this.sending.as_mut() else {
-            return Poll::Ready(Ok(()));
-        };
-        let result = ready!(sending.poll(cx));
-        this.sending = None;
-        Poll::Ready(result)
+        while let Some(front) = this.sending.front_mut() {
+            let result = ready!(front.poll(cx));
+            this.sending.pop_front();
+            if result.is_err() {
+                this.sending.clear();
+                return Poll::Ready(result);
+            }
+        }
+        Poll::Ready(Ok(()))
     }
 
     fn poll_recv(
@@ -138,5 +152,56 @@ impl Transport for SocketTransport {
 
     fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use futures::task::noop_waker;
+    use tokio::io::AsyncReadExt;
+
+    /// Two sends cancelled while the peer is stalled both flush on drain, once each, in order.
+    #[tokio::test]
+    async fn cancelled_sends_behind_a_pending_send_flush_in_order_on_drain() {
+        let socket_dir =
+            std::env::temp_dir().join(format!("cinnabar-socket-transport-{}", std::process::id()));
+        std::fs::create_dir_all(&socket_dir).unwrap();
+        let endpoint = bridge_endpoint_path(&socket_dir);
+        let _ = std::fs::remove_file(&endpoint);
+        let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
+        let mut transport = SocketTransport::connect(&socket_dir).await.unwrap();
+        let (mut peer, _) = listener.accept().await.unwrap();
+
+        // Too large to flush while the peer is not reading.
+        let first = Bytes::from(vec![1; 16 * 1024 * 1024]);
+        let second = Bytes::from_static(&[2, 2]);
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        for frame in [&first, &second] {
+            let poll = Pin::new(&mut transport)
+                .poll_send(&mut cx, TransportMessage::reliable(frame.clone()));
+            assert!(poll.is_pending(), "the stalled peer must hold the send");
+        }
+
+        let mut received = Vec::new();
+        let drain = async {
+            std::future::poll_fn(|cx| Pin::new(&mut transport).poll_drain_send(cx))
+                .await
+                .unwrap();
+            drop(transport);
+        };
+        let (_, read) = tokio::join!(drain, peer.read_to_end(&mut received));
+        read.unwrap();
+        let _ = std::fs::remove_file(&endpoint);
+        let _ = std::fs::remove_dir(&socket_dir);
+
+        let mut expected = Vec::new();
+        for frame in [&first, &second] {
+            expected.extend_from_slice(&(frame.len() as u32).to_be_bytes());
+            expected.extend_from_slice(frame);
+        }
+        assert_eq!(received.len(), expected.len());
+        assert!(received == expected, "both frames arrive once, in order");
     }
 }
