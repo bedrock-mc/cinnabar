@@ -26,6 +26,8 @@ mod light_multiplier;
 mod material_states;
 #[path = "actor/multitexture.rs"]
 mod multitexture;
+#[path = "actor/wind_charge.rs"]
+mod wind_charge;
 
 fn write(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);

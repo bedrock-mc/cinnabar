@@ -6,10 +6,16 @@ use std::{
     path::Path,
 };
 
-use super::{ANIMATIONS_OPTION, SETTINGS_OPTIONS, SettingsOptions};
+use super::{ANIMATIONS_OPTION, FRAME_RATE_UNLIMITED, SETTINGS_OPTIONS, SettingsOptions};
 
 const MAX_SETTINGS_BYTES: u64 = 64 * 1024;
 pub const SETTINGS_FILE: &str = "settings.json";
+/// 1: `max_framerate` 0 means Automatic and Unlimited moved past the fixed caps.
+pub const SETTINGS_SCHEMA: u32 = 1;
+
+pub(super) const fn legacy_schema() -> u32 {
+    0
+}
 
 impl SettingsOptions {
     /// Loads known settings and rejects malformed values without losing defaults.
@@ -32,6 +38,13 @@ impl SettingsOptions {
     /// Parses and validates stored values against the current option registry.
     pub fn decode(bytes: &[u8]) -> Option<Self> {
         let mut saved: Self = serde_json::from_slice(bytes).ok()?;
+        if saved.schema < 1 {
+            // Legacy files stored no limit or 0 for Unlimited, so they keep Unlimited.
+            let limit = saved.values.entry("max_framerate".to_owned()).or_insert(0);
+            if *limit == 0 {
+                *limit = FRAME_RATE_UNLIMITED;
+            }
+        }
         if let Some(toggle) = saved.values.remove("java_animations") {
             saved
                 .values

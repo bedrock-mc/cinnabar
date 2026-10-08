@@ -1,11 +1,14 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use chunk_pipeline::WorldStream;
 use client_presentation::{
     camera::{AutoFly, PITCH_LIMIT},
     local_player::LocalViewPose,
 };
-use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
+use protocol::{
+    ActorEffectAction, ActorEffectEvent, ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap,
+    WorldEvent,
+};
 
 use super::*;
 
@@ -135,6 +138,100 @@ fn finalized_input(attack_held: bool) -> SemanticInputSnapshot {
         })
         .unwrap();
     SemanticInputSnapshot::from_finalized(snapshot)
+}
+
+#[test]
+fn player_state_effects_follow_real_time_while_gameplay_keeps_virtual_delta() {
+    #[derive(Resource)]
+    struct PlayerFacts {
+        player: player_state::PlayerState,
+        ui: client_ui::ui_runtime::UiRuntime,
+    }
+    #[derive(Resource, Default)]
+    struct PlayerSnapshot(Option<mod_host::PlayerStateSnapshot>);
+
+    fn capture_player_state(
+        context: GameplayContext,
+        facts: Res<PlayerFacts>,
+        mut result: ResMut<PlayerSnapshot>,
+    ) {
+        result.0 = context.player_state(true, &facts.player, &facts.ui);
+    }
+
+    let session = 7;
+    let mut ui = client_ui::ui_runtime::UiRuntime::new(session);
+    for (sequence, effect_id, duration_ticks) in [(1, 1, 80), (2, 19, -1)] {
+        ui.apply_local_effect(
+            session,
+            sequence,
+            ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 1,
+                action: ActorEffectAction::Add,
+                effect_id,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks,
+                tick: 40,
+            },
+            1_000,
+        )
+        .unwrap();
+    }
+    let mut clock = crate::environment::WorldClock::default();
+    crate::environment::bind_session_generation(
+        &mut clock,
+        &mut crate::environment::WeatherState::default(),
+        session,
+    );
+    let mut real_time = Time::<Real>::default();
+    real_time.advance_by(Duration::from_secs(2));
+    let mut virtual_time: Time = Time::default();
+    virtual_time.advance_by(Duration::from_millis(250));
+    let mut app = app();
+    app.insert_resource(clock)
+        .insert_resource(real_time)
+        .insert_resource(virtual_time)
+        .insert_resource(PlayerFacts {
+            player: player_state::PlayerState::new(session),
+            ui,
+        })
+        .init_resource::<PlayerSnapshot>()
+        .add_systems(Update, capture_player_state);
+
+    // Long frames advance the effect clock fully even when virtual time stays below its anchor.
+    for (real_delta, remaining) in [(0, Some(60)), (2, Some(20)), (1, None)] {
+        if real_delta != 0 {
+            app.world_mut()
+                .resource_mut::<Time<Real>>()
+                .advance_by(Duration::from_secs(real_delta));
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(Duration::from_millis(250));
+        }
+        app.update();
+        let snapshot = app.world().resource::<PlayerSnapshot>().0.as_ref().unwrap();
+        let finite = snapshot.effects.iter().find(|effect| effect.effect_id == 1);
+        assert_eq!(
+            finite.map(|effect| effect.remaining_ticks.unwrap()),
+            remaining
+        );
+        let infinite = snapshot
+            .effects
+            .iter()
+            .find(|effect| effect.effect_id == 19);
+        assert_eq!(infinite.unwrap().remaining_ticks, None);
+        assert_eq!(
+            app.world()
+                .resource::<ResultSnapshot>()
+                .0
+                .as_ref()
+                .unwrap()
+                .frame_seconds,
+            0.25
+        );
+    }
 }
 
 #[test]

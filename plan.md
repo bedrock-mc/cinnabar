@@ -609,10 +609,15 @@
   default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
 - Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
   on, persisted with the settings registry and applied live.
-- On keeps the automatic present-mode policy and its DX12 remedy; off selects Immediate, else
-  Mailbox, else FIFO from the primary surface's probed modes, the same decision `--no-vsync` uses.
-  `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked to that
-  state. Incomplete: rendered Video-screen acceptance pending.
+- On keeps FIFO and its DX12 remedy. Off, and `--no-vsync`, stay tear-free: FIFO, or Mailbox when
+  the frame-rate limit outpaces the display. No setting or flag requests tearing; only hidden
+  developer surfaces present unpaced. Every choice comes from the primary surface's probed modes.
+  `--vsync`, `--no-vsync` and evidence runs pin the session and show the toggle locked.
+- Max Framerate adds Automatic (the default for new settings) before 1–240 and moves Unlimited,
+  vanilla's 0, after them; saved files without a schema keep Unlimited. `--frame-cap` replaces
+  the saved limit for the session. Automatic lets the display pace FIFO and caps confirmed
+  variable refresh at 97% of its maximum. Incomplete: no platform reports active variable
+  refresh yet, so that cap never engages; rendered Video-screen acceptance pending.
 
 ## Unfilled sub-chunk slots light as air
 
