@@ -170,9 +170,6 @@ acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
 small main work warrants checking the render stages and OS scheduling before
 changing gameplay. `render_frame` is render-world time excluding drawable acquisition.
-`input_age` runs from the update's start, where input is sampled, to the end of its render
-extraction. `input_pacing_wait` is the deliberate main-thread delay that moves the next input sample
-toward render-thread completion; `RUST_MCBE_INPUT_PACING=0` keeps measuring but never delays.
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the

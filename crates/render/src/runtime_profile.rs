@@ -49,10 +49,6 @@ pub enum RuntimeStage {
     BlockEntities,
     /// Render-world wall time for one frame, excluding the drawable-acquisition wait.
     RenderFrame,
-    /// Update start, when input is sampled, to the end of that frame's render extraction.
-    InputAge,
-    /// Main-thread wait that delays the next input sample toward render-thread completion.
-    InputPacingWait,
     /// First to last sampled GPU timestamp; absent when coverage includes only owned passes.
     GpuFrame,
     GpuShadows,
@@ -95,7 +91,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 69] = [
+    pub const ALL: [Self; 67] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -129,8 +125,6 @@ impl RuntimeStage {
         Self::Audio,
         Self::BlockEntities,
         Self::RenderFrame,
-        Self::InputAge,
-        Self::InputPacingWait,
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -273,8 +267,6 @@ impl RuntimeStage {
             Self::Audio => "audio",
             Self::BlockEntities => "block_entities",
             Self::RenderFrame => "render_frame",
-            Self::InputAge => "input_age",
-            Self::InputPacingWait => "input_pacing_wait",
             Self::GpuFrame => "gpu_frame",
             Self::GpuShadows => "gpu_shadows",
             Self::GpuOpaque => "gpu_opaque",
@@ -490,13 +482,6 @@ impl RuntimeStageProfiler {
             .latest_gpu
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Records a span measured outside a system, such as across the render handoff.
-    pub(crate) fn record(&self, stage: RuntimeStage, started: Instant, elapsed: Duration) {
-        if self.active() {
-            record_elapsed(&self.state, stage, started, elapsed);
-        }
     }
 
     /// Whether either aggregate profiling or gameplay attribution needs stage spans.

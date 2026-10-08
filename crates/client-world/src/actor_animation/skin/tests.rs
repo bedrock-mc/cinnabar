@@ -137,33 +137,47 @@ fn an_equal_source_update_becomes_the_next_unchanged_pointer_fast_path() {
 
 /// Lists and spawns one independently allocated, original custom-model appearance.
 fn profile_store(byte: u8) -> crate::actor_store::ActorStore {
+    let mut store = player_store();
+    add_player(&mut store, 1, profile_skin(byte));
+    store
+}
+
+/// A store whose standard catalog models have finished preparing.
+fn player_store() -> crate::actor_store::ActorStore {
     let mut store = crate::actor_store::ActorStore::new_with_entity_assets(
         1,
         0,
         super::super::render_frame::tests::counting_random_assets_for("minecraft:player"),
     );
+    store.finish_appearance_fixture_batch();
+    store
+}
+
+/// Lists then spawns player `id` as one wire batch would, with uuid, unique and runtime ids from `id`.
+fn add_player(store: &mut crate::actor_store::ActorStore, id: u8, skin: protocol::PlayerSkin) {
+    let sequence = u64::from(id) * 2;
     store.apply(
         1,
-        1,
+        sequence - 1,
         protocol::ActorEvent::PlayerList(protocol::PlayerListUpdateEvent {
             entries: Arc::from([protocol::PlayerListEntry::Add {
-                uuid: [1; 16],
-                unique_id: 1,
+                uuid: [id; 16],
+                unique_id: i64::from(id),
                 username: "fixture".into(),
                 verified: true,
-                skin: profile_skin(byte),
+                skin,
             }]),
         }),
     );
     store.apply(
         1,
-        2,
+        sequence,
         protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
             dimension: 0,
-            unique_id: 1,
-            runtime_id: 1,
+            unique_id: i64::from(id),
+            runtime_id: u64::from(id),
             kind: ActorKind::Player {
-                uuid: [1; 16],
+                uuid: [id; 16],
                 username: "fixture".into(),
             },
             position: [0.0; 3],
@@ -179,7 +193,6 @@ fn profile_store(byte: u8) -> crate::actor_store::ActorStore {
             links: Arc::from([]),
         }),
     );
-    store
 }
 
 /// Distinct pixels, capes and geometry reveal an incomplete appearance replacement.
@@ -263,4 +276,202 @@ fn warm_source(store: &mut ActorAnimationStore, source: &Arc<SkinGeometrySource>
     store.request_skin_preparation(source);
     store.submit_skin_preparation();
     store.finish_skin_fixture_batch();
+}
+
+/// A skin naming a catalog model, as classic skins do, has nothing to wait for.
+fn standard_skin() -> protocol::PlayerSkin {
+    let side = protocol::CLASSIC_SKIN_SIDE;
+    protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        width: side as u32,
+        height: side as u32,
+        rgba8: vec![9; side * side * 4].into(),
+        cape: None,
+        geometry: Some(Arc::new(SkinGeometrySource {
+            resource_patch: r#"{"geometry":{"default":"geometry.item"}}"#.into(),
+            geometry_data: "".into(),
+            animations: Arc::from([]),
+        })),
+    })
+}
+
+fn prepared_on_this_thread() -> usize {
+    super::preparation::PREPARED_ON_THREAD.with(std::cell::Cell::get)
+}
+
+/// Whether player `id` is drawable with its catalog model installed.
+fn drawn_with_model(store: &crate::actor_store::ActorStore, id: u64) -> bool {
+    store
+        .actor_rigs()
+        .any(|rig| rig.actor.runtime_id == id && rig.skin_geometry.is_some())
+}
+
+#[test]
+fn cold_catalog_model_prepares_off_the_frame_thread_then_resolves_inline() {
+    let mut store = player_store();
+    let prepared = prepared_on_this_thread();
+    add_player(&mut store, 1, standard_skin());
+    store.advance_interpolation_frame(0);
+    assert_eq!(
+        prepared_on_this_thread(),
+        prepared,
+        "no model work on the frame thread"
+    );
+    assert!(!drawn_with_model(&store, 1));
+    store.finish_appearance_fixture_batch();
+    store.advance_interpolation_frame(0);
+    assert!(drawn_with_model(&store, 1));
+    add_player(&mut store, 2, standard_skin());
+    store.advance_interpolation_frame(0);
+    assert!(
+        drawn_with_model(&store, 2),
+        "a warmed catalog model publishes in the frame its player is added"
+    );
+    assert_eq!(prepared_on_this_thread(), prepared);
+}
+
+#[test]
+fn standard_humanoid_skin_is_drawable_in_the_frame_it_is_added() {
+    let mut store = player_store();
+    let prepared = prepared_on_this_thread();
+    let side = protocol::CLASSIC_SKIN_SIDE;
+    let skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        width: side as u32,
+        height: side as u32,
+        rgba8: vec![9; side * side * 4].into(),
+        cape: None,
+        geometry: Some(Arc::new(SkinGeometrySource {
+            resource_patch: r#"{"geometry" : {"default" : "geometry.humanoid.customSlim"}}"#.into(),
+            geometry_data: "".into(),
+            animations: Arc::from([]),
+        })),
+    });
+    add_player(&mut store, 1, skin);
+    store.advance_interpolation_frame(0);
+    assert!(store.player_profile(1).is_some());
+    assert!(store.actor_rigs().any(|rig| rig.actor.runtime_id == 1));
+    assert_eq!(prepared_on_this_thread(), prepared);
+}
+
+#[test]
+fn custom_model_crowd_publishes_after_one_frame_per_admitted_batch() {
+    let batches = queue::MAX_SKIN_BATCHES_IN_FLIGHT;
+    let crowd = (queue::MAX_SKIN_PREPARATIONS_PER_PASS * batches) as u8;
+    let mut store = player_store();
+    for id in 1..=crowd {
+        add_player(&mut store, id, profile_skin(id));
+    }
+    // Every batch is admitted without waiting for an earlier one to finish.
+    for _ in 0..batches {
+        store.advance_interpolation_frame(0);
+    }
+    store.finish_appearance_fixture_batch();
+    store.advance_interpolation_frame(0);
+    assert_eq!(store.actor_rigs().count(), usize::from(crowd));
+}
+
+#[test]
+fn model_installed_between_ticks_advances_the_drawn_rig_generation() {
+    let mut store = player_store();
+    store.apply(
+        1,
+        1,
+        protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+            dimension: 0,
+            unique_id: 1,
+            runtime_id: 1,
+            kind: ActorKind::Player {
+                uuid: [1; 16],
+                username: "fixture".into(),
+            },
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            body_yaw: 0.0,
+            held_item: Default::default(),
+            metadata: Arc::from([]),
+            attributes: Arc::from([]),
+            properties: Arc::from([]),
+            links: Arc::from([]),
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    let drawn = store
+        .actor_rig(1)
+        .expect("a player without a profile draws");
+    assert!(drawn.skin_geometry.is_none());
+    let generation = drawn.reset_generation;
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::PlayerList(protocol::PlayerListUpdateEvent {
+            entries: Arc::from([protocol::PlayerListEntry::Add {
+                uuid: [1; 16],
+                unique_id: 1,
+                username: "fixture".into(),
+                verified: true,
+                skin: standard_skin(),
+            }]),
+        }),
+    );
+    store.advance_interpolation_frame(0);
+    store.finish_appearance_fixture_batch();
+    store.advance_interpolation_frame(0);
+    let rig = store.actor_rig(1).unwrap();
+    assert!(rig.skin_geometry.is_some());
+    // Cached pose conversions key on this; reused pose buffers must not keep the old skeleton.
+    assert_ne!(rig.reset_generation, generation);
+}
+
+/// A ticked rig whose model `source` then installs between ticks; returns its runtime id.
+fn rig_with_model_installed_between_ticks(
+    store: &mut ActorAnimationStore,
+    before_install: impl FnOnce(&mut ActorAnimationStore, u64),
+) -> u64 {
+    let actor = super::super::tests::actor_with_metadata(HashMap::new());
+    let runtime_id = actor.runtime_id;
+    store.insert(1, 0, &actor);
+    let actors = HashMap::from([(runtime_id, actor)]);
+    store.advance_tick(&actors, None, None, false, true, |_| {
+        ActorTickContext::default()
+    });
+    before_install(store, runtime_id);
+    let source = source(MODEL);
+    warm_source(store, &source);
+    store.sync_skin_model(runtime_id, Some(&source));
+    assert!(store.get(runtime_id).unwrap().skin_geometry.is_some());
+    runtime_id
+}
+
+#[test]
+fn model_installed_between_ticks_advances_the_rest_generation() {
+    let mut store = ActorAnimationStore::with_assets(
+        super::super::render_frame::tests::counting_random_assets(),
+    );
+    let mut rest_generation = 0;
+    let runtime_id = rig_with_model_installed_between_ticks(&mut store, |store, runtime_id| {
+        rest_generation = store.get(runtime_id).unwrap().rest_reset_generation;
+    });
+    // The first-person arm cache keys on this; it must not reuse the old skeleton's arm.
+    assert_ne!(
+        store.get(runtime_id).unwrap().rest_reset_generation,
+        rest_generation
+    );
+}
+
+#[test]
+fn model_installed_between_ticks_never_leaves_a_hud_pose_on_the_old_bones() {
+    let mut store = ActorAnimationStore::with_assets(
+        super::super::render_frame::tests::counting_random_assets(),
+    );
+    let runtime_id = rig_with_model_installed_between_ticks(&mut store, |store, runtime_id| {
+        let lifetime = store.runtime_to_lifetime[&runtime_id];
+        let state = store.rigs.get_mut(&lifetime).unwrap();
+        state.ui_pose = Some(state.current.clone());
+    });
+    let rig = store.get(runtime_id).unwrap();
+    let hud = store.ui_pose(runtime_id).unwrap();
+    assert_eq!(hud.len(), rig.bone_names.len());
+    assert_eq!(hud, rig.current);
 }

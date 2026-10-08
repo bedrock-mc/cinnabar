@@ -38,8 +38,6 @@ pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
 
 mod dropped_item_render;
 mod hand_rig_render;
-mod input_pacing;
-pub use input_pacing::InputPacingPlugin;
 mod lightning;
 mod lightning_render;
 mod media;

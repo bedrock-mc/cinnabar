@@ -713,7 +713,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ..default()
     });
     app.add_plugins(plugins);
-    app.add_plugins(render::InputPacingPlugin::default());
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
