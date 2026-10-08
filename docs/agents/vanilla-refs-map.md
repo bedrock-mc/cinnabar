@@ -1268,6 +1268,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 ## crates/protocol/src/ui/forms.rs
 - // ServerFormBindingInformation::createBindingData
 - // normalizes both representations through the same image value. Absent
+- Current `1.26.50.26/src/__unmapped/05.cpp`, `FUN_1454fd8b0` (`ServerFormBindingInformation::createBindingData`): menu entries are visited to collection end without a 256-item ceiling; ordered buttons retain their zero-based `option_index`. Menu count admission is governed by the packet envelope, independently of custom-form control budgets.
+
+## crates/json-ui/src/form.rs
+- The same current menu binding reference visits complete collections. Rendering preserves every admitted menu entry and selection index; existing factory and resolved-tree safety budgets reject a whole form rather than publish a shortened menu.
 
 ## crates/protocol/src/world/clocks.rs
 - /// The vanilla clock consumed by Level::getTime and the atmosphere renderer.
@@ -3481,3 +3485,18 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   4096² pages. Existing private-use glyph sizing keeps one GUI pixel per
   source texel, independently of page resolution; `BitmapFont` current
   `04.cpp:2036717–2037109` retains that private-use scale.
+
+## Actor instance and skin-budget admission
+
+- `crates/client-presentation/src/presentation/actors.rs` reserves player texture
+  families independently of resource-pack artwork; `crates/render/src/actor/rig.rs`
+  applies the shared instance and pose arenas without a separate player-count body gate.
+- Current 1.26.50.26 `src/__unmapped/04.cpp:2414793–2416195`,
+  `FUN_144e53ff0` (`queueRenderEntities` collector RTTI), traverses the candidate
+  and player vectors to their actual ends. The collector at
+  `04.cpp:2494219–2494315`, `FUN_144ede080`, appends actor records with dynamic
+  vector growth; it does not impose a 128-body limit.
+- The cached Galaxite `entity/mobs/the_entity.entity.json` selects
+  `geometry.the_entity`. A fixed 151-actor loopback scene keeps the late actor in
+  its authored frustum while a camera turn admits the background crowd; the old
+  128-body gates remove that otherwise visible actor.

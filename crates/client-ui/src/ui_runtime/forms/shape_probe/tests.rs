@@ -158,7 +158,7 @@ fn hostile_documents_obey_packet_depth_and_fixed_summary_bounds() {
     else {
         panic!("shape");
     };
-    assert_eq!(node.buttons_shape.entries, protocol::MAX_FORM_BUTTONS + 1);
+    assert_eq!(node.buttons_shape.entries, 300);
     assert_eq!(node.buttons.len(), 2);
     let Summary::Parsed { node, .. } = inspect(
         true,

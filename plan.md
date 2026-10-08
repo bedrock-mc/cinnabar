@@ -6411,7 +6411,9 @@ independent instances of a shared clip, default controller-player pause,
 version-specific Molang grammar differences and matched live sequencing remain
 incomplete. The user reports the earlier live rendering bugs fixed. A fresh
 1920×1080, DPI 1 Metal replay also retains the Entity across two enclosed rooms
-and close oblique views through a 145-frame camera crossing.
+and close oblique views through a 145-frame camera crossing. The latest live
+test reopens angle-dependent Entity visibility: the small-room witness does not
+cover a crowded map's actor admission. This gate remains incomplete.
 
 The standard world camera now uses vanilla's 0.025-block near plane, shared with
 first-person rendering and boom clearance. The former renderer default of 0.1
@@ -6421,8 +6423,13 @@ regressions fail before the correction: a wall at collision clearance intersects
 the near rectangle, and geometry 0.05 blocks ahead is clipped. Setting the
 perspective distance also updates its explicit clip plane; all 188 camera tests
 pass. The static hand fallback uses the same near distance, with its reverse-Z
-regression failing before the change and passing afterward. Fresh Metal wall
-captures and the reported live run remain open.
+regression failing before the change and passing afterward. Fresh 1920×1080,
+DPI 1 Metal before/after frames reproduce the wall hole with the former near
+plane, then retain continuous wall geometry throughout a 93-frame contact run.
+The same replay reproduces post-death radial distortion through the gameplay FOV
+modifier before the angle correction; afterward its perspective stays bounded.
+The user confirms the actual post-death distortion is fixed. The exact-version
+final-angle reference gap remains open separately from these functional results.
 
 Server packs now choose a device-compatible authored subpack when the server
 leaves its selection blank or selects an unsupported option. Legacy manifest
@@ -6431,4 +6438,26 @@ explicit choices and explicit global root selections stay intact. The actual
 Fonts archive now admits its detailed U+E141 Orebits glyph page on this device
 instead of the Lite dot. The former conversion and server admission both have
 failing-before regressions; all 52 resource-pack unit tests and its integration
-test pass. Actual Metal sidebar rendering and live user confirmation remain open.
+test pass. Fresh 1920×1080, DPI 1 Metal sidebar frames replace the Lite dot with
+the detailed purple coin, with readable text and unchanged sidebar placement.
+The tutorial stays legible at top center through a later title. Matched-version
+pixel comparison and explicit live glyph confirmation remain open.
+
+The live angle-dependent Entity disappearance has a separate actor admission
+cause. A 151-actor Metal scene retains the focal actor in authority and inside
+both camera frusta, but turning admits more map actors and drops its draw at the
+former player-body limit. Resource-pack artwork now uses the shared render arenas
+independently of player texture residency; shared skins stay usable when distinct
+skin residency fills, and invisible routes do not reserve a skin. Six admission
+and overflow regressions fail before the change and pass afterward. The existing
+fixed instance, pose and distinct-skin resource policies remain incomplete
+relative to dynamic actor collection; the after-fix rendered replay is pending.
+
+The rejected Hive menu is a well-formed button collection above the former menu
+limit. Packet-bounded menus now retain every label, image and response index;
+custom-form and NPC bounds retain their separate contracts. Engine factory and
+node budgets reject a whole form instead of publishing a shorter button list.
+Rejected binding attempts retain their input identity until model, components or
+catalog changes. Protocol, full-hierarchy and final-button response regressions
+pass. The actual Metal large-menu input replay and live menu retest are pending;
+larger hierarchy admission remains an incomplete implementation resource policy.

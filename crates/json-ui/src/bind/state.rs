@@ -60,6 +60,8 @@ pub struct BindState {
     pub(super) generation: u64,
     /// Whether any built control reads the layout’s scroll feedback.
     pub(super) scroll_observed: bool,
+    /// Whether binding omitted descendants after exhausting the shared node budget.
+    pub(crate) node_budget_exceeded: bool,
     /// The last bind's controls, which hold the memory of every live one; `controls`
     /// keeps only those dropped under still-hidden ancestors.
     pub(super) tree: Option<Box<super::Node>>,

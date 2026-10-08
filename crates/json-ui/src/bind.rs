@@ -169,6 +169,7 @@ fn bind_with(
     incremental: bool,
 ) -> Vec<String> {
     state.scroll_observed = false;
+    state.node_budget_exceeded = false;
     state.built.clear();
     let changes = match &state.data {
         Some(previous)
@@ -337,6 +338,7 @@ impl<'a> Binder<'a> {
         if self.created < crate::resolve::MAX_NODES {
             return true;
         }
+        self.state.node_budget_exceeded = true;
         self.note("bound control node limit exceeded".to_owned());
         false
     }
