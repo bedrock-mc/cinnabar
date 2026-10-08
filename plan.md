@@ -6576,3 +6576,16 @@ hardware budgets and matched-version pixel comparison remain incomplete.
   its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
 - Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
   this work does not close a visual or frame-budget gate.
+
+Bamboo visuals remain incomplete. A dedicated stalk/leaf model now separates the
+stem selector from the small/large leaf selectors, with thickness-dependent stalk
+bounds and position-dependent stem UVs and column offsets. Picking, collision,
+camera and outline bounds resolve the same column displacement; CPU terrain
+culling shares the GPU model-overhang bounds. Current pinned physics
+seeds confirm both widths and the origin offsets. Headless Metal checks cover
+all twelve pinned states from four sides and above, with continuous stalks and
+visible radial leaves. Matching headless game checks confirm selection highlights
+and server-driven cracks follow the same column offsets. Production Enhanced
+vertex normals pass an offline Metal shader fixture; live Enhanced presentation
+remains unverified. Exact target-version atlas and random-offset component
+admission still need verification; this work does not close the bamboo parity gate.

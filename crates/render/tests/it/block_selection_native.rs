@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use assets::{NetworkIdMode, RegistryRecord, RuntimeAssets, TOP_SNOW_LAYER_COUNT};
 use render::{BlockSelectionFrame, BlockSelectionTarget, CrackShape, crack_shape_from_template};
 
-fn fixture() -> (Vec<RegistryRecord>, RuntimeAssets) {
+pub(super) fn fixture() -> (Vec<RegistryRecord>, RuntimeAssets) {
     let data = include_bytes!("../../../assets/data/block-registry-v2193.bin");
     let protocol = assets::registry_header_protocol(data).unwrap();
     let records: Vec<_> = assets::read_registry_for_protocol(data, protocol)
@@ -12,7 +12,11 @@ fn fixture() -> (Vec<RegistryRecord>, RuntimeAssets) {
         .filter(|record| {
             matches!(
                 record.name.as_ref(),
-                "minecraft:air" | "minecraft:birch_stairs" | "minecraft:snow_layer"
+                "minecraft:air"
+                    | "minecraft:stone"
+                    | "minecraft:birch_stairs"
+                    | "minecraft:snow_layer"
+                    | "minecraft:bamboo"
             )
         })
         .enumerate()
@@ -33,7 +37,7 @@ fn write_pack(root: &Path) {
     fs::create_dir_all(root.join("textures/blocks")).unwrap();
     fs::write(
         root.join("blocks.json"),
-        r#"{"birch_stairs":{"textures":"test"},"snow_layer":{"textures":"test"}}"#,
+        r#"{"stone":{"textures":"test"},"birch_stairs":{"textures":"test"},"snow_layer":{"textures":"test"},"bamboo":{"textures":"test"}}"#,
     )
     .unwrap();
     fs::write(
@@ -47,6 +51,37 @@ fn write_pack(root: &Path) {
         .unwrap();
 }
 
+#[test]
+fn bamboo_overlay_surface_matches_the_column_offset() {
+    let (records, assets) = fixture();
+    let record = records
+        .iter()
+        .find(|record| {
+            if record.name.as_ref() != "minecraft:bamboo" {
+                return false;
+            }
+            let state: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
+            state["bamboo_leaf_size"]["value"] == "no_leaves"
+                && state["bamboo_stalk_thickness"]["value"] == "thin"
+        })
+        .unwrap();
+    let CrackShape::Quads(quads) = selected_shape(&assets, record, NetworkIdMode::Sequential)
+    else {
+        panic!("bamboo must retain model faces");
+    };
+    for (axis, expected) in [(0, 0.31666666), (2, 0.38333333)] {
+        let min = quads
+            .iter()
+            .flat_map(|quad| quad.corners)
+            .map(|p| p[axis])
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            (min - expected).abs() < 1.0e-6,
+            "axis {axis}: overlay {min}, stalk {expected}"
+        );
+    }
+}
+
 fn selected_shape(
     assets: &RuntimeAssets,
     record: &RegistryRecord,
@@ -57,7 +92,13 @@ fn selected_shape(
         NetworkIdMode::Hashed => record.network_hash,
     };
     let visual = assets.resolve(mode, id);
-    crack_shape_from_template(assets, visual.model_template().unwrap(), visual.variant()).unwrap()
+    crack_shape_from_template(
+        assets,
+        visual.model_template().unwrap(),
+        visual.variant(),
+        [0; 3],
+    )
+    .unwrap()
 }
 
 #[test]
@@ -181,5 +222,49 @@ fn every_partial_native_snow_highlight_top_survives_above_the_surface() {
         );
         frame.update(Some(&target), true);
         assert_eq!(frame.outline.len(), 12 * 2);
+    }
+}
+
+#[test]
+fn bamboo_destroy_surfaces_retain_the_column_stem_uv_selector() {
+    let (records, assets) = fixture();
+    for record in records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:bamboo")
+    {
+        let visual = assets.resolve(NetworkIdMode::Sequential, record.sequential_id);
+        let CrackShape::Quads(origin) = selected_shape(&assets, record, NetworkIdMode::Sequential)
+        else {
+            panic!("bamboo surfaces");
+        };
+        for (x, selector) in [(1, 2), (2, 1), (4, 2)] {
+            let CrackShape::Quads(column) = crack_shape_from_template(
+                &assets,
+                visual.model_template().unwrap(),
+                visual.variant(),
+                [x, 3, 0],
+            )
+            .unwrap() else {
+                panic!("bamboo surfaces");
+            };
+            for (index, (before, after)) in origin.iter().zip(column.iter()).enumerate() {
+                let offset = if assets::BlockFace::ALL
+                    .get(index)
+                    .is_some_and(|face| face.is_horizontal())
+                {
+                    selector as f32 * meshing::bamboo::STEM_UV_STRIDE
+                } else {
+                    0.0
+                };
+                for (a, b) in before.uvs.iter().zip(after.uvs.iter()) {
+                    assert_eq!(
+                        *b,
+                        [a[0] + offset, a[1]],
+                        "{} x={x} quad={index}",
+                        record.canonical_state
+                    );
+                }
+            }
+        }
     }
 }

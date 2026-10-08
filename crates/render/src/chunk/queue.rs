@@ -906,6 +906,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         let has_transparent_liquid = liquid_quads
             .first()
             .is_some_and(|quad| !quad.is_depth_writing());
+        let bounds = super::bounds::aabb(!model_refs.is_empty());
         let instance = ChunkRenderInstance {
             key,
             cube_quads: Arc::from(cube_quads),
@@ -934,17 +935,14 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             {
                 drop(slot.take());
             }
-            commands.entity(entity).insert(instance);
+            commands.entity(entity).insert((instance, bounds));
         } else {
             let entity = commands
                 .spawn((
                     instance,
                     Visibility::default(),
                     Transform::from_xyz(origin[0] as f32, origin[1] as f32, origin[2] as f32),
-                    Aabb {
-                        center: Vec3A::splat(8.0),
-                        half_extents: Vec3A::splat(8.0),
-                    },
+                    bounds,
                 ))
                 .id();
             entities.0.insert(key, entity);
