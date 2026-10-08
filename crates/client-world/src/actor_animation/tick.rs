@@ -38,6 +38,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) has_player_rider: bool,
     /// The local player rendered from its own camera; selects the first-person render controller.
     pub(crate) is_local_first_person: bool,
+    /// The actor belongs to this game window, including third-person and HUD views.
+    pub(crate) is_local_player: bool,
     /// Local view-bobbing preference; other actor contexts keep the native default.
     pub(crate) view_bobbing: Option<bool>,
     /// The client's own player.

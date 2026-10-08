@@ -11,6 +11,8 @@ const MAX_ATTACHABLE_STATES: usize = 256;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AttachableAnimationInput<'a> {
     pub first_person: bool,
+    /// Whether the owner belongs to the current game window.
+    pub is_local_player: bool,
     pub off_hand: bool,
     /// A chest-slot model has independent controller state from either held item.
     pub worn: bool,
@@ -262,6 +264,7 @@ impl AttachablesRuntime {
         };
         let mut context = ActorTickContext {
             is_local_first_person: input.first_person,
+            is_local_player: input.is_local_player || input.first_person,
             hand_charged: input.hand_charged,
             main_hand_max_use_ticks: input.max_use_ticks,
             attachable: Some(query_context),

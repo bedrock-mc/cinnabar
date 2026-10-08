@@ -234,6 +234,7 @@ impl ActorStore {
                     has_player_rider,
                     attachable: None,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
+                    is_local_player: is_local,
                     view_bobbing: is_local.then_some(local_view_bobbing),
                     is_local,
                     is_flying: is_local && local_flying,
