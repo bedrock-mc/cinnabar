@@ -11,7 +11,7 @@ pub(super) struct ExposureUniform {
 
 #[derive(Clone, Copy)]
 pub(super) struct CameraHistory {
-    clip_from_world: Mat4,
+    clip_from_view: Mat4,
     world_from_view: Mat4,
     viewport: UVec4,
     reset_epoch: u64,
@@ -23,13 +23,13 @@ impl CameraHistory {
     }
 
     pub fn new(
-        clip_from_world: Mat4,
+        clip_from_view: Mat4,
         world_from_view: Mat4,
         viewport: UVec4,
         reset_epoch: u64,
     ) -> Self {
         Self {
-            clip_from_world,
+            clip_from_view,
             world_from_view,
             viewport,
             reset_epoch,
@@ -52,14 +52,22 @@ impl CameraHistory {
             && dt.is_finite()
             && dt > 0.000001
             && dt <= 0.25
-            && current.clip_from_world.is_finite()
-            && old.clip_from_world.is_finite()
-            && current.clip_from_world.determinant().abs() > f32::EPSILON
+            && current.clip_from_view.is_finite()
+            && old.clip_from_view.is_finite()
+            && current.clip_from_view.determinant().abs() > f32::EPSILON
             && settings.exposure_seconds.is_finite()
             && settings.exposure_seconds > 0.0
             && settings.samples >= 3
             && old.world_from_view != current.world_from_view;
-        let reprojection = old.clip_from_world * current.clip_from_world.inverse();
+        // Subtract camera origins before transforming to avoid distant-world cancellation.
+        let mut previous_pose = old.world_from_view;
+        previous_pose.w_axis = Vec4::W;
+        let mut current_pose = current.world_from_view;
+        current_pose.w_axis = translation.truncate().extend(1.0);
+        let reprojection = old.clip_from_view
+            * previous_pose.inverse()
+            * current_pose
+            * current.clip_from_view.inverse();
         let strength = if admitted && reprojection.is_finite() {
             settings.exposure_seconds / dt
         } else {

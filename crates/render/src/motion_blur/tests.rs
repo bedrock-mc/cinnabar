@@ -19,7 +19,7 @@ fn settings() -> CameraMotionBlur {
 fn history(position: Vec3, yaw: f32, epoch: u64) -> CameraHistory {
     let pose = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw), position);
     CameraHistory::new(
-        Mat4::perspective_infinite_reverse_rh(1.2, 2.0, 0.1) * pose.inverse(),
+        Mat4::perspective_infinite_reverse_rh(1.2, 2.0, 0.1),
         pose,
         UVec4::new(0, 0, 640, 320),
         epoch,
@@ -105,6 +105,27 @@ fn exposure_uses_real_elapsed_time_and_history_allocates_nothing() {
     let start = crate::alloc_count::thread_allocations();
     std::hint::black_box(previous.advance(current, settings()));
     assert_eq!(crate::alloc_count::thread_allocations(), start);
+}
+
+#[test]
+fn motion_blur_reprojection_is_independent_of_the_world_origin() {
+    let reproject = |origin: Vec3, translation: Vec3| {
+        let mut previous = history(origin, 0.1, 0);
+        previous
+            .advance(history(origin + translation, 0.101, 0), settings())
+            .previous_clip_from_clip
+            .project_point3(Vec3::new(0.0, 0.0, 0.1))
+    };
+    for translation in [Vec3::ZERO, Vec3::new(0.125, 0.25, -0.125)] {
+        let expected = reproject(Vec3::ZERO, translation);
+        for offset in [1_000.0, 10_000.0, 100_000.0, 1_000_000.0, -1_000_000.0] {
+            let actual = reproject(Vec3::new(offset, 64.0, offset), translation);
+            assert!(
+                actual.abs_diff_eq(expected, 0.000001),
+                "{offset}: {actual:?} != {expected:?}"
+            );
+        }
+    }
 }
 
 fn reachable(graph: &RenderGraph, from: InternedRenderLabel, to: InternedRenderLabel) -> bool {

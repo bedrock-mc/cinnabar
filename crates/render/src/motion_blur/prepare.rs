@@ -80,9 +80,9 @@ pub(super) fn prepare_views(
     }
     for (entity, settings, view, resolution, target, depth, msaa, previous) in &mut views {
         let pose = view.world_from_view.to_matrix();
-        let clip = view
-            .clip_from_world
-            .unwrap_or_else(|| view.clip_from_view * pose.inverse());
+        let clip = view.clip_from_world.map_or(view.clip_from_view, |clip| {
+            (clip.as_dmat4() * pose.as_dmat4()).as_mat4()
+        });
         let mut viewport = view.viewport;
         if let Some(resolution) = resolution {
             viewport.z = resolution.0.x;

@@ -271,12 +271,7 @@ fn exposure(world_from_view: Mat4) -> ExposureUniform {
     let viewport = UVec4::new(0, 0, SIDE, SIDE);
     let mut previous = CameraHistory::new(projection(), Mat4::IDENTITY, viewport, 0);
     previous.advance(
-        CameraHistory::new(
-            projection() * world_from_view.inverse(),
-            world_from_view,
-            viewport,
-            0,
-        ),
+        CameraHistory::new(projection(), world_from_view, viewport, 0),
         CameraMotionBlur {
             exposure_seconds: 1.0 / 120.0,
             delta_seconds: 1.0 / 120.0,

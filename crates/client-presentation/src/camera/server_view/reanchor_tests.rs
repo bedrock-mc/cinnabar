@@ -142,3 +142,163 @@ fn delayed_target_acquisition_resets_only_the_snap_frame() {
     view.advance_target(1.0, &context);
     assert_eq!(view.camera_reanchor_epoch(), snapped);
 }
+
+fn target_camera(
+    rotation_speed: f32,
+    snap_to_target: bool,
+    continue_targeting: bool,
+) -> ServerCameraView {
+    let mut view = ServerCameraView::default();
+    view.apply(
+        0,
+        &CameraEvent::Presets(
+            vec![CameraPreset {
+                name: Arc::from("custom:target"),
+                inherit_from: Arc::from("minecraft:free"),
+                rotation_speed: Some(rotation_speed),
+                snap_to_target: Some(snap_to_target),
+                continue_targeting: Some(continue_targeting),
+                ..Default::default()
+            }]
+            .into(),
+        ),
+        &context(),
+    );
+    view.apply(1, &set(None), &context());
+    view.apply(
+        2,
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
+            target: Some(CameraTargetInstruction {
+                actor_unique_id: 1,
+                center_offset: None,
+            }),
+            ..Default::default()
+        })),
+        &context(),
+    );
+    view
+}
+
+fn actor(position: Vec3) -> ActorView {
+    ActorView {
+        position,
+        yaw_degrees: 180.0,
+        pitch_degrees: 0.0,
+    }
+}
+
+#[test]
+fn delayed_instant_target_acquisition_resets_motion_history_without_resetting_smooth_tracking() {
+    for (speed, snap, continuing, distance, resets) in [
+        (0.0, false, false, 10.0, true),
+        (0.0, false, true, 60.0, true),
+        (90.0, false, false, 10.0, false),
+        (90.0, true, false, 10.0, true),
+    ] {
+        let mut view = target_camera(speed, snap, continuing);
+        let before = view.camera_reanchor_epoch();
+        view.advance_target(0.01, &context());
+        assert_eq!(view.camera_reanchor_epoch(), before);
+        let initial_rotation = view.pose_override(&context()).unwrap().rotation;
+        let position = std::cell::Cell::new(Vec3::new(3.0 + distance, 4.0, 5.0));
+        let actors = |_| Some(actor(position.get()));
+        let context = ViewContext {
+            actors: &actors,
+            ..context()
+        };
+        view.advance_target(0.01, &context);
+        assert_ne!(
+            view.pose_override(&context).unwrap().rotation,
+            initial_rotation
+        );
+        assert_eq!(view.camera_reanchor_epoch() != before, resets);
+        let acquired = view.camera_reanchor_epoch();
+        position.set(position.get() + Vec3::Z);
+        view.advance_target(0.01, &context);
+        assert_eq!(view.camera_reanchor_epoch(), acquired);
+    }
+}
+
+#[test]
+fn instant_target_range_loss_and_reacquisition_reset_motion_history() {
+    let mut view = target_camera(0.0, false, false);
+    let position = std::cell::Cell::new(Vec3::new(13.0, 4.0, 5.0));
+    let actors = |_| Some(actor(position.get()));
+    let context = ViewContext {
+        actors: &actors,
+        ..context()
+    };
+    view.advance_target(0.01, &context);
+    for distance in [60.0, 10.0] {
+        let before = view.camera_reanchor_epoch();
+        let rotation = view.pose_override(&context).unwrap().rotation;
+        position.set(Vec3::new(3.0 + distance, 4.0, 5.0));
+        view.advance_target(0.01, &context);
+        assert_ne!(view.pose_override(&context).unwrap().rotation, rotation);
+        assert_ne!(view.camera_reanchor_epoch(), before);
+        let changed = view.camera_reanchor_epoch();
+        view.advance_target(0.01, &context);
+        assert_eq!(view.camera_reanchor_epoch(), changed);
+    }
+}
+
+#[test]
+fn delayed_attachment_arrival_loss_and_rearrival_reset_motion_history() {
+    let mut view = ServerCameraView::default();
+    view.apply(
+        1,
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
+            attach_to_entity: Some(1),
+            ..Default::default()
+        })),
+        &context(),
+    );
+    assert!(view.pose_override(&context()).is_none());
+    let before = view.camera_reanchor_epoch();
+    view.advance_target(0.01, &context());
+    assert_eq!(view.camera_reanchor_epoch(), before);
+    let attached = std::cell::Cell::new(None);
+    let actors = |_| attached.get();
+    let context = ViewContext {
+        actors: &actors,
+        ..context()
+    };
+    for available in [true, false, true] {
+        let before = view.camera_reanchor_epoch();
+        let position = Vec3::new(8.0, 0.0, 0.0);
+        attached.set(available.then(|| actor(position)));
+        view.advance_target(0.01, &context);
+        assert_eq!(
+            view.pose_override(&context).map(|pose| pose.translation),
+            available.then_some(position)
+        );
+        assert_ne!(view.camera_reanchor_epoch(), before);
+        let changed = view.camera_reanchor_epoch();
+        attached.set(available.then(|| actor(position + Vec3::X)));
+        view.advance_target(0.01, &context);
+        assert_eq!(view.camera_reanchor_epoch(), changed);
+    }
+}
+
+#[test]
+fn unavailable_attachment_does_not_reanchor_a_stationary_free_camera() {
+    let mut view = free_camera();
+    view.apply(1, &set(None), &context());
+    view.apply(
+        2,
+        &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
+            attach_to_entity: Some(1),
+            ..Default::default()
+        })),
+        &context(),
+    );
+    let before = view.camera_reanchor_epoch();
+    let pose = view.pose_override(&context()).unwrap();
+    let context = ViewContext {
+        actors: &|_| Some(actor(Vec3::X)),
+        ..context()
+    };
+    view.advance_target(0.01, &context);
+    assert_eq!(view.pose_override(&context).unwrap(), pose);
+    assert_eq!(view.camera_reanchor_epoch(), before);
+}

@@ -99,8 +99,15 @@ impl TargetFocus {
         true
     }
 
-    pub fn awaits_snap(&self) -> bool {
-        self.settings.snap_to_target && !self.acquired
+    /// Acquisition and range changes can cut instantly; established tracking stays continuous.
+    pub fn reanchored_since(&self, previous: Self) -> bool {
+        self.current != previous.current
+            && if self.settings.rotation_speed <= 0.0 {
+                !previous.found
+                    || (!self.settings.continue_targeting && self.acquired != previous.acquired)
+            } else {
+                self.settings.snap_to_target && !previous.acquired && self.acquired
+            }
     }
 
     /// Preserves the last rendered target orientation after the actor is removed.

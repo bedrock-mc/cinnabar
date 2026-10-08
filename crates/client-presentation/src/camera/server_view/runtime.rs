@@ -187,6 +187,7 @@ pub struct ServerCameraView {
     active_control_scheme: Option<u8>,
     active_preset_index: Option<usize>,
     attached: Option<i64>,
+    attachment_ready: bool,
     active_listener: Option<u8>,
     active_player_effects: Option<bool>,
     yaw_limits: Option<[f32; 2]>,
@@ -507,6 +508,25 @@ impl ServerCameraView {
             || Pose::from_transform(&context.base),
             |t| Pose::from_transform(&t),
         )
+    }
+
+    /// Late actor arrival and removal switch the camera between its attachment and player fallback.
+    fn observe_attachment(&mut self, context: &ViewContext<'_>) {
+        let ready = self
+            .attached
+            .is_some_and(|id| (context.actors)(id).is_some());
+        if ready != self.attachment_ready {
+            self.attachment_ready = ready;
+            if !matches!(
+                self.pose,
+                Some(PoseBlend {
+                    to: Target::Fixed(_),
+                    ..
+                })
+            ) {
+                self.camera_reanchor_epoch = self.camera_reanchor_epoch.wrapping_add(1);
+            }
+        }
     }
 
     /// Follows `inherit_from` names through the registry, returning the first value each field
