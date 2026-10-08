@@ -10,7 +10,8 @@ use tokio::sync::oneshot;
 pub(super) trait OutboundSession: Send + 'static {
     type Error: std::fmt::Display + Send;
 
-    /// Writes `packets` as one batch behind every batch already written.
+    /// Writes `packets` as one batch behind every batch already written; resolves only once
+    /// the batch is flushed, so receipts never describe an unsent packet.
     fn send_batch(
         &mut self,
         packets: Vec<Packet>,
@@ -29,7 +30,7 @@ impl OutboundSession for protocol::PlayOutbound {
         &mut self,
         packets: Vec<Packet>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        std::future::ready(protocol::PlayOutbound::send_batch(self, &packets))
+        async move { protocol::PlayOutbound::send_batch(self, &packets).await }
     }
 
     fn take_finish_loading(&mut self) -> Vec<Packet> {

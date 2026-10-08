@@ -1,9 +1,12 @@
+use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::sync::Mutex;
+use std::task::{Context, Poll, ready};
 
 use bridge::{BridgeError, FrameQueue, FramedReader};
+use bytes::Bytes;
 use futures::Stream;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
 
@@ -30,7 +33,31 @@ pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
 pub struct SocketTransport {
     reader: FramedReader,
     frames: FrameQueue,
+    sending: Option<InFlightSend>,
     peer_addr: SocketAddr,
+}
+
+type FrameSend = Pin<Box<dyn Future<Output = Result<(), BridgeError>> + Send>>;
+
+/// A send retained across cancellation until its frame is flushed.
+struct InFlightSend {
+    buffer: Bytes,
+    // Only reached through `&mut`; the mutex just keeps the transport `Sync`.
+    write: Mutex<FrameSend>,
+}
+
+impl InFlightSend {
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), BridgeError>> {
+        self.write
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_mut()
+            .poll(cx)
+    }
+}
+
+fn same_buffer(left: &Bytes, right: &Bytes) -> bool {
+    left.len() == right.len() && left.as_ptr() == right.as_ptr()
 }
 
 impl SocketTransport {
@@ -39,6 +66,7 @@ impl SocketTransport {
         Ok(Self {
             reader,
             frames,
+            sending: None,
             peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         })
     }
@@ -54,13 +82,44 @@ impl Transport for SocketTransport {
 
     const USES_BATCH_PREFIX: bool = true;
 
-    /// Accepts the frame on the first poll, so a cancelled send can neither lose nor repeat it.
+    /// Retains the frame from the first poll until it is flushed, so a cancelled send can
+    /// neither lose nor repeat it; an earlier cancelled send finishes first.
     fn poll_send(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         message: TransportMessage,
     ) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(self.frames.send(message.buffer))
+        let this = self.get_mut();
+        loop {
+            let Some(sending) = this.sending.as_mut() else {
+                let frames = this.frames.clone();
+                let buffer = message.buffer.clone();
+                this.sending = Some(InFlightSend {
+                    buffer: message.buffer.clone(),
+                    write: Mutex::new(Box::pin(async move { frames.send(buffer).await })),
+                });
+                continue;
+            };
+            let current = same_buffer(&sending.buffer, &message.buffer);
+            let result = ready!(sending.poll(cx));
+            this.sending = None;
+            if current || result.is_err() {
+                return Poll::Ready(result);
+            }
+        }
+    }
+
+    fn poll_drain_send(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let this = self.get_mut();
+        let Some(sending) = this.sending.as_mut() else {
+            return Poll::Ready(Ok(()));
+        };
+        let result = ready!(sending.poll(cx));
+        this.sending = None;
+        Poll::Ready(result)
     }
 
     fn poll_recv(

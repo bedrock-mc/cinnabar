@@ -443,8 +443,8 @@ impl<T: Transport> PlaySession<T> {
                     .as_mut()
                     .expect("the status packet came from a pending cache delivery")
                     .status_send_in_flight = true;
-                // SocketTransport accepts a frame on its first poll. Transfer ownership before
-                // awaiting so cancellation cannot logically resend it.
+                // SocketTransport retains an accepted frame until that exact frame flushes.
+                // Transfer ownership before awaiting so cancellation cannot logically resend it.
                 if let Err(error) = self.send(status_packet).await {
                     self.reset_blob_cache_pending();
                     return Err(error);

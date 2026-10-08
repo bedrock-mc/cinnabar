@@ -1182,6 +1182,233 @@ async fn ready_outbound_hook_is_handled_before_ready_inbound_work() {
     assert!(matches!(work, NetworkPumpWork::Hook("hook")));
 }
 
+/// Movement, chat and sub-chunk receipts wait for the batch's write, and a failed write
+/// publishes none of them.
+#[tokio::test]
+async fn receipts_wait_for_a_blocked_write_and_never_follow_a_failed_one() {
+    struct BlockedWriteSession(Option<oneshot::Receiver<Result<(), &'static str>>>);
+    impl NetworkSession for BlockedWriteSession {
+        type Error = &'static str;
+        type Outbound = PacketOutbound<&'static str>;
+
+        fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+            let mut outcome = self.0.take();
+            Ok(PacketOutbound::new(move |_| {
+                let outcome = outcome.take();
+                async move {
+                    match outcome {
+                        Some(outcome) => outcome.await.unwrap_or(Err("write abandoned")),
+                        None => Ok(()),
+                    }
+                }
+            }))
+        }
+
+        async fn receive_world_event(&mut self, _: i32) -> Result<WorldEvent, Self::Error> {
+            future::pending().await
+        }
+
+        fn decode_error_count(&self) -> u64 {
+            0
+        }
+    }
+
+    for outcome in [Ok(()), Err("socket write failed")] {
+        let identity = protocol::PhysicsSendIdentity {
+            session_generation: 7,
+            tick: 101,
+            admission_id: 3,
+            reanchor_epoch: 0,
+        };
+        let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+        for (physics, chat, sub_chunk) in [
+            (Some(identity), None, None),
+            (
+                None,
+                Some(super::ChatPacketSend {
+                    session: 7,
+                    sequence: 11,
+                    fast_transfer_action: None,
+                }),
+                None,
+            ),
+            (
+                None,
+                None,
+                Some(super::SubChunkRequestSend {
+                    chunk: world::ChunkKey::new(0, 1, 2),
+                    base_sub_chunk_y: -4,
+                    count: 1,
+                }),
+            ),
+        ] {
+            commands
+                .try_send(NetworkCommand::Send {
+                    packet: test_packet(),
+                    sub_chunk,
+                    chat,
+                    physics,
+                    physics_reanchor: None,
+                    interaction: None,
+                })
+                .unwrap();
+        }
+        commands.try_send(NetworkCommand::FlushFrame).unwrap();
+        let (finish_write, write_outcome) = oneshot::channel();
+        let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+        let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+        let (shutdown, shutdown_rx) = watch::channel(false);
+        let worker = tokio::spawn(run_network_pump(
+            BlockedWriteSession(Some(write_outcome)),
+            NetworkSequencer::new(7, 0, 42),
+            command_rx,
+            control_event_tx,
+            world_event_tx,
+            shutdown_rx,
+        ));
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            controls.try_recv().is_err(),
+            "nothing may be published while the write is blocked"
+        );
+
+        let failed = outcome.is_err();
+        finish_write.send(outcome).unwrap();
+        let mut events = Vec::new();
+        while let Ok(Some(event)) =
+            tokio::time::timeout(Duration::from_secs(5), controls.recv()).await
+        {
+            let terminal = matches!(event, NetworkControlEvent::Failed { .. });
+            events.push(event);
+            if terminal || events.len() == 3 {
+                break;
+            }
+        }
+        let receipts = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    NetworkControlEvent::PhysicsPacketSent { .. }
+                        | NetworkControlEvent::ChatPacketSent { .. }
+                        | NetworkControlEvent::SubChunkRequestSent { .. }
+                )
+            })
+            .count();
+        assert_eq!(receipts, if failed { 0 } else { 3 });
+        shutdown.send_replace(true);
+        worker.await.unwrap();
+    }
+}
+
+/// The transfer barrier, and every inbound event after it, waits for the transfer write.
+#[tokio::test]
+async fn transfer_barrier_waits_for_its_write_to_complete() {
+    struct HeldTransferSession {
+        inbound: VecDeque<WorldEvent>,
+        write_gate: Option<oneshot::Receiver<()>>,
+    }
+    impl NetworkSession for HeldTransferSession {
+        type Error = &'static str;
+        type Outbound = PacketOutbound<&'static str>;
+
+        fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+            let mut gate = self.write_gate.take();
+            Ok(PacketOutbound::new(move |_| {
+                let gate = gate.take();
+                async move {
+                    if let Some(gate) = gate {
+                        let _ = gate.await;
+                    }
+                    Ok(())
+                }
+            }))
+        }
+
+        async fn receive_world_event(&mut self, _: i32) -> Result<WorldEvent, Self::Error> {
+            match self.inbound.pop_front() {
+                Some(event) => Ok(event),
+                None => future::pending().await,
+            }
+        }
+
+        fn decode_error_count(&self) -> u64 {
+            0
+        }
+    }
+
+    let (world_event_tx, mut world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    commands
+        .try_send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: Some(super::ChatPacketSend {
+                session: 7,
+                sequence: 11,
+                fast_transfer_action: Some(protocol::FastTransferAction::TransferSm3),
+            }),
+            physics: None,
+            physics_reanchor: None,
+            interaction: None,
+        })
+        .unwrap();
+    commands.try_send(NetworkCommand::FlushFrame).unwrap();
+    let (open_write, write_gate) = oneshot::channel();
+    let (control_event_tx, _controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(run_network_pump(
+        HeldTransferSession {
+            inbound: VecDeque::from([WorldEvent::ChunkRadiusUpdated(8)]),
+            write_gate: Some(write_gate),
+        },
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+    ));
+    let mut before_write = Vec::new();
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+        while let Ok(event) = world_events.try_recv() {
+            before_write.push(event);
+        }
+    }
+    assert!(
+        !before_write
+            .iter()
+            .any(|event| matches!(event, WorldIngress::FastTransferBarrier { .. })),
+        "the barrier must not land before its write completes"
+    );
+
+    open_write.send(()).unwrap();
+    let mut events = before_write;
+    while !events
+        .iter()
+        .any(|event| matches!(event, WorldIngress::FastTransferBarrier { .. }))
+        || events.len() < 2
+    {
+        events.push(
+            tokio::time::timeout(Duration::from_secs(5), world_events.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    let barrier = events
+        .iter()
+        .position(|event| matches!(event, WorldIngress::FastTransferBarrier { .. }))
+        .unwrap();
+    // Whatever was decoded before the trace armed precedes the barrier; nothing decoded while
+    // the write was pending may slip ahead of it.
+    assert!(events[..barrier].len() <= 1);
+    shutdown.send_replace(true);
+    worker.await.unwrap();
+}
+
 /// Packets queued in one frame leave as one batch, in queue order, and an empty frame sends
 /// nothing.
 #[tokio::test]

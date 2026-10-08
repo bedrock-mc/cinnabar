@@ -88,7 +88,9 @@ async fn round_trip(
     frames: &bridge::FrameQueue,
     payload: Bytes,
 ) -> Result<()> {
-    frames.send(payload.clone())?;
+    tokio::time::timeout(IO_TIMEOUT, frames.send(payload.clone()))
+        .await
+        .context("timed out sending frame")??;
     let echoed = tokio::time::timeout(IO_TIMEOUT, reader.next())
         .await
         .context("timed out receiving echoed frame")?

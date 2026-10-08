@@ -24,8 +24,9 @@ impl PlaySession<SocketTransport> {
 }
 
 impl PlayOutbound {
-    /// Queues `packets` as one batch behind every frame already accepted.
-    pub fn send_batch(&mut self, packets: &[Packet]) -> Result<(), ProtocolError> {
+    /// Writes `packets` as one batch behind every frame already accepted; resolves once the
+    /// batch is flushed, waiting for queue capacity first.
+    pub async fn send_batch(&mut self, packets: &[Packet]) -> Result<(), ProtocolError> {
         if packets.is_empty() {
             return Ok(());
         }
@@ -35,6 +36,7 @@ impl PlayOutbound {
         let frame = self.encoder.encode(packets)?;
         self.frames
             .send(frame)
+            .await
             .map_err(|error| ProtocolError::Bridge(error.into()))
     }
 
