@@ -3,11 +3,13 @@
 use super::Painter;
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use ui::{
-    UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual,
+    UiBlendMode, UiLimits, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual,
     mod_hud::{Crosshair, CrosshairShape},
 };
 
 const MAX_CACHED_CROSSHAIRS: usize = 16;
+// Draw emission expands each triangle corner into one retained vertex.
+const MAX_GRID_CELLS: usize = (UiLimits::MAX_UI_VERTICES / 6).isqrt();
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct Key {
     shape: CrosshairShape,
@@ -130,7 +132,7 @@ fn mesh(key: Key) -> Option<UiMesh> {
     if !side.is_finite() || side <= 0. {
         return None;
     }
-    let cells = side.ceil().clamp(4., 256.) as usize;
+    let cells = (side.ceil() as usize).clamp(4, MAX_GRID_CELLS);
     let mut vertices = Vec::with_capacity((cells + 1) * (cells + 1));
     for y in 0..=cells {
         for x in 0..=cells {
@@ -211,5 +213,31 @@ mod tests {
         assert_eq!(coverage_color(ring, [8., 0.]), [255; 4]);
         assert!(coverage_color(ring, [9.5, 0.])[3] > 0);
         assert_eq!(coverage_color(ring, [15., 0.])[3], 0);
+    }
+    #[test]
+    fn maximum_crosshair_geometry_fits_the_mesh_budget_at_maximum_gui_scale() {
+        let px = ui::gui_scale([7680, 4320], None) as f32;
+        for shape in [
+            CrosshairShape::Cross,
+            CrosshairShape::Dot,
+            CrosshairShape::Circle,
+        ] {
+            for thickness in [0.5_f32, 8.] {
+                for outline in [0_f32, 4.] {
+                    let key = Key {
+                        size: 16_f32.to_bits(),
+                        gap: 12_f32.to_bits(),
+                        thickness: thickness.to_bits(),
+                        outline: outline.to_bits(),
+                        ..key(shape, px)
+                    };
+                    let mesh = mesh(key)
+                        .expect("valid cosmetic geometry stays within the host mesh limits");
+                    assert!(!mesh.indices().is_empty());
+                    assert!(mesh.indices().len() <= UiLimits::MAX_UI_VERTICES);
+                    assert!(mesh.vertices().len() <= UiLimits::MAX_UI_VERTICES);
+                }
+            }
+        }
     }
 }
