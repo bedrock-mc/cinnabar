@@ -3658,3 +3658,7 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `_mapRawInputToLayout` (`0x02917690`) identifies the matching dispatch;
   `KeyboardRemappingLayout::setMappingWithRawInput` (`0x02dae7c0`) replaces
   the selected action's key list and preserves other actions.
+
+## app/src/runtime/world.rs (committed control fence); app/src/tests/latency_fences.rs
+
+- Vanilla handles inbound packets in wire order every frame after the tick loop (`Minecraft::update` → `NetworkSystem::runEvents`, macOS ~1.26.30 0x10992bf20/0x105a32410). `LegacyClientNetworkHandler::handle(SetActorMotionPacket)` applies tick-zero motion immediately and `_onCorrectPlayerMovePredictionPacket` `0x04ae6670` feeds the correction into the replay frame when handled (entries above), so nothing ahead of a later NetworkStackLatency probe waits for that probe's reply. Cinnabar defers only the probe and later controls while older inputs drain, preserving the wire order input → reply → input reflecting post-probe state.
