@@ -2,6 +2,7 @@
 use super::*;
 use gameplay::melee::{Crosshair, classify, pick_actor};
 
+/// Resolves an admitted press against the fresh actor/block pick before block use.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn produce(
     context: &BlockUseContext,
