@@ -47,6 +47,10 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                 let id = variants.specialize(&cache, key).unwrap();
                 let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
                 assert_eq!(descriptor.multisample.count, msaa.samples());
+                assert_eq!(
+                    descriptor.multisample.alpha_to_coverage_enabled,
+                    msaa.samples() > 1 && !blended && shader != LIQUID_SHADER_HANDLE
+                );
                 assert_eq!(descriptor.primitive.cull_mode, None);
                 assert_eq!(
                     descriptor.primitive.front_face,
@@ -206,12 +210,51 @@ fn solid_cube_pipeline_culls_back_faces_without_fragment_discards() {
             assert_eq!(cutout.primitive.cull_mode, None);
             let fragment = solid.fragment.as_ref().unwrap();
             assert_eq!(fragment.entry_point.as_deref(), Some("fragment_solid"));
-            // Everything except culling and the fragment entry matches the cutout pipeline.
+            // Solid cubes retain their own culling and full sample coverage.
             let mut expected = cutout.clone();
             expected.label = solid.label.clone();
             expected.primitive.cull_mode = solid.primitive.cull_mode;
             expected.fragment.as_mut().unwrap().entry_point = fragment.entry_point.clone();
+            expected.multisample.alpha_to_coverage_enabled = false;
+            expected
+                .fragment
+                .as_mut()
+                .unwrap()
+                .shader_defs
+                .retain(|definition| definition != &crate::alpha_coverage::SHADER_DEF.into());
             assert_eq!(format!("{solid:?}"), format!("{expected:?}"));
+        }
+    }
+}
+
+#[test]
+fn cutout_pipeline_warmup_covers_every_sample_count() {
+    use crate::pipeline_warmup::{PrewarmPipelines, WarmView};
+    let (app, _) = crate::queue_review_support::app();
+    let cache = app.world().resource::<PipelineCache>();
+    let mut pipelines = ChunkPipeline::from_world(&mut World::new());
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+        for hdr in [false, true] {
+            let mut ids = Vec::new();
+            pipelines
+                .prewarm(
+                    cache,
+                    WarmView {
+                        msaa,
+                        hdr,
+                        enhanced: false,
+                    },
+                    &mut ids,
+                )
+                .unwrap();
+            let key = ChunkPipelineKey {
+                msaa,
+                hdr,
+                enhanced: false,
+            };
+            for variants in [&mut pipelines.variants, &mut pipelines.model_variants] {
+                assert!(ids.contains(&variants.specialize(cache, key).unwrap()));
+            }
         }
     }
 }

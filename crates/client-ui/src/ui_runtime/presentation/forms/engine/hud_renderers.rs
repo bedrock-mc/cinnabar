@@ -324,6 +324,7 @@ pub(super) fn with_java_hud(vanilla: &json_ui::Catalog) -> json_ui::Catalog {
     super::super::graphics_expander::install(&mut catalog);
     super::super::always_sprint_setting::install(&mut catalog);
     super::super::vsync_setting::install(&mut catalog);
+    super::super::smaa_setting::install(&mut catalog);
     super::super::java_animations_setting::install(&mut catalog);
     super::super::discord_presence_setting::install(&mut catalog);
     super::super::crosshair_settings::install(&mut catalog);

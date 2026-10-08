@@ -1,7 +1,8 @@
 //! Reset groups follow the controls authored in general_section.json.
 
 use super::{
-    INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS, SettingsOptions, THIRD_PERSON_CROSSHAIR_OPTION,
+    INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS, SMAA_OPTION, SettingsOptions,
+    THIRD_PERSON_CROSSHAIR_OPTION,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -15,9 +16,13 @@ impl SettingsGroup {
     /// Limits resets to registered controls in the authored section, including shared controls.
     fn contains(self, name: &str) -> bool {
         if self == Self::Video
-            && [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION]
-                .iter()
-                .any(|option| option.name == name)
+            && [
+                THIRD_PERSON_CROSSHAIR_OPTION,
+                INVERT_CROSSHAIR_OPTION,
+                SMAA_OPTION,
+            ]
+            .iter()
+            .any(|option| option.name == name)
         {
             return true;
         }

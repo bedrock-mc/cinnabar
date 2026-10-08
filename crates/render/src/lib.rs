@@ -1,7 +1,10 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+mod alpha_coverage;
+mod depth_smaa;
 #[cfg(test)]
 #[path = "../tests/it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
+pub use depth_smaa::DepthSmaaPlugin;
 mod lighting;
 mod lightmap;
 #[cfg(test)]

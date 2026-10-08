@@ -2,6 +2,7 @@
 
 use super::{CameraSettingsAuthority, FlyCamera};
 use bevy::{
+    anti_alias::smaa::Smaa,
     core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
     prelude::*,
     render::{
@@ -98,16 +99,26 @@ fn attachment_support(
     ))
 }
 
-/// Changes only the camera component when a setting selects a different supported count.
+/// Updates world-camera coverage and spatial smoothing only when their settings change.
 pub fn apply_camera_antialiasing(
+    mut commands: Commands,
     settings: Res<CameraSettingsAuthority>,
     support: Res<CameraAntiAliasingSupport>,
-    mut cameras: Query<&mut Msaa, With<FlyCamera>>,
+    mut cameras: Query<(Entity, &mut Msaa, Option<&Smaa>), With<FlyCamera>>,
 ) {
     let desired = support.msaa(settings.anti_aliasing_samples());
-    for mut msaa in &mut cameras {
+    for (entity, mut msaa, smaa) in &mut cameras {
         if *msaa != desired {
             *msaa = desired;
+        }
+        match (settings.smaa_mode(), smaa.is_some()) {
+            (ui::SmaaMode::Smaa, false) => {
+                commands.entity(entity).insert(Smaa::default());
+            }
+            (ui::SmaaMode::Off, true) => {
+                commands.entity(entity).remove::<Smaa>();
+            }
+            _ => {}
         }
     }
 }
@@ -199,5 +210,56 @@ mod tests {
                 .unwrap()
                 .is_changed()
         );
+    }
+
+    #[test]
+    fn spatial_antialiasing_follows_world_settings_without_touching_other_cameras() {
+        let mut app = App::new();
+        app.init_resource::<CameraSettingsAuthority>()
+            .init_resource::<CameraAntiAliasingSupport>()
+            .add_systems(Update, apply_camera_antialiasing);
+        let world_camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Msaa::Off))
+            .id();
+        let ui_camera = app.world_mut().spawn(Msaa::Off).id();
+        app.update();
+        assert!(app.world().get::<Smaa>(world_camera).is_none());
+        let mut user = ui::UserSettings::default();
+        user.video.smaa_mode = ui::SmaaMode::Smaa;
+        for (generation, samples) in [1, 4].into_iter().enumerate() {
+            user.video.anti_aliasing_samples = samples;
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .replace(generation as u64 + 1, &user)
+                .unwrap();
+            app.update();
+            assert!(
+                app.world().get::<Smaa>(world_camera).unwrap().preset
+                    == bevy::anti_alias::smaa::SmaaPreset::High
+            );
+            assert_eq!(
+                app.world().get::<Msaa>(world_camera).unwrap().samples(),
+                samples
+            );
+            assert!(app.world().get::<Smaa>(ui_camera).is_none());
+        }
+        app.world_mut().clear_trackers();
+        app.update();
+        assert!(
+            !app.world()
+                .entity(world_camera)
+                .get_ref::<Smaa>()
+                .unwrap()
+                .is_changed()
+        );
+        user.video.smaa_mode = ui::SmaaMode::Off;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(3, &user)
+            .unwrap();
+        app.update();
+        assert!(app.world().get::<Smaa>(world_camera).is_none());
+        assert_eq!(app.world().get::<Msaa>(world_camera).unwrap().samples(), 4);
     }
 }

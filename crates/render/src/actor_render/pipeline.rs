@@ -88,6 +88,7 @@ impl ActorPipeline {
     }
 }
 
+/// Requests every distinct raster contract before the first actor reaches a view.
 fn prewarm_materials() -> impl Iterator<Item = u32> {
     let kinds = [
         assets::EntityRenderMaterial::Default,
@@ -97,14 +98,16 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
     let ordinary = kinds.into_iter().flat_map(|kind| {
         [false, true].into_iter().flat_map(move |cull| {
             [false, true].into_iter().flat_map(move |blend| {
-                [false, true].into_iter().map(move |depth_write| {
-                    kind.word(Some(assets::EntityRenderMaterialState {
-                        alpha_test: false,
-                        cull,
-                        blend,
-                        depth_write,
-                        ..Default::default()
-                    }))
+                [false, true].into_iter().flat_map(move |depth_write| {
+                    [false, true].into_iter().map(move |alpha_test| {
+                        kind.word(Some(assets::EntityRenderMaterialState {
+                            alpha_test,
+                            cull,
+                            blend,
+                            depth_write,
+                            ..Default::default()
+                        }))
+                    })
                 })
             })
         })
@@ -339,9 +342,11 @@ pub(super) struct ActorPipelineContract {
     depth_write: bool,
     additive: bool,
     additive_alpha: bool,
+    alpha_to_coverage: bool,
 }
 
 impl ActorPipelineKey {
+    /// Coalesces shader-only material flags while retaining distinct coverage and depth states.
     fn contract(self) -> ActorPipelineContract {
         let state = crate::actor::material::state(self.material).unwrap_or(
             assets::EntityRenderMaterialState {
@@ -379,6 +384,13 @@ impl ActorPipelineKey {
             depth_write: state.depth_write,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,
+            alpha_to_coverage: self.msaa.samples() > 1
+                && state.alpha_test
+                && !state.blend
+                && !state.emissive
+                && self.material & assets::EntityRenderMaterialState::KIND_MASK
+                    != assets::EntityRenderMaterial::Dragon as u32
+                && kind == assets::EntityRenderMaterial::Default,
         }
     }
 }
@@ -398,6 +410,7 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
     ) -> Result<Canonical<Self::Key>, BevyError> {
         let contract = key.contract();
         descriptor.multisample.count = contract.msaa.samples();
+        crate::alpha_coverage::apply(descriptor, contract.alpha_to_coverage);
         if let Some(state) = crate::actor::material::state(key.material) {
             descriptor.primitive.cull_mode = state
                 .cull

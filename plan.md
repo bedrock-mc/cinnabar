@@ -1,3 +1,15 @@
+## Optional spatial anti-aliasing and cutout coverage
+
+- Capability-aware MSAA remains the primary setting with its existing default. Spatial
+  anti-aliasing is an independent Off/SMAA option, defaulting to Off.
+- Spatial SMAA uses world-depth discontinuities and continuous-slope rejection before world
+  text, hands and HUD drawing. It uses no temporal samples or colour edge detection.
+- Multisampled cutouts use alpha-only contour filtering and coverage; authored RGB stays nearest.
+  Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Alpha-contour reconstruction is an extra visual policy, labelled incomplete for exact-version
+  vanilla coverage parity. Matched hardware performance and native foliage comparison remain
+  incomplete; no parity or performance gate closes from these changes.
+
 ## OreUI menus, appearance and motion
 
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI

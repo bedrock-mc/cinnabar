@@ -31,6 +31,7 @@ pub struct RasterState {
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
     pub write_mask: wgpu::ColorWrites,
+    pub multisample: wgpu::MultisampleState,
 }
 
 pub struct DrawPipeline<'a> {
@@ -49,6 +50,7 @@ impl Default for RasterState {
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
             write_mask: wgpu::ColorWrites::ALL,
+            multisample: Default::default(),
         }
     }
 }
@@ -230,12 +232,12 @@ impl Gpu {
             height: SNAPSHOT_SIDE,
             depth_or_array_layers: 1,
         };
-        let texture = |format, usage| {
+        let texture = |format, usage, sample_count| {
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
                 size,
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count,
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage,
@@ -245,12 +247,24 @@ impl Gpu {
         let target = texture(
             target_format,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            1,
         );
+        let multisampled = (state.multisample.count > 1).then(|| {
+            texture(
+                target_format,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+                state.multisample.count,
+            )
+        });
         let depth = texture(
             wgpu::TextureFormat::Depth32Float,
             wgpu::TextureUsages::RENDER_ATTACHMENT,
+            state.multisample.count,
         );
         let view = target.create_view(&Default::default());
+        let multisampled_view = multisampled
+            .as_ref()
+            .map(|texture| texture.create_view(&Default::default()));
         let depth_view = depth.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
         for (index, draw) in draws.iter().enumerate() {
@@ -278,7 +292,7 @@ impl Gpu {
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
-                    multisample: Default::default(),
+                    multisample: state.multisample,
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some(draw.fragment),
@@ -300,9 +314,9 @@ impl Gpu {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: multisampled_view.as_ref().unwrap_or(&view),
                     depth_slice: None,
-                    resolve_target: None,
+                    resolve_target: multisampled_view.as_ref().map(|_| &view),
                     ops: wgpu::Operations {
                         load: if index == 0 {
                             wgpu::LoadOp::Clear(wgpu::Color {

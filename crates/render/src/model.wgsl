@@ -5,6 +5,9 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
 #import cinnabar::lighting::{light_ao_factor, light_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
+#ifdef ALPHA_TO_COVERAGE
+#import cinnabar::lighting::{cutout_alpha_array, cutout_coverage}
+#endif
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
@@ -330,6 +333,20 @@ fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> 
 #endif
 }
 
+#ifdef ALPHA_TO_COVERAGE
+// Coverage follows the world model's authored page and layer, independently of RGB filtering.
+fn model_alpha_footprint(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, sampled_alpha: f32) -> vec2<f32> {
+    let layer = i32(texture_ref & 0x7ffu);
+#ifdef ENHANCED
+    if ((texture_ref >> 31u) == 0u) { return cutout_alpha_array(block_textures_page_0, uv, layer, dx, dy, sampled_alpha, true); }
+    return cutout_alpha_array(block_textures_page_1, uv, layer, dx, dy, sampled_alpha, true);
+#else
+    if ((texture_ref >> 31u) == 0u) { return cutout_alpha_array(terrain_gamma_page_0, uv, layer, dx, dy, sampled_alpha, true); }
+    return cutout_alpha_array(terrain_gamma_page_1, uv, layer, dx, dy, sampled_alpha, true);
+#endif
+}
+#endif
+
 fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
     let distance_to_camera = distance(world_position, view.world_position);
     return clamp(
@@ -374,7 +391,15 @@ fn fragment(
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
+#ifndef ALPHA_TO_COVERAGE
     if (sampled.a < 0.5) { discard; }
+#else
+    var footprint = model_alpha_footprint(in.current_texture, in.uv, dx, dy, sampled.a);
+    if (in.frame_blend > 0.0) {
+        footprint = mix(footprint, model_alpha_footprint(in.next_texture, in.uv, dx, dy, sampled.a), in.frame_blend);
+    }
+    sampled.a = cutout_coverage(footprint, 0.5);
+#endif
 #ifdef OPAQUE_OVERDRAW
     return vec4(1.0);
 #else

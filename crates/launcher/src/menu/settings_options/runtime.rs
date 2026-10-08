@@ -1,5 +1,5 @@
 //! Converts stored values into the existing subsystem settings.
-use super::{ANIMATIONS_OPTION, MOUSE_SENSITIVITY_OPTION, SettingsOptions};
+use super::{ANIMATIONS_OPTION, MOUSE_SENSITIVITY_OPTION, SMAA_OPTION, SettingsOptions};
 use semantic_input::PerspectiveMode;
 
 impl SettingsOptions {
@@ -21,6 +21,7 @@ impl SettingsOptions {
             (self.value("max_framerate") != 0).then(|| self.value("max_framerate") as u16);
         settings.video.vsync = self.value("vsync") != 0;
         settings.video.anti_aliasing_samples = self.value("msaa") as u32;
+        settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.name));
         settings.video.render_distance_chunks = self.value("render_distance") as u8;
         settings.video.view_bobbing = self.value("view_bobbing") != 0;
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.name) == 0;

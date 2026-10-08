@@ -460,6 +460,15 @@ pub(crate) fn draw_function(world: &World) -> Option<DrawFunctionId> {
         .get_id::<DrawNametags>()
 }
 
+/// Only enabled views postpone world text until the spatial silhouette filter has completed.
+pub(crate) fn deferred_by_smaa(
+    enabled: bool,
+    nametag: Option<DrawFunctionId>,
+    draw: DrawFunctionId,
+) -> bool {
+    enabled && nametag == Some(draw)
+}
+
 struct SetNametagBindGroup<const I: usize>;
 
 impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNametagBindGroup<I> {

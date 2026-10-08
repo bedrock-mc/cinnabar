@@ -88,7 +88,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
         }
         assert_eq!(
             descriptors.len(),
-            24,
+            28,
             "only distinct raster/depth contracts compile"
         );
         for kind in kinds {
@@ -114,7 +114,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
         }
         assert_eq!(
             descriptors.len(),
-            48,
+            52,
             "additive source factors add eight contracts per raster kind"
         );
     });
@@ -158,4 +158,76 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
             "emissive shader flags reuse the raster pipeline"
         );
     });
+}
+
+#[test]
+fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_dissolve() {
+    use super::super::{
+        ActorPipelineKey, ActorPipelineSpecializer, actor_bind_group_layout,
+        actor_pipeline_descriptor,
+    };
+    use bevy::render::render_resource::Specializer;
+
+    let (mut app, _) = crate::queue_review_support::app();
+    let mut cache = app.world_mut().remove_resource::<PipelineCache>().unwrap();
+    app.world_mut().init_resource::<ActorPipeline>();
+    let mut pipeline = app.world_mut().remove_resource::<ActorPipeline>().unwrap();
+    for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+        pipeline.prewarm(&cache, msaa, false, false).unwrap();
+        for kind in [
+            EntityRenderMaterial::Default,
+            EntityRenderMaterial::Glint,
+            EntityRenderMaterial::Dragon,
+            EntityRenderMaterial::DissolveDepth,
+            EntityRenderMaterial::DissolveColor,
+        ] {
+            for alpha_test in [false, true] {
+                for blend in [false, true] {
+                    for emissive in [false, true] {
+                        let material = kind.word(Some(EntityRenderMaterialState {
+                            alpha_test,
+                            blend,
+                            emissive,
+                            ..Default::default()
+                        }));
+                        let id = pipeline
+                            .draw_variant(msaa, false, false, material)
+                            .expect("coverage variants are ready before actors exist");
+                        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+                        ActorPipelineSpecializer
+                            .specialize(
+                                ActorPipelineKey {
+                                    msaa,
+                                    hdr: false,
+                                    enhanced: false,
+                                    material,
+                                },
+                                &mut descriptor,
+                            )
+                            .unwrap();
+                        let enabled = msaa.samples() > 1
+                            && alpha_test
+                            && !blend
+                            && !emissive
+                            && matches!(
+                                kind,
+                                EntityRenderMaterial::Default | EntityRenderMaterial::Glint
+                            );
+                        assert_eq!(descriptor.multisample.alpha_to_coverage_enabled, enabled);
+                        assert_eq!(
+                            descriptor
+                                .fragment
+                                .as_ref()
+                                .unwrap()
+                                .shader_defs
+                                .contains(&crate::alpha_coverage::SHADER_DEF.into()),
+                            enabled
+                        );
+                        let warmed = crate::queue_review_support::queued_descriptor(&mut cache, id);
+                        assert_eq!(warmed.multisample.alpha_to_coverage_enabled, enabled);
+                    }
+                }
+            }
+        }
+    }
 }

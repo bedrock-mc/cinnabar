@@ -1,5 +1,8 @@
 #import bevy_render::view::View
 #import cinnabar::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear}
+#ifdef ALPHA_TO_COVERAGE
+#import cinnabar::lighting::{cutout_alpha_2d, cutout_coverage}
+#endif
 
 // Packed Rust BlockEntityVertex: position, atlas UV, RGBA, world normal, actor light.
 @group(0) @binding(0) var<uniform> view: View;
@@ -102,16 +105,21 @@ fn selection_line_fragment(input: SelectionLineOutput) -> @location(0) vec4<f32>
 @fragment
 fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
     let texel = textureSample(atlas, atlas_sampler, input.uv);
+#ifdef ALPHA_TO_COVERAGE
+    let coverage = cutout_coverage(cutout_alpha_2d(atlas, input.uv, dpdx(input.uv), dpdy(input.uv), texel.a), 0.5);
+#else
     if (texel.a < 0.5) {
         discard;
     }
+    let coverage = 1.0;
+#endif
     if (input.actor_light != 0u) {
         // Native mob_head:entity_alphatest uses Fancy world-normal shading and
         // the shared lightmap, composed in gamma before the output transfer.
         let gamma = tint_to_gamma(texel).rgb * input.color.rgb * input.native_lighting;
-        return tint_to_linear(vec4(actor_distance_fog(gamma, input.world_position, view.world_position), 1.0));
+        return tint_to_linear(vec4(actor_distance_fog(gamma, input.world_position, view.world_position), coverage));
     }
-    return vec4(texel.rgb * input.color.rgb, 1.0);
+    return vec4(texel.rgb * input.color.rgb, coverage);
 }
 
 @fragment

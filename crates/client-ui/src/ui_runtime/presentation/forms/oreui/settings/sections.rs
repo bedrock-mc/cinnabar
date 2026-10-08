@@ -8,7 +8,7 @@ use crate::menu::{
     MenuAction,
     settings_options::{
         ANIMATIONS_OPTION, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET,
-        INVERT_CROSSHAIR_OPTION, KEY_BINDINGS, SettingsGroup, SettingsOptions,
+        INVERT_CROSSHAIR_OPTION, KEY_BINDINGS, SMAA_OPTION, SettingsGroup, SettingsOptions,
         THIRD_PERSON_CROSSHAIR_OPTION, VOLUME_SETTINGS, key_name,
     },
     settings_support::{SupportAction, SupportDialog, SupportLink},
@@ -125,6 +125,8 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
                 "gamma",
                 "max_framerate",
                 "vsync",
+                "msaa",
+                SMAA_OPTION.name,
                 "smooth_lighting",
                 "fancy_skies",
                 "render_distance",

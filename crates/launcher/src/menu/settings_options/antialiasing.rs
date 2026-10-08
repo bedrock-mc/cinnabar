@@ -84,4 +84,35 @@ mod tests {
             ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32
         );
     }
+
+    #[test]
+    fn smaa_defaults_off_round_trips_independently_of_msaa_and_resets_with_video() {
+        let smaa = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == super::super::SMAA_OPTION.name)
+            .unwrap();
+        let default = SettingsOptions::decode(br#"{"values":{"msaa":4}}"#).unwrap();
+        assert_eq!(
+            default.user_settings().video.smaa_mode,
+            ui::DEFAULT_SMAA_MODE
+        );
+        for samples in ui::ANTI_ALIASING_SAMPLE_COUNTS {
+            for mode in [ui::SmaaMode::Off, ui::SmaaMode::Smaa] {
+                let mut settings = SettingsOptions::default();
+                settings.set(index(), samples as i32);
+                settings.set(smaa, mode as i32);
+                let loaded =
+                    SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+                assert_eq!(loaded.user_settings().video.smaa_mode, mode);
+                assert_eq!(loaded.user_settings().video.anti_aliasing_samples, samples);
+            }
+        }
+        let mut enabled = SettingsOptions::default();
+        enabled.set(smaa, ui::SmaaMode::Smaa as i32);
+        assert!(enabled.reset_group(super::super::SettingsGroup::Video));
+        assert_eq!(
+            enabled.user_settings().video.smaa_mode,
+            ui::DEFAULT_SMAA_MODE
+        );
+    }
 }

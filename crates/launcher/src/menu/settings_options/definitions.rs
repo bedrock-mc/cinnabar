@@ -40,6 +40,26 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 pub const ANIMATIONS_OPTION: SettingDefinition =
     dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
 
+/// Spatial edge smoothing uses the same choices in JSON-UI and OreUI.
+pub const SMAA_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "smaa_radio_off",
+        label: ui::SmaaMode::Off.label(),
+    },
+    SettingChoice {
+        name: "smaa_radio_on",
+        label: ui::SmaaMode::Smaa.label(),
+    },
+];
+
+/// An extra silhouette filter independent of vanilla's coverage sample count.
+pub const SMAA_OPTION: SettingDefinition = dropdown(
+    "smaa",
+    "Spatial Anti-Aliasing",
+    SMAA_CHOICES,
+    ui::DEFAULT_SMAA_MODE as i32,
+);
+
 /// Publishes the client's state to Discord Rich Presence.
 pub const DISCORD_PRESENCE_OPTION: SettingDefinition =
     toggle("discord_presence", "Discord Rich Presence", true);
@@ -259,6 +279,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32,
         ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32,
     ),
+    SMAA_OPTION,
     // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
     toggle("vsync", "options.vsync", true),
     slider(

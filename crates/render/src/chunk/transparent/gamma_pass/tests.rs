@@ -40,7 +40,10 @@ fn homogeneous_and_empty_ranges_do_not_allocate_extra_passes() {
         contiguous_ranges(&[true, true], |item| *item).collect::<Vec<_>>(),
         vec![(0..2, true)]
     );
-    assert_eq!(contiguous_ranges::<bool>(&[], |item| *item).count(), 0);
+    assert_eq!(
+        contiguous_ranges::<bool, bool>(&[], |item| *item).count(),
+        0
+    );
 }
 
 #[test]
@@ -76,6 +79,43 @@ fn nametag_draws_enter_the_encoded_phase_without_reordering() {
         contiguous_ranges(&items, |id| families.contains(&Some(*id))).collect::<Vec<_>>(),
         vec![(0..2, true)]
     );
+    let liquid = world
+        .resource::<DrawFunctions<Transparent3d>>()
+        .read()
+        .id::<DrawTransparentLiquidCommands>();
+    let items = [liquid, tag, tag, liquid, tag];
+    for enabled in [false, true] {
+        for gamma in [false, true] {
+            let ranges = contiguous_ranges(&items, |draw| {
+                (
+                    gamma,
+                    crate::nametag_render::deferred_by_smaa(enabled, Some(tag), *draw),
+                )
+            })
+            .collect::<Vec<_>>();
+            let ordinary = ranges
+                .iter()
+                .filter(|(_, (_, deferred))| !deferred)
+                .flat_map(|(range, _)| range.clone())
+                .collect::<Vec<_>>();
+            let delayed = ranges
+                .iter()
+                .filter(|(_, (_, deferred))| *deferred)
+                .flat_map(|(range, _)| range.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                ordinary,
+                if enabled {
+                    vec![0, 3]
+                } else {
+                    vec![0, 1, 2, 3, 4]
+                }
+            );
+            assert_eq!(delayed, if enabled { vec![1, 2, 4] } else { vec![] });
+            assert!(ranges.iter().all(|(_, (mode, _))| *mode == gamma));
+        }
+    }
+    assert!(!crate::nametag_render::deferred_by_smaa(true, None, tag));
 }
 
 #[test]

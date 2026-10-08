@@ -247,3 +247,46 @@ fn axis(positive: bool, negative: bool) -> f32 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod antialiasing_settings_tests {
+    use super::*;
+    use bevy::anti_alias::smaa::Smaa;
+
+    #[test]
+    fn runtime_settings_enable_and_disable_world_smaa_alongside_msaa() {
+        let mut app = App::new();
+        app.init_resource::<RuntimeSettings>()
+            .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<antialiasing::CameraAntiAliasingSupport>()
+            .add_systems(
+                Update,
+                (
+                    apply_runtime_camera_settings,
+                    antialiasing::apply_camera_antialiasing,
+                )
+                    .chain(),
+            );
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Msaa::Off))
+            .id();
+        let mut settings = ui::UserSettings::default();
+        settings.video.smaa_mode = ui::SmaaMode::Smaa;
+        app.world_mut()
+            .resource_mut::<RuntimeSettings>()
+            .replace_user_settings(settings.clone());
+        app.update();
+        assert!(app.world().get::<Smaa>(camera).is_some());
+        assert_eq!(
+            app.world().get::<Msaa>(camera).unwrap().samples(),
+            settings.video.anti_aliasing_samples
+        );
+        settings.video.smaa_mode = ui::SmaaMode::Off;
+        app.world_mut()
+            .resource_mut::<RuntimeSettings>()
+            .replace_user_settings(settings);
+        app.update();
+        assert!(app.world().get::<Smaa>(camera).is_none());
+    }
+}

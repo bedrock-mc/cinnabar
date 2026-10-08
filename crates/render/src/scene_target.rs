@@ -44,7 +44,7 @@ impl SceneTarget {
             format: encoded_format,
             usage: TextureUsages::RENDER_ATTACHMENT
                 | if samples == 1 {
-                    TextureUsages::COPY_SRC
+                    TextureUsages::COPY_SRC | TextureUsages::COPY_DST
                 } else {
                     TextureUsages::empty()
                 },
@@ -143,6 +143,11 @@ impl SceneTarget {
     ) -> RenderPassColorAttachment<'a> {
         self.resolved.store(true, Ordering::Relaxed);
         self.resolve_attachment(destination, StoreOp::Discard)
+    }
+
+    /// Lets overlays continue drawing after an effect has restored the scene colour.
+    pub(crate) fn resume(&self) {
+        self.resolved.store(false, Ordering::Relaxed);
     }
 
     /// A retained attachment must resolve again even when the viewport is unchanged.

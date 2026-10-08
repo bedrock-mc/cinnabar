@@ -58,6 +58,7 @@ type GammaView = (
     &'static Msaa,
     Option<&'static crate::EnhancedRendering>,
     &'static SceneTarget,
+    Option<&'static bevy::anti_alias::smaa::Smaa>,
 );
 
 impl ViewNode for GammaTransparentPass {
@@ -67,7 +68,7 @@ impl ViewNode for GammaTransparentPass {
         &self,
         graph: &mut RenderGraphContext,
         render_context: &mut RenderContext<'w>,
-        (camera, view, target, depth, resolution, msaa, enhanced, scene): QueryItem<
+        (camera, view, target, depth, resolution, msaa, enhanced, scene, smaa): QueryItem<
             'w,
             '_,
             GammaView,
@@ -85,11 +86,23 @@ impl ViewNode for GammaTransparentPass {
         }
         let gamma = admitted(view.hdr, *msaa, enhanced.is_some());
         let draws = gamma.then(|| native_draws(world));
-        for (range, gamma) in contiguous_ranges(&phase.items, |item| {
-            draws
+        let nametag = smaa.and_then(|_| crate::nametag_render::draw_function(world));
+        for (range, (gamma, deferred)) in contiguous_ranges(&phase.items, |item| {
+            let gamma = draws
                 .as_ref()
-                .is_some_and(|draws| draws.contains(&Some(item.draw_function())))
+                .is_some_and(|draws| draws.contains(&Some(item.draw_function())));
+            (
+                gamma,
+                crate::nametag_render::deferred_by_smaa(
+                    smaa.is_some(),
+                    nametag,
+                    item.draw_function(),
+                ),
+            )
         }) {
+            if deferred {
+                continue;
+            }
             let colour = scene.color_attachment(target, gamma);
             let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
                 label: Some("sorted ordinary transparent colour-space range"),
@@ -130,16 +143,16 @@ fn native_draws(world: &World) -> [Option<DrawFunctionId>; 7] {
 }
 
 /// Keeps sorted items contiguous without auxiliary per-item storage or crossing colour spaces.
-fn contiguous_ranges<'a, T>(
+pub(crate) fn contiguous_ranges<'a, T, M: Copy + PartialEq + 'a>(
     items: &'a [T],
-    mut gamma: impl FnMut(&T) -> bool + 'a,
-) -> impl Iterator<Item = (Range<usize>, bool)> + 'a {
+    mut classify: impl FnMut(&T) -> M + 'a,
+) -> impl Iterator<Item = (Range<usize>, M)> + 'a {
     let mut start = 0;
     std::iter::from_fn(move || {
         let first = items.get(start)?;
-        let mode = gamma(first);
+        let mode = classify(first);
         let mut end = start + 1;
-        while end < items.len() && gamma(&items[end]) == mode {
+        while end < items.len() && classify(&items[end]) == mode {
             end += 1;
         }
         let range = start..end;
