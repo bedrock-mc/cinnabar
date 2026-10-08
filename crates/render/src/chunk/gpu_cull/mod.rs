@@ -6,7 +6,7 @@
 //! with an active presentation or visibility probe.
 
 #[cfg(test)]
-mod app_tests;
+pub(super) mod app_tests;
 mod direct;
 #[cfg(test)]
 mod direct_tests;

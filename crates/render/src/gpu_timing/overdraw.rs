@@ -39,6 +39,7 @@ pub(super) fn requested() -> bool {
 
 /// Installs no resources, draws or systems until the caller has accepted the diagnostic cost.
 pub(super) fn install(app: &mut SubApp) {
+    crate::device_poll::install(app);
     app.init_resource::<Probe>()
         .add_systems(RenderStartup, raster::install_graph)
         .add_systems(Render, prepare.in_set(RenderSystems::PrepareBindGroups));
@@ -109,7 +110,6 @@ fn prepare(
     probe.frame += 1;
     probe.view = None;
     if let Some(target) = &probe.target {
-        let _ = device.poll(wgpu::PollType::Poll);
         target.report();
         if target.state.load(Ordering::Acquire) != IDLE {
             return;

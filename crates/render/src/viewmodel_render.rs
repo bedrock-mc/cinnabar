@@ -61,6 +61,7 @@ fn install(app: &mut App) {
         crate::shader_safety::from_wgsl
     );
     let render_app = app.sub_app_mut(RenderApp);
+    crate::device_poll::install(render_app);
     render_app
         .insert_resource(Installed)
         .insert_resource(gate)
@@ -70,9 +71,7 @@ fn install(app: &mut App) {
             Render,
             (
                 prepare.in_set(RenderSystems::PrepareResources),
-                submit_completion
-                    .in_set(RenderSystems::Render)
-                    .after(bevy::render::renderer::render_system),
+                submit_completion.in_set(crate::device_poll::FrameSubmissions),
             ),
         );
     install_hand_graph(render_app.world_mut());
