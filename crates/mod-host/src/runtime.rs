@@ -36,9 +36,9 @@ mod controls;
 mod exports;
 #[path = "gameplay.rs"]
 mod gameplay;
-mod player_mod;
 #[path = "item_use.rs"]
 mod item_use;
+mod player_mod;
 #[path = "render.rs"]
 mod render;
 
