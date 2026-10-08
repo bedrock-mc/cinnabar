@@ -83,6 +83,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
             world.resource::<UiRuntime>(),
         ),
         swing_duration: 6,
+        item_attack: None,
         now_millis: 1_000,
     };
     world.resource_scope(|world, mut melee: Mut<MeleeRuntime>| {

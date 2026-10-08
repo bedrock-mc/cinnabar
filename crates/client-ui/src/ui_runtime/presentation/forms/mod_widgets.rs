@@ -1,8 +1,8 @@
 //! Private, retained JSON-UI cards supplied as bounded cosmetic data.
 
-mod template;
+pub(super) mod template;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationRuntime};
 use super::{
@@ -19,11 +19,12 @@ use ui::{
 
 pub(super) struct ModWidgets {
     content: Hud,
-    catalog: Arc<Catalog>,
+    pub(super) catalog: Arc<Catalog>,
     screen: CachedScreen,
     data: Arc<DataSource>,
     icons: Vec<IconRef>,
     resolved: Vec<Option<IconRef>>,
+    pub(super) viewport: [f64; 2],
 }
 impl UiPresentationRuntime {
     /// Replaces card values while retaining the template when its geometry is unchanged.
@@ -42,16 +43,17 @@ impl UiPresentationRuntime {
                 widgets.screen = CachedScreen::default();
             }
             widgets.content = content.clone();
-            widgets.data = Arc::new(template::data(content));
+            widgets.data = Arc::new(template::data(content, widgets.viewport));
             widgets.resolved.clear();
         } else {
             self.form_presentation.mod_widgets = Some(ModWidgets {
                 content: content.clone(),
                 catalog: Arc::new(template::catalog(content)?),
                 screen: CachedScreen::default(),
-                data: Arc::new(template::data(content)),
+                data: Arc::new(template::data(content, [0.; 2])),
                 icons: Vec::new(),
                 resolved: Vec::new(),
+                viewport: [0.; 2],
             });
         }
         Ok(())
@@ -117,6 +119,13 @@ impl UiPresentationRuntime {
             .mod_widgets
             .as_mut()
             .expect("checked above");
+        let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let viewport = [f64::from(content[0] / px), f64::from(content[1] / px)];
+        if widgets.viewport != viewport {
+            widgets.viewport = viewport;
+            widgets.data = Arc::new(template::data(&widgets.content, viewport));
+            widgets.resolved.clear();
+        }
         if widgets.resolved.as_slice() != resolved {
             widgets.icons.clear();
             let data = Arc::make_mut(&mut widgets.data);
