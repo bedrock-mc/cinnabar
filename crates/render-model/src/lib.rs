@@ -11,6 +11,7 @@ mod item_geometry;
 pub mod java_animation;
 mod nametag;
 mod panorama;
+mod presentation;
 pub mod primitive_shapes;
 mod ui;
 mod ui_textures;
@@ -51,6 +52,10 @@ pub use nametag::{
     NametagAtlasRect, NametagRecord, NametagScene,
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
+pub use presentation::{
+    PresentModeKind, PresentationIntent, SurfacePresentModes, configured_present_mode,
+    initial_present_mode, select_present_mode,
+};
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES,
