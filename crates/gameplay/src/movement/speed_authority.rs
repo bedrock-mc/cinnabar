@@ -1,9 +1,7 @@
+use sim::MAX_SAFE_LIQUID_VELOCITY;
+
 /// Largest effective speed that stays inside the collision query extent.
 const MAX_SIMULABLE_MOVEMENT_SPEED: f64 = sim::MAX_COLLISION_QUERY_EXTENT / 4.0;
-/// Largest per-tick liquid velocity whose diagonal sweep, with the standing
-/// liquid-sensing pose and up to unit vertical speed, fits the 64-cell block
-/// sampling budget beside the liquid-exit probe: 1.4 blocks per horizontal axis.
-const MAX_SAFE_LIQUID_VELOCITY: f64 = 1.4 * std::f64::consts::SQRT_2;
 /// Sprint drag 0.9 settles water velocity at nine accelerations and a dolphin
 /// boost doubles them, with a tenth of headroom for liquid currents.
 pub(crate) const MAX_SIMULABLE_UNDERWATER_SPEED: f64 = MAX_SAFE_LIQUID_VELOCITY / 20.0;

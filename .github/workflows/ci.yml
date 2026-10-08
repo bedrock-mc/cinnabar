@@ -105,7 +105,7 @@ jobs:
       - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
       - name: Verify Linux window backends
         run: |
           cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
@@ -172,7 +172,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
       - name: Test Rust workspace
         run: cargo nextest run --workspace --locked --no-fail-fast
       - name: Test Rust doc examples

@@ -30,18 +30,31 @@ pub const KEY_BINDINGS: &[(Action, &str)] = &[
     (Action::Hotbar8, "key.hotbar.8"),
     (Action::Hotbar9, "key.hotbar.9"),
     (Action::Freelook, "key.freelook"),
+    (Action::InteractWithToast, OPEN_NOTIFICATION_KEY),
 ];
 
+/// Vanilla's "Open Notification" binding name.
+pub const OPEN_NOTIFICATION_KEY: &str = "key.interactwithtoast";
+
+/// Actions added after layouts were saved; their default yields to a stored key already using it.
+const LATE_DEFAULTS: [Action; 2] = [Action::Freelook, Action::InteractWithToast];
+
 impl SettingsOptions {
-    fn freelook_default_conflicts(&self) -> bool {
-        if self.keys.contains_key("key.freelook") {
+    fn default_yields(&self, action: Action) -> bool {
+        let Some((_, name)) = KEY_BINDINGS
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+        else {
+            return false;
+        };
+        if !LATE_DEFAULTS.contains(&action) || self.keys.contains_key(*name) {
             return false;
         }
         let defaults = ControlSettings::default();
         let default = defaults
             .bindings()
             .iter()
-            .find(|binding| binding.action == Action::Freelook)
+            .find(|binding| binding.action == action)
             .map(|binding| binding.chord.control);
         self.keys.iter().any(|(name, code)| {
             !name.starts_with("gamepad:")
@@ -88,7 +101,7 @@ impl SettingsOptions {
     /// Reads the persisted device binding, falling back to the gameplay router's defaults.
     pub fn key_control(&self, index: usize) -> Option<PhysicalControl> {
         let (name, action, fallback) = self.binding(index)?;
-        if action == Some(Action::Freelook) && self.freelook_default_conflicts() {
+        if action.is_some_and(|action| self.default_yields(action)) {
             return None;
         }
         self.keys
@@ -210,8 +223,10 @@ impl SettingsOptions {
     pub fn controls(&self) -> Result<ControlSettings, semantic_input::BindingError> {
         let original = ControlSettings::default();
         let mut bindings = original.bindings().to_vec();
-        if self.freelook_default_conflicts() {
-            bindings.retain(|binding| binding.action != Action::Freelook);
+        for action in LATE_DEFAULTS {
+            if self.default_yields(action) {
+                bindings.retain(|binding| binding.action != action);
+            }
         }
         for index in (0..KEY_BINDINGS.len())
             .chain((0..GAMEPAD_BINDINGS.len()).map(|index| GAMEPAD_OFFSET + index))

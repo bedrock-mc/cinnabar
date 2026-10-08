@@ -25,8 +25,11 @@ pub mod global_resources;
 pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
+mod invite_screen;
 pub mod java_animations_setting;
 pub mod join_progress;
+#[cfg(test)]
+mod join_request_tests;
 pub mod loading_screen;
 #[cfg(test)]
 pub mod loading_texture_tests;
@@ -40,6 +43,8 @@ pub mod mod_panel;
 pub mod model;
 pub mod npc;
 pub mod oreui;
+mod retained_menu;
+pub(super) use retained_menu::RetainedMenu;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
 pub mod pages;

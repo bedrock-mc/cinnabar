@@ -75,6 +75,14 @@ pub(crate) trait AccountControl {
     }
     /// Answers trust prompt `id`.
     fn answer_server_trust(&mut self, _id: u64, _trusted: bool) {}
+    /// Asks `friends_people.v1` for the account's Xbox friends off the frame.
+    fn request_people(&mut self) {}
+    /// The friends the last request listed, or `Err` when it failed.
+    fn people(&mut self) -> Option<Result<Vec<launcher::menu::invite::Friend>, ()>> {
+        None
+    }
+    /// Sends each friend an invite to the hosted world through `world_invite.v1`, off the frame.
+    fn send_invites(&mut self, _xuids: Vec<String>) {}
 }
 
 impl MenuRuntime {
@@ -237,6 +245,7 @@ impl MenuRuntime {
             control.sign_out();
             self.finish_sign_out();
         }
+        self.sync_invites(control);
     }
 
     /// Sign out without a launcher core: the saved tokens are removed here.
@@ -410,6 +419,7 @@ mod tests {
                 world_name: "Base".into(),
                 members: "1 players".into(),
                 xuid: "1".into(),
+                max_members: 0,
             }])
         }
         fn sign_out(&mut self) -> bool {

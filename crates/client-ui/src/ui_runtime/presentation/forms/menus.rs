@@ -3,6 +3,8 @@
 //! state machine and its input path stay unchanged. States without a vanilla
 //! screen, or a render that fails, fall back to the programmatic launcher.
 
+use std::sync::Arc;
+
 use json_ui::{HitRegion, ViewState};
 use ui::{UiNode, UiRect};
 
@@ -50,8 +52,8 @@ impl UiPresentationRuntime {
         let Some(mut view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
-        self.begin_menu_caret(&mut view);
-        let shown = &view;
+        self.begin_menu_caret(Arc::make_mut(&mut view));
+        let shown = view.as_ref();
         self.menu_scrolls.begin_frame(format!(
             "{:?}/{:?}/{:?}/{}",
             shown.screen, shown.server_tab, shown.profile_tab, shown.settings_section
@@ -88,7 +90,11 @@ impl UiPresentationRuntime {
                     &mut self.menu_scrolls,
                 )
                 .map(|hits| {
-                    if shown.server_trust_prompt().is_none() && !owned_dialog {
+                    // The programmatic fallback has no trust or join popup, so vanilla's draws over it.
+                    if shown.server_trust_prompt().is_none()
+                        && shown.join_request_prompt().is_none()
+                        && !owned_dialog
+                    {
                         return hits;
                     }
                     let state = ViewState::default();
@@ -396,7 +402,8 @@ impl UiPresentationRuntime {
 }
 
 impl UiPresentationRuntime {
-    /// Draws the open dialog over its screen and returns its exclusive hit targets.
+    /// The vanilla popup for the join's trust question, else `view`'s open dialog, else a Discord
+    /// join request, drawn over its screen with the only hit targets that then count.
     #[allow(clippy::too_many_arguments)]
     fn append_dialog(
         &mut self,
@@ -409,7 +416,8 @@ impl UiPresentationRuntime {
         [width, height]: [f32; 2],
     ) -> Option<MenuHits> {
         let trust = view.server_trust_prompt();
-        let dialog = if trust.is_some() {
+        let join = view.join_request_prompt();
+        let dialog = if trust.is_some() || join.is_some() {
             None
         } else {
             Some(view.dialog?)
@@ -441,13 +449,18 @@ impl UiPresentationRuntime {
         };
         let rollback = (nodes.len(), *next);
         let translate = |key: &str| runtime.translation(key);
-        let (model, confirm, dismiss) = match (trust, dialog) {
-            (Some(prompt), _) => (
+        let (model, confirm, dismiss) = match (trust, join, dialog) {
+            (Some(prompt), _, _) => (
                 menu_screens::server_trust_model(&prompt.url, &translate),
                 MenuAction::ServerTrust(true),
                 MenuAction::ServerTrust(false),
             ),
-            (None, dialog) => {
+            (None, Some(name), _) => (
+                menu_screens::join_request_model(name, &translate),
+                MenuAction::JoinRequest(true),
+                MenuAction::JoinRequest(false),
+            ),
+            (None, None, dialog) => {
                 let (model, confirm) = menu_screens::dialog_model(view, dialog?, &translate);
                 (model, confirm, MenuAction::DismissDialog)
             }

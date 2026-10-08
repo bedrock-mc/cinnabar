@@ -63,6 +63,14 @@ impl ActorStore {
         names
     }
 
+    /// How many players [`Self::player_list_usernames`] would list, without allocating.
+    pub(crate) fn player_list_count(&self) -> usize {
+        self.players
+            .values()
+            .filter(|profile| !profile.username.is_empty())
+            .count()
+    }
+
     pub(crate) fn render_players(
         &self,
         excluded_runtime_id: Option<u64>,
