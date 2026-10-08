@@ -12,6 +12,8 @@ use assets::{
     ANIMATION_FLAG_BLEND, Animation, Material, ModelTemplate, NO_ANIMATION, ResolvedBiomeTints,
     RuntimeAssets, TextureArray, TextureMip, TextureRef,
 };
+#[cfg(any(test, feature = "publication-test-support"))]
+use bevy::render::renderer::RenderInstance;
 use bevy::{
     asset::{AssetId, load_internal_asset},
     camera::{
@@ -60,8 +62,6 @@ use bevy::{
         },
     },
 };
-#[cfg(any(test, feature = "publication-test-support"))]
-use bevy::render::renderer::RenderInstance;
 use meshing::{ChunkBiomeTintIdentity, CubeQuadLayout, Face, chunk_publication_byte_len};
 use render_api::{PublicationPermit, PublicationPermitStage, PublicationServiceConfig};
 use world::SubChunkKey;
