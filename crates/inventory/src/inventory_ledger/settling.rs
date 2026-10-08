@@ -45,6 +45,15 @@ impl PlayerInventoryLedger {
         self.abandon_requests(|request| {
             window.owns(request) && request.state == InventoryPendingState::AwaitingTransport
         });
+        if matches!(window, SettlingWindow::Storage { .. }) {
+            // A later window reuses the same storage slots, so this one's never overlay it.
+            for request in self.queue.iter_mut().filter(|request| window.owns(request)) {
+                request.storage_detached = true;
+                request
+                    .predicted
+                    .retain(|prediction| !matches!(prediction.cell, super::Cell::Storage(_)));
+            }
+        }
         if self.settling.len() >= MAX_SETTLING_CLOSES
             && let Some(oldest) = self.settling.pop_front()
         {
