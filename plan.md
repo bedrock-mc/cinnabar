@@ -6419,8 +6419,9 @@ version-specific Molang grammar differences and matched live sequencing remain
 incomplete. The user reports the earlier live rendering bugs fixed. A fresh
 1920×1080, DPI 1 Metal replay also retains the Entity across two enclosed rooms
 and close oblique views through a 145-frame camera crossing. The latest live
-test reopens angle-dependent Entity visibility: the small-room witness does not
-cover a crowded map's actor admission. This gate remains incomplete.
+test reopened angle-dependent Entity visibility: the small-room witness did not
+cover a crowded map's actor admission. The crowded replay below covers that
+separate failure; broader animation contracts remain incomplete.
 
 The standard world camera now uses vanilla's 0.025-block near plane, shared with
 first-person rendering and boom clearance. The former renderer default of 0.1
@@ -6448,7 +6449,8 @@ failing-before regressions; all 52 resource-pack unit tests and its integration
 test pass. Fresh 1920×1080, DPI 1 Metal sidebar frames replace the Lite dot with
 the detailed purple coin, with readable text and unchanged sidebar placement.
 The tutorial stays legible at top center through a later title. Matched-version
-pixel comparison and explicit live glyph confirmation remain open.
+pixel comparison remains open. The user reports the remaining live bugs fixed
+after testing the rebuilt client.
 
 The live angle-dependent Entity disappearance has a separate actor admission
 cause. A 151-actor Metal scene retains the focal actor in authority and inside
@@ -6458,7 +6460,12 @@ independently of player texture residency; shared skins stay usable when distinc
 skin residency fills, and invisible routes do not reserve a skin. Six admission
 and overflow regressions fail before the change and pass afterward. The existing
 fixed instance, pose and distinct-skin resource policies remain incomplete
-relative to dynamic actor collection; the after-fix rendered replay is pending.
+relative to dynamic actor collection. A fresh 1920×1080, DPI 1 Metal replay keeps
+all 151 qualifying actors and the focal Entity across the crowded camera turn,
+where the before frame admitted only 128 and lost the focal draw. Authored
+geometry, material, pose and bounds remain unchanged. Both endpoint frames and
+the intervening camera-crossing recording were inspected; the user also reports
+the remaining live rendering bugs fixed.
 
 The rejected Hive menu is a well-formed button collection above the former menu
 limit. Packet-bounded menus now retain every label, image and response index;
@@ -6466,12 +6473,21 @@ custom-form and NPC bounds retain their separate contracts. Engine factory and
 node budgets reject a whole form instead of publishing a shorter button list.
 Rejected binding attempts retain their input identity until model, components or
 catalog changes. Protocol, full-hierarchy and final-button response regressions
-pass. The actual Metal large-menu input replay and live menu retest are pending;
-larger hierarchy admission remains an incomplete implementation resource policy.
+pass. A fresh 1920×1080, DPI 1, GUI scale 2 Metal replay renders the complete
+300-button menu, scrolls to button 299 and submits index 299 to an independent
+loopback server. The response closes the form; labels, images and hover feedback
+remain legible. The user reports the remaining live UI bugs fixed. Larger
+hierarchy admission remains an incomplete implementation resource policy.
 
 Zeqa's ordinary title patches inherited the built-in HUD's extra text scaling.
 The first authored ordinary-title override now inherits the vanilla definition;
 custom title factories and later server edits retain their priority. Layout,
 layer-order and indexed-document regressions pass, including the reproduced
 title/subtitle overlap. Exact admitted Hive and retained tutorial baselines are
-checked separately; the final Zeqa rendered replay remains pending.
+checked separately. Fresh 1920×1080, DPI 1, GUI scale 2 Metal frames of Zeqa's
+unchanged admitted pack show its title at twice the subtitle height with a clear
+vertical gap. The original Hive ordinary/death/repeat/clear sequence still renders
+one authored panel, and the MegaSMP tutorial remains retained with its detailed
+Orebits glyph. The user confirms the rebuilt client looks correct. Required
+touched-crate checks and the canonical developer-control build pass; release
+hardware budgets and matched-version pixel comparison remain incomplete.
