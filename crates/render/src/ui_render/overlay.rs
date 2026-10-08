@@ -261,22 +261,13 @@ pub(super) fn queue_ui_overlay(
             view_entity,
             (pipeline_id, invert_pipeline_id),
         );
-        let main_format = if view.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
-        } else {
-            TextureFormat::bevy_default()
-        };
-        let mut composite_into = |format| {
-            composite.specialize(&pipeline_cache, super::composite::UiCompositeKey { format })
-        };
-        match composite_into(main_format) {
-            Some(main) => {
-                let output =
-                    target.and_then(|target| composite_into(target.out_texture_view_format()));
-                gpu.composite_pipelines.insert(
-                    view_entity,
-                    super::composite::CompositePipelines { main, output },
-                );
+        match composite.view_pipelines(
+            &pipeline_cache,
+            view.hdr,
+            target.map(ViewTarget::out_texture_view_format),
+        ) {
+            Some(pipelines) => {
+                gpu.composite_pipelines.insert(view_entity, pipelines);
             }
             None => {
                 gpu.composite_pipelines.remove(&view_entity);

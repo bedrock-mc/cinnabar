@@ -4,6 +4,8 @@
 
 mod block_highlights;
 mod passes;
+#[cfg(test)]
+pub(crate) use passes::PassGpu;
 mod position_box;
 mod primitives;
 #[cfg(test)]
@@ -127,6 +129,7 @@ struct Installed;
 
 fn install(app: &mut App) {
     app.init_resource::<ModRenderScene>();
+    crate::pipeline_warmup::register_pending::<passes::PassGpu>(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
