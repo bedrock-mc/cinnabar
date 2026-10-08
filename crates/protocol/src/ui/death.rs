@@ -6,6 +6,23 @@ use valentine::bedrock::version::v1_26_51::DeathInfoPacket;
 
 use super::{MAX_CHAT_PARAMETERS, UiEvent, UiPacketError, bounded_text};
 
+/// Authoritative death-screen rule updates; absent values preserve the current rule.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DeathRules {
+    pub show_messages: Option<bool>,
+    pub immediate_respawn: Option<bool>,
+}
+
+impl DeathRules {
+    pub const DEFAULT_SHOW_MESSAGES: bool = true;
+    pub const DEFAULT_IMMEDIATE_RESPAWN: bool = false;
+
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.show_messages.is_none() && self.immediate_respawn.is_none()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeathInfoEvent {
     pub message: Arc<str>,

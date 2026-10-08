@@ -188,6 +188,10 @@ fn pressed_buttons_map_to_menu_actions() {
     );
     let death = view(MenuScreen::Death);
     assert_eq!(
+        press(&death, "button.main_menu_button"),
+        Some(MenuAction::OpenDeathQuit)
+    );
+    assert_eq!(
         press(&death, "button.respawn_button"),
         Some(MenuAction::Respawn)
     );

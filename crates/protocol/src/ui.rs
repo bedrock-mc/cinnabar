@@ -21,8 +21,8 @@ pub use commands::{
     ChatAutocompleteCatalog, ChatAutocompleteCatalogError, ChatAutocompleteCompletion,
     CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent, CompletionContext,
 };
-pub use death::DeathInfoEvent;
 pub(crate) use death::normalize_death_info;
+pub use death::{DeathInfoEvent, DeathRules};
 
 pub use forms::{
     CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage, FormKind,
@@ -173,7 +173,10 @@ pub enum UiEvent {
     /// SetDefaultGameType: the level's default mode changed; players whose
     /// mode is bound to the default follow it.
     DefaultGameMode(GameModeEvent),
-    HudRules(HudRules),
+    GameRules {
+        hud: HudRules,
+        death: DeathRules,
+    },
     /// The world's sleep status (LevelEventGeneric `SleepingPlayers`).
     SleepStatus(SleepStatusEvent),
 }

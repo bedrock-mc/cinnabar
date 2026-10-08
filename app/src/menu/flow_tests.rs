@@ -65,17 +65,70 @@ fn death_screen_opens_once_per_death_and_requests_respawn() {
     assert!(menu.is_visible());
     assert_eq!(menu.view().screen, MenuScreen::Death);
     menu.activate(MenuAction::Respawn);
-    assert!(!menu.is_visible());
+    assert!(menu.is_visible());
+    assert!(menu.view().death_loading);
     assert!(menu.take_respawn_request());
     assert!(!menu.take_respawn_request(), "the request is consumed once");
     menu.open_death();
     assert!(
-        !menu.is_visible(),
-        "the same death does not reopen the screen"
+        menu.view().death_loading,
+        "the same death cannot replace the loading state"
     );
     menu.note_player_alive();
+    assert!(!menu.is_visible());
     menu.open_death();
     assert!(menu.is_visible(), "a later death shows it again");
+}
+
+#[test]
+fn immediate_respawn_sends_once_and_waits_for_authoritative_recovery() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death_with_rules(true);
+    assert!(menu.view().death_loading);
+    assert!(menu.take_respawn_request());
+    menu.open_death_with_rules(true);
+    assert!(!menu.take_respawn_request());
+    menu.note_player_alive();
+    menu.open_death_with_rules(false);
+    assert!(!menu.view().death_loading);
+    assert!(!menu.take_respawn_request());
+}
+
+#[test]
+fn death_replaces_a_world_menu_and_session_end_retires_pending_respawn() {
+    let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+    menu.show_world();
+    menu.open_pause();
+    menu.open_death();
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    menu.activate(MenuAction::Respawn);
+    menu.show_after_disconnect();
+    assert!(!menu.take_respawn_request());
+    menu.show_world();
+    menu.open_death();
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    assert!(!menu.view().death_loading);
+}
+
+#[test]
+fn death_main_menu_requires_confirmation_and_cancel_preserves_death() {
+    let mut menu = MenuRuntime::new(false, 2, "Steve".into());
+    menu.open_death();
+    menu.activate(MenuAction::OpenDeathQuit);
+    assert_eq!(menu.view().dialog, Some(super::MenuDialog::DeathQuit));
+    assert!(!menu.take_disconnect_request());
+    menu.go_back();
+    assert_eq!(menu.view().dialog, None);
+    assert_eq!(menu.screen(), MenuScreen::Death);
+    assert!(menu.is_visible());
+    assert!(!menu.take_disconnect_request());
+    menu.activate(MenuAction::ConfirmDeathQuit);
+    assert!(!menu.take_disconnect_request());
+    menu.activate(MenuAction::OpenDeathQuit);
+    menu.activate(MenuAction::ConfirmDeathQuit);
+    assert!(menu.take_disconnect_request());
+    assert!(!menu.take_disconnect_request());
+    assert!(!menu.is_visible());
 }
 
 #[test]

@@ -153,13 +153,17 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 data.set_global("#death_reason_text", text(&view.death_reason));
                 flags(
                     &mut data,
-                    &[
-                        "#buttons_and_deathmessage_visible",
-                        "#respawn_visible",
-                        "#respawn_enabled",
-                        "#quit_visible",
-                        "#quit_enabled",
-                    ],
+                    if view.death_loading {
+                        &["#loading_message_visible"]
+                    } else {
+                        &[
+                            "#buttons_and_deathmessage_visible",
+                            "#respawn_visible",
+                            "#respawn_enabled",
+                            "#quit_visible",
+                            "#quit_enabled",
+                        ]
+                    },
                 );
             }
             MenuScreen::Pause => {
@@ -461,6 +465,21 @@ pub(super) fn dialog_model(
             translated(translate, "gui.yes", "Yes"),
             translated(translate, "gui.no", "No"),
             MenuAction::ConfirmExit,
+        ),
+        MenuDialog::DeathQuit => (
+            translated(
+                translate,
+                "deathScreen.quit.confirmToMainMenuTitleWarning",
+                "Quit to Main Menu?",
+            ),
+            translated(
+                translate,
+                "deathScreen.quit.confirmToMainMenuWarning",
+                "Are you sure you want to exit the game to the main menu?",
+            ),
+            translated(translate, "globalPauseScreen.quit", "Quit"),
+            translated(translate, "gui.cancel", "Cancel"),
+            MenuAction::ConfirmDeathQuit,
         ),
         // The popup's title is one line, so the server names it and the body asks.
         MenuDialog::RemoveSaved(index) => (
@@ -771,6 +790,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             MenuAction::Invite(launcher::menu::invite::Action::Open)
         }
         "button.menu_settings" => MenuAction::Navigate(MenuScreen::Settings),
+        "button.main_menu_button" if view.screen == MenuScreen::Death => MenuAction::OpenDeathQuit,
         "button.menu_quit" | "button.main_menu_button" => MenuAction::PauseDisconnect,
         "button.respawn_button" => MenuAction::Respawn,
         "button.gathering" => MenuAction::OpenLiveEvent,

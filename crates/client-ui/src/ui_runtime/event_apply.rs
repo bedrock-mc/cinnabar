@@ -110,8 +110,9 @@ impl UiRuntime {
             UiEvent::DefaultGameMode(event) => {
                 self.apply_default_game_mode_update(player_runtime, event.update)
             }
-            UiEvent::HudRules(rules) => {
-                self.apply_hud_rules(rules);
+            UiEvent::GameRules { hud, death } => {
+                self.apply_hud_rules(hud);
+                self.apply_death_rules(death);
                 UiApplyOutcome::Applied
             }
             UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),

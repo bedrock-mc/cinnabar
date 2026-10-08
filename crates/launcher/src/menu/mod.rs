@@ -59,6 +59,7 @@ pub enum MenuServerTab {
 pub enum MenuDialog {
     Accounts,
     Exit,
+    DeathQuit,
     RemoveSaved(usize),
     StorageDelete,
     StorageError,
@@ -130,6 +131,8 @@ pub enum MenuAction {
     ToggleRenderMode,
     PauseResume,
     PauseDisconnect,
+    OpenDeathQuit,
+    ConfirmDeathQuit,
     PauseSettings,
     /// Load a saved server into the add/edit draft.
     EditSaved(usize),

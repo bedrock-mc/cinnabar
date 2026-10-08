@@ -6622,5 +6622,12 @@ producer fixes do not close those parity gates.
 The dedicated server death-information packet supplies the localized reason to
 the death screen independently of chat. Reasons survive either arrival order
 around zero health and clear on authoritative health recovery or session replacement.
-Matched native geometry, the radial vignette and hardcore variants remain incomplete;
-this packet-to-screen fix does not close the broader death-screen parity gate.
+The death route now opens the installed JSON-UI screen, including its gradient,
+localized labels, wrapping reason and native button artwork. The separate OreUI
+approximation and its entrance animation are removed. The server death-message and
+immediate-respawn rules are retained from bootstrap and incremental packets.
+Respawn keeps the carrier loading state until authoritative recovery; Main menu
+opens the localized quit confirmation. Controller timing, the vanilla death camera,
+exact readiness and respawn transitions, hardcore and secondary-client variants,
+and matched native frames remain incomplete. These changes do not close the
+broader death-screen parity gate.

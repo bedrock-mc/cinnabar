@@ -222,7 +222,7 @@ pub use ui::{
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, CommandOutputEvent,
     CommandOutputMessage, CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent,
-    CompletionContext, CustomForm, CustomFormElement, CustomFormValue, DeathInfoEvent,
+    CompletionContext, CustomForm, CustomFormElement, CustomFormValue, DeathInfoEvent, DeathRules,
     ElementMenuForm, FormButtonImage, FormKind, FormNumber, FormRequestEvent, GameModeEvent,
     GameModeUpdate, HudEvent, HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
     MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,

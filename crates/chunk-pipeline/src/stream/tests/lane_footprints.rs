@@ -378,6 +378,7 @@ fn samples() -> Vec<WorldEvent> {
             daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: true }),
             weather_cycle: Some(true),
             hud: Default::default(),
+            death: Default::default(),
         }),
         WorldEvent::Weather(WeatherUpdateEvent {
             channel: WeatherChannel::Rain,

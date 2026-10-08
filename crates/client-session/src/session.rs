@@ -83,6 +83,7 @@ pub enum NetworkControlEvent<P = ()> {
         rewind_history_size: i32,
         hardcore: bool,
         hud_rules: protocol::HudRules,
+        death_rules: protocol::DeathRules,
         packs: P,
         /// Whether the server sent terrain before spawn; Dragonfly sends none until initialized.
         terrain_before_spawn: bool,

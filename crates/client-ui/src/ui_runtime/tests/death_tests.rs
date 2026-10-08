@@ -11,6 +11,54 @@ fn reason(key: &str, parameters: &[&str]) -> UiEvent {
 }
 
 #[test]
+fn death_rules_hide_without_discarding_reasons_and_reset_per_session() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(&mut player, envelope(1, 1, reason("server reason", &[])))
+        .unwrap();
+    runtime
+        .apply(
+            &mut player,
+            envelope(
+                1,
+                2,
+                UiEvent::GameRules {
+                    hud: Default::default(),
+                    death: protocol::DeathRules {
+                        show_messages: Some(false),
+                        immediate_respawn: Some(true),
+                    },
+                },
+            ),
+        )
+        .unwrap();
+    assert_eq!(runtime.death_reason(), "");
+    assert!(runtime.immediate_respawn());
+    runtime
+        .apply(
+            &mut player,
+            envelope(
+                1,
+                3,
+                UiEvent::GameRules {
+                    hud: Default::default(),
+                    death: protocol::DeathRules {
+                        show_messages: Some(true),
+                        immediate_respawn: None,
+                    },
+                },
+            ),
+        )
+        .unwrap();
+    assert_eq!(runtime.death_reason(), "server reason");
+    assert!(runtime.immediate_respawn());
+    runtime.begin_session(2);
+    assert_eq!(runtime.death_reason(), "");
+    assert!(!runtime.immediate_respawn());
+}
+
+#[test]
 fn death_reason_localizes_before_or_after_zero_health_without_chat() {
     let entries = [
         ("death.attack.mob", "%1$s was slain by %2$s"),

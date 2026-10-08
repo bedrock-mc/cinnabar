@@ -375,6 +375,8 @@ pub struct MenuView {
     pub message: Option<String>,
     /// Localized server-authored reason projected by the gameplay UI.
     pub death_reason: String,
+    /// A respawn request is waiting for authoritative recovery.
+    pub death_loading: bool,
     pub gui_scale_offset: i8,
     pub gui_scale_choices: Vec<ui::DesktopGuiScaleChoice>,
     pub fullscreen: bool,
@@ -587,6 +589,7 @@ impl MenuView {
             port: String::new(),
             message: None,
             death_reason: String::new(),
+            death_loading: false,
             gui_scale_offset: 0,
             gui_scale_choices: ui::DesktopGuiScale::for_window([1, 1]).choices().collect(),
             fullscreen: false,

@@ -7,7 +7,32 @@ use super::UiRuntime;
 impl UiRuntime {
     /// The latest server-authored reason; packets may precede or follow zero health.
     pub fn death_reason(&self) -> &str {
-        &self.death_reason
+        if self
+            .death_rules
+            .show_messages
+            .unwrap_or(protocol::DeathRules::DEFAULT_SHOW_MESSAGES)
+        {
+            &self.death_reason
+        } else {
+            ""
+        }
+    }
+
+    /// Whether the server requests respawn without showing the death controls.
+    pub fn immediate_respawn(&self) -> bool {
+        self.death_rules
+            .immediate_respawn
+            .unwrap_or(protocol::DeathRules::DEFAULT_IMMEDIATE_RESPAWN)
+    }
+
+    /// Applies only supplied values, preserving unrelated incremental updates.
+    pub fn apply_death_rules(&mut self, rules: protocol::DeathRules) {
+        if rules.show_messages.is_some() {
+            self.death_rules.show_messages = rules.show_messages;
+        }
+        if rules.immediate_respawn.is_some() {
+            self.death_rules.immediate_respawn = rules.immediate_respawn;
+        }
     }
 
     /// Resolves the same marked parameters used by translated server messages.

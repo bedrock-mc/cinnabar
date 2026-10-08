@@ -1,6 +1,47 @@
 use super::*;
 
 #[test]
+fn death_and_hud_rules_commit_in_one_ui_envelope() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    let hud = protocol::HudRules {
+        show_coordinates: Some(true),
+        show_days_played: None,
+    };
+    let death = protocol::DeathRules {
+        show_messages: Some(false),
+        immediate_respawn: Some(true),
+    };
+    authority
+        .apply_ordered_event(
+            WorldEvent::GameRules(protocol::GameRulesEvent {
+                daylight_cycle: None,
+                weather_cycle: None,
+                hud,
+                death,
+            }),
+            Some(7),
+        )
+        .unwrap();
+    assert!(matches!(authority.take_committed_ui().as_slice(),
+        [CommittedUiEvent::Ui { sequence: 7, event: UiEvent::GameRules { hud: found_hud, death: found_death } }]
+        if *found_hud == hud && *found_death == death));
+}
+
+#[test]
 fn block_interactions_encode_the_current_session_palette() {
     for hashes in [false, true] {
         let mut authority = WorldAuthority::new(

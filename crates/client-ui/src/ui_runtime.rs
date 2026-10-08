@@ -153,6 +153,7 @@ pub struct UiRuntime {
     inventory_open: bool,
     hud: HudStore,
     death_reason: Arc<str>,
+    death_rules: protocol::DeathRules,
     toast_display_millis: u64,
     chat: ChatStore,
     scoreboards: ScoreboardStore,
@@ -237,6 +238,7 @@ impl UiRuntime {
             hurt_pending: false,
             hud: HudStore::default(),
             death_reason: Arc::from(""),
+            death_rules: protocol::DeathRules::default(),
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
@@ -622,6 +624,7 @@ impl UiRuntime {
         self.player_list_held = false;
         self.hud.clear();
         self.death_reason = Arc::from("");
+        self.death_rules = protocol::DeathRules::default();
         self.chat.clear();
         self.scoreboards.clear();
         self.boss_bars.clear();

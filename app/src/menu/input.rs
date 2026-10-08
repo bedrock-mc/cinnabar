@@ -441,6 +441,18 @@ pub(crate) fn drive_menu_input(
                 .collect()
         })
         .unwrap_or_default();
+    // Authoritative death and recovery advance even while the window is unfocused.
+    if let Some(health) = runtime.as_ref().and_then(|runtime| runtime.hud().health()) {
+        if health.current() == 0 {
+            menu.open_death_with_rules(
+                runtime
+                    .as_ref()
+                    .is_some_and(|runtime| runtime.immediate_respawn()),
+            );
+        } else {
+            menu.note_player_alive();
+        }
+    }
     if runtime.as_ref().is_some_and(|runtime| {
         runtime.credits().owns_input()
             || runtime.server_forms().owns_input()
@@ -489,14 +501,6 @@ pub(crate) fn drive_menu_input(
         keyboard_messages.clear();
         menu.pointer_down = false;
         return;
-    }
-    // Zero health in play opens the death screen; recovery closes it.
-    if let Some(health) = runtime.as_ref().and_then(|runtime| runtime.hud().health()) {
-        if health.current() == 0 {
-            menu.open_death();
-        } else {
-            menu.note_player_alive();
-        }
     }
     if !menu.is_visible()
         && runtime

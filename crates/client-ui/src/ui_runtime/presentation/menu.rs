@@ -634,6 +634,11 @@ fn append_dialog(
     );
     let (title, description, confirm) = match dialog {
         MenuDialog::Accounts => ("Accounts", "", MenuAction::DismissDialog),
+        MenuDialog::DeathQuit => (
+            "Quit to Main Menu?",
+            "Are you sure you want to exit the game to the main menu?",
+            MenuAction::ConfirmDeathQuit,
+        ),
         MenuDialog::SettingsResetGroup(group) => (
             "Reset to Default",
             "Do you really want to reset the settings?",

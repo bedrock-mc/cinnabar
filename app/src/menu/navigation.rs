@@ -27,6 +27,7 @@ impl MenuRuntime {
 
     /// Leaving a world reveals the Play page retained when it was joined.
     pub(crate) fn show_after_disconnect(&mut self) {
+        self.reset_death();
         self.show_session_origin(MenuScreen::Home);
     }
 

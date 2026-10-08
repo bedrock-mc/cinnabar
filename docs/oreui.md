@@ -25,7 +25,7 @@ and supported. Treatment toggles are true only when the service's treatment list
 | Pause | game menu | Owner-requested design extension | Uniform world overlay, OreUI action panel and interactive character card with Dressing Room access |
 | Connecting / loading | world-entry progress | Owner-requested design extension | OreUI progress card; existing stage, cancellation and download fraction semantics |
 | Create / edit world, templates | `/create-new-world`, `/edit-world`, `/start-from-template` | **OreUI** (1.26.50: Create has no JSON-UI path) | OreUI; General and Advanced tabs only |
-| Death | `/gameplay/death` | **OreUI** | OreUI |
+| Death | `/gameplay/death` | JSON-UI through the OreUI entry point | Carrier `death.death_screen` |
 | Bed | `/gameplay/bedtime` | **OreUI** | OreUI |
 | Settings | `/oreui-settings` | OreUI in the supplied vanilla witness | Native OreUI; shared persisted values, input bindings and OreUI pack variants |
 | Dressing Room | classic skin selector | Owner-approved custom layout | OreUI character preview and skin cards; installed starter skins and imported PNGs |
@@ -118,8 +118,9 @@ widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.
   artwork, core fonts and CPU distance fields are integrated; locale shaping, hidden-tab
   animation resumption and matched captures remain open; see `../plan.md`.
 - Bed: text colour and secondary-button theme colours (unrecovered).
-- Death: the radial vignette (drawn as nested bands), title, reason and button placement,
-  and hardcore variant still need matched native captures.
+- Death: the carrier owns its gradient, title, reason and button layout. Controller
+  timing, death camera, respawn transitions and hardcore variants still need matched
+  native captures.
 - Profile: the vanilla card, Overview and Stats layout is implemented. Matched vanilla
   captures, full navigation, screenshot persistence, privacy/offline distinctions and achievement
   reward/progress metadata remain incomplete; see `profile-parity.md` and `../plan.md`.

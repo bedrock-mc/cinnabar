@@ -23,6 +23,7 @@ fn seasonal_weather_only_rule_packet_is_retained_without_daylight_or_hud_updates
             daylight_cycle: None,
             weather_cycle: Some(false),
             hud: HudRules::default(),
+            death: Default::default(),
         }))
     );
 }

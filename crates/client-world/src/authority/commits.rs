@@ -72,10 +72,13 @@ impl WorldAuthority {
                         enabled,
                     });
                 }
-                if !rules.hud.is_empty() {
+                if !rules.hud.is_empty() || !rules.death.is_empty() {
                     self.push_committed_ui(CommittedUiEvent::Ui {
                         sequence,
-                        event: UiEvent::HudRules(rules.hud),
+                        event: UiEvent::GameRules {
+                            hud: rules.hud,
+                            death: rules.death,
+                        },
                     });
                 }
             }

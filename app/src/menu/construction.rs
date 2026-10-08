@@ -130,6 +130,7 @@ impl MenuRuntime {
             settings_section: initial.settings_section,
             disconnect_message: initial.disconnect_message,
             death_shown: false,
+            death_loading: false,
             local_worlds: initial.local_worlds,
             local_world_requested: None,
             local_ui: Default::default(),

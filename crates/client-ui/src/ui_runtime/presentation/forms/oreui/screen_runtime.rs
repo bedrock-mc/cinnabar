@@ -2,8 +2,8 @@ use ui::{UiNode, UiRect};
 
 use super::super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use super::{
-    Look, add_server, death, dressing_room, friends, home, inbox, modal, motion, paint,
-    paint::Canvas, pause, play, profile, progress, scroll_focus, settings, theme, world_settings,
+    Look, add_server, dressing_room, friends, home, inbox, modal, motion, paint, paint::Canvas,
+    pause, play, profile, progress, scroll_focus, settings, theme, world_settings,
 };
 use crate::menu::{MenuAction, MenuScreen, MenuView};
 
@@ -33,7 +33,6 @@ impl UiPresentationRuntime {
                 && !matches!(
                     screen,
                     MenuScreen::Home
-                        | MenuScreen::Death
                         | MenuScreen::DressingRoom
                         | MenuScreen::Settings
                         | MenuScreen::Profile
@@ -191,12 +190,6 @@ impl UiPresentationRuntime {
                         .iter()
                         .map(|(action, _)| *action)
                         .collect();
-                }
-                MenuScreen::Death => {
-                    canvas.appearance =
-                        theme::Appearance::from_dark(self.form_presentation.oreui_dark_mode);
-                    canvas.bundle = theme::Bundle::Gameplay;
-                    death::draw(&mut canvas, view, size)?
                 }
                 MenuScreen::Profile => {
                     profile::draw(&mut canvas, view, size, portrait, &self.menu_artwork.refs)?

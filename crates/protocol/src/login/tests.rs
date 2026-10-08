@@ -802,6 +802,30 @@ fn allowlisted_daylight_cycle_rule_is_decoded_and_normalized() {
 }
 
 #[test]
+fn death_screen_rules_reach_the_raw_world_stream() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = GameRulesChangedPacket {
+        rule_data: GameRulesChangedPacketData {
+            rules_list: vec![GameRule {
+                rule_name: "showDeathMessages".into(),
+                rule_can_be_modified: false,
+                rule_value: GameRuleRuleValue::Bool(false),
+            }],
+        },
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).unwrap();
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).unwrap();
+    let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session)).unwrap();
+    let Some(WorldEvent::GameRules(rules)) = event else {
+        panic!("missing death rules: {event:?}");
+    };
+    assert_eq!(rules.death.show_messages, Some(false));
+    assert_eq!(rules.death.immediate_respawn, None);
+}
+
+#[test]
 fn allowlisted_move_player_is_materialized_and_normalized() {
     let session = BedrockSession { shield_item_id: 0 };
     let packet: Packet = MovePlayerPacket {

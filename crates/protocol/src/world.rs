@@ -75,7 +75,9 @@ pub use self::events::{
     WeatherUpdateEvent, WorldEvent, air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
-use self::game_rules::{daylight_cycle_rule_update, hud_rules, weather_cycle_rule_update};
+use self::game_rules::{
+    daylight_cycle_rule_update, death_rules, hud_rules, weather_cycle_rule_update,
+};
 use self::level_chunk::level_chunk_mode;
 pub(crate) use self::level_chunk::normalize_borrowed_level_chunk;
 use self::requests::checked_sub_chunk_position;
@@ -899,13 +901,19 @@ pub fn into_world_event(
                 .map(|enabled| DaylightCycleUpdateEvent { enabled });
             let weather_cycle = weather_cycle_rule_update(rules);
             let hud = hud_rules(rules);
-            if daylight_cycle.is_none() && weather_cycle.is_none() && hud.is_empty() {
+            let death = death_rules(rules);
+            if daylight_cycle.is_none()
+                && weather_cycle.is_none()
+                && hud.is_empty()
+                && death.is_empty()
+            {
                 return Ok(None);
             }
             WorldEvent::GameRules(GameRulesEvent {
                 daylight_cycle,
                 weather_cycle,
                 hud,
+                death,
             })
         }
         McpePacketData::LevelEventGenericPacket(packet) => {

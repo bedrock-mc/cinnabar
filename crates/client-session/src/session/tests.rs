@@ -775,6 +775,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             rewind_history_size: 20,
             hardcore: false,
             hud_rules: protocol::HudRules::default(),
+            death_rules: protocol::DeathRules::default(),
             packs: (),
             terrain_before_spawn: true,
         },

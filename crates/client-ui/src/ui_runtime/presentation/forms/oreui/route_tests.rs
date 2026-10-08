@@ -21,6 +21,28 @@ fn append(
 }
 
 #[test]
+fn death_uses_the_carrier_screen_without_an_oreui_entrance() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Death;
+    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+    let mut nodes = Vec::new();
+    let route = presentation
+        .append_oreui_screen(
+            &view,
+            &mut nodes,
+            &mut 1,
+            metrics,
+            [1280.0, 720.0],
+            None,
+            &|_| None,
+        )
+        .unwrap();
+    assert!(route.is_none());
+    assert!(nodes.is_empty());
+}
+
+#[test]
 fn home_owns_oreui_actions_and_directional_focus() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.player_preview_icon = Some(super::super::super::IconRef {
