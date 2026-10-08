@@ -42,6 +42,8 @@ pub(super) fn init_ui_gpu(
         index_arena_id: 0,
         viewport_buffer,
         viewport_uploads: viewport::ViewportUploads::default(),
+        #[cfg(test)]
+        geometry_writes: [0; 2],
         viewport_size: [1, 1],
         started: std::time::Instant::now(),
         textures: UiGpuTextures::default(),
@@ -230,6 +232,10 @@ pub(crate) fn prepare_ui_resources(
             (upload.vertices.start * size_of::<UiRenderVertex>()) as u64,
             bytemuck::cast_slice(&input.vertices[upload.vertices.clone()]),
         );
+        #[cfg(test)]
+        {
+            gpu.geometry_writes[0] += 1;
+        }
     }
     if let Some(buffer) = gpu.index_buffer.as_ref()
         && !upload.indices.is_empty()
@@ -247,6 +253,10 @@ pub(crate) fn prepare_ui_resources(
             (upload.indices.start * size_of::<u32>()) as u64,
             bytemuck::cast_slice(&input.indices[upload.indices.clone()]),
         );
+        #[cfg(test)]
+        {
+            gpu.geometry_writes[1] += 1;
+        }
     }
     gpu.viewport_size = input.viewport_size;
 

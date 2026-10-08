@@ -147,6 +147,8 @@ pub(crate) struct UiGpu {
     index_arena_id: u64,
     viewport_buffer: Buffer,
     viewport_uploads: viewport::ViewportUploads,
+    #[cfg(test)]
+    geometry_writes: [usize; 2],
     viewport_size: [u32; 2],
     started: std::time::Instant,
     textures: UiGpuTextures,

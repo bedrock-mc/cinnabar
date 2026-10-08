@@ -73,22 +73,6 @@ fn retained_publication_rejects_conflicting_identity_and_missing_buffers() {
     assert_eq!(world.resource::<UiGpu>().accepted_revision, None);
 }
 
-/// Measures the actual preparation system with an unchanged publication.
-#[test]
-#[ignore = "release performance measurement"]
-fn frame_cost_bench_retained_ui_preparation() {
-    let mut world = retained_world();
-    let system = world.register_system(prepare_ui_resources);
-    let started = std::time::Instant::now();
-    for _ in 0..2_000 {
-        world.run_system(system).unwrap();
-    }
-    eprintln!(
-        "RETAINED_UI_BENCH vertices=60000 indices=90000 frames=2000 ms={:.3}",
-        started.elapsed().as_secs_f64() * 1000.0
-    );
-    assert_eq!(world.resource::<UiGpu>().accepted_revision, Some(1));
-}
 #[test]
 fn retained_publication_plans_no_vertex_or_index_uploads() {
     let mut world = retained_world();
@@ -112,10 +96,13 @@ fn retained_publication_plans_no_vertex_or_index_uploads() {
 fn retained_publication_does_not_upload_an_unused_viewport_clock() {
     let mut world = retained_world();
     let writes = world.resource::<UiGpu>().viewport_uploads.writes;
+    let geometry_writes = world.resource::<UiGpu>().geometry_writes;
     for _ in 0..3 {
         world.run_system_once(prepare_ui_resources).unwrap();
     }
     assert_eq!(world.resource::<UiGpu>().viewport_uploads.writes, writes);
+    assert_eq!(geometry_writes, [1, 1]);
+    assert_eq!(world.resource::<UiGpu>().geometry_writes, geometry_writes);
 }
 
 /// Incoming glint selects its current phase immediately, then leaving it restores static retention.
