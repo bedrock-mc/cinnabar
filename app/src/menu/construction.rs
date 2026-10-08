@@ -44,10 +44,21 @@ impl MenuRuntime {
         let language_choices =
             settings_options::SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
-        if layout.auth_cache().is_file() {
+        #[cfg(feature = "developer-control")]
+        let sign_in_fixture = super::sign_in_fixture::startup();
+        #[cfg(feature = "developer-control")]
+        let account_lookup = sign_in_fixture.is_none();
+        #[cfg(not(feature = "developer-control"))]
+        let account_lookup = true;
+        if account_lookup && layout.auth_cache().is_file() {
             let store = launcher::accounts::AccountStore::new(layout.auth_cache());
             initial.feeds.accounts = store.list().unwrap_or_default();
             initial.feeds.account_active_id = store.active_id().ok().flatten();
+        }
+        #[cfg(feature = "developer-control")]
+        if sign_in_fixture.is_some() {
+            initial.dialog = Some(MenuDialog::Accounts);
+            initial.feeds.account_adding = true;
         }
         Self {
             // The launcher owns the session lifecycle only when the client
@@ -122,7 +133,11 @@ impl MenuRuntime {
             local_world_requested: None,
             local_ui: Default::default(),
             control_auth: None,
-            sign_in_page_code: None,
+            sign_in_browser: Default::default(),
+            sign_in_requested: false,
+            sign_in_cancelled: false,
+            #[cfg(feature = "developer-control")]
+            sign_in_fixture,
             sign_out_requested: false,
             accounts: Default::default(),
             store_actions: Vec::new(),

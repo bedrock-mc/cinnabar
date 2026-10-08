@@ -43,7 +43,22 @@ fn hidden_window_requested() -> bool {
 }
 
 /// Installs native hidden-mode policy before any window backend creates its application.
-pub(crate) fn prepare_native_application() -> anyhow::Result<()> {
+pub(crate) fn prepare_native_application(connection_requested: bool) -> anyhow::Result<()> {
+    if let Some(value) = std::env::var_os(developer_control::SIGN_IN_FIXTURE_ENV) {
+        anyhow::ensure!(
+            hidden_window_requested()
+                && std::env::var_os(ENDPOINT_ENV).is_some()
+                && !connection_requested,
+            "sign-in fixtures require a hidden developer-control client without a world connection"
+        );
+        let state = value
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("invalid sign-in fixture state"))?;
+        serde_json::from_value::<developer_control::protocol::SignInFixtureState>(Value::String(
+            state,
+        ))
+        .map_err(|_| anyhow::anyhow!("invalid sign-in fixture state"))?;
+    }
     #[cfg(target_os = "macos")]
     if hidden_window_requested() {
         macos::prepare_hidden_application()?;
@@ -119,6 +134,11 @@ fn dispatch(world: &mut World) {
             }
             Command::Chat { text } => chat(world, &text),
             Command::TestCape { enabled } => cape::apply(world, enabled),
+            Command::SignInFixture { state } => world
+                .get_resource_mut::<crate::menu::MenuRuntime>()
+                .ok_or_else(|| "the launcher menu is unavailable".to_owned())
+                .and_then(|mut menu| menu.apply_sign_in_fixture(state))
+                .map(|()| json!({ "fixture": state })),
             Command::CameraPath(path) => camera::start(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),

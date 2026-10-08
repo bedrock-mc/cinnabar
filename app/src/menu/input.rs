@@ -938,6 +938,10 @@ pub(crate) fn drive_menu_input(
 impl MenuRuntime {
     /// A selected vanilla edit box consumes cancel before the screen handles it.
     fn go_back_from_input(&mut self) {
+        if self.sign_in_focus().is_some() {
+            self.go_back();
+            return;
+        }
         if self.clear_settings_slider_selection() {
             return;
         }
@@ -963,3 +967,6 @@ mod gui_scale_drag_tests;
 
 #[cfg(test)]
 mod settings_slider_tests;
+
+#[cfg(test)]
+mod sign_in_tests;

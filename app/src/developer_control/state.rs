@@ -230,6 +230,17 @@ pub(super) fn snapshot(world: &World) -> Value {
     let actor_count = actors.len();
     actors.truncate(MAX_LISTED_ACTORS);
     let menu = world.get_resource::<MenuRuntime>();
+    let menu_snapshot = menu.map(|menu| {
+        let view = menu.view();
+        json!({
+            "visible": menu.is_visible(),
+            "screen": format!("{:?}", menu.screen()),
+            "connecting": menu.is_connecting(),
+            "focused_action": view.focused_action.map(|action| format!("{action:?}")),
+            "sign_in_browser": format!("{:?}", view.sign_in_browser),
+            "sign_in_fixture": menu.sign_in_fixture_state(),
+        })
+    });
     json!({
         "in_world": stream.is_some(),
         "immobile": world.get_resource::<crate::player_runtime::PlayerRuntime>()
@@ -257,11 +268,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "sidebar": world.get_resource::<UiRuntime>()
             .and_then(|ui| super::scoreboards::snapshot(ui.scoreboards())),
         "screens": screens(world),
-        "menu": menu.map(|menu| json!({
-            "visible": menu.is_visible(),
-            "screen": format!("{:?}", menu.screen()),
-            "connecting": menu.is_connecting(),
-        })),
+        "menu": menu_snapshot,
         "dressing_room": menu.map(|menu| {
             let view = menu.view();
             let room = &view.dressing_room;

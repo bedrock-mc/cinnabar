@@ -19,7 +19,10 @@ import (
 
 const maxEventBytes = 4096
 
-var errDeviceAuthorization = errors.New("device authorization failed")
+var (
+	errDeviceAuthorization = errors.New("device authorization failed")
+	errDeviceCodeExpired   = errors.New("device code expired")
+)
 
 // Config supplies the cache and injectable authentication operations.
 type Config struct {
@@ -90,6 +93,10 @@ func Run(ctx context.Context, config Config) error {
 		if errors.Is(err, errDeviceAuthorization) {
 			stage = "device_code"
 			message = "Microsoft sign-in did not complete. Try again."
+		}
+		if errors.Is(err, errDeviceCodeExpired) {
+			stage = "device_code"
+			message = "Your sign-in code expired. Try again."
 		}
 		if errors.Is(ctx.Err(), context.Canceled) {
 			stage, message = "cancelled", "Sign-in was cancelled."

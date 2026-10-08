@@ -385,6 +385,10 @@ pub struct MenuView {
     pub catalog_loading: bool,
     pub catalog_message: Option<String>,
     pub auth_state: AuthState,
+    /// Result of handing the current sign-in code to the default browser.
+    pub sign_in_browser: super::sign_in::BrowserState,
+    /// Interactive sign-in may show waiting and recovery prompts over the current route.
+    pub sign_in_requested: bool,
     pub connecting: bool,
     pub settings_section: u8,
     pub dressing_room: std::sync::Arc<crate::dressing_room::DressingRoomView>,
@@ -512,8 +516,20 @@ impl MenuView {
     /// Whether a popup draws over the screen and takes its input.
     pub fn popup_open(&self) -> bool {
         self.dialog.is_some()
+            || self.sign_in_prompt_open()
             || self.server_trust_prompt().is_some()
             || self.dressing_room.editor.is_some()
+    }
+
+    /// The standalone sign-in prompt replaces the route until it finishes or is cancelled.
+    pub fn sign_in_prompt_open(&self) -> bool {
+        self.dialog.is_none()
+            && !self.connecting
+            && self.local.progress.is_none()
+            && self.disconnect_message.is_none()
+            && (matches!(self.auth_state, AuthState::AwaitingCode { .. })
+                || (self.sign_in_requested
+                    && matches!(self.auth_state, AuthState::Checking | AuthState::Failed(_))))
     }
 
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
@@ -562,6 +578,8 @@ impl MenuView {
             catalog_loading: false,
             catalog_message: None,
             auth_state: AuthState::SignedOut,
+            sign_in_browser: Default::default(),
+            sign_in_requested: false,
             connecting: false,
             settings_section: 0,
             dressing_room: Default::default(),

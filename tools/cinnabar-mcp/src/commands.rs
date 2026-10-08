@@ -8,7 +8,7 @@ use std::{
 
 use developer_control::{
     camera::CameraPath,
-    protocol::{Command, Condition, InputCommand, RecordSettings},
+    protocol::{Command, Condition, InputCommand, RecordSettings, SignInFixtureState},
 };
 use serde_json::{Value, json};
 
@@ -92,6 +92,20 @@ pub fn command(
             )
         }
         "state" => (Command::State, CALL_TIMEOUT),
+        "sign_in_fixture" => {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Fixture {
+                state: SignInFixtureState,
+            }
+            let fixture: Fixture = parse(arguments, "sign-in fixture")?;
+            (
+                Command::SignInFixture {
+                    state: fixture.state,
+                },
+                CALL_TIMEOUT,
+            )
+        }
         "wait_for" => {
             let condition: Condition = parse(
                 arguments

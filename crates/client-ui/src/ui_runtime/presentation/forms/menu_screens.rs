@@ -146,12 +146,6 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         };
         data.set_global("#disconnect_text", text(body));
         "disconnect.disconnect_screen"
-    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state
-        && !view.feeds.account_adding
-    {
-        data.set_global("#url", text(uri.clone()));
-        data.set_global("#code", text(code.clone()));
-        "xbl_console_signin.xbl_console_signin"
     } else {
         let reference = menu_reference(view.screen)?;
         match view.screen {

@@ -70,6 +70,13 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
+        if !self.is_connecting()
+            && matches!(self.dialog, None | Some(super::MenuDialog::Accounts))
+            && self.sign_in_focus().is_some()
+        {
+            self.activate(MenuAction::CancelSignIn);
+            return;
+        }
         if self.dressing_room.editor.is_some() {
             self.activate(super::MenuAction::DressingRoom(
                 launcher::dressing_room::Action::Cancel,

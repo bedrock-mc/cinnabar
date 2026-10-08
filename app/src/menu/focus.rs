@@ -159,6 +159,13 @@ impl MenuRuntime {
     }
 
     pub(super) fn move_directional_focus(&mut self, axis: SettingsFocusAxis, direction: i32) {
+        if !self.is_connecting()
+            && matches!(self.dialog, None | Some(MenuDialog::Accounts))
+            && self.sign_in_focus().is_some()
+        {
+            self.move_focus(direction);
+            return;
+        }
         self.retain_settings_slider_selection();
         if axis == SettingsFocusAxis::Horizontal
             && self.screen == MenuScreen::Settings
@@ -285,9 +292,18 @@ impl MenuRuntime {
                 MenuAction::ServerTrust(false),
             ];
         }
+        if !self.is_connecting()
+            && self.dialog.is_none()
+            && let Some(actions) = self.sign_in_focus()
+        {
+            return actions;
+        }
         if let Some(dialog) = self.dialog {
             return match dialog {
                 MenuDialog::Accounts => {
+                    if let Some(actions) = self.sign_in_focus() {
+                        return actions;
+                    }
                     if self.feeds.account_adding {
                         return vec![MenuAction::CancelSignIn];
                     }
@@ -431,24 +447,7 @@ impl MenuRuntime {
             MenuScreen::DressingRoom => self.dressing_room_focus(),
             MenuScreen::Profile => {
                 let mut actions = vec![MenuAction::AddBack];
-                // Match view(): an active helper outranks the core's previous report.
-                let auth = match (
-                    self.auth_process.as_ref().map(AuthSupervisor::state),
-                    self.control_auth.as_ref(),
-                ) {
-                    (Some(state @ (AuthState::Checking | AuthState::AwaitingCode { .. })), _) => {
-                        Some(state)
-                    }
-                    (_, Some(control)) => Some(control),
-                    (supervisor, None) => supervisor,
-                };
-                if matches!(
-                    auth,
-                    Some(AuthState::Checking | AuthState::AwaitingCode { .. })
-                ) {
-                    return vec![MenuAction::CancelSignIn];
-                }
-                if auth == Some(&AuthState::Authenticated) {
+                if self.current_auth().as_ref() == &AuthState::Authenticated {
                     if self.feeds.profile.unavailable {
                         actions.push(MenuAction::RefreshProfile);
                     } else if self.feeds.profile.loaded {

@@ -33,7 +33,9 @@ mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
-mod sign_in_popup;
+mod sign_in_browser;
+#[cfg(feature = "developer-control")]
+mod sign_in_fixture;
 #[cfg(test)]
 mod transfer_follow_tests;
 mod video_settings;
@@ -153,8 +155,14 @@ pub(crate) struct MenuRuntime {
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
-    /// The device code whose sign-in page was last opened, so each code opens once.
-    sign_in_page_code: Option<String>,
+    /// Tracks the current browser handoff and suppresses repeated automatic opens.
+    sign_in_browser: sign_in_browser::SignInBrowser,
+    /// Interactive prompts take focus; cached validation keeps the home status label.
+    sign_in_requested: bool,
+    /// Cancellation stays dismissed until the player explicitly starts sign-in again.
+    sign_in_cancelled: bool,
+    #[cfg(feature = "developer-control")]
+    sign_in_fixture: Option<developer_control::protocol::SignInFixtureState>,
     sign_out_requested: bool,
     accounts: accounts::Manager,
     /// Marketplace actions waiting for the store driver.
@@ -283,16 +291,11 @@ impl MenuRuntime {
     }
 
     pub(crate) fn view(&self) -> MenuView {
-        // A sign-in in flight outranks the core's report, which outranks a finished helper.
-        let supervisor = self
-            .auth_process
-            .as_ref()
-            .map(|process| process.state().clone());
-        let auth_state = match (supervisor, self.control_auth.clone()) {
-            (Some(state @ (AuthState::Checking | AuthState::AwaitingCode { .. })), _) => state,
-            (_, Some(control)) => control,
-            (supervisor, None) => supervisor.unwrap_or(AuthState::SignedOut),
-        };
+        #[cfg(feature = "developer-control")]
+        if let Some(view) = self.fixture_view() {
+            return view;
+        }
+        let auth_state = self.current_auth().into_owned();
         let catalog_loading = matches!(
             &auth_state,
             AuthState::Checking | AuthState::AwaitingCode { .. }
@@ -333,6 +336,8 @@ impl MenuRuntime {
             profile_icon: None,
             catalog_loading,
             catalog_message: self.catalog_message.clone(),
+            sign_in_browser: self.sign_in_browser.state(&auth_state),
+            sign_in_requested: self.sign_in_requested,
             auth_state,
             connecting: self.is_connecting(),
             settings_section: self.settings_section,
@@ -538,6 +543,10 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        #[cfg(feature = "developer-control")]
+        if self.activate_sign_in_fixture(action) {
+            return;
+        }
         if self.skin_editor_blocks(action) {
             return;
         }
@@ -606,11 +615,15 @@ impl MenuRuntime {
                 self.catalog_message = None;
             }
             MenuAction::StartSignIn => self.start_sign_in(),
+            MenuAction::OpenSignInLink => self.update_sign_in_browser(true),
             MenuAction::CancelSignIn => {
                 if self.feeds.account_adding {
                     self.cancel_add_account();
                 } else {
                     self.stop_sign_in();
+                }
+                if self.dialog == Some(MenuDialog::Accounts) {
+                    self.dialog = None;
                 }
             }
             MenuAction::PlayAddServer => {
@@ -905,6 +918,10 @@ pub(crate) fn drive_menu_services(
     mut local_skin: Option<ResMut<crate::player_skin::LocalPlayerSkin>>,
     network: Option<Res<crate::runtime::network::NetworkHandle>>,
 ) {
+    #[cfg(feature = "developer-control")]
+    if menu.fixture_active() {
+        return;
+    }
     menu.poll_dressing_room(
         local_skin.as_deref_mut(),
         &mut client_world,

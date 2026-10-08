@@ -15,6 +15,10 @@ schemas document every argument. Agents drive the client only through this endpo
   `wheel: {y: -3}` scrolls down three lines; add `unit: "pixel"` for precise scrolling.
 - `test_cape` with `enabled: true` installs an original cape on the local player for captures;
   `false` removes it. This presentation fixture does not modify the server or saved skin.
+- Sign-in captures launch with `headless: true`, an isolated `CINNABAR_USER_ROOT`, and
+  `env: {"CINNABAR_SIGN_IN_FIXTURE": "opened"}`. `sign_in_fixture` switches between
+  `waiting`, `opened`, `browser_failed`, `success`, `expired`, and `error`. These fixed states accept no account
+  data, skip account services, and never open a browser. Save screenshots beneath `/private/tmp`.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per
   rendered frame, so it suits the local showcase server; record remote servers with
   `fixed_clock: false`. Audio is captured to a WAV and muxed in.

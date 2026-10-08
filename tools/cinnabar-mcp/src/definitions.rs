@@ -94,6 +94,13 @@ pub fn definitions() -> Value {
             "inputSchema": { "type": "object", "properties": { "enabled": { "type": "boolean" } }, "required": ["enabled"], "additionalProperties": false }
         },
         {
+            "name": "sign_in_fixture",
+            "description": "Show a fixed placeholder sign-in state in a hidden client launched with CINNABAR_SIGN_IN_FIXTURE. Never starts authentication or opens a browser.",
+            "inputSchema": { "type": "object", "properties": {
+                "state": { "enum": ["waiting", "opened", "browser_failed", "success", "expired", "error"] }
+            }, "required": ["state"], "additionalProperties": false }
+        },
+        {
             "name": "state",
             "description": "Position, rotation (Bedrock degrees), health, dimension, loaded chunk columns, nearby actors (nearest first), screen stack, menu, camera and recording status, and game time.",
             "inputSchema": { "type": "object", "properties": {} }

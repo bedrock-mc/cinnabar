@@ -80,7 +80,6 @@ impl MenuRuntime {
             self.feeds.profile_refresh_requested = true;
             return;
         }
-        self.sign_in_page_code = None;
         self.feeds.account_error = None;
         self.feeds.account_adding = true;
         self.accounts.pending_ready = false;
@@ -105,6 +104,7 @@ impl MenuRuntime {
             self.dialog = None;
             return;
         }
+        self.sign_in_cancelled = false;
         self.accounts.operation = Some(Operation::Switch(account.id.clone()));
         self.focused = 0;
     }
@@ -114,6 +114,9 @@ impl MenuRuntime {
             self.cancel_add_account();
         }
         self.dialog = None;
+        if self.sign_in_focus().is_some() {
+            self.focus_sign_in_prompt();
+        }
     }
 
     pub(super) fn cancel_add_account(&mut self) {
@@ -160,7 +163,7 @@ impl MenuRuntime {
                     self.feeds.profile = Default::default();
                     self.control_auth = None;
                 }
-                Some(AuthState::Failed(_)) | None => {
+                None if !matches!(self.current_auth().as_ref(), AuthState::Failed(_)) => {
                     self.feeds.account_error = Some("Sign-in did not complete. Try again.".into());
                     self.accounts.operation = Some(Operation::Restore);
                 }
@@ -263,10 +266,18 @@ impl MenuRuntime {
         self.friends.clear();
         self.catalog_started = false;
         self.control_auth = None;
-        self.sign_in_page_code = None;
         self.reload_accounts();
         if !signed_out {
-            self.start_sign_in();
+            if self.sign_in_cancelled && !self.layout.auth_cache().is_file() {
+                self.auth_process = None;
+            } else {
+                let cancelled = self.sign_in_cancelled;
+                self.start_sign_in();
+                if cancelled {
+                    self.sign_in_cancelled = true;
+                    self.sign_in_requested = false;
+                }
+            }
         }
         if self.dialog.is_some() {
             self.dialog = Some(MenuDialog::Accounts);
@@ -306,6 +317,25 @@ mod tests {
         assert!(matches!(menu.accounts.operation, Some(Operation::Restore)));
         assert!(!menu.sign_out_requested);
         assert_eq!(menu.feeds.account_active_id.as_deref(), Some("41"));
+    }
+
+    #[test]
+    fn back_cancels_add_account_without_restarting_a_signed_out_flow() {
+        let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+        menu.feeds.account_adding = true;
+        menu.dialog = Some(MenuDialog::Accounts);
+        menu.apply_control_auth(AuthState::AwaitingCode {
+            uri: "https://example.invalid".into(),
+            code: "TEST-CODE".into(),
+        });
+        menu.go_back();
+        assert!(menu.dialog.is_none());
+        menu.account_operation_job()();
+        menu.poll_accounts();
+        assert!(!menu.sign_in_requested);
+        assert!(menu.sign_in_cancelled);
+        assert_eq!(menu.current_auth().as_ref(), &AuthState::SignedOut);
+        assert!(menu.auth_process.is_none());
     }
 
     #[test]

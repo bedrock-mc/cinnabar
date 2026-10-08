@@ -1475,6 +1475,13 @@ preview build is not an exact retail/platform capture for every supported client
 - 0x18/0x20. It does not call other functions or write history, input flags, ground
 - state or rotation.
 
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/accounts.rs
+- Pinned vanilla pack v1.26.50.4: `ui/xbl_console_signin.json` separates sign-in instructions,
+  website/code fallback and cancel; `ui/xbl_console_qr_signin.json` keeps manual fallback beneath
+  its primary route; `ui/xbl_console_signin_succeeded.json` distinguishes completion.
+- The owner's launcher adaptation uses the existing OreUI primary button for a pre-filled URL
+  handed to the system browser, with manual website/code instructions only after a failed handoff.
+
 ## crates/client-ui/src/ui_runtime/presentation/forms/oreui/modal.rs
 - Index bundle modal `Ug` (`Ug.Overlay`, `Ug.Header` over title bar `gm`, `Ug.Content`, `Ug.Text`,
   `Ug.Buttons`) and the modal menu `SV`/`CV`/`wV`.
@@ -2917,3 +2924,10 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
 - `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
   `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
   `#show_survival_ui` to `#visible`; absorption is native renderer state.
+
+## Background account validation
+
+- `app/src/menu/account.rs` and `crates/launcher/src/menu/view.rs`: vanilla pack
+  1.26.50.4 `resource_pack/ui/start_screen.json`,
+  `lower_online_buttons_panel/stacked_column/signingin`, presents the checking
+  label through `#signingin_text` and `#signingin_visible` without a device-code dialog.

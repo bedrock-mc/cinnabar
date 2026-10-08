@@ -41,6 +41,7 @@ fn tools_list_names_every_tool() {
             "chat",
             "camera_path",
             "test_cape",
+            "sign_in_fixture",
             "state",
             "wait_for",
             "screenshot",
@@ -63,6 +64,62 @@ fn tools_without_a_client_fail_with_guidance() {
             .as_str()
             .unwrap()
             .contains("launch_client")
+    );
+}
+
+#[test]
+fn sign_in_fixture_rejects_account_material() {
+    let repo = Path::new("/repo");
+    let control = repo.join(".local/developer-control");
+    let (command, _) = commands::command(
+        "sign_in_fixture",
+        &json!({ "state": "opened" }),
+        repo,
+        &control,
+    )
+    .unwrap();
+    assert_eq!(
+        command,
+        Command::SignInFixture {
+            state: developer_control::protocol::SignInFixtureState::Opened,
+        }
+    );
+    assert!(
+        commands::command(
+            "sign_in_fixture",
+            &json!({ "state": "opened", "code": "secret" }),
+            repo,
+            &control,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn sign_in_fixture_launch_rejects_visible_clients_and_unknown_states() {
+    let mut server = Server::new(scratch("fixture-launch"));
+    let reply = server.call(
+        "launch_client",
+        &json!({
+        "env": { (developer_control::SIGN_IN_FIXTURE_ENV): "opened" }
+        }),
+    );
+    assert_eq!(reply["isError"], true);
+    assert_eq!(
+        result_json(&reply)["error"],
+        "sign-in fixtures require headless: true"
+    );
+    let reply = server.call(
+        "launch_client",
+        &json!({
+            "headless": true,
+        "env": { (developer_control::SIGN_IN_FIXTURE_ENV): "real_account" }
+        }),
+    );
+    assert_eq!(reply["isError"], true);
+    assert_eq!(
+        result_json(&reply)["error"],
+        "invalid sign-in fixture state"
     );
 }
 

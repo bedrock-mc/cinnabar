@@ -9,6 +9,7 @@ pub mod server_list;
 pub mod settings_options;
 pub mod settings_storage;
 pub mod settings_support;
+pub mod sign_in;
 pub mod view;
 pub mod worlds_tab;
 
@@ -90,6 +91,7 @@ pub enum MenuAction {
     RefreshCatalog,
     StartSignIn,
     CancelSignIn,
+    OpenSignInLink,
     PlayAddServer,
     PlaySaved(usize),
     PlayFeatured(usize),

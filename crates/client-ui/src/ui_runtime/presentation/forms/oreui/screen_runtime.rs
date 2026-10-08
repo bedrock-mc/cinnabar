@@ -5,7 +5,7 @@ use super::{
     Look, add_server, death, dressing_room, friends, home, inbox, modal, motion, paint,
     paint::Canvas, pause, play, profile, progress, scroll_focus, settings, theme, world_settings,
 };
-use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
+use crate::menu::{MenuAction, MenuScreen, MenuView};
 
 impl UiPresentationRuntime {
     /// Draws an owned OreUI route, including the owner's menu design extensions.
@@ -22,11 +22,12 @@ impl UiPresentationRuntime {
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
         // A launcher dialog draws over the OreUI screen instead.
         let progress = view.connecting || view.local.progress.is_some();
-        let covered = view.disconnect_message.is_some()
-            || matches!(view.auth_state, AuthState::AwaitingCode { .. });
+        let sign_in = view.sign_in_prompt_open();
+        let covered = view.disconnect_message.is_some();
         let screen = view.screen;
         if covered
             || (!progress
+                && !sign_in
                 && !matches!(
                     screen,
                     MenuScreen::Home
@@ -108,7 +109,20 @@ impl UiPresentationRuntime {
         let motion_rem = canvas.rem;
         let mut dressing_preview = None;
         let mut character_preview = None;
-        if progress {
+        if sign_in && !progress {
+            canvas.capture_focus = true;
+            modal::draw(
+                &mut canvas,
+                view,
+                size,
+                &super::accounts::sign_in_modal(view),
+            )?;
+            self.form_presentation.menu_focus = canvas
+                .focus_hits
+                .iter()
+                .map(|(action, _)| *action)
+                .collect();
+        } else if progress {
             canvas.capture_focus = true;
             progress::join(&mut canvas, view, size, translate)?;
             self.form_presentation.menu_focus = canvas
