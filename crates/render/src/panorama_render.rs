@@ -68,6 +68,7 @@ struct Installed;
 
 fn install(app: &mut App) {
     app.init_resource::<PanoramaScene>();
+    crate::pipeline_warmup::register::<PanoramaPipeline>(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -296,6 +297,25 @@ impl Specializer<RenderPipeline> for PanoramaPipelineSpecializer {
             TextureFormat::bevy_default()
         };
         Ok(key)
+    }
+}
+
+impl crate::pipeline_warmup::PrewarmPipelines for PanoramaPipeline {
+    /// The menu backdrop, so leaving a world never compiles it on first sight.
+    fn prewarm(
+        &mut self,
+        cache: &PipelineCache,
+        view: crate::pipeline_warmup::WarmView,
+        ids: &mut crate::pipeline_warmup::WarmupIds,
+    ) -> Result<(), BevyError> {
+        ids.push(self.variants.specialize(
+            cache,
+            PanoramaPipelineKey {
+                msaa: view.msaa,
+                hdr: view.hdr,
+            },
+        )?);
+        Ok(())
     }
 }
 

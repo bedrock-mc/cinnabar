@@ -554,12 +554,6 @@ fn reselect_geometry_with_checkpoint(
     state.bones = bones;
     state.bone_names = bone_names;
     state.controllers = controllers;
-    state.ui_pose = None;
-    state.ui_animation = None;
-    state.previous = pose.clone();
-    state.rest = pose.clone();
-    state.current = pose;
-    state.reset_pending = true;
-    state.rest_reset_pending = true;
+    state.reset_to_skeleton(pose);
     checkpoint
 }
