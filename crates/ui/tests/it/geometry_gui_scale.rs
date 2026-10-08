@@ -1,7 +1,7 @@
 use ui::{DesktopGuiScale, gui_scale};
 
 #[test]
-fn desktop_modifier_choices_match_lens_viewport_thresholds() {
+fn desktop_modifier_choices_match_viewport_thresholds() {
     for (physical, optimal, offsets) in [
         ([375, 249], 1, vec![0]),
         ([752, 500], 2, vec![-1, 0]),

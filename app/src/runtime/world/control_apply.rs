@@ -72,6 +72,7 @@ pub(crate) fn apply_committed_control(
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. } => return,
     };
+    view.reanchor_camera();
     view.set_eye_translation(bevy::prelude::Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;
 }
@@ -100,6 +101,7 @@ mod tests {
                 let mut view = LocalViewPose::new(Vec3::ZERO, aim);
                 let mut settings = CameraSettingsAuthority::default();
                 settings.set_preserve_teleport_rotation(enabled);
+                let previous_epoch = view.camera_reanchor_epoch();
                 let mut anchor = None;
                 apply_committed_control(
                     CommittedControlEvent::MovePlayer {
@@ -120,6 +122,7 @@ mod tests {
                     &mut settings,
                     &mut anchor,
                 );
+                assert_ne!(view.camera_reanchor_epoch(), previous_epoch);
                 assert_eq!(view.eye_translation(), Vec3::new(3.0, 64.0, 8.0));
                 assert_eq!(anchor, Some([3, 8]));
                 let expected = if enabled && mode == Teleport {
@@ -138,6 +141,7 @@ mod tests {
         assert!(!settings.preserves_teleport_rotation());
         settings.set_preserve_teleport_rotation(true);
         let mut view = LocalViewPose::default();
+        let previous_epoch = view.camera_reanchor_epoch();
         let mut anchor = None;
         apply_committed_control(
             CommittedControlEvent::ChangeDimension {
@@ -155,8 +159,36 @@ mod tests {
             &mut settings,
             &mut anchor,
         );
+        assert_ne!(view.camera_reanchor_epoch(), previous_epoch);
         assert_eq!(view.eye_translation(), Vec3::new(3.0, 64.0, 8.0));
         assert_eq!(anchor, Some([3, 8]));
         assert!(!settings.preserves_teleport_rotation());
+    }
+    #[test]
+    fn only_ready_respawn_reanchors_camera_motion_history() {
+        let mut settings = CameraSettingsAuthority::default();
+        let mut view = LocalViewPose::default();
+        let mut anchor = None;
+        for state in [0, 1] {
+            let previous_epoch = view.camera_reanchor_epoch();
+            apply_committed_control(
+                CommittedControlEvent::Respawn {
+                    sequence: u64::from(state) + 1,
+                    respawn: protocol::RespawnEvent {
+                        state,
+                        position: [3.0, 64.0, 8.0],
+                        runtime_entity_id: 1,
+                    },
+                    resolved: client_world::ResolvedServerPosition {
+                        position: [3.0, 64.0, 8.0],
+                        surface_anchor: None,
+                    },
+                },
+                &mut view,
+                &mut settings,
+                &mut anchor,
+            );
+            assert_eq!(view.camera_reanchor_epoch() != previous_epoch, state == 1);
+        }
     }
 }

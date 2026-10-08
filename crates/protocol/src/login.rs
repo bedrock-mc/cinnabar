@@ -22,10 +22,12 @@ use crate::{
 
 mod boundary;
 mod latency_probe;
+mod outbound;
 mod packet_trace;
 mod raw_equipment;
 use boundary::boundary_wakeup;
 pub use latency_probe::network_stack_latency_reply;
+pub use outbound::PlayOutbound;
 pub use packet_trace::PacketIdTraceSnapshot;
 use packet_trace::PacketIdTraceState;
 #[cfg(test)]

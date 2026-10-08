@@ -199,6 +199,7 @@ pub struct LocalViewPose {
     feet_translation: Vec3,
     rotation: Quat,
     freelook_rotation: Option<Quat>,
+    camera_reanchor_epoch: u64,
 }
 
 impl Default for LocalViewPose {
@@ -208,6 +209,7 @@ impl Default for LocalViewPose {
             feet_translation: Vec3::new(0.0, 80.0 - protocol::PLAYER_NETWORK_OFFSET, 0.0),
             rotation: Quat::IDENTITY,
             freelook_rotation: None,
+            camera_reanchor_epoch: 0,
         }
     }
 }
@@ -258,6 +260,15 @@ impl LocalViewPose {
                 self.set_rotation(rotation);
             }
         }
+    }
+
+    /// Invalidates camera presentation history without changing gameplay or network state.
+    pub fn reanchor_camera(&mut self) {
+        self.camera_reanchor_epoch = self.camera_reanchor_epoch.wrapping_add(1);
+    }
+
+    pub const fn camera_reanchor_epoch(&self) -> u64 {
+        self.camera_reanchor_epoch
     }
 
     pub fn set_eye_translation(&mut self, translation: Vec3) {
@@ -607,6 +618,7 @@ pub fn reset_local_player_session(
     avatar: &mut LocalAvatarPresentation,
 ) {
     settings.reset_perspective();
+    view.reanchor_camera();
     view.set_freelook(false);
     let eye = Vec3::from_array(eye_position);
     view.set_subject_position(eye, eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET);

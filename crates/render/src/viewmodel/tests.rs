@@ -77,6 +77,35 @@ fn opaque_cube_gameplay_flags_do_not_change_held_geometry() {
 }
 
 #[test]
+fn world_isotropy_preserves_opaque_carried_cube_geometry() {
+    let mut source = cube_carrier();
+    source.texture_pages[0].texture.mips[0].rgba8[0] = 91;
+    let runtime = assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+    let (expected_geometry, expected_skin) =
+        ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).unwrap();
+    for material in &mut source.materials[1..] {
+        material.flags = assets::MATERIAL_FLAG_ISOTROPIC;
+    }
+    let runtime = assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+    let (actual_geometry, actual_skin) =
+        ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1))
+            .expect("world-position rotation preserves carried cube admission");
+    assert_eq!(actual_geometry.identity, expected_geometry.identity);
+    assert_eq!(actual_skin.identity, expected_skin.identity);
+    assert_eq!(actual_skin.rgba8, expected_skin.rgba8);
+    for flag in [
+        assets::MATERIAL_FLAG_GRASS_TINT,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ROTATE_UV,
+    ] {
+        source.materials[1].flags = assets::MATERIAL_FLAG_ISOTROPIC | flag;
+        let runtime =
+            assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+        assert!(ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).is_none());
+    }
+}
+
+#[test]
 fn opaque_cube_transports_all_six_face_layers_without_sprite_extrusion() {
     let source = cube_carrier();
     let runtime = assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();

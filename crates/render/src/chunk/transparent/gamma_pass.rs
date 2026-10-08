@@ -31,7 +31,7 @@ pub(in crate::chunk) fn install(app: &mut App) {
 /// Preserves graph dependencies while selecting the blend colour space per sorted range.
 pub(in crate::chunk) fn install_graph(world: &mut World) {
     crate::scene_target::install_graph(world);
-    let runner = ViewNodeRunner::new(GammaTransparentPass, world);
+    let runner = ViewNodeRunner::new(GammaTransparentPass::default(), world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -47,7 +47,9 @@ pub(in crate::chunk) fn install_graph(world: &mut World) {
 }
 
 #[derive(Default)]
-struct GammaTransparentPass;
+pub(crate) struct GammaTransparentPass {
+    pub(crate) nametags_only: bool,
+}
 
 type GammaView = (
     &'static ExtractedCamera,
@@ -74,6 +76,10 @@ impl ViewNode for GammaTransparentPass {
         >,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
+        let blur = crate::motion_blur::applies(world, graph.view_entity());
+        if self.nametags_only && !blur {
+            return Ok(());
+        }
         let Some(phases) = world.get_resource::<ViewSortedRenderPhases<Transparent3d>>() else {
             return Ok(());
         };
@@ -85,11 +91,20 @@ impl ViewNode for GammaTransparentPass {
         }
         let gamma = admitted(view.hdr, *msaa, enhanced.is_some());
         let draws = gamma.then(|| native_draws(world));
-        for (range, gamma) in contiguous_ranges(&phase.items, |item| {
-            draws
-                .as_ref()
-                .is_some_and(|draws| draws.contains(&Some(item.draw_function())))
+        let nametags = blur
+            .then(|| crate::nametag_render::draw_function(world))
+            .flatten();
+        for (range, (gamma, late)) in contiguous_ranges(&phase.items, |item| {
+            (
+                draws
+                    .as_ref()
+                    .is_some_and(|draws| draws.contains(&Some(item.draw_function()))),
+                nametags == Some(item.draw_function()),
+            )
         }) {
+            if late != self.nametags_only {
+                continue;
+            }
             let colour = scene.color_attachment(target, gamma);
             let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
                 label: Some("sorted ordinary transparent colour-space range"),
@@ -130,10 +145,10 @@ fn native_draws(world: &World) -> [Option<DrawFunctionId>; 7] {
 }
 
 /// Keeps sorted items contiguous without auxiliary per-item storage or crossing colour spaces.
-fn contiguous_ranges<'a, T>(
+fn contiguous_ranges<'a, T, K: Copy + PartialEq + 'a>(
     items: &'a [T],
-    mut gamma: impl FnMut(&T) -> bool + 'a,
-) -> impl Iterator<Item = (Range<usize>, bool)> + 'a {
+    mut gamma: impl FnMut(&T) -> K + 'a,
+) -> impl Iterator<Item = (Range<usize>, K)> + 'a {
     let mut start = 0;
     std::iter::from_fn(move || {
         let first = items.get(start)?;

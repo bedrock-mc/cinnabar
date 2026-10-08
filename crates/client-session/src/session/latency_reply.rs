@@ -58,6 +58,7 @@ impl<P> NetworkHandle<P> {
             physics_reanchor: None,
             interaction: None,
         });
+        self.mark_unflushed(true);
         Ok(())
     }
 }

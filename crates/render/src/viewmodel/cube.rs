@@ -40,7 +40,10 @@ impl ViewmodelGeometry {
                 return None;
             }
             let material = assets.materials().get(id as usize)?;
-            if material.flags != 0 || material.animation != assets::NO_ANIMATION {
+            // World-position rotation leaves carried face pixels and UVs unchanged.
+            if material.flags & !assets::MATERIAL_FLAG_ISOTROPIC != 0
+                || material.animation != assets::NO_ANIMATION
+            {
                 return None;
             }
             let page = assets

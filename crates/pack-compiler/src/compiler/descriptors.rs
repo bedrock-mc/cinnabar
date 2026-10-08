@@ -25,6 +25,11 @@ pub(super) fn descriptor_for(
     } else {
         0
     };
+    if record.flags.contains(BlockFlags::CUBE_GEOMETRY)
+        && !record.flags.contains(BlockFlags::LEAF_MODEL)
+    {
+        flags |= pack.blocks.isotropic_face_flags(record)[face as usize];
+    }
     if visuals::end_portal_frame::is_record(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
     } else if let Some(fallback_flags) = fallback.material_flags(record) {

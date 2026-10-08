@@ -1,45 +1,29 @@
-# Live testing, capture, and native evidence
+# Live testing, capture, and performance evidence
 
-Load this before running the Bevy client or BDS on Windows, capturing frames, or
-closing a native/visual/performance acceptance gate.
+Read this before capturing rendered frames, profiling the client, or closing a
+visual or performance acceptance gate.
 
-## Windows capture
+## Scripted client sessions
 
-Use native Computer Use/WGC as the primary path for Cinnabar window inspection and
-input testing. Do not assume the Bevy window is inaccessible because an earlier run
-failed: refresh app/window discovery for each live run and diagnose a missing
-target as a current integration bug. If native capture genuinely fails after fresh
-discovery and recovery, use Windows GDI `CopyFromScreen` only as an explicit
-fallback, write PNGs beneath `%TEMP%`, and inspect those fresh files with the
-image-viewing tool. Never claim visual verification from a stale or occluded
-capture.
+Use the [client MCP](client-mcp.md) with `headless: true` and the
+`developer-control` feature for automated input, screenshots, and recordings.
+Use the offline UI snapshot harness for isolated UI states. Do not inject OS input
+or open a visible window for automated captures. Use a local server by default;
+remote joins require the owner's authorization because they use the configured
+account.
 
-## Stable executable paths
+Keep account fixtures, generated carriers, screenshots, and profiler outputs in
+isolated local or temporary directories. Record the build, game/server version,
+scenario, platform, resolution, and scale alongside each acceptance result. Inspect
+fresh output from that run. A missing capture is incomplete validation.
 
-Windows Firewall consent is path-specific, so reuse the paths the user already
-approved: `.local/bds-runtime/bedrock-server-1.26.32.2/bedrock_server.exe` for BDS,
-and `target/debug/bedrock-client.exe` for the Rust client (rebuild in place to keep
-it stable). Do not copy either executable to a new worktree or temporary path for a
-live run, do not change firewall policy, and do not automate UAC or security-consent
-dialogs. If a genuinely new listening executable is required, explain why and wait
-until the user is at the PC.
+Headless sessions render through a hidden window. They can verify pixels and
+rendering work, but displayed-frame pacing, OS focus, and occlusion gates require
+appropriate presentation evidence and remain incomplete without it.
 
-## Remote movement test targets
-
-Use these user-designated Bedrock endpoints for Phase 3 movement and session
-acceptance:
-
-- Zeqa: `zeqa.net:19132`.
-- Lifeboat: `play.lbsg.net:19132`. After joining, `/transfer sm3` exercises a
-  deeper transfer/session path.
-- Zeno external BDS: `zenomc.org:19197`. This is the low-population
-  server-authority target for observing official-BDS movement rejection and
-  correction behavior without depending on other players.
-
-Treat these as compatibility and server-authority targets, not as substitutes
-for a version-matched native Bedrock parity comparison. Record the resolved
-endpoint, server-reported version, scenario, duration, and exact client build in
-each acceptance artifact.
+Server compatibility tests can establish connection, transfer, or server-authority
+behavior. They do not by themselves establish version-matched Bedrock parity.
+Choose a reproducible scenario and distinguish server behavior from client output.
 
 ## Visual acceptance
 
@@ -97,7 +81,8 @@ hardware gets lower resolution or view distance, never permission to stutter.
 ## Tracy frame attribution
 
 Tracy is the standard interactive frame/stall trace. `make play TRACY=1` enables
-it; agents instead build with `--features developer-control,tracy` through `cslot`
+it for manual sessions. For scripted sessions, build with
+`--features developer-control,tracy` using the [build workflow](multi-agent-workflow.md)
 and launch through the MCP with `headless: true`, connecting with `local_server`.
 Keep INFO spans enabled. The feature is off by default; its subscriber, zones and
 GPU plots are absent from ordinary builds. Domain crates remain Bevy-free.
@@ -109,8 +94,9 @@ protocol to `tracy-client-sys` in `Cargo.lock` (the recorded tool release is in 
 [evidence](../evidence/frame-breakdown-tracy.md)). With the hidden local scene settled:
 
 ```sh
-tracy-capture -a 127.0.0.1 -o /private/tmp/cinnabar-frames.tracy -s 120
-tracy-csvexport -u /private/tmp/cinnabar-frames.tracy > /private/tmp/cinnabar-zones.csv
+TRACE_DIR="$(mktemp -d)"
+tracy-capture -a 127.0.0.1 -o "$TRACE_DIR/cinnabar-frames.tracy" -s 120
+tracy-csvexport -u "$TRACE_DIR/cinnabar-frames.tracy" > "$TRACE_DIR/cinnabar-zones.csv"
 ```
 
 Keep captures and exports outside git. The client accepts only loopback capture
@@ -139,11 +125,11 @@ anchor zones bound the sampled wall/game-clock relationship for trace comparison
 
 Use native Bedrock/BDS comparison when it decides a contract or closes an explicit
 acceptance gate, preferring version-matched, reproducible, fixed-state galleries and
-exact protocol fixtures over visual guesswork. Perform live acceptance only from the
-firewall-approved paths above, after integration and a build at the canonical path.
-Batch equivalent captures and reuse an authoritative existing witness when it covers
+exact protocol fixtures over visual guesswork. Test the integrated build and record
+any platform or capture limitations. Batch equivalent captures and reuse an
+authoritative existing witness when it covers
 the same version, state product, camera, geometry, material, and behavior question.
-Performance claims require measured release evidence against the budgets below; a debug screenshot, small test scene, or green unit suite is not
+Performance claims require measured release evidence against the budgets above; a debug screenshot, small test scene, or green unit suite is not
 performance acceptance.
 
 For main-thread attribution, set `RUST_MCBE_STAGE_PROFILE=1` only on an
@@ -170,6 +156,9 @@ acquisition and schedule overhead; `render_submission` includes CPU render
 graph execution, queue submission and presentation. A large interval with
 small main work warrants checking the render stages and OS scheduling before
 changing gameplay. `render_frame` is render-world time excluding drawable acquisition.
+`input_age` runs from the update's start, where input is sampled, to the end of its render
+extraction. `input_pacing_wait` is the deliberate main-thread delay that moves the next input sample
+toward render-thread completion; `RUST_MCBE_INPUT_PACING=0` keeps measuring but never delays.
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the

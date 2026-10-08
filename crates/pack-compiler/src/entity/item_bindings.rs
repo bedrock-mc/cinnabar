@@ -2,8 +2,7 @@
 //!
 //! This bounded crosswalk adds canonical inventory keys to the existing atlas
 //! routes. It establishes neither auxiliary icon states nor metadata policy.
-//! Vanilla reads components.minecraft:icon;
-//! the table records native packaged food and seed components omitted from the sample pack.
+//! The default alias selects an entry in the pinned item texture atlas.
 
 use std::collections::BTreeSet;
 
@@ -34,17 +33,7 @@ struct BindingTable {
     atlas_sha256: Box<str>,
     retail_allowlist_sha256: Box<str>,
     coverage: Box<str>,
-    native_item_witness: NativeItemWitness,
     routes: Box<[DefaultBinding]>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NativeItemWitness {
-    app_version: Box<str>,
-    archive: Box<str>,
-    archive_sha256: Box<str>,
-    version_relation: Box<str>,
 }
 
 #[derive(Deserialize)]
@@ -53,14 +42,14 @@ pub(super) struct DefaultBinding {
     pub(super) identifier: Box<str>,
     pub(super) default_alias: Box<str>,
     pub(super) atlas_variant: u32,
-    evidence_file: Box<str>,
-    evidence_sha256: Box<str>,
 }
 
+/// Load the checked-in default routes for the pinned pack and item registry.
 pub(super) fn reviewed() -> Result<Box<[DefaultBinding]>, AssetError> {
     parse(SOURCE_BYTES)
 }
 
+/// Reject stale pack identities and unsupported, duplicate or unordered routes.
 fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
     let table: BindingTable = serde_json::from_slice(bytes).map_err(|source| AssetError::Json {
         path: SOURCE_PATH.into(),
@@ -69,7 +58,7 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
     let retail_hash = format!("{:x}", Sha256::digest(RETAIL_ITEMS));
     // The table is audited against the pinned pack; a pack bump fails closed until re-audited.
     let pinned = assets::vanilla_source();
-    if table.schema != 1
+    if table.schema != 2
         || !pinned.tag.starts_with(&format!("v{}.", table.game_version))
         || table.source_tag.as_ref() != pinned.tag.as_ref()
         || table.source_commit.as_ref() != pinned.commit.as_ref()
@@ -83,14 +72,6 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
         || table.retail_allowlist_sha256.as_ref() != RETAIL_SHA256
         || retail_hash != RETAIL_SHA256
         || table.coverage.is_empty()
-        || table.native_item_witness.app_version.is_empty()
-        || !table.native_item_witness.archive.starts_with("native/")
-        || !table
-            .native_item_witness
-            .archive
-            .ends_with("items.brarchive")
-        || !sha256_text(&table.native_item_witness.archive_sha256)
-        || table.native_item_witness.version_relation.is_empty()
         || table.routes.len() != ROUTE_COUNT
     {
         return Err(invalid(
@@ -104,11 +85,6 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
         .collect::<BTreeSet<_>>();
     let mut previous: Option<&str> = None;
     for binding in &table.routes {
-        let native_entry = format!(
-            "{}#{}.json",
-            table.native_item_witness.archive,
-            binding.identifier.strip_prefix("minecraft:").unwrap_or("")
-        );
         if !retail.contains(binding.identifier.as_ref())
             || previous.is_some_and(|value| value >= binding.identifier.as_ref())
             || binding.atlas_variant != 0
@@ -118,12 +94,6 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
                 .default_alias
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-            || !(binding.evidence_file.starts_with("behavior_pack/items/")
-                || binding.evidence_file.as_ref() == native_entry)
-            || !binding.evidence_file.ends_with(".json")
-            || binding.evidence_file.contains("..")
-            || binding.evidence_file.contains('\\')
-            || !sha256_text(&binding.evidence_sha256)
         {
             return Err(invalid(
                 "default sprite binding is noncanonical, unsupported or unordered",
@@ -134,17 +104,11 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
     Ok(table.routes)
 }
 
-fn sha256_text(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Mutate one fixture field while keeping all unrelated values valid.
     fn altered(change: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
         let mut table = serde_json::from_slice(SOURCE_BYTES).unwrap();
         change(&mut table);
@@ -165,22 +129,22 @@ mod tests {
     }
 
     #[test]
-    fn native_item_component_witness_rejects_invalid_archive_and_entry_provenance() {
+    fn unsupported_schemas_and_unknown_fields_fail_closed() {
         assert!(
             parse(&altered(|table| {
-                table["native_item_witness"]["archive_sha256"] = "invalid".into();
+                table["schema"] = 1.into();
             }))
             .is_err()
         );
         assert!(
             parse(&altered(|table| {
-                let seed = table["routes"]
-                    .as_array_mut()
-                    .unwrap()
-                    .iter_mut()
-                    .find(|row| row["identifier"] == "minecraft:wheat_seeds")
-                    .unwrap();
-                seed["evidence_file"] = "native/other/items.brarchive#wheat_seeds.json".into();
+                table["extra"] = "unexpected".into();
+            }))
+            .is_err()
+        );
+        assert!(
+            parse(&altered(|table| {
+                table["routes"][0]["extra"] = "unexpected".into();
             }))
             .is_err()
         );
@@ -209,12 +173,6 @@ mod tests {
         assert!(
             parse(&altered(
                 |table| table["routes"][0]["default_alias"] = "../apple".into()
-            ))
-            .is_err()
-        );
-        assert!(
-            parse(&altered(
-                |table| table["routes"][0]["evidence_sha256"] = "invalid".into()
             ))
             .is_err()
         );

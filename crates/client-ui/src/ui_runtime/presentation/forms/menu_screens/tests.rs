@@ -389,3 +389,41 @@ fn antialiasing_slider_uses_device_sample_stops_and_numeric_labels() {
     expected.set_global("#show_msaa", Scalar::Bool(true));
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn motion_blur_dropdown_binds_saved_presets_and_edits_the_registered_option() {
+    use crate::menu::settings_options::{
+        MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, SETTINGS_OPTIONS,
+    };
+    let mut view = view(MenuScreen::Settings);
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == MOTION_BLUR_OPTION.name)
+        .unwrap();
+    for preset in ui::MotionBlurQuality::ALL {
+        Arc::make_mut(&mut view.settings_options).set(index, preset.index());
+        let mut actual = DataSource::default();
+        super::super::settings_controls::bind(&view, &mut actual, &str::to_owned);
+        let mut expected = actual.clone();
+        expected.set_global(
+            format!("#{}_dropdown_toggle_label", MOTION_BLUR_OPTION.name),
+            Scalar::Text(preset.label().into()),
+        );
+        for (choice_index, choice) in MOTION_BLUR_CHOICES.iter().enumerate() {
+            expected.set_global(
+                format!("#{}", choice.name),
+                Scalar::Bool(choice_index == preset.index() as usize),
+            );
+            let mut radio = region(HitKind::Toggle, None);
+            radio.control_name = Some(choice.name.into());
+            assert_eq!(
+                super::super::settings_controls::action(&view, &radio),
+                Some(MenuAction::SettingsOption(
+                    index as u16,
+                    choice_index as i32
+                ))
+            );
+        }
+        assert_eq!(actual, expected);
+    }
+}

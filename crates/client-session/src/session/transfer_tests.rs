@@ -31,6 +31,7 @@ impl TransferredInboundSession {
 
 impl NetworkSession for TransferredInboundSession {
     type Error = &'static str;
+    type Outbound = PacketOutbound<&'static str>;
 
     async fn receive_world_event(
         &mut self,
@@ -45,8 +46,8 @@ impl NetworkSession for TransferredInboundSession {
         }
     }
 
-    async fn send_packet(&mut self, _packet: protocol::Packet) -> Result<(), Self::Error> {
-        Ok(())
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        Ok(PacketOutbound::accepting())
     }
 
     fn decode_error_count(&self) -> u64 {

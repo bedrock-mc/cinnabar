@@ -112,6 +112,54 @@ impl CameraPath {
         !self.looping && elapsed >= self.duration()
     }
 
+    /// Detects pose discontinuities crossed since the preceding rendered sample, including skipped loops.
+    pub fn crossed_cut(&self, previous: f32, elapsed: f32) -> bool {
+        if !previous.is_finite() || !elapsed.is_finite() || elapsed < previous {
+            return true;
+        }
+        let duration = self.duration();
+        let looping = self.looping && duration > 0.0;
+        let crosses = |boundary: f32| {
+            if looping {
+                ((previous - boundary) / duration).floor()
+                    < ((elapsed - boundary) / duration).floor()
+            } else {
+                previous < boundary && elapsed >= boundary
+            }
+        };
+        for (index, frame) in self.keyframes.iter().enumerate() {
+            if looping && frame.t == duration {
+                continue;
+            }
+            if !crosses(frame.t) {
+                continue;
+            }
+            let before = self.before_keyframe(index);
+            let next = self.keyframes.get(index + 1).unwrap_or(frame);
+            if !same_view(before, at(frame, next, 0.0)) {
+                return true;
+            }
+        }
+        looping
+            && crosses(duration)
+            && self.sample(0.0).is_some_and(|first| {
+                !same_view(self.before_keyframe(self.keyframes.len() - 1), first)
+            })
+    }
+
+    fn before_keyframe(&self, index: usize) -> CameraSample {
+        let frame = &self.keyframes[index];
+        let Some(previous) = index.checked_sub(1).map(|index| &self.keyframes[index]) else {
+            return at(frame, frame, 0.0);
+        };
+        if frame.easing.unwrap_or(self.easing) == Easing::Step {
+            return at(previous, frame, 0.0);
+        }
+        let mut sample = at(frame, frame, 0.0);
+        sample.fov = frame.fov.or(previous.fov);
+        sample
+    }
+
     pub fn sample(&self, elapsed: f32) -> Option<CameraSample> {
         let first = self.keyframes.first()?;
         let duration = self.duration();
@@ -133,6 +181,13 @@ impl CameraPath {
         let eased = to.easing.unwrap_or(self.easing).apply(progress);
         Some(at(from, to, eased))
     }
+}
+
+fn same_view(a: CameraSample, b: CameraSample) -> bool {
+    a.position == b.position
+        && yaw_difference(a.yaw, b.yaw) == 0.0
+        && yaw_difference(a.pitch, b.pitch) == 0.0
+        && a.fov == b.fov
 }
 
 fn at(from: &Keyframe, to: &Keyframe, t: f32) -> CameraSample {
@@ -228,5 +283,98 @@ mod tests {
             hide_hand: true,
         };
         assert!(empty.validate().is_err());
+    }
+
+    #[test]
+    fn camera_cuts_include_step_boundaries_crossed_between_samples() {
+        let mut path = CameraPath {
+            keyframes: vec![
+                frame(0.0, 0.0, 0.0),
+                frame(1.0, 1.0, 10.0),
+                frame(2.0, 2.0, 20.0),
+            ],
+            easing: Easing::Linear,
+            looping: false,
+            hide_hand: false,
+        };
+        path.keyframes[1].easing = Some(Easing::Step);
+        assert!(!path.crossed_cut(0.0, 0.9));
+        assert!(path.crossed_cut(0.9, 1.0));
+        assert!(path.crossed_cut(0.5, 1.5));
+        assert!(!path.crossed_cut(1.0, 1.1));
+        assert!(!path.crossed_cut(1.5, 2.5));
+        path.keyframes[2].easing = Some(Easing::Step);
+        assert!(path.crossed_cut(1.5, 2.5));
+        assert!(!path.crossed_cut(2.5, 3.0));
+    }
+
+    #[test]
+    fn camera_cuts_detect_loop_wraps_even_when_a_frame_skips_whole_loops() {
+        let path = CameraPath {
+            keyframes: vec![frame(0.0, 0.0, 0.0), frame(2.0, 1.0, 10.0)],
+            easing: Easing::Linear,
+            looping: true,
+            hide_hand: false,
+        };
+        assert!(!path.crossed_cut(0.0, 1.9));
+        assert!(path.crossed_cut(1.9, 2.0));
+        assert!(!path.crossed_cut(2.0, 2.1));
+        assert!(path.crossed_cut(0.25, 4.25));
+    }
+
+    #[test]
+    fn camera_cuts_leave_continuous_keyframes_and_loop_endpoints_alone() {
+        let mut path = CameraPath {
+            keyframes: vec![
+                frame(0.0, 0.0, 0.0),
+                frame(1.0, 1.0, 10.0),
+                frame(2.0, 0.0, 360.0),
+            ],
+            easing: Easing::Linear,
+            looping: true,
+            hide_hand: false,
+        };
+        assert!(!path.crossed_cut(0.5, 1.5));
+        assert!(!path.crossed_cut(1.9, 2.1));
+        assert!(!path.crossed_cut(0.25, 4.25));
+        path.keyframes[1] = frame(1.0, 0.0, 0.0);
+        path.easing = Easing::Step;
+        assert!(!path.crossed_cut(0.25, 4.25));
+    }
+
+    #[test]
+    fn camera_cuts_use_the_sample_before_a_step_at_the_loop_endpoint() {
+        let mut path = CameraPath {
+            keyframes: vec![
+                frame(0.0, 0.0, 0.0),
+                frame(1.0, 1.0, 10.0),
+                frame(2.0, 0.0, 0.0),
+            ],
+            easing: Easing::Linear,
+            looping: true,
+            hide_hand: false,
+        };
+        path.keyframes[2].easing = Some(Easing::Step);
+        assert!(path.crossed_cut(1.9, 2.0));
+        path.keyframes[1] = frame(1.0, 0.0, 0.0);
+        path.keyframes[2] = frame(2.0, 1.0, 10.0);
+        path.keyframes[2].easing = Some(Easing::Step);
+        assert!(!path.crossed_cut(1.9, 2.0));
+    }
+
+    #[test]
+    fn camera_cuts_detect_fov_only_discontinuities() {
+        let mut path = CameraPath {
+            keyframes: vec![frame(0.0, 0.0, 0.0), frame(1.0, 0.0, 0.0)],
+            easing: Easing::Step,
+            looping: false,
+            hide_hand: false,
+        };
+        path.keyframes[0].fov = Some(70.0);
+        path.keyframes[1].fov = Some(80.0);
+        assert!(path.crossed_cut(0.9, 1.0));
+        path.looping = true;
+        path.easing = Easing::Linear;
+        assert!(path.crossed_cut(0.9, 1.0));
     }
 }
