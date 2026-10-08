@@ -8,8 +8,8 @@ mod color_mask;
 mod dissolve;
 mod eligibility;
 pub use color_mask::{
-    native_actor_texture_uses_color_mask, native_actor_texture_uses_multitexture,
-    native_actor_uses_multitexture,
+    native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
+    native_actor_texture_uses_multitexture, native_actor_uses_multitexture,
 };
 pub use dissolve::actor_dissolve_mask_sources;
 pub use eligibility::{
@@ -337,8 +337,7 @@ fn validate(
             || texture.rgba8.len() != length
             || (pixel_hashes == PixelHashes::Check
                 && texture.pixel_sha256 != <[u8; 32]>::from(Sha256::digest(&texture.rgba8)))
-            || (!native_actor_texture_uses_color_mask(source)
-                && !native_actor_texture_uses_multitexture(source)
+            || (!native_actor_texture_preserves_fractional_alpha(source)
                 && !dissolve_masks.contains(&texture.source)
                 && texture
                     .rgba8

@@ -27,6 +27,16 @@
       "source_sha256": "f0c8abac2d79f9145d3f94cbaf256564bc5447b766ef76e6db81078f202c1bcf"
     }
   ],
+  "blended_reference": {
+    "material": "breeze_wind:entity_static",
+    "contract": "The blended JSON actor pass preserves sampled alpha without the legacy alpha-test cutoff. Wind charge uses UV animation, repeat sampling and double-sided faces without depth writes; its pinned raster retains fractional opacity."
+  },
+  "blended_sources": [
+    {
+      "path": "textures/entity/wind_charge.png",
+      "source_sha256": "986ef362fe5c6d555ca1812fe07d8faa080618263f182a7abd68a7e0ef387563"
+    }
+  ],
   "multitexture_reference": {
     "material": "llama:entity_multitexture",
     "contract": "USE_MULTITEXTURE samples three textures on the same normalized UV. RGB first interpolates base toward texture1 by texture1 alpha, then toward texture2 by texture2 alpha; base alpha is retained. Llama has no ALPHA_TEST, COLOR_SECOND_TEXTURE or blending. Near-version installed runtime witness; pinned controller/texture sources identify the current vanilla route."
