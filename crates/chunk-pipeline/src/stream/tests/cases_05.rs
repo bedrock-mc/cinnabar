@@ -292,26 +292,24 @@ fn outbound_request_fifo_has_a_hard_admission_capacity() {
         super::OUTBOUND_REQUEST_CAPACITY
     );
 
-    assert!(matches!(
-        stream
-            .submit(
-                super::OUTBOUND_REQUEST_CAPACITY as u64 + 1,
-                WorldEvent::LevelChunk(LevelChunkEvent {
-                    dimension: 0,
-                    x: 9,
-                    z: 9,
-                    mode: LevelChunkMode::LimitlessRequests,
-                    payload: biome_payload(0, 1),
-                }),
-            )
-            .unwrap_err(),
-        super::WorldStreamError::OutboundFull { .. }
-    ));
-
+    // A full outbound FIFO defers request-creating terrain instead of failing it.
+    let deferred = super::OUTBOUND_REQUEST_CAPACITY as u64 + 1;
+    stream
+        .submit(
+            deferred,
+            WorldEvent::LevelChunk(LevelChunkEvent {
+                dimension: 0,
+                x: 9,
+                z: 9,
+                mode: LevelChunkMode::LimitlessRequests,
+                payload: biome_payload(0, 1),
+            }),
+        )
+        .unwrap();
     let empty = ChunkKey::new(0, 9, 10);
     stream
         .submit(
-            super::OUTBOUND_REQUEST_CAPACITY as u64 + 1,
+            deferred + 1,
             request_level_chunk_event(
                 empty.dimension,
                 empty.x,
@@ -320,12 +318,23 @@ fn outbound_request_fifo_has_a_hard_admission_capacity() {
                 1,
             ),
         )
-        .expect("an authoritative empty column needs no outbound FIFO slot");
+        .unwrap();
     complete_pending_decode_jobs(&mut stream);
+    assert_eq!(
+        stream.order.deferred_count(),
+        2,
+        "later terrain keeps wire order"
+    );
     assert_eq!(
         stream.pending_request_count(),
         super::OUTBOUND_REQUEST_CAPACITY
     );
+    assert!(!stream.authority.terrain().is_chunk_loaded(empty));
+
+    assert!(!stream.take_requests().is_empty());
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.order.deferred_count(), 0);
+    assert!(stream.pending_request_count() <= super::OUTBOUND_REQUEST_CAPACITY);
     assert!(stream.loaded_columns.contains(&empty));
     assert!(stream.authority.terrain().is_chunk_loaded(empty));
 }

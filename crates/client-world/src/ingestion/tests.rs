@@ -6,9 +6,20 @@ use super::*;
 
 mod block_bursts;
 
+mod lanes;
+
+/// Heavy events share one terrain column; light ones are barriers, keeping strict order.
+fn footprint(heavy: bool) -> Footprint {
+    if heavy {
+        Footprint::terrain([world::ChunkKey::new(0, 0, 0)], true)
+    } else {
+        Footprint::barrier()
+    }
+}
+
 /// Admits one prepared event using the same bounded API as the coordinator.
 fn queue(state: &mut OrderedCommitState, sequence: u64, event: PreparedWorldEvent, heavy: bool) {
-    state.admit(sequence, heavy, 0).unwrap();
+    state.admit(sequence, footprint(heavy), 0).unwrap();
     state.insert_ready(sequence, event).unwrap();
 }
 
@@ -123,7 +134,7 @@ fn async_block_batch_fences_later_events_until_matching_completion() {
     );
     assert_eq!(state.committed_sequence(), 0);
     assert!(state.next_commit().is_none());
-    state.admit(3, false, 0).unwrap();
+    state.admit(3, footprint(false), 0).unwrap();
     assert!(matches!(
         state
             .complete_decode(3, PreparedWorldEvent::CommitOnly)
@@ -185,23 +196,25 @@ fn empty_effective_block_batch_finishes_without_a_worker() {
 fn admission_counts_retained_consumers_and_independent_heavy_bound() {
     let mut state = OrderedCommitState::new(1);
     assert!(matches!(
-        state.admit(1, false, MAX_ADMITTED_WORLD_EVENTS),
+        state.admit(1, footprint(false), MAX_ADMITTED_WORLD_EVENTS),
         Err(WorldStreamError::AdmissionFull { .. })
     ));
     for sequence in 1..=MAX_ADMITTED_HEAVY_EVENTS as u64 {
-        state.admit(sequence, true, 0).unwrap();
+        state.admit(sequence, footprint(true), 0).unwrap();
     }
     let next = MAX_ADMITTED_HEAVY_EVENTS as u64 + 1;
     assert!(matches!(
-        state.admit(next, true, 0),
+        state.admit(next, footprint(true), 0),
         Err(WorldStreamError::AdmissionFull { .. })
     ));
-    assert!(state.admit(next, false, 0).is_ok());
-    assert_eq!(state.remaining_admission_capacity(0), 0);
+    assert_eq!(state.heavy_capacity(), 0);
+    assert_eq!(state.light_capacity(0), MAX_ADMITTED_WORLD_EVENTS);
+    assert!(state.admit(next, footprint(false), 0).is_ok());
+    assert_eq!(state.light_capacity(0), MAX_ADMITTED_WORLD_EVENTS - 1);
     state.release_heavy(1);
-    assert_eq!(state.remaining_admission_capacity(0), 1);
+    assert_eq!(state.heavy_capacity(), 1);
     assert!(matches!(
-        state.admit(1, false, 0),
+        state.admit(1, footprint(false), 0),
         Err(WorldStreamError::DuplicateOrPast { .. })
     ));
 }
@@ -209,7 +222,7 @@ fn admission_counts_retained_consumers_and_independent_heavy_bound() {
 #[test]
 fn normalization_releases_heavy_admission_until_its_fifo_turn_finishes() {
     let mut state = OrderedCommitState::new(1);
-    state.admit(1, true, 0).unwrap();
+    state.admit(1, footprint(true), 0).unwrap();
     state.release_heavy(1);
     state
         .insert_ready(1, PreparedWorldEvent::NormalizationFailure)
