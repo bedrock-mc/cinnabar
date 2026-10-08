@@ -1,6 +1,59 @@
 use super::*;
 
 #[test]
+fn swell_conditional_return_controls_later_assignments_at_the_frame_fraction() {
+    let store = pack_swell_fixture_with(
+        AuthoredSwellChannel {
+            pre_animation: true,
+            property: assets::EntityAnimationProperty::Translation,
+            variable: true,
+        },
+        None,
+        false,
+        3,
+        false,
+        |compiled| {
+            let scalar = |value| assets::EntityGeometryScalar::new(value).unwrap();
+            compiled.molang_ops = vec![
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::StoreVariable(3),
+                MolangOp::LoadQuery(2),
+                MolangOp::Push(scalar(0.08)),
+                MolangOp::LessEqual,
+                MolangOp::JumpIfFalse(9),
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::Return,
+                MolangOp::Jump(9),
+                MolangOp::Push(scalar(2.0)),
+                MolangOp::StoreVariable(3),
+                MolangOp::Push(scalar(0.0)),
+                MolangOp::LoadVariable(3),
+            ]
+            .into_boxed_slice();
+            compiled.molang_expressions = [(0, 12, 2), (12, 1, 1)]
+                .into_iter()
+                .map(|(first_op, op_count, max_stack)| assets::CompiledMolangExpression {
+                    first_op,
+                    op_count,
+                    max_stack,
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+        },
+    );
+    let completed = store.actor_rig(1).unwrap();
+    let tick = completed.completed_tick;
+    for (alpha, expected) in [(0.0, 0.0), (0.1, 0.0), (0.5, -2.0), (1.0, -2.0)] {
+        let layers = store.render_frame(alpha).layers(1).unwrap();
+        for endpoint in [&layers[0].previous_pose[0], &layers[0].pose[0]] {
+            assert_eq!(endpoint.translation_scale[0], expected);
+        }
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, tick);
+}
+
+#[test]
 fn swell_keyframe_writes_feed_later_channels_and_render_without_staling_frame_variables() {
     let store = pack_swell_fixture_with(
         AuthoredSwellChannel {

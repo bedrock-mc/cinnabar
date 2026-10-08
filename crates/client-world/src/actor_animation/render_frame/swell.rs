@@ -414,6 +414,12 @@ fn propagate(
                         end
                     }
                 });
+                // A returning branch controls whether the rest of the script executes.
+                let end = if ops[pc + 1..end].contains(&MolangOp::Return) {
+                    ops.len()
+                } else {
+                    end
+                };
                 controls.push((end, dependency));
                 pending.push((target, stack.clone(), controls.clone()));
             }
