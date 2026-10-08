@@ -48,13 +48,27 @@ shutdown frame may show up in the shutdown error or as a fault in the log.
 
 ## Artifact
 
-An artifact is a directory holding `experience.toml`, `server.wasm` and `assets/`:
+An artifact is a directory holding `experience.toml`, `server.wasm` and `assets/`. One
+`experience.toml` declares both halves of the Experience:
 
 ```toml
 id = "benergistics"   # owns the block namespace "benergistics:"
-version = "0.1.0"
-api = "0.2"           # server WIT major.minor
+version = "0.1.0"     # of both halves; the client part's package_version
+api = "0.3"           # server WIT major.minor
 data-schema = 1       # block-data schema
+
+[client]              # the client part; the runtime ignores this table
+permissions = ["ui", "messaging"]
+actions = []          # declared action ids
+templates = []        # ui/<name>.json files, read beside experience.toml
+textures = []         # files under textures/, read beside experience.toml
+
+[[client.channels]]
+id = "benergistics.controller"
+schema = 1
+direction = "to_client"
+fields = [{ type = "integer", min = 0, max = 4294967295 }]
+
 [files]               # every other file, '/'-separated, with its lowercase hex SHA-256
 "server.wasm" = "…"
 "assets/controller.png" = "…"
@@ -67,23 +81,60 @@ no absolute paths, `..`, backslashes or symlinks). The hashes give integrity, no
 trust. The id `minecraft` is reserved: it is the namespace of vanilla blocks, so the adapter
 refuses an Experience with that id at registration, before anything is registered.
 
+The runtime ignores `[client]`, whatever it holds, and refuses any other unknown key. The server
+half of client parts routes messages by the client part's signed manifest, never by this file,
+and `cinnabar-cxb build --experience` checks the table with the client's own verifier when it
+signs it into the `.cxb` ([Client parts](#client-parts)). The Go adapter only looks for the file
+and never parses it. A channel declaration uses the signed manifest's own spelling
+(`to_client`, `max_bytes`, `max_items`; see
+[server-experiences.md](server-experiences.md#typed-runtime-messaging-and-publication)).
+
 `server.wasm` is the core module that cargo emits for `wasm32-unknown-unknown` with the WIT
 embedded by `experience-sdk`. The runtime componentizes it with `wit_component::ComponentEncoder`
 (the route `mod-host` uses) and instantiates it against the exact `server` world of its manifest's
 `api`. A client component, a WASI import, another `api`'s world or any unknown import fails the
 load; serialized native Wasmtime artifacts are never accepted.
 
+### The author SDK
+
+`crates/experience-sdk` is one SDK for both halves, each its own component:
+
+| Feature | Module | Builds |
+|---|---|---|
+| `server` | `experience_sdk::server` | the server half: implement `Experience`, export it with `export_experience!`; WIT in `wit/server/` |
+| `client` | `experience_sdk::client` | the client part: implement `ClientPart`, export it with `export_client_part!`, send with `client::send`; WIT in `wit/client/` |
+| `declarations` | `experience_sdk::declarations` | for a build script: `generate("<path>/experience.toml")` |
+
+Both halves share `Value`, one value of a channel record, and the channel declaration types
+`Channel`, `Direction` and `Field`. The server half passes records as `server::nodes` and
+`server::values`; the client part receives and sends them as `Value`s, which the SDK carries in
+the wire's JSON form. Every feature is on by default, so the SDK's own tests and docs cover all
+of it; a crate that uses the SDK sets `default-features = false` and names what it uses.
+
+A guest takes its channels, actions and templates from `experience.toml`, so neither half
+restates one: its build script, with the SDK as a build dependency with `declarations`, calls
+`experience_sdk::declarations::generate`, and `mod experience { experience_sdk::include_declarations!(); }`
+brings in `channels` (a `Channel` constant per `[[client.channels]]`, named after its id without
+the `<id>.` prefix in upper snake case), `actions` and `templates` (`&str` constants). Two
+declarations with one name, a channel outside the namespace and a template that is not
+`ui/<name>.json` fail the build.
+
 ### Building and packaging
 
-1. Write a `cdylib` crate that depends on `crates/experience-sdk`, implements `Experience` and
-   exports it with `export_experience!`. `examples/experiences/probe` is a complete example.
-2. `cargo build -p <crate> --target wasm32-unknown-unknown --release --locked`.
-3. Copy the module to `server.wasm` and the textures under `assets/`.
-4. Write `experience.toml` with `[files]` listing the SHA-256 of every other file.
+1. Write `experience.toml` without `[files]`.
+2. Write the server half: a `cdylib` crate that depends on `crates/experience-sdk` with the
+   `server` feature and takes `experience.toml`'s declarations. `examples/experiences/probe` is a
+   complete example.
+3. Write the client part, if there is one: a `cdylib` crate with the `client` feature.
+4. `cargo build -p <crate> --target wasm32-unknown-unknown --release --locked` for each.
+5. Copy the server module to `server.wasm` and the textures under `assets/`, and write
+   `experience.toml` with `[files]` appended, listing the SHA-256 of every other file.
+6. `cinnabar-cxb build --experience experience.toml --component <client part .wasm>
+   --publisher-seed <seed file> --out <id>.cxb` signs the client part.
 
 The Applied Benergistics repository's `scripts/package.ps1` (and `scripts/package.sh`) does all of
-this for its `benergistics` crate, taking the version from the crate's `Cargo.toml`, and verifies
-the result; `-VerifyOnly` checks an existing package.
+this from its root `experience.toml`, and verifies the result; `-VerifyOnly` checks an existing
+package.
 
 The runtime verifies every `[files]` hash when it loads the artifact. The adapter reads the
 texture files afterwards, when it registers the blocks, so an operator who edits an artifact while
@@ -92,14 +143,22 @@ startup.
 
 ## WIT and semantics
 
-The contract is `crates/experience-sdk/wit/server.wit`, package
-`cinnabar:experience-server@0.2.0`, world `server`. The guest exports `register`, which runs once
+The contract is `crates/experience-sdk/wit/server/server.wit`, package
+`cinnabar:experience-server@0.4.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks, the callbacks `on-place`, `on-break`, `on-interact` and
-`on-neighbor-changed`, and `client-message`. Every world method goes through the borrowed
-`callback` resource, valid for one callback only. The runtime still runs artifacts with
-`api = "0.1"` against the frozen 0.1 world in `crates/experience-runtime/wit/0.1/server.wit`,
-which has neither `send-client` nor `client-message`; a client message for such an Experience is
-rejected without running it.
+`on-neighbor-changed`, `client-message` and `epoch`. Every world method goes through the borrowed
+`callback` resource, valid for one callback only. The runtime still runs older artifacts against
+their frozen worlds, by the manifest's `api`:
+
+- `api = "0.3"`, `crates/experience-runtime/wit/0.3/server.wit`: no `callback.focus`, so client
+  messages and epochs never have a snapshot. The adapter gives such an Experience no focus, and
+  the runtime rejects one with a focus without running it.
+- `api = "0.2"`, `crates/experience-runtime/wit/0.2/server.wit`: client messages and sends hold
+  scalars only, and there is no `epoch`. A client message holding a list or record, or an epoch,
+  for such an Experience is rejected without running it.
+- `api = "0.1"`, `crates/experience-runtime/wit/0.1/server.wit`: neither `send-client` nor
+  `client-message` nor `epoch`; a client message or an epoch for it is rejected without running
+  it.
 
 WIT cannot express the rules below; the runtime (`crates/experience-runtime`) and the adapter
 (`tools/localserver/experience`) both enforce them.
@@ -117,8 +176,8 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 - **Staging.** An `ok` from a mutation means staged. A guest error or a trap discards everything
   staged; a rejected single operation leaves the staged state unchanged and the callback
   continues. Logs are not gameplay output and survive a discarded callback.
-- **Reads.** Reads see only the anchor (the event's block) and its six orthogonal neighbors in the
-  same dimension, as they were snapshotted.
+- **Reads.** Reads see only the anchor (the event's block, or a client message's or an epoch's
+  focus) and its six orthogonal neighbors in the same dimension, as they were snapshotted.
   - `get-block` returns a snapshot position's id with staged writes applied; an unloaded position
     is `unavailable`, one outside the snapshot `denied`, one outside the world height
     `out-of-bounds`.
@@ -135,18 +194,51 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 - **`tell`.** Only to the event's actor, else `denied`; `player-unavailable` when the event has no
   actor. Control characters and `§` are `invalid-text`; text over `MAX_TELL_BYTES` is
   `too-large`; at most `MAX_TELLS` per callback.
-- **`send-client`.** Stages a typed record (a list of `scalar`s, the client wire protocol's field
-  values) for the actor's client part on a channel and schema revision; `denied` and
-  `player-unavailable` as for `tell`. A callback's channels and payloads hold at most
-  `MAX_CLIENT_SEND_BYTES` as JSON, else `too-large`; at most `MAX_CLIENT_SENDS` per callback. The
-  adapter sends a staged message only after the whole result commits, and only on a channel, in
-  the direction to the client, that the Experience's own client part declares; anything else, or
-  a player without an active client part, is dropped and counted. Without the server half of
-  client parts every staged message is dropped.
+- **`send-client`.** Stages a typed record (the client wire protocol's field values) for the
+  actor's client part on a channel and schema revision; `denied` and `player-unavailable` as for
+  `tell`. A callback's channels and payloads hold at most `MAX_CLIENT_SEND_BYTES` as JSON, else
+  `too-large`; that is room for one message as large as wire v2 carries, on a channel with the
+  longest id, which `TestRuntimeClientSendsFitTheWire` in `tools/localserver` checks against the
+  wire's constants. At most `MAX_CLIENT_SENDS` per callback. The adapter sends a staged message
+  only after the whole result commits, and only on a channel, in the direction to the client,
+  that the Experience's own client part declares; anything else, or a player without an active
+  client part, is dropped and counted. Without the server half of client parts every staged
+  message is dropped.
+- **Payload values.** A record's values are scalars, lists and records, as the channel declares
+  them. WIT has no recursive types, so a payload is a `list<value-node>`: its values in
+  pre-order, a scalar as a `leaf`, a list or record as a header holding its item count followed
+  by that many values. That is the layout of MessagePack and CBOR arrays, and the boring choice:
+  unlike a node table with child indices it cannot share a node or form a cycle, so the only
+  malformed input is a header that counts more items than follow it, and unlike JSON text the
+  leaves stay typed and neither side runs a parser. Lists and records nest at most
+  `MAX_VALUE_DEPTH` deep, a top-level one being level 1, which is the wire's `MAX_FIELD_DEPTH`;
+  a deeper payload is `too-large`. A malformed payload traps. The SDK's `Value`, `server::nodes`
+  and `server::values` build and read payloads, and `Experience::client_message` receives
+  `Value`s.
 - **`client-message`.** A typed record that a player's client part sent arrives through the same
-  queue as the block callbacks, with that player as the actor. Its `callback` has no snapshot, so
-  every block read and write is refused; it may `tell` and `send-client` to the player, and its
+  queue as the block callbacks, with that player as the actor, its lists and records as pre-order
+  nodes like a send's. Its `callback` has the snapshot of the player's focus, if any; without one
+  every block read and write is refused. It may `tell` and `send-client` to the player, and its
   result commits like any other, in the world the player is in when it runs.
+- **`epoch`.** A player's client part moved to a new world epoch, such as another dimension, and
+  kept running, so it may have missed what was sent before; the guest resends its state. The
+  callback comes through the same queue, with that player as the actor and the snapshot of the
+  player's focus, and acts exactly like `client-message`'s.
+- **Focus.** When a player's `on-interact` runs for one of an Experience's blocks, the adapter
+  records that block, its dimension and its placement generation as the player's focus for that
+  Experience; a newer interaction replaces it, and a disconnect clears it. A `client-message` or
+  `epoch` of that player gets exactly the snapshot `on-interact` gets for the focus block: the
+  block and its six neighbors, read and written by the same rules, writes in its chunk column.
+  `callback.focus` names the block, and is none in every other callback. The focus counts as
+  none, an empty snapshot, while the block is gone or replaced (another generation), no longer
+  this Experience's, unloaded, in another dimension than the player, or farther than
+  `provisionalFocusRange` (`tools/localserver/experience/limits.go`) from the player's eyes to
+  the block's centre. That bound is provisional, labeled incomplete in `plan.md`: it should be
+  the distance at which vanilla Bedrock closes an open container's screen, the player's pick
+  range (per input mode, survival or creative) from the eyes to the block's centre. Those
+  constants are not yet known, so it is Dragonfly's survival reach for using a block. Commit and the
+  stale check are unchanged: if the focus block or its data changed after the snapshot, the
+  result is discarded.
 - **No ambient time or randomness.** `callback-info.tick` is the integer world tick.
 - **Fresh instance per callback.** Each callback runs on a new instance of the precompiled
   component, so guest memory never survives a callback; durable state belongs in block data.
@@ -160,8 +252,11 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 ## Client parts
 
 The server half of client parts (`tools/localserver/extension`) offers each Experience's client
-part, a `.cxb` that `cinnabar-cxb build` makes, over PR #34's unchanged handshake and typed
-channels ([server-experiences.md](server-experiences.md)).
+part, a `.cxb` that `cinnabar-cxb build --experience` makes from the Experience's
+`experience.toml`, over PR #34's unchanged handshake and typed channels
+([server-experiences.md](server-experiences.md)). On the client a failed client part callback
+drops only its own output and the helper restarts the guest; repeated failures stop that part,
+as the server stops a failing Experience (see server-experiences.md on helper failures).
 
 ```text
 bedrock-local-server … -extension-key <seed file> -extension-audience <host:port> -extension-cxb <dir>
@@ -191,30 +286,42 @@ bedrock-local-server … -extension-key <seed file> -extension-audience <host:po
   passes every other packet through untouched. Dragonfly's listener does not expose packet
   headers; it admits no sub-client login, so every packet on a connection is its primary
   client's, and Hello and envelopes must name sub-client 0.
-- **Handshake**, per connection. A Hello must have the client's wire and API versions, the
+- **Handshake**, per connection. A Hello must have the client's handshake and API versions, the
   current offer's digest, sub-client 0, 32-byte nonces and a capability set that is not empty,
   before the offer expires. The server answers with an Accept signed by the server key that
-  echoes the Hello, with a fresh challenge and session, expiring with the offer. Ready must name
-  that session, the offer's bundle digests in order and generation 1, and grant each bundle
-  permissions within its manifest, the Hello's capabilities and the offer's scope. The client part
-  is then active with Ready's world epoch.
+  echoes the Hello, with a fresh challenge and session, expiring with the offer. The Accept
+  selects the highest wire version that the Hello's `wire` lists and the server speaks, at the
+  lower of each of the Hello's ceilings and the server's (`HostLimits`, the client's own
+  constants); a v1 Hello, or one whose highest common version is 1, gets an Accept that selects
+  nothing, exactly as before wire v2. A Hello with no common version or unusable ceilings falls
+  back. Ready must name that session, the offer's bundle digests in order and generation 1, and
+  grant each bundle permissions within its manifest, the Hello's capabilities and the offer's
+  scope. The client part is then active with Ready's world epoch.
 - **Messages.** A committed `send-client` goes out only to an active client part, on a declared
-  `to_client` channel of a bundle granted `messaging`, sequenced from 1 with Ready's world epoch
-  and within the client's message and byte rates; anything else is dropped and counted. Inbound
-  envelopes pass the client's own ingress rules (route, sequence, bundle, namespace, `messaging`
-  grant, schema, size, rate) against the manifest's `to_server` channels and become
+  `to_client` channel of a bundle granted `messaging`, sequenced from 1 with the current world
+  epoch and within the client's message and byte rates; anything else is dropped and counted. On
+  wire v2 a record over the inline limit goes out in fragments, all of them or, when the client's
+  remaining rate cannot take them all, none. Inbound envelopes, and on v2 fragments, pass the
+  client's own ingress rules (route, sequence, order, bundle, namespace, `messaging` grant,
+  schema, size, reassembly budget, rate) against the manifest's `to_server` channels and become
   `client-message` callbacks of the Experience whose id is the bundle id. An undeclared channel
-  schema or another world epoch, which the client would skip as a newer revision, is a violation
-  here, since the server knows the exact manifest.
-- **Fallback.** Any violation, the Accept's expiry, a dimension change (it resets the client's
-  world epoch) or a disconnect puts that connection in fallback for good: its client part gets
-  nothing more, its messages are dropped, and the player stays connected and plays on as without
-  a client part. A dimension change before the Hello ends nothing. One log line reports each
-  client part that becomes active or falls back.
-- **Tests.** `go test ./extension` covers the handshake rules with Dragonfly's listener faked;
-  `TestClientPartHandshakeOverRakNet` runs a Hello over real RakNet. `testdata/go` holds the
-  server half's own marker, Accept and envelope, which `tools/cxb/tests/fixtures.rs` runs through
-  the client's verifiers; regenerate them with
+  schema, which the client would skip as a newer revision, is a violation here, since the server
+  knows the exact manifest; so is another world epoch on wire v1.
+- **World epochs.** On wire v2 a dimension change keeps the client part. The client's `epoch`
+  control moves the session to its new epoch: the server's later envelopes carry it, the client's
+  envelopes of the old epoch are dropped and counted, and `Server.OnEpoch` queues the `epoch`
+  callback (`Host.DeliverEpoch`) of each Experience with an active client part for that player,
+  so it can resend its state.
+- **Fallback.** Any violation, the Accept's expiry, a dimension change on wire v1 (it resets the
+  client's world epoch) or a disconnect puts that connection in fallback for good: its client
+  part gets nothing more, its messages are dropped, and the player stays connected and plays on
+  as without a client part. A dimension change before the Hello ends nothing. One log line
+  reports each client part that becomes active, changes epoch or falls back.
+- **Tests.** `go test ./extension` covers the handshake rules, the v1/v2 negotiation matrix,
+  epochs and fragment attacks with Dragonfly's listener faked; `TestClientPartHandshakeOverRakNet`
+  runs a Hello over real RakNet. `testdata/go` holds the server half's own marker, v2 Accept,
+  envelope and fragments, which `tools/cxb/tests/fixtures.rs` runs through the client's
+  verifiers; regenerate them with
   `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures`.
 
 ### Client part media (developer)
@@ -250,9 +357,15 @@ many bytes of JSON, at most `MAX_FRAME_BYTES`; bytes inside messages are lowerca
 `tools/localserver/experience/testdata/protocol` come from
 `experience-runtime write-fixtures <dir>`; the Go tests decode and re-encode each one and require
 identical JSON, and reject unknown fields. A helper that answers `load` with another protocol
-version fails the load. A client message is a `callback` whose `call` is `client_message` and
-whose snapshot is empty; a staged client message is a `send_client` op. Their `scalar` values
-have the client wire protocol's form, `{"type": "integer", "value": 42}`.
+version fails the load. A client message is a `callback` whose `call` is `client_message`, and an
+epoch one whose `call` is `epoch`; both carry `focus`, the player's focus block or null, and
+have that block's snapshot with a focus and an empty one without. `loaded` carries `focus`,
+whether the Experience's world takes one; the adapter gives none to an Experience whose world
+does not. A staged client message is a
+`send_client` op. Their `scalar` values have the client wire protocol's form,
+`{"type": "integer", "value": 42}`, a list or record holding its values in an array,
+`{"type": "list", "value": [...]}`; the runtime turns them into and out of the guest's pre-order
+nodes.
 
 ## Private data store
 
@@ -305,10 +418,11 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.2; 0.1 still accepted | `crates/experience-sdk/wit/server.wit`; 0.1 in `crates/experience-runtime/wit/0.1/server.wit` |
-| IPC protocol | 2 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
-| Server manifest | `api`, `data-schema` | `crates/experience-runtime/src/manifest.rs` |
-| Client WIT and wire protocol | unchanged from PR #34 | `crates/mod-api/wit/extension.wit` |
+| Server WIT | 0.3; 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; 0.2 and 0.1 in `crates/experience-runtime/wit/<version>/server.wit` |
+| IPC protocol | 3 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
+| Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
+| Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |
 | Bedrock target | | `assets/bedrock-target.json` |
 
 A server artifact, its Bedrock art and a client extension are separate artifacts with separate
@@ -330,7 +444,10 @@ Another server can host the same artifacts by speaking the protocol to `experien
    ownership rules and the commit limits again, since the helper is not trusted.
 5. After the commit, send each `send_client` op to the actor's client part if that Experience's
    client part declares the channel; drop and count the rest. Deliver a client part's messages
-   as `client_message` callbacks with the sender as actor and an empty snapshot.
+   as `client_message` callbacks, and its moves to a new world epoch as `epoch` callbacks, with
+   that player as actor. If `loaded` said the Experience takes a focus, remember the block of
+   each player's last interaction with it, and while that block is still valid give its snapshot
+   and `focus`; otherwise send an empty snapshot and a null `focus`.
 6. Count `failed` results and helper faults as strikes, and restart, quarantine and reload as
    described above.
 7. Own the store: generations, revisions, the quota and atomic flushes.

@@ -59,7 +59,7 @@ pub mod viewmodel_bob;
 
 use crate::menu::{MenuAction, MenuView};
 pub use debug_overlay::DebugLines;
-pub use forms::{BedHit, ChatHit, LoadingStage};
+pub use forms::{BedHit, ChatHit, ExperienceModal, LoadingStage};
 pub use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
@@ -744,6 +744,20 @@ impl UiPresentationRuntime {
         if !scenes.contains(&Scene::SignEditor) {
             self.hide_sign_editor();
         }
+        // A client part's modal sits over gameplay only, below toasts and trusted chrome.
+        let over_gameplay = self.menu_view.is_none()
+            && self.loading_stage.is_none()
+            && scenes
+                .iter()
+                .all(|scene| matches!(scene, Scene::Gameplay | Scene::Crosshair | Scene::Hud));
+        self.append_experience_modal(
+            runtime,
+            &mut nodes,
+            &mut next_id,
+            metrics,
+            content,
+            over_gameplay,
+        );
         // Toasts live on their own stack, drawn last over every scene.
         self.scene_clock.clear();
         self.append_toast_screen(

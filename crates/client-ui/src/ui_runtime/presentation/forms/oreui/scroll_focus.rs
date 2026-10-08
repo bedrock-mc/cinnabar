@@ -13,8 +13,6 @@ pub(super) fn reveal(canvas: &mut Canvas<'_>, scrolls: &mut MenuScrolls, view: &
         return false;
     };
     let fixed = *action == MenuAction::AddBack
-        || (view.screen == crate::menu::MenuScreen::Servers
-            && matches!(action, MenuAction::Navigate(_)))
         || (view.screen == crate::menu::MenuScreen::AddServer
             && matches!(action, MenuAction::AddSave | MenuAction::AddSaveConnect))
         || (*action == MenuAction::SettingsScalePicker && view.settings_scale_picker)

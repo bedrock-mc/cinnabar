@@ -47,7 +47,7 @@ pub(super) fn pong(view: &mut MenuView, address: String, online: bool) {
 }
 
 #[test]
-fn selected_ping_animation_follows_visible_default_and_explicit_selection() {
+fn selected_ping_animation_follows_default_explicit_and_collapsed_selection() {
     let mut view = servers_view();
     let animated = super::super::forms::oreui::animated_server_details;
     assert!(
@@ -79,23 +79,20 @@ fn selected_ping_animation_follows_visible_default_and_explicit_selection() {
         "unselected offline featured servers do not animate"
     );
     Arc::make_mut(&mut view.settings_options)
-        .apply_server_list(ServerListAction::ToggleVisibility(ServerGroup::Saved));
-    assert!(
-        animated(&view),
-        "hidden selected details fall back to the visible offline feature"
-    );
-    Arc::make_mut(&mut view.settings_options)
-        .apply_server_list(ServerListAction::ToggleVisibility(ServerGroup::Featured));
-    assert!(animated(&view), "creator is the next visible default");
-    let creator = view.featured[1].address.clone();
-    pong(&mut view, creator, true);
+        .apply_server_list(ServerListAction::Toggle(ServerGroup::Saved));
     assert!(
         !animated(&view),
-        "hidden offline sections do not block retention"
+        "collapsed sections keep selected online details"
     );
-    Arc::make_mut(&mut view.settings_options)
-        .apply_server_list(ServerListAction::ToggleVisibility(ServerGroup::Creator));
-    assert!(!animated(&view), "no visible details has no ping animation");
+    let saved = view.servers[0].address.clone();
+    pong(&mut view, saved, false);
+    assert!(
+        animated(&view),
+        "collapsed selected offline details still animate"
+    );
+    view.featured.clear();
+    view.servers.clear();
+    assert!(!animated(&view), "empty details have no ping animation");
 }
 
 #[test]

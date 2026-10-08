@@ -198,7 +198,7 @@ impl crate::ui_runtime::presentation::UiPresentationRuntime {
         }
         let (captured, action, scroll) = state.pointer(pointer, held, pressed, self.menu_seconds);
         if scroll != 0.0 {
-            self.menu_scrolls.scroll_by(super::SIDEBAR_SCROLL, scroll);
+            self.menu_scrolls.scroll_by("servers.side_menu", scroll);
         }
         (captured, action)
     }

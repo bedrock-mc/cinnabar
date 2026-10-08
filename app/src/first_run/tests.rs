@@ -216,3 +216,17 @@ fn every_carrier_startup_requires_is_required_by_the_carrier_table() {
         assert!(carrier.required, "{name} must be a required carrier");
     }
 }
+
+#[test]
+fn native_setup_title_uses_embedding_identity_with_default_fallback() {
+    assert_eq!(
+        super::setup_title(Some("Zeno Client")),
+        "Zeno Client first-time setup"
+    );
+    for title in [None, Some(""), Some("  ")] {
+        assert_eq!(
+            super::setup_title(title),
+            format!("{} first-time setup", launcher::PRODUCT_NAME)
+        );
+    }
+}

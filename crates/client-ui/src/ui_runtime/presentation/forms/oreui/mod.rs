@@ -29,7 +29,6 @@ mod pause;
 mod play;
 mod play_realms;
 mod play_servers;
-mod server_filter;
 pub(in crate::ui_runtime::presentation) use play_servers::animated_server_details;
 mod profile;
 mod progress;
@@ -44,7 +43,7 @@ mod settings;
 #[cfg(test)]
 mod settings_tests;
 mod sidebar;
-mod theme;
+use crate::oreui_theme as theme;
 mod transitions;
 mod widgets;
 mod world_settings;

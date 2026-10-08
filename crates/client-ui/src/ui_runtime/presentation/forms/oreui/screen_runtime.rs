@@ -278,34 +278,6 @@ impl UiPresentationRuntime {
                                 .map(|(action, _)| *action)
                                 .collect();
                         }
-                        None if screen == MenuScreen::Servers => {
-                            canvas.capture_focus = true;
-                            let rollback = (canvas.nodes.len(), *canvas.next);
-                            for attempt in 0..2 {
-                                play::draw(&mut canvas, view, size, &self.menu_artwork.refs)?;
-                                if view.dialog == Some(crate::menu::MenuDialog::ServerFilter)
-                                    || !scroll_focus::reveal(
-                                        &mut canvas,
-                                        &mut self.menu_scrolls,
-                                        view,
-                                    )
-                                    || attempt == 1
-                                {
-                                    break;
-                                }
-                                canvas.nodes.truncate(rollback.0);
-                                *canvas.next = rollback.1;
-                                canvas.hits.clear();
-                                canvas.clear_focus_geometry();
-                                canvas.spots.clear();
-                                canvas.scrolls.clear();
-                            }
-                            self.form_presentation.menu_focus = canvas
-                                .focus_hits
-                                .iter()
-                                .map(|(action, _)| *action)
-                                .collect();
-                        }
                         None => play::draw(&mut canvas, view, size, &self.menu_artwork.refs)?,
                     }
                     if let Some(dialog) = modal::local_world_modal(&view.local) {
@@ -354,9 +326,7 @@ impl UiPresentationRuntime {
         self.form_presentation.oreui_slider_tracks = slider_tracks;
         self.form_presentation.menu_focus_geometry = focus_targets;
         self.form_presentation.menu_focus_landmarks = focus_landmarks;
-        if view.dialog != Some(crate::menu::MenuDialog::ServerFilter) {
-            self.menu_scrolls.set_areas(scrolls);
-        }
+        self.menu_scrolls.set_areas(scrolls);
         self.add_menu_text_spots(spots);
         if let Some(preview) = character_preview {
             self.append_menu_player_preview(

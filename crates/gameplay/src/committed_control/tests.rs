@@ -326,3 +326,59 @@ fn a_failed_boost_replay_keeps_the_unapplied_span_live() {
     }
     assert!(!effects.snapshot().glide_boost);
 }
+
+/// Open air that counts collision queries, so tests can tell how often history replays.
+struct CountingAir(std::cell::Cell<usize>);
+
+impl CollisionWorld for CountingAir {
+    fn collision_boxes(
+        &self,
+        _: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        self.0.set(self.0.get() + 1);
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+}
+
+/// A delayed update that changes movement and liquid speeds replays history once.
+#[test]
+fn a_combined_delayed_speed_update_replays_once() {
+    let replay_queries = |underwater: Option<f64>| {
+        let (mut movement, mut physics, mut effects, mut speed) = owners();
+        for _ in 0..4 {
+            let frame = physics.advance(
+                std::time::Duration::from_millis(50),
+                sim::MovementInput::default(),
+                &OpenAir,
+            );
+            assert_eq!(frame.completed_ticks, 1, "{:?}", frame.blocked);
+        }
+        let world = CountingAir(std::cell::Cell::new(0));
+        CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 0,
+            dimension_transfer_active: false,
+        }
+        .apply(
+            CommittedControlEvent::LocalMovementSpeed {
+                sequence: 9,
+                dimension: 0,
+                current: Some(0.2),
+                sprint_modifier: None,
+                underwater,
+                lava: None,
+                tick: 102,
+            },
+            &world,
+            |_| {},
+        );
+        world.0.get()
+    };
+    let movement_only = replay_queries(None);
+    assert!(movement_only > 0, "the delayed movement speed replays");
+    assert_eq!(replay_queries(Some(0.05)), movement_only);
+}

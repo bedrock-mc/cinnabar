@@ -759,6 +759,10 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// Only zero hardness breaks on the start tick (`GameMode::startDestroyBlock`);
 - /// stopDestroyBlock clears the delay, so a fresh press starts at once.
 
+## crates/input/src/binding.rs
+- InteractWithToast (`key.interactwithtoast`, "Open Notification") defaults to N: vanilla
+  options.txt default `keyboard_type_0_key.interactwithtoast:78`.
+
 ## crates/inventory/src/inventory_ledger/admission.rs
 - // Native LegacyClientNetworkHandler::handle routes a response to the screen manager
 
@@ -1402,6 +1406,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - // Current BedBlock restitution.
 - /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
 - // Travel selection `0x09fefcb0`: ability flight, then WasInWater water travel, then lava, then GlidingTravelFlag, then normal.
+- Water travel speed `0x0dc3eeb0` (adapter `0x0dc3f070`): base = MovementAttributes underwater_movement (0 if absent; dolphins use movement); swim multiplier <= 1 blends Depth Strider (halved off ground) toward minecraft:movement; otherwise base * multiplier * ((level / max) * 0.3 + 0.7) (PE 0x150056088, 0x15005ea04). SwimSpeedMultiplier `0x09a0b500`: 2.0 (PE 0x14feff2b8) when actor flag 57 (swimming) and MovementEffects slot 1 (dolphin boost) is active, else 1.0. Lava travel (26.30 LavaTravelSystem view `0x1051bf080`) sets speed to lava_movement (0 if absent).
 - Ground contact: FinalizeMove `0x06dcbfc0` compares the move request (+0x30) with the
   result (+0x3c). A vertical difference above float epsilon adds OnGround only when
   request y < 0, otherwise removes it; with no vertical difference OnGround survives only
@@ -1474,6 +1479,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - /// excludes MobIsJumpingFlagComponent and lets MobJumpSystem handle ascent.
 - // RVA 0x09fd2140: ordinary upward steering requires the liquid material
 - // flag written by bounding-box input update, even if velocity was falling.
+- Water drag `0x0320fc20`: a swim speed multiplier above 1 keeps the base 0.8/0.9 horizontal drag without the Depth Strider blend.
 
 ## crates/sim/src/world/current.rs
 - //! Player liquid-current impulse from the preceding pose (native 0x0a5d5c40).
@@ -1577,7 +1583,7 @@ RVAs are 1.26.50.26 Windows client; `mac 0x10…` addresses are the 26.30 macOS 
 - `button_face`: pressable `sf`/`bf`/`hf`; menus theme `--pressableElevated*` nine-slices.
 - `menu_item`: dropdown item `bV` (classes `gV`) in `MV`; check icon `Fp`.
 
-## crates/client-ui/src/ui_runtime/presentation/forms/oreui/theme.rs
+## crates/client-ui/src/oreui_theme/mod.rs
 - Role table: theme `pD` colour roles over the palette constants defined beside `Zc`.
 
 ## docs/evidence/desktop-video-settings.md
@@ -2900,6 +2906,9 @@ was not used as version evidence.
 - Third-person visibility and disabling inversion are owner-requested options;
   defaults retain first-person visibility and inverted colors. The Java HUD's
   built-in fallback remains 15×15; a pack crosshair remains 16×16.
+
+## app/src/melee.rs; crates/gameplay/src/melee.rs; crates/gameplay/src/movement/outbox.rs (frame-time attacks)
+- Attack presses are handled per frame, not per tick. 1.26.50.26 `MinecraftGame::startFrame` (RVA 0x00842ff0) calls the input tick (RVA 0x0084d830) every frame under two virtual guards; that calls `MinecraftInputHandler::tick` (RVA 0x04a2b670). macOS 1.26.30: `MinecraftGame::startFrame` 0x1025bb440 is the only caller of `MinecraftGame::tickInput` 0x1025c2840 → `InputHandler::tick` 0x10c39a9b0; the registered press lambdas call `ClientInputCallbacks::handleBuildOrAttackOrBlockSelectButtonPress` 0x1023161c0 → `handleBuildAction` 0x1023178c0 → `GameMode::attack` 0x10a0bba00, whose `_attack` 0x10a0bba20 sends the transaction through the packet sender immediately. The frame's ticks run after `startFrame`, so the attack precedes the next PlayerAuthInput and reports the latest ticked position.
 
 ## Swing duration publication
 

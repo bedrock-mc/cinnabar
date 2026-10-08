@@ -313,3 +313,51 @@ fn publishing_equal_owned_menu_snapshots_does_not_allocate() {
         "clearing a view still removes it"
     );
 }
+
+#[test]
+fn retained_menu_is_invalidated_by_presentation_owned_experience_modal() {
+    let Some(mut presentation) = super::super::forms::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping retained_menu_is_invalidated_by_presentation_owned_experience_modal: missing local UI carrier (make assets)"
+        );
+        return;
+    };
+    let runtime = UiRuntime::new(0);
+    let player = player_state::PlayerState::new(0);
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::Settings;
+    presentation.set_menu_view(Some(view));
+    let dpi = DpiScale::new(1.0).unwrap();
+    for clock in [0, 500, 1000, 1500] {
+        presentation
+            .build(&player, &runtime, clock, [1280, 720], dpi)
+            .unwrap();
+    }
+    assert!(presentation.retained_menu.is_some());
+    let mut modal = server_experience::screen::Modal::default();
+    modal.open(Some("ui/fixture.json".into()));
+    let files = Arc::new(server_experience::screen::Files::default());
+    presentation.set_experience_modal(Some(
+        super::super::forms::experience_modal::ExperienceModal {
+            bundle: "fixture",
+            files: &files,
+            modal: &modal,
+        },
+    ));
+    let frame = ([1280, 720], dpi.get(), presentation.safe_area);
+    assert!(
+        presentation.retained_menu_input(&runtime, frame).is_none(),
+        "an opening modal must be drawn"
+    );
+    presentation.remember_menu(&runtime, frame);
+    assert!(
+        presentation.retained_menu.is_none(),
+        "modal frames remain live"
+    );
+    presentation.set_experience_modal(None);
+    presentation.remember_menu(&runtime, frame);
+    assert!(
+        presentation.retained_menu.is_some(),
+        "closing the modal restores retention"
+    );
+}

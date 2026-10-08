@@ -67,6 +67,9 @@ pub struct MenuRealmCard {
 /// Marks a featured address as an experience's ID, joined when selected.
 pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
 
+/// Marks an address as the friend world hosted by this XUID.
+pub const FRIEND_ADDRESS_PREFIX: &str = "friend_xuid/";
+
 /// Whether the server at `address` can be pinged; an experience has no server until joined.
 pub fn pingable(address: &str) -> bool {
     !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
@@ -85,6 +88,8 @@ pub struct ServerDetails {
     pub news: String,
     pub screenshots: Vec<String>,
     pub games: Vec<MenuGameCard>,
+    /// The server's remote HTTPS logo, which Discord Rich Presence shows by URL.
+    pub logo_url: String,
 }
 
 /// One game a featured server advertises.
@@ -342,6 +347,8 @@ pub struct MenuFriendCard {
     pub world_name: String,
     pub members: String,
     pub xuid: String,
+    /// The world's player limit; zero when the host did not publish one.
+    pub max_members: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -415,6 +422,12 @@ pub struct MenuView {
     pub feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.
     pub store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+    /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
+    pub hosting: bool,
+    /// The invite screen's friends and picks while it is up.
+    pub invite: Option<std::sync::Arc<super::invite::InviteState>>,
+    /// Who sent the oldest open Discord join request.
+    pub join_request: Option<String>,
 }
 
 /// An active settings slider retains the unrounded pointer fraction.
@@ -499,6 +512,7 @@ impl From<CatalogFriend> for MenuFriendCard {
             world_name: friend.world_name,
             members,
             xuid: friend.xuid,
+            max_members: u32::try_from(friend.max_members).unwrap_or(0),
         }
     }
 }
@@ -509,10 +523,18 @@ impl MenuView {
         self.feeds.server_trust.as_ref().filter(|_| self.connecting)
     }
 
+    /// The oldest Discord join request's sender, asked in a popup once no other popup is up.
+    pub fn join_request_prompt(&self) -> Option<&str> {
+        self.join_request
+            .as_deref()
+            .filter(|_| self.dialog.is_none() && self.server_trust_prompt().is_none())
+    }
+
     /// Whether a popup draws over the screen and takes its input.
     pub fn popup_open(&self) -> bool {
         self.dialog.is_some()
             || self.server_trust_prompt().is_some()
+            || self.join_request.is_some()
             || self.dressing_room.editor.is_some()
     }
 
@@ -586,6 +608,9 @@ impl MenuView {
             language_choices: Default::default(),
             feeds: Default::default(),
             store: None,
+            hosting: false,
+            invite: None,
+            join_request: None,
         }
     }
 }

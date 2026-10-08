@@ -181,4 +181,14 @@ impl UiRuntime {
         }
         Ok(())
     }
+
+    /// Stands a client toast that stays while its cause lasts.
+    pub fn stand_toast(&mut self, toast: ui::StandingToast) {
+        self.hud.stand_toast(toast);
+    }
+
+    /// Slides the standing toast out from `now_millis`.
+    pub fn retire_standing_toast(&mut self, now_millis: u64) {
+        self.hud.retire_standing_toast(now_millis);
+    }
 }

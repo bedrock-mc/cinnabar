@@ -85,9 +85,8 @@ impl VerifiedBundle {
         for channel in &manifest.channels {
             ensure!(
                 channel.id.starts_with(&format!("{}.", manifest.id))
-                    && crate::manifest::identifier(&channel.id)
-                    && channels.insert((&channel.id, channel.schema))
-                    && channel.fields.len() <= MAX_CHANNEL_FIELDS,
+                    && channel.declared()
+                    && channels.insert((&channel.id, channel.schema)),
                 "invalid channel declaration"
             );
         }
@@ -98,6 +97,7 @@ impl VerifiedBundle {
                 .all(|id| crate::manifest::identifier(id)),
             "invalid action declaration"
         );
+        manifest.validate_screens()?;
         ensure!(
             manifest.files.len() + 1 == entries.len(),
             "unindexed archive entry"
@@ -129,6 +129,13 @@ impl VerifiedBundle {
                 data.starts_with(b"\0asm"),
                 "only portable WebAssembly is accepted"
             );
+        }
+        let namespace = crate::manifest::template_namespace(&manifest.id);
+        for template in &manifest.templates {
+            let data = files
+                .get(template)
+                .ok_or_else(|| anyhow::anyhow!("template missing from index"))?;
+            crate::screen::validate_template(data, &namespace)?;
         }
         Ok(Self {
             manifest,
@@ -166,6 +173,48 @@ impl VerifiedBundle {
             .component
             .as_deref()
             .and_then(|path| self.files.remove(path))
+    }
+
+    /// Moves the modal's templates and textures to the presenter. A bundle that holds `media`
+    /// keeps a copy of its textures, since a media descriptor's poster may be one of them.
+    pub fn take_screen_files(&mut self) -> crate::screen::Files {
+        let templates = self
+            .manifest
+            .templates
+            .iter()
+            .filter_map(|path| Some((path.clone(), self.files.remove(path)?)))
+            .collect();
+        let is_texture = |path: &String| path.starts_with(crate::manifest::TEXTURE_DIR);
+        let textures = if self
+            .manifest
+            .permissions
+            .contains(&crate::manifest::Permission::Media)
+        {
+            self.files
+                .iter()
+                .filter(|(path, _)| is_texture(path))
+                .map(|(path, bytes)| (path.clone(), bytes.clone()))
+                .collect()
+        } else {
+            let paths: Vec<String> = self
+                .files
+                .keys()
+                .filter(|path| is_texture(path))
+                .cloned()
+                .collect();
+            paths
+                .into_iter()
+                .filter_map(|path| {
+                    let bytes = self.files.remove(&path)?;
+                    Some((path, bytes))
+                })
+                .collect()
+        };
+        crate::screen::Files {
+            namespace: crate::manifest::template_namespace(&self.manifest.id),
+            templates,
+            textures,
+        }
     }
 
     /// Counts actual retained file bytes for the aggregate session budget.

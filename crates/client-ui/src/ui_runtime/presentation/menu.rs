@@ -54,7 +54,10 @@ pub(super) fn append_menu_nodes(
         CANVAS,
     );
 
-    let content = if matches!(view.screen, MenuScreen::Pause | MenuScreen::Death) {
+    let content = if matches!(
+        view.screen,
+        MenuScreen::Pause | MenuScreen::Death | MenuScreen::Invite
+    ) {
         ContentArea {
             left: 0.0,
             top: 0.0,
@@ -630,7 +633,6 @@ fn append_dialog(
         PANEL,
     );
     let (title, description, confirm) = match dialog {
-        MenuDialog::ServerFilter => ("Server sections", "", MenuAction::DismissDialog),
         MenuDialog::Accounts => ("Accounts", "", MenuAction::DismissDialog),
         MenuDialog::SettingsResetGroup(group) => (
             "Reset to Default",
@@ -747,6 +749,7 @@ const fn screen_title(screen: MenuScreen) -> &'static str {
         MenuScreen::Inbox => "Inbox",
         MenuScreen::Friends => "Friends",
         MenuScreen::Store => "Marketplace",
+        MenuScreen::Invite => "Invite to Game",
     }
 }
 

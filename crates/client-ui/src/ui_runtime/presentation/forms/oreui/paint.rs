@@ -123,7 +123,7 @@ impl<'a> Canvas<'a> {
             artwork: None,
             title_artwork: None,
             destination_icon: None,
-            rem: gui_pixel * 5.0,
+            rem: gui_pixel * super::theme::GUI_PIXELS_PER_REM,
             hits: Vec::new(),
             focus_hits: Vec::new(),
             focus_targets: Vec::new(),

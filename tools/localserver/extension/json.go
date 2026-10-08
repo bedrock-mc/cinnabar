@@ -139,12 +139,14 @@ type object struct {
 	b     []byte
 	names []string
 	next  int
-	err   error
+	// written counts the members written, which skipped members are not.
+	written int
+	err     error
 }
 
 // key starts the next member.
 func (o *object) key() {
-	if o.next == 0 {
+	if o.written == 0 {
 		o.b = append(o.b, '{')
 	} else {
 		o.b = append(o.b, ',')
@@ -153,6 +155,7 @@ func (o *object) key() {
 	o.b = append(o.b, o.names[o.next]...)
 	o.b = append(o.b, '"', ':')
 	o.next++
+	o.written++
 }
 
 // add keeps the result of an append that may fail; the first failure wins.
@@ -186,9 +189,17 @@ func (o *object) value(v Message) {
 	o.add(v.appendJSON(o.b))
 }
 
+// skip leaves out the next member: a Rust Option that serde skips when it is None.
+func (o *object) skip() {
+	o.next++
+}
+
 func (o *object) end() ([]byte, error) {
 	if o.err != nil {
 		return nil, o.err
+	}
+	if o.written == 0 {
+		o.b = append(o.b, '{')
 	}
 	return append(o.b, '}'), nil
 }
@@ -494,7 +505,7 @@ func (r *reader) integer() (negative bool, magnitude uint64, err error) {
 }
 
 // readUint reads an unsigned integer that fits T.
-func readUint[T uint8 | uint16 | uint64](r *reader) (T, error) {
+func readUint[T uint8 | uint16 | uint32 | uint64](r *reader) (T, error) {
 	negative, magnitude, err := r.integer()
 	if err != nil {
 		return 0, err
