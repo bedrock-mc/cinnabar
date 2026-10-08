@@ -9,6 +9,31 @@ pub use ui::{
 };
 
 #[test]
+fn fractional_sprite_regions_preserve_nearest_sampled_columns() {
+    let bounds = rect(0.0, 0.0, 2.0, 1.0);
+    let mut tree = UiTree::new(vec![UiNode::new(node(1), None, bounds).with_visual(
+        UiVisual::StyledSprite {
+            texture_page: 0,
+            uv: [0.5, 0.0, 1.5, 1.0],
+            color: [255; 4],
+            style: 0,
+        },
+    )])
+    .unwrap();
+    tree.layout(bounds, UiScale::default(), SafeArea::ZERO)
+        .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    let start = draw.vertices[0].uv[0];
+    let end = draw.vertices[1].uv[0];
+    let columns = [0.25, 0.75].map(|fraction| (start + (end - start) * fraction).floor() as u32);
+    assert_eq!(
+        columns,
+        [0, 1],
+        "the second pixel must reach the authored neighboring texel"
+    );
+}
+
+#[test]
 fn safe_area_scale_and_focus_order_are_deterministic() {
     let mut tree = fixture_menu();
     let frame = tree

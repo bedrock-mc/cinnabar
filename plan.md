@@ -1628,6 +1628,8 @@ colour/alpha, hyphen chops, per-line alignment, `...` truncation) and UI blends
 in sRGB-encoded values through an offscreen layer. Not live-accepted.
 Provisional, labeled incomplete: `grayscale` uses Rec. 601 luma (retail
 material not inspected); placeholder hiding ignores focus; `enable_profanity_filter` reaches the host but selects nothing.
+Nine-slice geometry for controls smaller than their opposing borders remains
+incomplete: the current proportional fit needs a native overlap and clipping pass.
 2026-10-01 resource packs (in progress, not parity-accepted): Global Resources imports
 optional packs above the pinned base and below world/server packs. Applying resource
 changes in a live world is an intentional Cinnabar extension; vanilla forbids it.
