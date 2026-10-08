@@ -308,31 +308,23 @@ fn catalog_registration_threshold_bench() {
     );
 }
 
-/// A paged initial catalog keeps the previous contiguous-layout content revision.
+/// Initial revisions depend on page contents and routes, independent of allocation identity.
 #[test]
-fn initial_revision_matches_contiguous_content() {
-    let catalog = GeometryCatalog::layout(
-        (1..4)
-            .map(|id| (EntityRigId(id), geometry(id, id as usize * 3)))
-            .collect(),
-    )
-    .unwrap();
-    let vertices: Vec<_> = catalog
-        .geometries
-        .values()
-        .flat_map(|geometry| geometry.vertices.iter().copied())
-        .collect();
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in bytemuck::cast_slice::<ActorRigVertex, u8>(&vertices)
-        .iter()
-        .chain(bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(
-            &catalog.published_spans,
-        ))
-    {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    assert_eq!(catalog.revision, hash.max(1));
+fn initial_revision_tracks_content_and_routes() {
+    let layout = |models: Vec<ActorRigGeometry>| {
+        GeometryCatalog::layout(models.into_iter().map(|model| (model.id, model)).collect())
+            .unwrap()
+    };
+    let original = layout(vec![geometry(1, 3), geometry(2, 6)]);
+    let identical = layout(vec![geometry(1, 3), geometry(2, 6)]);
+    assert_eq!(original.revision, identical.revision);
+    let changed = layout(vec![geometry(1, 3), geometry(3, 6)]);
+    assert_ne!(original.revision, changed.revision);
+    let mut first = geometry(1, 3);
+    let mut second = geometry(2, 6);
+    std::mem::swap(&mut first.id, &mut second.id);
+    let rerouted = layout(vec![first, second]);
+    assert_ne!(original.revision, rerouted.revision);
 }
 
 /// Empty ranges retain GPU page identity, while clearing populated ranges still removes them.
@@ -383,4 +375,114 @@ fn empty_pack_ranges_preserve_pages_and_populated_ranges_are_removed() {
     assert!(builder.contains_geometry(EntityRigId(1)));
     assert_spans(&builder.catalog);
     assert_eq!(builder.catalog.revision, revision);
+}
+
+thread_local! {
+    static LOOKUP_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts one explicit candidate inspection without changing production code.
+pub(super) fn record_probe() {
+    LOOKUP_PROBES.with(|count| count.set(count.get() + 1));
+}
+
+/// Starts an independent work sample on this test thread.
+fn reset_probes() {
+    LOOKUP_PROBES.with(|count| count.set(0));
+}
+
+/// Returns deterministic lookup work rather than elapsed time.
+fn probes() -> usize {
+    LOOKUP_PROBES.with(std::cell::Cell::get)
+}
+
+#[test]
+fn bounded_placement_work_for_a_unique_geometry_burst() {
+    let retained = render_model::MAX_RENDERED_PLAYERS;
+    let added = retained * 2;
+    let mut catalog = GeometryCatalog::layout(
+        (1..=retained as u32)
+            .map(|id| (EntityRigId(id), geometry(id, 3)))
+            .collect(),
+    )
+    .unwrap();
+    let before = catalog.vertices.clone();
+    reset_probes();
+    catalog
+        .append(
+            (retained + 1..=retained + added)
+                .map(|id| geometry(id as u32, 3))
+                .collect(),
+            2,
+        )
+        .unwrap();
+    assert!(
+        probes() <= (retained + added) * 4,
+        "{} range candidates for {added} new pages",
+        probes()
+    );
+    assert_eq!(
+        &catalog.vertices.offsets[..retained],
+        before.offsets.as_ref()
+    );
+    assert_spans(&catalog);
+}
+
+thread_local! {
+    static HASHED_VERTEX_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts only the vertex-byte hashing performed during catalog publication.
+pub(super) fn record_vertex_hash(bytes: usize) {
+    HASHED_VERTEX_BYTES.with(|count| count.set(count.get() + bytes));
+}
+
+/// A completed crowd may arrive in one tick, but neither catalog should rehash its meshes.
+#[test]
+fn prepared_crowd_catalogs_reuse_vertex_fingerprints() {
+    let models: Vec<_> = (1..=render_model::MAX_RENDERED_PLAYERS as u32)
+        .map(|id| geometry(id, 64))
+        .collect();
+    HASHED_VERTEX_BYTES.with(|count| count.set(0));
+    for _ in 0..2 {
+        let initial = GeometryCatalog::layout(
+            models
+                .iter()
+                .cloned()
+                .map(|model| (model.id, model))
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(initial.vertices.segments.len(), models.len());
+        let mut catalog = GeometryCatalog::layout(BTreeMap::new()).unwrap();
+        catalog.append(models.clone(), 1).unwrap();
+        assert_eq!(catalog.vertices.segments.len(), models.len());
+        assert_spans(&catalog);
+    }
+    assert_eq!(HASHED_VERTEX_BYTES.with(std::cell::Cell::get), 0);
+}
+
+/// Catalog storage accounting remains valid after transferring prepared aliases to one page.
+#[test]
+fn prepared_aliases_release_duplicate_source_allocations() {
+    let first = geometry(1, 64);
+    let second =
+        ActorRigGeometry::new(EntityRigId(2), first.vertices.to_vec(), vec![[1.0; 3]]).unwrap();
+    let duplicate = Arc::clone(&second.vertices);
+    let mut catalog =
+        GeometryCatalog::layout([(first.id, first), (second.id, second)].into()).unwrap();
+    assert_eq!(
+        Arc::strong_count(&duplicate),
+        1,
+        "only the external test witness retains duplicate bytes"
+    );
+    drop(duplicate);
+    let first = &catalog.geometries[&EntityRigId(1)].vertices;
+    let second = &catalog.geometries[&EntityRigId(2)].vertices;
+    assert!(Arc::ptr_eq(first, second));
+    assert_eq!(catalog.geometries[&EntityRigId(2)].bone_pivots[0], [1.0; 3]);
+    HASHED_VERTEX_BYTES.with(|count| count.set(0));
+    catalog.append(vec![geometry(3, 64)], 2).unwrap();
+    assert_eq!(HASHED_VERTEX_BYTES.with(std::cell::Cell::get), 0);
+    assert_spans(&catalog);
 }
