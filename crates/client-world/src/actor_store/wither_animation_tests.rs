@@ -191,9 +191,14 @@ fn installed_wither_spawn_and_death_drive_the_authored_model_and_render_layers()
     let rig = store.actor_rig(7).expect("authored wither rig");
     assert_eq!(rig.current.len(), 6);
     assert_eq!(rig.render.len(), 3);
+    let body_material = rig.render[0].material_state.expect("wither body material");
+    assert!(body_material.alpha_test && !body_material.blend);
     assert_eq!(rig.render[0].overlay[..3], [1.0; 3]);
     assert!((rig.render[0].overlay[3] - 0.9925).abs() < 1e-5);
     for armor in &rig.render[1..] {
+        let material = armor.material_state.expect("wither armor material");
+        assert!(material.alpha_test && material.blend && material.additive);
+        assert!(!material.cull && !material.additive_alpha);
         assert_eq!(armor.hidden_bones.len(), 6, "armor is absent during spawn");
     }
     let tail = rig

@@ -95,9 +95,15 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
     match name {
         "entity" | "entity_static" => {}
         "entity_nocull" => state.cull = false,
-        "entity_alphatest" | "skeleton" => {
+        "entity_alphatest" | "skeleton" | "wither_boss" => {
             state.alpha_test = true;
             state.cull = false;
+        }
+        "charged_creeper" | "wither_boss_armor" => {
+            state.alpha_test = true;
+            state.cull = false;
+            state.blend = true;
+            state.additive = true;
         }
         "entity_alphatest_one_sided" => state.alpha_test = true,
         "entity_emissive" => state.emissive = true,

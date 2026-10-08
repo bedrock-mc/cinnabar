@@ -37,6 +37,29 @@ fn skeleton_alias_uses_double_sided_alpha_test_without_material_definitions() {
 }
 
 #[test]
+fn wither_body_and_armor_keep_their_material_states_without_material_definitions() {
+    assert_eq!(
+        state("wither_boss", None),
+        json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true})
+    );
+    let armor = json!({"alpha_test":true,"cull":false,"blend":true,"depth_write":true,
+        "additive":true});
+    assert_eq!(state("wither_boss_armor", None), armor);
+    assert_eq!(state("charged_creeper", None), armor);
+
+    let definitions = json!({"materials":{
+        "wither_boss_armor:charged_creeper":{
+            "-states":["DisableCulling"],
+            "blendSrc":"SourceAlpha","blendDst":"OneMinusSrcAlpha"
+        }
+    }});
+    assert_eq!(
+        state("wither_boss_armor", Some(&definitions)),
+        json!({"alpha_test":true,"cull":true,"blend":true,"depth_write":true})
+    );
+}
+
+#[test]
 fn emissive_materials_keep_alpha_as_lighting_weight_and_authored_additive_inheritance() {
     assert_eq!(
         state("entity_emissive_alpha", None),
