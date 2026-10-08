@@ -313,3 +313,34 @@ fn review_render_hand_atlas_rejects_device_dimension_and_layer_limits() {
         assert!(gpu.atlases[0].is_none());
     }
 }
+
+#[test]
+fn native_skin_hand_uploads_match_source_dimensions_and_reuse_textures() {
+    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    for side in render_model::SKIN_CLASS_SIDES {
+        let pixels = vec![73; side * side * 4].into();
+        let mut scene = HandRigScene::default();
+        assert!(scene.publish(single_instance_frame(), pixels, light(), 1.2, 7));
+        let frame = scene.frame.as_ref().unwrap();
+        upload_skin(&mut gpu, &device, &queue, frame);
+        let texture = &gpu.skin.as_ref().unwrap()._texture;
+        assert_eq!(
+            (texture.width(), texture.height()),
+            (side as u32, side as u32)
+        );
+        let id = texture.id();
+        upload_skin(&mut gpu, &device, &queue, frame);
+        assert_eq!(gpu.skin.as_ref().unwrap()._texture.id(), id);
+        assert!(!HandRigScene::accepts_skin_and_fov(
+            &vec![0; side * side * 4 - 1].into(),
+            1.2
+        ));
+    }
+}

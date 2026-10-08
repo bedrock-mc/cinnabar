@@ -79,6 +79,7 @@ impl ActorAnimationStore {
             layout,
             pack,
             rigs,
+            skin_preparation,
             runtime_to_lifetime,
             first_starved,
             completed_tick,
@@ -135,7 +136,7 @@ impl ActorAnimationStore {
             }
             let context = context(actor);
             if reset_motion_history
-                && skin::sync_skin(state, context.skin_geometry.as_ref(), &assets)
+                && skin::sync_skin(state, context.skin_geometry.as_ref(), skin_preparation)
             {
                 stats.invalid_skin_geometries = stats.invalid_skin_geometries.saturating_add(1);
             }
@@ -284,7 +285,7 @@ fn culled(
     let player = matches!(actor.kind, ActorKind::Player { .. });
     let bounds = state
         .skin_skeleton()
-        .and_then(|skin| skin.geometry.visible_bounds)
+        .and_then(|skin| skin.prepared.geometry.visible_bounds)
         .unwrap_or_default();
     !view.admits(actor.position, scale, player, bounds)
         && !view.admits(actor.previous_pose.position, scale, player, bounds)

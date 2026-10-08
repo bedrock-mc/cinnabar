@@ -7,7 +7,7 @@ use protocol::{ActorEvent, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap, 
 const GLIDING: u64 = 1 << 32;
 
 /// A player admitted through the public event path, moving at `velocity` with `flags`.
-fn player(velocity: [f32; 3], flags: u64) -> ActorSnapshot {
+pub(super) fn player(velocity: [f32; 3], flags: u64) -> ActorSnapshot {
     let mut world = WorldAuthority::new(
         WorldBootstrap {
             local_player_unique_id: 1,

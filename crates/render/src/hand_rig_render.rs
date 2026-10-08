@@ -155,12 +155,12 @@ impl HandRigScene {
 
     /// Shares the skin and projection admission used by early first-person readiness.
     pub fn accepts_skin_and_fov(skin: &SkinRgba8, fov_radians: f32) -> bool {
-        skin.len() == render_model::STANDARD_SKIN_BYTES
+        render_model::actor_skin_side(skin).is_some()
             && fov_radians > 0.0
             && fov_radians < std::f32::consts::PI
     }
 
-    /// Accepts a single-instance rig frame with a 64x64 RGBA skin and a finite positive FOV;
+    /// Accepts a single-instance rig frame with an admitted square skin and a finite positive FOV;
     /// anything else clears the scene so the fallback keeps rendering.
     pub fn publish(
         &mut self,
@@ -568,7 +568,7 @@ fn upload_skin(
     {
         return;
     }
-    let side = render_model::STANDARD_SKIN_SIDE as u32;
+    let side = render_model::actor_skin_side(&frame.skin).expect("admitted hand skin") as u32;
     let texture = device.create_texture_with_data(
         queue,
         &TextureDescriptor {

@@ -209,6 +209,7 @@ pub(super) fn fixture_with_appearance(
     feed.first_person = true;
     feed.main_hand = main.map(Arc::from);
     stream.sync_local_player_pose(&feed);
+    stream.prepare_actor_appearances_for_test();
     stream.advance_actor_interpolation_frame(6);
     let input = ActorEquipmentInput {
         main: main.map(|identifier| crate::presentation::equipment::WornItem {

@@ -81,6 +81,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		return fmt.Errorf("configure server: %w", err)
 	}
+	if cfg.actorBurstArtwork > 0 {
+		pack, err := actorBurstArtworkPack(cfg.actorBurstArtwork)
+		if err != nil {
+			if exps != nil {
+				err = errors.Join(err, exps.closeSupervisors())
+			}
+			return fmt.Errorf("prepare actor artwork fixture: %w", err)
+		}
+		conf.Resources = append(conf.Resources, pack)
+	}
 	generators, err := cfg.configureGenerators(&conf)
 	if err != nil {
 		if exps != nil {
@@ -110,6 +120,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.primitiveShapes {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = primitiveListener(listen)
+		}
+	}
+	if cfg.actorBurst || cfg.actorBurstArtwork > 0 {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = actorBurstListener(listen, cfg.actorBurstArtwork)
 		}
 	}
 	cfg.configureTerrainFixture(&conf)

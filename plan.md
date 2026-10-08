@@ -119,6 +119,16 @@
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
+- Actor publication retains native skin pixels and unchanged GPU artwork. Bounded worker
+  batches prepare custom models while replacements retain the last complete profile.
+  Prepared meshes retain validation and vertex fingerprints across catalog publication.
+  Deterministic tests cover admission, reuse, stale completions and indexed lookup work;
+  see [actor burst evidence](docs/evidence/actor-burst-preparation.md).
+- Incomplete actor-join acceptance: readiness-gated first appearance remains provisional.
+  First GPU uploads, pipeline compilation, UI publication and exact page comparisons
+  remain cold costs. Synthetic crowds and headless screenshots do not
+  establish native first-appearance timing, join latency, no-pop-in acceptance or release
+  frame budgets; those gates remain open.
 - Incomplete: the large synthetic local terrain fixture is a diagnostic workload,
   not vanilla terrain generation or the populated-lobby/flight release replay.
   Hidden-window measurements do not establish displayed FPS. Shared-pass GPU

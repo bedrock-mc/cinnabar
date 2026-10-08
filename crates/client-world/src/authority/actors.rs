@@ -1,6 +1,13 @@
 use super::*;
 
 impl WorldAuthority {
+    /// Cross-crate fixtures await one admitted worker batch without advancing animation ticks.
+    #[cfg(feature = "appearance-test-support")]
+    pub fn prepare_actor_appearances_for_test(&mut self) {
+        self.actors.prepare_appearances(false);
+        self.actors.finish_appearance_preparation_for_test();
+    }
+
     /// Changes only the actor visual after the corresponding terrain mesh is published.
     pub fn apply_actor_block_sync(&mut self, sync: protocol::ActorBlockSyncMessage) -> bool {
         self.actors.apply_terrain_sync(sync)

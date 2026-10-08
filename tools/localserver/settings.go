@@ -20,15 +20,16 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {
-	primitiveShapes, cameraTest            bool
-	terrainFixture, terrainFixtureGenerate bool
-	terrainFixtureRadius                   int
-	opaqueOverdraw                         bool
-	dir, addr, name, gameMode, diff        string
-	generator                              string
-	seed                                   int64
-	pregenRadius, chunkWorkers             int
-	generationStats                        bool
+	primitiveShapes, cameraTest, actorBurst bool
+	terrainFixture, terrainFixtureGenerate  bool
+	actorBurstArtwork                       int
+	terrainFixtureRadius                    int
+	opaqueOverdraw                          bool
+	dir, addr, name, gameMode, diff         string
+	generator                               string
+	seed                                    int64
+	pregenRadius, chunkWorkers              int
+	generationStats                         bool
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -59,6 +60,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
 	flags.BoolVar(&s.generationStats, "generation-stats", false, "report normal generation counts and CPU-path elapsed time at shutdown")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
+	flags.IntVar(&s.actorBurstArtwork, "actor-burst-artwork", 0, "offer an original resource pack with N textures; /actorburst N artwork")
+	flags.BoolVar(&s.actorBurst, "actor-burst", false, "enable /actorburst N shared|skins|geometry and /actorburst clear")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
 	flags.StringVar(&s.runtime, "experience-runtime", "", "experience-runtime binary; required with -experiences")
@@ -69,6 +72,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.extensionMediaAddr, "extension-media-addr", extension.DefaultMediaAddr, "IPv4 loopback ip:port of the -extension-media server")
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
+	}
+	if s.actorBurstArtwork < 0 || s.actorBurstArtwork > actorBurstLimit {
+		return settings{}, fmt.Errorf("actor burst artwork must be 0..%d", actorBurstLimit)
 	}
 	if s.pregenRadius < 0 || s.pregenRadius > 512 {
 		return settings{}, errors.New("pregen radius must be 0..512 chunks")

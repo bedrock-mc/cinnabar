@@ -39,7 +39,7 @@ pub struct ActorRigPresentation {
 #[derive(Debug)]
 pub struct ActorPresentationBatch {
     pub submissions: Vec<ActorRigSubmission>,
-    /// One standard-size RGBA8 skin per frame-local texture layer index.
+    /// One native-sized square RGBA8 skin per frame-local texture layer index.
     pub skin_layers: Vec<SkinRgba8>,
     pub artwork: HashMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
@@ -730,7 +730,7 @@ fn player_route_and_skin(
         .filter(|profile| profile.unique_id == actor.unique_id)
         .and_then(|profile| match &profile.skin {
             PlayerSkin::Standard(skin) => {
-                render_model::normalize_actor_skin_cached(&ActorSkinPixels {
+                render_model::prepare_actor_skin_cached(&ActorSkinPixels {
                     width: skin.width,
                     height: skin.height,
                     rgba8: skin.rgba8.clone(),
@@ -861,3 +861,7 @@ mod layer_pass_tests {
         assert_eq!(visited, [(1, 1, 1), (2, 1, 1), (3, 1, 1)]);
     }
 }
+
+#[cfg(test)]
+#[path = "actors/native_skin_tests.rs"]
+mod native_skin_tests;

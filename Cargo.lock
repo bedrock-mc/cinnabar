@@ -2085,8 +2085,10 @@ dependencies = [
  "hashbrown 0.16.1",
  "protocol",
  "rayon",
+ "render-model",
  "sha2",
  "thiserror 2.0.18",
+ "tracing",
  "world",
 ]
 
