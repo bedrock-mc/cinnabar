@@ -53,6 +53,10 @@ fn bag_native_and_instance_changes_invalidate_outputs() {
     assert!(get(&node).is_none());
     node.scope.incarnation = None;
     assert!(get(&node).is_some());
+    node.memory.custom_instance = Some(8);
+    assert!(get(&node).is_none());
+    node.memory.custom_instance = None;
+    assert!(get(&node).is_some());
     node.src = node.src.patched(|patch| {
         patch
             .properties

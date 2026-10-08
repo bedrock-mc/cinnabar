@@ -314,3 +314,45 @@ fn a_replaced_factory_hunger_renderer_starts_with_a_neutral_row() {
         "replacement must not inherit predecessor pulse"
     );
 }
+
+#[test]
+fn a_destroyed_factory_hunger_renderer_restarts_when_recreated_with_the_same_identity() {
+    let engine = engine();
+    let mut screens = HudScreens::default();
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    food_update(&mut player, &mut runtime, 1);
+    for _ in 0..54 {
+        let rows = draw_with_factory(
+            &engine,
+            &mut screens,
+            &player,
+            &runtime,
+            [false, false],
+            Some(1),
+        );
+        assert!(!rows[0].is_empty());
+    }
+    let rows = draw_with_factory(
+        &engine,
+        &mut screens,
+        &player,
+        &runtime,
+        [false, false],
+        None,
+    );
+    assert!(rows[0].is_empty(), "the factory control was destroyed");
+    let rows = draw_with_factory(
+        &engine,
+        &mut screens,
+        &player,
+        &runtime,
+        [false, false],
+        Some(1),
+    );
+    assert!(!rows[0].is_empty());
+    assert!(
+        rows[0].iter().all(|y| *y == 0.0),
+        "recreated control must not inherit the destroyed renderer's pulse"
+    );
+}

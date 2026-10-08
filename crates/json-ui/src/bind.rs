@@ -38,7 +38,7 @@ pub use data::{CollectionItem, DataSource, scoped_key};
 pub use feed::FactoryItem;
 pub use state::BindState;
 
-/// Reserved custom-renderer data key identifying the current factory instance.
+/// Reserved custom-renderer data key identifying the bound control lifetime.
 pub const CUSTOM_CONTROL_INSTANCE_KEY: &str = "_control_instance";
 
 pub(crate) use reuse::{Children, Patch};
@@ -405,6 +405,10 @@ impl<'a> Binder<'a> {
         memory.parent = parent;
         memory.parent_incarnation = scope.retained_incarnation;
         memory.incarnation = scope.incarnation;
+        let custom = control.control_type.as_deref() == Some("custom");
+        if custom && memory.custom_instance.is_none() {
+            memory.custom_instance = Some(state::new_custom_instance());
+        }
         let mut own = if created {
             let mut own = declaration.bags.own(&scope.for_children);
             for (name, value) in scope.values.iter() {
@@ -484,9 +488,9 @@ impl<'a> Binder<'a> {
         let visible = native.visible(control);
         let awaits_views =
             grid_awaits_views(control, &bindings) || factory_awaits_views(control, &bindings);
-        // Only state a refresh cannot rebuild from literals is retained.
+        // Custom renderer lifetimes and binding memory survive hidden subtrees.
         let retained =
-            !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
+            custom || !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
         if retained {
             child_scope.retained_parent = key;
             child_scope.retained_incarnation = child_scope.incarnation;
@@ -853,7 +857,7 @@ fn bake_output(node: &Node, components: &crate::component::Components) -> crate:
         );
     }
     if control.control_type.as_deref() == Some("custom") {
-        match node.scope.incarnation {
+        match node.memory.custom_instance {
             Some(instance) => {
                 properties.insert(CUSTOM_CONTROL_INSTANCE_KEY.into(), Value::from(instance));
             }
