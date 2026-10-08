@@ -6576,3 +6576,9 @@ hardware budgets and matched-version pixel comparison remain incomplete.
   its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
 - Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
   this work does not close a visual or frame-budget gate.
+## Third-person held attachables
+
+Idle held models evaluate their authored scripts and texture meshes against the
+owner's posed bones, including aiming skeleton bows. Active item-use frame and
+duration inputs in third-person equipment remain incomplete and retain the legacy
+route; this does not close the complete held-item parity gate.

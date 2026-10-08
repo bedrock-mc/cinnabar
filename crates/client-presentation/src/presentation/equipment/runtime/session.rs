@@ -163,6 +163,17 @@ impl EquipmentRuntime {
         self.session.wearable.get(identifier).copied()
     }
 
+    pub(super) fn effective_category(
+        &self,
+        identifier: &str,
+        category: EquipmentCategory,
+    ) -> EquipmentCategory {
+        match (category, self.wearable_slot(identifier)) {
+            (EquipmentCategory::Elytra | EquipmentCategory::Shield, _) | (_, None) => category,
+            (_, Some(slot)) => EquipmentCategory::Armor { slot },
+        }
+    }
+
     /// What a custom item is held as: its block's cube sheet (vanilla holds a block item as its
     /// block), else its icon; with the mesh key, atlas placement and artwork location.
     pub(super) fn session_held(

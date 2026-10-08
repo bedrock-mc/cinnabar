@@ -327,7 +327,44 @@ impl EquipmentRuntime {
                         self.push_java_held(body, item, &bones, grip, &mut layers);
                     }
                 }
-                None => self.push_held(body, item, layer, bone, &mut layers),
+                None => {
+                    let authored = animation
+                        .filter(|animation| !animation.owner.is_using_item())
+                        .filter(|_| {
+                            self.binding_source(&item.identifier)
+                                .and_then(|(catalog, _)| {
+                                    catalog.binding(&item.identifier).map(|binding| {
+                                        self.effective_category(&item.identifier, binding.category)
+                                    })
+                                })
+                                .is_some_and(|category| {
+                                    matches!(
+                                        category,
+                                        EquipmentCategory::Held | EquipmentCategory::Shield
+                                    )
+                                })
+                        })
+                        .and_then(|animation| {
+                            self.first_person_attachable(
+                                body,
+                                item,
+                                animation.owner,
+                                animation.rig,
+                                input.attachable_input(client_world::AttachableAnimationInput {
+                                    off_hand: layer == LAYER_OFF_HAND,
+                                    frame_alpha: animation.frame_alpha,
+                                    delta_seconds: Some(animation.delta_seconds),
+                                    ..Default::default()
+                                }),
+                                None,
+                            )
+                        });
+                    if let Some(authored) = authored {
+                        layers.push(authored.presentation);
+                    } else {
+                        self.push_held(body, item, layer, bone, &mut layers);
+                    }
+                }
             }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);
@@ -658,6 +695,39 @@ impl PoseMemo {
         self.frame += 1;
         let oldest = self.frame.saturating_sub(POSE_MEMO_RETENTION_FRAMES);
         self.entries.retain(|_, entry| entry.1 >= oldest);
+    }
+
+    /// Samples placed channels without allocating when the published pose is unchanged.
+    pub(super) fn sample_pair(
+        &mut self,
+        body: &ActorRigSubmission,
+        layer: u8,
+        len: usize,
+        mut transform: impl FnMut(usize, usize) -> Option<RenderBoneTransform>,
+    ) -> Option<[RenderPose; 2]> {
+        let key = (body.input.identity.runtime_id, layer);
+        let old = self.entries.get(&key).map(|entry| entry.0.clone());
+        let mut sampled: [Option<RenderPose>; 2] = [None, None];
+        for endpoint in 0..2 {
+            let retained = sampled[0]
+                .iter()
+                .chain(old.iter().flatten())
+                .find(|pose| {
+                    pose.len() == len
+                        && (0..len).all(|index| transform(endpoint, index) == Some(pose[index]))
+                })
+                .cloned();
+            sampled[endpoint] = Some(match retained {
+                Some(pose) => pose,
+                None => (0..len)
+                    .map(|index| transform(endpoint, index))
+                    .collect::<Option<Vec<_>>>()?
+                    .into(),
+            });
+        }
+        let poses = sampled.map(Option::unwrap);
+        self.entries.insert(key, (poses.clone(), self.frame));
+        Some(poses)
     }
 
     /// Shared allocations holding `poses` (previous, current) for `body`'s `layer`.

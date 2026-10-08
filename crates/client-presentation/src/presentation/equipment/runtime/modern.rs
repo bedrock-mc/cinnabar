@@ -41,10 +41,15 @@ impl EquipmentRuntime {
         };
         let model_scale =
             std::array::from_fn::<_, 3, _>(|axis| evaluated.scale * evaluated.axis_scale[axis]);
-        let placed: Arc<[RenderBoneTransform]> = pose
-            .iter()
-            .enumerate()
-            .map(|(index, bone)| {
+        let placed = self.poses.sample_pair(
+            body,
+            if input.off_hand {
+                LAYER_OFF_HAND
+            } else {
+                LAYER_MAIN_HAND
+            },
+            pose.len(),
+            |endpoint, index| {
                 if selected.hidden_bones.contains(&(index as u32)) {
                     return Some(hidden_bone());
                 }
@@ -53,15 +58,21 @@ impl EquipmentRuntime {
                         &body.input.previous_bones,
                         &body.input.current_bones,
                         &body_bones,
-                        input,
+                        if input.first_person {
+                            input
+                        } else {
+                            AttachableAnimationInput {
+                                frame_alpha: endpoint as f32,
+                                ..input
+                            }
+                        },
                         evaluated.bone_parent(geometry_index, index)?,
                         model_scale,
                     )?,
-                    *bone,
+                    pose[index],
                 )
-            })
-            .collect::<Option<Vec<_>>>()?
-            .into();
+            },
+        )?;
         let source = assets.sources().get(selected.source as usize)?;
         let texture_identifier = source
             .path
@@ -106,9 +117,10 @@ impl EquipmentRuntime {
                     .is_finite()
                     .then_some((camera, raster.rest, raster.normal_axis))
             });
-        let (java_camera, placed, java_normal_axis): (_, Arc<[RenderBoneTransform]>, _) = match java
-        {
-            Some((camera, rest, normal_axis)) => (Some(camera), rest, normal_axis),
+        let (java_camera, placed, java_normal_axis) = match java {
+            Some((camera, rest, normal_axis)) => {
+                (Some(camera), [Arc::clone(&rest), rest], normal_axis)
+            }
             None => (None, placed, bevy::math::Vec3::Z),
         };
         let rig = if let Some(rig) = self.attachable_meshes.get(&key) {
@@ -130,7 +142,7 @@ impl EquipmentRuntime {
                     LAYER_MAIN_HAND
                 },
                 rig,
-                [Arc::clone(&placed), placed],
+                placed,
                 location,
                 0,
             ),
