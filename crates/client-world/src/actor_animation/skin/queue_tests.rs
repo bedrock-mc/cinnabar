@@ -146,3 +146,31 @@ fn a_full_ready_population_can_admit_a_replacement_without_retiring_its_old_appe
         1
     );
 }
+
+#[test]
+fn mesh_budget_rejection_is_ready_and_never_requeues_unchanged_sources() {
+    let source = sources(1).pop().unwrap();
+    let assets = super::super::super::render_frame::tests::counting_random_assets();
+    let mut queue = SkinPreparationQueue::default();
+    queue.mesh_budget = 0;
+    assert!(!queue.request(&source));
+    queue.submit(&assets);
+    queue.finish_for_test();
+    for _ in 0..4 {
+        queue.begin_frame();
+        assert!(
+            queue.request(&source),
+            "budget fallback completes appearance readiness"
+        );
+        let (prepared, rejected) = queue.get(&source).unwrap();
+        assert!(prepared.is_none(), "fallback retains no over-budget mesh");
+        assert!(rejected);
+        assert!(
+            queue.queued.is_empty(),
+            "unchanged input queues no more preparation"
+        );
+    }
+    assert_eq!(queue.mesh_bytes, 0);
+    assert!(queue.allocations.is_empty());
+    assert_eq!(queue.source_bytes, source.byte_len());
+}

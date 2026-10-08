@@ -136,6 +136,8 @@
   Deterministic tests cover admission, reuse, stale completions and indexed lookup work;
   see [actor burst evidence](docs/evidence/actor-burst-preparation.md).
 - Incomplete actor-join acceptance: readiness-gated first appearance remains provisional.
+  Models exceeding the preparation mesh budget use the default rig until their source
+  changes or the session resets; exact appearance under that limit remains an open gate.
   First GPU uploads, pipeline compilation, UI publication and exact page comparisons
   remain cold costs. Synthetic crowds and headless screenshots do not
   establish native first-appearance timing, join latency, no-pop-in acceptance or release

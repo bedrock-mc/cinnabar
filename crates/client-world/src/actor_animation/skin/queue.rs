@@ -311,8 +311,7 @@ impl SkinPreparationQueue {
                 })
                 .map_or(0, |prepared| prepared.mesh_bytes());
             if self.mesh_bytes.saturating_add(bytes) > self.mesh_budget {
-                self.source_bytes -= entry.source.byte_len();
-                self.entries.remove(&pointer);
+                entry.outcome = Some((None, true));
                 retired.push((source, outcome));
                 continue;
             }
