@@ -12,6 +12,25 @@ pub struct DeathInfoEvent {
     pub parameters: Arc<[Arc<str>]>,
 }
 
+/// Bounds the translation key and ordered parameters before retaining them.
+pub(crate) fn normalize_death_info(packet: DeathInfoPacket) -> Result<UiEvent, UiPacketError> {
+    if packet.death_cause_message_list.len() > MAX_CHAT_PARAMETERS {
+        return Err(UiPacketError::TooManyChatParameters {
+            count: packet.death_cause_message_list.len(),
+            max: MAX_CHAT_PARAMETERS,
+        });
+    }
+    Ok(UiEvent::DeathInfo(DeathInfoEvent {
+        message: bounded_text(packet.death_cause_attack_name)?,
+        parameters: packet
+            .death_cause_message_list
+            .into_iter()
+            .map(bounded_text)
+            .collect::<Result<Vec<_>, _>>()?
+            .into(),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,23 +75,4 @@ mod tests {
             ));
         }
     }
-}
-
-/// Bounds the translation key and ordered parameters before retaining them.
-pub(crate) fn normalize_death_info(packet: DeathInfoPacket) -> Result<UiEvent, UiPacketError> {
-    if packet.death_cause_message_list.len() > MAX_CHAT_PARAMETERS {
-        return Err(UiPacketError::TooManyChatParameters {
-            count: packet.death_cause_message_list.len(),
-            max: MAX_CHAT_PARAMETERS,
-        });
-    }
-    Ok(UiEvent::DeathInfo(DeathInfoEvent {
-        message: bounded_text(packet.death_cause_attack_name)?,
-        parameters: packet
-            .death_cause_message_list
-            .into_iter()
-            .map(bounded_text)
-            .collect::<Result<Vec<_>, _>>()?
-            .into(),
-    }))
 }
