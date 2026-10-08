@@ -5,7 +5,8 @@ use crate::local_player::LocalViewPose;
 use std::sync::Arc;
 
 use bevy::prelude::{Res, ResMut, Resource};
-use protocol::{AbilitiesUpdate, AbilityLayerEvidence, AbilityLayersEvidence};
+use client_world::game_mode_capabilities::resolved_layer;
+use protocol::AbilitiesUpdate;
 
 use super::{
     fov::{CameraFovInputs, DEFAULT_WALK_SPEED_ABILITY},
@@ -43,26 +44,14 @@ impl ItemUseClock {
     }
 }
 
-/// The layer that decides `ability`: the highest layer type that sets it, later packets
-/// winning a tie.
-fn deciding_layer(update: &AbilitiesUpdate, ability: u32) -> Option<&AbilityLayerEvidence> {
-    match &update.layers {
-        AbilityLayersEvidence::Received(layers) => layers
-            .iter()
-            .filter(|layer| layer.abilities & ability != 0)
-            .max_by_key(|layer| layer.layer_type),
-        AbilityLayersEvidence::Unavailable { .. } => None,
-    }
-}
-
 fn flying_from_abilities(update: &AbilitiesUpdate) -> bool {
-    deciding_layer(update, ABILITY_FLYING_BIT)
+    resolved_layer(update, ABILITY_FLYING_BIT)
         .is_some_and(|layer| layer.values & ABILITY_FLYING_BIT != 0)
 }
 
 fn walk_speed_from_abilities(update: Option<&AbilitiesUpdate>) -> f32 {
     update
-        .and_then(|update| deciding_layer(update, ABILITY_WALK_SPEED_BIT))
+        .and_then(|update| resolved_layer(update, ABILITY_WALK_SPEED_BIT))
         .map(|layer| f32::from_bits(layer.walk_speed_bits))
         .filter(|speed| speed.is_finite())
         .unwrap_or(DEFAULT_WALK_SPEED_ABILITY)
@@ -161,7 +150,7 @@ pub fn collect_portal_contact(
 
 #[cfg(test)]
 mod tests {
-    use protocol::AbilityLayerEvidence;
+    use protocol::{AbilityLayerEvidence, AbilityLayersEvidence};
 
     use super::*;
 
@@ -229,6 +218,23 @@ mod tests {
                 walk_layer(3, 0, 0.5),
             ]),
             0.2
+        );
+        // A repeated layer's last definition replaces it, so its unset speed falls through.
+        assert_eq!(
+            walk(vec![
+                walk_layer(1, ABILITY_WALK_SPEED_BIT, 0.1),
+                walk_layer(3, ABILITY_WALK_SPEED_BIT, 0.4),
+                walk_layer(3, 0, 0.0),
+            ]),
+            0.1
+        );
+        assert_eq!(
+            walk(vec![
+                walk_layer(1, ABILITY_WALK_SPEED_BIT, 0.2),
+                walk_layer(9, ABILITY_WALK_SPEED_BIT, 0.7),
+            ]),
+            0.2,
+            "unknown layer types never override a recognised slot"
         );
         assert_eq!(walk(vec![]), DEFAULT_WALK_SPEED_ABILITY);
         assert_eq!(walk_speed_from_abilities(None), DEFAULT_WALK_SPEED_ABILITY);
