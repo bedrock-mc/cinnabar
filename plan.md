@@ -6626,3 +6626,13 @@ catalog identifier and duration once in that frame; idle and cancellation send
 no start packet. Marketplace clip ownership/playback, remote custom-emote
 synchronization, and the complete villager trade UI remain incomplete. These
 producer fixes do not close those parity gates.
+
+Bamboo visuals remain incomplete. Dedicated stalk and radial leaf geometry,
+column-dependent UVs and offsets, selection and breaking overlays, picking,
+movement and camera collision, and terrain overhang culling now share the same
+column transform. Placement obstruction samples the resolved destination column,
+including horizontal placements and custom build heights. Earlier rendered
+checks cover all twelve pinned states and the overlay/bounds fixes; fresh
+acceptance of the current integrated build remains pending. Exact target-version
+atlas filtering, random-offset component admission, and live Enhanced
+presentation remain unverified; this work does not close the bamboo parity gate.

@@ -363,3 +363,71 @@ fn indexed_state_lookup_preserves_typed_values_in_both_identity_spaces() {
         }
     }
 }
+
+#[test]
+fn bamboo_placement_tests_the_destination_column_at_custom_build_heights() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for y in [-8_i32, 24] {
+            let mut store = ChunkStore::new();
+            let key = SubChunkKey::new(0, 0, y.div_euclid(16), 0);
+            store.mark_sub_chunk_loaded(key).unwrap();
+            let air = id(record("minecraft:air", &[]), mode);
+            store
+                .update_block(
+                    key,
+                    BlockUpdate::new(
+                        0,
+                        y.rem_euclid(16) as u8,
+                        0,
+                        0,
+                        id(record("minecraft:stone", &[]), mode),
+                    ),
+                    air,
+                )
+                .unwrap();
+            for actor in [false, true] {
+                for (x, blocked) in [(1.78, true), (1.38, false)] {
+                    let mut around = surroundings();
+                    let bounds = (
+                        [x - 0.02, f64::from(y), 0.49],
+                        [x + 0.02, f64::from(y) + 0.8, 0.51],
+                    );
+                    if actor {
+                        around.actor_boxes.push(bounds);
+                    } else {
+                        around.player_box = bounds;
+                    }
+                    let mut click = context(&around);
+                    click.clicked = [0, y, 0];
+                    click.input.face = 5;
+                    click.build_height = y - 1..y + 2;
+                    let bamboo = id(record("minecraft:bamboo", &[]), mode);
+                    let registry = fixtures().1.registry(mode);
+                    let world = sim::PaletteWorld::new(&store, registry, 0);
+                    let destination = around.destination(click.clicked, click.input.face).0;
+                    assert!(click.build_height.contains(&destination[1]));
+                    assert_eq!(world.primary_runtime_id(destination).unwrap(), air);
+                    let clicked = click.clicked;
+                    let face = click.input.face;
+                    around.set_placed_collision_shapes(registry, bamboo, clicked, face);
+                    let mut stack = protocol::NetworkItemStack::empty();
+                    stack.network_id = 2;
+                    stack.count = 1;
+                    stack.block_runtime_id = bamboo as i32;
+                    let digest = stack.nbt_digest;
+                    let item = protocol::VerifiedNetworkItemStack::try_new(stack, digest).unwrap();
+                    let caps = client_world::game_mode_capabilities::GameModeCapabilities::for_mode(
+                        protocol::PlayerGameMode::Survival,
+                    );
+                    let result =
+                        crate::block_use::LocalUse::resolve(&item, clicked, face, &around, &caps);
+                    assert_eq!(
+                        result == crate::block_use::LocalUse::Nothing,
+                        blocked,
+                        "destination=(1,{y},0), x={x}, actor={actor}, mode={mode:?}"
+                    );
+                }
+            }
+        }
+    }
+}

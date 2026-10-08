@@ -11,8 +11,7 @@ use super::{
     scene::CrackInstance,
 };
 
-/// Outward push that keeps the overlay in front of the block's own faces.
-pub(super) const FACE_OFFSET: f32 = 0.002;
+use render_api::BLOCK_OVERLAY_FACE_OFFSET as FACE_OFFSET;
 /// Model-quad UVs are in 1/4096 of a texture tile.
 const UV_TILE: f32 = 4096.0;
 /// Model-quad positions are in 1/256 block.
@@ -24,9 +23,25 @@ pub struct CrackQuad {
     pub corners: [[f32; 3]; 4],
     /// Per-corner fractions of the destroy-stage tile, taken from the block face's own UVs.
     pub uvs: [[f32; 2]; 4],
+    /// Both camera sides cover the same surface without duplicating the blend.
+    pub two_sided: bool,
 }
 
 impl CrackQuad {
+    /// Two-sided overlays retain their plane and let the vertex shader face the bias toward the view.
+    pub(super) fn overlay_geometry(self) -> ([[f32; 3]; 4], [f32; 3]) {
+        let outward = self.outward_offset();
+        if self.two_sided {
+            (self.corners, outward.normalize_or_zero().to_array())
+        } else {
+            (
+                self.corners
+                    .map(|corner| (Vec3::from_array(corner) + outward).to_array()),
+                [0.0; 3],
+            )
+        }
+    }
+
     /// Template windings describe the actual outward surface, including inset
     /// stair treads and thin snow tops. The full cell's center cannot identify
     /// the outside of either surface.
@@ -68,15 +83,14 @@ fn tile_fraction(value: u16) -> f32 {
 }
 
 /// The shape of a model-template block, following compound template chains; `None` when
-/// the template is out of range or has no quads. `variant` is the resolved block
-/// variant, whose low two bits carry the same quarter-turn as the terrain pass.
-/// Vanilla cracks route through the block
-/// tessellator, not an unrotated canonical model or collision AABB.
+/// the template is out of range or has no quads. Resolved variants and block positions
+/// produce the same rotations and column offsets as the terrain pass.
 #[must_use]
 pub fn crack_shape_from_template(
     assets: &RuntimeAssets,
     template: u32,
     variant: u32,
+    block: [i32; 3],
 ) -> Option<CrackShape> {
     let templates = assets.model_templates();
     let quads = assets.model_quads();
@@ -86,10 +100,27 @@ pub fn crack_shape_from_template(
         let part = templates.get(index)?;
         let start = usize::try_from(part.quad_start).ok()?;
         let end = start.checked_add(usize::try_from(part.quad_count).ok()?)?;
-        for quad in quads.get(start..end)? {
+        let transform = meshing::bamboo::transform_for_template(part.flags, variant, block);
+        for (quad_index, quad) in quads.get(start..end)?.iter().enumerate() {
             shape.push(CrackQuad {
-                corners: quad.positions.map(|corner| rotate_corner(corner, variant)),
-                uvs: quad.uvs.map(|uv| uv.map(tile_fraction)),
+                two_sided: quad.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED != 0,
+                corners: quad.positions.map(|corner| {
+                    if part.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+                        let offset = meshing::bamboo::quad_offset(transform, quad_index as u32);
+                        std::array::from_fn(|axis| {
+                            f32::from(corner[axis]) / POSITION_UNITS + offset[axis]
+                        })
+                    } else {
+                        rotate_corner(corner, transform)
+                    }
+                }),
+                uvs: quad.uvs.map(|uv| {
+                    let mut uv = uv.map(tile_fraction);
+                    if part.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
+                        uv[0] += meshing::bamboo::stem_uv_offset(transform, quad_index as u32);
+                    }
+                    uv
+                }),
             });
         }
         if part.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
@@ -135,15 +166,19 @@ fn emit_model(
     quads: &[CrackQuad],
 ) {
     for quad in quads {
-        let corners = quad.corners.map(Vec3::from_array);
-        let outward = quad.outward_offset();
+        let (corners, normal) = quad.overlay_geometry();
+        let first = builder.crack.len();
         builder.quad_uv(
             Layer::Crack,
-            corners.map(|corner| (block + corner + outward).to_array()),
+            corners.map(|corner| (block + Vec3::from_array(corner)).to_array()),
             quad.uvs
                 .map(|[u, v]| [rect.x + u * rect.width, rect.y + v * rect.height]),
             WHITE,
         );
+        for vertex in &mut builder.crack[first..] {
+            vertex.normal = normal;
+            vertex.actor_light = 0;
+        }
     }
 }
 

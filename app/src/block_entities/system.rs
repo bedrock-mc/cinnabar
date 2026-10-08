@@ -8,14 +8,14 @@ use render::{
     AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
     BlockEntityLight, BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape,
     SceneClock, SignFace, SignModel, StaticItemPlacement, StaticItemPlacements,
-    crack_shape_from_template, item_frame_item_transform, matrix_rows,
+    item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
 use world::{BlockEntityKey, BlockEntityNbt, ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
-    cracks::CrackClock,
+    cracks::{CrackClock, crack_shape},
     describe::{HeldItem, Template, describe},
     sign_text,
     state::BlockState,
@@ -113,7 +113,7 @@ pub(crate) struct BlockEntityRuntime {
     frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
-    shapes: HashMap<u32, CrackShape>,
+    shapes: HashMap<(u32, u32), CrackShape>,
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
@@ -222,28 +222,6 @@ fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> Blo
     }
 }
 
-/// The surface a crack over `layers` should cover: the block model's faces, else a cube.
-fn crack_shape(
-    shapes: &mut HashMap<u32, CrackShape>,
-    assets: &assets::RuntimeAssets,
-    mode: assets::NetworkIdMode,
-    runtime_id: Option<u32>,
-) -> CrackShape {
-    let Some(runtime_id) = runtime_id else {
-        return CrackShape::Cube;
-    };
-    shapes
-        .entry(runtime_id)
-        .or_insert_with(|| {
-            let visual = assets.resolve(mode, runtime_id);
-            visual
-                .model_template()
-                .and_then(|template| crack_shape_from_template(assets, template, visual.variant()))
-                .unwrap_or_default()
-        })
-        .clone()
-}
-
 fn block_info(
     runtime: &mut BlockEntityRuntime,
     collisions: &PhysicsCollisionRegistries,
@@ -338,6 +316,7 @@ pub(crate) fn update_block_entity_scene(
                         assets,
                         mode,
                         entry.layers.iter().flatten().next().copied(),
+                        entry.position,
                     )
                 })
         });
@@ -976,7 +955,7 @@ mod tests {
         let mut runtime = BlockEntityRuntime::new();
         runtime.bind_session(Some((1, 0)));
         runtime.blocks.insert(7, None);
-        runtime.shapes.insert(7, CrackShape::Cube);
+        runtime.shapes.insert((7, 0), CrackShape::Cube);
         runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
         runtime.bind_session(Some((1, 0)));
         assert_eq!(runtime.blocks.len(), 1);

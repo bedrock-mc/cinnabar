@@ -183,6 +183,18 @@ pub struct UseSurroundings {
 }
 
 impl UseSurroundings {
+    /// Samples the held block's collision boxes in the resolved placement cell.
+    pub fn set_placed_collision_shapes(
+        &mut self,
+        registry: &sim::CollisionRegistry,
+        held: u32,
+        clicked: [i32; 3],
+        face: u8,
+    ) {
+        self.placed_boxes =
+            placed_collision_boxes(registry, held, self.destination(clicked, face).0);
+    }
+
     /// The cell a placement fills: the clicked block when it is replaceable,
     /// otherwise the neighbor across the clicked face.
     pub fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
@@ -194,6 +206,32 @@ impl UseSurroundings {
             (cell, replaceable(self.neighbor_identifier.as_deref()))
         }
     }
+}
+
+/// Block-local collision bounds sampled for a placement at `position`.
+pub(crate) fn placed_collision_boxes(
+    registry: &sim::CollisionRegistry,
+    block: u32,
+    position: [i32; 3],
+) -> Option<Vec<BoxBounds>> {
+    let world_offset = registry.block_shape_offset(block, position)?;
+    let offset = world_offset
+        - sim::Vec3::new(
+            f64::from(position[0]),
+            f64::from(position[1]),
+            f64::from(position[2]),
+        );
+    Some(
+        registry
+            .collision_shapes(block)?
+            .iter()
+            .map(|shape| {
+                let min = shape.min + offset;
+                let max = shape.max + offset;
+                ([min.x, min.y, min.z], [max.x, max.y, max.z])
+            })
+            .collect(),
+    )
 }
 
 /// Classifies a destination with the inherited replacement list.
