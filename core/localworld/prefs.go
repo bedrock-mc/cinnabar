@@ -13,16 +13,12 @@ const prefsFile = "prefs.json"
 // Prefs are per-user local-world preferences kept beside the worlds.
 type Prefs struct {
 	// DockerPromptDismissed suppresses the "vanilla worlds need Docker" modal.
-	DockerPromptDismissed bool   `json:"docker_prompt_dismissed"`
-	CreationBackend       string `json:"creation_backend,omitempty"`
-	CreationGenerator     string `json:"creation_generator,omitempty"`
+	DockerPromptDismissed bool `json:"docker_prompt_dismissed"`
 }
 
 // PrefsUpdate changes preferences; nil fields are left alone.
 type PrefsUpdate struct {
 	DockerPromptDismissed *bool
-	CreationBackend       *string
-	CreationGenerator     *string
 	// Redetect re-probes for Docker before returning (the modal's Retry).
 	Redetect bool
 }
@@ -47,20 +43,6 @@ func (store *Store) UpdatePrefs(update PrefsUpdate) (Prefs, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	prefs := store.readPrefs()
-	if update.CreationBackend != nil {
-		backend, err := oneOf(*update.CreationBackend, BackendDragonfly, BackendDragonfly, BackendBDS)
-		if err != nil {
-			return prefs, err
-		}
-		prefs.CreationBackend = backend
-	}
-	if update.CreationGenerator != nil {
-		generator, err := oneOf(*update.CreationGenerator, GeneratorNormal, GeneratorNormal, GeneratorFlat)
-		if err != nil {
-			return prefs, err
-		}
-		prefs.CreationGenerator = generator
-	}
 	if update.DockerPromptDismissed != nil {
 		prefs.DockerPromptDismissed = *update.DockerPromptDismissed
 	}

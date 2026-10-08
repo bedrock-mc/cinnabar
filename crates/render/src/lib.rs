@@ -56,6 +56,8 @@ pub use native_sunlight::AtmosphereViewInputs;
 mod panorama;
 mod panorama_render;
 mod particle_render;
+mod pipeline_warmup;
+pub use pipeline_warmup::PipelineWarmupReadiness;
 mod present_mode;
 mod primitive_shapes;
 pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};

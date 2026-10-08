@@ -859,7 +859,7 @@ fn oreui_texts(view: &crate::menu::MenuView) -> Vec<String> {
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
     use crate::local_worlds::{
-        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, Tab, WorldsMenu,
+        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, PromptButton, Tab, WorldsMenu,
     };
     use protocol::world_control::{
         Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
@@ -873,7 +873,6 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         game_mode: GameMode::Creative,
         generator: Generator::Flat,
         difficulty: Difficulty::Easy,
-        allow_cheats: false,
         backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 1,
@@ -940,9 +939,12 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     ));
     menu.update(Input::BeginCreate);
     menu.update(Input::SetBackend(Backend::Bds));
-    let form = oreui_texts(&base(&menu));
-    assert!(has(&form, "BDS is unavailable"), "no-Docker form: {form:?}");
-    assert_eq!(menu.create_form().backend, Backend::Dragonfly);
+    menu.update(Input::SubmitCreate);
+    let dialog = oreui_texts(&base(&menu));
+    assert!(
+        has(&dialog, &PromptButton::UseDragonfly.label()),
+        "no-Docker dialog: {dialog:?}"
+    );
 }
 
 #[test]
